@@ -37,8 +37,8 @@ Update the file after completing each sub-task, not just after completing an ent
   - [x] 0.1 Create and checkout a new branch `feature/shift-management` from develop branch
 
 - [x] 1.0 Create Loss Type Master DocType
-  - [x] 1.1 Write unit tests for Loss Type DocType (test creation, required fields, default duration validation)
-  - [x] 1.2 Create Loss Type DocType JSON with fields: loss_type_name (Data, required), default_duration (Int)
+  - [x] 1.1 Write unit tests for Loss Type DocType (test creation, required fields)
+  - [x] 1.2 Create Loss Type DocType JSON with fields: loss_type_name (Data, required)
   - [x] 1.3 Create Loss Type controller (loss_type.py) with basic document class
   - [x] 1.4 Set naming rule to use loss_type_name as the document name
   - [x] 1.5 Run tests to verify Loss Type DocType works correctly
@@ -49,18 +49,18 @@ Update the file after completing each sub-task, not just after completing an ent
   - [x] 2.2 Create Loss Entry controller (loss_entry.py) with basic document class
   - [x] 2.3 Verify child table can be added to parent DocType
 
-- [ ] 3.0 Create Shift DocType with core fields and warehouses
-  - [ ] 3.1 Write unit tests for Shift DocType creation and default value population
-  - [ ] 3.2 Create Shift DocType JSON with core fields: shift_label (Select: Shift 1, Shift 2), shift_duration (Select: 8, 10, 12), shift_date (Date), shift_end_date (Date), planned_start_time (Time), planned_end_time (Time, read_only), supervisor (Link to User)
-  - [ ] 3.3 Add warehouse fields to Shift DocType: raw_material_warehouse, work_in_progress_warehouse, rejection_warehouse, scrap_warehouse (all Link to Warehouse)
-  - [ ] 3.4 Add planned_losses child table field (Table: Loss Entry)
-  - [ ] 3.5 Add status field (Select: Draft, Running, Completed, Cancelled) with default "Draft"
-  - [ ] 3.6 Configure naming series: SHIFT-.YYYY..MM..DD.-Shift-{shift_label}-.#
-  - [ ] 3.7 Create Shift controller (shift.py) with before_insert hook to auto-populate: shift_date (today), planned_start_time (now), supervisor (current user)
-  - [ ] 3.8 Implement logic to copy warehouse defaults from Manufacturing Settings on new document creation
-  - [ ] 3.9 Implement planned_end_time calculation (planned_start_time + shift_duration hours)
-  - [ ] 3.10 Implement shift_end_date calculation for midnight-crossing shifts
-  - [ ] 3.11 Run tests to verify default value population and calculations
+- [x] 3.0 Create Shift DocType with core fields and warehouses
+  - [x] 3.1 Write unit tests for Shift DocType creation and default value population
+  - [x] 3.2 Create Shift DocType JSON with core fields: shift_label (Select: Shift 1, Shift 2), shift_duration (Select: 8, 10, 12), shift_date (Date), shift_end_date (Date), planned_start_time (Time), planned_end_time (Time, read_only), supervisor (Link to User)
+  - [x] 3.3 Add warehouse fields to Shift DocType: raw_material_warehouse, work_in_progress_warehouse, rejection_warehouse, scrap_warehouse (all Link to Warehouse)
+  - [x] 3.4 Add planned_losses child table field (Table: Loss Entry)
+  - [x] 3.5 Add system-managed status field (hidden/read-only) with values: Draft, Running, Completed, Cancelled
+  - [x] 3.6 Configure naming series / autoname to match `SHIFT-YYYY.MM.DD.Shift-{N}`
+  - [x] 3.7 Create Shift controller (shift.py) with before_insert hook to auto-populate: shift_date (today), planned_start_time (now), supervisor (current user)
+  - [x] 3.8 Implement logic to copy warehouse defaults from Manufacturing Settings on new document creation (best-effort until custom fields are added in task 7.0)
+  - [x] 3.9 Implement planned_end_time calculation (planned_start_time + shift_duration hours)
+  - [x] 3.10 Implement shift_end_date calculation for midnight-crossing shifts
+  - [x] 3.11 Run tests to verify default value population and calculations
 
 - [ ] 4.0 Implement planned losses auto-population logic
   - [ ] 4.1 Write unit tests for planned losses auto-population based on shift duration
@@ -72,13 +72,13 @@ Update the file after completing each sub-task, not just after completing an ent
 
 - [ ] 5.0 Implement workflow and state management
   - [ ] 5.1 Write unit tests for state transitions (Draft→Running, Running→Completed, Draft→Cancelled)
-  - [ ] 5.2 Create "Start Shift" button in shift.js, visible only when status is "Draft"
-  - [ ] 5.3 Create "End Shift" button in shift.js, visible only when status is "Running"
-  - [ ] 5.4 Implement start_shift method in shift.py to change status to "Running"
-  - [ ] 5.5 Implement end_shift method in shift.py to change status to "Completed"
+  - [x] 5.2 Create "Start Shift" button in shift.js, visible only when status is "Draft" (after save)
+  - [x] 5.3 Create "End Shift" button in shift.js, visible only when status is "Running"
+  - [x] 5.4 Implement start_shift method in shift.py to change status to "Running"
+  - [x] 5.5 Implement end_shift method in shift.py to change status to "Completed"
   - [ ] 5.6 Implement cancel_shift method in shift.py to change status to "Cancelled" (only from Draft)
   - [ ] 5.7 Implement field locking logic: lock planned_losses in Running state, lock entire doc in Completed/Cancelled
-  - [ ] 5.8 Add @frappe.whitelist() decorators to state transition methods
+  - [x] 5.8 Add @frappe.whitelist() decorators to state transition methods
   - [ ] 5.9 Run tests to verify state transitions and field locking work correctly
 
 - [ ] 6.0 Implement validation rules

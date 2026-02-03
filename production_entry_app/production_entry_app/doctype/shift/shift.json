@@ -1,0 +1,161 @@
+{
+ "actions": [],
+ "autoname": "format:SHIFT-{shift_date}.Shift-{shift_label}",
+ "creation": "2026-02-03 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "shift_label",
+  "shift_duration",
+  "shift_date",
+  "shift_end_date",
+  "planned_start_time",
+  "planned_end_time",
+  "supervisor",
+  "raw_material_warehouse",
+  "work_in_progress_warehouse",
+  "rejection_warehouse",
+  "scrap_warehouse",
+  "planned_losses",
+  "status"
+ ],
+ "fields": [
+  {
+   "default": "SHIFT-",
+   "fieldname": "naming_series",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Naming Series",
+   "read_only": 1
+  },
+  {
+   "fieldname": "shift_label",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Shift Label",
+   "options": "1\n2",
+   "reqd": 1
+  },
+  {
+   "fieldname": "shift_duration",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Shift Duration (Hours)",
+   "options": "8\n10\n12",
+   "reqd": 1
+  },
+  {
+   "fieldname": "shift_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Shift Date"
+  },
+  {
+   "fieldname": "shift_end_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Shift End Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "planned_start_time",
+   "fieldtype": "Time",
+   "in_list_view": 1,
+   "label": "Planned Start Time"
+  },
+  {
+   "fieldname": "planned_end_time",
+   "fieldtype": "Time",
+   "in_list_view": 1,
+   "label": "Planned End Time",
+   "read_only": 1
+  },
+  {
+   "fieldname": "supervisor",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Supervisor",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "raw_material_warehouse",
+   "fieldtype": "Link",
+   "label": "Raw Material Warehouse",
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "work_in_progress_warehouse",
+   "fieldtype": "Link",
+   "label": "Work In Progress Warehouse",
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "rejection_warehouse",
+   "fieldtype": "Link",
+   "label": "Rejection Warehouse",
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "scrap_warehouse",
+   "fieldtype": "Link",
+   "label": "Scrap Warehouse",
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "planned_losses",
+   "fieldtype": "Table",
+   "label": "Planned Losses",
+   "options": "Loss Entry"
+  },
+  {
+   "default": "Draft",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "read_only": 1,
+   "hidden": 1,
+   "label": "Status",
+   "options": "Draft\nRunning\nCompleted\nCancelled",
+   "reqd": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "is_submittable": 0,
+ "modified": "2026-02-03 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Production Entry App",
+ "name": "Shift",
+ "naming_rule": "",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "role": "System Manager",
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "role": "Manufacturing User",
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "role": "Manufacturing Manager",
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "shift_date"
+}
+
