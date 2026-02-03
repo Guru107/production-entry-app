@@ -39,7 +39,12 @@
  "module": "Production Entry App",
  "name": "Loss Entry",
  "owner": "Administrator",
- "permissions": [],
+ "permissions": [
+  {
+   "read": 1,
+   "role": "System Manager"
+  }
+ ],
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": []

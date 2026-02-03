@@ -83,8 +83,8 @@ A dedicated Shift DocType that provides:
 
 | ID | Requirement |
 |----|-------------|
-| FR-11 | The system must create a Loss Type DocType with fields: Loss Type Name (Data), Default Duration (Int, in minutes) |
-| FR-12 | The system must include default Loss Type records via fixtures: "Tea Break" (15 minutes), "Lunch Break" (30 minutes) |
+| FR-11 | The system must create a Loss Type DocType with field: Loss Type Name (Data) |
+| FR-12 | The system must include default Loss Type records via fixtures: "Tea Break", "Lunch Break" |
 
 ### 4.4 Loss Entries Child Table (Reusable)
 
@@ -105,52 +105,53 @@ A dedicated Shift DocType that provides:
 | FR-20 | The system must provide an "End Shift" button visible only in Running state |
 | FR-21 | The system must provide a "Cancel" action available only in Draft state |
 | FR-22 | State transitions: Draft → Running (Start Shift), Running → Completed (End Shift), Draft → Cancelled (Cancel) |
-| FR-23 | In Running state, Planned Losses must be locked; other fields may remain editable |
-| FR-24 | In Completed and Cancelled states, the entire document must be locked |
+| FR-23 | Shift status must be system-managed (not user-editable via a dropdown). Transitions happen only via action buttons. |
+| FR-24 | In Running state, Planned Losses must be locked; other fields may remain editable |
+| FR-25 | In Completed and Cancelled states, the entire document must be locked |
 
 ### 4.6 Validation Rules
 
 | ID | Requirement |
 |----|-------------|
-| FR-25 | The system must prevent saving/submitting shifts with overlapping time periods |
-| FR-26 | The system must enforce unique Shift Label per date (only one "Shift 1" and one "Shift 2" per date globally) |
-| FR-27 | The system must validate and prevent duplicate naming conflicts |
+| FR-26 | The system must prevent saving/submitting shifts with overlapping time periods |
+| FR-27 | The system must enforce unique Shift Label per date (only one "Shift 1" and one "Shift 2" per date globally) |
+| FR-28 | The system must validate and prevent duplicate naming conflicts |
 
 ### 4.7 Downtime Entry Integration
 
 | ID | Requirement |
 |----|-------------|
-| FR-28 | The system must add a custom "Shift" link field to the Downtime Entry DocType |
-| FR-29 | The Shift link field on Downtime Entry must be optional |
-| FR-30 | The Shift document must display linked Downtime Entries in a dedicated section |
+| FR-29 | The system must add a custom "Shift" link field to the Downtime Entry DocType |
+| FR-30 | The Shift link field on Downtime Entry must be optional |
+| FR-31 | The Shift document must display linked Downtime Entries in a dedicated section |
 
 ### 4.8 Manufacturing Settings Customization
 
 | ID | Requirement |
 |----|-------------|
-| FR-31 | The system must add a "Shift Settings" tab to Manufacturing Settings via custom fields |
-| FR-32 | The Shift Settings tab must include: Raw Material Warehouse, Work In Progress Warehouse, Rejection Warehouse, Scrap Warehouse (all Link to Warehouse) |
+| FR-32 | The system must add a "Shift Settings" tab to Manufacturing Settings via custom fields |
+| FR-33 | The Shift Settings tab must include: Raw Material Warehouse, Work In Progress Warehouse, Rejection Warehouse, Scrap Warehouse (all Link to Warehouse) |
 
 ### 4.9 Permissions
 
 | ID | Requirement |
 |----|-------------|
-| FR-33 | Manufacturing User role must have Create, Read, Write, Delete permissions on Shift |
-| FR-34 | Manufacturing Manager role must have Create, Read, Write, Delete permissions on Shift |
+| FR-34 | Manufacturing User role must have Create, Read, Write, Delete permissions on Shift |
+| FR-35 | Manufacturing Manager role must have Create, Read, Write, Delete permissions on Shift |
 
 ### 4.10 Notifications
 
 | ID | Requirement |
 |----|-------------|
-| FR-35 | The system must send a notification when a shift is started (transitions to Running state) |
-| FR-36 | The system must send a notification when a shift is ended (transitions to Completed state) |
+| FR-36 | The system must send a notification when a shift is started (transitions to Running state) |
+| FR-37 | The system must send a notification when a shift is ended (transitions to Completed state) |
 
 ### 4.11 Shift Conflict Warnings
 
 | ID | Requirement |
 |----|-------------|
-| FR-37 | The system must display a warning if a supervisor attempts to start a new shift while another shift is currently in Running state |
-| FR-38 | Shifts must NOT auto-complete when the planned end time passes; manual "End Shift" action is always required |
+| FR-38 | The system must display a warning if a supervisor attempts to start a new shift while another shift is currently in Running state |
+| FR-39 | Shifts must NOT auto-complete when the planned end time passes; manual "End Shift" action is always required |
 
 ---
 
@@ -244,10 +245,10 @@ Based on the acceptance criteria from the specification:
 
 | ID | Question | Decision | Action |
 |----|----------|----------|--------|
-| OQ-01 | Should there be notifications when a shift is started/ended? | Yes | Added FR-35, FR-36 |
-| OQ-02 | Should shifts auto-complete if end time passes without manual completion? | No | Added FR-38 (explicit no auto-complete) |
+| OQ-01 | Should there be notifications when a shift is started/ended? | Yes | Added FR-36, FR-37 |
+| OQ-02 | Should shifts auto-complete if end time passes without manual completion? | No | Added FR-39 (explicit no auto-complete) |
 | OQ-03 | Is there a need for shift handover notes between Shift 1 and Shift 2? | Future consideration | Deferred to future phase |
-| OQ-04 | Should the system warn if a supervisor tries to start a new shift while another is running? | Yes | Added FR-37 |
+| OQ-04 | Should the system warn if a supervisor tries to start a new shift while another is running? | Yes | Added FR-38 |
 
 ---
 
@@ -258,7 +259,6 @@ Based on the acceptance criteria from the specification:
 ```
 Loss Type
 ├── loss_type_name (Data, required)
-└── default_duration (Int, minutes)
 ```
 
 ### Loss Entry (Child Table)
