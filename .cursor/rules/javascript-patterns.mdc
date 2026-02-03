@@ -1,0 +1,59 @@
+---
+description: JavaScript patterns for Frappe client scripts
+globs: "**/*.js"
+alwaysApply: false
+---
+
+# Frappe JavaScript Patterns
+
+## Client Scripts
+
+Frappe uses global variables like `frappe`, `cur_frm`, `__()` for translations.
+
+```javascript
+// ✅ Form script pattern
+frappe.ui.form.on("My DocType", {
+    refresh(frm) {
+        frm.set_query("item_code", () => ({
+            filters: { is_stock_item: 1 }
+        }));
+    },
+
+    validate(frm) {
+        if (!frm.doc.qty) {
+            frappe.throw(__("Quantity is required"));
+        }
+    }
+});
+```
+
+## API Calls
+
+```javascript
+// ✅ Preferred - frappe.call
+frappe.call({
+    method: "production_entry_app.api.get_data",
+    args: { work_order: frm.doc.name },
+    callback: (r) => {
+        if (r.message) {
+            frm.set_value("data", r.message);
+        }
+    }
+});
+```
+
+## Translations
+
+Always wrap user-facing strings with `__()`:
+
+```javascript
+// ❌ BAD
+frappe.msgprint("Operation completed");
+
+// ✅ GOOD
+frappe.msgprint(__("Operation completed"));
+```
+
+## Avoid console.log
+
+ESLint is configured to warn on `console.log`. Remove before committing.

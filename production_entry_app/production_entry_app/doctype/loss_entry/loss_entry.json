@@ -1,0 +1,47 @@
+{
+ "actions": [],
+ "creation": "2026-02-03 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "loss_type",
+  "start_time",
+  "end_time"
+ ],
+ "fields": [
+  {
+   "fieldname": "loss_type",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Loss Type",
+   "options": "Loss Type",
+   "reqd": 1
+  },
+  {
+   "fieldname": "start_time",
+   "fieldtype": "Time",
+   "in_list_view": 1,
+   "label": "Start Time",
+   "reqd": 1
+  },
+  {
+   "fieldname": "end_time",
+   "fieldtype": "Time",
+   "in_list_view": 1,
+   "label": "End Time",
+   "reqd": 1
+  }
+ ],
+ "istable": 1,
+ "modified": "2026-02-03 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Production Entry App",
+ "name": "Loss Entry",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
+
