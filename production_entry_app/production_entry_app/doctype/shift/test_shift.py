@@ -116,4 +116,3 @@ class TestShift(FrappeTestCase):
 	def _delete_shift_if_exists(self, name: str) -> None:
 		if frappe.db.exists("Shift", name):
 			frappe.delete_doc("Shift", name, force=True, ignore_permissions=True)
-

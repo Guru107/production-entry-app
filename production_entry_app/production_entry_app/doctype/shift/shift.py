@@ -137,4 +137,3 @@ class Shift(Document):
 			value = frappe.db.get_value(settings_doctype, settings_name, settings_field)
 			if value:
 				setattr(self, target_field, value)
-

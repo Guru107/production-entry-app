@@ -18,4 +18,3 @@ frappe.ui.form.on("Shift", {
 		}
 	},
 });
-
