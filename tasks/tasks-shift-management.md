@@ -5,8 +5,8 @@
 - `production_entry_app/production_entry_app/doctype/loss_type/loss_type.json` - Loss Type DocType definition
 - `production_entry_app/production_entry_app/doctype/loss_type/loss_type.py` - Loss Type controller
 - `production_entry_app/production_entry_app/doctype/loss_type/test_loss_type.py` - Unit tests for Loss Type
-- `production_entry_app/production_entry_app/doctype/shift_planned_loss/shift_planned_loss.json` - Shift Planned Loss child table DocType definition
-- `production_entry_app/production_entry_app/doctype/shift_planned_loss/shift_planned_loss.py` - Shift Planned Loss controller
+- `production_entry_app/production_entry_app/doctype/loss_entry/loss_entry.json` - Loss Entry child table DocType definition (reusable)
+- `production_entry_app/production_entry_app/doctype/loss_entry/loss_entry.py` - Loss Entry controller
 - `production_entry_app/production_entry_app/doctype/shift/shift.json` - Shift DocType definition
 - `production_entry_app/production_entry_app/doctype/shift/shift.py` - Shift controller with business logic
 - `production_entry_app/production_entry_app/doctype/shift/shift.js` - Shift client-side scripts
@@ -44,16 +44,16 @@ Update the file after completing each sub-task, not just after completing an ent
   - [x] 1.5 Run tests to verify Loss Type DocType works correctly
     - [x] 1.5.1 Investigate `ImplicitCommitError` during `bench --site development.localhost run-tests ...` (fails at `START TRANSACTION`)
 
-- [ ] 2.0 Create Shift Planned Loss Child Table DocType
-  - [ ] 2.1 Create Shift Planned Loss DocType JSON with istable=1 and fields: loss_type (Link to Loss Type), start_time (Time), end_time (Time)
-  - [ ] 2.2 Create Shift Planned Loss controller (shift_planned_loss.py) with basic document class
-  - [ ] 2.3 Verify child table can be added to parent DocType
+- [x] 2.0 Create Loss Entry child table DocType (reusable)
+  - [x] 2.1 Create Loss Entry DocType JSON with istable=1 and fields: loss_type (Link to Loss Type), start_time (Time), end_time (Time)
+  - [x] 2.2 Create Loss Entry controller (loss_entry.py) with basic document class
+  - [x] 2.3 Verify child table can be added to parent DocType
 
 - [ ] 3.0 Create Shift DocType with core fields and warehouses
   - [ ] 3.1 Write unit tests for Shift DocType creation and default value population
   - [ ] 3.2 Create Shift DocType JSON with core fields: shift_label (Select: Shift 1, Shift 2), shift_duration (Select: 8, 10, 12), shift_date (Date), shift_end_date (Date), planned_start_time (Time), planned_end_time (Time, read_only), supervisor (Link to User)
   - [ ] 3.3 Add warehouse fields to Shift DocType: raw_material_warehouse, work_in_progress_warehouse, rejection_warehouse, scrap_warehouse (all Link to Warehouse)
-  - [ ] 3.4 Add planned_losses child table field (Table: Shift Planned Loss)
+  - [ ] 3.4 Add planned_losses child table field (Table: Loss Entry)
   - [ ] 3.5 Add status field (Select: Draft, Running, Completed, Cancelled) with default "Draft"
   - [ ] 3.6 Configure naming series: SHIFT-.YYYY..MM..DD.-Shift-{shift_label}-.#
   - [ ] 3.7 Create Shift controller (shift.py) with before_insert hook to auto-populate: shift_date (today), planned_start_time (now), supervisor (current user)

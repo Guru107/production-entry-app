@@ -86,11 +86,11 @@ A dedicated Shift DocType that provides:
 | FR-11 | The system must create a Loss Type DocType with fields: Loss Type Name (Data), Default Duration (Int, in minutes) |
 | FR-12 | The system must include default Loss Type records via fixtures: "Tea Break" (15 minutes), "Lunch Break" (30 minutes) |
 
-### 4.4 Planned Losses Child Table
+### 4.4 Loss Entries Child Table (Reusable)
 
 | ID | Requirement |
 |----|-------------|
-| FR-13 | The Shift DocType must include a "Planned Losses" child table with fields: Loss Type (Link), Start Time (Time), End Time (Time) |
+| FR-13 | The Shift DocType must include a \"Planned Losses\" child table using the reusable \"Loss Entry\" child table DocType with fields: Loss Type (Link), Start Time (Time), End Time (Time) |
 | FR-14 | When Shift Duration is set to 8 hours, the system must auto-populate: Tea Break at +2 hours (15 min), Lunch Break at +4 hours (30 min) |
 | FR-15 | When Shift Duration is set to 10 or 12 hours, the system must auto-populate: Tea Break at +2 hours (15 min), Lunch Break at +4 hours (30 min), Tea Break at +6 hours (15 min) |
 | FR-16 | Planned Losses must be editable in Draft state |
@@ -192,7 +192,7 @@ The following features are explicitly excluded from this phase:
 ### 7.1 DocTypes to Create
 
 1. **Loss Type** - Master DocType for loss type definitions
-2. **Shift Planned Loss** - Child table DocType for planned losses
+2. **Loss Entry** - Reusable child table DocType for loss entries (planned now, unplanned in future)
 3. **Shift** - Main document DocType
 
 ### 7.2 Custom Fields (Fixtures)
@@ -261,10 +261,10 @@ Loss Type
 └── default_duration (Int, minutes)
 ```
 
-### Shift Planned Loss (Child Table)
+### Loss Entry (Child Table)
 
 ```
-Shift Planned Loss
+Loss Entry
 ├── loss_type (Link: Loss Type)
 ├── start_time (Time)
 └── end_time (Time)
@@ -285,6 +285,6 @@ Shift
 ├── work_in_progress_warehouse (Link: Warehouse)
 ├── rejection_warehouse (Link: Warehouse)
 ├── scrap_warehouse (Link: Warehouse)
-├── planned_losses (Table: Shift Planned Loss)
+├── planned_losses (Table: Loss Entry)
 └── status (Select: Draft, Running, Completed, Cancelled)
 ```
