@@ -10,4 +10,3 @@ class LossEntry(Document):
 	"""
 
 	pass
-
