@@ -7,6 +7,11 @@ on:
       - develop
   pull_request:
 
+env:
+  # Override via GitHub repo variables (Settings → Secrets and variables → Actions → Variables)
+  FRAPPE_VERSION: ${{ vars.FRAPPE_VERSION || '15' }}
+  ERPNEXT_VERSION: ${{ vars.ERPNEXT_VERSION || '15' }}
+
 concurrency:
   group: develop-production_entry_app-${{ github.event.number }}
   cancel-in-progress: true
@@ -82,7 +87,7 @@ jobs:
       - name: Setup
         run: |
           pip install frappe-bench
-          bench init --skip-redis-config-generation --skip-assets --python "$(which python)" ~/frappe-bench
+          bench init --skip-redis-config-generation --skip-assets --python "$(which python)" --frappe-branch "version-$FRAPPE_VERSION" ~/frappe-bench
           mariadb --host 127.0.0.1 --port 3306 -u root -proot -e "SET GLOBAL character_set_server = 'utf8mb4'"
           mariadb --host 127.0.0.1 --port 3306 -u root -proot -e "SET GLOBAL collation_server = 'utf8mb4_unicode_ci'"
 
@@ -90,8 +95,10 @@ jobs:
         working-directory: /home/runner/frappe-bench
         run: |
           bench get-app production_entry_app $GITHUB_WORKSPACE
+          bench get-app --branch "version-$ERPNEXT_VERSION" erpnext
           bench setup requirements --dev
           bench new-site --db-root-password root --admin-password admin test_site
+          bench --site test_site install-app erpnext
           bench --site test_site install-app production_entry_app
           bench build
         env:
