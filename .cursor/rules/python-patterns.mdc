@@ -1,0 +1,58 @@
+---
+description: Python patterns for Frappe DocTypes and APIs
+globs: "**/*.py"
+alwaysApply: false
+---
+# Frappe Python Patterns
+
+## DocType Controllers
+
+```python
+# ✅ Standard DocType controller structure
+class MyDocType(Document):
+    def validate(self):
+        self.validate_required_fields()
+
+    def before_submit(self):
+        self.set_status()
+
+    def on_submit(self):
+        self.update_related_docs()
+```
+
+## Database Operations
+
+```python
+# ❌ BAD - raw SQL
+frappe.db.sql("SELECT name FROM tabItem WHERE item_code = %s", item_code)
+
+# ✅ GOOD - use frappe ORM and Query Builder (https://docs.frappe.io/framework/user/en/api/query-builder)
+frappe.get_value("Item", {"item_code": item_code}, "name")
+frappe.get_list("Item", filters={"item_code": item_code}, pluck="name")
+customers = frappe.qb.DocType('Customer')
+q = (
+ frappe.qb.from_(customers)
+ .select(customers.id, customers.fname,customers.lname, customers.phone)
+ .where((customers.fname == 'Max') | (customers.id.like('RA%')) )
+ .where(customers.lname == 'Mustermann')
+)
+
+python
+
+```
+
+## Whitelist APIs
+
+```python
+@frappe.whitelist()
+def get_production_data(work_order: str) -> dict:
+    """Return production data for a work order."""
+    frappe.has_permission("Work Order", "read", throw=True)
+    return frappe.get_doc("Work Order", work_order).as_dict()
+```
+
+## Error Handling
+
+- Use `frappe.throw()` for validation errors (rolls back transaction)
+- Use `frappe.msgprint()` for warnings/info
+- Log errors with `frappe.log_error()`

@@ -1,0 +1,57 @@
+---
+description: Core development standards for Frappe/ERPNext application
+alwaysApply: true
+---
+
+# Frappe/ERPNext App Development Standards
+
+This is a **Frappe Framework application** for ERPNext that simplifies production entries.
+
+## Project Structure
+
+- `production_entry_app/` - Main app module
+- `hooks.py` - Frappe hooks configuration
+- DocTypes go in `production_entry_app/production_entry_app/doctype/`
+- API endpoints use `@frappe.whitelist()` decorator
+
+## Project Development Practices
+- Always use typed annotations
+- Always write clear, concise and small functions.
+- Avoid redudency.
+- Never edit core frappe or ERPNext documents.
+- Always follow test driven development. Always write tests first before implementing any feature.
+- Verify implementation against test cases.
+
+## Python Conventions
+
+- Use **tabs for indentation** (configured in pyproject.toml)
+- Line length: **110 characters**
+- Python version: **3.10+**
+- Use `frappe.get_doc()`, `frappe.get_list()`, `frappe.db.get_value()` for database operations
+- Always use `frappe.throw()` or `frappe.msgprint()` for user-facing messages
+- Use `frappe._()` for translatable strings
+
+```python
+# ❌ BAD
+raise Exception("Error occurred")
+
+# ✅ GOOD
+frappe.throw(_("Error occurred"))
+```
+
+## Frappe Patterns
+
+- Use `doc.flags` for temporary state, not instance attributes
+- Check permissions with `frappe.has_permission()`
+- Background jobs via `frappe.enqueue()`
+- Use `frappe.cache()` for caching
+
+## Linting Tools
+
+- **ruff** - Python linting and formatting
+- **eslint** - JavaScript linting
+- **prettier** - Code formatting
+- **pre-commit** - Git hooks for automated checks
+
+Run `pre-commit install` before contributing.
+Run `pre-commit run --all-files` before commiting the code.
