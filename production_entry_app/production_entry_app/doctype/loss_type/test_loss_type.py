@@ -43,4 +43,3 @@ class TestLossType(FrappeTestCase):
 
 	def _unique_loss_type_name(self) -> str:
 		return f"Test Loss Type {frappe.generate_hash(length=8)}"
-

@@ -15,4 +15,3 @@ class LossType(Document):
 
 		if self.default_duration <= 0:
 			frappe.throw(_("Default Duration must be greater than 0 minutes."))
-
