@@ -99,6 +99,112 @@ class TestShift(FrappeTestCase):
 		doc.reload()
 		self.assertEqual(doc.status, "Completed")
 
+	def test_status_transition_draft_to_cancelled(self) -> None:
+		name = self._expected_name("2026-02-15", "2")
+		self._delete_shift_if_exists(name)
+
+		doc = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"shift_label": "2",
+				"shift_duration": "8",
+				"shift_date": "2026-02-15",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+
+		self.assertEqual(doc.status, "Draft")
+
+		doc.cancel_shift()
+		doc.reload()
+		self.assertEqual(doc.status, "Cancelled")
+
+	def test_cancel_shift_not_allowed_from_running(self) -> None:
+		name = self._expected_name("2026-02-16", "1")
+		self._delete_shift_if_exists(name)
+
+		doc = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": "2026-02-16",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+		doc.start_shift()
+
+		with self.assertRaises(ValidationError):
+			doc.cancel_shift()
+
+	def test_planned_losses_locked_in_running_state(self) -> None:
+		_ensure_loss_types()
+		name = self._expected_name("2026-02-17", "2")
+		self._delete_shift_if_exists(name)
+
+		doc = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"shift_label": "2",
+				"shift_duration": "8",
+				"shift_date": "2026-02-17",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+		self.assertEqual(len(doc.planned_losses), 2)
+
+		doc.start_shift()
+		frappe.db.commit()
+		doc = frappe.get_doc("Shift", name)
+
+		# Modifying planned_losses should be rejected
+		doc.planned_losses = []
+		with self.assertRaises(ValidationError):
+			doc.save()
+
+	def test_document_locked_in_completed_state(self) -> None:
+		name = self._expected_name("2026-02-18", "1")
+		self._delete_shift_if_exists(name)
+
+		doc = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": "2026-02-18",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+		doc.start_shift()
+		doc.end_shift()
+		frappe.db.commit()
+		doc = frappe.get_doc("Shift", name)
+
+		doc.shift_duration = "10"
+		with self.assertRaises(ValidationError):
+			doc.save()
+
+	def test_document_locked_in_cancelled_state(self) -> None:
+		name = self._expected_name("2026-02-19", "2")
+		self._delete_shift_if_exists(name)
+
+		doc = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"shift_label": "2",
+				"shift_duration": "8",
+				"shift_date": "2026-02-19",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+		doc.cancel_shift()
+		frappe.db.commit()
+		doc = frappe.get_doc("Shift", name)
+
+		doc.supervisor = "Administrator"
+		with self.assertRaises(ValidationError):
+			doc.save()
+
 	def test_planned_losses_auto_populate_8_hour_shift(self) -> None:
 		_ensure_loss_types()
 		name = self._expected_name("2026-02-11", "1")

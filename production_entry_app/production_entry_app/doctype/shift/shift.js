@@ -9,12 +9,20 @@ frappe.ui.form.on("Shift", {
 			frm.add_custom_button(__("Start Shift"), () => {
 				return frm.call("start_shift").then(() => frm.reload_doc());
 			});
+			frm.add_custom_button(__("Cancel"), () => {
+				return frm.call("cancel_shift").then(() => frm.reload_doc());
+			});
 		}
 
 		if (frm.doc.status === "Running") {
 			frm.add_custom_button(__("End Shift"), () => {
 				return frm.call("end_shift").then(() => frm.reload_doc());
 			});
+			frm.set_df_property("planned_losses", "read_only", 1);
+		}
+
+		if (frm.doc.status === "Completed" || frm.doc.status === "Cancelled") {
+			frm.disable_form();
 		}
 	},
 

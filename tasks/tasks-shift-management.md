@@ -70,16 +70,16 @@ Update the file after completing each sub-task, not just after completing an ent
   - [x] 4.5 Create client-side script (shift.js) to trigger auto-population on shift_duration field change
   - [x] 4.6 Run tests to verify planned losses populate correctly for each duration
 
-- [ ] 5.0 Implement workflow and state management
-  - [ ] 5.1 Write unit tests for state transitions (Draft→Running, Running→Completed, Draft→Cancelled)
+- [x] 5.0 Implement workflow and state management
+  - [x] 5.1 Write unit tests for state transitions (Draft→Running, Running→Completed, Draft→Cancelled)
   - [x] 5.2 Create "Start Shift" button in shift.js, visible only when status is "Draft" (after save)
   - [x] 5.3 Create "End Shift" button in shift.js, visible only when status is "Running"
   - [x] 5.4 Implement start_shift method in shift.py to change status to "Running"
   - [x] 5.5 Implement end_shift method in shift.py to change status to "Completed"
-  - [ ] 5.6 Implement cancel_shift method in shift.py to change status to "Cancelled" (only from Draft)
-  - [ ] 5.7 Implement field locking logic: lock planned_losses in Running state, lock entire doc in Completed/Cancelled
+  - [x] 5.6 Implement cancel_shift method in shift.py to change status to "Cancelled" (only from Draft)
+  - [x] 5.7 Implement field locking logic: lock planned_losses in Running state, lock entire doc in Completed/Cancelled
   - [x] 5.8 Add @frappe.whitelist() decorators to state transition methods
-  - [ ] 5.9 Run tests to verify state transitions and field locking work correctly
+  - [x] 5.9 Run tests to verify state transitions and field locking work correctly
 
 - [ ] 6.0 Implement validation rules
   - [ ] 6.1 Write unit tests for overlap prevention validation

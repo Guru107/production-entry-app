@@ -40,6 +40,7 @@ class Shift(Document):
 
 	def validate(self) -> None:
 		self._validate_status()
+		self._validate_field_locking()
 		self._calculate_planned_end_time_and_dates()
 		self._populate_planned_losses_if_needed()
 
@@ -58,6 +59,14 @@ class Shift(Document):
 		Status is system-managed; use this action instead of editing the Status field.
 		"""
 		self._transition_status(to_status="Completed", allowed_from=("Running",))
+
+	@frappe.whitelist()
+	def cancel_shift(self) -> None:
+		"""Transition Draft -> Cancelled.
+
+		Status is system-managed; use this action instead of editing the Status field.
+		"""
+		self._transition_status(to_status="Cancelled", allowed_from=("Draft",))
 
 	def _set_defaults(self) -> None:
 		if not self.naming_series:
@@ -89,6 +98,47 @@ class Shift(Document):
 
 		if self.has_value_changed("status") and not self.flags.get("allow_status_change"):
 			frappe.throw(_("Status is system-managed. Use Start Shift / End Shift actions."))
+
+	def _validate_field_locking(self) -> None:
+		"""Enforce locking: planned_losses in Running; entire doc in Completed/Cancelled."""
+		if self.is_new():
+			return
+
+		if self.flags.get("allow_status_change"):
+			return
+
+		# Use DB status - reliable in all contexts (get_doc_before_save may be unset)
+		db_status = frappe.db.get_value("Shift", self.name, "status")
+		if not db_status:
+			return
+
+		if db_status == "Running":
+			if self._planned_losses_changed():
+				frappe.throw(_("Planned Losses cannot be edited when shift is Running."))
+
+		if db_status in ("Completed", "Cancelled"):
+			frappe.throw(_("Shift in {0} state cannot be modified.").format(frappe.bold(db_status)))
+
+	def _planned_losses_changed(self) -> bool:
+		"""Return True if planned_losses table content has changed."""
+		before = self.get_doc_before_save()
+		if not before:
+			return bool(self.planned_losses)
+		prev = before.get("planned_losses") or []
+		curr = self.get("planned_losses") or []
+		if len(prev) != len(curr):
+			return True
+		for i, row in enumerate(curr):
+			if i >= len(prev):
+				return True
+			p = prev[i]
+			if (
+				getattr(row, "loss_type", None) != getattr(p, "loss_type", None)
+				or getattr(row, "start_time", None) != getattr(p, "start_time", None)
+				or getattr(row, "end_time", None) != getattr(p, "end_time", None)
+			):
+				return True
+		return False
 
 	def _transition_status(self, *, to_status: str, allowed_from: tuple[str, ...]) -> None:
 		if self.is_new():
