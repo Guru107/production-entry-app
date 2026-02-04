@@ -328,6 +328,143 @@ class TestShift(FrappeTestCase):
 		with self.assertRaises(ValidationError):
 			doc.save()
 
+	def test_overlap_validation_prevents_overlapping_shifts(self) -> None:
+		"""Two shifts on same date with overlapping times must be rejected."""
+		name1 = self._expected_name("2026-02-20", "1")
+		name2 = self._expected_name("2026-02-20", "2")
+		self._delete_shift_if_exists(name1)
+		self._delete_shift_if_exists(name2)
+
+		frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": "2026-02-20",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+		frappe.db.commit()
+
+		# Shift 2: 10:00-18:00 overlaps Shift 1: 08:00-16:00
+		with self.assertRaises(ValidationError) as cm:
+			frappe.get_doc(
+				{
+					"doctype": "Shift",
+					"shift_label": "2",
+					"shift_duration": "8",
+					"shift_date": "2026-02-20",
+					"planned_start_time": "10:00:00",
+				}
+			).insert()
+		self.assertIn("overlap", str(cm.exception).lower())
+
+	def test_non_overlapping_shifts_allowed(self) -> None:
+		"""Shifts that do not overlap on the same date are allowed."""
+		name1 = self._expected_name("2026-02-21", "1")
+		name2 = self._expected_name("2026-02-21", "2")
+		self._delete_shift_if_exists(name1)
+		self._delete_shift_if_exists(name2)
+
+		frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": "2026-02-21",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+
+		# Shift 2: 16:00-24:00 (midnight) - ends 00:00 next day, does not overlap 08:00-16:00
+		doc2 = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"shift_label": "2",
+				"shift_duration": "8",
+				"shift_date": "2026-02-21",
+				"planned_start_time": "16:00:00",
+			}
+		).insert()
+		self.assertEqual(doc2.name, name2)
+
+	def test_unique_shift_label_per_date_validation(self) -> None:
+		"""Only one Shift 1 and one Shift 2 per date."""
+		name = self._expected_name("2026-02-22", "1")
+		self._delete_shift_if_exists(name)
+
+		frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": "2026-02-22",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+		frappe.db.commit()
+
+		# Second Shift 1 on same date must fail
+		with self.assertRaises(ValidationError) as cm:
+			frappe.get_doc(
+				{
+					"doctype": "Shift",
+					"shift_label": "1",
+					"shift_duration": "8",
+					"shift_date": "2026-02-22",
+					"planned_start_time": "18:00:00",
+				}
+			).insert()
+		self.assertIn("shift", str(cm.exception).lower())
+		self.assertIn("1", str(cm.exception))
+
+	def test_same_shift_label_different_dates_allowed(self) -> None:
+		"""Shift 1 on different dates is allowed."""
+		name1 = self._expected_name("2026-02-23", "1")
+		name2 = self._expected_name("2026-02-24", "1")
+		self._delete_shift_if_exists(name1)
+		self._delete_shift_if_exists(name2)
+
+		doc1 = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": "2026-02-23",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+		doc2 = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": "2026-02-24",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+		self.assertEqual(doc1.name, name1)
+		self.assertEqual(doc2.name, name2)
+
+	def test_update_shift_can_change_own_times_without_false_overlap(self) -> None:
+		"""Updating a shift (e.g. duration) should not falsely overlap with itself."""
+		name = self._expected_name("2026-02-25", "1")
+		self._delete_shift_if_exists(name)
+
+		doc = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": "2026-02-25",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+		doc.shift_duration = "10"
+		doc.save()
+		doc.reload()
+		self.assertEqual(doc.shift_duration, "10")
+
 	def _expected_name(self, shift_date: str, shift_label: str) -> str:
 		return f"SHIFT-{shift_date}.Shift-{shift_label}"
 

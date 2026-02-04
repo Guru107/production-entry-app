@@ -81,13 +81,13 @@ Update the file after completing each sub-task, not just after completing an ent
   - [x] 5.8 Add @frappe.whitelist() decorators to state transition methods
   - [x] 5.9 Run tests to verify state transitions and field locking work correctly
 
-- [ ] 6.0 Implement validation rules
-  - [ ] 6.1 Write unit tests for overlap prevention validation
-  - [ ] 6.2 Write unit tests for unique shift label per date validation
-  - [ ] 6.3 Implement validate method in shift.py to check for overlapping shift time periods
-  - [ ] 6.4 Implement validation to enforce unique shift_label per shift_date (only one "Shift 1" per date)
-  - [ ] 6.5 Add proper error messages using frappe.throw() with translatable strings
-  - [ ] 6.6 Run tests to verify validation rules prevent invalid data
+- [x] 6.0 Implement validation rules
+  - [x] 6.1 Write unit tests for overlap prevention validation
+  - [x] 6.2 Write unit tests for unique shift label per date validation
+  - [x] 6.3 Implement validate method in shift.py to check for overlapping shift time periods
+  - [x] 6.4 Implement validation to enforce unique shift_label per shift_date (only one "Shift 1" per date)
+  - [x] 6.5 Add proper error messages using frappe.throw() with translatable strings
+  - [x] 6.6 Run tests to verify validation rules prevent invalid data
 
 - [ ] 7.0 Add custom fields to Manufacturing Settings and Downtime Entry
   - [ ] 7.1 Create custom_field.json fixture with "Shift Settings" section break for Manufacturing Settings

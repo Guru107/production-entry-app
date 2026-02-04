@@ -43,6 +43,8 @@ class Shift(Document):
 		self._validate_field_locking()
 		self._calculate_planned_end_time_and_dates()
 		self._populate_planned_losses_if_needed()
+		self._validate_no_overlapping_shifts()
+		self._validate_unique_shift_label_per_date()
 
 	@frappe.whitelist()
 	def start_shift(self) -> None:
@@ -139,6 +141,52 @@ class Shift(Document):
 			):
 				return True
 		return False
+
+	def _validate_no_overlapping_shifts(self) -> None:
+		"""Prevent overlapping shift time periods (exclude Cancelled)."""
+		if not all([self.shift_date, self.planned_start_time, self.shift_end_date, self.planned_end_time]):
+			return
+
+		my_start = self._combine_date_time(self.shift_date, self.planned_start_time)
+		my_end = self._combine_date_time(self.shift_end_date, self.planned_end_time)
+
+		others = frappe.get_all(
+			"Shift",
+			filters=[
+				["status", "!=", "Cancelled"],
+				["name", "!=", self.name or ""],
+			],
+			fields=["name", "shift_date", "planned_start_time", "shift_end_date", "planned_end_time"],
+		)
+
+		for row in others:
+			other_start = self._combine_date_time(row["shift_date"], row["planned_start_time"])
+			other_end = self._combine_date_time(row["shift_end_date"], row["planned_end_time"])
+			if my_start < other_end and my_end > other_start:
+				link = frappe.utils.get_link_to_form("Shift", row["name"])
+				frappe.throw(_("Shift time overlaps with {0}.").format(link))
+
+	def _validate_unique_shift_label_per_date(self) -> None:
+		"""Enforce unique shift_label per shift_date (exclude Cancelled)."""
+		if not self.shift_date or not self.shift_label:
+			return
+
+		filters = [
+			["shift_date", "=", self.shift_date],
+			["shift_label", "=", self.shift_label],
+			["status", "!=", "Cancelled"],
+		]
+		if not self.is_new():
+			filters.append(["name", "!=", self.name])
+
+		existing = frappe.get_all("Shift", filters=filters, limit=1)
+		if existing:
+			frappe.throw(
+				_("Shift {0} already exists for date {1}.").format(
+					frappe.bold(self.shift_label),
+					frappe.bold(str(self.shift_date)),
+				)
+			)
 
 	def _transition_status(self, *, to_status: str, allowed_from: tuple[str, ...]) -> None:
 		if self.is_new():
