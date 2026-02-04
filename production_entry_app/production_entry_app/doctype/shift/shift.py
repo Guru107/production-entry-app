@@ -10,6 +10,29 @@ from frappe.utils import add_to_date, get_time
 VALID_STATUSES: tuple[str, ...] = ("Draft", "Running", "Completed", "Cancelled")
 
 
+@frappe.whitelist()
+def get_planned_losses_for_duration(
+	shift_duration: str, planned_start_time: str, shift_date: str
+) -> list[dict]:
+	"""Return planned losses rows for given duration, start time, and date.
+
+	Used by client script to populate the grid when shift_duration (or related fields) changes.
+	"""
+	if not shift_duration or not planned_start_time or not shift_date:
+		return []
+
+	doc = frappe.new_doc("Shift")
+	doc.shift_duration = shift_duration
+	doc.planned_start_time = planned_start_time
+	doc.shift_date = shift_date
+	doc._populate_planned_losses()
+
+	return [
+		{"loss_type": r.loss_type, "start_time": r.start_time, "end_time": r.end_time}
+		for r in doc.planned_losses
+	]
+
+
 class Shift(Document):
 	def before_insert(self) -> None:
 		self._set_defaults()
@@ -19,29 +42,6 @@ class Shift(Document):
 		self._validate_status()
 		self._calculate_planned_end_time_and_dates()
 		self._populate_planned_losses_if_needed()
-
-	@staticmethod
-	@frappe.whitelist()
-	def get_planned_losses_for_duration(
-		shift_duration: str, planned_start_time: str, shift_date: str
-	) -> list[dict]:
-		"""Return planned losses rows for given duration, start time, and date.
-
-		Used by client script to populate the grid when shift_duration (or related fields) changes.
-		"""
-		if not shift_duration or not planned_start_time or not shift_date:
-			return []
-
-		doc = frappe.new_doc("Shift")
-		doc.shift_duration = shift_duration
-		doc.planned_start_time = planned_start_time
-		doc.shift_date = shift_date
-		doc._populate_planned_losses()
-
-		return [
-			{"loss_type": r.loss_type, "start_time": r.start_time, "end_time": r.end_time}
-			for r in doc.planned_losses
-		]
 
 	@frappe.whitelist()
 	def start_shift(self) -> None:
