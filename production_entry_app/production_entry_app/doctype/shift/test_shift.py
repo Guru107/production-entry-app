@@ -344,7 +344,7 @@ class TestShift(FrappeTestCase):
 				"planned_start_time": "08:00:00",
 			}
 		).insert()
-		frappe.db.commit()
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so _validate_no_overlapping_shifts sees first shift when inserting second
 
 		# Shift 2: 10:00-18:00 overlaps Shift 1: 08:00-16:00
 		with self.assertRaises(ValidationError) as cm:
@@ -402,7 +402,7 @@ class TestShift(FrappeTestCase):
 				"planned_start_time": "08:00:00",
 			}
 		).insert()
-		frappe.db.commit()
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so _validate_unique_shift_label_per_date sees first shift when inserting second
 
 		# Second Shift 1 on same date must fail
 		with self.assertRaises(ValidationError) as cm:
