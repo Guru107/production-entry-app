@@ -106,11 +106,11 @@ Update the file after completing each sub-task, not just after completing an ent
   - [x] 8.6 Display warning dialog in client-side before starting shift if conflict exists
   - [x] 8.7 Run tests to verify notifications and warnings work correctly
 
-- [ ] 9.0 Configure permissions
-  - [ ] 9.1 Add permissions in Loss Type DocType JSON for Manufacturing User and Manufacturing Manager (CRUD)
-  - [ ] 9.2 Add permissions in Shift DocType JSON for Manufacturing User (Create, Read, Write, Delete)
-  - [ ] 9.3 Add permissions in Shift DocType JSON for Manufacturing Manager (Create, Read, Write, Delete)
-  - [ ] 9.4 Write permission tests to verify role-based access control
+- [x] 9.0 Configure permissions
+  - [x] 9.1 Add permissions in Loss Type DocType JSON for Manufacturing User and Manufacturing Manager (CRUD)
+  - [x] 9.2 Add permissions in Shift DocType JSON for Manufacturing User (Create, Read, Write, Delete)
+  - [x] 9.3 Add permissions in Shift DocType JSON for Manufacturing Manager (Create, Read, Write, Delete)
+  - [x] 9.4 Write permission tests to verify role-based access control
 
 - [ ] 10.0 Create fixtures for default data
   - [ ] 10.1 Create loss_type.json fixture with default records: Tea Break (15 min), Lunch Break (30 min)

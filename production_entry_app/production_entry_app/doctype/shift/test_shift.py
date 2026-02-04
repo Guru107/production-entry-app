@@ -585,3 +585,126 @@ class TestShift(FrappeTestCase):
 	def _delete_shift_if_exists(self, name: str) -> None:
 		if frappe.db.exists("Shift", name):
 			frappe.delete_doc("Shift", name, force=True, ignore_permissions=True)
+
+
+def _ensure_user_with_role(email: str, role: str) -> None:
+	"""Create or update user to have the given role."""
+	if frappe.db.exists("User", email):
+		user = frappe.get_doc("User", email)
+	else:
+		user = frappe.new_doc("User")
+		user.email = email
+		user.first_name = email.split("@", 1)[0]
+		user.user_type = "System User"
+	user.add_roles(role)
+	user.save(ignore_permissions=True)
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed for permission tests to see user roles
+
+
+class TestShiftPermissions(FrappeTestCase):
+	"""Verify role-based access control for Shift and Loss Type."""
+
+	def setUp(self) -> None:
+		super().setUp()
+		_ensure_loss_types()
+		# Ensure Manufacturing User and Manufacturing Manager roles exist (ERPNext)
+		if not frappe.db.exists("Role", "Manufacturing User"):
+			frappe.get_doc({"doctype": "Role", "role_name": "Manufacturing User"}).insert(
+				ignore_permissions=True
+			)
+		if not frappe.db.exists("Role", "Manufacturing Manager"):
+			frappe.get_doc({"doctype": "Role", "role_name": "Manufacturing Manager"}).insert(
+				ignore_permissions=True
+			)
+
+	def tearDown(self) -> None:
+		frappe.set_user("Administrator")
+
+	def test_manufacturing_user_can_crud_shift(self) -> None:
+		_ensure_user_with_role("test_shift_mfg_user@example.com", "Manufacturing User")
+		frappe.set_user("test_shift_mfg_user@example.com")
+
+		name = self._expected_name("2026-03-02", "1")
+		self._delete_shift_if_exists(name)
+
+		doc = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": "2026-03-02",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+		self.assertTrue(frappe.db.exists("Shift", doc.name))
+
+		loaded = frappe.get_doc("Shift", doc.name)
+		self.assertEqual(loaded.shift_label, "1")
+
+		loaded.shift_duration = "10"
+		loaded.save()
+
+		frappe.delete_doc("Shift", doc.name)
+		self.assertFalse(frappe.db.exists("Shift", doc.name))
+
+	def test_manufacturing_manager_can_crud_shift(self) -> None:
+		_ensure_user_with_role("test_shift_mfg_manager@example.com", "Manufacturing Manager")
+		frappe.set_user("test_shift_mfg_manager@example.com")
+
+		name = self._expected_name("2026-03-03", "2")
+		self._delete_shift_if_exists(name)
+
+		doc = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"shift_label": "2",
+				"shift_duration": "8",
+				"shift_date": "2026-03-03",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+		self.assertTrue(frappe.db.exists("Shift", doc.name))
+
+		loaded = frappe.get_doc("Shift", doc.name)
+		loaded.delete()
+		self.assertFalse(frappe.db.exists("Shift", doc.name))
+
+	def test_manufacturing_user_can_crud_loss_type(self) -> None:
+		_ensure_user_with_role("test_shift_mfg_user@example.com", "Manufacturing User")
+		frappe.set_user("test_shift_mfg_user@example.com")
+
+		loss_type_name = f"Test Loss Type {frappe.generate_hash(length=6)}"
+		if frappe.db.exists("Loss Type", loss_type_name):
+			frappe.delete_doc("Loss Type", loss_type_name)
+
+		doc = frappe.get_doc({"doctype": "Loss Type", "loss_type_name": loss_type_name}).insert()
+		self.assertTrue(frappe.db.exists("Loss Type", doc.name))
+
+		loaded = frappe.get_doc("Loss Type", doc.name)
+		loaded.delete()
+		self.assertFalse(frappe.db.exists("Loss Type", doc.name))
+
+	def test_user_without_manufacturing_role_cannot_access_shift(self) -> None:
+		"""User with only Blogger role must not have Shift permission."""
+		_ensure_user_with_role("test_shift_blogger@example.com", "Blogger")
+		user = frappe.get_doc("User", "test_shift_blogger@example.com")
+		# Ensure user has only Blogger (remove Manufacturing roles if added elsewhere)
+		roles = frappe.get_roles(user.name)
+		for role in ("Manufacturing User", "Manufacturing Manager"):
+			if role in roles:
+				user.remove_roles(role)
+				user.save(ignore_permissions=True)
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit
+		frappe.set_user("test_shift_blogger@example.com")
+
+		self.assertFalse(
+			frappe.has_permission("Shift", "read"),
+			"User with only Blogger role must not have Shift read permission.",
+		)
+
+	def _expected_name(self, shift_date: str, shift_label: str) -> str:
+		return f"SHIFT-{shift_date}.Shift-{shift_label}"
+
+	def _delete_shift_if_exists(self, name: str) -> None:
+		if frappe.db.exists("Shift", name):
+			frappe.delete_doc("Shift", name, force=True, ignore_permissions=True)
