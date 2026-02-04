@@ -97,14 +97,14 @@ Update the file after completing each sub-task, not just after completing an ent
   - [x] 7.5 Add HTML field or virtual field in Shift to display linked Downtime Entries
   - [x] 7.6 Create client-side script to fetch and display linked Downtime Entries in Shift form
 
-- [ ] 8.0 Implement notifications and conflict warnings
-  - [ ] 8.1 Write unit tests for notification creation on state transitions
-  - [ ] 8.2 Implement notification on shift start (Running state) - notify relevant users
-  - [ ] 8.3 Implement notification on shift end (Completed state) - notify relevant users
-  - [ ] 8.4 Write unit test for running shift conflict warning
-  - [ ] 8.5 Implement warning check in start_shift method: warn if another shift is currently Running
-  - [ ] 8.6 Display warning dialog in client-side before starting shift if conflict exists
-  - [ ] 8.7 Run tests to verify notifications and warnings work correctly
+- [x] 8.0 Implement notifications and conflict warnings
+  - [x] 8.1 Write unit tests for notification creation on state transitions
+  - [x] 8.2 Implement notification on shift start (Running state) - notify relevant users
+  - [x] 8.3 Implement notification on shift end (Completed state) - notify relevant users
+  - [x] 8.4 Write unit test for running shift conflict warning
+  - [x] 8.5 Implement warning check in start_shift method: warn if another shift is currently Running
+  - [x] 8.6 Display warning dialog in client-side before starting shift if conflict exists
+  - [x] 8.7 Run tests to verify notifications and warnings work correctly
 
 - [ ] 9.0 Configure permissions
   - [ ] 9.1 Add permissions in Loss Type DocType JSON for Manufacturing User and Manufacturing Manager (CRUD)

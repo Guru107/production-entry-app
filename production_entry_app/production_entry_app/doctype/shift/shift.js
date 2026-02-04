@@ -6,9 +6,7 @@ frappe.ui.form.on("Shift", {
 		}
 
 		if (frm.doc.status === "Draft") {
-			frm.add_custom_button(__("Start Shift"), () => {
-				return frm.call("start_shift").then(() => frm.reload_doc());
-			});
+			frm.add_custom_button(__("Start Shift"), () => _start_shift_with_conflict_check(frm));
 			frm.add_custom_button(__("Cancel"), () => {
 				return frm.call("cancel_shift").then(() => frm.reload_doc());
 			});
@@ -40,6 +38,32 @@ frappe.ui.form.on("Shift", {
 		_trigger_planned_losses_refresh(frm);
 	},
 });
+
+function _start_shift_with_conflict_check(frm) {
+	frm.call({
+		method: "check_running_shift_conflict",
+		args: { shift_name: frm.doc.name },
+		callback(r) {
+			const result = r.message || {};
+			if (
+				result.has_conflict &&
+				result.conflicting_shifts &&
+				result.conflicting_shifts.length
+			) {
+				const names = result.conflicting_shifts.map((s) => s.name).join(", ");
+				frappe.confirm(
+					__(
+						"Another shift is currently running: {0}. Do you want to start this shift anyway?",
+						[names]
+					),
+					() => frm.call("start_shift").then(() => frm.reload_doc())
+				);
+			} else {
+				return frm.call("start_shift").then(() => frm.reload_doc());
+			}
+		},
+	});
+}
 
 function _trigger_planned_losses_refresh(frm) {
 	if (!frm.doc.shift_duration || !frm.doc.planned_start_time || !frm.doc.shift_date) {

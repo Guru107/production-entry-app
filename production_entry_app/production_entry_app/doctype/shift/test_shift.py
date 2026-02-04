@@ -165,6 +165,9 @@ class TestShift(FrappeTestCase):
 		with self.assertRaises(ValidationError):
 			doc.save()
 
+		# End shift so it does not leak into subsequent tests (e.g. conflict check)
+		frappe.get_doc("Shift", name).end_shift()
+
 	def test_document_locked_in_completed_state(self) -> None:
 		name = self._expected_name("2026-02-18", "1")
 		self._delete_shift_if_exists(name)
@@ -463,6 +466,118 @@ class TestShift(FrappeTestCase):
 		doc.save()
 		doc.reload()
 		self.assertEqual(doc.shift_duration, "10")
+
+	def test_notification_created_on_shift_start(self) -> None:
+		"""Notification Log is created when shift transitions to Running."""
+		name = self._expected_name("2026-02-26", "1")
+		self._delete_shift_if_exists(name)
+
+		doc = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": "2026-02-26",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+		before_count = frappe.db.count("Notification Log", {"document_type": "Shift", "document_name": name})
+		doc.start_shift()
+		after_count = frappe.db.count("Notification Log", {"document_type": "Shift", "document_name": name})
+		self.assertGreater(after_count, before_count)
+
+	def test_notification_created_on_shift_end(self) -> None:
+		"""Notification Log is created when shift transitions to Completed."""
+		name = self._expected_name("2026-02-27", "2")
+		self._delete_shift_if_exists(name)
+
+		doc = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"shift_label": "2",
+				"shift_duration": "8",
+				"shift_date": "2026-02-27",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+		doc.start_shift()
+		before_count = frappe.db.count("Notification Log", {"document_type": "Shift", "document_name": name})
+		doc.end_shift()
+		after_count = frappe.db.count("Notification Log", {"document_type": "Shift", "document_name": name})
+		self.assertGreater(after_count, before_count)
+
+	def test_running_shift_conflict_detected(self) -> None:
+		"""check_running_shift_conflict returns conflict when another shift is Running."""
+		from production_entry_app.production_entry_app.doctype.shift.shift import (
+			check_running_shift_conflict,
+		)
+
+		name1 = self._expected_name("2026-02-28", "1")
+		name2 = self._expected_name("2026-02-28", "2")
+		self._delete_shift_if_exists(name1)
+		self._delete_shift_if_exists(name2)
+
+		frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": "2026-02-28",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+		frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"shift_label": "2",
+				"shift_duration": "8",
+				"shift_date": "2026-02-28",
+				"planned_start_time": "16:00:00",
+			}
+		).insert()
+
+		# Start Shift 1
+		doc1 = frappe.get_doc("Shift", name1)
+		doc1.start_shift()
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so check sees Running shift
+
+		# Shift 2 (Draft) checking for conflict should find Shift 1 Running
+		result = check_running_shift_conflict(name2)
+		self.assertTrue(result.get("has_conflict"))
+		self.assertIn(name1, [s["name"] for s in result.get("conflicting_shifts", [])])
+
+		# End Shift 1 so it does not leak into subsequent tests
+		frappe.get_doc("Shift", name1).end_shift()
+
+	def test_no_running_shift_conflict_when_none_running(self) -> None:
+		"""check_running_shift_conflict returns no conflict when no other shift is Running."""
+		from production_entry_app.production_entry_app.doctype.shift.shift import (
+			check_running_shift_conflict,
+		)
+
+		# End any Running shifts from previous tests to ensure clean state
+		for shift_name in frappe.get_all("Shift", filters={"status": "Running"}, pluck="name"):
+			try:
+				frappe.get_doc("Shift", shift_name).end_shift()
+			except Exception:
+				pass
+
+		name = self._expected_name("2026-03-01", "1")
+		self._delete_shift_if_exists(name)
+
+		frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": "2026-03-01",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+
+		result = check_running_shift_conflict(name)
+		self.assertFalse(result.get("has_conflict"))
+		self.assertEqual(result.get("conflicting_shifts"), [])
 
 	def _expected_name(self, shift_date: str, shift_label: str) -> str:
 		return f"SHIFT-{shift_date}.Shift-{shift_label}"

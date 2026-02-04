@@ -7,6 +7,55 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import add_to_date, get_time
 
+
+def _get_notification_recipients_for_shift(shift_doc: Shift) -> list[str]:
+	"""Return list of user emails to notify for shift events (supervisor + Manufacturing Managers)."""
+	emails: list[str] = []
+	supervisor = shift_doc.supervisor
+	if supervisor:
+		email = frappe.db.get_value("User", supervisor, "email")
+		if email:
+			emails.append(email)
+	managers = frappe.get_all(
+		"Has Role",
+		filters={"role": "Manufacturing Manager", "parenttype": "User"},
+		pluck="parent",
+	)
+	for user in managers:
+		if user == supervisor:
+			continue
+		email = frappe.db.get_value("User", user, "email")
+		if email and email not in emails:
+			emails.append(email)
+	return emails
+
+
+def _send_shift_notification(
+	shift_doc: Shift,
+	*,
+	event: str,
+	subject: str,
+	email_content: str | None = None,
+) -> None:
+	"""Create notification log entries for shift start/end events."""
+	recipients = _get_notification_recipients_for_shift(shift_doc)
+	if not recipients:
+		return
+	from frappe.desk.doctype.notification_log.notification_log import (
+		enqueue_create_notification,
+	)
+
+	notification_doc = {
+		"type": "Alert",
+		"document_type": "Shift",
+		"document_name": shift_doc.name,
+		"subject": subject,
+		"from_user": frappe.session.user,
+		"email_content": email_content,
+	}
+	enqueue_create_notification(recipients, notification_doc)
+
+
 VALID_STATUSES: tuple[str, ...] = ("Draft", "Running", "Completed", "Cancelled")
 
 
@@ -68,6 +117,30 @@ def get_linked_downtime_entries(shift_name: str) -> list[dict]:
 		order_by="from_time asc",
 	)
 	return entries
+
+
+@frappe.whitelist()
+def check_running_shift_conflict(shift_name: str) -> dict:
+	"""Return whether another shift is currently Running, excluding the given shift.
+
+	Used by client to show a warning dialog before starting a shift.
+	Returns: {"has_conflict": bool, "conflicting_shifts": [{"name": str, "shift_label": str, ...}]}
+	"""
+	if not shift_name:
+		return {"has_conflict": False, "conflicting_shifts": []}
+
+	running = frappe.get_all(
+		"Shift",
+		filters=[
+			["status", "=", "Running"],
+			["name", "!=", shift_name],
+		],
+		fields=["name", "shift_label", "shift_date", "supervisor"],
+	)
+	return {
+		"has_conflict": len(running) > 0,
+		"conflicting_shifts": running,
+	}
 
 
 def _combine_date_time(date_value: str, time_value: str) -> datetime.datetime:
@@ -246,6 +319,19 @@ class Shift(Document):
 		self.flags.allow_status_change = True
 		self.status = to_status
 		self.save()
+
+		if to_status == "Running":
+			_send_shift_notification(
+				self,
+				event="start",
+				subject=_("Shift {0} has been started.").format(frappe.bold(self.name)),
+			)
+		elif to_status == "Completed":
+			_send_shift_notification(
+				self,
+				event="end",
+				subject=_("Shift {0} has been completed.").format(frappe.bold(self.name)),
+			)
 
 	def _calculate_planned_end_time_and_dates(self) -> None:
 		if not self.planned_start_time or not self.shift_duration or not self.shift_date:
