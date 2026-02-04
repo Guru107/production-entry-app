@@ -187,7 +187,11 @@ app_license = "mit"
 
 # Fixtures
 # --------
-fixtures = ["Custom Field"]
+# Custom Field: filter by module so export-fixtures does not pull in unrelated fields
+fixtures = [
+	{"dt": "Custom Field", "filters": [["module", "=", "Production Entry App"]]},
+	"Loss Type",
+]
 
 # exempt linked doctypes from being automatically cancelled
 #

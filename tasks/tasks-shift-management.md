@@ -112,9 +112,9 @@ Update the file after completing each sub-task, not just after completing an ent
   - [x] 9.3 Add permissions in Shift DocType JSON for Manufacturing Manager (Create, Read, Write, Delete)
   - [x] 9.4 Write permission tests to verify role-based access control
 
-- [ ] 10.0 Create fixtures for default data
-  - [ ] 10.1 Create loss_type.json fixture with default records: Tea Break (15 min), Lunch Break (30 min)
-  - [ ] 10.2 Update hooks.py to include fixtures list: ["Custom Field", "Loss Type"]
-  - [ ] 10.3 Export custom fields to custom_field.json fixture file
-  - [ ] 10.4 Run `bench migrate` to verify fixtures load correctly
-  - [ ] 10.5 Run full test suite to ensure all functionality works end-to-end
+- [x] 10.0 Create fixtures for default data
+  - [x] 10.1 Create loss_type.json fixture with default records: Tea Break (15 min), Lunch Break (30 min)
+  - [x] 10.2 Update hooks.py to include fixtures list: ["Custom Field", "Loss Type"]
+  - [x] 10.3 Export custom fields to custom_field.json fixture file
+  - [x] 10.4 Run `bench migrate` to verify fixtures load correctly
+  - [x] 10.5 Run full test suite to ensure all functionality works end-to-end
