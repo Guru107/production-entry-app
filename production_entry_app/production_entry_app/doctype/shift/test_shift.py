@@ -154,7 +154,7 @@ class TestShift(FrappeTestCase):
 		self.assertEqual(len(doc.planned_losses), 2)
 
 		doc.start_shift()
-		frappe.db.commit()
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so _validate_field_locking sees persisted status via get_value
 		doc = frappe.get_doc("Shift", name)
 
 		# Modifying planned_losses should be rejected
@@ -177,7 +177,7 @@ class TestShift(FrappeTestCase):
 		).insert()
 		doc.start_shift()
 		doc.end_shift()
-		frappe.db.commit()
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so _validate_field_locking sees persisted status via get_value
 		doc = frappe.get_doc("Shift", name)
 
 		doc.shift_duration = "10"
@@ -198,7 +198,7 @@ class TestShift(FrappeTestCase):
 			}
 		).insert()
 		doc.cancel_shift()
-		frappe.db.commit()
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so _validate_field_locking sees persisted status via get_value
 		doc = frappe.get_doc("Shift", name)
 
 		doc.supervisor = "Administrator"
