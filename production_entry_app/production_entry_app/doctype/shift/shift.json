@@ -113,6 +113,7 @@
    "options": "Loss Entry"
   },
   {
+   "collapsible": 0,
    "fieldname": "linked_downtime_entries_section",
    "fieldtype": "Section Break",
    "label": "Linked Downtime Entries"
@@ -121,6 +122,7 @@
    "fieldname": "linked_downtime_entries",
    "fieldtype": "HTML",
    "label": "Linked Downtime Entries",
+   "options": "<p class=\"text-muted\">Loading...</p>",
    "read_only": 1
   },
   {

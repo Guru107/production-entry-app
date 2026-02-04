@@ -97,12 +97,12 @@ function _render_linked_downtime_entries(frm) {
 			let html = "";
 			if (entries.length === 0) {
 				html =
-					"<p class='text-muted'>" +
+					'<p class="text-muted">' +
 					__("No Downtime Entries linked to this Shift.") +
 					"</p>";
 			} else {
 				html =
-					"<table class='table table-bordered table-condensed'>" +
+					'<table class="table table-bordered table-condensed">' +
 					"<thead><tr><th>" +
 					__("Name") +
 					"</th><th>" +
@@ -118,32 +118,41 @@ function _render_linked_downtime_entries(frm) {
 					"</th></tr></thead><tbody>";
 				entries.forEach((row) => {
 					html +=
-						"<tr>" +
-						"<td><a href='/app/downtime-entry/" +
+						'<tr><td><a href="/app/downtime-entry/' +
 						encodeURIComponent(row.name) +
-						"'>" +
-						frappe.escape_html(row.name) +
+						'">' +
+						frappe.utils.escape_html(row.name) +
 						"</a></td>" +
 						"<td>" +
-						frappe.escape_html(row.workstation || "") +
+						frappe.utils.escape_html(row.workstation || "") +
 						"</td>" +
 						"<td>" +
-						frappe.escape_html(row.from_time || "") +
+						frappe.utils.escape_html(row.from_time || "") +
 						"</td>" +
 						"<td>" +
-						frappe.escape_html(row.to_time || "") +
+						frappe.utils.escape_html(row.to_time || "") +
 						"</td>" +
 						"<td>" +
-						frappe.escape_html(row.downtime != null ? row.downtime : "") +
+						frappe.utils.escape_html(row.downtime != null ? row.downtime : "") +
 						"</td>" +
 						"<td>" +
-						frappe.escape_html(row.stop_reason || "") +
+						frappe.utils.escape_html(row.stop_reason || "") +
 						"</td></tr>";
 				});
 				html += "</tbody></table>";
 			}
-			frm.set_df_property("linked_downtime_entries", "options", html);
-			frm.refresh_field("linked_downtime_entries");
+			// Update HTML field display directly to avoid marking doc as dirty
+			const update_display = () => {
+				const field = frm.fields_dict.linked_downtime_entries;
+				if (field) {
+					field.df.options = html;
+					field.html(html);
+				}
+			};
+			update_display();
+			if (!frm.fields_dict.linked_downtime_entries) {
+				setTimeout(update_display, 100);
+			}
 		},
 	});
 }
