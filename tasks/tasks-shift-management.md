@@ -89,28 +89,28 @@ Update the file after completing each sub-task, not just after completing an ent
   - [x] 6.5 Add proper error messages using frappe.throw() with translatable strings
   - [x] 6.6 Run tests to verify validation rules prevent invalid data
 
-- [ ] 7.0 Add custom fields to Manufacturing Settings and Downtime Entry
-  - [ ] 7.1 Create custom_field.json fixture with "Shift Settings" section break for Manufacturing Settings
-  - [ ] 7.2 Add custom fields to Manufacturing Settings: shift_raw_material_warehouse, shift_wip_warehouse, shift_rejection_warehouse, shift_scrap_warehouse (all Link to Warehouse)
-  - [ ] 7.3 Add custom "shift" link field to Downtime Entry DocType (optional field)
-  - [ ] 7.4 Update shift.py to read warehouse defaults from Manufacturing Settings custom fields
-  - [ ] 7.5 Add HTML field or virtual field in Shift to display linked Downtime Entries
-  - [ ] 7.6 Create client-side script to fetch and display linked Downtime Entries in Shift form
+- [x] 7.0 Add custom fields to Manufacturing Settings and Downtime Entry
+  - [x] 7.1 Create custom_field.json fixture with "Shift Settings" section break for Manufacturing Settings
+  - [x] 7.2 Add custom fields to Manufacturing Settings: shift_raw_material_warehouse, shift_wip_warehouse, shift_rejection_warehouse, shift_scrap_warehouse (all Link to Warehouse)
+  - [x] 7.3 Add custom "shift" link field to Downtime Entry DocType (optional field)
+  - [x] 7.4 Update shift.py to read warehouse defaults from Manufacturing Settings custom fields
+  - [x] 7.5 Add HTML field or virtual field in Shift to display linked Downtime Entries
+  - [x] 7.6 Create client-side script to fetch and display linked Downtime Entries in Shift form
 
-- [ ] 8.0 Implement notifications and conflict warnings
-  - [ ] 8.1 Write unit tests for notification creation on state transitions
-  - [ ] 8.2 Implement notification on shift start (Running state) - notify relevant users
-  - [ ] 8.3 Implement notification on shift end (Completed state) - notify relevant users
-  - [ ] 8.4 Write unit test for running shift conflict warning
-  - [ ] 8.5 Implement warning check in start_shift method: warn if another shift is currently Running
-  - [ ] 8.6 Display warning dialog in client-side before starting shift if conflict exists
-  - [ ] 8.7 Run tests to verify notifications and warnings work correctly
+- [x] 8.0 Implement notifications and conflict warnings
+  - [x] 8.1 Write unit tests for notification creation on state transitions
+  - [x] 8.2 Implement notification on shift start (Running state) - notify relevant users
+  - [x] 8.3 Implement notification on shift end (Completed state) - notify relevant users
+  - [x] 8.4 Write unit test for running shift conflict warning
+  - [x] 8.5 Implement warning check in start_shift method: warn if another shift is currently Running
+  - [x] 8.6 Display warning dialog in client-side before starting shift if conflict exists
+  - [x] 8.7 Run tests to verify notifications and warnings work correctly
 
-- [ ] 9.0 Configure permissions
-  - [ ] 9.1 Add permissions in Loss Type DocType JSON for Manufacturing User and Manufacturing Manager (CRUD)
-  - [ ] 9.2 Add permissions in Shift DocType JSON for Manufacturing User (Create, Read, Write, Delete)
-  - [ ] 9.3 Add permissions in Shift DocType JSON for Manufacturing Manager (Create, Read, Write, Delete)
-  - [ ] 9.4 Write permission tests to verify role-based access control
+- [x] 9.0 Configure permissions
+  - [x] 9.1 Add permissions in Loss Type DocType JSON for Manufacturing User and Manufacturing Manager (CRUD)
+  - [x] 9.2 Add permissions in Shift DocType JSON for Manufacturing User (Create, Read, Write, Delete)
+  - [x] 9.3 Add permissions in Shift DocType JSON for Manufacturing Manager (Create, Read, Write, Delete)
+  - [x] 9.4 Write permission tests to verify role-based access control
 
 - [ ] 10.0 Create fixtures for default data
   - [ ] 10.1 Create loss_type.json fixture with default records: Tea Break (15 min), Lunch Break (30 min)
