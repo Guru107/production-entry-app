@@ -185,6 +185,10 @@ app_license = "mit"
 # 	"Task": "production_entry_app.task.get_dashboard_data"
 # }
 
+# Fixtures
+# --------
+fixtures = ["Custom Field"]
+
 # exempt linked doctypes from being automatically cancelled
 #
 # auto_cancel_exempted_doctypes = ["Auto Repeat"]

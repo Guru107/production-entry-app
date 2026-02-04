@@ -89,13 +89,13 @@ Update the file after completing each sub-task, not just after completing an ent
   - [x] 6.5 Add proper error messages using frappe.throw() with translatable strings
   - [x] 6.6 Run tests to verify validation rules prevent invalid data
 
-- [ ] 7.0 Add custom fields to Manufacturing Settings and Downtime Entry
-  - [ ] 7.1 Create custom_field.json fixture with "Shift Settings" section break for Manufacturing Settings
-  - [ ] 7.2 Add custom fields to Manufacturing Settings: shift_raw_material_warehouse, shift_wip_warehouse, shift_rejection_warehouse, shift_scrap_warehouse (all Link to Warehouse)
-  - [ ] 7.3 Add custom "shift" link field to Downtime Entry DocType (optional field)
-  - [ ] 7.4 Update shift.py to read warehouse defaults from Manufacturing Settings custom fields
-  - [ ] 7.5 Add HTML field or virtual field in Shift to display linked Downtime Entries
-  - [ ] 7.6 Create client-side script to fetch and display linked Downtime Entries in Shift form
+- [x] 7.0 Add custom fields to Manufacturing Settings and Downtime Entry
+  - [x] 7.1 Create custom_field.json fixture with "Shift Settings" section break for Manufacturing Settings
+  - [x] 7.2 Add custom fields to Manufacturing Settings: shift_raw_material_warehouse, shift_wip_warehouse, shift_rejection_warehouse, shift_scrap_warehouse (all Link to Warehouse)
+  - [x] 7.3 Add custom "shift" link field to Downtime Entry DocType (optional field)
+  - [x] 7.4 Update shift.py to read warehouse defaults from Manufacturing Settings custom fields
+  - [x] 7.5 Add HTML field or virtual field in Shift to display linked Downtime Entries
+  - [x] 7.6 Create client-side script to fetch and display linked Downtime Entries in Shift form
 
 - [ ] 8.0 Implement notifications and conflict warnings
   - [ ] 8.1 Write unit tests for notification creation on state transitions

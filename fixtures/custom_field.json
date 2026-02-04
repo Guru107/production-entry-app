@@ -1,0 +1,78 @@
+[
+	{
+		"doctype": "Custom Field",
+		"name": "Manufacturing Settings-shift_settings_tab",
+		"dt": "Manufacturing Settings",
+		"fieldname": "shift_settings_tab",
+		"fieldtype": "Tab Break",
+		"label": "Shift Settings",
+		"insert_after": "make_serial_no_batch_from_work_order",
+		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Custom Field",
+		"name": "Manufacturing Settings-shift_settings_section",
+		"dt": "Manufacturing Settings",
+		"fieldname": "shift_settings_section",
+		"fieldtype": "Section Break",
+		"label": "Default Warehouses for Shift",
+		"insert_after": "shift_settings_tab",
+		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Custom Field",
+		"name": "Manufacturing Settings-shift_raw_material_warehouse",
+		"dt": "Manufacturing Settings",
+		"fieldname": "shift_raw_material_warehouse",
+		"fieldtype": "Link",
+		"label": "Raw Material Warehouse",
+		"options": "Warehouse",
+		"insert_after": "shift_settings_section",
+		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Custom Field",
+		"name": "Manufacturing Settings-shift_wip_warehouse",
+		"dt": "Manufacturing Settings",
+		"fieldname": "shift_wip_warehouse",
+		"fieldtype": "Link",
+		"label": "Work In Progress Warehouse",
+		"options": "Warehouse",
+		"insert_after": "shift_raw_material_warehouse",
+		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Custom Field",
+		"name": "Manufacturing Settings-shift_rejection_warehouse",
+		"dt": "Manufacturing Settings",
+		"fieldname": "shift_rejection_warehouse",
+		"fieldtype": "Link",
+		"label": "Rejection Warehouse",
+		"options": "Warehouse",
+		"insert_after": "shift_wip_warehouse",
+		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Custom Field",
+		"name": "Manufacturing Settings-shift_scrap_warehouse",
+		"dt": "Manufacturing Settings",
+		"fieldname": "shift_scrap_warehouse",
+		"fieldtype": "Link",
+		"label": "Scrap Warehouse",
+		"options": "Warehouse",
+		"insert_after": "shift_rejection_warehouse",
+		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Custom Field",
+		"name": "Downtime Entry-shift",
+		"dt": "Downtime Entry",
+		"fieldname": "shift",
+		"fieldtype": "Link",
+		"label": "Shift",
+		"options": "Shift",
+		"insert_after": "remarks",
+		"reqd": 0,
+		"module": "Production Entry App"
+	}
+]

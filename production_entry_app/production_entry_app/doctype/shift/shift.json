@@ -19,6 +19,8 @@
   "rejection_warehouse",
   "scrap_warehouse",
   "planned_losses",
+  "linked_downtime_entries_section",
+  "linked_downtime_entries",
   "status"
  ],
  "fields": [
@@ -109,6 +111,17 @@
    "fieldtype": "Table",
    "label": "Planned Losses",
    "options": "Loss Entry"
+  },
+  {
+   "fieldname": "linked_downtime_entries_section",
+   "fieldtype": "Section Break",
+   "label": "Linked Downtime Entries"
+  },
+  {
+   "fieldname": "linked_downtime_entries",
+   "fieldtype": "HTML",
+   "label": "Linked Downtime Entries",
+   "read_only": 1
   },
   {
    "default": "Draft",

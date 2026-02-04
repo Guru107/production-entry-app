@@ -33,6 +33,50 @@ def get_planned_losses_for_duration(
 	]
 
 
+@frappe.whitelist()
+def get_linked_downtime_entries(shift_name: str) -> list[dict]:
+	"""Return Downtime Entries whose time range overlaps with the given Shift.
+
+	Downtime Entries are fetched by time overlap, not by shift link.
+	A downtime spanning multiple shifts appears in each overlapping shift.
+	"""
+	if not shift_name:
+		return []
+
+	shift = frappe.db.get_value(
+		"Shift",
+		shift_name,
+		["shift_date", "planned_start_time", "shift_end_date", "planned_end_time"],
+		as_dict=True,
+	)
+	if not shift or not all([shift.get("shift_date"), shift.get("planned_start_time")]):
+		return []
+
+	start_dt = _combine_date_time(shift["shift_date"], shift["planned_start_time"])
+	end_dt = _combine_date_time(
+		shift.get("shift_end_date") or shift["shift_date"],
+		shift.get("planned_end_time") or "23:59:59",
+	)
+
+	entries = frappe.get_all(
+		"Downtime Entry",
+		filters=[
+			["from_time", "<", end_dt],
+			["to_time", ">", start_dt],
+		],
+		fields=["name", "workstation", "operator", "from_time", "to_time", "downtime", "stop_reason"],
+		order_by="from_time asc",
+	)
+	return entries
+
+
+def _combine_date_time(date_value: str, time_value: str) -> datetime.datetime:
+	"""Combine date and time strings into a datetime."""
+	shift_date = frappe.utils.getdate(date_value)
+	shift_time = get_time(time_value)
+	return datetime.datetime.combine(shift_date, shift_time)
+
+
 class Shift(Document):
 	def before_insert(self) -> None:
 		self._set_defaults()
