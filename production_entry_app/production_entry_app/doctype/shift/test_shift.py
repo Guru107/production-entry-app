@@ -15,6 +15,10 @@ def _ensure_loss_types() -> None:
 
 
 class TestShift(FrappeTestCase):
+	def setUp(self) -> None:
+		super().setUp()
+		_ensure_loss_types()
+
 	def test_defaults_are_populated_on_insert(self) -> None:
 		self._delete_shift_if_exists(self._expected_name(frappe.utils.today(), "1"))
 		doc = frappe.get_doc(
@@ -138,7 +142,6 @@ class TestShift(FrappeTestCase):
 			doc.cancel_shift()
 
 	def test_planned_losses_locked_in_running_state(self) -> None:
-		_ensure_loss_types()
 		name = self._expected_name("2026-02-17", "2")
 		self._delete_shift_if_exists(name)
 
@@ -206,7 +209,6 @@ class TestShift(FrappeTestCase):
 			doc.save()
 
 	def test_planned_losses_auto_populate_8_hour_shift(self) -> None:
-		_ensure_loss_types()
 		name = self._expected_name("2026-02-11", "1")
 		self._delete_shift_if_exists(name)
 
@@ -232,7 +234,6 @@ class TestShift(FrappeTestCase):
 		self.assertEqual(lunch.end_time, "12:30:00")
 
 	def test_planned_losses_auto_populate_10_hour_shift(self) -> None:
-		_ensure_loss_types()
 		name = self._expected_name("2026-02-12", "2")
 		self._delete_shift_if_exists(name)
 
@@ -262,7 +263,6 @@ class TestShift(FrappeTestCase):
 		self.assertEqual(tea2.end_time, "14:15:00")
 
 	def test_planned_losses_auto_populate_12_hour_shift(self) -> None:
-		_ensure_loss_types()
 		name = self._expected_name("2026-02-13", "1")
 		self._delete_shift_if_exists(name)
 
@@ -287,7 +287,6 @@ class TestShift(FrappeTestCase):
 		self.assertEqual(tea2.end_time, "12:15:00")
 
 	def test_planned_losses_repopulate_when_shift_duration_changes(self) -> None:
-		_ensure_loss_types()
 		name = self._expected_name("2026-02-14", "2")
 		self._delete_shift_if_exists(name)
 
