@@ -62,13 +62,13 @@ Update the file after completing each sub-task, not just after completing an ent
   - [x] 3.10 Implement shift_end_date calculation for midnight-crossing shifts
   - [x] 3.11 Run tests to verify default value population and calculations
 
-- [ ] 4.0 Implement planned losses auto-population logic
-  - [ ] 4.1 Write unit tests for planned losses auto-population based on shift duration
-  - [ ] 4.2 Implement server-side logic in shift.py to auto-populate planned losses when shift_duration changes
-  - [ ] 4.3 For 8-hour shifts: add Tea Break at +2 hours (15 min), Lunch Break at +4 hours (30 min)
-  - [ ] 4.4 For 10/12-hour shifts: add Tea Break at +2h (15 min), Lunch Break at +4h (30 min), Tea Break at +6h (15 min)
-  - [ ] 4.5 Create client-side script (shift.js) to trigger auto-population on shift_duration field change
-  - [ ] 4.6 Run tests to verify planned losses populate correctly for each duration
+- [x] 4.0 Implement planned losses auto-population logic
+  - [x] 4.1 Write unit tests for planned losses auto-population based on shift duration
+  - [x] 4.2 Implement server-side logic in shift.py to auto-populate planned losses when shift_duration changes
+  - [x] 4.3 For 8-hour shifts: add Tea Break at +2 hours (15 min), Lunch Break at +4 hours (30 min)
+  - [x] 4.4 For 10/12-hour shifts: add Tea Break at +2h (15 min), Lunch Break at +4h (30 min), Tea Break at +6h (15 min)
+  - [x] 4.5 Create client-side script (shift.js) to trigger auto-population on shift_duration field change
+  - [x] 4.6 Run tests to verify planned losses populate correctly for each duration
 
 - [ ] 5.0 Implement workflow and state management
   - [ ] 5.1 Write unit tests for state transitions (Draft→Running, Running→Completed, Draft→Cancelled)
