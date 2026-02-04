@@ -40,8 +40,11 @@ class Shift(Document):
 
 	def validate(self) -> None:
 		self._validate_status()
+		self._validate_field_locking()
 		self._calculate_planned_end_time_and_dates()
 		self._populate_planned_losses_if_needed()
+		self._validate_no_overlapping_shifts()
+		self._validate_unique_shift_label_per_date()
 
 	@frappe.whitelist()
 	def start_shift(self) -> None:
@@ -58,6 +61,14 @@ class Shift(Document):
 		Status is system-managed; use this action instead of editing the Status field.
 		"""
 		self._transition_status(to_status="Completed", allowed_from=("Running",))
+
+	@frappe.whitelist()
+	def cancel_shift(self) -> None:
+		"""Transition Draft -> Cancelled.
+
+		Status is system-managed; use this action instead of editing the Status field.
+		"""
+		self._transition_status(to_status="Cancelled", allowed_from=("Draft",))
 
 	def _set_defaults(self) -> None:
 		if not self.naming_series:
@@ -89,6 +100,93 @@ class Shift(Document):
 
 		if self.has_value_changed("status") and not self.flags.get("allow_status_change"):
 			frappe.throw(_("Status is system-managed. Use Start Shift / End Shift actions."))
+
+	def _validate_field_locking(self) -> None:
+		"""Enforce locking: planned_losses in Running; entire doc in Completed/Cancelled."""
+		if self.is_new():
+			return
+
+		if self.flags.get("allow_status_change"):
+			return
+
+		# Use DB status - reliable in all contexts (get_doc_before_save may be unset)
+		db_status = frappe.db.get_value("Shift", self.name, "status")
+		if not db_status:
+			return
+
+		if db_status == "Running":
+			if self._planned_losses_changed():
+				frappe.throw(_("Planned Losses cannot be edited when shift is Running."))
+
+		if db_status in ("Completed", "Cancelled"):
+			frappe.throw(_("Shift in {0} state cannot be modified.").format(frappe.bold(db_status)))
+
+	def _planned_losses_changed(self) -> bool:
+		"""Return True if planned_losses table content has changed."""
+		before = self.get_doc_before_save()
+		if not before:
+			return bool(self.planned_losses)
+		prev = before.get("planned_losses") or []
+		curr = self.get("planned_losses") or []
+		if len(prev) != len(curr):
+			return True
+		for i, row in enumerate(curr):
+			if i >= len(prev):
+				return True
+			p = prev[i]
+			if (
+				getattr(row, "loss_type", None) != getattr(p, "loss_type", None)
+				or getattr(row, "start_time", None) != getattr(p, "start_time", None)
+				or getattr(row, "end_time", None) != getattr(p, "end_time", None)
+			):
+				return True
+		return False
+
+	def _validate_no_overlapping_shifts(self) -> None:
+		"""Prevent overlapping shift time periods (exclude Cancelled)."""
+		if not all([self.shift_date, self.planned_start_time, self.shift_end_date, self.planned_end_time]):
+			return
+
+		my_start = self._combine_date_time(self.shift_date, self.planned_start_time)
+		my_end = self._combine_date_time(self.shift_end_date, self.planned_end_time)
+
+		others = frappe.get_all(
+			"Shift",
+			filters=[
+				["status", "!=", "Cancelled"],
+				["name", "!=", self.name or ""],
+			],
+			fields=["name", "shift_date", "planned_start_time", "shift_end_date", "planned_end_time"],
+		)
+
+		for row in others:
+			other_start = self._combine_date_time(row["shift_date"], row["planned_start_time"])
+			other_end = self._combine_date_time(row["shift_end_date"], row["planned_end_time"])
+			if my_start < other_end and my_end > other_start:
+				link = frappe.utils.get_link_to_form("Shift", row["name"])
+				frappe.throw(_("Shift time overlaps with {0}.").format(link))
+
+	def _validate_unique_shift_label_per_date(self) -> None:
+		"""Enforce unique shift_label per shift_date (exclude Cancelled)."""
+		if not self.shift_date or not self.shift_label:
+			return
+
+		filters = [
+			["shift_date", "=", self.shift_date],
+			["shift_label", "=", self.shift_label],
+			["status", "!=", "Cancelled"],
+		]
+		if not self.is_new():
+			filters.append(["name", "!=", self.name])
+
+		existing = frappe.get_all("Shift", filters=filters, limit=1)
+		if existing:
+			frappe.throw(
+				_("Shift {0} already exists for date {1}.").format(
+					frappe.bold(self.shift_label),
+					frappe.bold(str(self.shift_date)),
+				)
+			)
 
 	def _transition_status(self, *, to_status: str, allowed_from: tuple[str, ...]) -> None:
 		if self.is_new():
