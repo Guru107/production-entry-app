@@ -1,0 +1,16 @@
+[
+ {
+  "docstatus": 0,
+  "doctype": "Loss Type",
+  "loss_type_name": "Tea Break",
+  "modified": "2026-02-03 16:26:15.888511",
+  "name": "Tea Break"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Loss Type",
+  "loss_type_name": "Lunch Break",
+  "modified": "2026-02-03 16:26:50.769930",
+  "name": "Lunch Break"
+ }
+]

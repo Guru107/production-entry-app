@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+import unittest
 
 import frappe
 from frappe.exceptions import ValidationError
@@ -447,6 +448,68 @@ class TestShift(FrappeTestCase):
 		).insert()
 		self.assertEqual(doc1.name, name1)
 		self.assertEqual(doc2.name, name2)
+
+	def test_get_linked_downtime_entries_returns_overlapping_downtimes(self) -> None:
+		"""get_linked_downtime_entries returns Downtime Entries whose time overlaps with the Shift."""
+		from production_entry_app.production_entry_app.doctype.shift.shift import (
+			get_linked_downtime_entries,
+		)
+
+		workstation = frappe.get_all("Workstation", limit=1, pluck="name")
+		employee = frappe.get_all("Employee", limit=1, pluck="name")
+		if not workstation or not employee:
+			raise unittest.SkipTest(
+				"Workstation and Employee required for Downtime Entry; skipping linked downtimes test"
+			)
+		workstation, employee = workstation[0], employee[0]
+
+		name = self._expected_name("2026-03-10", "1")
+		self._delete_shift_if_exists(name)
+
+		frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": "2026-03-10",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so get_linked_downtime_entries sees shift
+
+		# Downtime 10:00-11:00 overlaps with shift 08:00-16:00
+		dt_overlap = frappe.get_doc(
+			{
+				"doctype": "Downtime Entry",
+				"workstation": workstation,
+				"operator": employee,
+				"from_time": "2026-03-10 10:00:00",
+				"to_time": "2026-03-10 11:00:00",
+				"stop_reason": "Other",
+			}
+		).insert()
+		# Downtime 18:00-19:00 does NOT overlap with shift 08:00-16:00
+		dt_no_overlap = frappe.get_doc(
+			{
+				"doctype": "Downtime Entry",
+				"workstation": workstation,
+				"operator": employee,
+				"from_time": "2026-03-10 18:00:00",
+				"to_time": "2026-03-10 19:00:00",
+				"stop_reason": "Other",
+			}
+		).insert()
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit
+
+		result = get_linked_downtime_entries(name)
+		names = [r["name"] for r in result]
+		self.assertIn(dt_overlap.name, names)
+		self.assertNotIn(dt_no_overlap.name, names)
+
+		# Cleanup
+		frappe.delete_doc("Downtime Entry", dt_overlap.name, force=True)
+		frappe.delete_doc("Downtime Entry", dt_no_overlap.name, force=True)
+		frappe.delete_doc("Shift", name, force=True)
 
 	def test_update_shift_can_change_own_times_without_false_overlap(self) -> None:
 		"""Updating a shift (e.g. duration) should not falsely overlap with itself."""
