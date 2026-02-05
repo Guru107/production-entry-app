@@ -67,7 +67,7 @@ Update the file after completing each sub-task, not just after completing an ent
   - [x] 4.2 Implement server-side logic in shift.py to auto-populate planned losses when shift_duration changes
   - [x] 4.3 For 8-hour shifts: add Tea Break at +2 hours (15 min), Lunch Break at +4 hours (30 min)
   - [x] 4.4 For 10/12-hour shifts: add Tea Break at +2h (15 min), Lunch Break at +4h (30 min), Tea Break at +6h (15 min)
-  - [x] 4.5 Create client-side script (shift.js) to trigger auto-population on shift_duration field change
+  - [x] 4.5 Create client-side script (shift.js) to trigger auto-population on planned_start_time, shift_duration, or shift_date change (no user click required)
   - [x] 4.6 Run tests to verify planned losses populate correctly for each duration
 
 - [x] 5.0 Implement workflow and state management

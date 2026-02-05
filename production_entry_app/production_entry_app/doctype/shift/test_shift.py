@@ -66,14 +66,15 @@ class TestShift(FrappeTestCase):
 		self.assertEqual(doc.shift_end_date, "2026-02-08")
 
 	def test_name_format(self) -> None:
-		expected_name = self._expected_name("2026-02-05", "2")
+		# Use date unlikely to collide with test_defaults (which uses frappe.utils.today())
+		expected_name = self._expected_name("2026-04-01", "2")
 		self._delete_shift_if_exists(expected_name)
 		doc = frappe.get_doc(
 			{
 				"doctype": "Shift",
 				"shift_label": "2",
 				"shift_duration": "8",
-				"shift_date": "2026-02-05",
+				"shift_date": "2026-04-01",
 				"planned_start_time": "08:00:00",
 			}
 		).insert()

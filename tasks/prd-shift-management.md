@@ -40,7 +40,7 @@ A dedicated Shift DocType that provides:
 | ID | As a... | I want to... | So that... |
 |----|---------|--------------|------------|
 | US-01 | Supervisor | Create a new shift with my current date/time pre-filled | I can quickly start documenting my shift |
-| US-02 | Supervisor | Have planned breaks auto-populated based on shift duration | I don't have to manually enter standard break times |
+| US-02 | Supervisor | Have planned breaks auto-populated when I change shift duration, planned start time, or shift date | I don't have to click a button or manually enter standard break times |
 | US-03 | Supervisor | Modify warehouse defaults for my shift | I can override settings when production moves to different areas |
 | US-04 | Supervisor | Start and end my shift with button clicks | State transitions are clear and simple |
 | US-05 | Supervisor | See all downtime events linked to my shift | I have a complete picture of shift interruptions |
@@ -93,6 +93,7 @@ A dedicated Shift DocType that provides:
 | FR-13 | The Shift DocType must include a \"Planned Losses\" child table using the reusable \"Loss Entry\" child table DocType with fields: Loss Type (Link), Start Time (Time), End Time (Time) |
 | FR-14 | When Shift Duration is set to 8 hours, the system must auto-populate: Tea Break at +2 hours (15 min), Lunch Break at +4 hours (30 min) |
 | FR-15 | When Shift Duration is set to 10 or 12 hours, the system must auto-populate: Tea Break at +2 hours (15 min), Lunch Break at +4 hours (30 min), Tea Break at +6 hours (15 min) |
+| FR-15a | Planned breaks must auto-load on change of planned_start_time, shift_duration, or shift_date—no user click required |
 | FR-16 | Planned Losses must be editable in Draft state |
 | FR-17 | Planned Losses must be locked (non-editable) in Running and Completed states |
 
