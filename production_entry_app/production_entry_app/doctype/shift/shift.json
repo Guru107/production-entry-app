@@ -14,6 +14,7 @@
   "planned_start_time",
   "planned_end_time",
   "supervisor",
+  "branch",
   "raw_material_warehouse",
   "work_in_progress_warehouse",
   "rejection_warehouse",
@@ -81,6 +82,12 @@
    "label": "Supervisor",
    "options": "User",
    "read_only": 1
+  },
+  {
+   "fieldname": "branch",
+   "fieldtype": "Link",
+   "label": "Branch",
+   "options": "Branch"
   },
   {
    "fieldname": "raw_material_warehouse",

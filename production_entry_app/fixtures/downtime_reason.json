@@ -1,0 +1,12 @@
+[
+	{
+		"doctype": "Downtime Reason",
+		"name": "Tea Break",
+		"downtime_reason_name": "Tea Break"
+	},
+	{
+		"doctype": "Downtime Reason",
+		"name": "Lunch Break",
+		"downtime_reason_name": "Lunch Break"
+	}
+]

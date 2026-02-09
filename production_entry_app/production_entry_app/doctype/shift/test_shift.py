@@ -8,17 +8,17 @@ from frappe.exceptions import ValidationError
 from frappe.tests.utils import FrappeTestCase
 
 
-def _ensure_loss_types() -> None:
-	"""Ensure Tea Break and Lunch Break Loss Types exist (for planned losses tests)."""
+def _ensure_downtime_reasons() -> None:
+	"""Ensure Tea Break and Lunch Break Downtime Reasons exist (for planned losses tests)."""
 	for name in ("Tea Break", "Lunch Break"):
-		if not frappe.db.exists("Loss Type", name):
-			frappe.get_doc({"doctype": "Loss Type", "loss_type_name": name}).insert()
+		if not frappe.db.exists("Downtime Reason", name):
+			frappe.get_doc({"doctype": "Downtime Reason", "downtime_reason_name": name}).insert()
 
 
 class TestShift(FrappeTestCase):
 	def setUp(self) -> None:
 		super().setUp()
-		_ensure_loss_types()
+		_ensure_downtime_reasons()
 
 	def test_defaults_are_populated_on_insert(self) -> None:
 		self._delete_shift_if_exists(self._expected_name(frappe.utils.today(), "1"))
@@ -230,11 +230,11 @@ class TestShift(FrappeTestCase):
 		self.assertEqual(len(doc.planned_losses), 2)
 
 		tea, lunch = doc.planned_losses[0], doc.planned_losses[1]
-		self.assertEqual(tea.loss_type, "Tea Break")
+		self.assertEqual(tea.downtime_reason, "Tea Break")
 		self.assertEqual(tea.start_time, "10:00:00")
 		self.assertEqual(tea.end_time, "10:15:00")
 
-		self.assertEqual(lunch.loss_type, "Lunch Break")
+		self.assertEqual(lunch.downtime_reason, "Lunch Break")
 		self.assertEqual(lunch.start_time, "12:00:00")
 		self.assertEqual(lunch.end_time, "12:30:00")
 
@@ -255,15 +255,15 @@ class TestShift(FrappeTestCase):
 		self.assertEqual(len(doc.planned_losses), 3)
 
 		tea1, lunch, tea2 = doc.planned_losses[0], doc.planned_losses[1], doc.planned_losses[2]
-		self.assertEqual(tea1.loss_type, "Tea Break")
+		self.assertEqual(tea1.downtime_reason, "Tea Break")
 		self.assertEqual(tea1.start_time, "10:00:00")
 		self.assertEqual(tea1.end_time, "10:15:00")
 
-		self.assertEqual(lunch.loss_type, "Lunch Break")
+		self.assertEqual(lunch.downtime_reason, "Lunch Break")
 		self.assertEqual(lunch.start_time, "12:00:00")
 		self.assertEqual(lunch.end_time, "12:30:00")
 
-		self.assertEqual(tea2.loss_type, "Tea Break")
+		self.assertEqual(tea2.downtime_reason, "Tea Break")
 		self.assertEqual(tea2.start_time, "14:00:00")
 		self.assertEqual(tea2.end_time, "14:15:00")
 
@@ -311,7 +311,7 @@ class TestShift(FrappeTestCase):
 		doc.save()
 
 		self.assertEqual(len(doc.planned_losses), 3)
-		self.assertEqual(doc.planned_losses[2].loss_type, "Tea Break")
+		self.assertEqual(doc.planned_losses[2].downtime_reason, "Tea Break")
 		self.assertEqual(doc.planned_losses[2].start_time, "14:00:00")
 
 	def test_status_cannot_be_changed_directly(self) -> None:
@@ -621,10 +621,8 @@ class TestShift(FrappeTestCase):
 
 		# End any Running shifts from previous tests to ensure clean state
 		for shift_name in frappe.get_all("Shift", filters={"status": "Running"}, pluck="name"):
-			try:
-				frappe.get_doc("Shift", shift_name).end_shift()
-			except Exception:
-				pass
+			frappe.db.set_value("Shift", shift_name, "status", "Completed", update_modified=False)
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so check_running_shift_conflict sees no Running shifts
 
 		name = self._expected_name("2026-03-01", "1")
 		self._delete_shift_if_exists(name)
@@ -642,6 +640,40 @@ class TestShift(FrappeTestCase):
 		result = check_running_shift_conflict(name)
 		self.assertFalse(result.get("has_conflict"))
 		self.assertEqual(result.get("conflicting_shifts"), [])
+
+	def test_branch_field_can_be_set(self) -> None:
+		name = self._expected_name("2026-03-11", "1")
+		self._delete_shift_if_exists(name)
+
+		if not frappe.db.exists("Branch", "Test Branch"):
+			frappe.get_doc({"doctype": "Branch", "branch": "Test Branch"}).insert(ignore_permissions=True)
+
+		doc = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": "2026-03-11",
+				"planned_start_time": "08:00:00",
+				"branch": "Test Branch",
+			}
+		).insert()
+		self.assertEqual(doc.branch, "Test Branch")
+
+	def test_branch_field_is_optional(self) -> None:
+		name = self._expected_name("2026-03-12", "1")
+		self._delete_shift_if_exists(name)
+
+		doc = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": "2026-03-12",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+		self.assertFalse(doc.branch)
 
 	def _expected_name(self, shift_date: str, shift_label: str) -> str:
 		return f"SHIFT-{shift_date}.Shift-{shift_label}"
@@ -666,11 +698,11 @@ def _ensure_user_with_role(email: str, role: str) -> None:
 
 
 class TestShiftPermissions(FrappeTestCase):
-	"""Verify role-based access control for Shift and Loss Type."""
+	"""Verify role-based access control for Shift and Downtime Reason."""
 
 	def setUp(self) -> None:
 		super().setUp()
-		_ensure_loss_types()
+		_ensure_downtime_reasons()
 		# Ensure Manufacturing User and Manufacturing Manager roles exist (ERPNext)
 		if not frappe.db.exists("Role", "Manufacturing User"):
 			frappe.get_doc({"doctype": "Role", "role_name": "Manufacturing User"}).insert(
@@ -733,20 +765,20 @@ class TestShiftPermissions(FrappeTestCase):
 		loaded.delete()
 		self.assertFalse(frappe.db.exists("Shift", doc.name))
 
-	def test_manufacturing_user_can_crud_loss_type(self) -> None:
+	def test_manufacturing_user_can_crud_downtime_reason(self) -> None:
 		_ensure_user_with_role("test_shift_mfg_user@example.com", "Manufacturing User")
 		frappe.set_user("test_shift_mfg_user@example.com")
 
-		loss_type_name = f"Test Loss Type {frappe.generate_hash(length=6)}"
-		if frappe.db.exists("Loss Type", loss_type_name):
-			frappe.delete_doc("Loss Type", loss_type_name)
+		reason_name = f"Test Downtime Reason {frappe.generate_hash(length=6)}"
+		if frappe.db.exists("Downtime Reason", reason_name):
+			frappe.delete_doc("Downtime Reason", reason_name)
 
-		doc = frappe.get_doc({"doctype": "Loss Type", "loss_type_name": loss_type_name}).insert()
-		self.assertTrue(frappe.db.exists("Loss Type", doc.name))
+		doc = frappe.get_doc({"doctype": "Downtime Reason", "downtime_reason_name": reason_name}).insert()
+		self.assertTrue(frappe.db.exists("Downtime Reason", doc.name))
 
-		loaded = frappe.get_doc("Loss Type", doc.name)
+		loaded = frappe.get_doc("Downtime Reason", doc.name)
 		loaded.delete()
-		self.assertFalse(frappe.db.exists("Loss Type", doc.name))
+		self.assertFalse(frappe.db.exists("Downtime Reason", doc.name))
 
 	def test_user_without_manufacturing_role_cannot_access_shift(self) -> None:
 		"""User with only Blogger role must not have Shift permission."""

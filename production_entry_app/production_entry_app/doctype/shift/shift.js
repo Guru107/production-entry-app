@@ -72,6 +72,17 @@ frappe.ui.form.on("Shift", {
 				},
 				__("Create")
 			);
+
+			frm.add_custom_button(
+				__("Production Entry"),
+				function () {
+					frappe.new_doc("Stock Entry", {
+						stock_entry_type: "Manufacture",
+						custom_shift: frm.doc.name,
+					});
+				},
+				__("Create")
+			);
 		}
 
 		_render_linked_downtime_entries(frm);

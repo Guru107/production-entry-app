@@ -77,7 +77,7 @@ def get_planned_losses_for_duration(
 	doc._populate_planned_losses()
 
 	return [
-		{"loss_type": r.loss_type, "start_time": r.start_time, "end_time": r.end_time}
+		{"downtime_reason": r.downtime_reason, "start_time": r.start_time, "end_time": r.end_time}
 		for r in doc.planned_losses
 	]
 
@@ -252,7 +252,7 @@ class Shift(Document):
 				return True
 			p = prev[i]
 			if (
-				getattr(row, "loss_type", None) != getattr(p, "loss_type", None)
+				getattr(row, "downtime_reason", None) != getattr(p, "downtime_reason", None)
 				or getattr(row, "start_time", None) != getattr(p, "start_time", None)
 				or getattr(row, "end_time", None) != getattr(p, "end_time", None)
 			):
@@ -387,14 +387,14 @@ class Shift(Document):
 		# 10h/12h: Tea +2h, Lunch +4h, Tea +6h
 		entries.append(
 			{
-				"loss_type": "Tea Break",
+				"downtime_reason": "Tea Break",
 				"start_time": add_to_date(base, hours=2).time().strftime("%H:%M:%S"),
 				"end_time": add_to_date(base, hours=2, minutes=15).time().strftime("%H:%M:%S"),
 			}
 		)
 		entries.append(
 			{
-				"loss_type": "Lunch Break",
+				"downtime_reason": "Lunch Break",
 				"start_time": add_to_date(base, hours=4).time().strftime("%H:%M:%S"),
 				"end_time": add_to_date(base, hours=4, minutes=30).time().strftime("%H:%M:%S"),
 			}
@@ -402,7 +402,7 @@ class Shift(Document):
 		if duration_hours in (10, 12):
 			entries.append(
 				{
-					"loss_type": "Tea Break",
+					"downtime_reason": "Tea Break",
 					"start_time": add_to_date(base, hours=6).time().strftime("%H:%M:%S"),
 					"end_time": add_to_date(base, hours=6, minutes=15).time().strftime("%H:%M:%S"),
 				}
