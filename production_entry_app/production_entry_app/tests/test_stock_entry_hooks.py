@@ -73,7 +73,10 @@ def _create_test_shift(
 	if rejection_warehouse:
 		doc_data["rejection_warehouse"] = rejection_warehouse
 
-	return frappe.get_doc(doc_data).insert()
+	shift = frappe.get_doc(doc_data).insert()
+	# Start the shift to set status to "Running" so it appears in custom_shift filter
+	shift.start_shift()
+	return shift
 
 
 def _create_manufacture_stock_entry(

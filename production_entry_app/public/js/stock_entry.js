@@ -2,6 +2,16 @@
 // For license information, please see license.txt
 
 frappe.ui.form.on("Stock Entry", {
+	refresh(frm) {
+		// Set filter to only show Running shifts
+		frm.set_query("custom_shift", function() {
+			return {
+				filters: [
+					["Shift", "status", "=", "Running"]
+				]
+			};
+		});
+	},
 	custom_shift(frm) {
 		if (frm.doc.custom_shift) {
 			frappe.call({

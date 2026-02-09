@@ -86,7 +86,14 @@ def _apply_rejection_entries(doc) -> None:
 	rejection_row.transfer_qty = rejection_qty * (fg_row.conversion_factor or 1)
 	rejection_row.t_warehouse = rejection_warehouse
 	rejection_row.s_warehouse = fg_row.s_warehouse
+	# Copy accounting fields from FG row
+	rejection_row.expense_account = fg_row.expense_account
+	if hasattr(fg_row, "cost_center") and fg_row.cost_center:
+		rejection_row.cost_center = fg_row.cost_center
+	if hasattr(fg_row, "project") and fg_row.project:
+		rejection_row.project = fg_row.project
 	rejection_row.custom_is_rejection_item = 1
+	rejection_row.is_scrap_item = 1
 	rejection_row.is_finished_item = 0
 	rejection_row.bom_no = ""
 
@@ -133,9 +140,7 @@ def _get_rejection_warehouse(doc) -> str:
 	# Try from Manufacturing Settings
 	settings_meta = frappe.get_meta("Manufacturing Settings", cached=True)
 	if settings_meta.has_field("shift_rejection_warehouse"):
-		wh = frappe.db.get_value(
-			"Manufacturing Settings", "Manufacturing Settings", "shift_rejection_warehouse"
-		)
+		wh = frappe.db.get_single_value("Manufacturing Settings", "shift_rejection_warehouse")
 		if wh:
 			return wh
 
