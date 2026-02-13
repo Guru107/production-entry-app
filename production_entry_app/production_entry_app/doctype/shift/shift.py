@@ -168,8 +168,27 @@ class Shift(Document):
 		"""Transition Draft -> Running.
 
 		Status is system-managed; use this action instead of editing the Status field.
+		Blocked if another shift is already Running.
 		"""
+		self._validate_no_other_running_shift()
 		self._transition_status(to_status="Running", allowed_from=("Draft",))
+
+	def _validate_no_other_running_shift(self) -> None:
+		"""Prevent starting a shift when another shift is already Running."""
+		running = frappe.get_all(
+			"Shift",
+			filters=[["status", "=", "Running"], ["name", "!=", self.name or ""]],
+			fields=["name", "shift_label", "shift_date"],
+			limit=1,
+		)
+		if running:
+			s = running[0]
+			frappe.throw(
+				_("Cannot start shift. {0} ({1}) is already Running.").format(
+					frappe.utils.get_link_to_form("Shift", s["name"]),
+					s.get("shift_label") or s["name"],
+				)
+			)
 
 	@frappe.whitelist()
 	def end_shift(self) -> None:

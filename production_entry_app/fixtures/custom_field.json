@@ -84,7 +84,18 @@
 		"label": "Shift",
 		"options": "Shift",
 		"insert_after": "stock_entry_type",
-		"filters": "[[\"status\", \"=\", \"Running\"]]",
+		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Custom Field",
+		"name": "Stock Entry-branch",
+		"dt": "Stock Entry",
+		"fieldname": "branch",
+		"fieldtype": "Link",
+		"label": "Branch",
+		"options": "Branch",
+		"insert_after": "custom_shift",
+		"read_only": 1,
 		"module": "Production Entry App"
 	},
 	{
@@ -93,18 +104,8 @@
 		"dt": "Stock Entry",
 		"fieldname": "custom_operation_details_section",
 		"fieldtype": "Section Break",
-		"label": "Operation Details",
-		"insert_after": "custom_rejection_qty",
-		"module": "Production Entry App"
-	},
-	{
-		"doctype": "Custom Field",
-		"name": "Stock Entry-custom_planned_actual_dates_section",
-		"dt": "Stock Entry",
-		"fieldname": "custom_planned_actual_dates_section",
-		"fieldtype": "Section Break",
 		"label": "Planned & Actual Dates",
-		"insert_after": "custom_operation_details_section",
+		"insert_after": "apply_putaway_rule",
 		"module": "Production Entry App"
 	},
 	{
@@ -115,7 +116,7 @@
 		"fieldtype": "Datetime",
 		"label": "Planned Start Date",
 		"read_only": 1,
-		"insert_after": "custom_planned_actual_dates_section",
+		"insert_after": "custom_operation_details_section",
 		"module": "Production Entry App"
 	},
 	{

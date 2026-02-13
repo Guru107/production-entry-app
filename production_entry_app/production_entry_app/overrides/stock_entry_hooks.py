@@ -24,7 +24,7 @@ def _apply_shift_defaults(doc) -> None:
 	shift = frappe.get_doc("Shift", doc.custom_shift)
 
 	if shift.branch:
-		doc.custom_branch = shift.branch
+		doc.branch = shift.branch
 
 	if shift.shift_date and shift.planned_start_time:
 		doc.custom_planned_start_date = datetime.datetime.combine(

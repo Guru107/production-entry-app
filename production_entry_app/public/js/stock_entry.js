@@ -21,7 +21,7 @@ frappe.ui.form.on("Stock Entry", {
 					if (r.message) {
 						const data = r.message;
 						if (data.branch) {
-							frm.set_value("custom_branch", data.branch);
+							frm.set_value("branch", data.branch);
 						}
 						if (data.custom_planned_start_date) {
 							frm.set_value(
@@ -42,7 +42,7 @@ frappe.ui.form.on("Stock Entry", {
 				},
 			});
 		} else {
-			frm.set_value("custom_branch", "");
+			frm.set_value("branch", "");
 			frm.set_value("custom_planned_start_date", "");
 			frm.set_value("custom_planned_end_date", "");
 			frm.set_value("from_warehouse", "");

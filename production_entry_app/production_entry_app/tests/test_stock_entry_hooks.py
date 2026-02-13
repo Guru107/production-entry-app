@@ -55,6 +55,9 @@ def _create_test_shift(
 ) -> frappe.Document:
 	"""Create and return a test Shift."""
 	_ensure_downtime_reasons()
+	# End any stale Running shifts so start_shift() is not blocked
+	for sn in frappe.get_all("Shift", filters={"status": "Running"}, pluck="name"):
+		frappe.db.set_value("Shift", sn, "status", "Completed", update_modified=False)
 	name = f"SHIFT-{shift_date}.Shift-{shift_label}"
 	if frappe.db.exists("Shift", name):
 		frappe.delete_doc("Shift", name, force=True, ignore_permissions=True)
@@ -131,6 +134,9 @@ def _create_manufacture_stock_entry(
 
 
 class TestStockEntryHooks(FrappeTestCase):
+	# Shift dates used by tests in this class (April 10-17, 2026)
+	_SHIFT_DATES = [f"2026-04-{d}" for d in range(10, 18)]
+
 	@classmethod
 	def setUpClass(cls) -> None:
 		super().setUpClass()
@@ -142,6 +148,17 @@ class TestStockEntryHooks(FrappeTestCase):
 		cls.fg_warehouse = _get_or_create_warehouse(f"FG Test - {abbr}", cls.company)
 		cls.fg_item = _get_or_create_item("_Test FG Item For Shift")
 		cls.rm_item = _get_or_create_item("_Test RM Item For Shift")
+
+	@classmethod
+	def tearDownClass(cls) -> None:
+		"""End all Running shifts created by this test class to prevent leakage."""
+		for shift_date in cls._SHIFT_DATES:
+			for label in ("1", "2"):
+				name = f"SHIFT-{shift_date}.Shift-{label}"
+				if frappe.db.exists("Shift", name):
+					frappe.db.set_value("Shift", name, "status", "Completed", update_modified=False)
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed to persist cleanup
+		super().tearDownClass()
 
 	def test_shift_reference_auto_fills_branch(self) -> None:
 		if not frappe.db.exists("Branch", "Test Branch SE"):
@@ -163,7 +180,7 @@ class TestStockEntryHooks(FrappeTestCase):
 		)
 		se.save()
 
-		self.assertEqual(se.custom_branch, "Test Branch SE")
+		self.assertEqual(se.branch, "Test Branch SE")
 
 	def test_shift_reference_auto_fills_planned_dates(self) -> None:
 		shift = _create_test_shift(

@@ -88,12 +88,14 @@
 	},
 	{
 		"doctype": "Custom Field",
-		"name": "Stock Entry-custom_operation_details_tab",
+		"name": "Stock Entry-branch",
 		"dt": "Stock Entry",
-		"fieldname": "custom_operation_details_tab",
-		"fieldtype": "Tab Break",
-		"label": "Operation Details",
-		"insert_after": "tab_connections",
+		"fieldname": "branch",
+		"fieldtype": "Link",
+		"label": "Branch",
+		"options": "Branch",
+		"insert_after": "custom_shift",
+		"read_only": 1,
 		"module": "Production Entry App"
 	},
 	{
@@ -103,7 +105,7 @@
 		"fieldname": "custom_operation_details_section",
 		"fieldtype": "Section Break",
 		"label": "Planned & Actual Dates",
-		"insert_after": "custom_operation_details_tab",
+		"insert_after": "apply_putaway_rule",
 		"module": "Production Entry App"
 	},
 	{

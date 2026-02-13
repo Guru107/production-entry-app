@@ -19,6 +19,9 @@ class TestShift(FrappeTestCase):
 	def setUp(self) -> None:
 		super().setUp()
 		_ensure_downtime_reasons()
+		# End any stale Running shifts so start_shift() is not blocked
+		for sn in frappe.get_all("Shift", filters={"status": "Running"}, pluck="name"):
+			frappe.db.set_value("Shift", sn, "status", "Completed", update_modified=False)
 
 	def test_defaults_are_populated_on_insert(self) -> None:
 		self._delete_shift_if_exists(self._expected_name(frappe.utils.today(), "1"))
@@ -241,6 +244,8 @@ class TestShift(FrappeTestCase):
 	def test_planned_losses_auto_populate_10_hour_shift(self) -> None:
 		name = self._expected_name("2026-02-12", "2")
 		self._delete_shift_if_exists(name)
+		# Clean up any stale Shift-1 on same date to prevent overlap
+		self._delete_shift_if_exists(self._expected_name("2026-02-12", "1"))
 
 		doc = frappe.get_doc(
 			{
@@ -611,6 +616,44 @@ class TestShift(FrappeTestCase):
 		self.assertIn(name1, [s["name"] for s in result.get("conflicting_shifts", [])])
 
 		# End Shift 1 so it does not leak into subsequent tests
+		frappe.get_doc("Shift", name1).end_shift()
+
+	def test_start_shift_blocked_when_another_running(self) -> None:
+		"""start_shift raises error when another shift is already Running."""
+		name1 = self._expected_name("2026-02-28", "1")
+		name2 = self._expected_name("2026-02-28", "2")
+		self._delete_shift_if_exists(name1)
+		self._delete_shift_if_exists(name2)
+
+		frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": "2026-02-28",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+		frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"shift_label": "2",
+				"shift_duration": "8",
+				"shift_date": "2026-02-28",
+				"planned_start_time": "16:00:00",
+			}
+		).insert()
+
+		# Start Shift 1
+		doc1 = frappe.get_doc("Shift", name1)
+		doc1.start_shift()
+
+		# Trying to start Shift 2 should be blocked
+		doc2 = frappe.get_doc("Shift", name2)
+		with self.assertRaises(frappe.ValidationError):
+			doc2.start_shift()
+
+		# End Shift 1 so it does not leak
 		frappe.get_doc("Shift", name1).end_shift()
 
 	def test_no_running_shift_conflict_when_none_running(self) -> None:

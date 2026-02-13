@@ -20,7 +20,14 @@ frappe.ui.form.on("Shift", {
 			frm.add_custom_button(
 				__("Start Shift"),
 				function () {
-					_start_shift_with_conflict_check(frm);
+					frm.call({
+						method: "start_shift",
+						doc: frm.doc,
+						freeze: true,
+						callback: function () {
+							frm.reload_doc();
+						},
+					});
 				},
 				actions_group
 			);
@@ -113,47 +120,6 @@ function _populate_default_breaks_if_draft(frm) {
 				frm.clear_table("planned_losses");
 				r.message.forEach((row) => frm.add_child("planned_losses", row));
 				frm.refresh_field("planned_losses");
-			}
-		},
-	});
-}
-
-function _start_shift_with_conflict_check(frm) {
-	frappe.call({
-		method: "production_entry_app.production_entry_app.doctype.shift.shift.check_running_shift_conflict",
-		args: { shift_name: frm.doc.name },
-		callback(r) {
-			const data = r.message || {};
-			if (
-				data.has_conflict &&
-				Array.isArray(data.conflicting_shifts) &&
-				data.conflicting_shifts.length > 0
-			) {
-				const list = data.conflicting_shifts
-					.map((s) => `${s.shift_label || s.name} (${s.shift_date || ""})`)
-					.join(", ");
-				frappe.confirm(
-					__("Another shift is already running: {0}. Start this shift anyway?", [list]),
-					function () {
-						frm.call({
-							method: "start_shift",
-							doc: frm.doc,
-							freeze: true,
-							callback: function () {
-								frm.reload_doc();
-							},
-						});
-					}
-				);
-			} else {
-				frm.call({
-					method: "start_shift",
-					doc: frm.doc,
-					freeze: true,
-					callback: function () {
-						frm.reload_doc();
-					},
-				});
 			}
 		},
 	});
