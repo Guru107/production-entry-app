@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Development Philosophy
 Always follow test driven development. Write tests first and then implement features to satisfy them.
-The coverage must always be above 80%. Tests are the source of truth. No feature or code changes must be implemented without writing test cases first. Tests are the holy grail. The ultimate proof of application correctness.
+The coverage must always be above 90%. Tests are the source of truth. No feature or code changes must be implemented without writing test cases first. Tests are the holy grail. The ultimate proof of application correctness.
 
 ## Project Overview
 
