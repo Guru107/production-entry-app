@@ -27,6 +27,10 @@ class TestShift(FrappeTestCase):
 		for sn in frappe.get_all("Shift", filters={"shift_date": frappe.utils.today()}, pluck="name"):
 			frappe.delete_doc("Shift", sn, force=True, ignore_permissions=True)
 
+	def _delete_shifts_for_date(self, shift_date: str) -> None:
+		for sn in frappe.get_all("Shift", filters={"shift_date": shift_date}, pluck="name"):
+			frappe.delete_doc("Shift", sn, force=True, ignore_permissions=True)
+
 	def test_defaults_are_populated_on_insert(self) -> None:
 		self._delete_shift_if_exists(self._expected_name(frappe.utils.today(), "1"))
 		doc = frappe.get_doc(
@@ -87,6 +91,16 @@ class TestShift(FrappeTestCase):
 		).insert()
 
 		self.assertEqual(doc.name, expected_name)
+
+	def test_status_state_colors_use_standard_mapping(self) -> None:
+		frappe.reload_doc("production_entry_app", "doctype", "shift")
+		frappe.clear_cache(doctype="Shift")
+		meta = frappe.get_meta("Shift")
+		state_map = {row.title: row.color for row in meta.states}
+		self.assertEqual(state_map.get("Draft"), "Orange")
+		self.assertEqual(state_map.get("Running"), "Blue")
+		self.assertEqual(state_map.get("Completed"), "Green")
+		self.assertEqual(state_map.get("Cancelled"), "Red")
 
 	def test_status_transitions_via_actions(self) -> None:
 		name = self._expected_name("2026-02-09", "1")
@@ -301,6 +315,7 @@ class TestShift(FrappeTestCase):
 		self.assertEqual(tea2.end_time, "12:15:00")
 
 	def test_planned_losses_repopulate_when_shift_duration_changes(self) -> None:
+		self._delete_shifts_for_date("2026-02-14")
 		name = self._expected_name("2026-02-14", "2")
 		self._delete_shift_if_exists(name)
 
