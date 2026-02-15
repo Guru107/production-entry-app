@@ -7,6 +7,8 @@ import frappe
 from frappe import _
 from frappe.utils import get_time
 
+from production_entry_app.production_entry_app.utils.shift_time import get_shift_planned_end_datetime
+
 
 @frappe.whitelist()
 def get_shift_details_for_stock_entry(shift_name: str) -> dict:
@@ -27,13 +29,13 @@ def get_shift_details_for_stock_entry(shift_name: str) -> dict:
 		)
 
 	planned_end = None
-	end_date = shift.shift_end_date or shift.shift_date
-	end_time = shift.planned_end_time
-	if end_date and end_time:
-		planned_end = datetime.datetime.combine(
-			frappe.utils.getdate(end_date),
-			get_time(end_time),
-		)
+	planned_end = get_shift_planned_end_datetime(
+		shift_date=shift.shift_date,
+		planned_start_time=shift.planned_start_time,
+		planned_end_time=shift.planned_end_time,
+		shift_end_date=shift.shift_end_date,
+		shift_duration=shift.shift_duration,
+	)
 
 	return {
 		"branch": shift.branch,

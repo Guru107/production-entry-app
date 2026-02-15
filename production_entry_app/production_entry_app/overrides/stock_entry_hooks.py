@@ -6,6 +6,8 @@ import frappe
 from frappe import _
 from frappe.utils import get_time
 
+from production_entry_app.production_entry_app.utils.shift_time import get_shift_planned_end_datetime
+
 
 def validate_stock_entry(doc, method: str | None = None) -> None:
 	"""Hook called on Stock Entry validate event.
@@ -32,13 +34,15 @@ def _apply_shift_defaults(doc) -> None:
 			get_time(shift.planned_start_time),
 		)
 
-	end_date = shift.shift_end_date or shift.shift_date
-	end_time = shift.planned_end_time
-	if end_date and end_time:
-		doc.custom_planned_end_date = datetime.datetime.combine(
-			frappe.utils.getdate(end_date),
-			get_time(end_time),
-		)
+	planned_end = get_shift_planned_end_datetime(
+		shift_date=shift.shift_date,
+		planned_start_time=shift.planned_start_time,
+		planned_end_time=shift.planned_end_time,
+		shift_end_date=shift.shift_end_date,
+		shift_duration=shift.shift_duration,
+	)
+	if planned_end:
+		doc.custom_planned_end_date = planned_end
 
 	if shift.work_in_progress_warehouse:
 		doc.from_warehouse = shift.work_in_progress_warehouse

@@ -126,6 +126,8 @@
 		"fieldname": "custom_planned_end_date",
 		"fieldtype": "Datetime",
 		"label": "Planned End Date",
+		"hidden": 0,
+		"print_hide": 0,
 		"read_only": 1,
 		"insert_after": "custom_planned_start_date",
 		"module": "Production Entry App"
