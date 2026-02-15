@@ -30,6 +30,8 @@ frappe.ui.form.on("Stock Entry", {
 			};
 		});
 
+		frm.toggle_display(["custom_planned_start_date", "custom_planned_end_date"], true);
+
 		// Hide the standard "Get Items" button field — our "Fetch Items" replaces it
 		frm.set_df_property("get_items", "hidden", 1);
 	},
