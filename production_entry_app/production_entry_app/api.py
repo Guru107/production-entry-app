@@ -7,6 +7,9 @@ import frappe
 from frappe import _
 from frappe.utils import get_time
 
+from production_entry_app.production_entry_app.utils.die_tool_counter import (
+	reset_die_tool_counter as _reset_die_tool_counter,
+)
 from production_entry_app.production_entry_app.utils.shift_time import get_shift_planned_end_datetime
 
 
@@ -106,3 +109,8 @@ def get_items_with_rejection(doc: str) -> list[dict]:
 		d = {k: v for k, v in row.as_dict().items() if k not in _meta_fields}
 		items.append(d)
 	return items
+
+
+@frappe.whitelist()
+def reset_die_tool_counter(die_tool_code: str) -> dict:
+	return _reset_die_tool_counter(die_tool_code)

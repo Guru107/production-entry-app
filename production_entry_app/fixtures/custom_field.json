@@ -313,5 +313,25 @@
 		"label": "Standard SPM",
 		"insert_after": "hour_rate",
 		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Custom Field",
+		"name": "Item-custom_strokes_per_unit",
+		"dt": "Item",
+		"fieldname": "custom_strokes_per_unit",
+		"fieldtype": "Float",
+		"label": "Strokes Per Unit",
+		"insert_after": "item_name",
+		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Custom Field",
+		"name": "Item-custom_stroke_capacity",
+		"dt": "Item",
+		"fieldname": "custom_stroke_capacity",
+		"fieldtype": "Float",
+		"label": "Stroke Capacity",
+		"insert_after": "custom_strokes_per_unit",
+		"module": "Production Entry App"
 	}
 ]

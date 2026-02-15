@@ -50,6 +50,39 @@ def _ensure_rejection_breakup_custom_field() -> None:
 	).insert(ignore_permissions=True)
 
 
+def _ensure_die_tool_counter_doctype() -> None:
+	if not frappe.db.exists("DocType", "Die Tool Counter"):
+		frappe.reload_doc("production_entry_app", "doctype", "die_tool_counter")
+
+
+def _ensure_item_die_tool_fields() -> None:
+	if not frappe.db.exists("Custom Field", "Item-custom_strokes_per_unit"):
+		frappe.get_doc(
+			{
+				"doctype": "Custom Field",
+				"dt": "Item",
+				"fieldname": "custom_strokes_per_unit",
+				"fieldtype": "Float",
+				"label": "Strokes Per Unit",
+				"insert_after": "item_name",
+				"module": "Production Entry App",
+			}
+		).insert(ignore_permissions=True)
+
+	if not frappe.db.exists("Custom Field", "Item-custom_stroke_capacity"):
+		frappe.get_doc(
+			{
+				"doctype": "Custom Field",
+				"dt": "Item",
+				"fieldname": "custom_stroke_capacity",
+				"fieldtype": "Float",
+				"label": "Stroke Capacity",
+				"insert_after": "custom_strokes_per_unit",
+				"module": "Production Entry App",
+			}
+		).insert(ignore_permissions=True)
+
+
 def _append_rejection_breakup_rows(doc, rows: list[dict]) -> None:
 	for row in rows:
 		doc.append("custom_rejection_breakup", row)
@@ -87,6 +120,11 @@ def _get_or_create_item(item_code: str) -> str:
 	)
 	item.insert(ignore_permissions=True)
 	return item.name
+
+
+def _set_item_die_tool_fields(item_code: str, strokes_per_unit: float, stroke_capacity: float) -> None:
+	frappe.db.set_value("Item", item_code, "custom_strokes_per_unit", strokes_per_unit)
+	frappe.db.set_value("Item", item_code, "custom_stroke_capacity", stroke_capacity)
 
 
 def _create_test_shift(
@@ -778,6 +816,8 @@ class TestGetItemsWithRejection(FrappeTestCase):
 	def setUpClass(cls) -> None:
 		super().setUpClass()
 		_ensure_rejection_breakup_doctype()
+		_ensure_rejection_reason_doctype()
+		_ensure_rejection_reasons()
 		_ensure_rejection_breakup_custom_field()
 		cls.company = frappe.db.get_single_value("Global Defaults", "default_company") or "_Test Company"
 		abbr = frappe.db.get_value("Company", cls.company, "abbr") or "_TC"
@@ -947,3 +987,92 @@ class TestGetItemsWithRejection(FrappeTestCase):
 				frappe.db.set_value("Shift", name, "status", "Completed", update_modified=False)
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed to persist cleanup
 		super().tearDownClass()
+
+
+class TestDieToolCounter(FrappeTestCase):
+	@classmethod
+	def setUpClass(cls) -> None:
+		super().setUpClass()
+		_ensure_die_tool_counter_doctype()
+		_ensure_item_die_tool_fields()
+		cls.company = frappe.db.get_single_value("Global Defaults", "default_company") or "_Test Company"
+		abbr = frappe.db.get_value("Company", cls.company, "abbr") or "_TC"
+		cls.rm_warehouse = _get_or_create_warehouse(f"DT RM Test - {abbr}", cls.company)
+		cls.fg_warehouse = _get_or_create_warehouse(f"DT FG Test - {abbr}", cls.company)
+		cls.rm_item = _get_or_create_item("_Test Die Tool RM")
+		cls.fg_item = _get_or_create_item("_Test Die Tool FG")
+		_set_item_die_tool_fields(cls.fg_item, strokes_per_unit=12, stroke_capacity=1000)
+
+	def test_die_tool_counter_increments_on_submit(self) -> None:
+		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
+			on_submit_stock_entry,
+		)
+
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			fg_qty=10,
+			rm_qty=10,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		se.custom_rejection_qty = 2
+
+		on_submit_stock_entry(se, "on_submit")
+
+		counter = frappe.get_doc("Die Tool Counter", self.fg_item)
+		self.assertEqual(counter.current_stroke_count, 144)
+		self.assertEqual(counter.stroke_capacity, 1000)
+
+	def test_die_tool_counter_decrements_on_cancel(self) -> None:
+		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
+			on_cancel_stock_entry,
+			on_submit_stock_entry,
+		)
+
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			fg_qty=5,
+			rm_qty=5,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		se.custom_rejection_qty = 1
+
+		on_submit_stock_entry(se, "on_submit")
+		on_cancel_stock_entry(se, "on_cancel")
+
+		counter = frappe.get_doc("Die Tool Counter", self.fg_item)
+		self.assertEqual(counter.current_stroke_count, 0)
+
+	def test_die_tool_counter_reset(self) -> None:
+		from production_entry_app.production_entry_app.api import reset_die_tool_counter
+
+		if frappe.db.exists("Die Tool Counter", self.fg_item):
+			frappe.db.set_value(
+				"Die Tool Counter",
+				self.fg_item,
+				{
+					"current_stroke_count": 250,
+					"stroke_capacity": 1000,
+				},
+			)
+		else:
+			counter = frappe.get_doc(
+				{
+					"doctype": "Die Tool Counter",
+					"die_tool_item": self.fg_item,
+					"current_stroke_count": 250,
+					"stroke_capacity": 1000,
+				}
+			)
+			counter.insert(ignore_permissions=True)
+
+		reset = reset_die_tool_counter(self.fg_item)
+		updated = frappe.get_doc("Die Tool Counter", self.fg_item)
+		self.assertEqual(updated.current_stroke_count, 0)
+		self.assertEqual(reset["current_stroke_count"], 0)
+		self.assertEqual(updated.last_reset_by, frappe.session.user)
