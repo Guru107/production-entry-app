@@ -86,7 +86,9 @@ def _apply_rejection_entries(doc) -> None:
 	rejection_row.transfer_qty = rejection_qty * (fg_row.conversion_factor or 1)
 	rejection_row.t_warehouse = rejection_warehouse
 	rejection_row.s_warehouse = fg_row.s_warehouse
-	# Copy accounting fields from FG row
+	# Copy rate and accounting fields from FG row
+	rejection_row.basic_rate = fg_row.basic_rate
+	rejection_row.basic_amount = (fg_row.basic_rate or 0) * rejection_qty
 	rejection_row.expense_account = fg_row.expense_account
 	if hasattr(fg_row, "cost_center") and fg_row.cost_center:
 		rejection_row.cost_center = fg_row.cost_center

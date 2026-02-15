@@ -242,6 +242,18 @@
 		"label": "Rejection Quantity",
 		"description": "Deducted from FG qty; moved to rejection warehouse",
 		"insert_after": "fg_completed_qty",
+		"depends_on": "eval:doc.from_bom",
+		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Custom Field",
+		"name": "Stock Entry-custom_fetch_items",
+		"dt": "Stock Entry",
+		"fieldname": "custom_fetch_items",
+		"fieldtype": "Button",
+		"label": "Fetch Items",
+		"insert_after": "custom_rejection_qty",
+		"depends_on": "eval:doc.from_bom && doc.bom_no",
 		"module": "Production Entry App"
 	},
 	{
@@ -251,7 +263,6 @@
 		"fieldname": "custom_is_rejection_item",
 		"fieldtype": "Check",
 		"label": "Is Rejection Item",
-		"hidden": 1,
 		"read_only": 1,
 		"insert_after": "is_scrap_item",
 		"module": "Production Entry App"

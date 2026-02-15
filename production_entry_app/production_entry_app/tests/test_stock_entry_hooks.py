@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from typing import ClassVar
+
 import frappe
 from frappe.exceptions import ValidationError
 from frappe.tests.utils import FrappeTestCase
@@ -82,6 +85,70 @@ def _create_test_shift(
 	return shift
 
 
+def _get_or_create_bom(fg_item: str, rm_item: str, company: str, rm_qty: float = 1) -> str:
+	"""Return BOM name for fg_item, creating and submitting one if needed."""
+	existing = frappe.db.get_value(
+		"BOM", {"item": fg_item, "is_active": 1, "is_default": 1, "docstatus": 1}, "name"
+	)
+	if existing:
+		return existing
+
+	bom = frappe.get_doc(
+		{
+			"doctype": "BOM",
+			"item": fg_item,
+			"company": company,
+			"quantity": 1,
+			"is_active": 1,
+			"is_default": 1,
+			"items": [
+				{
+					"item_code": rm_item,
+					"qty": rm_qty,
+					"rate": 50,
+				}
+			],
+		}
+	)
+	bom.insert(ignore_permissions=True)
+	bom.submit()
+	return bom.name
+
+
+def _create_bom_stock_entry(
+	company: str,
+	bom_no: str,
+	fg_completed_qty: float = 100,
+	custom_rejection_qty: float = 0,
+	custom_shift: str | None = None,
+	from_warehouse: str | None = None,
+	to_warehouse: str | None = None,
+) -> frappe.Document:
+	"""Create a Manufacture Stock Entry with from_bom=1 and call get_items()."""
+	se = frappe.get_doc(
+		{
+			"doctype": "Stock Entry",
+			"purpose": "Manufacture",
+			"stock_entry_type": "Manufacture",
+			"company": company,
+			"from_bom": 1,
+			"bom_no": bom_no,
+			"fg_completed_qty": fg_completed_qty,
+			"custom_rejection_qty": custom_rejection_qty,
+			"posting_date": frappe.utils.nowdate(),
+			"posting_time": frappe.utils.nowtime(),
+		}
+	)
+	if custom_shift:
+		se.custom_shift = custom_shift
+	if from_warehouse:
+		se.from_warehouse = from_warehouse
+	if to_warehouse:
+		se.to_warehouse = to_warehouse
+	se.get_items()
+	return se
+
+
 def _create_manufacture_stock_entry(
 	company: str,
 	fg_item: str,
@@ -135,7 +202,7 @@ def _create_manufacture_stock_entry(
 
 class TestStockEntryHooks(FrappeTestCase):
 	# Shift dates used by tests in this class (April 10-17, 2026)
-	_SHIFT_DATES = [f"2026-04-{d}" for d in range(10, 18)]
+	_SHIFT_DATES: ClassVar[list[str]] = [f"2026-04-{d}" for d in range(10, 18)]
 
 	@classmethod
 	def setUpClass(cls) -> None:
@@ -368,3 +435,172 @@ class TestStockEntryHooks(FrappeTestCase):
 
 		self.assertEqual(len(se.custom_unplanned_losses), 1)
 		self.assertEqual(se.custom_unplanned_losses[0].downtime_reason, "Tea Break")
+
+
+class TestGetItemsWithRejection(FrappeTestCase):
+	"""Tests for the get_items_with_rejection API."""
+
+	@classmethod
+	def setUpClass(cls) -> None:
+		super().setUpClass()
+		cls.company = frappe.db.get_single_value("Global Defaults", "default_company") or "_Test Company"
+		abbr = frappe.db.get_value("Company", cls.company, "abbr") or "_TC"
+		cls.wip_warehouse = _get_or_create_warehouse(f"WIP Test - {abbr}", cls.company)
+		cls.rm_warehouse = _get_or_create_warehouse(f"RM Test - {abbr}", cls.company)
+		cls.rejection_warehouse = _get_or_create_warehouse(f"Rejection Test - {abbr}", cls.company)
+		cls.fg_warehouse = _get_or_create_warehouse(f"FG Test - {abbr}", cls.company)
+		cls.fg_item = _get_or_create_item("_Test FG Item For Shift")
+		cls.rm_item = _get_or_create_item("_Test RM Item For Shift")
+		cls.bom_no = _get_or_create_bom(cls.fg_item, cls.rm_item, cls.company)
+
+	def _call_api(self, **overrides) -> list[dict]:
+		"""Build a Stock Entry doc dict, serialize it, and call get_items_with_rejection."""
+		from production_entry_app.production_entry_app.api import get_items_with_rejection
+
+		doc_dict = {
+			"doctype": "Stock Entry",
+			"purpose": "Manufacture",
+			"stock_entry_type": "Manufacture",
+			"company": self.company,
+			"from_bom": 1,
+			"bom_no": self.bom_no,
+			"fg_completed_qty": 100,
+			"custom_rejection_qty": 0,
+			"from_warehouse": self.rm_warehouse,
+			"to_warehouse": self.fg_warehouse,
+		}
+		doc_dict.update(overrides)
+		return get_items_with_rejection(json.dumps(doc_dict))
+
+	def test_get_items_with_rejection_returns_bom_items(self) -> None:
+		"""API should return at least RM + FG rows from BOM."""
+		items = self._call_api()
+		item_codes = [r["item_code"] for r in items]
+		self.assertIn(self.rm_item, item_codes)
+		self.assertIn(self.fg_item, item_codes)
+
+	def test_get_items_with_rejection_deducts_from_fg(self) -> None:
+		"""FG row qty should be reduced by rejection qty."""
+		shift = _create_test_shift(
+			shift_date="2026-04-20",
+			wip_warehouse=self.wip_warehouse,
+			rejection_warehouse=self.rejection_warehouse,
+		)
+		items = self._call_api(
+			custom_rejection_qty=10,
+			custom_shift=shift.name,
+		)
+		fg_rows = [r for r in items if r.get("is_finished_item")]
+		self.assertEqual(len(fg_rows), 1)
+		self.assertEqual(fg_rows[0]["qty"], 90)
+
+	def test_get_items_with_rejection_adds_rejection_row(self) -> None:
+		"""Rejection row must have is_scrap_item=1, correct qty, rejection warehouse, and same basic_rate as FG."""
+		shift = _create_test_shift(
+			shift_date="2026-04-21",
+			wip_warehouse=self.wip_warehouse,
+			rejection_warehouse=self.rejection_warehouse,
+		)
+		items = self._call_api(
+			custom_rejection_qty=10,
+			custom_shift=shift.name,
+		)
+		fg_rows = [r for r in items if r.get("is_finished_item")]
+		rejection_rows = [r for r in items if r.get("custom_is_rejection_item")]
+		self.assertEqual(len(rejection_rows), 1)
+		rr = rejection_rows[0]
+		self.assertEqual(rr["qty"], 10)
+		self.assertEqual(rr["item_code"], self.fg_item)
+		self.assertEqual(rr["t_warehouse"], self.rejection_warehouse)
+		self.assertTrue(rr.get("is_scrap_item"), "rejection row must have is_scrap_item=1")
+		# basic_rate must match FG row
+		fg_rate = fg_rows[0].get("basic_rate", 0)
+		self.assertGreater(fg_rate, 0, "FG row must have a basic_rate")
+		self.assertEqual(rr.get("basic_rate"), fg_rate, "rejection basic_rate must equal FG basic_rate")
+
+	def test_rejection_row_basic_rate_matches_fg_on_save(self) -> None:
+		"""Rejection row basic_rate must match FG row basic_rate when saved via validate hook."""
+		shift = _create_test_shift(
+			shift_date="2026-04-23",
+			wip_warehouse=self.wip_warehouse,
+			rejection_warehouse=self.rejection_warehouse,
+		)
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			fg_qty=100,
+			custom_shift=shift.name,
+			custom_rejection_qty=10,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		# Set a known basic_rate on the FG row before save
+		for row in se.items:
+			if row.is_finished_item:
+				row.basic_rate = 200
+		se.save()
+
+		fg_rows = [r for r in se.items if r.is_finished_item]
+		rejection_rows = [r for r in se.items if r.custom_is_rejection_item]
+		self.assertEqual(len(rejection_rows), 1)
+		self.assertEqual(rejection_rows[0].basic_rate, fg_rows[0].basic_rate)
+
+	def test_custom_is_rejection_item_field_is_visible(self) -> None:
+		"""The custom_is_rejection_item Custom Field must not be hidden."""
+		hidden = frappe.db.get_value("Custom Field", "Stock Entry Detail-custom_is_rejection_item", "hidden")
+		self.assertFalse(hidden, "custom_is_rejection_item must be visible (hidden=0)")
+
+	def test_get_items_with_rejection_zero_rejection(self) -> None:
+		"""No rejection row when rejection_qty is 0."""
+		items = self._call_api(custom_rejection_qty=0)
+		rejection_rows = [r for r in items if r.get("custom_is_rejection_item")]
+		self.assertEqual(len(rejection_rows), 0)
+
+	def test_get_items_with_rejection_mirrors_browser_flow(self) -> None:
+		"""Simulate browser: doc already has items from prior get_items() call."""
+		shift = _create_test_shift(
+			shift_date="2026-04-22",
+			wip_warehouse=self.wip_warehouse,
+			rejection_warehouse=self.rejection_warehouse,
+		)
+		# First, build a SE with BOM items (like ERPNext auto-populate on fg_completed_qty change)
+		se = _create_bom_stock_entry(
+			company=self.company,
+			bom_no=self.bom_no,
+			fg_completed_qty=100,
+			from_warehouse=self.rm_warehouse,
+			to_warehouse=self.fg_warehouse,
+		)
+		# Now build the dict the browser would send (includes existing items)
+		doc_dict = se.as_dict()
+		doc_dict["custom_rejection_qty"] = 15
+		doc_dict["custom_shift"] = shift.name
+
+		from production_entry_app.production_entry_app.api import get_items_with_rejection
+
+		items = get_items_with_rejection(json.dumps(doc_dict, default=str))
+
+		fg_rows = [r for r in items if r.get("is_finished_item")]
+		rejection_rows = [r for r in items if r.get("custom_is_rejection_item")]
+		self.assertEqual(len(fg_rows), 1)
+		self.assertEqual(fg_rows[0]["qty"], 85)
+		self.assertEqual(len(rejection_rows), 1)
+		self.assertEqual(rejection_rows[0]["qty"], 15)
+		self.assertTrue(rejection_rows[0].get("is_scrap_item"))
+		self.assertEqual(rejection_rows[0]["t_warehouse"], self.rejection_warehouse)
+
+	def test_rejection_qty_field_depends_on_from_bom(self) -> None:
+		"""The custom_rejection_qty Custom Field should have depends_on set."""
+		depends_on = frappe.db.get_value("Custom Field", "Stock Entry-custom_rejection_qty", "depends_on")
+		self.assertEqual(depends_on, "eval:doc.from_bom")
+
+	@classmethod
+	def tearDownClass(cls) -> None:
+		# Clean up any Running shifts used in this class
+		for day in ("20", "21", "22", "23"):
+			name = f"SHIFT-2026-04-{day}.Shift-1"
+			if frappe.db.exists("Shift", name):
+				frappe.db.set_value("Shift", name, "status", "Completed", update_modified=False)
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed to persist cleanup
+		super().tearDownClass()

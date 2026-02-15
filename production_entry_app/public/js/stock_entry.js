@@ -1,15 +1,60 @@
 // Copyright (c) 2026, Gurudatt Kulkarni and contributors
 // For license information, please see license.txt
 
+/* global erpnext */
+
+// Suppress ERPNext's auto-populate on fg_completed_qty change for Manufacture
+// entries so the user can set both Qty to Manufacture and Rejection Qty before
+// explicitly clicking "Fetch Items".
+if (erpnext.stock && erpnext.stock.StockEntry) {
+	const _original_fg_completed_qty = erpnext.stock.StockEntry.prototype.fg_completed_qty;
+
+	erpnext.stock.StockEntry.prototype.fg_completed_qty = function () {
+		if (this.frm.doc.purpose === "Manufacture" && this.frm.doc.from_bom) {
+			// Skip the standard get_items() call — handled by our Fetch Items button
+			return;
+		}
+		// For all other purposes, keep the standard behaviour
+		if (_original_fg_completed_qty) {
+			return _original_fg_completed_qty.call(this);
+		}
+	};
+}
+
 frappe.ui.form.on("Stock Entry", {
 	refresh(frm) {
 		// Set filter to only show Running shifts
-		frm.set_query("custom_shift", function() {
+		frm.set_query("custom_shift", function () {
 			return {
-				filters: [
-					["Shift", "status", "=", "Running"]
-				]
+				filters: [["Shift", "status", "=", "Running"]],
 			};
+		});
+
+		// Hide the standard "Get Items" button field — our "Fetch Items" replaces it
+		frm.set_df_property("get_items", "hidden", 1);
+	},
+	custom_fetch_items(frm) {
+		if (!frm.doc.fg_completed_qty) {
+			frappe.msgprint(__("Please set Qty to Manufacture before fetching items."));
+			return;
+		}
+		frappe.call({
+			method: "production_entry_app.production_entry_app.api.get_items_with_rejection",
+			args: { doc: frm.doc },
+			freeze: true,
+			freeze_message: __("Fetching items..."),
+			callback(r) {
+				if (!r.message || !r.message.length) return;
+				frm.clear_table("items");
+				r.message.forEach(function (item) {
+					const d = frappe.model.add_child(frm.doc, "Stock Entry Detail", "items");
+					Object.keys(item).forEach(function (key) {
+						d[key] = item[key];
+					});
+				});
+				frm.refresh_field("items");
+				frm.dirty();
+			},
 		});
 	},
 	custom_shift(frm) {
