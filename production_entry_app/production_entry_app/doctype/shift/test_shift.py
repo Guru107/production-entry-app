@@ -22,6 +22,10 @@ class TestShift(FrappeTestCase):
 		# End any stale Running shifts so start_shift() is not blocked
 		for sn in frappe.get_all("Shift", filters={"status": "Running"}, pluck="name"):
 			frappe.db.set_value("Shift", sn, "status", "Completed", update_modified=False)
+		# Clean up any shifts on today's date to prevent overlap with
+		# test_defaults_are_populated_on_insert which uses frappe.utils.today()
+		for sn in frappe.get_all("Shift", filters={"shift_date": frappe.utils.today()}, pluck="name"):
+			frappe.delete_doc("Shift", sn, force=True, ignore_permissions=True)
 
 	def test_defaults_are_populated_on_insert(self) -> None:
 		self._delete_shift_if_exists(self._expected_name(frappe.utils.today(), "1"))
@@ -109,7 +113,7 @@ class TestShift(FrappeTestCase):
 		self.assertEqual(doc.status, "Completed")
 
 	def test_status_transition_draft_to_cancelled(self) -> None:
-		name = self._expected_name("2026-02-15", "2")
+		name = self._expected_name("2026-05-15", "2")
 		self._delete_shift_if_exists(name)
 
 		doc = frappe.get_doc(
@@ -117,7 +121,7 @@ class TestShift(FrappeTestCase):
 				"doctype": "Shift",
 				"shift_label": "2",
 				"shift_duration": "8",
-				"shift_date": "2026-02-15",
+				"shift_date": "2026-05-15",
 				"planned_start_time": "08:00:00",
 			}
 		).insert()

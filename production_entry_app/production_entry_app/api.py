@@ -85,9 +85,19 @@ def get_items_with_rejection(doc: str) -> list[dict]:
 	# Return only data fields — exclude Frappe metadata that would corrupt
 	# client-side child rows when assigned via Object.assign / $.extend.
 	_meta_fields = {
-		"name", "parent", "parenttype", "parentfield", "doctype",
-		"idx", "docstatus", "creation", "modified", "owner",
-		"modified_by", "__islocal", "__unsaved",
+		"name",
+		"parent",
+		"parenttype",
+		"parentfield",
+		"doctype",
+		"idx",
+		"docstatus",
+		"creation",
+		"modified",
+		"owner",
+		"modified_by",
+		"__islocal",
+		"__unsaved",
 	}
 	items = []
 	for row in se.get("items", []):
