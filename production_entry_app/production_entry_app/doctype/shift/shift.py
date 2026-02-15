@@ -77,7 +77,7 @@ def get_planned_losses_for_duration(
 	doc._populate_planned_losses()
 
 	return [
-		{"loss_type": r.loss_type, "start_time": r.start_time, "end_time": r.end_time}
+		{"downtime_reason": r.downtime_reason, "start_time": r.start_time, "end_time": r.end_time}
 		for r in doc.planned_losses
 	]
 
@@ -168,8 +168,27 @@ class Shift(Document):
 		"""Transition Draft -> Running.
 
 		Status is system-managed; use this action instead of editing the Status field.
+		Blocked if another shift is already Running.
 		"""
+		self._validate_no_other_running_shift()
 		self._transition_status(to_status="Running", allowed_from=("Draft",))
+
+	def _validate_no_other_running_shift(self) -> None:
+		"""Prevent starting a shift when another shift is already Running."""
+		running = frappe.get_all(
+			"Shift",
+			filters=[["status", "=", "Running"], ["name", "!=", self.name or ""]],
+			fields=["name", "shift_label", "shift_date"],
+			limit=1,
+		)
+		if running:
+			s = running[0]
+			frappe.throw(
+				_("Cannot start shift. {0} ({1}) is already Running.").format(
+					frappe.utils.get_link_to_form("Shift", s["name"]),
+					s.get("shift_label") or s["name"],
+				)
+			)
 
 	@frappe.whitelist()
 	def end_shift(self) -> None:
@@ -252,7 +271,7 @@ class Shift(Document):
 				return True
 			p = prev[i]
 			if (
-				getattr(row, "loss_type", None) != getattr(p, "loss_type", None)
+				getattr(row, "downtime_reason", None) != getattr(p, "downtime_reason", None)
 				or getattr(row, "start_time", None) != getattr(p, "start_time", None)
 				or getattr(row, "end_time", None) != getattr(p, "end_time", None)
 			):
@@ -387,14 +406,14 @@ class Shift(Document):
 		# 10h/12h: Tea +2h, Lunch +4h, Tea +6h
 		entries.append(
 			{
-				"loss_type": "Tea Break",
+				"downtime_reason": "Tea Break",
 				"start_time": add_to_date(base, hours=2).time().strftime("%H:%M:%S"),
 				"end_time": add_to_date(base, hours=2, minutes=15).time().strftime("%H:%M:%S"),
 			}
 		)
 		entries.append(
 			{
-				"loss_type": "Lunch Break",
+				"downtime_reason": "Lunch Break",
 				"start_time": add_to_date(base, hours=4).time().strftime("%H:%M:%S"),
 				"end_time": add_to_date(base, hours=4, minutes=30).time().strftime("%H:%M:%S"),
 			}
@@ -402,7 +421,7 @@ class Shift(Document):
 		if duration_hours in (10, 12):
 			entries.append(
 				{
-					"loss_type": "Tea Break",
+					"downtime_reason": "Tea Break",
 					"start_time": add_to_date(base, hours=6).time().strftime("%H:%M:%S"),
 					"end_time": add_to_date(base, hours=6, minutes=15).time().strftime("%H:%M:%S"),
 				}

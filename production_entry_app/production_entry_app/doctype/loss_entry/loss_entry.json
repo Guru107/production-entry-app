@@ -5,17 +5,18 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
-  "loss_type",
+  "downtime_reason",
   "start_time",
-  "end_time"
+  "end_time",
+  "remark"
  ],
  "fields": [
   {
-   "fieldname": "loss_type",
+   "fieldname": "downtime_reason",
    "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Loss Type",
-   "options": "Loss Type",
+   "label": "Downtime Reason",
+   "options": "Downtime Reason",
    "reqd": 1
   },
   {
@@ -31,10 +32,16 @@
    "in_list_view": 1,
    "label": "End Time",
    "reqd": 1
+  },
+  {
+   "fieldname": "remark",
+   "fieldtype": "Small Text",
+   "in_list_view": 1,
+   "label": "Remark"
   }
  ],
  "istable": 1,
- "modified": "2026-02-03 00:00:00.000000",
+ "modified": "2026-02-09 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Production Entry App",
  "name": "Loss Entry",
@@ -49,4 +56,3 @@
  "sort_order": "DESC",
  "states": []
 }
-

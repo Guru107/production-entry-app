@@ -74,5 +74,207 @@
 		"insert_after": "remarks",
 		"reqd": 0,
 		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Custom Field",
+		"name": "Stock Entry-custom_shift",
+		"dt": "Stock Entry",
+		"fieldname": "custom_shift",
+		"fieldtype": "Link",
+		"label": "Shift",
+		"options": "Shift",
+		"insert_after": "stock_entry_type",
+		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Custom Field",
+		"name": "Stock Entry-branch",
+		"dt": "Stock Entry",
+		"fieldname": "branch",
+		"fieldtype": "Link",
+		"label": "Branch",
+		"options": "Branch",
+		"insert_after": "custom_shift",
+		"read_only": 1,
+		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Custom Field",
+		"name": "Stock Entry-custom_operation_details_section",
+		"dt": "Stock Entry",
+		"fieldname": "custom_operation_details_section",
+		"fieldtype": "Section Break",
+		"label": "Planned & Actual Dates",
+		"insert_after": "apply_putaway_rule",
+		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Custom Field",
+		"name": "Stock Entry-custom_planned_start_date",
+		"dt": "Stock Entry",
+		"fieldname": "custom_planned_start_date",
+		"fieldtype": "Datetime",
+		"label": "Planned Start Date",
+		"read_only": 1,
+		"insert_after": "custom_operation_details_section",
+		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Custom Field",
+		"name": "Stock Entry-custom_planned_end_date",
+		"dt": "Stock Entry",
+		"fieldname": "custom_planned_end_date",
+		"fieldtype": "Datetime",
+		"label": "Planned End Date",
+		"read_only": 1,
+		"insert_after": "custom_planned_start_date",
+		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Custom Field",
+		"name": "Stock Entry-custom_operation_details_col_break",
+		"dt": "Stock Entry",
+		"fieldname": "custom_operation_details_col_break",
+		"fieldtype": "Column Break",
+		"insert_after": "custom_planned_end_date",
+		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Custom Field",
+		"name": "Stock Entry-custom_actual_start_date",
+		"dt": "Stock Entry",
+		"fieldname": "custom_actual_start_date",
+		"fieldtype": "Datetime",
+		"label": "Actual Start Date",
+		"insert_after": "custom_operation_details_col_break",
+		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Custom Field",
+		"name": "Stock Entry-custom_actual_end_date",
+		"dt": "Stock Entry",
+		"fieldname": "custom_actual_end_date",
+		"fieldtype": "Datetime",
+		"label": "Actual End Date",
+		"insert_after": "custom_actual_start_date",
+		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Custom Field",
+		"name": "Stock Entry-custom_workstation_operator_section",
+		"dt": "Stock Entry",
+		"fieldname": "custom_workstation_operator_section",
+		"fieldtype": "Section Break",
+		"label": "Workstation & Operator",
+		"insert_after": "custom_actual_end_date",
+		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Custom Field",
+		"name": "Stock Entry-custom_workstation",
+		"dt": "Stock Entry",
+		"fieldname": "custom_workstation",
+		"fieldtype": "Link",
+		"label": "Workstation",
+		"options": "Workstation",
+		"insert_after": "custom_workstation_operator_section",
+		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Custom Field",
+		"name": "Stock Entry-custom_standard_spm",
+		"dt": "Stock Entry",
+		"fieldname": "custom_standard_spm",
+		"fieldtype": "Float",
+		"label": "Standard SPM",
+		"read_only": 1,
+		"fetch_from": "custom_workstation.custom_standard_spm",
+		"insert_after": "custom_workstation",
+		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Custom Field",
+		"name": "Stock Entry-custom_workstation_operator_col_break",
+		"dt": "Stock Entry",
+		"fieldname": "custom_workstation_operator_col_break",
+		"fieldtype": "Column Break",
+		"insert_after": "custom_standard_spm",
+		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Custom Field",
+		"name": "Stock Entry-custom_operator",
+		"dt": "Stock Entry",
+		"fieldname": "custom_operator",
+		"fieldtype": "Link",
+		"label": "Operator",
+		"options": "Operator",
+		"insert_after": "custom_workstation_operator_col_break",
+		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Custom Field",
+		"name": "Stock Entry-custom_unplanned_losses_section",
+		"dt": "Stock Entry",
+		"fieldname": "custom_unplanned_losses_section",
+		"fieldtype": "Section Break",
+		"label": "Unplanned Losses",
+		"insert_after": "custom_operator",
+		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Custom Field",
+		"name": "Stock Entry-custom_unplanned_losses",
+		"dt": "Stock Entry",
+		"fieldname": "custom_unplanned_losses",
+		"fieldtype": "Table",
+		"label": "Unplanned Losses",
+		"options": "Loss Entry",
+		"insert_after": "custom_unplanned_losses_section",
+		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Custom Field",
+		"name": "Stock Entry-custom_rejection_qty",
+		"dt": "Stock Entry",
+		"fieldname": "custom_rejection_qty",
+		"fieldtype": "Float",
+		"label": "Rejection Quantity",
+		"description": "Deducted from FG qty; moved to rejection warehouse",
+		"insert_after": "fg_completed_qty",
+		"depends_on": "eval:doc.from_bom",
+		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Custom Field",
+		"name": "Stock Entry-custom_fetch_items",
+		"dt": "Stock Entry",
+		"fieldname": "custom_fetch_items",
+		"fieldtype": "Button",
+		"label": "Fetch Items",
+		"insert_after": "custom_rejection_qty",
+		"depends_on": "eval:doc.from_bom && doc.bom_no",
+		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Custom Field",
+		"name": "Stock Entry Detail-custom_is_rejection_item",
+		"dt": "Stock Entry Detail",
+		"fieldname": "custom_is_rejection_item",
+		"fieldtype": "Check",
+		"label": "Is Rejection Item",
+		"read_only": 1,
+		"insert_after": "is_scrap_item",
+		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Custom Field",
+		"name": "Workstation-custom_standard_spm",
+		"dt": "Workstation",
+		"fieldname": "custom_standard_spm",
+		"fieldtype": "Float",
+		"label": "Standard SPM",
+		"insert_after": "hour_rate",
+		"module": "Production Entry App"
 	}
 ]
