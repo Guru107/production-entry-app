@@ -1,5 +1,6 @@
 from frappe.model.document import Document
 
 
-class DieToolCounter(Document):
+class DieToolMaintenanceLog(Document):
 	pass
+

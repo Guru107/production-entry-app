@@ -6,7 +6,6 @@ import frappe
 from frappe import _
 from frappe.utils import format_datetime, get_datetime, get_time
 
-from production_entry_app.production_entry_app.utils.die_tool_counter import update_counter_for_stock_entry
 from production_entry_app.production_entry_app.utils.shift_time import get_shift_planned_end_datetime
 
 
@@ -22,14 +21,6 @@ def validate_stock_entry(doc, method: str | None = None) -> None:
 	_validate_actual_times(doc)
 	_validate_rejection_breakup(doc)
 	_apply_rejection_entries(doc)
-
-
-def on_submit_stock_entry(doc, method: str | None = None) -> None:
-	update_counter_for_stock_entry(doc, direction=1)
-
-
-def on_cancel_stock_entry(doc, method: str | None = None) -> None:
-	update_counter_for_stock_entry(doc, direction=-1)
 
 
 def _apply_shift_defaults(doc) -> None:

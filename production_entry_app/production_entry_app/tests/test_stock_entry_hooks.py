@@ -50,12 +50,13 @@ def _ensure_rejection_breakup_custom_field() -> None:
 	).insert(ignore_permissions=True)
 
 
-def _ensure_die_tool_counter_doctype() -> None:
-	if not frappe.db.exists("DocType", "Die Tool Counter"):
-		frappe.reload_doc("production_entry_app", "doctype", "die_tool_counter")
+def _ensure_die_tool_maintenance_log_doctype() -> None:
+	if not frappe.db.exists("DocType", "Die Tool Maintenance Log"):
+		frappe.reload_doc("production_entry_app", "doctype", "die_tool_maintenance_log")
 
 
 def _ensure_item_die_tool_fields() -> None:
+	created = False
 	if not frappe.db.exists("Custom Field", "Item-custom_strokes_per_unit"):
 		frappe.get_doc(
 			{
@@ -68,6 +69,7 @@ def _ensure_item_die_tool_fields() -> None:
 				"module": "Production Entry App",
 			}
 		).insert(ignore_permissions=True)
+		created = True
 
 	if not frappe.db.exists("Custom Field", "Item-custom_stroke_capacity"):
 		frappe.get_doc(
@@ -81,6 +83,11 @@ def _ensure_item_die_tool_fields() -> None:
 				"module": "Production Entry App",
 			}
 		).insert(ignore_permissions=True)
+		created = True
+
+	if created:
+		frappe.reload_doc("core", "doctype", "item")
+		frappe.db.updatedb("Item")
 
 
 def _append_rejection_breakup_rows(doc, rows: list[dict]) -> None:
@@ -125,6 +132,47 @@ def _get_or_create_item(item_code: str) -> str:
 def _set_item_die_tool_fields(item_code: str, strokes_per_unit: float, stroke_capacity: float) -> None:
 	frappe.db.set_value("Item", item_code, "custom_strokes_per_unit", strokes_per_unit)
 	frappe.db.set_value("Item", item_code, "custom_stroke_capacity", stroke_capacity)
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit - ensure custom fields are persisted
+
+
+def _mark_stock_entry_submitted(
+	stock_entry: frappe.Document, posting_date: str | None = None, posting_time: str | None = None
+) -> None:
+	if posting_date:
+		frappe.db.set_value(
+			"Stock Entry",
+			stock_entry.name,
+			"posting_date",
+			posting_date,
+			update_modified=False,
+		)
+	if posting_time:
+		frappe.db.set_value(
+			"Stock Entry",
+			stock_entry.name,
+			"posting_time",
+			posting_time,
+			update_modified=False,
+		)
+	frappe.db.set_value("Stock Entry", stock_entry.name, "docstatus", 1, update_modified=False)
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit - ensure docstatus is visible to queries
+	docstatus = frappe.db.get_value("Stock Entry", stock_entry.name, "docstatus")
+	if docstatus != 1:
+		raise AssertionError("Failed to set Stock Entry docstatus to 1 for test data.")
+
+
+def _cleanup_stock_entries_for_item(item_code: str) -> None:
+	parent_rows = frappe.get_all(
+		"Stock Entry Detail",
+		filters={"item_code": item_code},
+		pluck="parent",
+		ignore_permissions=True,
+	)
+	for name in set(parent_rows):
+		if frappe.db.exists("Stock Entry", name):
+			frappe.db.set_value("Stock Entry", name, "docstatus", 2, update_modified=False)
+			frappe.delete_doc("Stock Entry", name, force=True, ignore_permissions=True)
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit - cleanup test data
 
 
 def _create_test_shift(
@@ -246,6 +294,7 @@ def _create_manufacture_stock_entry(
 			"purpose": "Manufacture",
 			"stock_entry_type": "Manufacture",
 			"company": company,
+			"fg_completed_qty": fg_qty,
 		}
 	)
 
@@ -989,24 +1038,33 @@ class TestGetItemsWithRejection(FrappeTestCase):
 		super().tearDownClass()
 
 
-class TestDieToolCounter(FrappeTestCase):
+class TestDieToolStrokes(FrappeTestCase):
 	@classmethod
 	def setUpClass(cls) -> None:
 		super().setUpClass()
-		_ensure_die_tool_counter_doctype()
+		_ensure_die_tool_maintenance_log_doctype()
 		_ensure_item_die_tool_fields()
 		cls.company = frappe.db.get_single_value("Global Defaults", "default_company") or "_Test Company"
 		abbr = frappe.db.get_value("Company", cls.company, "abbr") or "_TC"
 		cls.rm_warehouse = _get_or_create_warehouse(f"DT RM Test - {abbr}", cls.company)
 		cls.fg_warehouse = _get_or_create_warehouse(f"DT FG Test - {abbr}", cls.company)
-		cls.rm_item = _get_or_create_item("_Test Die Tool RM")
-		cls.fg_item = _get_or_create_item("_Test Die Tool FG")
+		suffix = frappe.generate_hash(length=6)
+		cls.rm_item = _get_or_create_item(f"_Test Die Tool RM {suffix}")
+		cls.fg_item = _get_or_create_item(f"_Test Die Tool FG {suffix}")
 		_set_item_die_tool_fields(cls.fg_item, strokes_per_unit=12, stroke_capacity=1000)
+		strokes = frappe.db.get_value("Item", cls.fg_item, "custom_strokes_per_unit")
+		if not strokes:
+			frappe.db.set_value("Item", cls.fg_item, "custom_strokes_per_unit", 12)
+			frappe.db.commit()  # nosemgrep: frappe-manual-commit - persist stroke config
+		frappe.db.delete("Die Tool Maintenance Log", {"die_tool_item": cls.fg_item})
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit - clear prior maintenance logs
 
-	def test_die_tool_counter_increments_on_submit(self) -> None:
-		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
-			on_submit_stock_entry,
-		)
+	def test_die_tool_strokes_without_maintenance_sum_all(self) -> None:
+		from production_entry_app.production_entry_app.utils.die_tool_strokes import get_die_tool_strokes
+
+		frappe.db.delete("Die Tool Maintenance Log", {"die_tool_item": self.fg_item})
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit - ensure no maintenance logs
+		_cleanup_stock_entries_for_item(self.fg_item)
 
 		se = _create_manufacture_stock_entry(
 			company=self.company,
@@ -1017,21 +1075,28 @@ class TestDieToolCounter(FrappeTestCase):
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
-		se.custom_rejection_qty = 2
-
-		on_submit_stock_entry(se, "on_submit")
-
-		counter = frappe.get_doc("Die Tool Counter", self.fg_item)
-		self.assertEqual(counter.current_stroke_count, 144)
-		self.assertEqual(counter.stroke_capacity, 1000)
-
-	def test_die_tool_counter_decrements_on_cancel(self) -> None:
-		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
-			on_cancel_stock_entry,
-			on_submit_stock_entry,
+		se.save(ignore_permissions=True)
+		_mark_stock_entry_submitted(se, posting_date="2026-04-25", posting_time="08:00:00")
+		self.assertTrue(
+			frappe.db.exists("Stock Entry Detail", {"parent": se.name, "item_code": self.fg_item})
 		)
+		fg_row = frappe.db.get_value(
+			"Stock Entry Detail",
+			{"parent": se.name, "item_code": self.fg_item},
+			["qty"],
+			as_dict=True,
+		)
+		self.assertGreater(float(fg_row.get("qty") or 0), 0)
+		se_state = frappe.db.get_value(
+			"Stock Entry",
+			se.name,
+			["docstatus", "purpose"],
+			as_dict=True,
+		)
+		self.assertEqual(se_state.get("docstatus"), 1)
+		self.assertEqual(se_state.get("purpose"), "Manufacture")
 
-		se = _create_manufacture_stock_entry(
+		se_two = _create_manufacture_stock_entry(
 			company=self.company,
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
@@ -1040,39 +1105,109 @@ class TestDieToolCounter(FrappeTestCase):
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
-		se.custom_rejection_qty = 1
+		se_two.save(ignore_permissions=True)
+		_mark_stock_entry_submitted(se_two, posting_date="2026-04-26", posting_time="09:00:00")
+		self.assertTrue(
+			frappe.db.exists("Stock Entry Detail", {"parent": se_two.name, "item_code": self.fg_item})
+		)
+		fg_row_two = frappe.db.get_value(
+			"Stock Entry Detail",
+			{"parent": se_two.name, "item_code": self.fg_item},
+			["qty"],
+			as_dict=True,
+		)
+		self.assertGreater(float(fg_row_two.get("qty") or 0), 0)
+		se_two_state = frappe.db.get_value(
+			"Stock Entry",
+			se_two.name,
+			["docstatus", "purpose"],
+			as_dict=True,
+		)
+		self.assertEqual(se_two_state.get("docstatus"), 1)
+		self.assertEqual(se_two_state.get("purpose"), "Manufacture")
+		parent_rows = frappe.get_all(
+			"Stock Entry Detail",
+			filters={"item_code": self.fg_item},
+			fields=["parent"],
+			ignore_permissions=True,
+		)
+		self.assertTrue(parent_rows)
+		entry_rows = frappe.get_all(
+			"Stock Entry",
+			filters={"name": ["in", [se.name, se_two.name]], "docstatus": 1, "purpose": "Manufacture"},
+			fields=["name"],
+			ignore_permissions=True,
+		)
+		self.assertTrue(entry_rows)
+		from production_entry_app.production_entry_app.utils import die_tool_strokes as dts
 
-		on_submit_stock_entry(se, "on_submit")
-		on_cancel_stock_entry(se, "on_cancel")
+		stroke_rows = dts._get_stock_entry_rows(self.fg_item)
+		self.assertTrue(stroke_rows)
 
-		counter = frappe.get_doc("Die Tool Counter", self.fg_item)
-		self.assertEqual(counter.current_stroke_count, 0)
+		strokes = get_die_tool_strokes(self.fg_item)
+		self.assertEqual(strokes, 15 * 12)
 
-	def test_die_tool_counter_reset(self) -> None:
-		from production_entry_app.production_entry_app.api import reset_die_tool_counter
+	def test_die_tool_strokes_since_last_maintenance(self) -> None:
+		from production_entry_app.production_entry_app.utils import die_tool_strokes as dts
+		from production_entry_app.production_entry_app.utils.die_tool_strokes import get_die_tool_strokes
 
-		if frappe.db.exists("Die Tool Counter", self.fg_item):
-			frappe.db.set_value(
-				"Die Tool Counter",
-				self.fg_item,
-				{
-					"current_stroke_count": 250,
-					"stroke_capacity": 1000,
-				},
-			)
-		else:
-			counter = frappe.get_doc(
-				{
-					"doctype": "Die Tool Counter",
-					"die_tool_item": self.fg_item,
-					"current_stroke_count": 250,
-					"stroke_capacity": 1000,
-				}
-			)
-			counter.insert(ignore_permissions=True)
+		frappe.db.delete("Die Tool Maintenance Log", {"die_tool_item": self.fg_item})
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit - ensure clean maintenance log
+		_cleanup_stock_entries_for_item(self.fg_item)
 
-		reset = reset_die_tool_counter(self.fg_item)
-		updated = frappe.get_doc("Die Tool Counter", self.fg_item)
-		self.assertEqual(updated.current_stroke_count, 0)
-		self.assertEqual(reset["current_stroke_count"], 0)
-		self.assertEqual(updated.last_reset_by, frappe.session.user)
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			fg_qty=4,
+			rm_qty=4,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		se.save(ignore_permissions=True)
+		_mark_stock_entry_submitted(se, posting_date="2026-04-27", posting_time="08:00:00")
+		self.assertTrue(
+			frappe.db.exists("Stock Entry Detail", {"parent": se.name, "item_code": self.fg_item})
+		)
+
+		frappe.get_doc(
+			{
+				"doctype": "Die Tool Maintenance Log",
+				"die_tool_item": self.fg_item,
+				"maintenance_date": "2026-04-27 12:00:00",
+				"remarks": "Scheduled maintenance",
+			}
+		).insert(ignore_permissions=True)
+
+		se_two = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			fg_qty=3,
+			rm_qty=3,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		se_two.save(ignore_permissions=True)
+		_mark_stock_entry_submitted(se_two, posting_date="2026-04-28", posting_time="09:00:00")
+		self.assertTrue(
+			frappe.db.exists("Stock Entry Detail", {"parent": se_two.name, "item_code": self.fg_item})
+		)
+
+		last_maintenance = dts._get_last_maintenance_datetime(self.fg_item)
+		self.assertEqual(str(last_maintenance), "2026-04-27 12:00:00")
+		se_two_state = frappe.db.get_value(
+			"Stock Entry",
+			se_two.name,
+			["posting_date", "posting_time", "docstatus", "purpose"],
+			as_dict=True,
+		)
+		self.assertEqual(se_two_state.get("docstatus"), 1)
+		self.assertEqual(se_two_state.get("purpose"), "Manufacture")
+		self.assertEqual(str(se_two_state.get("posting_date")), "2026-04-28")
+		self.assertEqual(str(se_two_state.get("posting_time")).zfill(8), "09:00:00")
+		stroke_rows = dts._get_stock_entry_rows(self.fg_item)
+		self.assertTrue(stroke_rows)
+
+		strokes = get_die_tool_strokes(self.fg_item)
+		self.assertEqual(strokes, 3 * 12)

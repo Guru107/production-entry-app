@@ -6,7 +6,7 @@
 // Suppress ERPNext's auto-populate on fg_completed_qty change for Manufacture
 // entries so the user can set both Qty to Manufacture and Rejection Qty before
 // explicitly clicking "Fetch Items".
-if (erpnext.stock && erpnext.stock.StockEntry) {
+if (window.erpnext && erpnext.stock && erpnext.stock.StockEntry) {
 	const _original_fg_completed_qty = erpnext.stock.StockEntry.prototype.fg_completed_qty;
 
 	erpnext.stock.StockEntry.prototype.fg_completed_qty = function () {
@@ -117,7 +117,7 @@ function _hide_standard_get_items(frm) {
 }
 
 function _toggle_rejection_breakup(frm) {
-	const rejection_qty = frappe.utils.flt(frm.doc.custom_rejection_qty);
+	const rejection_qty = typeof flt === "function" ? flt(frm.doc.custom_rejection_qty) : 0;
 	const has_rejection = rejection_qty > 0;
 	frm.toggle_display("custom_rejection_breakup", has_rejection);
 	frm.toggle_reqd("custom_rejection_breakup", has_rejection);
