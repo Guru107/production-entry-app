@@ -65,6 +65,28 @@
 	},
 	{
 		"doctype": "Custom Field",
+		"name": "Manufacturing Settings-shift_start_buffer_mins",
+		"dt": "Manufacturing Settings",
+		"fieldname": "shift_start_buffer_mins",
+		"fieldtype": "Int",
+		"label": "Shift Start Buffer (Minutes)",
+		"default": "60",
+		"insert_after": "shift_scrap_warehouse",
+		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Custom Field",
+		"name": "Manufacturing Settings-shift_end_buffer_mins",
+		"dt": "Manufacturing Settings",
+		"fieldname": "shift_end_buffer_mins",
+		"fieldtype": "Int",
+		"label": "Shift End Buffer (Minutes)",
+		"default": "60",
+		"insert_after": "shift_start_buffer_mins",
+		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Custom Field",
 		"name": "Downtime Entry-shift",
 		"dt": "Downtime Entry",
 		"fieldname": "shift",

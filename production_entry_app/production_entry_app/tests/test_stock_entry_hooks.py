@@ -201,6 +201,11 @@ def _create_manufacture_stock_entry(
 	return se
 
 
+def _set_shift_buffers(start_mins: int = 60, end_mins: int = 60) -> None:
+	frappe.db.set_single_value("Manufacturing Settings", "shift_start_buffer_mins", start_mins)
+	frappe.db.set_single_value("Manufacturing Settings", "shift_end_buffer_mins", end_mins)
+
+
 class TestStockEntryHooks(FrappeTestCase):
 	# Shift dates used by tests in this class (April 10-17, 2026)
 	_SHIFT_DATES: ClassVar[list[str]] = [f"2026-04-{d}" for d in range(10, 18)]
@@ -269,6 +274,91 @@ class TestStockEntryHooks(FrappeTestCase):
 		self.assertIn("2026-04-11", str(se.custom_planned_start_date))
 		self.assertIn("08:00:00", str(se.custom_planned_start_date))
 		self.assertIn("16:00:00", str(se.custom_planned_end_date))
+
+	def test_actual_times_within_buffer_pass(self) -> None:
+		_set_shift_buffers()
+		shift = _create_test_shift(
+			shift_date="2026-04-12",
+			wip_warehouse=self.wip_warehouse,
+		)
+
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			custom_shift=shift.name,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		se.custom_actual_start_date = "2026-04-12 07:30:00"
+		se.custom_actual_end_date = "2026-04-12 16:30:00"
+		se.save()
+
+		self.assertEqual(str(se.custom_actual_start_date), "2026-04-12 07:30:00")
+		self.assertEqual(str(se.custom_actual_end_date), "2026-04-12 16:30:00")
+
+	def test_actual_start_before_allowed_range_throws(self) -> None:
+		_set_shift_buffers()
+		shift = _create_test_shift(
+			shift_date="2026-04-13",
+			wip_warehouse=self.wip_warehouse,
+		)
+
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			custom_shift=shift.name,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		se.custom_actual_start_date = "2026-04-13 06:59:00"
+		se.custom_actual_end_date = "2026-04-13 16:00:00"
+
+		with self.assertRaises(ValidationError):
+			se.save()
+
+	def test_actual_end_after_allowed_range_throws(self) -> None:
+		_set_shift_buffers()
+		shift = _create_test_shift(
+			shift_date="2026-04-14",
+			wip_warehouse=self.wip_warehouse,
+		)
+
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			custom_shift=shift.name,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		se.custom_actual_start_date = "2026-04-14 08:00:00"
+		se.custom_actual_end_date = "2026-04-14 17:01:00"
+
+		with self.assertRaises(ValidationError):
+			se.save()
+
+	def test_actual_end_before_start_throws(self) -> None:
+		_set_shift_buffers()
+		shift = _create_test_shift(
+			shift_date="2026-04-15",
+			wip_warehouse=self.wip_warehouse,
+		)
+
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			custom_shift=shift.name,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		se.custom_actual_start_date = "2026-04-15 09:00:00"
+		se.custom_actual_end_date = "2026-04-15 08:59:00"
+
+		with self.assertRaises(ValidationError):
+			se.save()
 
 	def test_shift_reference_planned_dates_for_evening_shift_label_2(self) -> None:
 		shift = _create_test_shift(
