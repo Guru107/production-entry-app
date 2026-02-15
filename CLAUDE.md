@@ -48,6 +48,7 @@ ruff format production_entry_app/
 - Formatting enforced via `ruff format` (Python) and `prettier` (JS)
 - Linting via `ruff` (Python) and `eslint` (JS)
 - Pre-commit hooks are configured; run `pre-commit install` after cloning
+- Always run `pre-commit run --all-files` before commiting changes to git
 
 ## Architecture
 
