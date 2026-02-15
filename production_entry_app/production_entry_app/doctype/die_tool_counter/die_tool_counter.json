@@ -1,0 +1,96 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:die_tool_item",
+ "creation": "2026-02-15 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "die_tool_item",
+  "current_stroke_count",
+  "stroke_capacity",
+  "warning_threshold_pct",
+  "last_reset_on",
+  "last_reset_by"
+ ],
+ "fields": [
+  {
+   "fieldname": "die_tool_item",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Die Tool Item",
+   "options": "Item",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "current_stroke_count",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Current Stroke Count",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "stroke_capacity",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Stroke Capacity",
+   "read_only": 1
+  },
+  {
+   "default": "90",
+   "fieldname": "warning_threshold_pct",
+   "fieldtype": "Int",
+   "label": "Warning Threshold (%)"
+  },
+  {
+   "fieldname": "last_reset_on",
+   "fieldtype": "Datetime",
+   "label": "Last Reset On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_reset_by",
+   "fieldtype": "Link",
+   "label": "Last Reset By",
+   "options": "User",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "modified": "2026-02-15 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Production Entry App",
+ "name": "Die Tool Counter",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "role": "System Manager",
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "role": "Manufacturing User",
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "role": "Manufacturing Manager",
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "die_tool_item"
+}

@@ -4,8 +4,9 @@ import datetime
 
 import frappe
 from frappe import _
-from frappe.utils import format_datetime, get_datetime, get_time
+from frappe.utils import flt, format_datetime, get_datetime, get_time
 
+from production_entry_app.production_entry_app.utils.die_tool_counter import update_counter_for_stock_entry
 from production_entry_app.production_entry_app.utils.shift_time import get_shift_planned_end_datetime
 
 
@@ -21,6 +22,14 @@ def validate_stock_entry(doc, method: str | None = None) -> None:
 	_validate_actual_times(doc)
 	_validate_rejection_breakup(doc)
 	_apply_rejection_entries(doc)
+
+
+def on_submit_stock_entry(doc, method: str | None = None) -> None:
+	update_counter_for_stock_entry(doc, direction=1)
+
+
+def on_cancel_stock_entry(doc, method: str | None = None) -> None:
+	update_counter_for_stock_entry(doc, direction=-1)
 
 
 def _apply_shift_defaults(doc) -> None:
@@ -118,7 +127,7 @@ def _validate_rejection_breakup(doc) -> None:
 			frappe.throw(_("Rejection Breakup rows must have a rejection reason."))
 		total_qty += row_qty
 
-	if total_qty != rejection_qty:
+	if flt(total_qty, 3) != flt(rejection_qty, 3):
 		frappe.throw(
 			_("Total rejection breakup quantity ({0}) must equal Rejection Quantity ({1}).").format(
 				total_qty, rejection_qty

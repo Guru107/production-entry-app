@@ -7,7 +7,10 @@ import frappe
 from frappe import _
 from frappe.utils import get_time
 
-from production_entry_app.production_entry_app.utils.die_tool_strokes import get_die_tool_strokes
+from production_entry_app.production_entry_app.utils.die_tool_counter import (
+	_get_or_create_counter,
+	reset_counter_from_maintenance_log,
+)
 from production_entry_app.production_entry_app.utils.shift_time import get_shift_planned_end_datetime
 
 
@@ -110,8 +113,21 @@ def get_items_with_rejection(doc: str) -> list[dict]:
 
 
 @frappe.whitelist()
-def get_die_tool_strokes_count(die_tool_code: str) -> dict:
+def get_die_tool_counter(die_tool_code: str) -> dict:
+	counter = _get_or_create_counter(die_tool_code)
 	return {
 		"die_tool_code": die_tool_code,
-		"current_strokes": get_die_tool_strokes(die_tool_code),
+		"current_strokes": counter.current_stroke_count,
+		"stroke_capacity": counter.stroke_capacity,
+		"warning_threshold_pct": counter.warning_threshold_pct,
+	}
+
+
+@frappe.whitelist()
+def reset_die_tool_counter(die_tool_code: str, maintenance_date: str | None = None) -> dict:
+	reset_counter_from_maintenance_log(die_tool_code, maintenance_date)
+	counter = _get_or_create_counter(die_tool_code)
+	return {
+		"die_tool_code": die_tool_code,
+		"current_strokes": counter.current_stroke_count,
 	}
