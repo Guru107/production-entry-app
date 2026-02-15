@@ -19,6 +19,7 @@ def validate_stock_entry(doc, method: str | None = None) -> None:
 		_apply_shift_defaults(doc)
 
 	_validate_actual_times(doc)
+	_validate_rejection_breakup(doc)
 	_apply_rejection_entries(doc)
 
 
@@ -97,6 +98,32 @@ def _as_datetime(value) -> datetime.datetime | None:
 	if not value:
 		return None
 	return get_datetime(value)
+
+
+def _validate_rejection_breakup(doc) -> None:
+	rejection_qty = float(doc.get("custom_rejection_qty") or 0)
+	if rejection_qty <= 0:
+		return
+
+	breakup_rows = doc.get("custom_rejection_breakup") or []
+	if not breakup_rows:
+		frappe.throw(_("Rejection Breakup is mandatory when Rejection Quantity is greater than 0."))
+
+	total_qty = 0.0
+	for row in breakup_rows:
+		row_qty = float(row.get("qty") or 0)
+		if row_qty <= 0:
+			frappe.throw(_("Rejection Breakup rows must have a quantity greater than 0."))
+		if not row.get("rejection_reason"):
+			frappe.throw(_("Rejection Breakup rows must have a rejection reason."))
+		total_qty += row_qty
+
+	if total_qty != rejection_qty:
+		frappe.throw(
+			_("Total rejection breakup quantity ({0}) must equal Rejection Quantity ({1}).").format(
+				total_qty, rejection_qty
+			)
+		)
 
 
 def _apply_rejection_entries(doc) -> None:

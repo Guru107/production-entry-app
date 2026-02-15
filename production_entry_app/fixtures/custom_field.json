@@ -282,6 +282,19 @@
 	},
 	{
 		"doctype": "Custom Field",
+		"name": "Stock Entry-custom_rejection_breakup",
+		"dt": "Stock Entry",
+		"fieldname": "custom_rejection_breakup",
+		"fieldtype": "Table",
+		"label": "Rejection Breakup",
+		"options": "Rejection Breakup",
+		"insert_after": "custom_fetch_items",
+		"depends_on": "eval:doc.custom_rejection_qty > 0",
+		"mandatory_depends_on": "eval:doc.custom_rejection_qty > 0",
+		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Custom Field",
 		"name": "Stock Entry Detail-custom_is_rejection_item",
 		"dt": "Stock Entry Detail",
 		"fieldname": "custom_is_rejection_item",

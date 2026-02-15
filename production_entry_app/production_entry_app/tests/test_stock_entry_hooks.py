@@ -15,6 +15,46 @@ def _ensure_downtime_reasons() -> None:
 			frappe.get_doc({"doctype": "Downtime Reason", "downtime_reason_name": name}).insert()
 
 
+def _ensure_rejection_breakup_doctype() -> None:
+	if not frappe.db.exists("DocType", "Rejection Breakup"):
+		frappe.reload_doc("production_entry_app", "doctype", "rejection_breakup")
+
+
+def _ensure_rejection_reason_doctype() -> None:
+	if not frappe.db.exists("DocType", "Rejection Reason"):
+		frappe.reload_doc("production_entry_app", "doctype", "rejection_reason")
+
+
+def _ensure_rejection_reasons() -> None:
+	for name in ("Burr", "Crack"):
+		if not frappe.db.exists("Rejection Reason", name):
+			frappe.get_doc({"doctype": "Rejection Reason", "rejection_reason_name": name}).insert()
+
+
+def _ensure_rejection_breakup_custom_field() -> None:
+	if frappe.db.exists("Custom Field", "Stock Entry-custom_rejection_breakup"):
+		return
+	frappe.get_doc(
+		{
+			"doctype": "Custom Field",
+			"dt": "Stock Entry",
+			"fieldname": "custom_rejection_breakup",
+			"fieldtype": "Table",
+			"label": "Rejection Breakup",
+			"options": "Rejection Breakup",
+			"insert_after": "custom_fetch_items",
+			"depends_on": "eval:doc.custom_rejection_qty > 0",
+			"mandatory_depends_on": "eval:doc.custom_rejection_qty > 0",
+			"module": "Production Entry App",
+		}
+	).insert(ignore_permissions=True)
+
+
+def _append_rejection_breakup_rows(doc, rows: list[dict]) -> None:
+	for row in rows:
+		doc.append("custom_rejection_breakup", row)
+
+
 def _get_or_create_warehouse(name: str, company: str) -> str:
 	"""Return warehouse name, creating it if needed."""
 	if frappe.db.exists("Warehouse", name):
@@ -213,6 +253,10 @@ class TestStockEntryHooks(FrappeTestCase):
 	@classmethod
 	def setUpClass(cls) -> None:
 		super().setUpClass()
+		_ensure_rejection_breakup_doctype()
+		_ensure_rejection_reason_doctype()
+		_ensure_rejection_reasons()
+		_ensure_rejection_breakup_custom_field()
 		cls.company = frappe.db.get_single_value("Global Defaults", "default_company") or "_Test Company"
 		abbr = frappe.db.get_value("Company", cls.company, "abbr") or "_TC"
 		cls.wip_warehouse = _get_or_create_warehouse(f"WIP Test - {abbr}", cls.company)
@@ -274,6 +318,134 @@ class TestStockEntryHooks(FrappeTestCase):
 		self.assertIn("2026-04-11", str(se.custom_planned_start_date))
 		self.assertIn("08:00:00", str(se.custom_planned_start_date))
 		self.assertIn("16:00:00", str(se.custom_planned_end_date))
+
+	def test_rejection_breakup_required_when_rejection_qty_positive(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-04-12",
+			wip_warehouse=self.wip_warehouse,
+			rejection_warehouse=self.rejection_warehouse,
+		)
+
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			fg_qty=100,
+			custom_shift=shift.name,
+			custom_rejection_qty=5,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+
+		with self.assertRaises(ValidationError):
+			se.save()
+
+	def test_rejection_breakup_total_exceeds_rejection_qty_throws(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-04-13",
+			wip_warehouse=self.wip_warehouse,
+			rejection_warehouse=self.rejection_warehouse,
+		)
+
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			fg_qty=100,
+			custom_shift=shift.name,
+			custom_rejection_qty=5,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		_append_rejection_breakup_rows(
+			se,
+			[
+				{"rejection_reason": "Burr", "qty": 3, "remark": "Edge burr"},
+				{"rejection_reason": "Crack", "qty": 3, "remark": "Surface crack"},
+			],
+		)
+
+		with self.assertRaises(ValidationError):
+			se.save()
+
+	def test_rejection_breakup_total_less_than_rejection_qty_throws(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-04-14",
+			wip_warehouse=self.wip_warehouse,
+			rejection_warehouse=self.rejection_warehouse,
+		)
+
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			fg_qty=100,
+			custom_shift=shift.name,
+			custom_rejection_qty=5,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		_append_rejection_breakup_rows(
+			se,
+			[
+				{"rejection_reason": "Burr", "qty": 3, "remark": "Edge burr"},
+				{"rejection_reason": "Crack", "qty": 1, "remark": "Surface crack"},
+			],
+		)
+
+		with self.assertRaises(ValidationError):
+			se.save()
+
+	def test_rejection_breakup_reason_required(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-04-15",
+			wip_warehouse=self.wip_warehouse,
+			rejection_warehouse=self.rejection_warehouse,
+		)
+
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			fg_qty=100,
+			custom_shift=shift.name,
+			custom_rejection_qty=5,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		_append_rejection_breakup_rows(se, [{"qty": 5, "remark": "Missing reason"}])
+
+		with self.assertRaises(ValidationError):
+			se.save()
+
+	def test_rejection_breakup_valid_allows_save(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-04-16",
+			wip_warehouse=self.wip_warehouse,
+			rejection_warehouse=self.rejection_warehouse,
+		)
+
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			fg_qty=100,
+			custom_shift=shift.name,
+			custom_rejection_qty=5,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		_append_rejection_breakup_rows(
+			se,
+			[
+				{"rejection_reason": "Burr", "qty": 3, "remark": "Edge burr"},
+				{"rejection_reason": "Crack", "qty": 2, "remark": "Surface crack"},
+			],
+		)
+
+		se.save()
+
+		self.assertEqual(len(se.custom_rejection_breakup), 2)
 
 	def test_actual_times_within_buffer_pass(self) -> None:
 		_set_shift_buffers()
@@ -440,6 +612,13 @@ class TestStockEntryHooks(FrappeTestCase):
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
+		_append_rejection_breakup_rows(
+			se,
+			[
+				{"rejection_reason": "Burr", "qty": 3, "remark": "Edge burr"},
+				{"rejection_reason": "Crack", "qty": 2, "remark": "Surface crack"},
+			],
+		)
 		se.save()
 
 		# Find the FG row (is_finished_item=1)
@@ -463,6 +642,13 @@ class TestStockEntryHooks(FrappeTestCase):
 			custom_rejection_qty=5,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
+		)
+		_append_rejection_breakup_rows(
+			se,
+			[
+				{"rejection_reason": "Burr", "qty": 3, "remark": "Edge burr"},
+				{"rejection_reason": "Crack", "qty": 2, "remark": "Surface crack"},
+			],
 		)
 		se.save()
 
@@ -489,6 +675,12 @@ class TestStockEntryHooks(FrappeTestCase):
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
+		_append_rejection_breakup_rows(
+			se,
+			[
+				{"rejection_reason": "Burr", "qty": 150, "remark": "Over rejection"},
+			],
+		)
 
 		with self.assertRaises(ValidationError):
 			se.save()
@@ -509,6 +701,13 @@ class TestStockEntryHooks(FrappeTestCase):
 			custom_rejection_qty=10,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
+		)
+		_append_rejection_breakup_rows(
+			se,
+			[
+				{"rejection_reason": "Burr", "qty": 4, "remark": "Edge burr"},
+				{"rejection_reason": "Crack", "qty": 6, "remark": "Surface crack"},
+			],
 		)
 		se.save()
 
@@ -578,6 +777,8 @@ class TestGetItemsWithRejection(FrappeTestCase):
 	@classmethod
 	def setUpClass(cls) -> None:
 		super().setUpClass()
+		_ensure_rejection_breakup_doctype()
+		_ensure_rejection_breakup_custom_field()
 		cls.company = frappe.db.get_single_value("Global Defaults", "default_company") or "_Test Company"
 		abbr = frappe.db.get_value("Company", cls.company, "abbr") or "_TC"
 		cls.wip_warehouse = _get_or_create_warehouse(f"WIP Test - {abbr}", cls.company)
@@ -669,6 +870,13 @@ class TestGetItemsWithRejection(FrappeTestCase):
 			custom_rejection_qty=10,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
+		)
+		_append_rejection_breakup_rows(
+			se,
+			[
+				{"rejection_reason": "Burr", "qty": 6, "remark": "Edge burr"},
+				{"rejection_reason": "Crack", "qty": 4, "remark": "Surface crack"},
+			],
 		)
 		# Set a known basic_rate on the FG row before save
 		for row in se.items:
