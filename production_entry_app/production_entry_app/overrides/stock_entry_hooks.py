@@ -4,8 +4,9 @@ import datetime
 
 import frappe
 from frappe import _
-from frappe.utils import get_time
+from frappe.utils import flt, format_datetime, get_datetime, get_time
 
+from production_entry_app.production_entry_app.utils.die_tool_counter import update_counter_for_stock_entry
 from production_entry_app.production_entry_app.utils.shift_time import get_shift_planned_end_datetime
 
 
@@ -18,7 +19,17 @@ def validate_stock_entry(doc, method: str | None = None) -> None:
 	if doc.get("custom_shift"):
 		_apply_shift_defaults(doc)
 
+	_validate_actual_times(doc)
+	_validate_rejection_breakup(doc)
 	_apply_rejection_entries(doc)
+
+
+def on_submit_stock_entry(doc, method: str | None = None) -> None:
+	update_counter_for_stock_entry(doc, direction=1)
+
+
+def on_cancel_stock_entry(doc, method: str | None = None) -> None:
+	update_counter_for_stock_entry(doc, direction=-1)
 
 
 def _apply_shift_defaults(doc) -> None:
@@ -47,6 +58,81 @@ def _apply_shift_defaults(doc) -> None:
 	if shift.work_in_progress_warehouse:
 		doc.from_warehouse = shift.work_in_progress_warehouse
 		doc.to_warehouse = shift.work_in_progress_warehouse
+
+
+def _validate_actual_times(doc) -> None:
+	"""Validate that actual start/end are within planned window plus configured buffers."""
+	planned_start = _as_datetime(doc.get("custom_planned_start_date"))
+	planned_end = _as_datetime(doc.get("custom_planned_end_date"))
+	actual_start = _as_datetime(doc.get("custom_actual_start_date"))
+	actual_end = _as_datetime(doc.get("custom_actual_end_date"))
+
+	if not planned_start or not planned_end:
+		return
+
+	start_buffer = _get_shift_buffer_minutes("shift_start_buffer_mins", 60)
+	end_buffer = _get_shift_buffer_minutes("shift_end_buffer_mins", 60)
+
+	allowed_start = planned_start - datetime.timedelta(minutes=start_buffer)
+	allowed_end = planned_end + datetime.timedelta(minutes=end_buffer)
+
+	if actual_start and actual_end and actual_end < actual_start:
+		frappe.throw(_("Actual End Date cannot be before Actual Start Date."))
+
+	if actual_start and (actual_start < allowed_start or actual_start > allowed_end):
+		frappe.throw(
+			_("Actual Start Date must be between {0} and {1}.").format(
+				format_datetime(allowed_start), format_datetime(allowed_end)
+			)
+		)
+
+	if actual_end and (actual_end < allowed_start or actual_end > allowed_end):
+		frappe.throw(
+			_("Actual End Date must be between {0} and {1}.").format(
+				format_datetime(allowed_start), format_datetime(allowed_end)
+			)
+		)
+
+
+def _get_shift_buffer_minutes(fieldname: str, default_value: int) -> int:
+	settings_meta = frappe.get_meta("Manufacturing Settings", cached=True)
+	if settings_meta.has_field(fieldname):
+		value = frappe.db.get_single_value("Manufacturing Settings", fieldname)
+		if value is not None:
+			return int(value)
+	return default_value
+
+
+def _as_datetime(value) -> datetime.datetime | None:
+	if not value:
+		return None
+	return get_datetime(value)
+
+
+def _validate_rejection_breakup(doc) -> None:
+	rejection_qty = float(doc.get("custom_rejection_qty") or 0)
+	if rejection_qty <= 0:
+		return
+
+	breakup_rows = doc.get("custom_rejection_breakup") or []
+	if not breakup_rows:
+		frappe.throw(_("Rejection Breakup is mandatory when Rejection Quantity is greater than 0."))
+
+	total_qty = 0.0
+	for row in breakup_rows:
+		row_qty = float(row.get("qty") or 0)
+		if row_qty <= 0:
+			frappe.throw(_("Rejection Breakup rows must have a quantity greater than 0."))
+		if not row.get("rejection_reason"):
+			frappe.throw(_("Rejection Breakup rows must have a rejection reason."))
+		total_qty += row_qty
+
+	if flt(total_qty, 3) != flt(rejection_qty, 3):
+		frappe.throw(
+			_("Total rejection breakup quantity ({0}) must equal Rejection Quantity ({1}).").format(
+				total_qty, rejection_qty
+			)
+		)
 
 
 def _apply_rejection_entries(doc) -> None:

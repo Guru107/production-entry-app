@@ -15,6 +15,91 @@ def _ensure_downtime_reasons() -> None:
 			frappe.get_doc({"doctype": "Downtime Reason", "downtime_reason_name": name}).insert()
 
 
+def _ensure_rejection_breakup_doctype() -> None:
+	if not frappe.db.exists("DocType", "Rejection Breakup"):
+		frappe.reload_doc("production_entry_app", "doctype", "rejection_breakup")
+
+
+def _ensure_rejection_reason_doctype() -> None:
+	if not frappe.db.exists("DocType", "Rejection Reason"):
+		frappe.reload_doc("production_entry_app", "doctype", "rejection_reason")
+
+
+def _ensure_rejection_reasons() -> None:
+	for name in ("Burr", "Crack"):
+		if not frappe.db.exists("Rejection Reason", name):
+			frappe.get_doc({"doctype": "Rejection Reason", "rejection_reason_name": name}).insert()
+
+
+def _ensure_rejection_breakup_custom_field() -> None:
+	if frappe.db.exists("Custom Field", "Stock Entry-custom_rejection_breakup"):
+		return
+	frappe.get_doc(
+		{
+			"doctype": "Custom Field",
+			"dt": "Stock Entry",
+			"fieldname": "custom_rejection_breakup",
+			"fieldtype": "Table",
+			"label": "Rejection Breakup",
+			"options": "Rejection Breakup",
+			"insert_after": "custom_fetch_items",
+			"depends_on": "eval:doc.custom_rejection_qty > 0",
+			"mandatory_depends_on": "eval:doc.custom_rejection_qty > 0",
+			"module": "Production Entry App",
+		}
+	).insert(ignore_permissions=True)
+
+
+def _ensure_die_tool_maintenance_log_doctype() -> None:
+	if not frappe.db.exists("DocType", "Die Tool Maintenance Log"):
+		frappe.reload_doc("production_entry_app", "doctype", "die_tool_maintenance_log")
+
+
+def _ensure_die_tool_counter_doctype() -> None:
+	if not frappe.db.exists("DocType", "Die Tool Counter"):
+		frappe.reload_doc("production_entry_app", "doctype", "die_tool_counter")
+
+
+def _ensure_item_die_tool_fields() -> None:
+	created = False
+	if not frappe.db.exists("Custom Field", "Item-custom_strokes_per_unit"):
+		frappe.get_doc(
+			{
+				"doctype": "Custom Field",
+				"dt": "Item",
+				"fieldname": "custom_strokes_per_unit",
+				"fieldtype": "Float",
+				"label": "Strokes Per Unit",
+				"insert_after": "item_name",
+				"module": "Production Entry App",
+			}
+		).insert(ignore_permissions=True)
+		created = True
+
+	if not frappe.db.exists("Custom Field", "Item-custom_stroke_capacity"):
+		frappe.get_doc(
+			{
+				"doctype": "Custom Field",
+				"dt": "Item",
+				"fieldname": "custom_stroke_capacity",
+				"fieldtype": "Float",
+				"label": "Stroke Capacity",
+				"insert_after": "custom_strokes_per_unit",
+				"module": "Production Entry App",
+			}
+		).insert(ignore_permissions=True)
+		created = True
+
+	if created:
+		frappe.reload_doc("core", "doctype", "item")
+		frappe.db.updatedb("Item")
+
+
+def _append_rejection_breakup_rows(doc, rows: list[dict]) -> None:
+	for row in rows:
+		doc.append("custom_rejection_breakup", row)
+
+
 def _get_or_create_warehouse(name: str, company: str) -> str:
 	"""Return warehouse name, creating it if needed."""
 	if frappe.db.exists("Warehouse", name):
@@ -47,6 +132,12 @@ def _get_or_create_item(item_code: str) -> str:
 	)
 	item.insert(ignore_permissions=True)
 	return item.name
+
+
+def _set_item_die_tool_fields(item_code: str, strokes_per_unit: float, stroke_capacity: float) -> None:
+	frappe.db.set_value("Item", item_code, "custom_strokes_per_unit", strokes_per_unit)
+	frappe.db.set_value("Item", item_code, "custom_stroke_capacity", stroke_capacity)
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit - ensure custom fields are persisted
 
 
 def _create_test_shift(
@@ -168,6 +259,7 @@ def _create_manufacture_stock_entry(
 			"purpose": "Manufacture",
 			"stock_entry_type": "Manufacture",
 			"company": company,
+			"fg_completed_qty": fg_qty,
 		}
 	)
 
@@ -201,6 +293,11 @@ def _create_manufacture_stock_entry(
 	return se
 
 
+def _set_shift_buffers(start_mins: int = 60, end_mins: int = 60) -> None:
+	frappe.db.set_single_value("Manufacturing Settings", "shift_start_buffer_mins", start_mins)
+	frappe.db.set_single_value("Manufacturing Settings", "shift_end_buffer_mins", end_mins)
+
+
 class TestStockEntryHooks(FrappeTestCase):
 	# Shift dates used by tests in this class (April 10-17, 2026)
 	_SHIFT_DATES: ClassVar[list[str]] = [f"2026-04-{d}" for d in range(10, 18)]
@@ -208,6 +305,10 @@ class TestStockEntryHooks(FrappeTestCase):
 	@classmethod
 	def setUpClass(cls) -> None:
 		super().setUpClass()
+		_ensure_rejection_breakup_doctype()
+		_ensure_rejection_reason_doctype()
+		_ensure_rejection_reasons()
+		_ensure_rejection_breakup_custom_field()
 		cls.company = frappe.db.get_single_value("Global Defaults", "default_company") or "_Test Company"
 		abbr = frappe.db.get_value("Company", cls.company, "abbr") or "_TC"
 		cls.wip_warehouse = _get_or_create_warehouse(f"WIP Test - {abbr}", cls.company)
@@ -269,6 +370,219 @@ class TestStockEntryHooks(FrappeTestCase):
 		self.assertIn("2026-04-11", str(se.custom_planned_start_date))
 		self.assertIn("08:00:00", str(se.custom_planned_start_date))
 		self.assertIn("16:00:00", str(se.custom_planned_end_date))
+
+	def test_rejection_breakup_required_when_rejection_qty_positive(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-04-12",
+			wip_warehouse=self.wip_warehouse,
+			rejection_warehouse=self.rejection_warehouse,
+		)
+
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			fg_qty=100,
+			custom_shift=shift.name,
+			custom_rejection_qty=5,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+
+		with self.assertRaises(ValidationError):
+			se.save()
+
+	def test_rejection_breakup_total_exceeds_rejection_qty_throws(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-04-13",
+			wip_warehouse=self.wip_warehouse,
+			rejection_warehouse=self.rejection_warehouse,
+		)
+
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			fg_qty=100,
+			custom_shift=shift.name,
+			custom_rejection_qty=5,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		_append_rejection_breakup_rows(
+			se,
+			[
+				{"rejection_reason": "Burr", "qty": 3, "remark": "Edge burr"},
+				{"rejection_reason": "Crack", "qty": 3, "remark": "Surface crack"},
+			],
+		)
+
+		with self.assertRaises(ValidationError):
+			se.save()
+
+	def test_rejection_breakup_total_less_than_rejection_qty_throws(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-04-14",
+			wip_warehouse=self.wip_warehouse,
+			rejection_warehouse=self.rejection_warehouse,
+		)
+
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			fg_qty=100,
+			custom_shift=shift.name,
+			custom_rejection_qty=5,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		_append_rejection_breakup_rows(
+			se,
+			[
+				{"rejection_reason": "Burr", "qty": 3, "remark": "Edge burr"},
+				{"rejection_reason": "Crack", "qty": 1, "remark": "Surface crack"},
+			],
+		)
+
+		with self.assertRaises(ValidationError):
+			se.save()
+
+	def test_rejection_breakup_reason_required(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-04-15",
+			wip_warehouse=self.wip_warehouse,
+			rejection_warehouse=self.rejection_warehouse,
+		)
+
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			fg_qty=100,
+			custom_shift=shift.name,
+			custom_rejection_qty=5,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		_append_rejection_breakup_rows(se, [{"qty": 5, "remark": "Missing reason"}])
+
+		with self.assertRaises(ValidationError):
+			se.save()
+
+	def test_rejection_breakup_valid_allows_save(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-04-16",
+			wip_warehouse=self.wip_warehouse,
+			rejection_warehouse=self.rejection_warehouse,
+		)
+
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			fg_qty=100,
+			custom_shift=shift.name,
+			custom_rejection_qty=5,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		_append_rejection_breakup_rows(
+			se,
+			[
+				{"rejection_reason": "Burr", "qty": 3, "remark": "Edge burr"},
+				{"rejection_reason": "Crack", "qty": 2, "remark": "Surface crack"},
+			],
+		)
+
+		se.save()
+
+		self.assertEqual(len(se.custom_rejection_breakup), 2)
+
+	def test_actual_times_within_buffer_pass(self) -> None:
+		_set_shift_buffers()
+		shift = _create_test_shift(
+			shift_date="2026-04-12",
+			wip_warehouse=self.wip_warehouse,
+		)
+
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			custom_shift=shift.name,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		se.custom_actual_start_date = "2026-04-12 07:30:00"
+		se.custom_actual_end_date = "2026-04-12 16:30:00"
+		se.save()
+
+		self.assertEqual(str(se.custom_actual_start_date), "2026-04-12 07:30:00")
+		self.assertEqual(str(se.custom_actual_end_date), "2026-04-12 16:30:00")
+
+	def test_actual_start_before_allowed_range_throws(self) -> None:
+		_set_shift_buffers()
+		shift = _create_test_shift(
+			shift_date="2026-04-13",
+			wip_warehouse=self.wip_warehouse,
+		)
+
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			custom_shift=shift.name,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		se.custom_actual_start_date = "2026-04-13 06:59:00"
+		se.custom_actual_end_date = "2026-04-13 16:00:00"
+
+		with self.assertRaises(ValidationError):
+			se.save()
+
+	def test_actual_end_after_allowed_range_throws(self) -> None:
+		_set_shift_buffers()
+		shift = _create_test_shift(
+			shift_date="2026-04-14",
+			wip_warehouse=self.wip_warehouse,
+		)
+
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			custom_shift=shift.name,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		se.custom_actual_start_date = "2026-04-14 08:00:00"
+		se.custom_actual_end_date = "2026-04-14 17:01:00"
+
+		with self.assertRaises(ValidationError):
+			se.save()
+
+	def test_actual_end_before_start_throws(self) -> None:
+		_set_shift_buffers()
+		shift = _create_test_shift(
+			shift_date="2026-04-15",
+			wip_warehouse=self.wip_warehouse,
+		)
+
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			custom_shift=shift.name,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		se.custom_actual_start_date = "2026-04-15 09:00:00"
+		se.custom_actual_end_date = "2026-04-15 08:59:00"
+
+		with self.assertRaises(ValidationError):
+			se.save()
 
 	def test_shift_reference_planned_dates_for_evening_shift_label_2(self) -> None:
 		shift = _create_test_shift(
@@ -350,6 +664,13 @@ class TestStockEntryHooks(FrappeTestCase):
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
+		_append_rejection_breakup_rows(
+			se,
+			[
+				{"rejection_reason": "Burr", "qty": 3, "remark": "Edge burr"},
+				{"rejection_reason": "Crack", "qty": 2, "remark": "Surface crack"},
+			],
+		)
 		se.save()
 
 		# Find the FG row (is_finished_item=1)
@@ -373,6 +694,13 @@ class TestStockEntryHooks(FrappeTestCase):
 			custom_rejection_qty=5,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
+		)
+		_append_rejection_breakup_rows(
+			se,
+			[
+				{"rejection_reason": "Burr", "qty": 3, "remark": "Edge burr"},
+				{"rejection_reason": "Crack", "qty": 2, "remark": "Surface crack"},
+			],
 		)
 		se.save()
 
@@ -399,6 +727,12 @@ class TestStockEntryHooks(FrappeTestCase):
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
+		_append_rejection_breakup_rows(
+			se,
+			[
+				{"rejection_reason": "Burr", "qty": 150, "remark": "Over rejection"},
+			],
+		)
 
 		with self.assertRaises(ValidationError):
 			se.save()
@@ -419,6 +753,13 @@ class TestStockEntryHooks(FrappeTestCase):
 			custom_rejection_qty=10,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
+		)
+		_append_rejection_breakup_rows(
+			se,
+			[
+				{"rejection_reason": "Burr", "qty": 4, "remark": "Edge burr"},
+				{"rejection_reason": "Crack", "qty": 6, "remark": "Surface crack"},
+			],
 		)
 		se.save()
 
@@ -488,6 +829,10 @@ class TestGetItemsWithRejection(FrappeTestCase):
 	@classmethod
 	def setUpClass(cls) -> None:
 		super().setUpClass()
+		_ensure_rejection_breakup_doctype()
+		_ensure_rejection_reason_doctype()
+		_ensure_rejection_reasons()
+		_ensure_rejection_breakup_custom_field()
 		cls.company = frappe.db.get_single_value("Global Defaults", "default_company") or "_Test Company"
 		abbr = frappe.db.get_value("Company", cls.company, "abbr") or "_TC"
 		cls.wip_warehouse = _get_or_create_warehouse(f"WIP Test - {abbr}", cls.company)
@@ -580,6 +925,13 @@ class TestGetItemsWithRejection(FrappeTestCase):
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
+		_append_rejection_breakup_rows(
+			se,
+			[
+				{"rejection_reason": "Burr", "qty": 6, "remark": "Edge burr"},
+				{"rejection_reason": "Crack", "qty": 4, "remark": "Surface crack"},
+			],
+		)
 		# Set a known basic_rate on the FG row before save
 		for row in se.items:
 			if row.is_finished_item:
@@ -649,3 +1001,164 @@ class TestGetItemsWithRejection(FrappeTestCase):
 				frappe.db.set_value("Shift", name, "status", "Completed", update_modified=False)
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed to persist cleanup
 		super().tearDownClass()
+
+
+class TestDieToolCounter(FrappeTestCase):
+	@classmethod
+	def setUpClass(cls) -> None:
+		super().setUpClass()
+		_ensure_die_tool_maintenance_log_doctype()
+		_ensure_die_tool_counter_doctype()
+		_ensure_item_die_tool_fields()
+		cls.company = frappe.db.get_single_value("Global Defaults", "default_company") or "_Test Company"
+		abbr = frappe.db.get_value("Company", cls.company, "abbr") or "_TC"
+		cls.rm_warehouse = _get_or_create_warehouse(f"DT RM Test - {abbr}", cls.company)
+		cls.fg_warehouse = _get_or_create_warehouse(f"DT FG Test - {abbr}", cls.company)
+		suffix = frappe.generate_hash(length=6)
+		cls.rm_item = _get_or_create_item(f"_Test Die Tool RM {suffix}")
+		cls.fg_item = _get_or_create_item(f"_Test Die Tool FG {suffix}")
+		_set_item_die_tool_fields(cls.fg_item, strokes_per_unit=12, stroke_capacity=1000)
+		strokes = frappe.db.get_value("Item", cls.fg_item, "custom_strokes_per_unit")
+		if not strokes:
+			frappe.db.set_value("Item", cls.fg_item, "custom_strokes_per_unit", 12)
+			frappe.db.commit()  # nosemgrep: frappe-manual-commit - persist stroke config
+		frappe.db.delete("Die Tool Maintenance Log", {"die_tool_item": cls.fg_item})
+		frappe.db.delete("Die Tool Counter", {"die_tool_item": cls.fg_item})
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit - clear prior data
+
+	def setUp(self) -> None:
+		frappe.db.delete("Die Tool Maintenance Log", {"die_tool_item": self.fg_item})
+		frappe.db.delete("Die Tool Counter", {"die_tool_item": self.fg_item})
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit - isolate tests
+		super().setUp()
+
+	def test_die_tool_counter_created_on_submit(self) -> None:
+		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
+			on_submit_stock_entry,
+		)
+
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			fg_qty=10,
+			rm_qty=10,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		se.custom_rejection_qty = 2
+
+		on_submit_stock_entry(se, "on_submit")
+
+		counter = frappe.get_doc("Die Tool Counter", self.fg_item)
+		self.assertEqual(counter.current_stroke_count, (10 + 2) * 12)
+		self.assertEqual(counter.stroke_capacity, 1000)
+
+	def test_die_tool_counter_decrements_on_cancel(self) -> None:
+		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
+			on_cancel_stock_entry,
+			on_submit_stock_entry,
+		)
+
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			fg_qty=5,
+			rm_qty=5,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		se.custom_rejection_qty = 1
+
+		on_submit_stock_entry(se, "on_submit")
+		on_cancel_stock_entry(se, "on_cancel")
+
+		counter = frappe.get_doc("Die Tool Counter", self.fg_item)
+		self.assertEqual(counter.current_stroke_count, 0)
+
+	def test_die_tool_counter_resets_on_maintenance_log_submit(self) -> None:
+		if frappe.db.exists("Die Tool Counter", self.fg_item):
+			frappe.db.set_value(
+				"Die Tool Counter",
+				self.fg_item,
+				{
+					"current_stroke_count": 120,
+					"stroke_capacity": 1000,
+				},
+			)
+		else:
+			frappe.get_doc(
+				{
+					"doctype": "Die Tool Counter",
+					"die_tool_item": self.fg_item,
+					"current_stroke_count": 120,
+					"stroke_capacity": 1000,
+				}
+			).insert(ignore_permissions=True)
+
+		log = frappe.get_doc(
+			{
+				"doctype": "Die Tool Maintenance Log",
+				"die_tool_item": self.fg_item,
+				"maintenance_date": "2026-04-30 08:00:00",
+				"remarks": "Reset counter",
+			}
+		)
+		log.on_submit()
+
+		counter = frappe.get_doc("Die Tool Counter", self.fg_item)
+		self.assertEqual(counter.current_stroke_count, 0)
+
+	def test_die_tool_maintenance_autoname_uses_maintenance_date(self) -> None:
+		from production_entry_app.production_entry_app.doctype.die_tool_maintenance_log.die_tool_maintenance_log import (
+			DieToolMaintenanceLog,
+		)
+
+		log = frappe.get_doc(
+			{
+				"doctype": "Die Tool Maintenance Log",
+				"die_tool_item": self.fg_item,
+				"maintenance_date": "2026-05-01 10:00:00",
+			}
+		)
+		DieToolMaintenanceLog.autoname(log)
+
+		item_code = self.fg_item.replace(" ", "-")
+		self.assertIn(f"DTML-{item_code}-2026-05-01.", log.name)
+
+	def test_die_tool_maintenance_autoname_defaults_to_today(self) -> None:
+		from production_entry_app.production_entry_app.doctype.die_tool_maintenance_log.die_tool_maintenance_log import (
+			DieToolMaintenanceLog,
+		)
+
+		log = frappe.get_doc(
+			{
+				"doctype": "Die Tool Maintenance Log",
+				"die_tool_item": self.fg_item,
+			}
+		)
+		DieToolMaintenanceLog.autoname(log)
+
+		item_code = self.fg_item.replace(" ", "-")
+		today = frappe.utils.nowdate()
+		self.assertIn(f"DTML-{item_code}-{today}.", log.name)
+
+	def test_die_tool_maintenance_autoname_sanitizes_item_code(self) -> None:
+		from production_entry_app.production_entry_app.doctype.die_tool_maintenance_log.die_tool_maintenance_log import (
+			DieToolMaintenanceLog,
+		)
+
+		item_code = "DIE-01_A [B]&$"
+		expected = "DIE-01_A--B---"
+
+		log = frappe.get_doc(
+			{
+				"doctype": "Die Tool Maintenance Log",
+				"die_tool_item": item_code,
+				"maintenance_date": "2026-05-02 10:00:00",
+			}
+		)
+		DieToolMaintenanceLog.autoname(log)
+
+		self.assertIn(f"DTML-{expected}-2026-05-02.", log.name)

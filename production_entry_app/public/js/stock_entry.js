@@ -6,7 +6,7 @@
 // Suppress ERPNext's auto-populate on fg_completed_qty change for Manufacture
 // entries so the user can set both Qty to Manufacture and Rejection Qty before
 // explicitly clicking "Fetch Items".
-if (erpnext.stock && erpnext.stock.StockEntry) {
+if (window.erpnext && erpnext.stock && erpnext.stock.StockEntry) {
 	const _original_fg_completed_qty = erpnext.stock.StockEntry.prototype.fg_completed_qty;
 
 	erpnext.stock.StockEntry.prototype.fg_completed_qty = function () {
@@ -22,6 +22,9 @@ if (erpnext.stock && erpnext.stock.StockEntry) {
 }
 
 frappe.ui.form.on("Stock Entry", {
+	onload(frm) {
+		_hide_standard_get_items(frm);
+	},
 	refresh(frm) {
 		// Set filter to only show Running shifts
 		frm.set_query("custom_shift", function () {
@@ -31,9 +34,18 @@ frappe.ui.form.on("Stock Entry", {
 		});
 
 		frm.toggle_display(["custom_planned_start_date", "custom_planned_end_date"], true);
+		_toggle_rejection_breakup(frm);
 
-		// Hide the standard "Get Items" button field — our "Fetch Items" replaces it
-		frm.set_df_property("get_items", "hidden", 1);
+		_hide_standard_get_items(frm);
+	},
+	from_bom(frm) {
+		_hide_standard_get_items(frm);
+	},
+	bom_no(frm) {
+		_hide_standard_get_items(frm);
+	},
+	custom_rejection_qty(frm) {
+		_toggle_rejection_breakup(frm);
 	},
 	custom_fetch_items(frm) {
 		if (!frm.doc.fg_completed_qty) {
@@ -97,3 +109,16 @@ frappe.ui.form.on("Stock Entry", {
 		}
 	},
 });
+
+function _hide_standard_get_items(frm) {
+	// Hide the standard "Get Items" button field — our "Fetch Items" replaces it
+	frm.toggle_display("get_items", false);
+	frm.set_df_property("get_items", "hidden", 1);
+}
+
+function _toggle_rejection_breakup(frm) {
+	const rejection_qty = typeof flt === "function" ? flt(frm.doc.custom_rejection_qty) : 0;
+	const has_rejection = rejection_qty > 0;
+	frm.toggle_display("custom_rejection_breakup", has_rejection);
+	frm.toggle_reqd("custom_rejection_breakup", has_rejection);
+}
