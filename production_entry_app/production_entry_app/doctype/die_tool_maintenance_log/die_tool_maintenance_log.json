@@ -1,14 +1,14 @@
 {
  "actions": [],
- "allow_rename": 0,
- "autoname": "format:DTML-{YYYY}-{MM}-{DD}-{####}",
- "creation": "2026-02-15 00:00:00.000000",
+ "autoname": "autoname",
+ "creation": "2026-02-15 00:00:00",
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
   "die_tool_item",
   "maintenance_date",
-  "remarks"
+  "remarks",
+  "amended_from"
  ],
  "fields": [
   {
@@ -30,20 +30,32 @@
    "fieldname": "remarks",
    "fieldtype": "Small Text",
    "label": "Remarks"
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Die Tool Maintenance Log",
+   "print_hide": 1,
+   "read_only": 1,
+   "search_index": 1
   }
  ],
  "index_web_pages_for_search": 1,
- "modified": "2026-02-15 00:00:00.000000",
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2026-02-16 10:22:47.435462",
  "modified_by": "Administrator",
  "module": "Production Entry App",
  "name": "Die Tool Maintenance Log",
- "naming_rule": "By \"Naming Series\" field",
  "owner": "Administrator",
  "permissions": [
   {
    "create": 1,
    "delete": 1,
    "read": 1,
+   "submit": 1,
    "role": "System Manager",
    "write": 1
   },
@@ -51,6 +63,7 @@
    "create": 1,
    "delete": 1,
    "read": 1,
+   "submit": 1,
    "role": "Manufacturing User",
    "write": 1
   },
@@ -58,10 +71,12 @@
    "create": 1,
    "delete": 1,
    "read": 1,
+   "submit": 1,
    "role": "Manufacturing Manager",
    "write": 1
   }
- ],
+],
+ "row_format": "Dynamic",
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": [],
