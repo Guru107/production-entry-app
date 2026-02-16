@@ -1109,3 +1109,56 @@ class TestDieToolCounter(FrappeTestCase):
 
 		counter = frappe.get_doc("Die Tool Counter", self.fg_item)
 		self.assertEqual(counter.current_stroke_count, 0)
+
+	def test_die_tool_maintenance_autoname_uses_maintenance_date(self) -> None:
+		from production_entry_app.production_entry_app.doctype.die_tool_maintenance_log.die_tool_maintenance_log import (
+			DieToolMaintenanceLog,
+		)
+
+		log = frappe.get_doc(
+			{
+				"doctype": "Die Tool Maintenance Log",
+				"die_tool_item": self.fg_item,
+				"maintenance_date": "2026-05-01 10:00:00",
+			}
+		)
+		DieToolMaintenanceLog.autoname(log)
+
+		item_code = self.fg_item.replace(" ", "-")
+		self.assertIn(f"DTML-{item_code}-2026-05-01.", log.name)
+
+	def test_die_tool_maintenance_autoname_defaults_to_today(self) -> None:
+		from production_entry_app.production_entry_app.doctype.die_tool_maintenance_log.die_tool_maintenance_log import (
+			DieToolMaintenanceLog,
+		)
+
+		log = frappe.get_doc(
+			{
+				"doctype": "Die Tool Maintenance Log",
+				"die_tool_item": self.fg_item,
+			}
+		)
+		DieToolMaintenanceLog.autoname(log)
+
+		item_code = self.fg_item.replace(" ", "-")
+		today = frappe.utils.nowdate()
+		self.assertIn(f"DTML-{item_code}-{today}.", log.name)
+
+	def test_die_tool_maintenance_autoname_sanitizes_item_code(self) -> None:
+		from production_entry_app.production_entry_app.doctype.die_tool_maintenance_log.die_tool_maintenance_log import (
+			DieToolMaintenanceLog,
+		)
+
+		item_code = "DIE-01_A [B]&$"
+		expected = "DIE-01_A--B---"
+
+		log = frappe.get_doc(
+			{
+				"doctype": "Die Tool Maintenance Log",
+				"die_tool_item": item_code,
+				"maintenance_date": "2026-05-02 10:00:00",
+			}
+		)
+		DieToolMaintenanceLog.autoname(log)
+
+		self.assertIn(f"DTML-{expected}-2026-05-02.", log.name)
