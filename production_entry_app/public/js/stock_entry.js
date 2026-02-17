@@ -34,11 +34,14 @@ frappe.ui.form.on("Stock Entry", {
 		});
 
 		frm.toggle_display(["custom_planned_start_date", "custom_planned_end_date"], true);
+		_ensure_use_multi_level_bom_unchecked(frm);
 		_toggle_rejection_breakup(frm);
+		_update_die_tool_metrics(frm);
 
 		_hide_standard_get_items(frm);
 	},
 	from_bom(frm) {
+		_ensure_use_multi_level_bom_unchecked(frm);
 		_hide_standard_get_items(frm);
 	},
 	bom_no(frm) {
@@ -46,6 +49,7 @@ frappe.ui.form.on("Stock Entry", {
 	},
 	custom_rejection_qty(frm) {
 		_toggle_rejection_breakup(frm);
+		_update_die_tool_metrics(frm);
 	},
 	custom_fetch_items(frm) {
 		if (!frm.doc.fg_completed_qty) {
@@ -68,6 +72,7 @@ frappe.ui.form.on("Stock Entry", {
 				});
 				frm.refresh_field("items");
 				frm.dirty();
+				_update_die_tool_metrics(frm);
 			},
 		});
 	},
@@ -121,4 +126,60 @@ function _toggle_rejection_breakup(frm) {
 	const has_rejection = rejection_qty > 0;
 	frm.toggle_display("custom_rejection_breakup", has_rejection);
 	frm.toggle_reqd("custom_rejection_breakup", has_rejection);
+}
+
+function _update_die_tool_metrics(frm) {
+	if (frm.doc.purpose !== "Manufacture") return;
+
+	const item_code = _get_die_tool_item_code(frm);
+	if (!item_code) {
+		_set_die_tool_metric_fields(frm, 0, 0);
+		return;
+	}
+
+	frappe.call({
+		method: "production_entry_app.production_entry_app.api.get_die_tool_counter",
+		args: { die_tool_code: item_code },
+		callback(r) {
+			if (!r.message) return;
+			const data = r.message;
+			const utilization = parseFloat(data.utilization_pct || 0);
+			const due = parseInt(data.is_maintenance_due || 0, 10) === 1;
+			_set_die_tool_metric_fields(frm, utilization, due ? 1 : 0);
+
+			if (due && frm.dashboard && frm.dashboard.set_headline_alert) {
+				frm.dashboard.set_headline_alert(
+					__("Die tool {0} has reached {1}% utilization and needs maintenance.", [
+						item_code,
+						utilization.toFixed(2),
+					]),
+					"orange"
+				);
+			}
+		},
+	});
+}
+
+function _set_die_tool_metric_fields(frm, utilization, due) {
+	if (frm.fields_dict.custom_die_tool_utilization_pct) {
+		frm.doc.custom_die_tool_utilization_pct = utilization;
+	}
+	if (frm.fields_dict.custom_die_tool_maintenance_due) {
+		frm.doc.custom_die_tool_maintenance_due = due;
+	}
+	frm.refresh_fields(["custom_die_tool_utilization_pct", "custom_die_tool_maintenance_due"]);
+}
+
+function _ensure_use_multi_level_bom_unchecked(frm) {
+	if (frm.doc.from_bom && frm.doc.use_multi_level_bom) {
+		frm.doc.use_multi_level_bom = 0;
+		frm.refresh_field("use_multi_level_bom");
+	}
+}
+
+function _get_die_tool_item_code(frm) {
+	if (frm.doc.fg_item) return frm.doc.fg_item;
+	const items = frm.doc.items || [];
+	const fgRow = items.find((row) => row.is_finished_item);
+	return fgRow ? fgRow.item_code : null;
 }

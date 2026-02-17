@@ -108,6 +108,7 @@ jobs:
         working-directory: /home/runner/frappe-bench
         run: |
           bench --site test_site execute erpnext.setup.setup_wizard.operations.install_fixtures.install --args '["India"]'
+
       - name: Run Tests
         working-directory: /home/runner/frappe-bench
         run: |

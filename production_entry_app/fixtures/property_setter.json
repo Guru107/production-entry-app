@@ -1,0 +1,24 @@
+[
+	{
+		"doctype": "Property Setter",
+		"name": "Stock Entry-section_break_7qsm-hidden",
+		"doctype_or_field": "DocField",
+		"doc_type": "Stock Entry",
+		"field_name": "section_break_7qsm",
+		"property": "hidden",
+		"property_type": "Check",
+		"value": "1",
+		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Property Setter",
+		"name": "Stock Entry-use_multi_level_bom-default",
+		"doctype_or_field": "DocField",
+		"doc_type": "Stock Entry",
+		"field_name": "use_multi_level_bom",
+		"property": "default",
+		"property_type": "Data",
+		"value": "0",
+		"module": "Production Entry App"
+	}
+]

@@ -6,7 +6,10 @@ import frappe
 from frappe import _
 from frappe.utils import flt, format_datetime, get_datetime, get_time
 
-from production_entry_app.production_entry_app.utils.die_tool_counter import update_counter_for_stock_entry
+from production_entry_app.production_entry_app.utils.die_tool_counter import (
+	get_counter_health,
+	update_counter_for_stock_entry,
+)
 from production_entry_app.production_entry_app.utils.shift_time import get_shift_planned_end_datetime
 
 
@@ -22,6 +25,7 @@ def validate_stock_entry(doc, method: str | None = None) -> None:
 	_validate_actual_times(doc)
 	_validate_rejection_breakup(doc)
 	_apply_rejection_entries(doc)
+	_set_entry_metrics(doc)
 
 
 def on_submit_stock_entry(doc, method: str | None = None) -> None:
@@ -237,3 +241,97 @@ def _get_rejection_warehouse(doc) -> str:
 			return wh
 
 	frappe.throw(_("Please set a Rejection Warehouse on the Shift or in Manufacturing Settings."))
+
+
+def _set_entry_metrics(doc) -> None:
+	"""Compute read-only entry metrics used by operators and supervisors."""
+	meta = frappe.get_meta("Stock Entry", cached=True)
+	_set_die_tool_health_metrics(doc, meta)
+	actual_start = _as_datetime(doc.get("custom_actual_start_date"))
+	actual_end = _as_datetime(doc.get("custom_actual_end_date"))
+
+	if not actual_start or not actual_end:
+		_set_if_field(doc, meta, "custom_actual_duration_mins", None)
+		_set_if_field(doc, meta, "custom_actual_spm", None)
+		_set_if_field(doc, meta, "custom_cycle_time_sec", None)
+		_set_if_field(doc, meta, "custom_operator_efficiency_pct", None)
+		return
+
+	duration_mins = (actual_end - actual_start).total_seconds() / 60
+	if duration_mins <= 0:
+		_set_if_field(doc, meta, "custom_actual_duration_mins", None)
+		_set_if_field(doc, meta, "custom_actual_spm", None)
+		_set_if_field(doc, meta, "custom_cycle_time_sec", None)
+		_set_if_field(doc, meta, "custom_operator_efficiency_pct", None)
+		return
+
+	total_units = _get_total_units_for_metrics(doc)
+	actual_spm = (total_units / duration_mins) if total_units > 0 else 0
+	cycle_time_sec = ((duration_mins * 60) / total_units) if total_units > 0 else 0
+	standard_spm = flt(doc.get("custom_standard_spm") or 0)
+	operator_efficiency = ((actual_spm / standard_spm) * 100) if standard_spm > 0 else 0
+
+	_set_if_field(doc, meta, "custom_actual_duration_mins", flt(duration_mins, 3))
+	_set_if_field(doc, meta, "custom_actual_spm", flt(actual_spm, 3))
+	_set_if_field(doc, meta, "custom_cycle_time_sec", flt(cycle_time_sec, 3))
+	_set_if_field(doc, meta, "custom_operator_efficiency_pct", flt(operator_efficiency, 2))
+
+
+def _get_total_units_for_metrics(doc) -> float:
+	fg_completed_qty = flt(doc.get("fg_completed_qty") or 0)
+	rejection_qty_field = flt(doc.get("custom_rejection_qty") or 0)
+	if fg_completed_qty > 0:
+		return fg_completed_qty + rejection_qty_field
+
+	fg_qty = 0.0
+	rejection_qty = 0.0
+	for row in doc.get("items", []):
+		if row.get("custom_is_rejection_item"):
+			rejection_qty += flt(row.get("qty") or 0)
+		elif row.get("is_finished_item"):
+			fg_qty += flt(row.get("qty") or 0)
+	if rejection_qty <= 0:
+		rejection_qty = rejection_qty_field
+	return fg_qty + rejection_qty
+
+
+def _set_if_field(doc, meta, fieldname: str, value) -> None:
+	if meta.has_field(fieldname):
+		doc.set(fieldname, value)
+
+
+def _set_die_tool_health_metrics(doc, meta) -> None:
+	item_code = _get_fg_item_code_for_metrics(doc)
+	if not item_code:
+		_set_if_field(doc, meta, "custom_die_tool_utilization_pct", 0)
+		_set_if_field(doc, meta, "custom_die_tool_maintenance_due", 0)
+		return
+
+	counter = frappe.db.get_value(
+		"Die Tool Counter",
+		item_code,
+		["current_stroke_count", "stroke_capacity", "warning_threshold_pct"],
+		as_dict=True,
+	)
+
+	current_strokes = flt((counter or {}).get("current_stroke_count") or 0, 3)
+	stroke_capacity = flt((counter or {}).get("stroke_capacity") or 0, 3)
+	warning_threshold = flt((counter or {}).get("warning_threshold_pct") or 90, 3)
+	utilization_pct, maintenance_due = get_counter_health(
+		current_strokes=current_strokes,
+		stroke_capacity=stroke_capacity,
+		warning_threshold_pct=warning_threshold,
+		precision=3,
+	)
+
+	_set_if_field(doc, meta, "custom_die_tool_utilization_pct", utilization_pct)
+	_set_if_field(doc, meta, "custom_die_tool_maintenance_due", maintenance_due)
+
+
+def _get_fg_item_code_for_metrics(doc) -> str | None:
+	if doc.get("fg_item"):
+		return doc.get("fg_item")
+	for row in doc.get("items", []):
+		if row.get("is_finished_item"):
+			return row.get("item_code")
+	return None

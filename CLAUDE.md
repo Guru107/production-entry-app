@@ -71,6 +71,7 @@ All DocTypes live under `production_entry_app/production_entry_app/doctype/`:
 - `check_running_shift_conflict()` — Checks if another shift is already Running
 
 **Fixtures** (`hooks.py` → `fixtures`): Custom Fields on Manufacturing Settings (warehouse defaults) and Downtime Entry (shift link), plus default Loss Type records. Fixture JSON files are in `production_entry_app/fixtures/`.
+`property_setter.json` contains `Stock Entry-section_break_7qsm-hidden`; this targets the Stock Entry **Process Loss** section in ERPNext v15.
 
 **Validations run in `validate()`:** overlap prevention, unique shift label per date, field locking by status, end time/date calculation for midnight-crossing shifts.
 

@@ -36,7 +36,7 @@
    "fieldname": "stroke_capacity",
    "fieldtype": "Float",
    "in_list_view": 1,
-   "label": "Stroke Capacity",
+   "label": "Max Stroke Count",
    "read_only": 1
   },
   {
