@@ -26,7 +26,12 @@ def resolve_test_company() -> str:
 	)
 	if company:
 		return company
-	frappe.throw(_("No Company found for test bootstrap."))
+	frappe.throw(
+		_(
+			"No Company found for test bootstrap. Ensure ERPNext fixtures are installed and run "
+			"`production_entry_app.production_entry_app.utils.test_setup.before_tests`."
+		)
+	)
 
 
 def get_company_abbr(company: str) -> str:

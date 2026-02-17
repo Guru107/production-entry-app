@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
@@ -55,6 +57,14 @@ class TestTestBootstrap(FrappeTestCase):
 		self.assertTrue(company)
 		self.assertTrue(frappe.db.exists("Company", company))
 		self.assertTrue(get_company_abbr(company))
+
+	def test_resolve_test_company_error_mentions_before_tests(self) -> None:
+		with patch(
+			"production_entry_app.production_entry_app.utils.test_bootstrap._resolve_company_from_candidates",
+			return_value=None,
+		):
+			with self.assertRaisesRegex(frappe.ValidationError, "before_tests"):
+				resolve_test_company()
 
 	def test_ensure_warehouse_is_idempotent(self) -> None:
 		company = resolve_test_company()

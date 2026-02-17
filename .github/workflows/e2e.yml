@@ -67,6 +67,16 @@ jobs:
           bench build
           bench --site development.localhost execute erpnext.setup.setup_wizard.operations.install_fixtures.install --args '["India"]'
 
+      - name: Bootstrap ERPNext test records for E2E
+        run: |
+          cd ~/frappe-bench
+          bench --site development.localhost execute production_entry_app.production_entry_app.utils.test_setup.before_tests
+
+      - name: Preflight verify company bootstrap
+        run: |
+          cd ~/frappe-bench
+          bench --site development.localhost execute production_entry_app.production_entry_app.utils.test_bootstrap.resolve_test_company
+
       - name: Install Playwright deps
         run: |
           npm install
