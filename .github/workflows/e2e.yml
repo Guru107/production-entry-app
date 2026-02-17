@@ -70,7 +70,7 @@ jobs:
       - name: Bootstrap ERPNext test records for E2E
         run: |
           cd ~/frappe-bench
-          bench --site development.localhost execute production_entry_app.production_entry_app.utils.test_setup.before_tests
+          bench --site development.localhost execute erpnext.setup.utils.before_tests
 
       - name: Preflight verify company bootstrap
         run: |
