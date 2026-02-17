@@ -5,8 +5,7 @@ import json
 
 import frappe
 from frappe import _
-from frappe.utils import add_to_date
-from frappe.utils import get_datetime, get_time, now_datetime
+from frappe.utils import add_to_date, get_datetime, get_time, now_datetime
 
 from production_entry_app.production_entry_app.utils.die_tool_counter import (
 	_get_or_create_counter,
@@ -168,19 +167,25 @@ def reset_die_tool_counter(die_tool_code: str, maintenance_date: str | None = No
 def _ensure_rejection_reason(name: str) -> None:
 	if frappe.db.exists("Rejection Reason", name):
 		return
-	frappe.get_doc({"doctype": "Rejection Reason", "rejection_reason_name": name}).insert(ignore_permissions=True)
+	frappe.get_doc({"doctype": "Rejection Reason", "rejection_reason_name": name}).insert(
+		ignore_permissions=True
+	)
 
 
 def _ensure_downtime_reason(name: str) -> None:
 	if frappe.db.exists("Downtime Reason", name):
 		return
-	frappe.get_doc({"doctype": "Downtime Reason", "downtime_reason_name": name}).insert(ignore_permissions=True)
+	frappe.get_doc({"doctype": "Downtime Reason", "downtime_reason_name": name}).insert(
+		ignore_permissions=True
+	)
 
 
 def _ensure_operator(name: str) -> None:
 	if frappe.db.exists("Operator", name):
 		return
-	frappe.get_doc({"doctype": "Operator", "operator_name": name, "is_active": 1}).insert(ignore_permissions=True)
+	frappe.get_doc({"doctype": "Operator", "operator_name": name, "is_active": 1}).insert(
+		ignore_permissions=True
+	)
 
 
 def _ensure_workstation(name: str, standard_spm: float) -> None:
@@ -223,7 +228,9 @@ def _ensure_default_bom(fg_item: str, rm_item: str, company: str) -> str:
 
 
 def _ensure_stock(item_code: str, warehouse: str, company: str, target_qty: float) -> None:
-	actual_qty = float(frappe.db.get_value("Bin", {"item_code": item_code, "warehouse": warehouse}, "actual_qty") or 0)
+	actual_qty = float(
+		frappe.db.get_value("Bin", {"item_code": item_code, "warehouse": warehouse}, "actual_qty") or 0
+	)
 	if actual_qty >= target_qty:
 		return
 	diff = target_qty - actual_qty
@@ -374,7 +381,9 @@ def cleanup_e2e_context(prefix: str = "E2E") -> dict:
 				"Die Tool Counter", filters={"die_tool_item": item}, pluck="name"
 			):
 				frappe.delete_doc("Die Tool Counter", counter_name, ignore_permissions=True, force=True)
-		for log_name in frappe.get_all("Die Tool Maintenance Log", filters={"die_tool_item": item}, pluck="name"):
+		for log_name in frappe.get_all(
+			"Die Tool Maintenance Log", filters={"die_tool_item": item}, pluck="name"
+		):
 			doc = frappe.get_doc("Die Tool Maintenance Log", log_name)
 			if doc.docstatus == 1:
 				doc.cancel()
