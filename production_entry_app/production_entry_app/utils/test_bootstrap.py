@@ -26,7 +26,12 @@ def resolve_test_company() -> str:
 	)
 	if company:
 		return company
-	frappe.throw(_("No Company found for test bootstrap."))
+	frappe.throw(
+		_(
+			"No Company found for test bootstrap. Ensure ERPNext fixtures are installed and run "
+			"`production_entry_app.production_entry_app.utils.test_setup.before_tests`."
+		)
+	)
 
 
 def get_company_abbr(company: str) -> str:
@@ -68,6 +73,96 @@ def ensure_item(item_code: str, *, item_group: str = "Products", stock_uom: str 
 	)
 	doc.insert(ignore_permissions=True)
 	return doc.name
+
+
+def ensure_rejection_reason(name: str) -> None:
+	if frappe.db.exists("Rejection Reason", name):
+		return
+	frappe.get_doc({"doctype": "Rejection Reason", "rejection_reason_name": name}).insert(
+		ignore_permissions=True
+	)
+
+
+def ensure_downtime_reason(name: str) -> None:
+	if frappe.db.exists("Downtime Reason", name):
+		return
+	frappe.get_doc({"doctype": "Downtime Reason", "downtime_reason_name": name}).insert(
+		ignore_permissions=True
+	)
+
+
+def ensure_operator(name: str) -> None:
+	if frappe.db.exists("Operator", name):
+		return
+	frappe.get_doc({"doctype": "Operator", "operator_name": name, "is_active": 1}).insert(
+		ignore_permissions=True
+	)
+
+
+def ensure_workstation(name: str, standard_spm: float) -> None:
+	if frappe.db.exists("Workstation", name):
+		frappe.db.set_value("Workstation", name, "custom_standard_spm", standard_spm, update_modified=False)
+		return
+	frappe.get_doc(
+		{
+			"doctype": "Workstation",
+			"workstation_name": name,
+			"production_capacity": 1,
+			"hour_rate": 100,
+			"custom_standard_spm": standard_spm,
+		}
+	).insert(ignore_permissions=True)
+
+
+def ensure_default_bom(fg_item: str, rm_item: str, company: str) -> str:
+	existing = frappe.db.get_value(
+		"BOM",
+		{"item": fg_item, "company": company, "is_default": 1, "is_active": 1, "docstatus": 1},
+		"name",
+	)
+	if existing:
+		return existing
+
+	bom = frappe.get_doc(
+		{
+			"doctype": "BOM",
+			"item": fg_item,
+			"company": company,
+			"quantity": 1,
+			"is_default": 1,
+			"is_active": 1,
+			"items": [{"item_code": rm_item, "qty": 1, "rate": 50}],
+		}
+	).insert(ignore_permissions=True)
+	bom.submit()
+	return bom.name
+
+
+def ensure_stock(item_code: str, warehouse: str, company: str, target_qty: float) -> None:
+	actual_qty = float(
+		frappe.db.get_value("Bin", {"item_code": item_code, "warehouse": warehouse}, "actual_qty") or 0
+	)
+	if actual_qty >= target_qty:
+		return
+	diff = target_qty - actual_qty
+	se = frappe.get_doc(
+		{
+			"doctype": "Stock Entry",
+			"stock_entry_type": "Material Receipt",
+			"purpose": "Material Receipt",
+			"company": company,
+			"to_warehouse": warehouse,
+			"items": [
+				{
+					"item_code": item_code,
+					"qty": diff,
+					"t_warehouse": warehouse,
+					"basic_rate": 50,
+				}
+			],
+		}
+	).insert(ignore_permissions=True)
+	se.submit()
 
 
 def cleanup_running_shifts() -> None:
