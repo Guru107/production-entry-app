@@ -2,6 +2,9 @@ name: E2E Playwright
 
 on:
   pull_request:
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
   workflow_dispatch:
   schedule:
     - cron: '0 2 * * *'
@@ -60,6 +63,7 @@ jobs:
           bench new-site --db-root-password root --admin-password 123 development.localhost
           bench --site development.localhost install-app erpnext
           bench --site development.localhost install-app production_entry_app
+          bench set-config -g developer_mode 1
           bench build
           bench --site development.localhost execute erpnext.setup.setup_wizard.operations.install_fixtures.install --args '["India"]'
 

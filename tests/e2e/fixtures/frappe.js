@@ -1,3 +1,17 @@
+async function retryOnContextDestroyed(page, action, retries = 3) {
+	for (let attempt = 0; attempt < retries; attempt += 1) {
+		try {
+			return await action();
+		} catch (error) {
+			const message = String(error?.message || "");
+			if (!message.includes("Execution context was destroyed") || attempt === retries - 1) {
+				throw error;
+			}
+			await page.waitForLoadState("domcontentloaded");
+		}
+	}
+}
+
 async function callFrappeMethod(page, method, args = {}) {
 	const csrfToken = await page.evaluate(() => window.frappe?.csrf_token || "");
 	const response = await page.request.post(`/api/method/${method}`, {
@@ -33,24 +47,15 @@ async function getDoc(page, doctype, name) {
 }
 
 async function setFieldValue(page, fieldname, value) {
-	for (let attempt = 0; attempt < 3; attempt += 1) {
-		try {
-			await page.waitForFunction(() => Boolean(window.cur_frm?.doc));
-			await page.evaluate(
-				async ({ key, val }) => {
-					await cur_frm.set_value(key, val);
-				},
-				{ key: fieldname, val: value }
-			);
-			return;
-		} catch (error) {
-			const message = String(error?.message || "");
-			if (!message.includes("Execution context was destroyed") || attempt === 2) {
-				throw error;
-			}
-			await page.waitForLoadState("domcontentloaded");
-		}
-	}
+	await retryOnContextDestroyed(page, async () => {
+		await page.waitForFunction(() => Boolean(window.cur_frm?.doc));
+		await page.evaluate(
+			async ({ key, val }) => {
+				await cur_frm.set_value(key, val);
+			},
+			{ key: fieldname, val: value }
+		);
+	});
 }
 
 async function saveForm(page, action = "Save") {
@@ -65,6 +70,7 @@ async function saveForm(page, action = "Save") {
 module.exports = {
 	callFrappeMethod,
 	getDoc,
+	retryOnContextDestroyed,
 	setFieldValue,
 	saveForm,
 };

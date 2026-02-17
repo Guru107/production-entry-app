@@ -43,6 +43,8 @@ def get_stock_entries_for_fg_item(item_code: str) -> list[str]:
 		.select(stock_entry_detail.parent)
 		.distinct()
 		.where(
+			# Keep parent-level constraints here because this helper is reused independently
+			# from report filter builders.
 			(stock_entry_detail.item_code == item_code)
 			& (stock_entry_detail.is_finished_item == 1)
 			& (stock_entry.docstatus == 1)

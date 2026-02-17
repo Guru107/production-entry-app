@@ -6,8 +6,12 @@ from frappe.tests.utils import FrappeTestCase
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	_resolve_company_from_candidates,
 	bootstrap_manufacturing_test_context,
+	ensure_downtime_reason,
 	ensure_item,
+	ensure_operator,
+	ensure_rejection_reason,
 	ensure_warehouse,
+	ensure_workstation,
 	get_company_abbr,
 	resolve_test_company,
 )
@@ -67,6 +71,27 @@ class TestTestBootstrap(FrappeTestCase):
 		second = ensure_item(item_code)
 		self.assertEqual(first, second)
 		self.assertTrue(frappe.db.exists("Item", first))
+
+	def test_ensure_operator_is_idempotent(self) -> None:
+		name = "Bootstrap Operator"
+		ensure_operator(name)
+		ensure_operator(name)
+		self.assertTrue(frappe.db.exists("Operator", name))
+
+	def test_ensure_workstation_updates_existing_standard_spm(self) -> None:
+		name = "Bootstrap Workstation"
+		ensure_workstation(name, standard_spm=2)
+		ensure_workstation(name, standard_spm=7)
+		standard_spm = frappe.db.get_value("Workstation", name, "custom_standard_spm")
+		self.assertEqual(float(standard_spm), 7.0)
+
+	def test_reason_helpers_are_idempotent(self) -> None:
+		ensure_rejection_reason("Bootstrap Rejection")
+		ensure_rejection_reason("Bootstrap Rejection")
+		self.assertTrue(frappe.db.exists("Rejection Reason", "Bootstrap Rejection"))
+		ensure_downtime_reason("Bootstrap Downtime")
+		ensure_downtime_reason("Bootstrap Downtime")
+		self.assertTrue(frappe.db.exists("Downtime Reason", "Bootstrap Downtime"))
 
 	def test_bootstrap_manufacturing_test_context_has_expected_keys(self) -> None:
 		context = bootstrap_manufacturing_test_context("Bootstrap")

@@ -6,6 +6,7 @@ tags
 node_modules
 __pycache__
 codex-plan.md
+codex-e2e-plan.md
 test-results
 playwright-report
 tests/e2e/.auth/*.json

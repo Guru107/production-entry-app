@@ -1,5 +1,10 @@
 const { expect } = require("@playwright/test");
-const { callFrappeMethod, saveForm, setFieldValue } = require("../fixtures/frappe");
+const {
+	callFrappeMethod,
+	retryOnContextDestroyed,
+	saveForm,
+	setFieldValue,
+} = require("../fixtures/frappe");
 
 class StockEntryPage {
 	constructor(page) {
@@ -73,24 +78,42 @@ class StockEntryPage {
 		});
 	}
 
-	async waitForShiftAutoFill({ branch, plannedStartIncludes, plannedEndIncludes, warehouse }) {
+	async waitForShiftAutoFill({
+		branch,
+		plannedStartIncludes,
+		plannedEndIncludes,
+		warehouse,
+		fromWarehouse,
+		toWarehouse,
+	}) {
 		await this.page.waitForFunction(
-			({ expectedBranch, expectedWarehouse, startSnippet, endSnippet }) => {
+			({
+				expectedBranch,
+				expectedFromWarehouse,
+				expectedToWarehouse,
+				startSnippet,
+				endSnippet,
+			}) => {
 				const doc = window.cur_frm?.doc || {};
 				const plannedStart = String(doc.custom_planned_start_date || "");
 				const plannedEnd = String(doc.custom_planned_end_date || "");
 				const branchMatch = expectedBranch ? doc.branch === expectedBranch : true;
-				const warehouseMatch = expectedWarehouse
-					? doc.from_warehouse === expectedWarehouse &&
-					  doc.to_warehouse === expectedWarehouse
+				const fromWarehouseMatch = expectedFromWarehouse
+					? doc.from_warehouse === expectedFromWarehouse
+					: true;
+				const toWarehouseMatch = expectedToWarehouse
+					? doc.to_warehouse === expectedToWarehouse
 					: true;
 				const startMatch = startSnippet ? plannedStart.includes(startSnippet) : true;
 				const endMatch = endSnippet ? plannedEnd.includes(endSnippet) : true;
-				return branchMatch && warehouseMatch && startMatch && endMatch;
+				return (
+					branchMatch && fromWarehouseMatch && toWarehouseMatch && startMatch && endMatch
+				);
 			},
 			{
 				expectedBranch: branch || null,
-				expectedWarehouse: warehouse || null,
+				expectedFromWarehouse: fromWarehouse || warehouse || null,
+				expectedToWarehouse: toWarehouse || warehouse || null,
 				startSnippet: plannedStartIncludes || null,
 				endSnippet: plannedEndIncludes || null,
 			}
@@ -138,18 +161,7 @@ class StockEntryPage {
 	}
 
 	async saveDraft() {
-		for (let attempt = 0; attempt < 3; attempt += 1) {
-			try {
-				await saveForm(this.page, "Save");
-				return;
-			} catch (error) {
-				const message = String(error?.message || "");
-				if (!message.includes("Execution context was destroyed") || attempt === 2) {
-					throw error;
-				}
-				await this.page.waitForLoadState("domcontentloaded");
-			}
-		}
+		await retryOnContextDestroyed(this.page, async () => saveForm(this.page, "Save"));
 	}
 
 	async attemptSaveDraft() {

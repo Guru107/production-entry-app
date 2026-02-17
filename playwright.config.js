@@ -1,4 +1,9 @@
 const { defineConfig, devices } = require("@playwright/test");
+try {
+	require("dotenv").config();
+} catch (error) {
+	// Optional for local runs; CI injects env vars directly.
+}
 
 const baseURL = process.env.PLAYWRIGHT_BASE_URL || "http://localhost:8002";
 

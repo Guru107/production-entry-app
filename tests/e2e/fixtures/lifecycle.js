@@ -5,7 +5,7 @@ function registerE2ELifecycle(test, options = {}) {
 	const { navigateHomeBeforeCleanup = true } = options;
 	let prefix = "E2E";
 
-	test.beforeEach(async (_args, testInfo) => {
+	test.beforeEach(async ({ page: _page }, testInfo) => {
 		prefix = e2ePrefix(testInfo);
 	});
 

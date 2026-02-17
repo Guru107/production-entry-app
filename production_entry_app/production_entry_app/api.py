@@ -5,7 +5,7 @@ import json
 
 import frappe
 from frappe import _
-from frappe.utils import add_to_date, get_datetime, get_time, now_datetime
+from frappe.utils import add_to_date, cint, get_datetime, get_time, now_datetime
 
 from production_entry_app.production_entry_app.utils.die_tool_counter import (
 	_get_or_create_counter,
@@ -13,8 +13,14 @@ from production_entry_app.production_entry_app.utils.die_tool_counter import (
 )
 from production_entry_app.production_entry_app.utils.shift_time import get_shift_planned_end_datetime
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
+	ensure_default_bom,
+	ensure_downtime_reason,
 	ensure_item,
+	ensure_operator,
+	ensure_rejection_reason,
+	ensure_stock,
 	ensure_warehouse,
+	ensure_workstation,
 	resolve_test_company,
 )
 
@@ -164,104 +170,35 @@ def reset_die_tool_counter(die_tool_code: str, maintenance_date: str | None = No
 	}
 
 
-def _ensure_rejection_reason(name: str) -> None:
-	if frappe.db.exists("Rejection Reason", name):
-		return
-	frappe.get_doc({"doctype": "Rejection Reason", "rejection_reason_name": name}).insert(
-		ignore_permissions=True
-	)
-
-
-def _ensure_downtime_reason(name: str) -> None:
-	if frappe.db.exists("Downtime Reason", name):
-		return
-	frappe.get_doc({"doctype": "Downtime Reason", "downtime_reason_name": name}).insert(
-		ignore_permissions=True
-	)
-
-
-def _ensure_operator(name: str) -> None:
-	if frappe.db.exists("Operator", name):
-		return
-	frappe.get_doc({"doctype": "Operator", "operator_name": name, "is_active": 1}).insert(
-		ignore_permissions=True
-	)
-
-
-def _ensure_workstation(name: str, standard_spm: float) -> None:
-	if frappe.db.exists("Workstation", name):
-		frappe.db.set_value("Workstation", name, "custom_standard_spm", standard_spm, update_modified=False)
-		return
-	frappe.get_doc(
-		{
-			"doctype": "Workstation",
-			"workstation_name": name,
-			"production_capacity": 1,
-			"hour_rate": 100,
-			"custom_standard_spm": standard_spm,
-		}
-	).insert(ignore_permissions=True)
-
-
-def _ensure_default_bom(fg_item: str, rm_item: str, company: str) -> str:
-	existing = frappe.db.get_value(
-		"BOM",
-		{"item": fg_item, "is_default": 1, "is_active": 1, "docstatus": 1},
-		"name",
-	)
-	if existing:
-		return existing
-
-	bom = frappe.get_doc(
-		{
-			"doctype": "BOM",
-			"item": fg_item,
-			"company": company,
-			"quantity": 1,
-			"is_default": 1,
-			"is_active": 1,
-			"items": [{"item_code": rm_item, "qty": 1, "rate": 50}],
-		}
-	).insert(ignore_permissions=True)
-	bom.submit()
-	return bom.name
-
-
-def _ensure_stock(item_code: str, warehouse: str, company: str, target_qty: float) -> None:
-	actual_qty = float(
-		frappe.db.get_value("Bin", {"item_code": item_code, "warehouse": warehouse}, "actual_qty") or 0
-	)
-	if actual_qty >= target_qty:
-		return
-	diff = target_qty - actual_qty
-	se = frappe.get_doc(
-		{
-			"doctype": "Stock Entry",
-			"stock_entry_type": "Material Receipt",
-			"purpose": "Material Receipt",
-			"company": company,
-			"to_warehouse": warehouse,
-			"items": [
-				{
-					"item_code": item_code,
-					"qty": diff,
-					"t_warehouse": warehouse,
-					"basic_rate": 50,
-				}
-			],
-		}
-	).insert(ignore_permissions=True)
-	se.submit()
-
-
 def _e2e_base_date(prefix: str) -> str:
 	offset = sum(ord(ch) for ch in (prefix or "E2E")) % 30
-	return add_to_date(frappe.utils.today(), days=7 + offset, as_string=True)
+	return add_to_date("2026-01-01", days=7 + offset, as_string=True)
+
+
+def _is_developer_mode_enabled() -> bool:
+	return bool(cint(getattr(frappe.conf, "developer_mode", 0)))
+
+
+def _assert_e2e_api_allowed() -> None:
+	frappe.only_for("Administrator")
+	if _is_developer_mode_enabled():
+		return
+	frappe.throw(_("E2E bootstrap APIs are only available in developer mode."), frappe.PermissionError)
+
+
+def _stock_entry_matches_cleanup_target(se, target_operator: str, target_fg_item: str) -> bool:
+	operator_match = se.get("custom_operator") == target_operator
+	fg_item_match = any(
+		(row.get("is_finished_item") == 1) and (row.get("item_code") == target_fg_item)
+		for row in (se.get("items") or [])
+	)
+	return bool(operator_match or fg_item_match)
 
 
 @frappe.whitelist()
 def bootstrap_e2e_context(prefix: str = "E2E") -> dict:
 	"""Create deterministic test masters for Playwright E2E tests."""
+	_assert_e2e_api_allowed()
 	company = resolve_test_company()
 	abbr = frappe.db.get_value("Company", company, "abbr") or "TC"
 
@@ -277,12 +214,12 @@ def bootstrap_e2e_context(prefix: str = "E2E") -> dict:
 
 	operator_name = f"{prefix} Operator"
 	workstation_name = f"{prefix} Workstation"
-	_ensure_operator(operator_name)
-	_ensure_workstation(workstation_name, standard_spm=2)
-	_ensure_rejection_reason("Burr")
-	_ensure_rejection_reason("Crack")
-	_ensure_downtime_reason("Tea Break")
-	_ensure_downtime_reason("Lunch Break")
+	ensure_operator(operator_name)
+	ensure_workstation(workstation_name, standard_spm=2)
+	ensure_rejection_reason("Burr")
+	ensure_rejection_reason("Crack")
+	ensure_downtime_reason("Tea Break")
+	ensure_downtime_reason("Lunch Break")
 
 	frappe.db.set_single_value("Manufacturing Settings", "shift_wip_warehouse", wip_warehouse)
 	frappe.db.set_single_value("Manufacturing Settings", "shift_raw_material_warehouse", rm_warehouse)
@@ -290,8 +227,8 @@ def bootstrap_e2e_context(prefix: str = "E2E") -> dict:
 	frappe.db.set_single_value("Manufacturing Settings", "shift_start_buffer_mins", 60)
 	frappe.db.set_single_value("Manufacturing Settings", "shift_end_buffer_mins", 60)
 
-	bom = _ensure_default_bom(fg_item=fg_item, rm_item=rm_item, company=company)
-	_ensure_stock(rm_item, wip_warehouse, company, target_qty=1000)
+	bom = ensure_default_bom(fg_item=fg_item, rm_item=rm_item, company=company)
+	ensure_stock(rm_item, wip_warehouse, company, target_qty=1000)
 
 	base_date = _e2e_base_date(prefix)
 	shift_name = f"SHIFT-{base_date}.Shift-1"
@@ -333,6 +270,7 @@ def bootstrap_e2e_context(prefix: str = "E2E") -> dict:
 @frappe.whitelist()
 def cleanup_e2e_context(prefix: str = "E2E") -> dict:
 	"""Remove seeded E2E docs and end running shifts created for E2E."""
+	_assert_e2e_api_allowed()
 	target_operator = f"{prefix} Operator"
 	target_workstation = f"{prefix} Workstation"
 	target_fg_item = f"_{prefix}_FG_Item"
@@ -364,11 +302,13 @@ def cleanup_e2e_context(prefix: str = "E2E") -> dict:
 	)
 	for row in stock_entries:
 		se = frappe.get_doc("Stock Entry", row.name)
-		if se.get("custom_operator") != target_operator and se.get("fg_item") != target_fg_item:
+		if not _stock_entry_matches_cleanup_target(
+			se, target_operator=target_operator, target_fg_item=target_fg_item
+		):
 			continue
 		if se.docstatus == 1:
 			se.cancel()
-		if se.docstatus == 0:
+		if se.docstatus in (0, 2):
 			frappe.delete_doc("Stock Entry", se.name, ignore_permissions=True, force=True)
 
 	for doctype, name in (("Workstation", target_workstation), ("Operator", target_operator)):
@@ -396,6 +336,7 @@ def cleanup_e2e_context(prefix: str = "E2E") -> dict:
 @frappe.whitelist()
 def create_e2e_submitted_stock_entry(prefix: str = "E2E", rejection_qty: float = 0) -> dict:
 	"""Create and submit one manufacture stock entry for E2E report coverage."""
+	_assert_e2e_api_allowed()
 	ctx = bootstrap_e2e_context(prefix=prefix)
 	shift = frappe.get_doc("Shift", ctx["shift_name"])
 	shift_date = str(shift.shift_date)

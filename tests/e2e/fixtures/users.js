@@ -61,7 +61,34 @@ async function ensureUser(page, { email, firstName, password = "123", roles = []
 	return user;
 }
 
+async function deleteUserIfExists(page, email) {
+	const user = await getUserIfExists(page, email);
+	if (!user) {
+		return false;
+	}
+	await callFrappeMethod(page, "frappe.client.delete", {
+		doctype: "User",
+		name: email,
+	});
+	return true;
+}
+
+async function deleteRoleIfExists(page, roleName) {
+	try {
+		await callFrappeMethod(page, "frappe.client.get", { doctype: "Role", name: roleName });
+	} catch (error) {
+		return false;
+	}
+	await callFrappeMethod(page, "frappe.client.delete", {
+		doctype: "Role",
+		name: roleName,
+	});
+	return true;
+}
+
 module.exports = {
+	deleteRoleIfExists,
+	deleteUserIfExists,
 	ensureRole,
 	ensureUser,
 };

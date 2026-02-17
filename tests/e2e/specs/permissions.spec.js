@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { ensureUser } = require("../fixtures/users");
+const { deleteRoleIfExists, deleteUserIfExists, ensureUser } = require("../fixtures/users");
 const { callFrappeMethod, getDoc, saveForm, setFieldValue } = require("../fixtures/frappe");
 const { ShiftPage } = require("../pages/shift-page");
 
@@ -80,12 +80,28 @@ async function runShiftCrudAsRole(page, { email, role, dayOffset }) {
 }
 
 test.describe("Permissions", () => {
+	const createdUsers = new Set();
+	const createdRoles = new Set();
+
+	test.afterEach(async ({ page }) => {
+		await loginAsAdmin(page);
+		for (const email of createdUsers) {
+			await deleteUserIfExists(page, email);
+		}
+		for (const roleName of createdRoles) {
+			await deleteRoleIfExists(page, roleName);
+		}
+		createdUsers.clear();
+		createdRoles.clear();
+	});
+
 	test("@regression manufacturing user can create read update delete Shift in UI", async ({
 		page,
 	}) => {
 		await loginAsAdmin(page);
 		const suffix = uniqueSuffix();
 		const email = `e2e-mfg-user-${suffix}@example.com`;
+		createdUsers.add(email);
 
 		await runShiftCrudAsRole(page, {
 			email,
@@ -102,6 +118,7 @@ test.describe("Permissions", () => {
 		await loginAsAdmin(page);
 		const suffix = uniqueSuffix();
 		const email = `e2e-mfg-manager-${suffix}@example.com`;
+		createdUsers.add(email);
 
 		await runShiftCrudAsRole(page, {
 			email,
@@ -118,12 +135,15 @@ test.describe("Permissions", () => {
 		await loginAsAdmin(page);
 		const suffix = uniqueSuffix();
 		const email = `e2e-non-mfg-${suffix}@example.com`;
+		const noManufacturingRole = `E2E No Manufacturing ${suffix}`;
+		createdUsers.add(email);
+		createdRoles.add(noManufacturingRole);
 
 		await ensureUser(page, {
 			email,
 			firstName: "NonMfg",
 			password: TEST_PASSWORD,
-			roles: [`E2E No Manufacturing ${suffix}`],
+			roles: [noManufacturingRole],
 		});
 
 		await loginAs(page, email, TEST_PASSWORD);
@@ -160,6 +180,7 @@ test.describe("Permissions", () => {
 		await loginAsAdmin(page);
 		const suffix = uniqueSuffix();
 		const email = `e2e-downtime-user-${suffix}@example.com`;
+		createdUsers.add(email);
 
 		await ensureUser(page, {
 			email,
