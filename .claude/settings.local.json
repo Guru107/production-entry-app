@@ -1,7 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "Bash(bench:*)"
+      "Bash(bench:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr diff:*)",
+      "Bash(gh api:*)",
+      "Bash(xargs:*)"
     ]
   }
 }

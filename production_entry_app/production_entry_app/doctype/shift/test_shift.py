@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import datetime
-import unittest
 
 import frappe
 from frappe.exceptions import ValidationError
 from frappe.tests.utils import FrappeTestCase
+
+from production_entry_app.production_entry_app.utils.test_bootstrap import (
+	get_company_abbr,
+	resolve_test_company,
+)
 
 
 def _ensure_downtime_reasons() -> None:
@@ -17,7 +21,6 @@ def _ensure_downtime_reasons() -> None:
 
 class TestShift(FrappeTestCase):
 	def setUp(self) -> None:
-		super().setUp()
 		_ensure_downtime_reasons()
 		# End any stale Running shifts so start_shift() is not blocked
 		for sn in frappe.get_all("Shift", filters={"status": "Running"}, pluck="name"):
@@ -27,9 +30,53 @@ class TestShift(FrappeTestCase):
 		for sn in frappe.get_all("Shift", filters={"shift_date": frappe.utils.today()}, pluck="name"):
 			frappe.delete_doc("Shift", sn, force=True, ignore_permissions=True)
 
+	def tearDown(self) -> None:
+		frappe.db.rollback()
+
 	def _delete_shifts_for_date(self, shift_date: str) -> None:
 		for sn in frappe.get_all("Shift", filters={"shift_date": shift_date}, pluck="name"):
 			frappe.delete_doc("Shift", sn, force=True, ignore_permissions=True)
+
+	def _ensure_workstation_and_employee(self) -> tuple[str, str]:
+		workstation = frappe.get_all("Workstation", limit=1, pluck="name")
+		if workstation:
+			workstation_name = workstation[0]
+		else:
+			workstation_name = "Shift Test Workstation"
+			frappe.get_doc(
+				{
+					"doctype": "Workstation",
+					"workstation_name": workstation_name,
+					"production_capacity": 1,
+					"hour_rate": 100,
+				}
+			).insert(ignore_permissions=True)
+
+		employee = frappe.get_all("Employee", limit=1, pluck="name")
+		if employee:
+			employee_name = employee[0]
+		else:
+			company = resolve_test_company()
+			abbr = get_company_abbr(company)
+			employee_name = (
+				frappe.get_doc(
+					{
+						"doctype": "Employee",
+						"first_name": "Shift",
+						"last_name": "Tester",
+						"gender": "Female",
+						"date_of_birth": "1990-01-01",
+						"date_of_joining": "2020-01-01",
+						"company": company,
+						"status": "Active",
+						"employee_number": f"SHIFT-EMP-{abbr}",
+					}
+				)
+				.insert(ignore_permissions=True)
+				.name
+			)
+
+		return workstation_name, employee_name
 
 	def test_defaults_are_populated_on_insert(self) -> None:
 		self._delete_shift_if_exists(self._expected_name(frappe.utils.today(), "1"))
@@ -480,13 +527,7 @@ class TestShift(FrappeTestCase):
 			get_linked_downtime_entries,
 		)
 
-		workstation = frappe.get_all("Workstation", limit=1, pluck="name")
-		employee = frappe.get_all("Employee", limit=1, pluck="name")
-		if not workstation or not employee:
-			raise unittest.SkipTest(
-				"Workstation and Employee required for Downtime Entry; skipping linked downtimes test"
-			)
-		workstation, employee = workstation[0], employee[0]
+		workstation, employee = self._ensure_workstation_and_employee()
 
 		name = self._expected_name("2026-03-10", "1")
 		self._delete_shift_if_exists(name)
@@ -763,7 +804,6 @@ class TestShiftPermissions(FrappeTestCase):
 	"""Verify role-based access control for Shift and Downtime Reason."""
 
 	def setUp(self) -> None:
-		super().setUp()
 		_ensure_downtime_reasons()
 		# Ensure Manufacturing User and Manufacturing Manager roles exist (ERPNext)
 		if not frappe.db.exists("Role", "Manufacturing User"):
@@ -777,6 +817,7 @@ class TestShiftPermissions(FrappeTestCase):
 
 	def tearDown(self) -> None:
 		frappe.set_user("Administrator")
+		frappe.db.rollback()
 
 	def test_manufacturing_user_can_crud_shift(self) -> None:
 		_ensure_user_with_role("test_shift_mfg_user@example.com", "Manufacturing User")

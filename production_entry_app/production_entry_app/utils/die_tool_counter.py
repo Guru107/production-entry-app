@@ -4,7 +4,7 @@ import datetime
 
 import frappe
 from frappe import _
-from frappe.utils import get_datetime, now_datetime
+from frappe.utils import flt, get_datetime, now_datetime
 
 
 def update_counter_for_stock_entry(doc, direction: int = 1) -> None:
@@ -39,6 +39,17 @@ def reset_counter_from_maintenance_log(item_code: str, maintenance_date: str | d
 	counter.last_reset_on = get_datetime(maintenance_date) if maintenance_date else now_datetime()
 	counter.last_reset_by = frappe.session.user
 	counter.save(ignore_permissions=True)
+
+
+def get_counter_health(
+	current_strokes: float,
+	stroke_capacity: float,
+	warning_threshold_pct: float = 90,
+	precision: int = 3,
+) -> tuple[float, int]:
+	utilization_pct = flt((current_strokes / stroke_capacity) * 100, precision) if stroke_capacity > 0 else 0
+	is_maintenance_due = 1 if stroke_capacity > 0 and utilization_pct >= warning_threshold_pct else 0
+	return utilization_pct, is_maintenance_due
 
 
 def _get_or_create_counter(item_code: str):

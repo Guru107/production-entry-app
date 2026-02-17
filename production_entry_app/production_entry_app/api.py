@@ -5,11 +5,11 @@ import json
 
 import frappe
 from frappe import _
-from frappe.utils import get_time
+from frappe.utils import get_datetime, get_time, now_datetime
 
 from production_entry_app.production_entry_app.utils.die_tool_counter import (
 	_get_or_create_counter,
-	reset_counter_from_maintenance_log,
+	get_counter_health,
 )
 from production_entry_app.production_entry_app.utils.shift_time import get_shift_planned_end_datetime
 
@@ -115,19 +115,45 @@ def get_items_with_rejection(doc: str) -> list[dict]:
 @frappe.whitelist()
 def get_die_tool_counter(die_tool_code: str) -> dict:
 	counter = _get_or_create_counter(die_tool_code)
+	current_strokes = float(counter.current_stroke_count or 0)
+	stroke_capacity = float(counter.stroke_capacity or 0)
+	warning_threshold_pct = float(counter.warning_threshold_pct or 90)
+	utilization_pct, is_maintenance_due = get_counter_health(
+		current_strokes=current_strokes,
+		stroke_capacity=stroke_capacity,
+		warning_threshold_pct=warning_threshold_pct,
+		precision=3,
+	)
 	return {
 		"die_tool_code": die_tool_code,
-		"current_strokes": counter.current_stroke_count,
-		"stroke_capacity": counter.stroke_capacity,
-		"warning_threshold_pct": counter.warning_threshold_pct,
+		"current_strokes": current_strokes,
+		"stroke_capacity": stroke_capacity,
+		"warning_threshold_pct": warning_threshold_pct,
+		"utilization_pct": utilization_pct,
+		"is_maintenance_due": is_maintenance_due,
 	}
 
 
 @frappe.whitelist()
 def reset_die_tool_counter(die_tool_code: str, maintenance_date: str | None = None) -> dict:
-	reset_counter_from_maintenance_log(die_tool_code, maintenance_date)
+	if not die_tool_code:
+		frappe.throw(_("Die Tool Item is required."))
+
+	maintenance_dt = get_datetime(maintenance_date) if maintenance_date else now_datetime()
+	maintenance_log = frappe.get_doc(
+		{
+			"doctype": "Die Tool Maintenance Log",
+			"die_tool_item": die_tool_code,
+			"maintenance_date": maintenance_dt,
+			"remarks": _("Counter reset from API."),
+		}
+	).insert(ignore_permissions=True)
+	maintenance_log.flags.ignore_permissions = True
+	maintenance_log.submit()
+
 	counter = _get_or_create_counter(die_tool_code)
 	return {
 		"die_tool_code": die_tool_code,
 		"current_strokes": counter.current_stroke_count,
+		"maintenance_log": maintenance_log.name,
 	}

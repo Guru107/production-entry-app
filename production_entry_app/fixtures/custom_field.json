@@ -127,7 +127,7 @@
 		"fieldname": "custom_operation_details_section",
 		"fieldtype": "Section Break",
 		"label": "Planned & Actual Dates",
-		"insert_after": "apply_putaway_rule",
+		"insert_after": "get_items",
 		"module": "Production Entry App"
 	},
 	{
@@ -295,6 +295,91 @@
 	},
 	{
 		"doctype": "Custom Field",
+		"name": "Stock Entry-custom_metrics_section",
+		"dt": "Stock Entry",
+		"fieldname": "custom_metrics_section",
+		"fieldtype": "Section Break",
+		"label": "Production Metrics",
+		"insert_after": "get_stock_and_rate",
+		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Custom Field",
+		"name": "Stock Entry-custom_actual_duration_mins",
+		"dt": "Stock Entry",
+		"fieldname": "custom_actual_duration_mins",
+		"fieldtype": "Float",
+		"label": "Actual Duration (Minutes)",
+		"read_only": 1,
+		"insert_after": "custom_metrics_section",
+		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Custom Field",
+		"name": "Stock Entry-custom_actual_spm",
+		"dt": "Stock Entry",
+		"fieldname": "custom_actual_spm",
+		"fieldtype": "Float",
+		"label": "Actual SPM",
+		"read_only": 1,
+		"insert_after": "custom_actual_duration_mins",
+		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Custom Field",
+		"name": "Stock Entry-custom_cycle_time_sec",
+		"dt": "Stock Entry",
+		"fieldname": "custom_cycle_time_sec",
+		"fieldtype": "Float",
+		"label": "Cycle Time (sec/unit)",
+		"read_only": 1,
+		"insert_after": "custom_actual_spm",
+		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Custom Field",
+		"name": "Stock Entry-custom_metrics_col_break",
+		"dt": "Stock Entry",
+		"fieldname": "custom_metrics_col_break",
+		"fieldtype": "Column Break",
+		"insert_after": "custom_cycle_time_sec",
+		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Custom Field",
+		"name": "Stock Entry-custom_operator_efficiency_pct",
+		"dt": "Stock Entry",
+		"fieldname": "custom_operator_efficiency_pct",
+		"fieldtype": "Float",
+		"label": "Operator Efficiency (%)",
+		"read_only": 1,
+		"insert_after": "custom_metrics_col_break",
+		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Custom Field",
+		"name": "Stock Entry-custom_die_tool_utilization_pct",
+		"dt": "Stock Entry",
+		"fieldname": "custom_die_tool_utilization_pct",
+		"fieldtype": "Float",
+		"label": "Die Tool Utilization (%)",
+		"read_only": 1,
+		"insert_after": "custom_operator_efficiency_pct",
+		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Custom Field",
+		"name": "Stock Entry-custom_die_tool_maintenance_due",
+		"dt": "Stock Entry",
+		"fieldname": "custom_die_tool_maintenance_due",
+		"fieldtype": "Check",
+		"label": "Die Tool Maintenance Due",
+		"read_only": 1,
+		"insert_after": "custom_die_tool_utilization_pct",
+		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Custom Field",
 		"name": "Stock Entry Detail-custom_is_rejection_item",
 		"dt": "Stock Entry Detail",
 		"fieldname": "custom_is_rejection_item",
@@ -321,7 +406,7 @@
 		"fieldname": "custom_strokes_per_unit",
 		"fieldtype": "Float",
 		"label": "Strokes Per Unit",
-		"insert_after": "item_name",
+		"insert_after": "default_bom",
 		"module": "Production Entry App"
 	},
 	{
@@ -330,7 +415,7 @@
 		"dt": "Item",
 		"fieldname": "custom_stroke_capacity",
 		"fieldtype": "Float",
-		"label": "Stroke Capacity",
+		"label": "Max Stroke Count",
 		"insert_after": "custom_strokes_per_unit",
 		"module": "Production Entry App"
 	}

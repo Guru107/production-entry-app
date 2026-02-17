@@ -168,8 +168,7 @@ doc_events = {
 
 # Testing
 # -------
-
-# before_tests = "production_entry_app.install.before_tests"
+before_tests = "production_entry_app.production_entry_app.utils.test_setup.before_tests"
 
 # Overriding Methods
 # ------------------------------
@@ -190,6 +189,7 @@ doc_events = {
 # Custom Field: filter by module so export-fixtures does not pull in unrelated fields
 fixtures = [
 	{"dt": "Custom Field", "filters": [["module", "=", "Production Entry App"]]},
+	{"dt": "Property Setter", "filters": [["module", "=", "Production Entry App"]]},
 	"Downtime Reason",
 ]
 
