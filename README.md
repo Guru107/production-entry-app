@@ -34,6 +34,37 @@ This app can use GitHub Actions for CI. The following workflows are configured:
 
 - CI: Installs this app and runs unit tests on every push to `develop` branch.
 - Linters: Runs [Frappe Semgrep Rules](https://github.com/frappe/semgrep-rules) and [pip-audit](https://pypi.org/project/pip-audit/) on every pull request.
+- E2E Playwright: Runs browser-based end-to-end smoke tests on PRs and full regression on nightly schedule.
+
+### E2E (Playwright)
+
+Run from `apps/production_entry_app`:
+
+```bash
+npm install
+npx playwright install chromium
+npm run test:e2e
+npm run test:e2e:regression
+npm run test:e2e:ci
+```
+
+Targeted permission suite:
+
+```bash
+npx playwright test tests/e2e/specs/permissions.spec.js
+```
+
+Notes:
+
+- `npm run test:e2e` runs only `@smoke`.
+- `npm run test:e2e:regression` runs only `@regression` (includes Phase 7 permission tests).
+- `npm run test:e2e:ci` runs all E2E tests.
+
+Environment variables (defaults shown) are in `tests/e2e/.env.example`:
+
+- `PLAYWRIGHT_BASE_URL=http://localhost:8002`
+- `PLAYWRIGHT_USERNAME=Administrator`
+- `PLAYWRIGHT_PASSWORD=123`
 
 
 ### License

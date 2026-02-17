@@ -1,0 +1,16 @@
+{
+  "name": "production-entry-app-e2e",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Playwright E2E tests for production_entry_app",
+  "scripts": {
+    "test:e2e": "playwright test --grep @smoke",
+    "test:e2e:regression": "playwright test --grep @regression",
+    "test:e2e:headed": "playwright test --grep @smoke --headed",
+    "test:e2e:debug": "playwright test --debug",
+    "test:e2e:ci": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.54.2"
+  }
+}
