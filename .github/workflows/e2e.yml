@@ -67,7 +67,15 @@ jobs:
           bench build
           bench --site development.localhost execute erpnext.setup.setup_wizard.operations.install_fixtures.install --args '["India"]'
 
-      - name: Bootstrap ERPNext test records for E2E
+      - name: Preflight verify company exists
+        id: company_preflight_initial
+        continue-on-error: true
+        run: |
+          cd ~/frappe-bench
+          bench --site development.localhost execute production_entry_app.production_entry_app.utils.test_bootstrap.resolve_test_company
+
+      - name: Bootstrap ERPNext test records for E2E (fallback)
+        if: steps.company_preflight_initial.outcome == 'failure'
         run: |
           cd ~/frappe-bench
           bench --site development.localhost execute erpnext.setup.utils.before_tests
