@@ -172,7 +172,7 @@ def reset_die_tool_counter(die_tool_code: str, maintenance_date: str | None = No
 
 def _e2e_base_date(prefix: str) -> str:
 	offset = sum(ord(ch) for ch in (prefix or "E2E")) % 30
-	return add_to_date("2026-01-01", days=7 + offset, as_string=True)
+	return add_to_date("2099-01-01", days=7 + offset, as_string=True)
 
 
 def _is_developer_mode_enabled() -> bool:
