@@ -35,11 +35,19 @@ def build_stock_entry_filters(filters: dict, filter_keys: tuple[str, ...]) -> di
 
 def get_stock_entries_for_fg_item(item_code: str) -> list[str]:
 	stock_entry_detail = DocType("Stock Entry Detail")
+	stock_entry = DocType("Stock Entry")
 	rows = (
 		frappe.qb.from_(stock_entry_detail)
+		.inner_join(stock_entry)
+		.on(stock_entry.name == stock_entry_detail.parent)
 		.select(stock_entry_detail.parent)
 		.distinct()
-		.where((stock_entry_detail.item_code == item_code) & (stock_entry_detail.is_finished_item == 1))
+		.where(
+			(stock_entry_detail.item_code == item_code)
+			& (stock_entry_detail.is_finished_item == 1)
+			& (stock_entry.docstatus == 1)
+			& (stock_entry.purpose == "Manufacture")
+		)
 	).run(as_dict=True)
 	return [row.get("parent") for row in rows if row.get("parent")]
 
@@ -85,7 +93,7 @@ def get_entry_qty_maps(
 		parent = row.get("parent")
 		if not parent:
 			continue
-		good_qty_map[parent] = flt(row.get("qty") or 0, 3)
+		good_qty_map[parent] = flt(good_qty_map.get(parent) or 0, 3) + flt(row.get("qty") or 0, 3)
 		if include_fg_item and row.get("item_code"):
 			fg_item_map[parent] = row.get("item_code")
 
