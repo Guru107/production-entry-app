@@ -295,10 +295,10 @@ def cleanup_e2e_context(prefix: str = "E2E") -> dict:
 
 	stock_entries = frappe.get_all(
 		"Stock Entry",
-		filters=[["stock_entry_type", "=", "Manufacture"], ["name", "like", "MAT-STE-%"]],
+		filters={"stock_entry_type": "Manufacture"},
 		fields=["name", "docstatus"],
 		order_by="creation desc",
-		limit=40,
+		limit_page_length=0,
 	)
 	for row in stock_entries:
 		se = frappe.get_doc("Stock Entry", row.name)

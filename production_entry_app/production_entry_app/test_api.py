@@ -91,3 +91,26 @@ class TestE2EApi(FrappeTestCase):
 		date_b = _e2e_base_date("StablePrefix")
 		self.assertEqual(date_a, date_b)
 		self.assertTrue(date_a.startswith("2099-"))
+
+	def test_cleanup_stock_entry_query_does_not_depend_on_name_series(self) -> None:
+		with patch("production_entry_app.production_entry_app.api._assert_e2e_api_allowed"):
+			with patch(
+				"production_entry_app.production_entry_app.api._e2e_base_date", return_value="2099-01-10"
+			):
+				with patch(
+					"production_entry_app.production_entry_app.api.frappe.db.exists", return_value=False
+				):
+					with patch(
+						"production_entry_app.production_entry_app.api.frappe.get_all", return_value=[]
+					) as get_all:
+						with patch("production_entry_app.production_entry_app.api.frappe.db.commit"):
+							cleanup_e2e_context(prefix="E2E")
+
+		stock_entry_calls = [
+			call
+			for call in get_all.call_args_list
+			if call.args and len(call.args) > 0 and call.args[0] == "Stock Entry"
+		]
+		self.assertEqual(len(stock_entry_calls), 1)
+		self.assertEqual(stock_entry_calls[0].kwargs.get("filters"), {"stock_entry_type": "Manufacture"})
+		self.assertNotIn("name", stock_entry_calls[0].kwargs.get("filters"))
