@@ -87,8 +87,12 @@ class TestE2EApi(FrappeTestCase):
 		)
 
 	def test_e2e_base_date_is_deterministic(self) -> None:
-		with patch("production_entry_app.production_entry_app.api.frappe.utils.today", return_value="2026-02-01"):
+		with patch(
+			"production_entry_app.production_entry_app.api.frappe.utils.today", return_value="2026-02-01"
+		):
 			date_a = _e2e_base_date("StablePrefix")
-		with patch("production_entry_app.production_entry_app.api.frappe.utils.today", return_value="2026-03-10"):
+		with patch(
+			"production_entry_app.production_entry_app.api.frappe.utils.today", return_value="2026-03-10"
+		):
 			date_b = _e2e_base_date("StablePrefix")
 		self.assertEqual(date_a, date_b)
