@@ -10,7 +10,10 @@ test("authenticate admin for e2e", async ({ page }) => {
 	await page.getByRole("button", { name: "Login" }).click();
 
 	await expect(page).toHaveURL(/\/app\//);
-	await expect(page.getByRole("button", { name: "User Menu" })).toBeVisible();
+	await page.waitForFunction(
+		(expectedUser) => window.frappe?.session?.user === expectedUser,
+		username
+	);
 
 	await page.context().storageState({ path: "tests/e2e/.auth/admin.json" });
 });
