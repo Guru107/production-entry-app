@@ -117,7 +117,7 @@ def ensure_workstation(name: str, standard_spm: float) -> None:
 def ensure_default_bom(fg_item: str, rm_item: str, company: str) -> str:
 	existing = frappe.db.get_value(
 		"BOM",
-		{"item": fg_item, "is_default": 1, "is_active": 1, "docstatus": 1},
+		{"item": fg_item, "company": company, "is_default": 1, "is_active": 1, "docstatus": 1},
 		"name",
 	)
 	if existing:

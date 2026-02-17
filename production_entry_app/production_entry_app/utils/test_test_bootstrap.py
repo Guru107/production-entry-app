@@ -8,6 +8,7 @@ from frappe.tests.utils import FrappeTestCase
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	_resolve_company_from_candidates,
 	bootstrap_manufacturing_test_context,
+	ensure_default_bom,
 	ensure_downtime_reason,
 	ensure_item,
 	ensure_operator,
@@ -81,6 +82,27 @@ class TestTestBootstrap(FrappeTestCase):
 		second = ensure_item(item_code)
 		self.assertEqual(first, second)
 		self.assertTrue(frappe.db.exists("Item", first))
+
+	def test_ensure_default_bom_filters_existing_by_company(self) -> None:
+		with patch(
+			"production_entry_app.production_entry_app.utils.test_bootstrap.frappe.db.get_value",
+			return_value="BOM-TEST-0001",
+		) as get_value:
+			self.assertEqual(
+				ensure_default_bom(fg_item="_Test FG", rm_item="_Test RM", company="Target Company"),
+				"BOM-TEST-0001",
+			)
+		get_value.assert_called_once_with(
+			"BOM",
+			{
+				"item": "_Test FG",
+				"company": "Target Company",
+				"is_default": 1,
+				"is_active": 1,
+				"docstatus": 1,
+			},
+			"name",
+		)
 
 	def test_ensure_operator_is_idempotent(self) -> None:
 		name = "Bootstrap Operator"
