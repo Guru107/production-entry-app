@@ -1,0 +1,100 @@
+name: PR Review Agent
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to review'
+        required: true
+        type: number
+
+permissions:
+  pull-requests: write
+  contents: read
+
+concurrency:
+  group: pr-review-${{ github.event.pull_request.number || inputs.pr_number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: AI Code Review
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.draft == false)
+
+    steps:
+      - name: Checkout PR
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Get PR details
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            PR_NUMBER="${{ inputs.pr_number }}"
+          else
+            PR_NUMBER="${{ github.event.pull_request.number }}"
+          fi
+
+          PR_TITLE=$(gh pr view "$PR_NUMBER" --json title -q '.title' 2>/dev/null || echo "PR #$PR_NUMBER")
+          BASE_SHA=$(gh pr view "$PR_NUMBER" --json baseRefOid -q '.baseRefOid' 2>/dev/null || echo "HEAD~1")
+          HEAD_SHA=$(gh pr view "$PR_NUMBER" --json headRefOid -q '.headRefOid' 2>/dev/null || echo "HEAD")
+
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "pr_title=$PR_TITLE" >> "$GITHUB_OUTPUT"
+          echo "base_sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Generate PR diff
+        id: diff
+        run: |
+          BASE="${{ steps.pr.outputs.base_sha }}"
+          HEAD="${{ steps.pr.outputs.head_sha }}"
+
+          git fetch origin "$BASE" "$HEAD" 2>/dev/null || true
+          git diff "$BASE" "$HEAD" -- \
+            '*.py' '*.js' '*.json' \
+            ':!*.lock' \
+            > /tmp/pr.diff || git diff HEAD~1 HEAD > /tmp/pr.diff
+
+          DIFF_LINES=$(wc -l < /tmp/pr.diff)
+          echo "diff_lines=$DIFF_LINES" >> "$GITHUB_OUTPUT"
+          echo "Diff size: $DIFF_LINES lines"
+
+      - name: Run PR review agent
+        if: steps.diff.outputs.diff_lines != '0'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python scripts/review_pr.py \
+            --repo "${{ github.repository }}" \
+            --pr-number "${{ steps.pr.outputs.pr_number }}" \
+            --pr-title "${{ steps.pr.outputs.pr_title }}" \
+            --diff-file /tmp/pr.diff
+
+      - name: Notify on empty diff
+        if: steps.diff.outputs.diff_lines == '0'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr comment "${{ steps.pr.outputs.pr_number }}" \
+            --body "## 🤖 Automated PR Review
+
+          No reviewable code changes detected in this PR (diff is empty or contains only documentation)."
