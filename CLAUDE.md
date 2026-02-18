@@ -7,7 +7,9 @@ Always follow test driven development. Write tests first and then implement feat
 The coverage must always be above 90%. Tests are the source of truth. No feature or code changes must be implemented without writing test cases first. Tests are the holy grail. The ultimate proof of application correctness.
 Follow Frappe & ERPNext best practices to write tests.
 Always write e2e tests
-
+Avoid duplication in code.
+Always add E2E tests
+Always run E2E tests after changes
 ## Project Overview
 
 A Frappe Framework (v15) application for ERPNext that simplifies production entries through a **Shift** document. The Shift acts as a central hub for supervisors to manage shift-related information including planned losses, downtime entries, and warehouse defaults.
