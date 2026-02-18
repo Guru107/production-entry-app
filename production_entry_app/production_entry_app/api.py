@@ -348,12 +348,32 @@ def cleanup_e2e_context(prefix: str = "E2E") -> dict:
 
 	stock_entries = frappe.get_all(
 		"Stock Entry",
-		filters={"stock_entry_type": "Manufacture"},
+		filters=[
+			["stock_entry_type", "=", "Manufacture"],
+			["custom_operator", "=", target_operator],
+		],
 		fields=["name", "docstatus"],
 		order_by="creation desc",
 		limit_page_length=0,
 	)
+	stock_entries.extend(
+		frappe.get_all(
+			"Stock Entry",
+			filters=[
+				["stock_entry_type", "=", "Manufacture"],
+				["custom_operator", "!=", target_operator],
+			],
+			fields=["name", "docstatus"],
+			order_by="creation desc",
+			limit_page_length=100,
+		)
+	)
+
+	seen_entries = set()
 	for row in stock_entries:
+		if row.name in seen_entries:
+			continue
+		seen_entries.add(row.name)
 		se = frappe.get_doc("Stock Entry", row.name)
 		if not _stock_entry_matches_cleanup_target(
 			se, target_operator=target_operator, target_fg_item=target_fg_item

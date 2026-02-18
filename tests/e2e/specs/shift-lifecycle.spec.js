@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { bootstrapE2E } = require("../fixtures/test-data");
+const { bootstrapE2E, cleanupE2E } = require("../fixtures/test-data");
 const { getDoc } = require("../fixtures/frappe");
 const { ShiftPage } = require("../pages/shift-page");
 const { registerE2ELifecycle } = require("../fixtures/lifecycle");
@@ -60,5 +60,17 @@ test.describe("Shift lifecycle", () => {
 
 		const runningShift = await getDoc(page, "Shift", draft.name);
 		expect(runningShift.status).toBe("Running");
+	});
+
+	test("cleanup is idempotent for repeated calls", async ({ page }) => {
+		await page.goto("/app/home");
+		const prefix = lifecycle.getPrefix();
+		await bootstrapE2E(page, prefix);
+
+		const firstCleanup = await cleanupE2E(page, prefix);
+		expect(firstCleanup.ok).toBe(true);
+
+		const secondCleanup = await cleanupE2E(page, prefix);
+		expect(secondCleanup.ok).toBe(true);
 	});
 });
