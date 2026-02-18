@@ -401,6 +401,28 @@
 	},
 	{
 		"doctype": "Custom Field",
+		"name": "Workstation-custom_shift_timeline_section",
+		"dt": "Workstation",
+		"fieldname": "custom_shift_timeline_section",
+		"fieldtype": "Section Break",
+		"label": "Running Shift Timeline",
+		"insert_after": "custom_standard_spm",
+		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Custom Field",
+		"name": "Workstation-custom_shift_timeline_html",
+		"dt": "Workstation",
+		"fieldname": "custom_shift_timeline_html",
+		"fieldtype": "HTML",
+		"label": "Timeline",
+		"read_only": 1,
+		"options": "<p class=\"text-muted\">Loading...</p>",
+		"insert_after": "custom_shift_timeline_section",
+		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Custom Field",
 		"name": "Item-custom_strokes_per_unit",
 		"dt": "Item",
 		"fieldname": "custom_strokes_per_unit",

@@ -96,6 +96,7 @@ frappe.ui.form.on("Shift", {
 		}
 
 		_render_linked_downtime_entries(frm);
+		_render_shift_metrics(frm);
 	},
 });
 
@@ -155,17 +156,64 @@ function _render_linked_downtime_entries(frm) {
 					.join("");
 				html = `<table class="table table-bordered table-condensed"><thead><tr><th>Name</th><th>Workstation</th><th>From Time</th><th>To Time</th><th>Downtime (mins)</th><th>Stop Reason</th></tr></thead><tbody>${rows}</tbody></table>`;
 			}
-			const update_display = () => {
-				const field = frm.fields_dict.linked_downtime_entries;
-				if (field) {
-					field.df.options = html;
-					field.html(html);
-				}
-			};
-			update_display();
-			if (!frm.fields_dict.linked_downtime_entries) {
-				setTimeout(update_display, 100);
-			}
+			_set_html_field(frm, "linked_downtime_entries", html);
 		},
 	});
+}
+
+function _render_shift_metrics(frm) {
+	if (!frm.doc.name) {
+		return;
+	}
+	frappe.call({
+		method: "production_entry_app.production_entry_app.doctype.shift.shift.get_shift_metrics",
+		args: { shift_name: frm.doc.name },
+		callback(r) {
+			const metrics = r.message || {};
+			const entry_count = Number(metrics.entry_count || 0);
+			if (!entry_count) {
+				_set_html_field(
+					frm,
+					"shift_metrics",
+					'<p class="text-muted">No production entries linked to this shift yet.</p>'
+				);
+				return;
+			}
+
+			const rows = [
+				["Entries", metrics.entry_count],
+				["Good Qty", metrics.total_good_qty],
+				["Rejection Qty", metrics.total_rejection_qty],
+				["OK Qty", metrics.total_ok_qty],
+				["Total Duration (mins)", metrics.total_duration_mins],
+				["Avg Actual SPM", metrics.avg_actual_spm],
+				["Avg Efficiency (%)", metrics.avg_efficiency_pct],
+			];
+
+			const htmlRows = rows
+				.map(
+					([label, value]) =>
+						`<tr><td>${frappe.utils.escape_html(
+							String(label)
+						)}</td><td>${frappe.utils.escape_html(String(value))}</td></tr>`
+				)
+				.join("");
+			const html = `<table class="table table-condensed table-bordered"><tbody>${htmlRows}</tbody></table>`;
+			_set_html_field(frm, "shift_metrics", html);
+		},
+	});
+}
+
+function _set_html_field(frm, fieldname, html) {
+	const update_display = () => {
+		const field = frm.fields_dict[fieldname];
+		if (field) {
+			field.df.options = html;
+			field.html(html);
+		}
+	};
+	update_display();
+	if (!frm.fields_dict[fieldname]) {
+		setTimeout(update_display, 100);
+	}
 }

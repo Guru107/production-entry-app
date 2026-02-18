@@ -5,7 +5,9 @@ import datetime
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import add_to_date, get_time
+from frappe.query_builder import DocType
+from frappe.query_builder.functions import Avg, Count, Sum
+from frappe.utils import add_to_date, flt, get_time
 
 
 def _get_notification_recipients_for_shift(shift_doc: Shift) -> list[str]:
@@ -140,6 +142,67 @@ def check_running_shift_conflict(shift_name: str) -> dict:
 	return {
 		"has_conflict": len(running) > 0,
 		"conflicting_shifts": running,
+	}
+
+
+def _empty_shift_metrics() -> dict:
+	return {
+		"entry_count": 0,
+		"total_good_qty": 0,
+		"total_rejection_qty": 0,
+		"total_ok_qty": 0,
+		"total_duration_mins": 0,
+		"avg_actual_spm": 0,
+		"avg_efficiency_pct": 0,
+	}
+
+
+@frappe.whitelist()
+def get_shift_metrics(shift_name: str) -> dict:
+	"""Return aggregate production metrics for submitted Stock Entries linked to a shift."""
+	if not shift_name:
+		return _empty_shift_metrics()
+
+	stock_entry = DocType("Stock Entry")
+	row = (
+		frappe.qb.from_(stock_entry)
+		.select(
+			Count(stock_entry.name).as_("entry_count"),
+			Sum(stock_entry.fg_completed_qty).as_("total_good_qty"),
+			Sum(stock_entry.custom_rejection_qty).as_("total_rejection_qty"),
+			Sum(stock_entry.custom_actual_duration_mins).as_("total_duration_mins"),
+			Avg(stock_entry.custom_operator_efficiency_pct).as_("avg_efficiency_pct"),
+		)
+		.where(
+			(stock_entry.docstatus == 1)
+			& (stock_entry.purpose == "Manufacture")
+			& (stock_entry.custom_shift == shift_name)
+		)
+	).run(as_dict=True)
+
+	if not row:
+		return _empty_shift_metrics()
+
+	metrics = row[0] or {}
+	entry_count = int(metrics.get("entry_count") or 0)
+	if entry_count == 0:
+		return _empty_shift_metrics()
+
+	total_good_qty = flt(metrics.get("total_good_qty") or 0, 3)
+	total_rejection_qty = flt(metrics.get("total_rejection_qty") or 0, 3)
+	total_ok_qty = flt(total_good_qty - total_rejection_qty, 3)
+	total_duration_mins = flt(metrics.get("total_duration_mins") or 0, 3)
+	avg_actual_spm = flt((total_ok_qty / total_duration_mins), 3) if total_duration_mins > 0 else 0
+	avg_efficiency_pct = flt(metrics.get("avg_efficiency_pct") or 0, 2)
+
+	return {
+		"entry_count": entry_count,
+		"total_good_qty": total_good_qty,
+		"total_rejection_qty": total_rejection_qty,
+		"total_ok_qty": total_ok_qty,
+		"total_duration_mins": total_duration_mins,
+		"avg_actual_spm": avg_actual_spm,
+		"avg_efficiency_pct": avg_efficiency_pct,
 	}
 
 

@@ -7,6 +7,8 @@ from frappe.exceptions import ValidationError
 from frappe.tests.utils import FrappeTestCase
 
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
+	bootstrap_manufacturing_test_context,
+	cleanup_running_shifts,
 	get_company_abbr,
 	resolve_test_company,
 )
@@ -784,6 +786,197 @@ class TestShift(FrappeTestCase):
 	def _delete_shift_if_exists(self, name: str) -> None:
 		if frappe.db.exists("Shift", name):
 			frappe.delete_doc("Shift", name, force=True, ignore_permissions=True)
+
+
+class TestShiftLayout(FrappeTestCase):
+	def setUp(self) -> None:
+		frappe.reload_doc("production_entry_app", "doctype", "shift")
+		frappe.clear_cache(doctype="Shift")
+
+	def _field_index(self, meta, fieldname: str) -> int:
+		for index, field in enumerate(meta.fields):
+			if field.fieldname == fieldname:
+				return index
+		self.fail(f"Field not found in Shift meta: {fieldname}")
+
+	def test_tabs_exist(self) -> None:
+		meta = frappe.get_meta("Shift")
+		for fieldname in (
+			"tab_overview",
+			"tab_warehouses",
+			"tab_breaks",
+			"tab_activity",
+			"tab_metrics",
+		):
+			field = meta.get_field(fieldname)
+			self.assertTrue(field, f"Expected field {fieldname} to exist")
+			self.assertEqual(field.fieldtype, "Tab Break")
+
+	def test_warehouse_fields_follow_warehouses_tab(self) -> None:
+		meta = frappe.get_meta("Shift")
+		tab_start = self._field_index(meta, "tab_warehouses")
+		next_tab = self._field_index(meta, "tab_breaks")
+		for fieldname in (
+			"raw_material_warehouse",
+			"work_in_progress_warehouse",
+			"rejection_warehouse",
+			"scrap_warehouse",
+		):
+			idx = self._field_index(meta, fieldname)
+			self.assertGreater(idx, tab_start)
+			self.assertLess(idx, next_tab)
+
+	def test_planned_losses_follows_breaks_tab(self) -> None:
+		meta = frappe.get_meta("Shift")
+		idx = self._field_index(meta, "planned_losses")
+		self.assertGreater(idx, self._field_index(meta, "tab_breaks"))
+		self.assertLess(idx, self._field_index(meta, "tab_activity"))
+
+	def test_linked_downtime_follows_activity_tab(self) -> None:
+		meta = frappe.get_meta("Shift")
+		linked_idx = self._field_index(meta, "linked_downtime_entries")
+		self.assertGreater(linked_idx, self._field_index(meta, "tab_activity"))
+		self.assertLess(linked_idx, self._field_index(meta, "tab_metrics"))
+
+
+class TestShiftMetrics(FrappeTestCase):
+	@classmethod
+	def setUpClass(cls) -> None:
+		super().setUpClass()
+		cls.ctx = bootstrap_manufacturing_test_context("SHIFT-METRICS")
+
+	def setUp(self) -> None:
+		cleanup_running_shifts()
+
+	def tearDown(self) -> None:
+		frappe.db.rollback()
+
+	def _create_shift(self, shift_date: str, shift_label: str = "1"):
+		name = f"SHIFT-{shift_date}.Shift-{shift_label}"
+		if frappe.db.exists("Shift", name):
+			frappe.delete_doc("Shift", name, force=True, ignore_permissions=True)
+		return frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"shift_label": shift_label,
+				"shift_duration": "8",
+				"shift_date": shift_date,
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+
+	def _create_submitted_like_entry(
+		self,
+		shift_name: str,
+		*,
+		good_qty: float,
+		rejection_qty: float,
+		duration_mins: float = 0,
+		efficiency_pct: float = 0,
+		docstatus: int = 1,
+	) -> str:
+		entry = frappe.get_doc(
+			{
+				"doctype": "Stock Entry",
+				"stock_entry_type": "Manufacture",
+				"purpose": "Manufacture",
+				"company": self.ctx["company"],
+				"posting_date": "2026-09-01",
+				"posting_time": "09:00:00",
+				"custom_shift": shift_name,
+				"fg_completed_qty": good_qty,
+				"custom_rejection_qty": rejection_qty,
+				"custom_actual_duration_mins": duration_mins,
+				"custom_operator_efficiency_pct": efficiency_pct,
+				"docstatus": docstatus,
+			}
+		)
+		entry.db_insert()
+		return entry.name
+
+	def test_returns_zeros_when_no_entries(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_metrics
+
+		shift = self._create_shift("2026-09-01")
+		metrics = get_shift_metrics(shift.name)
+		self.assertEqual(metrics["entry_count"], 0)
+		self.assertEqual(metrics["total_good_qty"], 0)
+		self.assertEqual(metrics["total_rejection_qty"], 0)
+		self.assertEqual(metrics["total_ok_qty"], 0)
+		self.assertEqual(metrics["total_duration_mins"], 0)
+		self.assertEqual(metrics["avg_actual_spm"], 0)
+		self.assertEqual(metrics["avg_efficiency_pct"], 0)
+
+	def test_aggregates_good_qty_across_entries(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_metrics
+
+		shift = self._create_shift("2026-09-02")
+		self._create_submitted_like_entry(shift.name, good_qty=100, rejection_qty=0)
+		self._create_submitted_like_entry(shift.name, good_qty=40, rejection_qty=0)
+		metrics = get_shift_metrics(shift.name)
+		self.assertEqual(float(metrics["total_good_qty"]), 140.0)
+
+	def test_aggregates_rejection_qty(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_metrics
+
+		shift = self._create_shift("2026-09-03")
+		self._create_submitted_like_entry(shift.name, good_qty=100, rejection_qty=3)
+		self._create_submitted_like_entry(shift.name, good_qty=40, rejection_qty=2)
+		metrics = get_shift_metrics(shift.name)
+		self.assertEqual(float(metrics["total_rejection_qty"]), 5.0)
+
+	def test_ok_qty_is_good_minus_rejection(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_metrics
+
+		shift = self._create_shift("2026-09-04")
+		self._create_submitted_like_entry(shift.name, good_qty=80, rejection_qty=5)
+		self._create_submitted_like_entry(shift.name, good_qty=20, rejection_qty=3)
+		metrics = get_shift_metrics(shift.name)
+		self.assertEqual(float(metrics["total_ok_qty"]), 92.0)
+
+	def test_entry_count_matches_submitted_entries(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_metrics
+
+		shift = self._create_shift("2026-09-05")
+		self._create_submitted_like_entry(shift.name, good_qty=10, rejection_qty=0, docstatus=1)
+		self._create_submitted_like_entry(shift.name, good_qty=10, rejection_qty=0, docstatus=1)
+		metrics = get_shift_metrics(shift.name)
+		self.assertEqual(metrics["entry_count"], 2)
+
+	def test_only_submitted_entries_counted(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_metrics
+
+		shift = self._create_shift("2026-09-06")
+		self._create_submitted_like_entry(shift.name, good_qty=10, rejection_qty=1, docstatus=1)
+		self._create_submitted_like_entry(shift.name, good_qty=10, rejection_qty=9, docstatus=0)
+		metrics = get_shift_metrics(shift.name)
+		self.assertEqual(metrics["entry_count"], 1)
+		self.assertEqual(float(metrics["total_rejection_qty"]), 1.0)
+
+	def test_total_duration_mins_summed(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_metrics
+
+		shift = self._create_shift("2026-09-07")
+		self._create_submitted_like_entry(shift.name, good_qty=30, rejection_qty=0, duration_mins=40)
+		self._create_submitted_like_entry(shift.name, good_qty=60, rejection_qty=0, duration_mins=20)
+		metrics = get_shift_metrics(shift.name)
+		self.assertEqual(float(metrics["total_duration_mins"]), 60.0)
+
+	def test_avg_spm_computed_from_aggregate(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_metrics
+
+		shift = self._create_shift("2026-09-08")
+		self._create_submitted_like_entry(shift.name, good_qty=30, rejection_qty=0, duration_mins=30)
+		self._create_submitted_like_entry(shift.name, good_qty=60, rejection_qty=0, duration_mins=30)
+		metrics = get_shift_metrics(shift.name)
+		self.assertEqual(float(metrics["avg_actual_spm"]), 1.5)
+
+	def test_empty_shift_name_returns_empty(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_metrics
+
+		metrics = get_shift_metrics("")
+		self.assertEqual(metrics["entry_count"], 0)
+		self.assertEqual(metrics["total_good_qty"], 0)
 
 
 def _ensure_user_with_role(email: str, role: str) -> None:

@@ -13,6 +13,7 @@ from production_entry_app.production_entry_app.utils.die_tool_counter import (
 )
 from production_entry_app.production_entry_app.utils.shift_time import get_shift_planned_end_datetime
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
+	cleanup_running_shifts,
 	ensure_default_bom,
 	ensure_downtime_reason,
 	ensure_item,
@@ -199,6 +200,7 @@ def _stock_entry_matches_cleanup_target(se, target_operator: str, target_fg_item
 def bootstrap_e2e_context(prefix: str = "E2E") -> dict:
 	"""Create deterministic test masters for Playwright E2E tests."""
 	_assert_e2e_api_allowed()
+	cleanup_running_shifts()
 	company = resolve_test_company()
 	abbr = frappe.db.get_value("Company", company, "abbr") or "TC"
 
@@ -234,6 +236,20 @@ def bootstrap_e2e_context(prefix: str = "E2E") -> dict:
 	shift_name = f"SHIFT-{base_date}.Shift-1"
 	if frappe.db.exists("Shift", shift_name):
 		shift = frappe.get_doc("Shift", shift_name)
+		if shift.status in ("Completed", "Cancelled"):
+			frappe.delete_doc("Shift", shift_name, force=True, ignore_permissions=True)
+			shift = frappe.get_doc(
+				{
+					"doctype": "Shift",
+					"shift_label": "1",
+					"shift_duration": "8",
+					"shift_date": base_date,
+					"planned_start_time": "08:00:00",
+					"work_in_progress_warehouse": wip_warehouse,
+					"raw_material_warehouse": rm_warehouse,
+					"rejection_warehouse": rejection_warehouse,
+				}
+			).insert(ignore_permissions=True)
 	else:
 		shift = frappe.get_doc(
 			{
@@ -349,6 +365,8 @@ def create_e2e_submitted_stock_entry(prefix: str = "E2E", rejection_qty: float =
 			"company": ctx["company"],
 			"from_bom": 1,
 			"bom_no": ctx["bom"],
+			"from_warehouse": ctx["wip_warehouse"],
+			"to_warehouse": ctx["fg_warehouse"],
 			"fg_completed_qty": 100,
 			"custom_shift": ctx["shift_name"],
 			"custom_operator": ctx["operator"],
@@ -361,6 +379,11 @@ def create_e2e_submitted_stock_entry(prefix: str = "E2E", rejection_qty: float =
 		}
 	)
 	doc.get_items()
+	for row in doc.get("items") or []:
+		if not row.get("s_warehouse"):
+			row.s_warehouse = ctx["wip_warehouse"]
+		if row.get("is_finished_item") and not row.get("t_warehouse"):
+			row.t_warehouse = ctx["fg_warehouse"]
 	if float(rejection_qty or 0) > 0:
 		doc.append("custom_rejection_breakup", {"rejection_reason": "Burr", "qty": float(rejection_qty or 0)})
 	doc.insert(ignore_permissions=True)
