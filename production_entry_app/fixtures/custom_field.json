@@ -411,7 +411,7 @@
 		"fieldname": "custom_shift_timeline_section",
 		"fieldtype": "Section Break",
 		"label": "Running Shift Timeline",
-		"insert_after": "custom_standard_spm",
+		"insert_after": "warehouse",
 		"module": "Production Entry App"
 	},
 	{

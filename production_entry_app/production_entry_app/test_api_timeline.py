@@ -93,6 +93,45 @@ class TestGetShiftTimelineData(FrappeTestCase):
 		frappe.db.set_value("Stock Entry", entry.name, "docstatus", docstatus, update_modified=False)
 		return entry.name
 
+	def _create_downtime_entry(
+		self,
+		*,
+		workstation: str,
+		from_time: str,
+		to_time: str,
+		stop_reason: str = "Other",
+	) -> str:
+		operator = frappe.db.get_value("Employee", {"employee_number": "TIMELINE-EMP"}, "name")
+		if not operator:
+			operator = (
+				frappe.get_doc(
+					{
+						"doctype": "Employee",
+						"first_name": "Timeline",
+						"last_name": "Test",
+						"gender": "Female",
+						"date_of_birth": "1990-01-01",
+						"date_of_joining": "2020-01-01",
+						"company": self.ctx["company"],
+						"status": "Active",
+						"employee_number": "TIMELINE-EMP",
+					}
+				)
+				.insert(ignore_permissions=True)
+				.name
+			)
+		doc = frappe.get_doc(
+			{
+				"doctype": "Downtime Entry",
+				"workstation": workstation,
+				"operator": operator,
+				"from_time": from_time,
+				"to_time": to_time,
+				"stop_reason": stop_reason,
+			}
+		).insert(ignore_permissions=True)
+		return doc.name
+
 	def test_returns_empty_when_no_running_shift(self) -> None:
 		from production_entry_app.production_entry_app.api_timeline import get_shift_timeline_data
 
@@ -240,6 +279,80 @@ class TestGetShiftTimelineData(FrappeTestCase):
 		result = get_shift_timeline_data("Workstation", self.workstation_a)
 		self.assertEqual(len(result["entries"]), 1)
 		self.assertEqual(result["entries"][0]["actual_start"], "2026-10-07 10:00:00")
+
+	def test_workstation_includes_overlapping_downtime_entries(self) -> None:
+		from production_entry_app.production_entry_app.api_timeline import get_shift_timeline_data
+
+		shift = self._create_running_shift("2026-10-11")
+		self._create_submitted_like_entry(
+			shift.name,
+			workstation=self.workstation_a,
+			operator=self.operator_a,
+			actual_start="2026-10-11 09:00:00",
+			actual_end="2026-10-11 10:00:00",
+		)
+		downtime_name = self._create_downtime_entry(
+			workstation=self.workstation_a,
+			from_time="2026-10-11 10:00:00",
+			to_time="2026-10-11 10:30:00",
+		)
+		self._create_downtime_entry(
+			workstation=self.workstation_a,
+			from_time="2026-10-11 18:00:00",
+			to_time="2026-10-11 19:00:00",
+		)
+
+		result = get_shift_timeline_data("Workstation", self.workstation_a)
+		self.assertEqual(len(result["entries"]), 2)
+		self.assertEqual(
+			[item["entry_type"] for item in result["entries"]],
+			["production", "downtime"],
+		)
+		self.assertEqual(result["entries"][1]["name"], downtime_name)
+
+	def test_operator_timeline_excludes_downtime_entries(self) -> None:
+		from production_entry_app.production_entry_app.api_timeline import get_shift_timeline_data
+
+		shift = self._create_running_shift("2026-10-12")
+		self._create_submitted_like_entry(
+			shift.name,
+			workstation=self.workstation_a,
+			operator=self.operator_a,
+			actual_start="2026-10-12 09:00:00",
+			actual_end="2026-10-12 10:00:00",
+		)
+		self._create_downtime_entry(
+			workstation=self.workstation_a,
+			from_time="2026-10-12 10:00:00",
+			to_time="2026-10-12 10:30:00",
+		)
+
+		result = get_shift_timeline_data("Operator", self.operator_a)
+		self.assertEqual(len(result["entries"]), 1)
+		self.assertEqual(result["entries"][0]["entry_type"], "production")
+
+	def test_workstation_entries_with_downtime_are_sorted_by_actual_start(self) -> None:
+		from production_entry_app.production_entry_app.api_timeline import get_shift_timeline_data
+
+		shift = self._create_running_shift("2026-10-13")
+		self._create_submitted_like_entry(
+			shift.name,
+			workstation=self.workstation_a,
+			operator=self.operator_a,
+			actual_start="2026-10-13 11:00:00",
+			actual_end="2026-10-13 12:00:00",
+		)
+		self._create_downtime_entry(
+			workstation=self.workstation_a,
+			from_time="2026-10-13 09:30:00",
+			to_time="2026-10-13 10:00:00",
+		)
+
+		result = get_shift_timeline_data("Workstation", self.workstation_a)
+		self.assertEqual(
+			[item["actual_start"] for item in result["entries"]],
+			["2026-10-13 09:30:00", "2026-10-13 11:00:00"],
+		)
 
 	def test_invalid_doctype_raises_error(self) -> None:
 		from production_entry_app.production_entry_app.api_timeline import get_shift_timeline_data

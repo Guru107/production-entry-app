@@ -196,6 +196,42 @@ def _stock_entry_matches_cleanup_target(se, target_operator: str, target_fg_item
 	return bool(operator_match or fg_item_match)
 
 
+def _get_or_create_e2e_employee(prefix: str, company: str) -> str:
+	employee_number = f"{prefix}-EMP"
+	existing = frappe.db.get_value("Employee", {"employee_number": employee_number}, "name")
+	if existing:
+		return existing
+	return (
+		frappe.get_doc(
+			{
+				"doctype": "Employee",
+				"first_name": prefix,
+				"last_name": "E2E",
+				"gender": "Female",
+				"date_of_birth": "1990-01-01",
+				"date_of_joining": "2020-01-01",
+				"company": company,
+				"status": "Active",
+				"employee_number": employee_number,
+			}
+		)
+		.insert(ignore_permissions=True)
+		.name
+	)
+
+
+def _clear_timeline_cache_for_context(ctx: dict, shift_name: str) -> None:
+	user = frappe.session.user
+	for doctype, docname in (
+		("Workstation", ctx.get("workstation")),
+		("Operator", ctx.get("operator")),
+	):
+		if not docname:
+			continue
+		cache_key = f"pea:timeline:{user}:{doctype}:{docname}:{shift_name}"
+		frappe.cache().delete_value(cache_key)
+
+
 def _build_e2e_shift_doc(
 	*,
 	base_date: str,
@@ -445,6 +481,119 @@ def create_e2e_submitted_stock_entry(prefix: str = "E2E", rejection_qty: float =
 		doc.append("custom_rejection_breakup", {"rejection_reason": "Burr", "qty": float(rejection_qty or 0)})
 	doc.insert(ignore_permissions=True)
 	doc.submit()
+	_clear_timeline_cache_for_context(ctx, ctx["shift_name"])
 
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit - required for report read-after-write checks
 	return {"name": doc.name, "docstatus": doc.docstatus, "posting_date": shift_date}
+
+
+@frappe.whitelist()
+def create_e2e_full_shift_stock_entries(
+	prefix: str = "E2E", slot_minutes: int = 60, rejection_qty: float = 0
+) -> dict:
+	"""Create contiguous submitted manufacture entries spanning the entire planned shift duration."""
+	_assert_e2e_api_allowed()
+	slot_mins = max(1, cint(slot_minutes or 60))
+	ctx = bootstrap_e2e_context(prefix=prefix)
+	shift = frappe.get_doc("Shift", ctx["shift_name"])
+	shift_start = get_datetime(f"{shift.shift_date} {shift.planned_start_time}")
+	shift_end = get_shift_planned_end_datetime(
+		shift_date=shift.shift_date,
+		planned_start_time=shift.planned_start_time,
+		planned_end_time=shift.planned_end_time,
+		shift_end_date=shift.shift_end_date,
+		shift_duration=shift.shift_duration,
+	)
+	if not shift_end or shift_end <= shift_start:
+		frappe.throw(_("Invalid shift window for E2E stock entry generation."))
+
+	current_start = shift_start
+	created_names = []
+	while current_start < shift_end:
+		next_end = add_to_date(current_start, minutes=slot_mins, as_datetime=True)
+		current_end = min(next_end, shift_end)
+		doc = frappe.get_doc(
+			{
+				"doctype": "Stock Entry",
+				"stock_entry_type": "Manufacture",
+				"purpose": "Manufacture",
+				"company": ctx["company"],
+				"from_bom": 1,
+				"bom_no": ctx["bom"],
+				"from_warehouse": ctx["wip_warehouse"],
+				"to_warehouse": ctx["fg_warehouse"],
+				"fg_completed_qty": 100,
+				"custom_shift": ctx["shift_name"],
+				"custom_operator": ctx["operator"],
+				"custom_workstation": ctx["workstation"],
+				"custom_rejection_qty": float(rejection_qty or 0),
+				"custom_actual_start_date": str(current_start),
+				"custom_actual_end_date": str(current_end),
+				"posting_date": str(current_end.date()),
+				"posting_time": str(current_end.time()),
+			}
+		)
+		doc.get_items()
+		for row in doc.get("items") or []:
+			if not row.get("s_warehouse"):
+				row.s_warehouse = ctx["wip_warehouse"]
+			if row.get("is_finished_item") and not row.get("t_warehouse"):
+				row.t_warehouse = ctx["fg_warehouse"]
+		if float(rejection_qty or 0) > 0:
+			doc.append(
+				"custom_rejection_breakup",
+				{"rejection_reason": "Burr", "qty": float(rejection_qty or 0)},
+			)
+		doc.insert(ignore_permissions=True)
+		doc.submit()
+		created_names.append(doc.name)
+		current_start = current_end
+	_clear_timeline_cache_for_context(ctx, ctx["shift_name"])
+
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit - required for report read-after-write checks
+	return {
+		"count": len(created_names),
+		"stock_entries": created_names,
+		"shift_name": ctx["shift_name"],
+		"shift_start": str(shift_start),
+		"shift_end": str(shift_end),
+		"slot_minutes": slot_mins,
+	}
+
+
+@frappe.whitelist()
+def create_e2e_downtime_entry(
+	prefix: str = "E2E",
+	from_time: str = "10:00:00",
+	to_time: str = "10:30:00",
+	stop_reason: str = "Other",
+) -> dict:
+	"""Create one downtime entry for E2E timeline coverage."""
+	_assert_e2e_api_allowed()
+	ctx = bootstrap_e2e_context(prefix=prefix)
+	shift = frappe.get_doc("Shift", ctx["shift_name"])
+	employee = _get_or_create_e2e_employee(prefix, ctx["company"])
+	allowed_stop_reasons = {
+		"",
+		"Excessive machine set up time",
+		"Unplanned machine maintenance",
+		"On-machine press checks",
+		"Machine operator errors",
+		"Machine malfunction",
+		"Electricity down",
+		"Other",
+	}
+	normalized_reason = stop_reason if stop_reason in allowed_stop_reasons else "Other"
+	doc = frappe.get_doc(
+		{
+			"doctype": "Downtime Entry",
+			"workstation": ctx["workstation"],
+			"operator": employee,
+			"from_time": f"{shift.shift_date} {from_time}",
+			"to_time": f"{shift.shift_date} {to_time}",
+			"stop_reason": normalized_reason,
+		}
+	).insert(ignore_permissions=True)
+	_clear_timeline_cache_for_context(ctx, ctx["shift_name"])
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit - required for report read-after-write checks
+	return {"name": doc.name, "workstation": ctx["workstation"], "shift_name": ctx["shift_name"]}
