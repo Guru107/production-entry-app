@@ -5,7 +5,11 @@ import datetime
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import add_to_date, get_time
+from frappe.query_builder import DocType
+from frappe.query_builder.functions import Avg, Count, Sum
+from frappe.utils import add_to_date, flt
+
+from production_entry_app.production_entry_app.utils.shift_time import combine_date_time
 
 
 def _get_notification_recipients_for_shift(shift_doc: Shift) -> list[str]:
@@ -101,8 +105,8 @@ def get_linked_downtime_entries(shift_name: str) -> list[dict]:
 	if not shift or not all([shift.get("shift_date"), shift.get("planned_start_time")]):
 		return []
 
-	start_dt = _combine_date_time(shift["shift_date"], shift["planned_start_time"])
-	end_dt = _combine_date_time(
+	start_dt = combine_date_time(shift["shift_date"], shift["planned_start_time"])
+	end_dt = combine_date_time(
 		shift.get("shift_end_date") or shift["shift_date"],
 		shift.get("planned_end_time") or "23:59:59",
 	)
@@ -143,11 +147,88 @@ def check_running_shift_conflict(shift_name: str) -> dict:
 	}
 
 
-def _combine_date_time(date_value: str, time_value: str) -> datetime.datetime:
-	"""Combine date and time strings into a datetime."""
-	shift_date = frappe.utils.getdate(date_value)
-	shift_time = get_time(time_value)
-	return datetime.datetime.combine(shift_date, shift_time)
+def _empty_shift_metrics() -> dict:
+	return {
+		"entry_count": 0,
+		"total_good_qty": 0,
+		"total_rejection_qty": 0,
+		"total_ok_qty": 0,
+		"total_duration_mins": 0,
+		"avg_actual_spm": 0,
+		"avg_efficiency_pct": 0,
+	}
+
+
+def _get_shift_metrics_cache_key(shift_name: str) -> str:
+	return f"pea:shift_metrics:{frappe.session.user}:{shift_name}"
+
+
+def _get_cached_shift_metrics(shift_name: str) -> dict | None:
+	return frappe.cache().get_value(_get_shift_metrics_cache_key(shift_name))
+
+
+def _set_cached_shift_metrics(shift_name: str, metrics: dict) -> None:
+	frappe.cache().set_value(_get_shift_metrics_cache_key(shift_name), metrics, expires_in_sec=30)
+
+
+@frappe.whitelist()
+def get_shift_metrics(shift_name: str) -> dict:
+	"""Return aggregate production metrics for submitted Stock Entries linked to a shift."""
+	if not shift_name:
+		return _empty_shift_metrics()
+	if not frappe.has_permission("Shift", "read", shift_name):
+		raise frappe.PermissionError
+	cached_metrics = _get_cached_shift_metrics(shift_name)
+	if cached_metrics is not None:
+		return cached_metrics
+
+	stock_entry = DocType("Stock Entry")
+	row = (
+		frappe.qb.from_(stock_entry)
+		.select(
+			Count(stock_entry.name).as_("entry_count"),
+			Sum(stock_entry.fg_completed_qty).as_("total_good_qty"),
+			Sum(stock_entry.custom_rejection_qty).as_("total_rejection_qty"),
+			Sum(stock_entry.custom_actual_duration_mins).as_("total_duration_mins"),
+			Avg(stock_entry.custom_operator_efficiency_pct).as_("avg_efficiency_pct"),
+		)
+		.where(
+			(stock_entry.docstatus == 1)
+			& (stock_entry.purpose == "Manufacture")
+			& (stock_entry.custom_shift == shift_name)
+		)
+	).run(as_dict=True)
+
+	if not row:
+		empty_metrics = _empty_shift_metrics()
+		_set_cached_shift_metrics(shift_name, empty_metrics)
+		return empty_metrics
+
+	metrics = row[0] or {}
+	entry_count = int(metrics.get("entry_count") or 0)
+	if entry_count == 0:
+		empty_metrics = _empty_shift_metrics()
+		_set_cached_shift_metrics(shift_name, empty_metrics)
+		return empty_metrics
+
+	total_good_qty = flt(metrics.get("total_good_qty") or 0, 3)
+	total_rejection_qty = flt(metrics.get("total_rejection_qty") or 0, 3)
+	total_ok_qty = flt(total_good_qty - total_rejection_qty, 3)
+	total_duration_mins = flt(metrics.get("total_duration_mins") or 0, 3)
+	avg_actual_spm = flt((total_ok_qty / total_duration_mins), 3) if total_duration_mins > 0 else 0
+	avg_efficiency_pct = flt(metrics.get("avg_efficiency_pct") or 0, 2)
+
+	result = {
+		"entry_count": entry_count,
+		"total_good_qty": total_good_qty,
+		"total_rejection_qty": total_rejection_qty,
+		"total_ok_qty": total_ok_qty,
+		"total_duration_mins": total_duration_mins,
+		"avg_actual_spm": avg_actual_spm,
+		"avg_efficiency_pct": avg_efficiency_pct,
+	}
+	_set_cached_shift_metrics(shift_name, result)
+	return result
 
 
 class Shift(Document):
@@ -376,9 +457,7 @@ class Shift(Document):
 		return duration
 
 	def _combine_date_time(self, date_value: str, time_value: str) -> datetime.datetime:
-		shift_date = frappe.utils.getdate(date_value)
-		shift_time = get_time(time_value)
-		return datetime.datetime.combine(shift_date, shift_time)
+		return combine_date_time(date_value, time_value)
 
 	def _populate_planned_losses_if_needed(self) -> None:
 		"""Auto-populate planned_losses when shift_duration, planned_start_time, or shift_date changes."""

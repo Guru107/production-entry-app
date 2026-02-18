@@ -8,7 +8,9 @@
  "engine": "InnoDB",
  "field_order": [
   "operator_name",
-  "is_active"
+  "is_active",
+  "shift_timeline_section",
+  "shift_timeline_html"
  ],
  "fields": [
   {
@@ -25,6 +27,18 @@
    "fieldtype": "Check",
    "in_list_view": 1,
    "label": "Is Active"
+  },
+  {
+   "fieldname": "shift_timeline_section",
+   "fieldtype": "Section Break",
+   "label": "Running Shift Timeline"
+  },
+  {
+   "fieldname": "shift_timeline_html",
+   "fieldtype": "HTML",
+   "label": "Timeline",
+   "options": "<p class=\"text-muted\">Loading...</p>",
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 1,
