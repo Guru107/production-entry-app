@@ -849,6 +849,7 @@ class TestShiftMetrics(FrappeTestCase):
 		cleanup_running_shifts()
 
 	def tearDown(self) -> None:
+		frappe.set_user("Administrator")
 		frappe.db.rollback()
 
 	def _create_shift(self, shift_date: str, shift_label: str = "1"):
@@ -971,12 +972,38 @@ class TestShiftMetrics(FrappeTestCase):
 		metrics = get_shift_metrics(shift.name)
 		self.assertEqual(float(metrics["avg_actual_spm"]), 1.5)
 
+	def test_avg_spm_is_zero_when_duration_is_zero(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_metrics
+
+		shift = self._create_shift("2026-09-09")
+		self._create_submitted_like_entry(shift.name, good_qty=60, rejection_qty=10, duration_mins=0)
+		metrics = get_shift_metrics(shift.name)
+		self.assertEqual(float(metrics["total_ok_qty"]), 50.0)
+		self.assertEqual(float(metrics["total_duration_mins"]), 0.0)
+		self.assertEqual(float(metrics["avg_actual_spm"]), 0.0)
+
 	def test_empty_shift_name_returns_empty(self) -> None:
 		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_metrics
 
 		metrics = get_shift_metrics("")
 		self.assertEqual(metrics["entry_count"], 0)
 		self.assertEqual(metrics["total_good_qty"], 0)
+
+	def test_requires_shift_read_permission(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_metrics
+
+		shift = self._create_shift("2026-09-10")
+		_ensure_user_with_role("test_shift_metrics_blogger@example.com", "Blogger")
+		user = frappe.get_doc("User", "test_shift_metrics_blogger@example.com")
+		for role in ("Manufacturing User", "Manufacturing Manager"):
+			if role in frappe.get_roles(user.name):
+				user.remove_roles(role)
+		user.save(ignore_permissions=True)
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit
+		frappe.set_user(user.name)
+
+		with self.assertRaises(frappe.PermissionError):
+			get_shift_metrics(shift.name)
 
 
 def _ensure_user_with_role(email: str, role: str) -> None:

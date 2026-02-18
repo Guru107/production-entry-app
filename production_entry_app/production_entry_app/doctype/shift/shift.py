@@ -162,6 +162,8 @@ def get_shift_metrics(shift_name: str) -> dict:
 	"""Return aggregate production metrics for submitted Stock Entries linked to a shift."""
 	if not shift_name:
 		return _empty_shift_metrics()
+	if not frappe.has_permission("Shift", "read", shift_name):
+		raise frappe.PermissionError
 
 	stock_entry = DocType("Stock Entry")
 	row = (

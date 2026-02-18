@@ -129,6 +129,38 @@ class TestGetShiftTimelineData(FrappeTestCase):
 		self.assertEqual(len(result["entries"]), 1)
 		self.assertEqual(result["entries"][0]["actual_start"], "2026-10-03 09:00:00")
 
+	def test_returns_entries_sorted_by_actual_start(self) -> None:
+		from production_entry_app.production_entry_app.api_timeline import get_shift_timeline_data
+
+		shift = self._create_running_shift("2026-10-08")
+		self._create_submitted_like_entry(
+			shift.name,
+			workstation=self.workstation_a,
+			operator=self.operator_a,
+			actual_start="2026-10-08 11:00:00",
+			actual_end="2026-10-08 12:00:00",
+		)
+		self._create_submitted_like_entry(
+			shift.name,
+			workstation=self.workstation_a,
+			operator=self.operator_a,
+			actual_start="2026-10-08 09:00:00",
+			actual_end="2026-10-08 10:00:00",
+		)
+		self._create_submitted_like_entry(
+			shift.name,
+			workstation=self.workstation_a,
+			operator=self.operator_a,
+			actual_start="2026-10-08 10:00:00",
+			actual_end="2026-10-08 11:00:00",
+		)
+		result = get_shift_timeline_data("Workstation", self.workstation_a)
+		self.assertEqual(len(result["entries"]), 3)
+		self.assertEqual(
+			[item["actual_start"] for item in result["entries"]],
+			["2026-10-08 09:00:00", "2026-10-08 10:00:00", "2026-10-08 11:00:00"],
+		)
+
 	def test_returns_entries_for_operator_in_running_shift(self) -> None:
 		from production_entry_app.production_entry_app.api_timeline import get_shift_timeline_data
 
