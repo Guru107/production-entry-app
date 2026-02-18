@@ -1,6 +1,6 @@
 const { test, expect } = require("@playwright/test");
 const { bootstrapE2E, cleanupE2E } = require("../fixtures/test-data");
-const { getDoc, callFrappeMethod } = require("../fixtures/frappe");
+const { getDoc, callFrappeMethod, setFieldValue } = require("../fixtures/frappe");
 const { expectValidationError } = require("../fixtures/assertions");
 const { StockEntryPage } = require("../pages/stock-entry-page");
 const { registerE2ELifecycle } = require("../fixtures/lifecycle");
@@ -15,6 +15,33 @@ async function openManufactureEntry(page, ctx, options = {}) {
 	await stockEntryPage.openNew();
 	await stockEntryPage.setManufactureFields(ctx, options);
 	return stockEntryPage;
+}
+
+async function getOrCreateEmployee(page, ctx, employeeNumber) {
+	const rows = await callFrappeMethod(page, "frappe.client.get_list", {
+		doctype: "Employee",
+		fields: JSON.stringify(["name"]),
+		limit_page_length: 1,
+	});
+	const employeeName = rows?.[0]?.name;
+	if (employeeName) {
+		return employeeName;
+	}
+
+	const created = await callFrappeMethod(page, "frappe.client.insert", {
+		doc: JSON.stringify({
+			doctype: "Employee",
+			first_name: "E2E",
+			last_name: "Stock Entry",
+			gender: "Female",
+			date_of_birth: "1990-01-01",
+			date_of_joining: "2020-01-01",
+			company: ctx.company,
+			status: "Active",
+			employee_number: employeeNumber,
+		}),
+	});
+	return created.name;
 }
 
 test.describe("Stock Entry validation matrix", () => {
@@ -192,5 +219,102 @@ test.describe("Stock Entry validation matrix", () => {
 		expect(Number(rejectionRows[0].qty)).toBe(10);
 		expect(fgRows.length).toBeGreaterThan(0);
 		expect(Number(fgRows[0].qty)).toBe(90);
+	});
+
+	test("@regression blocks overlapping stock entry when workstation is already in use", async ({
+		page,
+	}) => {
+		await page.goto("/app/home");
+		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
+
+		const firstStockEntryPage = await openManufactureEntry(page, ctx, {
+			fgQty: 100,
+			rejectionQty: 0,
+			actualStart: `${ctx.shift_date} 08:00:00`,
+			actualEnd: `${ctx.shift_date} 09:00:00`,
+		});
+		await firstStockEntryPage.fetchItems();
+		await setFieldValue(page, "custom_operator", null);
+		await firstStockEntryPage.saveDraft();
+
+		const stockEntryPage = await openManufactureEntry(page, ctx, {
+			fgQty: 100,
+			rejectionQty: 0,
+			actualStart: `${ctx.shift_date} 08:30:00`,
+			actualEnd: `${ctx.shift_date} 09:30:00`,
+		});
+		await stockEntryPage.fetchItems();
+		await setFieldValue(page, "custom_operator", null);
+		await stockEntryPage.attemptSaveDraft();
+		await expectValidationError(page, /Workstation .* already in use/i);
+	});
+
+	test("@regression blocks overlapping stock entry when operator is already assigned", async ({
+		page,
+	}) => {
+		await page.goto("/app/home");
+		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
+
+		const firstStockEntryPage = await openManufactureEntry(page, ctx, {
+			fgQty: 100,
+			rejectionQty: 0,
+			actualStart: `${ctx.shift_date} 08:00:00`,
+			actualEnd: `${ctx.shift_date} 09:00:00`,
+		});
+		await firstStockEntryPage.fetchItems();
+		await setFieldValue(page, "custom_workstation", null);
+		await firstStockEntryPage.saveDraft();
+
+		const stockEntryPage = await openManufactureEntry(page, ctx, {
+			fgQty: 100,
+			rejectionQty: 0,
+			actualStart: `${ctx.shift_date} 08:30:00`,
+			actualEnd: `${ctx.shift_date} 09:30:00`,
+		});
+		await stockEntryPage.fetchItems();
+		await setFieldValue(page, "custom_workstation", null);
+		await stockEntryPage.attemptSaveDraft();
+		await expectValidationError(page, /Operator .* already assigned/i);
+	});
+
+	test("@regression blocks stock entry when workstation has overlapping downtime", async ({
+		page,
+	}) => {
+		await page.goto("/app/home");
+		const prefix = lifecycle.getPrefix();
+		const ctx = await setupFreshContext(page, prefix);
+		let downtimeEntryName;
+
+		try {
+			const employeeName = await getOrCreateEmployee(page, ctx, `${prefix}-DT-EMP`);
+			const downtimeEntry = await callFrappeMethod(page, "frappe.client.insert", {
+				doc: JSON.stringify({
+					doctype: "Downtime Entry",
+					workstation: ctx.workstation,
+					operator: employeeName,
+					from_time: `${ctx.shift_date} 08:15:00`,
+					to_time: `${ctx.shift_date} 08:45:00`,
+					stop_reason: "Other",
+				}),
+			});
+			downtimeEntryName = downtimeEntry.name;
+
+			const stockEntryPage = await openManufactureEntry(page, ctx, {
+				fgQty: 100,
+				rejectionQty: 0,
+				actualStart: `${ctx.shift_date} 08:30:00`,
+				actualEnd: `${ctx.shift_date} 09:30:00`,
+			});
+			await stockEntryPage.fetchItems();
+			await stockEntryPage.attemptSaveDraft();
+			await expectValidationError(page, /downtime entry/i);
+		} finally {
+			if (downtimeEntryName) {
+				await callFrappeMethod(page, "frappe.client.delete", {
+					doctype: "Downtime Entry",
+					name: downtimeEntryName,
+				});
+			}
+		}
 	});
 });
