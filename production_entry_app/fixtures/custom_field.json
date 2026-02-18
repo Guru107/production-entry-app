@@ -105,6 +105,7 @@
 		"fieldtype": "Link",
 		"label": "Shift",
 		"options": "Shift",
+		"is_index": 1,
 		"insert_after": "stock_entry_type",
 		"module": "Production Entry App"
 	},
@@ -170,6 +171,7 @@
 		"fieldname": "custom_actual_start_date",
 		"fieldtype": "Datetime",
 		"label": "Actual Start Date",
+		"is_index": 1,
 		"insert_after": "custom_operation_details_col_break",
 		"module": "Production Entry App"
 	},
