@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code (claude.ai/code)/Codex when working with code in this repository.
 
 ## Development Philosophy
 Always follow test driven development. Write tests first and then implement features to satisfy them.
