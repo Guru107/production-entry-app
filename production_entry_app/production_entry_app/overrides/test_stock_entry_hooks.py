@@ -11,7 +11,9 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	bootstrap_manufacturing_test_context,
 	cleanup_running_shifts,
 	ensure_item,
+	ensure_operator,
 	ensure_warehouse,
+	ensure_workstation,
 	get_company_abbr,
 	resolve_test_company,
 )
@@ -343,6 +345,44 @@ def _create_manufacture_stock_entry(
 def _set_shift_buffers(start_mins: int = 60, end_mins: int = 60) -> None:
 	frappe.db.set_single_value("Manufacturing Settings", "shift_start_buffer_mins", start_mins)
 	frappe.db.set_single_value("Manufacturing Settings", "shift_end_buffer_mins", end_mins)
+
+
+def _get_or_create_employee(employee_number: str = "SE-HOOK-EMP") -> str:
+	employee_name = frappe.db.get_value("Employee", {"employee_number": employee_number}, "name")
+	if employee_name:
+		return employee_name
+
+	company = resolve_test_company()
+	return (
+		frappe.get_doc(
+			{
+				"doctype": "Employee",
+				"first_name": "SE",
+				"last_name": "Hook",
+				"gender": "Female",
+				"date_of_birth": "1990-01-01",
+				"date_of_joining": "2020-01-01",
+				"company": company,
+				"status": "Active",
+				"employee_number": employee_number,
+			}
+		)
+		.insert(ignore_permissions=True)
+		.name
+	)
+
+
+def _create_downtime_entry(workstation: str, operator: str, from_time: str, to_time: str) -> frappe.Document:
+	return frappe.get_doc(
+		{
+			"doctype": "Downtime Entry",
+			"workstation": workstation,
+			"operator": operator,
+			"from_time": from_time,
+			"to_time": to_time,
+			"stop_reason": "Other",
+		}
+	).insert(ignore_permissions=True)
 
 
 class TestStockEntryHooks(FrappeTestCase):
@@ -1152,6 +1192,512 @@ class TestStockEntryHooks(FrappeTestCase):
 
 		self.assertEqual(len(se.custom_unplanned_losses), 1)
 		self.assertEqual(se.custom_unplanned_losses[0].downtime_reason, "Tea Break")
+
+
+class TestOverlapValidation(FrappeTestCase):
+	# Shift dates used by tests in this class (May 1-12, 2026)
+	_SHIFT_DATES: ClassVar[list[str]] = [f"2026-05-{d:02d}" for d in range(1, 13)]
+
+	@classmethod
+	def setUpClass(cls) -> None:
+		super().setUpClass()
+		context = bootstrap_manufacturing_test_context("SE Overlap")
+		cls.company = context["company"]
+		cls.wip_warehouse = context["wip_warehouse"]
+		cls.rm_warehouse = context["rm_warehouse"]
+		cls.fg_warehouse = context["fg_warehouse"]
+		cls.fg_item = _get_or_create_item("_Test FG Item For Shift")
+		cls.rm_item = _get_or_create_item("_Test RM Item For Shift")
+		cls.workstation_1 = "SE Hook WS-1"
+		cls.workstation_2 = "SE Hook WS-2"
+		cls.operator_1 = "SE Hook Operator-1"
+		cls.operator_2 = "SE Hook Operator-2"
+		cls.employee_name = _get_or_create_employee("SE-HOOK-EMP-OVERLAP")
+		ensure_workstation(cls.workstation_1, standard_spm=2)
+		ensure_workstation(cls.workstation_2, standard_spm=2)
+		ensure_operator(cls.operator_1)
+		ensure_operator(cls.operator_2)
+
+	def setUp(self) -> None:
+		cleanup_running_shifts()
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit - ensure running shift cleanup is visible
+		self.company = self.__class__.company
+		self.wip_warehouse = self.__class__.wip_warehouse
+		self.rm_warehouse = self.__class__.rm_warehouse
+		self.fg_warehouse = self.__class__.fg_warehouse
+		self.fg_item = self.__class__.fg_item
+		self.rm_item = self.__class__.rm_item
+		self.employee_name = self.__class__.employee_name
+
+	def tearDown(self) -> None:
+		frappe.db.rollback()
+
+	@classmethod
+	def tearDownClass(cls) -> None:
+		for shift_date in cls._SHIFT_DATES:
+			for label in ("1", "2"):
+				name = f"SHIFT-{shift_date}.Shift-{label}"
+				if frappe.db.exists("Shift", name):
+					frappe.db.set_value("Shift", name, "status", "Completed", update_modified=False)
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed to persist cleanup
+		super().tearDownClass()
+
+	def _create_entry(
+		self,
+		*,
+		shift_name: str | None,
+		start: str | None = None,
+		end: str | None = None,
+		workstation: str | None = None,
+		operator: str | None = None,
+		purpose: str = "Manufacture",
+	) -> frappe.Document:
+		if purpose == "Manufacture":
+			se = _create_manufacture_stock_entry(
+				company=self.company,
+				fg_item=self.fg_item,
+				rm_item=self.rm_item,
+				custom_shift=shift_name,
+				fg_warehouse=self.fg_warehouse,
+				rm_warehouse=self.rm_warehouse,
+			)
+		else:
+			se = frappe.get_doc(
+				{
+					"doctype": "Stock Entry",
+					"purpose": "Material Transfer",
+					"stock_entry_type": "Material Transfer",
+					"company": self.company,
+					"items": [
+						{
+							"item_code": self.rm_item,
+							"qty": 1,
+							"s_warehouse": self.rm_warehouse,
+							"t_warehouse": self.fg_warehouse,
+							"basic_rate": 50,
+						}
+					],
+				}
+			)
+			if shift_name:
+				se.custom_shift = shift_name
+
+		if start:
+			se.custom_actual_start_date = start
+		if end:
+			se.custom_actual_end_date = end
+		if workstation:
+			se.custom_workstation = workstation
+		if operator:
+			se.custom_operator = operator
+		return se
+
+	def test_workstation_overlap_blocks_overlapping_entry(self) -> None:
+		shift = _create_test_shift(shift_date="2026-05-01", wip_warehouse=self.wip_warehouse)
+		first = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-01 08:00:00",
+			end="2026-05-01 09:00:00",
+			workstation=self.workstation_1,
+		)
+		first.save()
+
+		second = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-01 08:30:00",
+			end="2026-05-01 09:30:00",
+			workstation=self.workstation_1,
+		)
+		with self.assertRaisesRegex(ValidationError, "Workstation"):
+			second.save()
+
+	def test_workstation_overlap_allows_different_workstations(self) -> None:
+		shift = _create_test_shift(shift_date="2026-05-02", wip_warehouse=self.wip_warehouse)
+		first = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-02 08:00:00",
+			end="2026-05-02 09:00:00",
+			workstation=self.workstation_1,
+		)
+		first.save()
+
+		second = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-02 08:30:00",
+			end="2026-05-02 09:30:00",
+			workstation=self.workstation_2,
+		)
+		second.save()
+		self.assertTrue(bool(second.name))
+
+	def test_workstation_overlap_allows_adjacent_times(self) -> None:
+		shift = _create_test_shift(shift_date="2026-05-03", wip_warehouse=self.wip_warehouse)
+		first = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-03 08:00:00",
+			end="2026-05-03 09:00:00",
+			workstation=self.workstation_1,
+		)
+		first.save()
+
+		second = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-03 09:00:00",
+			end="2026-05-03 10:00:00",
+			workstation=self.workstation_1,
+		)
+		second.save()
+		self.assertTrue(bool(second.name))
+
+	def test_workstation_overlap_excludes_cancelled_entries(self) -> None:
+		shift = _create_test_shift(shift_date="2026-05-04", wip_warehouse=self.wip_warehouse)
+		first = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-04 08:00:00",
+			end="2026-05-04 09:00:00",
+			workstation=self.workstation_1,
+		)
+		first.save()
+		frappe.db.set_value("Stock Entry", first.name, "docstatus", 2, update_modified=False)
+
+		second = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-04 08:30:00",
+			end="2026-05-04 09:30:00",
+			workstation=self.workstation_1,
+		)
+		second.save()
+		self.assertTrue(bool(second.name))
+
+	def test_workstation_overlap_allows_resave(self) -> None:
+		shift = _create_test_shift(shift_date="2026-05-05", wip_warehouse=self.wip_warehouse)
+		se = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-05 08:00:00",
+			end="2026-05-05 09:00:00",
+			workstation=self.workstation_1,
+		)
+		se.save()
+		se.save()
+		self.assertTrue(bool(se.name))
+
+	def test_workstation_overlap_skipped_without_actual_times(self) -> None:
+		shift = _create_test_shift(shift_date="2026-05-06", wip_warehouse=self.wip_warehouse)
+		first = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-06 08:00:00",
+			end="2026-05-06 09:00:00",
+			workstation=self.workstation_1,
+		)
+		first.save()
+
+		second = self._create_entry(
+			shift_name=shift.name,
+			workstation=self.workstation_1,
+		)
+		second.save()
+		self.assertTrue(bool(second.name))
+
+	def test_workstation_overlap_skipped_without_workstation(self) -> None:
+		shift = _create_test_shift(shift_date="2026-05-07", wip_warehouse=self.wip_warehouse)
+		first = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-07 08:00:00",
+			end="2026-05-07 09:00:00",
+			workstation=self.workstation_1,
+		)
+		first.save()
+
+		second = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-07 08:30:00",
+			end="2026-05-07 09:30:00",
+		)
+		second.save()
+		self.assertTrue(bool(second.name))
+
+	def test_workstation_error_is_prioritized_when_both_workstation_and_operator_overlap(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-05-08",
+			shift_label="2",
+			planned_start_time="16:00:00",
+			wip_warehouse=self.wip_warehouse,
+		)
+		first = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-08 16:00:00",
+			end="2026-05-08 17:00:00",
+			workstation=self.workstation_1,
+			operator=self.operator_1,
+		)
+		first.save()
+
+		second = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-08 16:30:00",
+			end="2026-05-08 17:30:00",
+			workstation=self.workstation_1,
+			operator=self.operator_1,
+		)
+		with self.assertRaisesRegex(ValidationError, "Workstation"):
+			second.save()
+
+	def test_operator_overlap_blocks_overlapping_entry(self) -> None:
+		shift = _create_test_shift(shift_date="2026-05-08", wip_warehouse=self.wip_warehouse)
+		first = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-08 08:00:00",
+			end="2026-05-08 09:00:00",
+			operator=self.operator_1,
+		)
+		first.save()
+
+		second = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-08 08:30:00",
+			end="2026-05-08 09:30:00",
+			operator=self.operator_1,
+		)
+		with self.assertRaisesRegex(ValidationError, "Operator"):
+			second.save()
+
+	def test_operator_overlap_allows_different_operators(self) -> None:
+		shift = _create_test_shift(shift_date="2026-05-09", wip_warehouse=self.wip_warehouse)
+		first = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-09 08:00:00",
+			end="2026-05-09 09:00:00",
+			operator=self.operator_1,
+		)
+		first.save()
+
+		second = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-09 08:30:00",
+			end="2026-05-09 09:30:00",
+			operator=self.operator_2,
+		)
+		second.save()
+		self.assertTrue(bool(second.name))
+
+	def test_operator_overlap_allows_adjacent_times(self) -> None:
+		shift = _create_test_shift(shift_date="2026-05-10", wip_warehouse=self.wip_warehouse)
+		first = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-10 08:00:00",
+			end="2026-05-10 09:00:00",
+			operator=self.operator_1,
+		)
+		first.save()
+
+		second = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-10 09:00:00",
+			end="2026-05-10 10:00:00",
+			operator=self.operator_1,
+		)
+		second.save()
+		self.assertTrue(bool(second.name))
+
+	def test_operator_overlap_excludes_cancelled_entries(self) -> None:
+		shift = _create_test_shift(shift_date="2026-05-11", wip_warehouse=self.wip_warehouse)
+		first = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-11 08:00:00",
+			end="2026-05-11 09:00:00",
+			operator=self.operator_1,
+		)
+		first.save()
+		frappe.db.set_value("Stock Entry", first.name, "docstatus", 2, update_modified=False)
+
+		second = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-11 08:30:00",
+			end="2026-05-11 09:30:00",
+			operator=self.operator_1,
+		)
+		second.save()
+		self.assertTrue(bool(second.name))
+
+	def test_operator_overlap_allows_resave(self) -> None:
+		shift = _create_test_shift(shift_date="2026-05-12", wip_warehouse=self.wip_warehouse)
+		se = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-12 08:00:00",
+			end="2026-05-12 09:00:00",
+			operator=self.operator_1,
+		)
+		se.save()
+		se.save()
+		self.assertTrue(bool(se.name))
+
+	def test_operator_overlap_skipped_without_operator(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-05-01",
+			shift_label="2",
+			planned_start_time="16:00:00",
+			wip_warehouse=self.wip_warehouse,
+		)
+		first = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-01 16:00:00",
+			end="2026-05-01 17:00:00",
+			operator=self.operator_1,
+		)
+		first.save()
+
+		second = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-01 16:30:00",
+			end="2026-05-01 17:30:00",
+		)
+		second.save()
+		self.assertTrue(bool(second.name))
+
+	def test_downtime_overlap_blocks_workstation_with_downtime(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-05-02",
+			shift_label="2",
+			planned_start_time="16:00:00",
+			wip_warehouse=self.wip_warehouse,
+		)
+		_create_downtime_entry(
+			workstation=self.workstation_1,
+			operator=self.employee_name,
+			from_time="2026-05-02 16:00:00",
+			to_time="2026-05-02 17:00:00",
+		)
+
+		se = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-02 16:30:00",
+			end="2026-05-02 17:30:00",
+			workstation=self.workstation_1,
+		)
+		with self.assertRaisesRegex(ValidationError, "downtime"):
+			se.save()
+
+	def test_downtime_overlap_allows_different_workstation(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-05-03",
+			shift_label="2",
+			planned_start_time="16:00:00",
+			wip_warehouse=self.wip_warehouse,
+		)
+		_create_downtime_entry(
+			workstation=self.workstation_2,
+			operator=self.employee_name,
+			from_time="2026-05-03 16:00:00",
+			to_time="2026-05-03 17:00:00",
+		)
+
+		se = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-03 16:30:00",
+			end="2026-05-03 17:30:00",
+			workstation=self.workstation_1,
+		)
+		se.save()
+		self.assertTrue(bool(se.name))
+
+	def test_downtime_overlap_allows_non_overlapping_times(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-05-04",
+			shift_label="2",
+			planned_start_time="16:00:00",
+			wip_warehouse=self.wip_warehouse,
+		)
+		_create_downtime_entry(
+			workstation=self.workstation_1,
+			operator=self.employee_name,
+			from_time="2026-05-04 16:00:00",
+			to_time="2026-05-04 17:00:00",
+		)
+
+		se = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-04 17:00:00",
+			end="2026-05-04 18:00:00",
+			workstation=self.workstation_1,
+		)
+		se.save()
+		self.assertTrue(bool(se.name))
+
+	def test_downtime_overlap_partial_overlap_blocks(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-05-05",
+			shift_label="2",
+			planned_start_time="16:00:00",
+			wip_warehouse=self.wip_warehouse,
+		)
+		_create_downtime_entry(
+			workstation=self.workstation_1,
+			operator=self.employee_name,
+			from_time="2026-05-05 16:00:00",
+			to_time="2026-05-05 18:00:00",
+		)
+
+		se = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-05 17:30:00",
+			end="2026-05-05 18:30:00",
+			workstation=self.workstation_1,
+		)
+		with self.assertRaisesRegex(ValidationError, "downtime"):
+			se.save()
+
+	def test_no_overlap_validation_for_non_manufacture(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-05-06",
+			shift_label="2",
+			planned_start_time="16:00:00",
+			wip_warehouse=self.wip_warehouse,
+		)
+		first = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-06 16:00:00",
+			end="2026-05-06 17:00:00",
+			workstation=self.workstation_1,
+			operator=self.operator_1,
+		)
+		first.save()
+
+		second = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-06 16:30:00",
+			end="2026-05-06 17:30:00",
+			workstation=self.workstation_1,
+			operator=self.operator_1,
+			purpose="Material Transfer",
+		)
+		second.save()
+		self.assertTrue(bool(second.name))
+
+	def test_no_overlap_validation_without_shift(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-05-07",
+			shift_label="2",
+			planned_start_time="16:00:00",
+			wip_warehouse=self.wip_warehouse,
+		)
+		first = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-07 16:00:00",
+			end="2026-05-07 17:00:00",
+			workstation=self.workstation_1,
+			operator=self.operator_1,
+		)
+		first.save()
+
+		second = self._create_entry(
+			shift_name=None,
+			start="2026-05-07 16:30:00",
+			end="2026-05-07 17:30:00",
+			workstation=self.workstation_1,
+			operator=self.operator_1,
+		)
+		second.save()
+		self.assertTrue(bool(second.name))
 
 
 class TestGetItemsWithRejection(FrappeTestCase):
