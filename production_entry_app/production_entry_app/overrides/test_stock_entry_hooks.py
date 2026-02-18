@@ -347,7 +347,7 @@ def _set_shift_buffers(start_mins: int = 60, end_mins: int = 60) -> None:
 	frappe.db.set_single_value("Manufacturing Settings", "shift_end_buffer_mins", end_mins)
 
 
-def _ensure_employee(employee_number: str = "SE-HOOK-EMP") -> str:
+def _get_or_create_employee(employee_number: str = "SE-HOOK-EMP") -> str:
 	employee_name = frappe.db.get_value("Employee", {"employee_number": employee_number}, "name")
 	if employee_name:
 		return employee_name
@@ -372,12 +372,12 @@ def _ensure_employee(employee_number: str = "SE-HOOK-EMP") -> str:
 	)
 
 
-def _create_downtime_entry(workstation: str, from_time: str, to_time: str) -> frappe.Document:
+def _create_downtime_entry(workstation: str, operator: str, from_time: str, to_time: str) -> frappe.Document:
 	return frappe.get_doc(
 		{
 			"doctype": "Downtime Entry",
 			"workstation": workstation,
-			"operator": _ensure_employee(),
+			"operator": operator,
 			"from_time": from_time,
 			"to_time": to_time,
 			"stop_reason": "Other",
@@ -1212,6 +1212,7 @@ class TestOverlapValidation(FrappeTestCase):
 		cls.workstation_2 = "SE Hook WS-2"
 		cls.operator_1 = "SE Hook Operator-1"
 		cls.operator_2 = "SE Hook Operator-2"
+		cls.employee_name = _get_or_create_employee("SE-HOOK-EMP-OVERLAP")
 		ensure_workstation(cls.workstation_1, standard_spm=2)
 		ensure_workstation(cls.workstation_2, standard_spm=2)
 		ensure_operator(cls.operator_1)
@@ -1220,17 +1221,13 @@ class TestOverlapValidation(FrappeTestCase):
 	def setUp(self) -> None:
 		cleanup_running_shifts()
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit - ensure running shift cleanup is visible
-		context = bootstrap_manufacturing_test_context("SE Overlap")
-		self.company = context["company"]
-		self.wip_warehouse = context["wip_warehouse"]
-		self.rm_warehouse = context["rm_warehouse"]
-		self.fg_warehouse = context["fg_warehouse"]
-		self.fg_item = _get_or_create_item("_Test FG Item For Shift")
-		self.rm_item = _get_or_create_item("_Test RM Item For Shift")
-		ensure_workstation(self.workstation_1, standard_spm=2)
-		ensure_workstation(self.workstation_2, standard_spm=2)
-		ensure_operator(self.operator_1)
-		ensure_operator(self.operator_2)
+		self.company = self.__class__.company
+		self.wip_warehouse = self.__class__.wip_warehouse
+		self.rm_warehouse = self.__class__.rm_warehouse
+		self.fg_warehouse = self.__class__.fg_warehouse
+		self.fg_item = self.__class__.fg_item
+		self.rm_item = self.__class__.rm_item
+		self.employee_name = self.__class__.employee_name
 
 	def tearDown(self) -> None:
 		frappe.db.rollback()
@@ -1419,6 +1416,32 @@ class TestOverlapValidation(FrappeTestCase):
 		second.save()
 		self.assertTrue(bool(second.name))
 
+	def test_workstation_error_is_prioritized_when_both_workstation_and_operator_overlap(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-05-08",
+			shift_label="2",
+			planned_start_time="16:00:00",
+			wip_warehouse=self.wip_warehouse,
+		)
+		first = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-08 16:00:00",
+			end="2026-05-08 17:00:00",
+			workstation=self.workstation_1,
+			operator=self.operator_1,
+		)
+		first.save()
+
+		second = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-08 16:30:00",
+			end="2026-05-08 17:30:00",
+			workstation=self.workstation_1,
+			operator=self.operator_1,
+		)
+		with self.assertRaisesRegex(ValidationError, "Workstation"):
+			second.save()
+
 	def test_operator_overlap_blocks_overlapping_entry(self) -> None:
 		shift = _create_test_shift(shift_date="2026-05-08", wip_warehouse=self.wip_warehouse)
 		first = self._create_entry(
@@ -1540,6 +1563,7 @@ class TestOverlapValidation(FrappeTestCase):
 		)
 		_create_downtime_entry(
 			workstation=self.workstation_1,
+			operator=self.employee_name,
 			from_time="2026-05-02 16:00:00",
 			to_time="2026-05-02 17:00:00",
 		)
@@ -1562,6 +1586,7 @@ class TestOverlapValidation(FrappeTestCase):
 		)
 		_create_downtime_entry(
 			workstation=self.workstation_2,
+			operator=self.employee_name,
 			from_time="2026-05-03 16:00:00",
 			to_time="2026-05-03 17:00:00",
 		)
@@ -1584,6 +1609,7 @@ class TestOverlapValidation(FrappeTestCase):
 		)
 		_create_downtime_entry(
 			workstation=self.workstation_1,
+			operator=self.employee_name,
 			from_time="2026-05-04 16:00:00",
 			to_time="2026-05-04 17:00:00",
 		)
@@ -1606,6 +1632,7 @@ class TestOverlapValidation(FrappeTestCase):
 		)
 		_create_downtime_entry(
 			workstation=self.workstation_1,
+			operator=self.employee_name,
 			from_time="2026-05-05 16:00:00",
 			to_time="2026-05-05 18:00:00",
 		)

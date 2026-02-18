@@ -21,6 +21,7 @@ async function getOrCreateEmployee(page, ctx, employeeNumber) {
 	const rows = await callFrappeMethod(page, "frappe.client.get_list", {
 		doctype: "Employee",
 		fields: JSON.stringify(["name"]),
+		filters: JSON.stringify({ employee_number: employeeNumber }),
 		limit_page_length: 1,
 	});
 	const employeeName = rows?.[0]?.name;
@@ -306,6 +307,7 @@ test.describe("Stock Entry validation matrix", () => {
 				actualEnd: `${ctx.shift_date} 09:30:00`,
 			});
 			await stockEntryPage.fetchItems();
+			await setFieldValue(page, "custom_operator", null);
 			await stockEntryPage.attemptSaveDraft();
 			await expectValidationError(page, /downtime entry/i);
 		} finally {

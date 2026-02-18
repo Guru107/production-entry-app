@@ -127,75 +127,27 @@ def _should_check_overlap(doc) -> bool:
 
 
 def _validate_workstation_overlap(doc) -> None:
-	if not _should_check_overlap(doc):
-		return
 	workstation = doc.get("custom_workstation")
-	if not workstation:
-		return
-
-	start = _as_datetime(doc.get("custom_actual_start_date"))
-	end = _as_datetime(doc.get("custom_actual_end_date"))
-	if not start or not end:
-		return
-
-	stock_entry = DocType("Stock Entry")
-	query = (
-		frappe.qb.from_(stock_entry)
-		.select(stock_entry.name)
-		.where(stock_entry.docstatus != 2)
-		.where(stock_entry.purpose == "Manufacture")
-		.where(stock_entry.custom_shift.isnotnull())
-		.where(stock_entry.custom_workstation == workstation)
-		.where(stock_entry.custom_actual_start_date < end)
-		.where(stock_entry.custom_actual_end_date > start)
-	)
-	if doc.name:
-		query = query.where(stock_entry.name != doc.name)
-
-	conflict = query.limit(1).run(as_dict=True)
+	conflict = _find_overlapping_stock_entry(doc, "custom_workstation", workstation)
 	if not conflict:
 		return
 
 	frappe.throw(
 		_("Workstation {0} is already in use by {1} during this time period.").format(
-			frappe.bold(workstation), frappe.bold(conflict[0]["name"])
+			frappe.bold(workstation), frappe.bold(conflict["name"])
 		)
 	)
 
 
 def _validate_operator_overlap(doc) -> None:
-	if not _should_check_overlap(doc):
-		return
 	operator = doc.get("custom_operator")
-	if not operator:
-		return
-
-	start = _as_datetime(doc.get("custom_actual_start_date"))
-	end = _as_datetime(doc.get("custom_actual_end_date"))
-	if not start or not end:
-		return
-
-	stock_entry = DocType("Stock Entry")
-	query = (
-		frappe.qb.from_(stock_entry)
-		.select(stock_entry.name)
-		.where(stock_entry.docstatus != 2)
-		.where(stock_entry.purpose == "Manufacture")
-		.where(stock_entry.custom_shift.isnotnull())
-		.where(stock_entry.custom_operator == operator)
-		.where(stock_entry.custom_actual_start_date < end)
-		.where(stock_entry.custom_actual_end_date > start)
-	)
-	if doc.name:
-		query = query.where(stock_entry.name != doc.name)
-
-	conflict = query.limit(1).run(as_dict=True)
+	conflict = _find_overlapping_stock_entry(doc, "custom_operator", operator)
 	if not conflict:
 		return
 
 	frappe.throw(
 		_("Operator {0} is already assigned to {1} during this time period.").format(
-			frappe.bold(operator), frappe.bold(conflict[0]["name"])
+			frappe.bold(operator), frappe.bold(conflict["name"])
 		)
 	)
 
@@ -209,20 +161,19 @@ def _validate_workstation_downtime_overlap(doc) -> None:
 
 	start = _as_datetime(doc.get("custom_actual_start_date"))
 	end = _as_datetime(doc.get("custom_actual_end_date"))
-	if not start or not end:
-		return
 
 	downtime_entry = DocType("Downtime Entry")
-	conflict = (
+	query = (
 		frappe.qb.from_(downtime_entry)
 		.select(downtime_entry.name, downtime_entry.from_time, downtime_entry.to_time)
-		.where(downtime_entry.docstatus != 2)
 		.where(downtime_entry.workstation == workstation)
 		.where(downtime_entry.from_time < end)
 		.where(downtime_entry.to_time > start)
-		.limit(1)
-		.run(as_dict=True)
 	)
+	if frappe.get_meta("Downtime Entry", cached=True).is_submittable:
+		query = query.where(downtime_entry.docstatus != 2)
+
+	conflict = query.limit(1).run(as_dict=True)
 	if not conflict:
 		return
 
@@ -237,6 +188,30 @@ def _validate_workstation_downtime_overlap(doc) -> None:
 			format_datetime(row["to_time"]),
 		)
 	)
+
+
+def _find_overlapping_stock_entry(doc, fieldname: str, fieldvalue: str | None) -> dict | None:
+	if not _should_check_overlap(doc) or not fieldvalue:
+		return None
+
+	start = _as_datetime(doc.get("custom_actual_start_date"))
+	end = _as_datetime(doc.get("custom_actual_end_date"))
+	stock_entry = DocType("Stock Entry")
+	query = (
+		frappe.qb.from_(stock_entry)
+		.select(stock_entry.name)
+		.where(stock_entry.docstatus != 2)
+		.where(stock_entry.purpose == "Manufacture")
+		.where(stock_entry.custom_shift.isnotnull())
+		.where(stock_entry[fieldname] == fieldvalue)
+		.where(stock_entry.custom_actual_start_date < end)
+		.where(stock_entry.custom_actual_end_date > start)
+	)
+	if doc.name:
+		query = query.where(stock_entry.name != doc.name)
+
+	conflict = query.limit(1).run(as_dict=True)
+	return conflict[0] if conflict else None
 
 
 def _validate_rejection_breakup(doc) -> None:
