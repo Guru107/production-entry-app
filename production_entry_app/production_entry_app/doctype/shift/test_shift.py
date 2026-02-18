@@ -466,6 +466,56 @@ class TestShift(FrappeTestCase):
 		).insert()
 		self.assertEqual(doc2.name, name2)
 
+	def test_overlap_query_scopes_to_nearby_dates(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import Shift
+
+		doc = frappe.new_doc("Shift")
+		doc.shift_date = "2026-02-21"
+		doc.planned_start_time = "08:00:00"
+		doc.shift_end_date = "2026-02-21"
+		doc.planned_end_time = "16:00:00"
+
+		with patch(
+			"production_entry_app.production_entry_app.doctype.shift.shift.frappe.get_all",
+			return_value=[],
+		) as get_all:
+			Shift._validate_no_overlapping_shifts(doc)
+
+		self.assertEqual(get_all.call_count, 1)
+		filters = get_all.call_args.kwargs.get("filters") or []
+		self.assertIn(["shift_date", ">=", "2026-02-20"], filters)
+		self.assertIn(["shift_date", "<=", "2026-02-22"], filters)
+
+	def test_overlap_still_detected_for_cross_midnight_neighbor_day(self) -> None:
+		self._delete_shifts_for_date("2026-04-14")
+		self._delete_shifts_for_date("2026-04-15")
+		name1 = self._expected_name("2026-04-14", "1")
+		name2 = self._expected_name("2026-04-15", "1")
+		self._delete_shift_if_exists(name1)
+		self._delete_shift_if_exists(name2)
+
+		frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": "2026-04-14",
+				"planned_start_time": "22:00:00",
+			}
+		).insert()
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit - ensure first shift is visible to overlap check
+
+		with self.assertRaises(ValidationError):
+			frappe.get_doc(
+				{
+					"doctype": "Shift",
+					"shift_label": "1",
+					"shift_duration": "8",
+					"shift_date": "2026-04-15",
+					"planned_start_time": "05:00:00",
+				}
+			).insert()
+
 	def test_unique_shift_label_per_date_validation(self) -> None:
 		"""Only one Shift 1 and one Shift 2 per date."""
 		name = self._expected_name("2026-02-22", "1")
@@ -637,6 +687,47 @@ class TestShift(FrappeTestCase):
 		doc.end_shift()
 		after_count = frappe.db.count("Notification Log", {"document_type": "Shift", "document_name": name})
 		self.assertGreater(after_count, before_count)
+
+	def test_notification_recipients_query_user_emails_in_batch(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import (
+			_get_notification_recipients_for_shift,
+		)
+
+		shift = frappe._dict({"supervisor": "supervisor@example.com"})
+
+		with patch(
+			"production_entry_app.production_entry_app.doctype.shift.shift.frappe.db.get_value",
+			return_value="supervisor@example.com",
+		):
+			with patch(
+				"production_entry_app.production_entry_app.doctype.shift.shift.frappe.get_all",
+				side_effect=[["manager1@example.com"], ["manager1@factory.local"]],
+			) as get_all:
+				emails = _get_notification_recipients_for_shift(shift)
+
+		self.assertEqual(emails, ["supervisor@example.com", "manager1@factory.local"])
+		self.assertTrue(any(call.args and call.args[0] == "User" for call in get_all.call_args_list))
+
+	def test_notification_recipients_user_query_filters_enabled_users(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import (
+			_get_notification_recipients_for_shift,
+		)
+
+		shift = frappe._dict({"supervisor": "supervisor@example.com"})
+
+		with patch(
+			"production_entry_app.production_entry_app.doctype.shift.shift.frappe.db.get_value",
+			return_value="supervisor@example.com",
+		):
+			with patch(
+				"production_entry_app.production_entry_app.doctype.shift.shift.frappe.get_all",
+				side_effect=[["manager1@example.com"], ["manager1@factory.local"]],
+			) as get_all:
+				_get_notification_recipients_for_shift(shift)
+
+		user_calls = [call for call in get_all.call_args_list if call.args and call.args[0] == "User"]
+		self.assertEqual(len(user_calls), 1)
+		self.assertEqual(user_calls[0].kwargs.get("filters", {}).get("enabled"), 1)
 
 	def test_running_shift_conflict_detected(self) -> None:
 		"""check_running_shift_conflict returns conflict when another shift is Running."""

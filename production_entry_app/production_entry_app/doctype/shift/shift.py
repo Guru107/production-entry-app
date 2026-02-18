@@ -25,12 +25,16 @@ def _get_notification_recipients_for_shift(shift_doc: Shift) -> list[str]:
 		filters={"role": "Manufacturing Manager", "parenttype": "User"},
 		pluck="parent",
 	)
-	for user in managers:
-		if user == supervisor:
-			continue
-		email = frappe.db.get_value("User", user, "email")
-		if email and email not in emails:
-			emails.append(email)
+	manager_users = [user for user in managers if user and user != supervisor]
+	if manager_users:
+		manager_emails = frappe.get_all(
+			"User",
+			filters={"name": ("in", manager_users), "enabled": 1},
+			pluck="email",
+		)
+		for email in manager_emails:
+			if email and email not in emails:
+				emails.append(email)
 	return emails
 
 
@@ -372,6 +376,8 @@ class Shift(Document):
 			filters=[
 				["status", "!=", "Cancelled"],
 				["name", "!=", self.name or ""],
+				["shift_date", ">=", add_to_date(self.shift_date, days=-1, as_string=True)],
+				["shift_date", "<=", add_to_date(self.shift_date, days=1, as_string=True)],
 			],
 			fields=["name", "shift_date", "planned_start_time", "shift_end_date", "planned_end_time"],
 		)

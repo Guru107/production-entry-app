@@ -182,6 +182,7 @@
 		"fieldname": "custom_actual_end_date",
 		"fieldtype": "Datetime",
 		"label": "Actual End Date",
+		"is_index": 1,
 		"insert_after": "custom_actual_start_date",
 		"module": "Production Entry App"
 	},
@@ -203,6 +204,7 @@
 		"fieldtype": "Link",
 		"label": "Workstation",
 		"options": "Workstation",
+		"is_index": 1,
 		"insert_after": "custom_workstation_operator_section",
 		"module": "Production Entry App"
 	},
@@ -235,6 +237,7 @@
 		"fieldtype": "Link",
 		"label": "Operator",
 		"options": "Operator",
+		"is_index": 1,
 		"insert_after": "custom_workstation_operator_col_break",
 		"module": "Production Entry App"
 	},
