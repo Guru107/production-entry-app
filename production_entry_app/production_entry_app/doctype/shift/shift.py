@@ -7,7 +7,9 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.query_builder import DocType
 from frappe.query_builder.functions import Avg, Count, Sum
-from frappe.utils import add_to_date, flt, get_time
+from frappe.utils import add_to_date, flt
+
+from production_entry_app.production_entry_app.utils.shift_time import combine_date_time
 
 
 def _get_notification_recipients_for_shift(shift_doc: Shift) -> list[str]:
@@ -103,8 +105,8 @@ def get_linked_downtime_entries(shift_name: str) -> list[dict]:
 	if not shift or not all([shift.get("shift_date"), shift.get("planned_start_time")]):
 		return []
 
-	start_dt = _combine_date_time(shift["shift_date"], shift["planned_start_time"])
-	end_dt = _combine_date_time(
+	start_dt = combine_date_time(shift["shift_date"], shift["planned_start_time"])
+	end_dt = combine_date_time(
 		shift.get("shift_end_date") or shift["shift_date"],
 		shift.get("planned_end_time") or "23:59:59",
 	)
@@ -206,13 +208,6 @@ def get_shift_metrics(shift_name: str) -> dict:
 		"avg_actual_spm": avg_actual_spm,
 		"avg_efficiency_pct": avg_efficiency_pct,
 	}
-
-
-def _combine_date_time(date_value: str, time_value: str) -> datetime.datetime:
-	"""Combine date and time strings into a datetime."""
-	shift_date = frappe.utils.getdate(date_value)
-	shift_time = get_time(time_value)
-	return datetime.datetime.combine(shift_date, shift_time)
 
 
 class Shift(Document):
@@ -441,9 +436,7 @@ class Shift(Document):
 		return duration
 
 	def _combine_date_time(self, date_value: str, time_value: str) -> datetime.datetime:
-		shift_date = frappe.utils.getdate(date_value)
-		shift_time = get_time(time_value)
-		return datetime.datetime.combine(shift_date, shift_time)
+		return combine_date_time(date_value, time_value)
 
 	def _populate_planned_losses_if_needed(self) -> None:
 		"""Auto-populate planned_losses when shift_duration, planned_start_time, or shift_date changes."""

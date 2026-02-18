@@ -156,7 +156,7 @@ function _render_linked_downtime_entries(frm) {
 					.join("");
 				html = `<table class="table table-bordered table-condensed"><thead><tr><th>Name</th><th>Workstation</th><th>From Time</th><th>To Time</th><th>Downtime (mins)</th><th>Stop Reason</th></tr></thead><tbody>${rows}</tbody></table>`;
 			}
-			_set_html_field(frm, "linked_downtime_entries", html);
+			_set_shared_html_field(frm, "linked_downtime_entries", html);
 		},
 	});
 }
@@ -172,7 +172,7 @@ function _render_shift_metrics(frm) {
 			const metrics = r.message || {};
 			const entry_count = Number(metrics.entry_count || 0);
 			if (!entry_count) {
-				_set_html_field(
+				_set_shared_html_field(
 					frm,
 					"shift_metrics",
 					'<p class="text-muted">No production entries linked to this shift yet.</p>'
@@ -199,21 +199,16 @@ function _render_shift_metrics(frm) {
 				)
 				.join("");
 			const html = `<table class="table table-condensed table-bordered"><tbody>${htmlRows}</tbody></table>`;
-			_set_html_field(frm, "shift_metrics", html);
+			_set_shared_html_field(frm, "shift_metrics", html);
 		},
 	});
 }
 
-function _set_html_field(frm, fieldname, html) {
-	const update_display = () => {
-		const field = frm.fields_dict[fieldname];
-		if (field) {
-			field.df.options = html;
-			field.html(html);
-		}
-	};
-	update_display();
-	if (!frm.fields_dict[fieldname]) {
-		setTimeout(update_display, 100);
+function _set_shared_html_field(frm, fieldname, html) {
+	const renderer = window.production_entry_app?.timeline_renderer;
+	if (!renderer?.set_html_field) {
+		console.warn("Production Entry App timeline renderer is not loaded.");
+		return;
 	}
+	renderer.set_html_field(frm, fieldname, html);
 }

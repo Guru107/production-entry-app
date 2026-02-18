@@ -6,6 +6,13 @@ import frappe
 from frappe.utils import add_days, add_to_date, get_time
 
 
+def combine_date_time(
+	date_value: str | datetime.date | None, time_value: str | datetime.time | None
+) -> datetime.datetime:
+	"""Combine date + time values into a datetime."""
+	return datetime.datetime.combine(frappe.utils.getdate(date_value), get_time(time_value))
+
+
 def get_shift_planned_end_datetime(
 	*,
 	shift_date: str | datetime.date | None,

@@ -5,7 +5,7 @@
 		return Math.max(0, Math.min(100, value));
 	}
 
-	function _set_html_field(frm, fieldname, html) {
+	function set_html_field(frm, fieldname, html) {
 		const update_display = () => {
 			const field = frm.fields_dict[fieldname];
 			if (field) {
@@ -26,7 +26,7 @@
 				message
 			)}</div>`
 		);
-		_set_html_field(frm, htmlFieldname, container.prop("outerHTML"));
+		set_html_field(frm, htmlFieldname, container.prop("outerHTML"));
 	}
 
 	function render_shift_timeline(frm, doctype, htmlFieldname) {
@@ -71,7 +71,9 @@
 				);
 
 				entries.forEach((entry, index) => {
-					const entryStart = new Date(String(entry.actual_start || "").replace(" ", "T"));
+					const entryStart = new Date(
+						String(entry.actual_start || "").replace(" ", "T")
+					);
 					const entryEnd = new Date(String(entry.actual_end || "").replace(" ", "T"));
 					const leftPct = _clamp_pct(
 						((entryStart.getTime() - shiftStart.getTime()) / totalMs) * 100
@@ -103,7 +105,7 @@
 				}
 
 				container.append(bar);
-				_set_html_field(frm, htmlFieldname, container.prop("outerHTML"));
+				set_html_field(frm, htmlFieldname, container.prop("outerHTML"));
 			},
 			error() {
 				_render_timeline_message(frm, htmlFieldname, "Unable to load timeline data.");
@@ -113,5 +115,6 @@
 
 	PEA.timeline_renderer = {
 		render_shift_timeline,
+		set_html_field,
 	};
 })();

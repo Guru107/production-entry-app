@@ -196,6 +196,67 @@ def _stock_entry_matches_cleanup_target(se, target_operator: str, target_fg_item
 	return bool(operator_match or fg_item_match)
 
 
+def _build_e2e_shift_doc(
+	*,
+	base_date: str,
+	wip_warehouse: str,
+	rm_warehouse: str,
+	rejection_warehouse: str,
+) -> dict:
+	return {
+		"doctype": "Shift",
+		"shift_label": "1",
+		"shift_duration": "8",
+		"shift_date": base_date,
+		"planned_start_time": "08:00:00",
+		"work_in_progress_warehouse": wip_warehouse,
+		"raw_material_warehouse": rm_warehouse,
+		"rejection_warehouse": rejection_warehouse,
+	}
+
+
+def _get_or_create_e2e_shift(
+	*,
+	shift_name: str,
+	base_date: str,
+	wip_warehouse: str,
+	rm_warehouse: str,
+	rejection_warehouse: str,
+):
+	if not frappe.db.exists("Shift", shift_name):
+		shift = frappe.get_doc(
+			_build_e2e_shift_doc(
+				base_date=base_date,
+				wip_warehouse=wip_warehouse,
+				rm_warehouse=rm_warehouse,
+				rejection_warehouse=rejection_warehouse,
+			)
+		).insert(ignore_permissions=True)
+		shift.start_shift()
+		return shift
+
+	shift = frappe.get_doc("Shift", shift_name)
+	if shift.status in ("Completed", "Cancelled"):
+		frappe.delete_doc("Shift", shift_name, force=True, ignore_permissions=True)
+		shift = frappe.get_doc(
+			_build_e2e_shift_doc(
+				base_date=base_date,
+				wip_warehouse=wip_warehouse,
+				rm_warehouse=rm_warehouse,
+				rejection_warehouse=rejection_warehouse,
+			)
+		).insert(ignore_permissions=True)
+		shift.start_shift()
+		return shift
+	if shift.status == "Draft":
+		shift.start_shift()
+		return shift
+	if shift.status == "Running":
+		return shift
+
+	frappe.throw(_("Unexpected Shift status for E2E bootstrap: {0}").format(shift.status))
+
+
 @frappe.whitelist()
 def bootstrap_e2e_context(prefix: str = "E2E") -> dict:
 	"""Create deterministic test masters for Playwright E2E tests."""
@@ -234,37 +295,13 @@ def bootstrap_e2e_context(prefix: str = "E2E") -> dict:
 
 	base_date = _e2e_base_date(prefix)
 	shift_name = f"SHIFT-{base_date}.Shift-1"
-	if frappe.db.exists("Shift", shift_name):
-		shift = frappe.get_doc("Shift", shift_name)
-		if shift.status in ("Completed", "Cancelled"):
-			frappe.delete_doc("Shift", shift_name, force=True, ignore_permissions=True)
-			shift = frappe.get_doc(
-				{
-					"doctype": "Shift",
-					"shift_label": "1",
-					"shift_duration": "8",
-					"shift_date": base_date,
-					"planned_start_time": "08:00:00",
-					"work_in_progress_warehouse": wip_warehouse,
-					"raw_material_warehouse": rm_warehouse,
-					"rejection_warehouse": rejection_warehouse,
-				}
-			).insert(ignore_permissions=True)
-	else:
-		shift = frappe.get_doc(
-			{
-				"doctype": "Shift",
-				"shift_label": "1",
-				"shift_duration": "8",
-				"shift_date": base_date,
-				"planned_start_time": "08:00:00",
-				"work_in_progress_warehouse": wip_warehouse,
-				"raw_material_warehouse": rm_warehouse,
-				"rejection_warehouse": rejection_warehouse,
-			}
-		).insert(ignore_permissions=True)
-	if shift.status != "Running":
-		shift.start_shift()
+	shift = _get_or_create_e2e_shift(
+		shift_name=shift_name,
+		base_date=base_date,
+		wip_warehouse=wip_warehouse,
+		rm_warehouse=rm_warehouse,
+		rejection_warehouse=rejection_warehouse,
+	)
 
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit - tests need deterministic persisted setup
 	return {

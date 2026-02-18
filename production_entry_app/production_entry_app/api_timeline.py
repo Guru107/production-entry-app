@@ -6,7 +6,7 @@ from frappe.query_builder import DocType
 from frappe.query_builder.functions import Sum
 from frappe.utils import flt
 
-from production_entry_app.production_entry_app.doctype.shift.shift import _combine_date_time
+from production_entry_app.production_entry_app.utils.shift_time import combine_date_time
 
 
 @frappe.whitelist()
@@ -14,6 +14,8 @@ def get_shift_timeline_data(doctype: str, docname: str) -> dict:
 	"""Return running shift timeline data for Workstation/Operator forms."""
 	if doctype not in ("Workstation", "Operator"):
 		frappe.throw(_("Invalid doctype for timeline data."))
+	if not frappe.has_permission(doctype, "read", docname):
+		raise frappe.PermissionError
 
 	running_shift = frappe.get_all(
 		"Shift",
@@ -26,8 +28,11 @@ def get_shift_timeline_data(doctype: str, docname: str) -> dict:
 		return {"shift_name": None, "entries": []}
 
 	shift = running_shift[0]
-	shift_start = _combine_date_time(shift.get("shift_date"), shift.get("planned_start_time"))
-	shift_end = _combine_date_time(
+	if not frappe.has_permission("Shift", "read", shift.get("name")):
+		raise frappe.PermissionError
+
+	shift_start = combine_date_time(shift.get("shift_date"), shift.get("planned_start_time"))
+	shift_end = combine_date_time(
 		shift.get("shift_end_date") or shift.get("shift_date"),
 		shift.get("planned_end_time") or "23:59:59",
 	)

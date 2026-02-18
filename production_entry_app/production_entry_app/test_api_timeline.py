@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import frappe
 from frappe.exceptions import ValidationError
 from frappe.tests.utils import FrappeTestCase
@@ -244,3 +246,24 @@ class TestGetShiftTimelineData(FrappeTestCase):
 
 		with self.assertRaises(ValidationError):
 			get_shift_timeline_data("Item", "_TIMELINE_FG")
+
+	def test_raises_permission_error_when_target_doctype_not_readable(self) -> None:
+		from production_entry_app.production_entry_app.api_timeline import get_shift_timeline_data
+
+		with patch(
+			"production_entry_app.production_entry_app.api_timeline.frappe.has_permission",
+			return_value=False,
+		):
+			with self.assertRaises(frappe.PermissionError):
+				get_shift_timeline_data("Workstation", self.workstation_a)
+
+	def test_raises_permission_error_when_running_shift_not_readable(self) -> None:
+		from production_entry_app.production_entry_app.api_timeline import get_shift_timeline_data
+
+		self._create_running_shift("2026-10-09")
+		with patch(
+			"production_entry_app.production_entry_app.api_timeline.frappe.has_permission",
+			side_effect=[True, False],
+		):
+			with self.assertRaises(frappe.PermissionError):
+				get_shift_timeline_data("Workstation", self.workstation_a)
