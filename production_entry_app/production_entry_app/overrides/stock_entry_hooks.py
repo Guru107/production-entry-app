@@ -4,6 +4,7 @@ import datetime
 
 import frappe
 from frappe import _
+from frappe.query_builder import DocType
 from frappe.utils import flt, format_datetime, get_datetime, get_time
 
 from production_entry_app.production_entry_app.utils.die_tool_counter import (
@@ -23,6 +24,9 @@ def validate_stock_entry(doc, method: str | None = None) -> None:
 		_apply_shift_defaults(doc)
 
 	_validate_actual_times(doc)
+	_validate_workstation_overlap(doc)
+	_validate_operator_overlap(doc)
+	_validate_workstation_downtime_overlap(doc)
 	_validate_rejection_breakup(doc)
 	_apply_rejection_entries(doc)
 	_set_entry_metrics(doc)
@@ -111,6 +115,128 @@ def _as_datetime(value) -> datetime.datetime | None:
 	if not value:
 		return None
 	return get_datetime(value)
+
+
+def _should_check_overlap(doc) -> bool:
+	return bool(
+		doc.get("purpose") == "Manufacture"
+		and doc.get("custom_shift")
+		and doc.get("custom_actual_start_date")
+		and doc.get("custom_actual_end_date")
+	)
+
+
+def _validate_workstation_overlap(doc) -> None:
+	if not _should_check_overlap(doc):
+		return
+	workstation = doc.get("custom_workstation")
+	if not workstation:
+		return
+
+	start = _as_datetime(doc.get("custom_actual_start_date"))
+	end = _as_datetime(doc.get("custom_actual_end_date"))
+	if not start or not end:
+		return
+
+	stock_entry = DocType("Stock Entry")
+	query = (
+		frappe.qb.from_(stock_entry)
+		.select(stock_entry.name)
+		.where(stock_entry.docstatus != 2)
+		.where(stock_entry.purpose == "Manufacture")
+		.where(stock_entry.custom_shift.isnotnull())
+		.where(stock_entry.custom_workstation == workstation)
+		.where(stock_entry.custom_actual_start_date < end)
+		.where(stock_entry.custom_actual_end_date > start)
+	)
+	if doc.name:
+		query = query.where(stock_entry.name != doc.name)
+
+	conflict = query.limit(1).run(as_dict=True)
+	if not conflict:
+		return
+
+	frappe.throw(
+		_("Workstation {0} is already in use by {1} during this time period.").format(
+			frappe.bold(workstation), frappe.bold(conflict[0]["name"])
+		)
+	)
+
+
+def _validate_operator_overlap(doc) -> None:
+	if not _should_check_overlap(doc):
+		return
+	operator = doc.get("custom_operator")
+	if not operator:
+		return
+
+	start = _as_datetime(doc.get("custom_actual_start_date"))
+	end = _as_datetime(doc.get("custom_actual_end_date"))
+	if not start or not end:
+		return
+
+	stock_entry = DocType("Stock Entry")
+	query = (
+		frappe.qb.from_(stock_entry)
+		.select(stock_entry.name)
+		.where(stock_entry.docstatus != 2)
+		.where(stock_entry.purpose == "Manufacture")
+		.where(stock_entry.custom_shift.isnotnull())
+		.where(stock_entry.custom_operator == operator)
+		.where(stock_entry.custom_actual_start_date < end)
+		.where(stock_entry.custom_actual_end_date > start)
+	)
+	if doc.name:
+		query = query.where(stock_entry.name != doc.name)
+
+	conflict = query.limit(1).run(as_dict=True)
+	if not conflict:
+		return
+
+	frappe.throw(
+		_("Operator {0} is already assigned to {1} during this time period.").format(
+			frappe.bold(operator), frappe.bold(conflict[0]["name"])
+		)
+	)
+
+
+def _validate_workstation_downtime_overlap(doc) -> None:
+	if not _should_check_overlap(doc):
+		return
+	workstation = doc.get("custom_workstation")
+	if not workstation:
+		return
+
+	start = _as_datetime(doc.get("custom_actual_start_date"))
+	end = _as_datetime(doc.get("custom_actual_end_date"))
+	if not start or not end:
+		return
+
+	downtime_entry = DocType("Downtime Entry")
+	conflict = (
+		frappe.qb.from_(downtime_entry)
+		.select(downtime_entry.name, downtime_entry.from_time, downtime_entry.to_time)
+		.where(downtime_entry.docstatus != 2)
+		.where(downtime_entry.workstation == workstation)
+		.where(downtime_entry.from_time < end)
+		.where(downtime_entry.to_time > start)
+		.limit(1)
+		.run(as_dict=True)
+	)
+	if not conflict:
+		return
+
+	row = conflict[0]
+	frappe.throw(
+		_(
+			"Workstation {0} has a downtime entry ({1}) from {2} to {3} that overlaps with this production entry."
+		).format(
+			frappe.bold(workstation),
+			frappe.bold(row["name"]),
+			format_datetime(row["from_time"]),
+			format_datetime(row["to_time"]),
+		)
+	)
 
 
 def _validate_rejection_breakup(doc) -> None:
