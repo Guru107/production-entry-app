@@ -1639,8 +1639,8 @@ class TestOverlapValidation(FrappeTestCase):
 
 		se = self._create_entry(
 			shift_name=shift.name,
-			start="2026-05-05 15:00:00",
-			end="2026-05-05 16:30:00",
+			start="2026-05-05 17:30:00",
+			end="2026-05-05 18:30:00",
 			workstation=self.workstation_1,
 		)
 		with self.assertRaisesRegex(ValidationError, "downtime"):
