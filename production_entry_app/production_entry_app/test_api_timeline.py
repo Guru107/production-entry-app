@@ -267,3 +267,22 @@ class TestGetShiftTimelineData(FrappeTestCase):
 		):
 			with self.assertRaises(frappe.PermissionError):
 				get_shift_timeline_data("Workstation", self.workstation_a)
+
+	def test_returns_cached_timeline_without_querying_stock_entries(self) -> None:
+		from production_entry_app.production_entry_app.api_timeline import get_shift_timeline_data
+
+		shift = self._create_running_shift("2026-10-10")
+		cached = {
+			"shift_name": shift.name,
+			"shift_start": "2026-10-10 08:00:00",
+			"shift_end": "2026-10-10 16:00:00",
+			"entries": [{"name": "SE-CACHED-1"}],
+		}
+		with patch(
+			"production_entry_app.production_entry_app.api_timeline._get_cached_timeline_data",
+			return_value=cached,
+		):
+			with patch("production_entry_app.production_entry_app.api_timeline.frappe.qb.from_") as qb_from:
+				result = get_shift_timeline_data("Workstation", self.workstation_a)
+		self.assertEqual(result, cached)
+		qb_from.assert_not_called()

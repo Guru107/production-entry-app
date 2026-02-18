@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+from unittest.mock import patch
 
 import frappe
 from frappe.exceptions import ValidationError
@@ -1004,6 +1005,26 @@ class TestShiftMetrics(FrappeTestCase):
 
 		with self.assertRaises(frappe.PermissionError):
 			get_shift_metrics(shift.name)
+
+	def test_returns_cached_metrics_without_querying_database(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_metrics
+
+		shift = self._create_shift("2026-09-11")
+		cached = {
+			"entry_count": 7,
+			"total_good_qty": 70,
+			"total_rejection_qty": 2,
+			"total_ok_qty": 68,
+			"total_duration_mins": 40,
+			"avg_actual_spm": 1.7,
+			"avg_efficiency_pct": 88,
+		}
+		with patch(
+			"production_entry_app.production_entry_app.doctype.shift.shift._get_cached_shift_metrics",
+			return_value=cached,
+		):
+			metrics = get_shift_metrics(shift.name)
+		self.assertEqual(metrics, cached)
 
 
 def _ensure_user_with_role(email: str, role: str) -> None:

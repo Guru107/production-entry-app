@@ -9,6 +9,22 @@ from frappe.utils import flt
 from production_entry_app.production_entry_app.utils.shift_time import combine_date_time
 
 
+def _get_timeline_cache_key(doctype: str, docname: str, shift_name: str) -> str:
+	return f"pea:timeline:{frappe.session.user}:{doctype}:{docname}:{shift_name}"
+
+
+def _get_cached_timeline_data(doctype: str, docname: str, shift_name: str) -> dict | None:
+	return frappe.cache().get_value(_get_timeline_cache_key(doctype, docname, shift_name))
+
+
+def _set_cached_timeline_data(doctype: str, docname: str, shift_name: str, data: dict) -> None:
+	frappe.cache().set_value(
+		_get_timeline_cache_key(doctype, docname, shift_name),
+		data,
+		expires_in_sec=30,
+	)
+
+
 @frappe.whitelist()
 def get_shift_timeline_data(doctype: str, docname: str) -> dict:
 	"""Return running shift timeline data for Workstation/Operator forms."""
@@ -30,6 +46,9 @@ def get_shift_timeline_data(doctype: str, docname: str) -> dict:
 	shift = running_shift[0]
 	if not frappe.has_permission("Shift", "read", shift.get("name")):
 		raise frappe.PermissionError
+	cached_data = _get_cached_timeline_data(doctype, docname, shift.get("name"))
+	if cached_data is not None:
+		return cached_data
 
 	shift_start = combine_date_time(shift.get("shift_date"), shift.get("planned_start_time"))
 	shift_end = combine_date_time(
@@ -60,12 +79,14 @@ def get_shift_timeline_data(doctype: str, docname: str) -> dict:
 	).run(as_dict=True)
 
 	if not rows:
-		return {
+		result = {
 			"shift_name": shift.get("name"),
 			"shift_start": str(shift_start),
 			"shift_end": str(shift_end),
 			"entries": [],
 		}
+		_set_cached_timeline_data(doctype, docname, shift.get("name"), result)
+		return result
 
 	stock_entry_detail = DocType("Stock Entry Detail")
 	names = [row.get("name") for row in rows if row.get("name")]
@@ -106,9 +127,11 @@ def get_shift_timeline_data(doctype: str, docname: str) -> dict:
 			}
 		)
 
-	return {
+	result = {
 		"shift_name": shift.get("name"),
 		"shift_start": str(shift_start),
 		"shift_end": str(shift_end),
 		"entries": entries,
 	}
+	_set_cached_timeline_data(doctype, docname, shift.get("name"), result)
+	return result

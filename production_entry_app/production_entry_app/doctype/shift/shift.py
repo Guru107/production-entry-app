@@ -159,6 +159,18 @@ def _empty_shift_metrics() -> dict:
 	}
 
 
+def _get_shift_metrics_cache_key(shift_name: str) -> str:
+	return f"pea:shift_metrics:{frappe.session.user}:{shift_name}"
+
+
+def _get_cached_shift_metrics(shift_name: str) -> dict | None:
+	return frappe.cache().get_value(_get_shift_metrics_cache_key(shift_name))
+
+
+def _set_cached_shift_metrics(shift_name: str, metrics: dict) -> None:
+	frappe.cache().set_value(_get_shift_metrics_cache_key(shift_name), metrics, expires_in_sec=30)
+
+
 @frappe.whitelist()
 def get_shift_metrics(shift_name: str) -> dict:
 	"""Return aggregate production metrics for submitted Stock Entries linked to a shift."""
@@ -166,6 +178,9 @@ def get_shift_metrics(shift_name: str) -> dict:
 		return _empty_shift_metrics()
 	if not frappe.has_permission("Shift", "read", shift_name):
 		raise frappe.PermissionError
+	cached_metrics = _get_cached_shift_metrics(shift_name)
+	if cached_metrics is not None:
+		return cached_metrics
 
 	stock_entry = DocType("Stock Entry")
 	row = (
@@ -185,12 +200,16 @@ def get_shift_metrics(shift_name: str) -> dict:
 	).run(as_dict=True)
 
 	if not row:
-		return _empty_shift_metrics()
+		empty_metrics = _empty_shift_metrics()
+		_set_cached_shift_metrics(shift_name, empty_metrics)
+		return empty_metrics
 
 	metrics = row[0] or {}
 	entry_count = int(metrics.get("entry_count") or 0)
 	if entry_count == 0:
-		return _empty_shift_metrics()
+		empty_metrics = _empty_shift_metrics()
+		_set_cached_shift_metrics(shift_name, empty_metrics)
+		return empty_metrics
 
 	total_good_qty = flt(metrics.get("total_good_qty") or 0, 3)
 	total_rejection_qty = flt(metrics.get("total_rejection_qty") or 0, 3)
@@ -199,7 +218,7 @@ def get_shift_metrics(shift_name: str) -> dict:
 	avg_actual_spm = flt((total_ok_qty / total_duration_mins), 3) if total_duration_mins > 0 else 0
 	avg_efficiency_pct = flt(metrics.get("avg_efficiency_pct") or 0, 2)
 
-	return {
+	result = {
 		"entry_count": entry_count,
 		"total_good_qty": total_good_qty,
 		"total_rejection_qty": total_rejection_qty,
@@ -208,6 +227,8 @@ def get_shift_metrics(shift_name: str) -> dict:
 		"avg_actual_spm": avg_actual_spm,
 		"avg_efficiency_pct": avg_efficiency_pct,
 	}
+	_set_cached_shift_metrics(shift_name, result)
+	return result
 
 
 class Shift(Document):
