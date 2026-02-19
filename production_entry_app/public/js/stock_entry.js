@@ -10,7 +10,7 @@ if (window.erpnext && erpnext.stock && erpnext.stock.StockEntry) {
 	const _original_fg_completed_qty = erpnext.stock.StockEntry.prototype.fg_completed_qty;
 
 	erpnext.stock.StockEntry.prototype.fg_completed_qty = function () {
-		if (this.frm.doc.purpose === "Manufacture" && this.frm.doc.from_bom) {
+		if (_is_manufacture_doc(this.frm.doc) && this.frm.doc.from_bom) {
 			// Skip the standard get_items() call — handled by our Fetch Items button
 			return;
 		}
@@ -22,10 +22,12 @@ if (window.erpnext && erpnext.stock && erpnext.stock.StockEntry) {
 }
 
 frappe.ui.form.on("Stock Entry", {
-	onload(frm) {
+	async onload(frm) {
 		_hide_standard_get_items(frm);
+		await _sync_custom_stock_entry_purpose(frm, false);
+		_apply_manufacture_visibility(frm);
 	},
-	refresh(frm) {
+	async refresh(frm) {
 		// Set filter to only show Running shifts
 		frm.set_query("custom_shift", function () {
 			return {
@@ -33,19 +35,28 @@ frappe.ui.form.on("Stock Entry", {
 			};
 		});
 
-		frm.toggle_display(["custom_planned_start_date", "custom_planned_end_date"], true);
 		_ensure_use_multi_level_bom_unchecked(frm);
-		_toggle_rejection_breakup(frm);
-		_update_die_tool_metrics(frm);
+		await _sync_custom_stock_entry_purpose(frm, false);
+		_apply_manufacture_visibility(frm);
 
 		_hide_standard_get_items(frm);
+	},
+	async purpose(frm) {
+		await _sync_custom_stock_entry_purpose(frm, false);
+		_apply_manufacture_visibility(frm);
+	},
+	async stock_entry_type(frm) {
+		await _sync_custom_stock_entry_purpose(frm, true);
+		_apply_manufacture_visibility(frm);
 	},
 	from_bom(frm) {
 		_ensure_use_multi_level_bom_unchecked(frm);
 		_hide_standard_get_items(frm);
+		_apply_manufacture_visibility(frm);
 	},
 	bom_no(frm) {
 		_hide_standard_get_items(frm);
+		_apply_manufacture_visibility(frm);
 	},
 	custom_rejection_qty(frm) {
 		_toggle_rejection_breakup(frm);
@@ -72,6 +83,8 @@ frappe.ui.form.on("Stock Entry", {
 				});
 				frm.refresh_field("items");
 				frm.dirty();
+				_sync_custom_stock_entry_purpose(frm, false);
+				_apply_manufacture_visibility(frm);
 				_update_die_tool_metrics(frm);
 			},
 		});
@@ -121,7 +134,147 @@ function _hide_standard_get_items(frm) {
 	frm.set_df_property("get_items", "hidden", 1);
 }
 
+async function _sync_custom_stock_entry_purpose(frm, fetch_from_server) {
+	const selectedType = frm.doc.stock_entry_type || "";
+	if (!selectedType) {
+		_set_custom_stock_entry_purpose(frm, "");
+		return "";
+	}
+
+	let purpose = frm.doc.custom_stock_entry_purpose || frm.doc.purpose || "";
+	if (!purpose && fetch_from_server) {
+		try {
+			const response = await frappe.db.get_value(
+				"Stock Entry Type",
+				selectedType,
+				"purpose"
+			);
+			if (frm.doc.stock_entry_type !== selectedType) {
+				return frm.doc.custom_stock_entry_purpose || "";
+			}
+			purpose = response?.message?.purpose || "";
+		} catch (error) {
+			// Keep the existing value when lookup fails.
+		}
+	}
+
+	_set_custom_stock_entry_purpose(frm, purpose || "");
+	return purpose || "";
+}
+
+function _set_custom_stock_entry_purpose(frm, purpose) {
+	const normalized = purpose || "";
+	if ((frm.doc.custom_stock_entry_purpose || "") === normalized) return;
+	frm.doc.custom_stock_entry_purpose = normalized;
+	// Keep ERPNext's hidden purpose field in sync so native depends_on rules still work.
+	if (normalized && frm.doc.purpose !== normalized) {
+		frm.doc.purpose = normalized;
+		frm.refresh_field("purpose");
+	}
+	frm.refresh_field("custom_stock_entry_purpose");
+}
+
+function _apply_manufacture_visibility(frm) {
+	const isManufacture = _is_manufacture_doc(frm.doc);
+	const manufactureFields = [
+		"from_bom",
+		"bom_no",
+		"use_multi_level_bom",
+		"fg_completed_qty",
+		"custom_rejection_qty",
+		"custom_fetch_items",
+		"custom_planned_start_date",
+		"custom_planned_end_date",
+		"custom_actual_start_date",
+		"custom_actual_end_date",
+		"custom_workstation",
+		"custom_standard_spm",
+		"custom_operator",
+		"custom_unplanned_losses",
+		"custom_actual_duration_mins",
+		"custom_actual_spm",
+		"custom_cycle_time_sec",
+		"custom_operator_efficiency_pct",
+		"custom_die_tool_utilization_pct",
+		"custom_die_tool_maintenance_due",
+		"process_loss_percentage",
+		"process_loss_qty",
+	];
+	frm.toggle_display(manufactureFields, isManufacture);
+
+	const manufactureSections = [
+		"bom_info_section",
+		"section_break_7qsm",
+		"custom_operation_details_section",
+		"custom_workstation_operator_section",
+		"custom_unplanned_losses_section",
+		"custom_metrics_section",
+	];
+	manufactureSections.forEach((sectionFieldname) => {
+		_set_section_visible(frm, sectionFieldname, isManufacture);
+	});
+	if (isManufacture) {
+		_expand_sections(frm, manufactureSections);
+		setTimeout(() => _expand_sections(frm, manufactureSections), 0);
+	}
+
+	_toggle_rejection_breakup(frm);
+	_update_die_tool_metrics(frm);
+}
+
+function _set_section_visible(frm, sectionFieldname, shouldShow) {
+	const section = _find_section(frm, sectionFieldname);
+	if (!section) return;
+	if (shouldShow) {
+		section.show();
+		if (typeof section.collapse === "function") {
+			section.collapse(false);
+		}
+		return;
+	}
+	section.hide();
+}
+
+function _find_section(frm, sectionFieldname) {
+	const labelsByFieldname = {
+		bom_info_section: "BOM Info",
+		section_break_7qsm: "Process Loss",
+		custom_operation_details_section: "Planned & Actual Dates",
+		custom_workstation_operator_section: "Workstation & Operator",
+		custom_unplanned_losses_section: "Unplanned Losses",
+		custom_metrics_section: "Production Metrics",
+	};
+	const sectionLabel = labelsByFieldname[sectionFieldname];
+	return (frm.layout?.sections || []).find((entry) => {
+		const fieldname = entry?.df?.fieldname || "";
+		const label = entry?.df?.label || "";
+		return fieldname === sectionFieldname || (sectionLabel && label === sectionLabel);
+	});
+}
+
+function _expand_sections(frm, sectionFieldnames) {
+	sectionFieldnames.forEach((sectionFieldname) => {
+		const section = _find_section(frm, sectionFieldname);
+		if (!section) return;
+		if (typeof section.collapse === "function") {
+			section.collapse(false);
+		}
+		section.body?.removeClass?.("hide");
+		section.head?.removeClass?.("collapsed");
+	});
+}
+
+function _is_manufacture_doc(doc) {
+	const purpose = doc.custom_stock_entry_purpose || doc.purpose || "";
+	return purpose === "Manufacture";
+}
+
 function _toggle_rejection_breakup(frm) {
+	if (!_is_manufacture_doc(frm.doc)) {
+		frm.toggle_display("custom_rejection_breakup", false);
+		frm.toggle_reqd("custom_rejection_breakup", false);
+		return;
+	}
 	const rejection_qty = typeof flt === "function" ? flt(frm.doc.custom_rejection_qty) : 0;
 	const has_rejection = rejection_qty > 0;
 	frm.toggle_display("custom_rejection_breakup", has_rejection);
@@ -129,7 +282,7 @@ function _toggle_rejection_breakup(frm) {
 }
 
 function _update_die_tool_metrics(frm) {
-	if (frm.doc.purpose !== "Manufacture") return;
+	if (!_is_manufacture_doc(frm.doc)) return;
 
 	const item_code = _get_die_tool_item_code(frm);
 	if (!item_code) {

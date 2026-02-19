@@ -28,7 +28,6 @@ class StockEntryPage {
 
 	async fillManufactureEntry(ctx) {
 		await setFieldValue(this.page, "stock_entry_type", "Manufacture");
-		await setFieldValue(this.page, "purpose", "Manufacture");
 		await setFieldValue(this.page, "company", ctx.company);
 		await setFieldValue(this.page, "from_bom", 1);
 		await setFieldValue(this.page, "bom_no", ctx.bom);
@@ -51,7 +50,6 @@ class StockEntryPage {
 		} = options;
 
 		await setFieldValue(this.page, "stock_entry_type", "Manufacture");
-		await setFieldValue(this.page, "purpose", "Manufacture");
 		await setFieldValue(this.page, "company", ctx.company);
 		await setFieldValue(this.page, "from_bom", 1);
 		await setFieldValue(this.page, "bom_no", ctx.bom);
@@ -143,6 +141,16 @@ class StockEntryPage {
 		}, fieldnames);
 	}
 
+	async waitForFieldValue(fieldname, expectedValue) {
+		await this.page.waitForFunction(
+			({ name, value }) => {
+				const doc = window.cur_frm?.doc || {};
+				return doc[name] === value;
+			},
+			{ name: fieldname, value: expectedValue }
+		);
+	}
+
 	async setRejectionBreakupRows(rows) {
 		await this.page.evaluate((dataRows) => {
 			cur_frm.clear_table("custom_rejection_breakup");
@@ -197,6 +205,61 @@ class StockEntryPage {
 			await cur_frm.script_manager.trigger("custom_fetch_items");
 		});
 		await this.page.waitForFunction(() => (window.cur_frm?.doc?.items || []).length > 0);
+	}
+
+	async isSectionCollapsed(sectionFieldname) {
+		return await this.page.evaluate((fieldname) => {
+			const section = (window.cur_frm?.layout?.sections || []).find((entry) => {
+				const candidateFieldname = entry?.df?.fieldname || "";
+				const candidateLabel = entry?.df?.label || "";
+				return candidateFieldname === fieldname || candidateLabel === fieldname;
+			});
+			if (!section) return null;
+			return section.is_collapsed();
+		}, sectionFieldname);
+	}
+
+	async waitForSectionExpanded(sectionFieldname) {
+		await this.page.waitForFunction((fieldname) => {
+			const section = (window.cur_frm?.layout?.sections || []).find((entry) => {
+				const candidateFieldname = entry?.df?.fieldname || "";
+				const candidateLabel = entry?.df?.label || "";
+				return candidateFieldname === fieldname || candidateLabel === fieldname;
+			});
+			return Boolean(section) && !section.is_collapsed();
+		}, sectionFieldname);
+	}
+
+	async isSectionVisible(sectionFieldname) {
+		return await this.page.evaluate((fieldname) => {
+			const section = (window.cur_frm?.layout?.sections || []).find((entry) => {
+				const candidateFieldname = entry?.df?.fieldname || "";
+				const candidateLabel = entry?.df?.label || "";
+				return candidateFieldname === fieldname || candidateLabel === fieldname;
+			});
+			if (!section?.wrapper) return null;
+			return !section.wrapper.hasClass("hide-control");
+		}, sectionFieldname);
+	}
+
+	async waitForSectionVisible(sectionFieldname) {
+		await this.page.waitForFunction((fieldname) => {
+			const section = (window.cur_frm?.layout?.sections || []).find((entry) => {
+				const candidateFieldname = entry?.df?.fieldname || "";
+				const candidateLabel = entry?.df?.label || "";
+				return candidateFieldname === fieldname || candidateLabel === fieldname;
+			});
+			return Boolean(section?.wrapper) && !section.wrapper.hasClass("hide-control");
+		}, sectionFieldname);
+	}
+
+	async isFieldVisible(fieldname) {
+		return await this.page.evaluate((name) => {
+			const field = window.cur_frm?.get_field?.(name);
+			const wrapper = field?.$wrapper;
+			if (!wrapper || !wrapper.length) return null;
+			return wrapper.is(":visible") && !wrapper.hasClass("hide-control");
+		}, fieldname);
 	}
 
 	async setRejectionBreakup() {

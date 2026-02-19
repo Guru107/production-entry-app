@@ -60,6 +60,74 @@ test.describe("Stock Entry validation matrix", () => {
 		await expectValidationError(page, /Qty to Manufacture/i);
 	});
 
+	test("@regression custom stock entry purpose is fetched from stock entry type", async ({
+		page,
+	}) => {
+		await page.goto("/app/home");
+		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
+
+		const stockEntryPage = await openManufactureEntry(page, ctx, {
+			fgQty: 100,
+			rejectionQty: 0,
+		});
+		await stockEntryPage.waitForFieldValue("custom_stock_entry_purpose", "Manufacture");
+		const values = await stockEntryPage.getFieldValues([
+			"stock_entry_type",
+			"custom_stock_entry_purpose",
+		]);
+		expect(values.stock_entry_type).toBe("Manufacture");
+		expect(values.custom_stock_entry_purpose).toBe("Manufacture");
+	});
+
+	test("@regression manufacture sections are visible for manufacture stock entry type", async ({
+		page,
+	}) => {
+		await page.goto("/app/home");
+		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
+
+		const stockEntryPage = await openManufactureEntry(page, ctx, {
+			fgQty: 100,
+			rejectionQty: 0,
+		});
+		await stockEntryPage.waitForSectionVisible("BOM Info");
+		expect(await stockEntryPage.isSectionVisible("BOM Info")).toBe(true);
+		expect(await stockEntryPage.isSectionVisible("Planned & Actual Dates")).toBe(true);
+		expect(await stockEntryPage.isFieldVisible("custom_workstation")).toBe(true);
+	});
+
+	test("@regression manufacture sections hide for non-manufacture stock entry type", async ({
+		page,
+	}) => {
+		await page.goto("/app/home");
+		await setupFreshContext(page, lifecycle.getPrefix());
+
+		const stockEntryPage = new StockEntryPage(page);
+		await stockEntryPage.openNew();
+		await setFieldValue(page, "stock_entry_type", "Material Transfer");
+		await stockEntryPage.waitForFieldValue("custom_stock_entry_purpose", "Material Transfer");
+
+		const values = await stockEntryPage.getFieldValues(["custom_stock_entry_purpose"]);
+		expect(values.custom_stock_entry_purpose).toBe("Material Transfer");
+		expect(await stockEntryPage.isSectionVisible("BOM Info")).toBe(false);
+		expect(await stockEntryPage.isSectionVisible("Process Loss")).toBe(false);
+		expect(await stockEntryPage.isSectionVisible("Planned & Actual Dates")).toBe(false);
+		expect(await stockEntryPage.isFieldVisible("custom_workstation")).toBe(false);
+		expect(await stockEntryPage.isFieldVisible("custom_fetch_items")).toBe(false);
+	});
+
+	test("@regression manufacture sections remain visible after fetch items", async ({ page }) => {
+		await page.goto("/app/home");
+		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
+
+		const stockEntryPage = await openManufactureEntry(page, ctx, {
+			fgQty: 100,
+			rejectionQty: 0,
+		});
+		await stockEntryPage.fetchItems();
+		expect(await stockEntryPage.isSectionVisible("BOM Info")).toBe(true);
+		expect(await stockEntryPage.isFieldVisible("custom_workstation")).toBe(true);
+	});
+
 	test("@regression rejection qty with empty breakup blocks save", async ({ page }) => {
 		await page.goto("/app/home");
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
