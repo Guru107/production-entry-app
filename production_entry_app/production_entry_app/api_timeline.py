@@ -78,28 +78,20 @@ def get_shift_timeline_data(doctype: str, docname: str) -> dict:
 		.orderby(stock_entry.custom_actual_start_date)
 	).run(as_dict=True)
 
-	if not rows:
-		result = {
-			"shift_name": shift.get("name"),
-			"shift_start": str(shift_start),
-			"shift_end": str(shift_end),
-			"entries": [],
-		}
-		_set_cached_timeline_data(doctype, docname, shift.get("name"), result)
-		return result
-
 	stock_entry_detail = DocType("Stock Entry Detail")
 	names = [row.get("name") for row in rows if row.get("name")]
-	fg_rows = (
-		frappe.qb.from_(stock_entry_detail)
-		.select(
-			stock_entry_detail.parent,
-			stock_entry_detail.item_code,
-			Sum(stock_entry_detail.qty).as_("fg_qty"),
-		)
-		.where((stock_entry_detail.parent.isin(names)) & (stock_entry_detail.is_finished_item == 1))
-		.groupby(stock_entry_detail.parent, stock_entry_detail.item_code)
-	).run(as_dict=True)
+	fg_rows = []
+	if names:
+		fg_rows = (
+			frappe.qb.from_(stock_entry_detail)
+			.select(
+				stock_entry_detail.parent,
+				stock_entry_detail.item_code,
+				Sum(stock_entry_detail.qty).as_("fg_qty"),
+			)
+			.where((stock_entry_detail.parent.isin(names)) & (stock_entry_detail.is_finished_item == 1))
+			.groupby(stock_entry_detail.parent, stock_entry_detail.item_code)
+		).run(as_dict=True)
 	fg_item_by_entry = {}
 	fg_qty_by_entry = {}
 	for fg_row in fg_rows:
@@ -124,8 +116,44 @@ def get_shift_timeline_data(doctype: str, docname: str) -> dict:
 				"fg_qty": good_qty,
 				"rejection_qty": rejection_qty,
 				"ok_qty": flt(good_qty - rejection_qty, 3),
+				"entry_type": "production",
 			}
 		)
+
+	if doctype == "Workstation":
+		downtime_entry = DocType("Downtime Entry")
+		downtime_query = (
+			frappe.qb.from_(downtime_entry)
+			.select(
+				downtime_entry.name,
+				downtime_entry.from_time.as_("actual_start"),
+				downtime_entry.to_time.as_("actual_end"),
+				downtime_entry.stop_reason,
+			)
+			.where(
+				(downtime_entry.workstation == docname)
+				& downtime_entry.from_time.isnotnull()
+				& downtime_entry.to_time.isnotnull()
+				& (downtime_entry.from_time < shift_end)
+				& (downtime_entry.to_time > shift_start)
+			)
+			.orderby(downtime_entry.from_time)
+		)
+		if frappe.get_meta("Downtime Entry", cached=True).is_submittable:
+			downtime_query = downtime_query.where(downtime_entry.docstatus != 2)
+		downtime_rows = downtime_query.run(as_dict=True)
+		for row in downtime_rows:
+			entries.append(
+				{
+					"name": row.get("name"),
+					"actual_start": str(row.get("actual_start")),
+					"actual_end": str(row.get("actual_end")),
+					"stop_reason": row.get("stop_reason"),
+					"entry_type": "downtime",
+				}
+			)
+
+	entries.sort(key=lambda row: str(row.get("actual_start") or ""))
 
 	result = {
 		"shift_name": shift.get("name"),
