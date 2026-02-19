@@ -4,6 +4,3 @@
 
 [post_model_sync]
 # Patches added in this section will be executed after doctypes are migrated
-production_entry_app.patches.remove_redundant_stock_entry_fields
-production_entry_app.patches.cleanup_stock_entry_property_setters
-production_entry_app.patches.backfill_stock_entry_custom_purpose
