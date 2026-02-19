@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "description": "Playwright E2E tests for production_entry_app",
   "scripts": {
+    "test:unit:js": "node --test tests/unit/**/*.test.js",
     "test:e2e": "playwright test --grep @smoke",
     "test:e2e:regression": "playwright test --grep @regression",
     "test:e2e:headed": "playwright test --grep @smoke --headed",

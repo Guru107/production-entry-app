@@ -99,6 +99,18 @@
 	},
 	{
 		"doctype": "Custom Field",
+		"name": "Stock Entry-custom_stock_entry_purpose",
+		"dt": "Stock Entry",
+		"fieldname": "custom_stock_entry_purpose",
+		"fieldtype": "Data",
+		"label": "Stock Entry Purpose",
+		"read_only": 1,
+		"fetch_from": "stock_entry_type.purpose",
+		"insert_after": "stock_entry_type",
+		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Custom Field",
 		"name": "Stock Entry-custom_shift",
 		"dt": "Stock Entry",
 		"fieldname": "custom_shift",
@@ -106,7 +118,7 @@
 		"label": "Shift",
 		"options": "Shift",
 		"is_index": 1,
-		"insert_after": "stock_entry_type",
+		"insert_after": "custom_stock_entry_purpose",
 		"module": "Production Entry App"
 	},
 	{

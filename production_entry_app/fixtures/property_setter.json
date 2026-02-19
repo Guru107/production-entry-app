@@ -1,13 +1,13 @@
 [
 	{
 		"doctype": "Property Setter",
-		"name": "Stock Entry-section_break_7qsm-hidden",
+		"name": "Stock Entry-section_break_7qsm-collapsible",
 		"doctype_or_field": "DocField",
 		"doc_type": "Stock Entry",
 		"field_name": "section_break_7qsm",
-		"property": "hidden",
+		"property": "collapsible",
 		"property_type": "Check",
-		"value": "1",
+		"value": "0",
 		"module": "Production Entry App"
 	},
 	{
@@ -18,6 +18,17 @@
 		"field_name": "use_multi_level_bom",
 		"property": "default",
 		"property_type": "Data",
+		"value": "0",
+		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Property Setter",
+		"name": "Stock Entry-bom_info_section-collapsible",
+		"doctype_or_field": "DocField",
+		"doc_type": "Stock Entry",
+		"field_name": "bom_info_section",
+		"property": "collapsible",
+		"property_type": "Check",
 		"value": "0",
 		"module": "Production Entry App"
 	}

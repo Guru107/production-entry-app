@@ -1,0 +1,41 @@
+const test = require("node:test");
+const assert = require("node:assert/strict");
+
+const {
+	_normalize_purpose,
+	_is_manufacture_doc,
+	MANUFACTURE_FIELDS,
+	MANUFACTURE_SECTIONS,
+	ALWAYS_HIDDEN_FIELDS,
+	ALWAYS_HIDDEN_SECTIONS,
+} = require("../../production_entry_app/public/js/stock_entry.js");
+
+test("normalize purpose trims whitespace and handles empty values", () => {
+	assert.equal(_normalize_purpose(" Manufacture "), "Manufacture");
+	assert.equal(_normalize_purpose(""), "");
+	assert.equal(_normalize_purpose(null), "");
+});
+
+test("manufacture decision uses custom_stock_entry_purpose only", () => {
+	assert.equal(_is_manufacture_doc({ custom_stock_entry_purpose: "Manufacture" }), true);
+	assert.equal(
+		_is_manufacture_doc({ custom_stock_entry_purpose: "", purpose: "Manufacture" }),
+		false
+	);
+	assert.equal(
+		_is_manufacture_doc({
+			custom_stock_entry_purpose: "Material Transfer",
+			purpose: "Manufacture",
+		}),
+		false
+	);
+});
+
+test("manufacture visibility targets include key fields and sections", () => {
+	assert.ok(MANUFACTURE_FIELDS.includes("custom_fetch_items"));
+	assert.ok(MANUFACTURE_FIELDS.includes("custom_workstation"));
+	assert.ok(MANUFACTURE_SECTIONS.includes("bom_info_section"));
+	assert.ok(!MANUFACTURE_SECTIONS.includes("section_break_7qsm"));
+	assert.ok(ALWAYS_HIDDEN_FIELDS.includes("process_loss_percentage"));
+	assert.ok(ALWAYS_HIDDEN_SECTIONS.includes("section_break_7qsm"));
+});
