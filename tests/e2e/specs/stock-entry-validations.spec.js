@@ -89,9 +89,11 @@ test.describe("Stock Entry validation matrix", () => {
 			fgQty: 100,
 			rejectionQty: 0,
 		});
-		await stockEntryPage.waitForSectionVisible("BOM Info");
-		expect(await stockEntryPage.isSectionVisible("BOM Info")).toBe(true);
-		expect(await stockEntryPage.isSectionVisible("Planned & Actual Dates")).toBe(true);
+		await stockEntryPage.waitForSectionVisible("bom_info_section");
+		expect(await stockEntryPage.isSectionVisible("bom_info_section")).toBe(true);
+		expect(await stockEntryPage.isSectionVisible("custom_operation_details_section")).toBe(
+			true
+		);
 		expect(await stockEntryPage.isFieldVisible("custom_workstation")).toBe(true);
 	});
 
@@ -99,7 +101,6 @@ test.describe("Stock Entry validation matrix", () => {
 		page,
 	}) => {
 		await page.goto("/app/home");
-		await setupFreshContext(page, lifecycle.getPrefix());
 
 		const stockEntryPage = new StockEntryPage(page);
 		await stockEntryPage.openNew();
@@ -108,9 +109,11 @@ test.describe("Stock Entry validation matrix", () => {
 
 		const values = await stockEntryPage.getFieldValues(["custom_stock_entry_purpose"]);
 		expect(values.custom_stock_entry_purpose).toBe("Material Transfer");
-		expect(await stockEntryPage.isSectionVisible("BOM Info")).toBe(false);
-		expect(await stockEntryPage.isSectionVisible("Process Loss")).toBe(false);
-		expect(await stockEntryPage.isSectionVisible("Planned & Actual Dates")).toBe(false);
+		expect(await stockEntryPage.isSectionVisible("bom_info_section")).toBe(false);
+		expect(await stockEntryPage.isSectionVisible("section_break_7qsm")).toBe(false);
+		expect(await stockEntryPage.isSectionVisible("custom_operation_details_section")).toBe(
+			false
+		);
 		expect(await stockEntryPage.isFieldVisible("custom_workstation")).toBe(false);
 		expect(await stockEntryPage.isFieldVisible("custom_fetch_items")).toBe(false);
 	});
@@ -124,7 +127,8 @@ test.describe("Stock Entry validation matrix", () => {
 			rejectionQty: 0,
 		});
 		await stockEntryPage.fetchItems();
-		expect(await stockEntryPage.isSectionVisible("BOM Info")).toBe(true);
+		await stockEntryPage.waitForSectionVisible("bom_info_section");
+		expect(await stockEntryPage.isSectionVisible("bom_info_section")).toBe(true);
 		expect(await stockEntryPage.isFieldVisible("custom_workstation")).toBe(true);
 	});
 

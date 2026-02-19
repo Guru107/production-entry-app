@@ -207,35 +207,10 @@ class StockEntryPage {
 		await this.page.waitForFunction(() => (window.cur_frm?.doc?.items || []).length > 0);
 	}
 
-	async isSectionCollapsed(sectionFieldname) {
-		return await this.page.evaluate((fieldname) => {
-			const section = (window.cur_frm?.layout?.sections || []).find((entry) => {
-				const candidateFieldname = entry?.df?.fieldname || "";
-				const candidateLabel = entry?.df?.label || "";
-				return candidateFieldname === fieldname || candidateLabel === fieldname;
-			});
-			if (!section) return null;
-			return section.is_collapsed();
-		}, sectionFieldname);
-	}
-
-	async waitForSectionExpanded(sectionFieldname) {
-		await this.page.waitForFunction((fieldname) => {
-			const section = (window.cur_frm?.layout?.sections || []).find((entry) => {
-				const candidateFieldname = entry?.df?.fieldname || "";
-				const candidateLabel = entry?.df?.label || "";
-				return candidateFieldname === fieldname || candidateLabel === fieldname;
-			});
-			return Boolean(section) && !section.is_collapsed();
-		}, sectionFieldname);
-	}
-
 	async isSectionVisible(sectionFieldname) {
 		return await this.page.evaluate((fieldname) => {
 			const section = (window.cur_frm?.layout?.sections || []).find((entry) => {
-				const candidateFieldname = entry?.df?.fieldname || "";
-				const candidateLabel = entry?.df?.label || "";
-				return candidateFieldname === fieldname || candidateLabel === fieldname;
+				return (entry?.df?.fieldname || "") === fieldname;
 			});
 			if (!section?.wrapper) return null;
 			return !section.wrapper.hasClass("hide-control");
@@ -245,9 +220,7 @@ class StockEntryPage {
 	async waitForSectionVisible(sectionFieldname) {
 		await this.page.waitForFunction((fieldname) => {
 			const section = (window.cur_frm?.layout?.sections || []).find((entry) => {
-				const candidateFieldname = entry?.df?.fieldname || "";
-				const candidateLabel = entry?.df?.label || "";
-				return candidateFieldname === fieldname || candidateLabel === fieldname;
+				return (entry?.df?.fieldname || "") === fieldname;
 			});
 			return Boolean(section?.wrapper) && !section.wrapper.hasClass("hide-control");
 		}, sectionFieldname);

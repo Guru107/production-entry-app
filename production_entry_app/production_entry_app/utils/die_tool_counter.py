@@ -55,13 +55,29 @@ def get_counter_health(
 def _get_or_create_counter(item_code: str):
 	if frappe.db.exists("Die Tool Counter", item_code):
 		return frappe.get_doc("Die Tool Counter", item_code)
-	return frappe.get_doc(
+
+	doc = frappe.get_doc(
 		{
 			"doctype": "Die Tool Counter",
 			"die_tool_item": item_code,
 			"current_stroke_count": 0,
 		}
-	).insert(ignore_permissions=True)
+	)
+
+	try:
+		return doc.insert(ignore_permissions=True)
+	except frappe.DuplicateEntryError:
+		# Concurrent requests can race here; read the winning row.
+		if frappe.db.exists("Die Tool Counter", item_code):
+			return frappe.get_doc("Die Tool Counter", item_code)
+		existing_name = frappe.db.get_value(
+			"Die Tool Counter",
+			{"die_tool_item": item_code},
+			"name",
+		)
+		if existing_name:
+			return frappe.get_doc("Die Tool Counter", existing_name)
+		raise
 
 
 def _get_fg_item_code(doc) -> str | None:
