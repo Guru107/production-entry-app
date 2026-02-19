@@ -72,7 +72,7 @@ frappe.ui.form.on("Stock Entry", {
 			args: { doc: frm.doc },
 			freeze: true,
 			freeze_message: __("Fetching items..."),
-			callback(r) {
+			async callback(r) {
 				if (!r.message || !r.message.length) return;
 				frm.clear_table("items");
 				r.message.forEach(function (item) {
@@ -83,7 +83,7 @@ frappe.ui.form.on("Stock Entry", {
 				});
 				frm.refresh_field("items");
 				frm.dirty();
-				_sync_custom_stock_entry_purpose(frm, false);
+				await _sync_custom_stock_entry_purpose(frm, false);
 				_apply_manufacture_visibility(frm);
 				_update_die_tool_metrics(frm);
 			},
