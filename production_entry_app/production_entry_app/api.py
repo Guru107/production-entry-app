@@ -5,7 +5,9 @@ import json
 
 import frappe
 from frappe import _
+from frappe.query_builder import DocType
 from frappe.utils import add_to_date, cint, get_datetime, get_time, now_datetime
+from pypika import Order
 
 from production_entry_app.production_entry_app.utils.die_tool_counter import (
 	_get_or_create_counter,
@@ -204,6 +206,31 @@ def _stock_entry_matches_cleanup_target(se, target_operator: str, target_fg_item
 	return bool(operator_match or fg_item_match)
 
 
+def _get_candidate_e2e_stock_entries(target_operator: str, target_workstation: str) -> list[frappe._dict]:
+	stock_entry = DocType("Stock Entry")
+	return (
+		frappe.qb.from_(stock_entry)
+		.select(stock_entry.name, stock_entry.docstatus)
+		.where(stock_entry.stock_entry_type == "Manufacture")
+		.where(
+			(stock_entry.custom_operator == target_operator)
+			| (stock_entry.custom_workstation == target_workstation)
+		)
+		.orderby(stock_entry.creation, order=Order.desc)
+		.run(as_dict=True)
+	)
+
+
+def _safe_force_delete(doctype: str, name: str, *, context: str) -> None:
+	try:
+		frappe.delete_doc(doctype, name, ignore_permissions=True, force=True)
+	except Exception:
+		frappe.log_error(
+			title="E2E cleanup delete failed",
+			message=f"{context}: unable to delete {doctype} {name}",
+		)
+
+
 def _get_or_create_e2e_employee(prefix: str, company: str) -> str:
 	employee_number = f"{prefix}-EMP"
 	existing = frappe.db.get_value("Employee", {"employee_number": employee_number}, "name")
@@ -388,29 +415,10 @@ def cleanup_e2e_context(prefix: str = "E2E") -> dict:
 			doc.end_shift()
 			doc.reload()
 		if doc.status in ("Draft", "Cancelled", "Completed"):
-			frappe.delete_doc("Shift", name, ignore_permissions=True, force=True)
+			_safe_force_delete("Shift", name, context="cleanup_e2e_context")
 
-	stock_entries = frappe.get_all(
-		"Stock Entry",
-		filters=[
-			["stock_entry_type", "=", "Manufacture"],
-			["custom_operator", "=", target_operator],
-		],
-		fields=["name", "docstatus"],
-		order_by="creation desc",
-		limit_page_length=0,
-	)
-	stock_entries.extend(
-		frappe.get_all(
-			"Stock Entry",
-			filters=[
-				["stock_entry_type", "=", "Manufacture"],
-				["custom_operator", "!=", target_operator],
-			],
-			fields=["name", "docstatus"],
-			order_by="creation desc",
-			limit_page_length=100,
-		)
+	stock_entries = _get_candidate_e2e_stock_entries(
+		target_operator=target_operator, target_workstation=target_workstation
 	)
 
 	seen_entries = set()
@@ -424,27 +432,41 @@ def cleanup_e2e_context(prefix: str = "E2E") -> dict:
 		):
 			continue
 		if se.docstatus == 1:
-			se.cancel()
+			try:
+				se.cancel()
+			except Exception:
+				frappe.log_error(
+					title="E2E cleanup cancel failed",
+					message=f"Unable to cancel Stock Entry {se.name}",
+				)
+				continue
 		if se.docstatus in (0, 2):
-			frappe.delete_doc("Stock Entry", se.name, ignore_permissions=True, force=True)
+			_safe_force_delete("Stock Entry", se.name, context="cleanup_e2e_context")
 
 	for doctype, name in (("Workstation", target_workstation), ("Operator", target_operator)):
 		if frappe.db.exists(doctype, name):
-			frappe.delete_doc(doctype, name, ignore_permissions=True, force=True)
+			_safe_force_delete(doctype, name, context="cleanup_e2e_context")
 
 	for item in (target_fg_item, target_rm_item):
 		if frappe.db.exists("Die Tool Counter", {"die_tool_item": item}):
 			for counter_name in frappe.get_all(
 				"Die Tool Counter", filters={"die_tool_item": item}, pluck="name"
 			):
-				frappe.delete_doc("Die Tool Counter", counter_name, ignore_permissions=True, force=True)
+				_safe_force_delete("Die Tool Counter", counter_name, context="cleanup_e2e_context")
 		for log_name in frappe.get_all(
 			"Die Tool Maintenance Log", filters={"die_tool_item": item}, pluck="name"
 		):
 			doc = frappe.get_doc("Die Tool Maintenance Log", log_name)
 			if doc.docstatus == 1:
-				doc.cancel()
-			frappe.delete_doc("Die Tool Maintenance Log", log_name, ignore_permissions=True, force=True)
+				try:
+					doc.cancel()
+				except Exception:
+					frappe.log_error(
+						title="E2E cleanup cancel failed",
+						message=f"Unable to cancel Die Tool Maintenance Log {log_name}",
+					)
+					continue
+			_safe_force_delete("Die Tool Maintenance Log", log_name, context="cleanup_e2e_context")
 
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit - deterministic cleanup for test reruns
 	return {"ok": True}

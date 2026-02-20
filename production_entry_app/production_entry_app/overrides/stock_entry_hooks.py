@@ -14,6 +14,10 @@ from production_entry_app.production_entry_app.utils.die_tool_counter import (
 )
 from production_entry_app.production_entry_app.utils.shift_time import get_shift_planned_end_datetime
 
+_DEFAULT_START_BUFFER_MINS: int = 60
+_DEFAULT_END_BUFFER_MINS: int = 60
+_MAX_BUFFER_MINS: int = 480
+
 
 def validate_stock_entry(doc, method: str | None = None) -> None:
 	"""Hook called on Stock Entry validate event.
@@ -88,8 +92,8 @@ def _validate_actual_times(doc) -> None:
 	if not planned_start or not planned_end:
 		return
 
-	start_buffer = _get_shift_buffer_minutes("shift_start_buffer_mins", 60)
-	end_buffer = _get_shift_buffer_minutes("shift_end_buffer_mins", 60)
+	start_buffer = _get_shift_buffer_minutes("shift_start_buffer_mins", _DEFAULT_START_BUFFER_MINS)
+	end_buffer = _get_shift_buffer_minutes("shift_end_buffer_mins", _DEFAULT_END_BUFFER_MINS)
 
 	allowed_start = planned_start - datetime.timedelta(minutes=start_buffer)
 	allowed_end = planned_end + datetime.timedelta(minutes=end_buffer)
@@ -117,7 +121,24 @@ def _get_shift_buffer_minutes(fieldname: str, default_value: int) -> int:
 	if settings_meta.has_field(fieldname):
 		value = frappe.db.get_single_value("Manufacturing Settings", fieldname)
 		if value is not None:
-			return int(value)
+			buffer_mins = int(value)
+			if buffer_mins < 0:
+				frappe.log_error(
+					title="Invalid Manufacturing Settings buffer",
+					message=f"{fieldname} had negative value {buffer_mins}; clamped to 0.",
+				)
+				return 0
+			if buffer_mins > _MAX_BUFFER_MINS:
+				frappe.log_error(
+					title="Invalid Manufacturing Settings buffer",
+					message=f"{fieldname} had oversized value {buffer_mins}; clamped to {_MAX_BUFFER_MINS}.",
+				)
+				return _MAX_BUFFER_MINS
+			return buffer_mins
+	if default_value < 0:
+		return 0
+	if default_value > _MAX_BUFFER_MINS:
+		return _MAX_BUFFER_MINS
 	return default_value
 
 

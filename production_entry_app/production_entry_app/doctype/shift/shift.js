@@ -1,6 +1,8 @@
 // Copyright (c) 2026, Gurudatt Kulkarni and contributors
 // For license information, please see license.txt
 
+const PLANNED_BREAKS_DEBOUNCE_MS = 300;
+
 frappe.ui.form.on("Shift", {
 	planned_start_time(frm) {
 		_populate_default_breaks_if_draft(frm);
@@ -109,24 +111,38 @@ function _populate_default_breaks_if_draft(frm) {
 	) {
 		return;
 	}
-	frappe.call({
-		method: "production_entry_app.production_entry_app.doctype.shift.shift.get_planned_losses_for_duration",
-		args: {
-			shift_duration: frm.doc.shift_duration,
-			planned_start_time: frm.doc.planned_start_time,
-			shift_date: frm.doc.shift_date,
-		},
-		callback(r) {
-			if (r.message && r.message.length > 0) {
-				frm.clear_table("planned_losses");
-				r.message.forEach((row) => frm.add_child("planned_losses", row));
-				frm.refresh_field("planned_losses");
-			}
-		},
-		error() {
-			frappe.msgprint(__("Failed to load planned breaks. Please retry."));
-		},
-	});
+	if (frm.__plannedBreaksDebounceTimer) {
+		clearTimeout(frm.__plannedBreaksDebounceTimer);
+	}
+	frm.__plannedBreaksDebounceTimer = setTimeout(() => {
+		frm.__plannedBreaksDebounceTimer = null;
+		if (
+			frm.doc.status !== "Draft" ||
+			!frm.doc.shift_duration ||
+			!frm.doc.planned_start_time ||
+			!frm.doc.shift_date
+		) {
+			return;
+		}
+		frappe.call({
+			method: "production_entry_app.production_entry_app.doctype.shift.shift.get_planned_losses_for_duration",
+			args: {
+				shift_duration: frm.doc.shift_duration,
+				planned_start_time: frm.doc.planned_start_time,
+				shift_date: frm.doc.shift_date,
+			},
+			callback(r) {
+				if (r.message && r.message.length > 0) {
+					frm.clear_table("planned_losses");
+					r.message.forEach((row) => frm.add_child("planned_losses", row));
+					frm.refresh_field("planned_losses");
+				}
+			},
+			error() {
+				frappe.msgprint(__("Failed to load planned breaks. Please retry."));
+			},
+		});
+	}, PLANNED_BREAKS_DEBOUNCE_MS);
 }
 
 function _render_linked_downtime_entries(frm) {

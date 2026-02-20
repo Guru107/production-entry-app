@@ -196,6 +196,70 @@ class TestShift(FrappeTestCase):
 		doc.reload()
 		self.assertEqual(doc.status, "Cancelled")
 
+	def test_start_shift_adds_status_audit_comment(self) -> None:
+		name = self._expected_name("2026-05-16", "1")
+		self._delete_shift_if_exists(name)
+		doc = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": "2026-05-16",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+
+		doc.start_shift()
+		comments = frappe.get_all(
+			"Comment",
+			filters={"reference_doctype": "Shift", "reference_name": name},
+			pluck="content",
+		)
+		self.assertTrue(any("Status changed to" in (c or "") and "Running" in (c or "") for c in comments))
+
+	def test_end_shift_adds_status_audit_comment(self) -> None:
+		name = self._expected_name("2026-05-17", "1")
+		self._delete_shift_if_exists(name)
+		doc = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": "2026-05-17",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+		doc.start_shift()
+		doc.end_shift()
+
+		comments = frappe.get_all(
+			"Comment",
+			filters={"reference_doctype": "Shift", "reference_name": name},
+			pluck="content",
+		)
+		self.assertTrue(any("Status changed to" in (c or "") and "Completed" in (c or "") for c in comments))
+
+	def test_cancel_shift_adds_status_audit_comment(self) -> None:
+		name = self._expected_name("2026-05-18", "2")
+		self._delete_shift_if_exists(name)
+		doc = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"shift_label": "2",
+				"shift_duration": "8",
+				"shift_date": "2026-05-18",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+		doc.cancel_shift()
+
+		comments = frappe.get_all(
+			"Comment",
+			filters={"reference_doctype": "Shift", "reference_name": name},
+			pluck="content",
+		)
+		self.assertTrue(any("Status changed to" in (c or "") and "Cancelled" in (c or "") for c in comments))
+
 	def test_cancel_shift_not_allowed_from_running(self) -> None:
 		name = self._expected_name("2026-02-16", "1")
 		self._delete_shift_if_exists(name)
@@ -387,6 +451,29 @@ class TestShift(FrappeTestCase):
 		self.assertEqual(len(doc.planned_losses), 3)
 		self.assertEqual(doc.planned_losses[2].downtime_reason, "Tea Break")
 		self.assertEqual(doc.planned_losses[2].start_time, "14:00:00")
+
+	def test_break_schedule_keys_match_valid_durations(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import (
+			_BREAK_SCHEDULE,
+			VALID_SHIFT_DURATIONS,
+		)
+
+		self.assertEqual(set(_BREAK_SCHEDULE.keys()), set(VALID_SHIFT_DURATIONS))
+
+	def test_invalid_shift_duration_message_lists_valid_options(self) -> None:
+		name = self._expected_name("2026-05-19", "1")
+		self._delete_shift_if_exists(name)
+		with self.assertRaises(ValidationError) as exc:
+			frappe.get_doc(
+				{
+					"doctype": "Shift",
+					"shift_label": "1",
+					"shift_duration": "9",
+					"shift_date": "2026-05-19",
+					"planned_start_time": "08:00:00",
+				}
+			).insert()
+		self.assertIn("8, 10, 12", str(exc.exception))
 
 	def test_status_cannot_be_changed_directly(self) -> None:
 		name = self._expected_name("2026-02-10", "2")

@@ -693,6 +693,47 @@ class TestStockEntryHooks(FrappeTestCase):
 		with self.assertRaises(ValidationError):
 			se.save()
 
+	def test_shift_start_buffer_clamps_negative_to_zero(self) -> None:
+		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
+			_get_shift_buffer_minutes,
+		)
+
+		with patch(
+			"production_entry_app.production_entry_app.overrides.stock_entry_hooks.frappe.get_meta"
+		) as get_meta:
+			get_meta.return_value.has_field.return_value = True
+			with patch(
+				"production_entry_app.production_entry_app.overrides.stock_entry_hooks.frappe.db.get_single_value",
+				return_value=-12,
+			):
+				with patch(
+					"production_entry_app.production_entry_app.overrides.stock_entry_hooks.frappe.log_error"
+				) as log_error:
+					value = _get_shift_buffer_minutes("shift_start_buffer_mins", 60)
+		self.assertEqual(value, 0)
+		log_error.assert_called_once()
+
+	def test_shift_end_buffer_clamps_overflow_to_max(self) -> None:
+		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
+			_MAX_BUFFER_MINS,
+			_get_shift_buffer_minutes,
+		)
+
+		with patch(
+			"production_entry_app.production_entry_app.overrides.stock_entry_hooks.frappe.get_meta"
+		) as get_meta:
+			get_meta.return_value.has_field.return_value = True
+			with patch(
+				"production_entry_app.production_entry_app.overrides.stock_entry_hooks.frappe.db.get_single_value",
+				return_value=9999,
+			):
+				with patch(
+					"production_entry_app.production_entry_app.overrides.stock_entry_hooks.frappe.log_error"
+				) as log_error:
+					value = _get_shift_buffer_minutes("shift_end_buffer_mins", 60)
+		self.assertEqual(value, _MAX_BUFFER_MINS)
+		log_error.assert_called_once()
+
 	def test_metrics_calculated_from_actual_times_and_output(self) -> None:
 		shift = _create_test_shift(
 			shift_date="2026-04-16",

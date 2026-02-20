@@ -111,65 +111,63 @@ class TestE2EApi(FrappeTestCase):
 		self.assertEqual(date_a, date_b)
 		self.assertTrue(date_a.startswith("2099-"))
 
-	def test_cleanup_stock_entry_query_targets_operator_first(self) -> None:
-		with patch("production_entry_app.production_entry_app.api._assert_e2e_api_allowed"):
-			with patch(
-				"production_entry_app.production_entry_app.api._e2e_base_date", return_value="2099-01-10"
-			):
+	def test_cleanup_stock_entry_query_uses_single_qb_run(self) -> None:
+		with patch(
+			"production_entry_app.production_entry_app.api._get_candidate_e2e_stock_entries",
+			return_value=[],
+		) as get_candidates:
+			with patch("production_entry_app.production_entry_app.api._assert_e2e_api_allowed"):
 				with patch(
-					"production_entry_app.production_entry_app.api.frappe.db.exists", return_value=False
+					"production_entry_app.production_entry_app.api._e2e_base_date",
+					return_value="2099-01-10",
 				):
 					with patch(
-						"production_entry_app.production_entry_app.api.frappe.get_all", return_value=[]
-					) as get_all:
+						"production_entry_app.production_entry_app.api.frappe.db.exists", return_value=False
+					):
 						with patch("production_entry_app.production_entry_app.api.frappe.db.commit"):
 							cleanup_e2e_context(prefix="E2E")
-
-		stock_entry_calls = [
-			call
-			for call in get_all.call_args_list
-			if call.args and len(call.args) > 0 and call.args[0] == "Stock Entry"
-		]
-		self.assertEqual(len(stock_entry_calls), 2)
-		primary_filters = stock_entry_calls[0].kwargs.get("filters")
-		self.assertEqual(
-			primary_filters,
-			[
-				["stock_entry_type", "=", "Manufacture"],
-				["custom_operator", "=", "E2E Operator"],
-			],
+		get_candidates.assert_called_once_with(
+			target_operator="E2E Operator", target_workstation="E2E Workstation"
 		)
-		self.assertNotIn("name", primary_filters)
 
-	def test_cleanup_stock_entry_query_includes_fg_fallback_batch(self) -> None:
-		with patch("production_entry_app.production_entry_app.api._assert_e2e_api_allowed"):
-			with patch(
-				"production_entry_app.production_entry_app.api._e2e_base_date", return_value="2099-01-10"
-			):
+	def test_cleanup_continues_when_one_stock_entry_delete_fails(self) -> None:
+		row1 = frappe._dict({"name": "STE-FAIL", "docstatus": 0})
+		row2 = frappe._dict({"name": "STE-OK", "docstatus": 0})
+		se1 = frappe._dict(
+			{"name": "STE-FAIL", "docstatus": 0, "custom_operator": "E2E Operator", "items": []}
+		)
+		se2 = frappe._dict({"name": "STE-OK", "docstatus": 0, "custom_operator": "E2E Operator", "items": []})
+
+		with patch(
+			"production_entry_app.production_entry_app.api._get_candidate_e2e_stock_entries",
+			return_value=[row1, row2],
+		):
+			with patch("production_entry_app.production_entry_app.api._assert_e2e_api_allowed"):
 				with patch(
-					"production_entry_app.production_entry_app.api.frappe.db.exists", return_value=False
+					"production_entry_app.production_entry_app.api._e2e_base_date",
+					return_value="2099-01-10",
 				):
 					with patch(
-						"production_entry_app.production_entry_app.api.frappe.get_all", return_value=[]
-					) as get_all:
-						with patch("production_entry_app.production_entry_app.api.frappe.db.commit"):
-							cleanup_e2e_context(prefix="E2E")
+						"production_entry_app.production_entry_app.api.frappe.db.exists", return_value=False
+					):
+						with patch(
+							"production_entry_app.production_entry_app.api.frappe.get_doc",
+							side_effect=[se1, se2],
+						):
+							with patch(
+								"production_entry_app.production_entry_app.api.frappe.delete_doc",
+								side_effect=[Exception("delete failed"), None],
+							) as delete_doc:
+								with patch(
+									"production_entry_app.production_entry_app.api.frappe.log_error"
+								) as log_error:
+									with patch(
+										"production_entry_app.production_entry_app.api.frappe.db.commit"
+									):
+										cleanup_e2e_context(prefix="E2E")
 
-		stock_entry_calls = [
-			call
-			for call in get_all.call_args_list
-			if call.args and len(call.args) > 0 and call.args[0] == "Stock Entry"
-		]
-		self.assertEqual(len(stock_entry_calls), 2)
-		fallback_filters = stock_entry_calls[1].kwargs.get("filters")
-		self.assertEqual(
-			fallback_filters,
-			[
-				["stock_entry_type", "=", "Manufacture"],
-				["custom_operator", "!=", "E2E Operator"],
-			],
-		)
-		self.assertEqual(stock_entry_calls[1].kwargs.get("limit_page_length"), 100)
+		self.assertEqual(delete_doc.call_count, 2)
+		log_error.assert_called_once()
 
 	def test_build_e2e_shift_doc_contains_expected_fields(self) -> None:
 		doc = _build_e2e_shift_doc(

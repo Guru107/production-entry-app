@@ -12,6 +12,12 @@ from frappe.utils import add_to_date, flt
 from production_entry_app.production_entry_app.utils.shift_time import combine_date_time
 
 METRICS_CACHE_TTL_SEC: int = 30
+VALID_SHIFT_DURATIONS: frozenset[int] = frozenset({8, 10, 12})
+_BREAK_SCHEDULE: dict[int, list[tuple[str, int, int]]] = {
+	8: [("Tea Break", 2, 15), ("Lunch Break", 4, 30)],
+	10: [("Tea Break", 2, 15), ("Lunch Break", 4, 30), ("Tea Break", 6, 15)],
+	12: [("Tea Break", 2, 15), ("Lunch Break", 4, 30), ("Tea Break", 6, 15)],
+}
 
 
 def _get_notification_recipients_for_shift(shift_doc: Shift) -> list[str]:
@@ -430,6 +436,12 @@ class Shift(Document):
 		self.flags.allow_status_change = True
 		self.status = to_status
 		self.save()
+		self.add_comment(
+			"Info",
+			_("Status changed to {0} by {1}").format(
+				frappe.bold(to_status), frappe.bold(frappe.session.user)
+			),
+		)
 
 		if to_status == "Running":
 			_send_shift_notification(
@@ -459,11 +471,19 @@ class Shift(Document):
 	def _parse_duration_hours(self, shift_duration: str) -> int:
 		try:
 			duration = int(str(shift_duration).strip())
-		except ValueError as e:
-			frappe.throw(_("Invalid Shift Duration."), exc=e)
+		except ValueError:
+			frappe.throw(
+				_("Invalid Shift Duration: {0}. Valid options are: {1}.").format(
+					shift_duration, ", ".join(str(value) for value in sorted(VALID_SHIFT_DURATIONS))
+				)
+			)
 
-		if duration not in (8, 10, 12):
-			frappe.throw(_("Shift Duration must be one of 8, 10, or 12 hours."))
+		if duration not in VALID_SHIFT_DURATIONS:
+			frappe.throw(
+				_("Shift Duration must be one of: {0}.").format(
+					", ".join(str(value) for value in sorted(VALID_SHIFT_DURATIONS))
+				)
+			)
 
 		return duration
 
@@ -490,30 +510,15 @@ class Shift(Document):
 		"""Populate planned_losses based on shift duration and planned_start_time."""
 		base = self._combine_date_time(self.shift_date, self.planned_start_time)
 		duration_hours = self._parse_duration_hours(self.shift_duration)
-
 		entries: list[dict] = []
-		# 8h: Tea +2h (15min), Lunch +4h (30min)
-		# 10h/12h: Tea +2h, Lunch +4h, Tea +6h
-		entries.append(
-			{
-				"downtime_reason": "Tea Break",
-				"start_time": add_to_date(base, hours=2).time().strftime("%H:%M:%S"),
-				"end_time": add_to_date(base, hours=2, minutes=15).time().strftime("%H:%M:%S"),
-			}
-		)
-		entries.append(
-			{
-				"downtime_reason": "Lunch Break",
-				"start_time": add_to_date(base, hours=4).time().strftime("%H:%M:%S"),
-				"end_time": add_to_date(base, hours=4, minutes=30).time().strftime("%H:%M:%S"),
-			}
-		)
-		if duration_hours in (10, 12):
+		for reason, offset_hours, duration_mins in _BREAK_SCHEDULE.get(duration_hours, []):
 			entries.append(
 				{
-					"downtime_reason": "Tea Break",
-					"start_time": add_to_date(base, hours=6).time().strftime("%H:%M:%S"),
-					"end_time": add_to_date(base, hours=6, minutes=15).time().strftime("%H:%M:%S"),
+					"downtime_reason": reason,
+					"start_time": add_to_date(base, hours=offset_hours).time().strftime("%H:%M:%S"),
+					"end_time": add_to_date(base, hours=offset_hours, minutes=duration_mins)
+					.time()
+					.strftime("%H:%M:%S"),
 				}
 			)
 
