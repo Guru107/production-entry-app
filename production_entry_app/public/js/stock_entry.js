@@ -257,13 +257,16 @@ function _update_die_tool_metrics(frm) {
 			_set_die_tool_metric_fields(frm, utilization, due ? 1 : 0);
 
 			if (due && frm.dashboard && frm.dashboard.set_headline_alert) {
-				frm.dashboard.set_headline_alert(
-					__("Die tool {0} has reached {1}% utilization and needs maintenance.", [
-						item_code,
-						utilization.toFixed(2),
-					]),
-					"orange"
+				const message = __(
+					"Die tool {0} has reached {1}% utilization and needs maintenance.",
+					[item_code, utilization.toFixed(2)]
 				);
+				if (frm.__peaDieToolAlertMessage !== message) {
+					frm.dashboard.set_headline_alert(message, "orange");
+					frm.__peaDieToolAlertMessage = message;
+				}
+			} else if (!due) {
+				frm.__peaDieToolAlertMessage = null;
 			}
 		},
 		error() {
