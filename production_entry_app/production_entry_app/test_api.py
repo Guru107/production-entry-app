@@ -27,7 +27,11 @@ class TestE2EApi(FrappeTestCase):
 				"production_entry_app.production_entry_app.api._is_developer_mode_enabled",
 				return_value=True,
 			):
-				_assert_e2e_api_allowed()
+				with patch(
+					"production_entry_app.production_entry_app.api._is_allow_e2e_tests_enabled",
+					return_value=True,
+				):
+					_assert_e2e_api_allowed()
 		only_for.assert_called_once_with("Administrator")
 
 	def test_assert_e2e_api_allowed_blocks_when_developer_mode_disabled(self) -> None:
@@ -38,6 +42,19 @@ class TestE2EApi(FrappeTestCase):
 			):
 				with self.assertRaises(frappe.PermissionError):
 					_assert_e2e_api_allowed()
+
+	def test_assert_e2e_api_allowed_blocks_without_allow_e2e_tests_flag(self) -> None:
+		with patch("production_entry_app.production_entry_app.api.frappe.only_for"):
+			with patch(
+				"production_entry_app.production_entry_app.api._is_developer_mode_enabled",
+				return_value=True,
+			):
+				with patch(
+					"production_entry_app.production_entry_app.api._is_allow_e2e_tests_enabled",
+					return_value=False,
+				):
+					with self.assertRaises(frappe.PermissionError):
+						_assert_e2e_api_allowed()
 
 	def test_all_e2e_endpoints_fail_closed_when_guard_raises(self) -> None:
 		with patch(

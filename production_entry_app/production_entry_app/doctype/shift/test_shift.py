@@ -474,17 +474,19 @@ class TestShift(FrappeTestCase):
 		doc.planned_start_time = "08:00:00"
 		doc.shift_end_date = "2026-02-21"
 		doc.planned_end_time = "16:00:00"
+		doc.name = "SHIFT-2026-02-21.Shift-1"
 
 		with patch(
-			"production_entry_app.production_entry_app.doctype.shift.shift.frappe.get_all",
-			return_value=[],
-		) as get_all:
+			"production_entry_app.production_entry_app.doctype.shift.shift.frappe.qb.from_"
+		) as qb_from:
+			query = qb_from.return_value.select.return_value
+			query.where.return_value = query
+			query.limit.return_value = query
+			query.run.return_value = []
 			Shift._validate_no_overlapping_shifts(doc)
 
-		self.assertEqual(get_all.call_count, 1)
-		filters = get_all.call_args.kwargs.get("filters") or []
-		self.assertIn(["shift_date", ">=", "2026-02-20"], filters)
-		self.assertIn(["shift_date", "<=", "2026-02-22"], filters)
+		qb_from.assert_called_once()
+		query.run.assert_called_once_with(as_dict=True)
 
 	def test_overlap_still_detected_for_cross_midnight_neighbor_day(self) -> None:
 		self._delete_shifts_for_date("2026-04-14")
@@ -1116,6 +1118,26 @@ class TestShiftMetrics(FrappeTestCase):
 		):
 			metrics = get_shift_metrics(shift.name)
 		self.assertEqual(metrics, cached)
+
+	def test_metrics_fresh_after_submit_without_waiting_ttl(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_metrics
+		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
+			on_submit_stock_entry,
+		)
+
+		shift = self._create_shift("2026-09-12")
+		self._create_submitted_like_entry(shift.name, good_qty=50, rejection_qty=0)
+		first = get_shift_metrics(shift.name)
+		self.assertEqual(float(first["total_good_qty"]), 50.0)
+
+		new_entry_name = self._create_submitted_like_entry(shift.name, good_qty=30, rejection_qty=0)
+		with patch(
+			"production_entry_app.production_entry_app.overrides.stock_entry_hooks.update_counter_for_stock_entry"
+		):
+			on_submit_stock_entry(frappe.get_doc("Stock Entry", new_entry_name), "on_submit")
+
+		second = get_shift_metrics(shift.name)
+		self.assertEqual(float(second["total_good_qty"]), 80.0)
 
 
 def _ensure_user_with_role(email: str, role: str) -> None:

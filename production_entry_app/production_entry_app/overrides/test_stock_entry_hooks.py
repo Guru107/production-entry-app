@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from typing import ClassVar
+from unittest.mock import patch
 
 import frappe
 from frappe.exceptions import ValidationError
@@ -1148,6 +1149,27 @@ class TestStockEntryHooks(FrappeTestCase):
 		self.assertEqual(len(rejection_rows), 1)
 		self.assertEqual(rejection_rows[0].qty, 10)
 
+	def test_remove_rejection_rows_no_op_when_none_found(self) -> None:
+		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
+			_remove_existing_rejection_rows,
+		)
+
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			fg_qty=100,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		original_qty = next(row.qty for row in se.items if row.is_finished_item)
+		original_count = len(se.items)
+
+		_remove_existing_rejection_rows(se)
+
+		self.assertEqual(len(se.items), original_count)
+		self.assertEqual(next(row.qty for row in se.items if row.is_finished_item), original_qty)
+
 	def test_rejection_qty_zero_produces_no_rejection_row(self) -> None:
 		shift = _create_test_shift(
 			shift_date="2026-04-17",
@@ -1963,6 +1985,38 @@ class TestDieToolCounter(FrappeTestCase):
 		self.assertEqual(counter.current_stroke_count, (10 + 2) * 12)
 		self.assertEqual(counter.stroke_capacity, 1000)
 
+	def test_atomic_increment_does_not_lose_updates(self) -> None:
+		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
+			on_submit_stock_entry,
+		)
+
+		first = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			fg_qty=1,
+			rm_qty=1,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		second = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			fg_qty=2,
+			rm_qty=2,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+
+		on_submit_stock_entry(first, "on_submit")
+		on_submit_stock_entry(second, "on_submit")
+
+		self.assertEqual(
+			float(frappe.db.get_value("Die Tool Counter", self.fg_item, "current_stroke_count") or 0),
+			36.0,
+		)
+
 	def test_die_tool_counter_decrements_on_cancel(self) -> None:
 		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
 			on_cancel_stock_entry,
@@ -1985,6 +2039,42 @@ class TestDieToolCounter(FrappeTestCase):
 
 		counter = frappe.get_doc("Die Tool Counter", self.fg_item)
 		self.assertEqual(counter.current_stroke_count, 0)
+
+	def test_cache_invalidated_on_stock_entry_submit(self) -> None:
+		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
+			on_submit_stock_entry,
+		)
+
+		doc = frappe._dict({"custom_shift": "SHIFT-2026-04-20.Shift-1"})
+		with patch(
+			"production_entry_app.production_entry_app.overrides.stock_entry_hooks.update_counter_for_stock_entry"
+		):
+			with patch(
+				"production_entry_app.production_entry_app.overrides.stock_entry_hooks.frappe.cache"
+			) as cache_fn:
+				on_submit_stock_entry(doc, "on_submit")
+
+		cache_fn.return_value.delete_value.assert_called_once_with(
+			"pea:shift_metrics:SHIFT-2026-04-20.Shift-1"
+		)
+
+	def test_cache_invalidated_on_stock_entry_cancel(self) -> None:
+		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
+			on_cancel_stock_entry,
+		)
+
+		doc = frappe._dict({"custom_shift": "SHIFT-2026-04-20.Shift-1"})
+		with patch(
+			"production_entry_app.production_entry_app.overrides.stock_entry_hooks.update_counter_for_stock_entry"
+		):
+			with patch(
+				"production_entry_app.production_entry_app.overrides.stock_entry_hooks.frappe.cache"
+			) as cache_fn:
+				on_cancel_stock_entry(doc, "on_cancel")
+
+		cache_fn.return_value.delete_value.assert_called_once_with(
+			"pea:shift_metrics:SHIFT-2026-04-20.Shift-1"
+		)
 
 	def test_die_tool_counter_resets_on_maintenance_log_submit(self) -> None:
 		if frappe.db.exists("Die Tool Counter", self.fg_item):
@@ -2184,6 +2274,34 @@ class TestDieToolCounter(FrappeTestCase):
 		update_counter_for_stock_entry(doc, direction=1)
 
 		self.assertFalse(frappe.db.exists("Die Tool Counter", self.fg_item))
+
+	def test_update_counter_decrement_clamps_to_zero(self) -> None:
+		from production_entry_app.production_entry_app.utils.die_tool_counter import (
+			update_counter_for_stock_entry,
+		)
+
+		frappe.get_doc(
+			{
+				"doctype": "Die Tool Counter",
+				"die_tool_item": self.fg_item,
+				"current_stroke_count": 5,
+				"stroke_capacity": 1000,
+			}
+		).insert(ignore_permissions=True)
+		doc = frappe._dict(
+			{
+				"purpose": "Manufacture",
+				"fg_item": self.fg_item,
+				"fg_completed_qty": 1,
+			}
+		)
+
+		update_counter_for_stock_entry(doc, direction=-1)
+
+		self.assertEqual(
+			float(frappe.db.get_value("Die Tool Counter", self.fg_item, "current_stroke_count") or 0),
+			0.0,
+		)
 
 	def test_reset_counter_from_maintenance_log_requires_item(self) -> None:
 		from production_entry_app.production_entry_app.utils.die_tool_counter import (

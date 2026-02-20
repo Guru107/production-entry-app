@@ -169,7 +169,7 @@ class StockEntryPage {
 	}
 
 	async saveDraft() {
-		await retryOnContextDestroyed(this.page, async () => saveForm(this.page, "Save"));
+		await retryOnContextDestroyed(this.page, async () => saveForm(this.page, "Save"), 5);
 	}
 
 	async attemptSaveDraft() {

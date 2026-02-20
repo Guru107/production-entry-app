@@ -136,15 +136,14 @@ test.describe("Production reports", () => {
 		await reportsPage.clickRefresh();
 		await reportsPage.waitForRows(1);
 
-		const first = await reportsPage.getFirstRowFields([
-			"die_tool_item",
-			"utilization_pct",
-			"maintenance_due",
-			"maintenance_count",
-		]);
-		expect(first.die_tool_item).toBe(ctx.fg_item);
-		expect(first.utilization_pct).toBeDefined();
-		expect(first.maintenance_due).toBeDefined();
-		expect(first.maintenance_count).toBeDefined();
+		const filters = await reportsPage.getFilterValues();
+		expect(filters.item_code).toBe(ctx.fg_item);
+
+		const rows = await reportsPage.getRows();
+		const filteredRow = rows.find((row) => row.die_tool_item === ctx.fg_item);
+		expect(Boolean(filteredRow)).toBeTruthy();
+		expect(filteredRow.utilization_pct).toBeDefined();
+		expect(filteredRow.maintenance_due).toBeDefined();
+		expect(filteredRow.maintenance_count).toBeDefined();
 	});
 });

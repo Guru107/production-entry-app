@@ -6,10 +6,12 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 from frappe.query_builder import DocType
-from frappe.query_builder.functions import Avg, Count, Sum
+from frappe.query_builder.functions import Avg, Count, CustomFunction, Sum
 from frappe.utils import add_to_date, flt
 
 from production_entry_app.production_entry_app.utils.shift_time import combine_date_time
+
+METRICS_CACHE_TTL_SEC: int = 30
 
 
 def _get_notification_recipients_for_shift(shift_doc: Shift) -> list[str]:
@@ -164,7 +166,7 @@ def _empty_shift_metrics() -> dict:
 
 
 def _get_shift_metrics_cache_key(shift_name: str) -> str:
-	return f"pea:shift_metrics:{frappe.session.user}:{shift_name}"
+	return f"pea:shift_metrics:{shift_name}"
 
 
 def _get_cached_shift_metrics(shift_name: str) -> dict | None:
@@ -172,7 +174,9 @@ def _get_cached_shift_metrics(shift_name: str) -> dict | None:
 
 
 def _set_cached_shift_metrics(shift_name: str, metrics: dict) -> None:
-	frappe.cache().set_value(_get_shift_metrics_cache_key(shift_name), metrics, expires_in_sec=30)
+	frappe.cache().set_value(
+		_get_shift_metrics_cache_key(shift_name), metrics, expires_in_sec=METRICS_CACHE_TTL_SEC
+	)
 
 
 @frappe.whitelist()
@@ -370,24 +374,25 @@ class Shift(Document):
 
 		my_start = self._combine_date_time(self.shift_date, self.planned_start_time)
 		my_end = self._combine_date_time(self.shift_end_date, self.planned_end_time)
+		shift = DocType("Shift")
+		timestamp = CustomFunction("TIMESTAMP", ["date_col", "time_col"])
 
-		others = frappe.get_all(
-			"Shift",
-			filters=[
-				["status", "!=", "Cancelled"],
-				["name", "!=", self.name or ""],
-				["shift_date", ">=", add_to_date(self.shift_date, days=-1, as_string=True)],
-				["shift_date", "<=", add_to_date(self.shift_date, days=1, as_string=True)],
-			],
-			fields=["name", "shift_date", "planned_start_time", "shift_end_date", "planned_end_time"],
+		query = (
+			frappe.qb.from_(shift)
+			.select(shift.name)
+			.where(shift.status != "Cancelled")
+			.where(shift.shift_date >= add_to_date(self.shift_date, days=-1, as_string=True))
+			.where(shift.shift_date <= add_to_date(self.shift_date, days=1, as_string=True))
+			.where(timestamp(shift.shift_date, shift.planned_start_time) < my_end)
+			.where(timestamp(shift.shift_end_date, shift.planned_end_time) > my_start)
 		)
+		if self.name:
+			query = query.where(shift.name != self.name)
 
-		for row in others:
-			other_start = self._combine_date_time(row["shift_date"], row["planned_start_time"])
-			other_end = self._combine_date_time(row["shift_end_date"], row["planned_end_time"])
-			if my_start < other_end and my_end > other_start:
-				link = frappe.utils.get_link_to_form("Shift", row["name"])
-				frappe.throw(_("Shift time overlaps with {0}.").format(link))
+		conflict = query.limit(1).run(as_dict=True)
+		if conflict:
+			link = frappe.utils.get_link_to_form("Shift", conflict[0]["name"])
+			frappe.throw(_("Shift time overlaps with {0}.").format(link))
 
 	def _validate_unique_shift_label_per_date(self) -> None:
 		"""Enforce unique shift_label per shift_date (exclude Cancelled)."""

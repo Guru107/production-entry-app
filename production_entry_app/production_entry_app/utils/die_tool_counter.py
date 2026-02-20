@@ -4,6 +4,8 @@ import datetime
 
 import frappe
 from frappe import _
+from frappe.query_builder import DocType as QBDocType
+from frappe.query_builder.functions import CustomFunction
 from frappe.utils import flt, get_datetime, now_datetime
 
 
@@ -24,21 +26,44 @@ def update_counter_for_stock_entry(doc, direction: int = 1) -> None:
 		return
 
 	stroke_delta = total_units * strokes_per_unit * direction
-	counter = _get_or_create_counter(item_code)
-	counter.current_stroke_count = max(0.0, float(counter.current_stroke_count or 0) + stroke_delta)
-	counter.stroke_capacity = float(frappe.db.get_value("Item", item_code, "custom_stroke_capacity") or 0)
-	counter.save(ignore_permissions=True)
+	counter_name = _ensure_counter_exists(item_code)
+	die_tool_counter = QBDocType("Die Tool Counter")
+
+	frappe.qb.update(die_tool_counter).set(
+		die_tool_counter.current_stroke_count, die_tool_counter.current_stroke_count + stroke_delta
+	).where(die_tool_counter.name == counter_name).run()
+
+	if stroke_delta < 0:
+		greatest = CustomFunction("GREATEST", ["value", "minimum"])
+		frappe.qb.update(die_tool_counter).set(
+			die_tool_counter.current_stroke_count,
+			greatest(die_tool_counter.current_stroke_count, 0),
+		).where(die_tool_counter.name == counter_name).run()
+
+	frappe.db.set_value(
+		"Die Tool Counter",
+		counter_name,
+		"stroke_capacity",
+		float(frappe.db.get_value("Item", item_code, "custom_stroke_capacity") or 0),
+		update_modified=False,
+	)
 
 
 def reset_counter_from_maintenance_log(item_code: str, maintenance_date: str | datetime.datetime) -> None:
 	if not item_code:
 		frappe.throw(_("Die Tool Item is required to reset stroke count."))
 
-	counter = _get_or_create_counter(item_code)
-	counter.current_stroke_count = 0
-	counter.last_reset_on = get_datetime(maintenance_date) if maintenance_date else now_datetime()
-	counter.last_reset_by = frappe.session.user
-	counter.save(ignore_permissions=True)
+	counter_name = _ensure_counter_exists(item_code)
+	frappe.db.set_value(
+		"Die Tool Counter",
+		counter_name,
+		{
+			"current_stroke_count": 0,
+			"last_reset_on": get_datetime(maintenance_date) if maintenance_date else now_datetime(),
+			"last_reset_by": frappe.session.user,
+		},
+		update_modified=False,
+	)
 
 
 def get_counter_health(
@@ -52,9 +77,9 @@ def get_counter_health(
 	return utilization_pct, is_maintenance_due
 
 
-def _get_or_create_counter(item_code: str):
+def _ensure_counter_exists(item_code: str) -> str:
 	if frappe.db.exists("Die Tool Counter", item_code):
-		return frappe.get_doc("Die Tool Counter", item_code)
+		return item_code
 
 	doc = frappe.get_doc(
 		{
@@ -65,19 +90,23 @@ def _get_or_create_counter(item_code: str):
 	)
 
 	try:
-		return doc.insert(ignore_permissions=True)
+		return doc.insert(ignore_permissions=True).name
 	except frappe.DuplicateEntryError:
 		# Concurrent requests can race here; read the winning row.
 		if frappe.db.exists("Die Tool Counter", item_code):
-			return frappe.get_doc("Die Tool Counter", item_code)
+			return item_code
 		existing_name = frappe.db.get_value(
 			"Die Tool Counter",
 			{"die_tool_item": item_code},
 			"name",
 		)
 		if existing_name:
-			return frappe.get_doc("Die Tool Counter", existing_name)
+			return existing_name
 		raise
+
+
+def _get_or_create_counter(item_code: str):
+	return frappe.get_doc("Die Tool Counter", _ensure_counter_exists(item_code))
 
 
 def _get_fg_item_code(doc) -> str | None:

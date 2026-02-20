@@ -7,6 +7,7 @@ from frappe import _
 from frappe.query_builder import DocType
 from frappe.utils import flt, format_datetime, get_datetime, get_time
 
+from production_entry_app.production_entry_app.doctype.shift.shift import _get_shift_metrics_cache_key
 from production_entry_app.production_entry_app.utils.die_tool_counter import (
 	get_counter_health,
 	update_counter_for_stock_entry,
@@ -34,10 +35,19 @@ def validate_stock_entry(doc, method: str | None = None) -> None:
 
 def on_submit_stock_entry(doc, method: str | None = None) -> None:
 	update_counter_for_stock_entry(doc, direction=1)
+	_invalidate_shift_metrics_cache(doc)
 
 
 def on_cancel_stock_entry(doc, method: str | None = None) -> None:
 	update_counter_for_stock_entry(doc, direction=-1)
+	_invalidate_shift_metrics_cache(doc)
+
+
+def _invalidate_shift_metrics_cache(doc) -> None:
+	shift_name = doc.get("custom_shift")
+	if not shift_name:
+		return
+	frappe.cache().delete_value(_get_shift_metrics_cache_key(shift_name))
 
 
 def _apply_shift_defaults(doc) -> None:
@@ -309,13 +319,15 @@ def _remove_existing_rejection_rows(doc) -> None:
 			if row.get("is_finished_item"):
 				fg_row = row
 
-	if total_rejection_qty and fg_row:
+	if not total_rejection_qty:
+		return
+
+	if fg_row:
 		fg_row.qty += total_rejection_qty
 
-	if total_rejection_qty:
-		doc.items = items_to_keep
-		for idx, row in enumerate(doc.items, start=1):
-			row.idx = idx
+	doc.items = items_to_keep
+	for idx, row in enumerate(doc.items, start=1):
+		row.idx = idx
 
 
 def _find_finished_good_row(doc):

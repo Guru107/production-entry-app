@@ -36,6 +36,8 @@ const MANUFACTURE_SECTIONS = [
 
 const ALWAYS_HIDDEN_FIELDS = ["process_loss_percentage", "process_loss_qty"];
 const ALWAYS_HIDDEN_SECTIONS = ["section_break_7qsm"];
+let _dieToolRequestId = 0;
+let _shiftDetailsRequestId = 0;
 
 // Suppress ERPNext's auto-populate on fg_completed_qty change for Manufacture
 // entries so the user can set both Qty to Manufacture and Rejection Qty before
@@ -124,10 +126,18 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 		},
 		custom_shift(frm) {
 			if (frm.doc.custom_shift) {
+				const selectedShift = frm.doc.custom_shift;
+				const reqId = ++_shiftDetailsRequestId;
 				frappe.call({
 					method: "production_entry_app.production_entry_app.api.get_shift_details_for_stock_entry",
-					args: { shift_name: frm.doc.custom_shift },
+					args: { shift_name: selectedShift },
 					callback(r) {
+						if (
+							reqId !== _shiftDetailsRequestId ||
+							frm.doc.custom_shift !== selectedShift
+						) {
+							return;
+						}
 						if (r.message) {
 							const data = r.message;
 							if (data.branch) {
@@ -154,10 +164,12 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 						}
 					},
 					error(error) {
+						if (reqId !== _shiftDetailsRequestId) return;
 						console.warn("Failed to fetch shift details for stock entry.", error);
 					},
 				});
 			} else {
+				_shiftDetailsRequestId++;
 				frm.set_value("branch", "");
 				frm.set_value("custom_planned_start_date", "");
 				frm.set_value("custom_planned_end_date", "");
@@ -232,10 +244,12 @@ function _update_die_tool_metrics(frm) {
 		return;
 	}
 
+	const reqId = ++_dieToolRequestId;
 	frappe.call({
 		method: "production_entry_app.production_entry_app.api.get_die_tool_counter",
 		args: { die_tool_code: item_code },
 		callback(r) {
+			if (reqId !== _dieToolRequestId) return;
 			if (!r.message) return;
 			const data = r.message;
 			const utilization = parseFloat(data.utilization_pct || 0);
@@ -243,14 +257,21 @@ function _update_die_tool_metrics(frm) {
 			_set_die_tool_metric_fields(frm, utilization, due ? 1 : 0);
 
 			if (due && frm.dashboard && frm.dashboard.set_headline_alert) {
-				frm.dashboard.set_headline_alert(
-					__("Die tool {0} has reached {1}% utilization and needs maintenance.", [
-						item_code,
-						utilization.toFixed(2),
-					]),
-					"orange"
+				const message = __(
+					"Die tool {0} has reached {1}% utilization and needs maintenance.",
+					[item_code, utilization.toFixed(2)]
 				);
+				if (frm.__peaDieToolAlertMessage !== message) {
+					frm.dashboard.set_headline_alert(message, "orange");
+					frm.__peaDieToolAlertMessage = message;
+				}
+			} else if (!due) {
+				frm.__peaDieToolAlertMessage = null;
 			}
+		},
+		error() {
+			if (reqId !== _dieToolRequestId) return;
+			frappe.msgprint(__("Failed to load die tool metrics. Please refresh."));
 		},
 	});
 }

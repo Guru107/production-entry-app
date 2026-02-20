@@ -180,11 +180,19 @@ def _is_developer_mode_enabled() -> bool:
 	return bool(cint(getattr(frappe.conf, "developer_mode", 0)))
 
 
+def _is_allow_e2e_tests_enabled() -> bool:
+	return bool(cint(getattr(frappe.conf, "allow_e2e_tests", 0)))
+
+
 def _assert_e2e_api_allowed() -> None:
 	frappe.only_for("Administrator")
-	if _is_developer_mode_enabled():
-		return
-	frappe.throw(_("E2E bootstrap APIs are only available in developer mode."), frappe.PermissionError)
+	if not _is_developer_mode_enabled():
+		frappe.throw(_("E2E bootstrap APIs are only available in developer mode."), frappe.PermissionError)
+	if not _is_allow_e2e_tests_enabled():
+		frappe.throw(
+			_("E2E APIs require allow_e2e_tests=1 in site_config.json."),
+			frappe.PermissionError,
+		)
 
 
 def _stock_entry_matches_cleanup_target(se, target_operator: str, target_fg_item: str) -> bool:

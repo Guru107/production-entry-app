@@ -7,7 +7,9 @@ async function retryOnContextDestroyed(page, action, retries = 3) {
 			if (!message.includes("Execution context was destroyed") || attempt === retries - 1) {
 				throw error;
 			}
-			await page.waitForLoadState("domcontentloaded");
+			await page
+				.waitForFunction(() => Boolean(window.cur_frm?.doc), { timeout: 5000 })
+				.catch(() => {});
 		}
 	}
 }
@@ -59,12 +61,20 @@ async function setFieldValue(page, fieldname, value) {
 }
 
 async function saveForm(page, action = "Save") {
-	await page.evaluate(
-		async ({ requestedAction }) => {
-			await cur_frm.save(requestedAction);
-		},
-		{ requestedAction: action }
-	);
+	try {
+		await page.evaluate(
+			async ({ requestedAction }) => {
+				await cur_frm.save(requestedAction);
+			},
+			{ requestedAction: action }
+		);
+	} catch (error) {
+		const message = String(error?.message || "");
+		if (!message.includes("Execution context was destroyed")) {
+			throw error;
+		}
+	}
+	await page.waitForFunction(() => Boolean(window.cur_frm?.doc), { timeout: 10000 });
 }
 
 module.exports = {

@@ -64,6 +64,7 @@ jobs:
           bench --site development.localhost install-app erpnext
           bench --site development.localhost install-app production_entry_app
           bench set-config -g developer_mode 1
+          bench --site development.localhost set-config allow_e2e_tests 1
           bench build
           bench --site development.localhost execute erpnext.setup.setup_wizard.operations.install_fixtures.install --args '["India"]'
 

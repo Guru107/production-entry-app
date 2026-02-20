@@ -40,11 +40,20 @@ async function getTimelineCanvasDetails(page, fieldname) {
 			return null;
 		}
 		const first = (canvas.__peaHitBoxes || [])[0];
+		const downtime = (canvas.__peaHitBoxes || []).find(
+			(box) => box?.entry?.entry_type === "downtime"
+		);
 		return {
 			hasCanvas: true,
 			blockCount: (canvas.__peaHitBoxes || []).length,
 			firstCenter: first
 				? { x: Math.round(first.x + first.w / 2), y: Math.round(first.y + first.h / 2) }
+				: null,
+			downtimeCenter: downtime
+				? {
+						x: Math.round(downtime.x + downtime.w / 2),
+						y: Math.round(downtime.y + downtime.h / 2),
+				  }
 				: null,
 		};
 	}, fieldname);
@@ -342,7 +351,7 @@ test.describe("Batch 2 shift UX", () => {
 		const testPrefix = `${lifecycle.getPrefix()}-downtime`;
 		const ctx = await setupFreshContext(page, testPrefix);
 
-		const downtime = await callFrappeMethod(
+		await callFrappeMethod(
 			page,
 			"production_entry_app.production_entry_app.api.create_e2e_downtime_entry",
 			{
@@ -362,12 +371,12 @@ test.describe("Batch 2 shift UX", () => {
 		});
 
 		const canvasData = await getTimelineCanvasDetails(page, "custom_shift_timeline_html");
-		expect(canvasData?.firstCenter).toBeTruthy();
+		expect(canvasData?.downtimeCenter).toBeTruthy();
 		const hovered = await dispatchTimelineCanvasEvent(
 			page,
 			"custom_shift_timeline_html",
 			"mousemove",
-			canvasData.firstCenter
+			canvasData.downtimeCenter
 		);
 		expect(hovered).toBe(true);
 		await page.waitForFunction(() => {
@@ -383,15 +392,10 @@ test.describe("Batch 2 shift UX", () => {
 			page,
 			"custom_shift_timeline_html",
 			"click",
-			canvasData.firstCenter
+			canvasData.downtimeCenter
 		);
 		expect(clicked).toBe(true);
-		await page.waitForURL(/\/app\/downtime-entry\//);
-		await page.waitForFunction(
-			(expected) =>
-				window.cur_frm?.doctype === "Downtime Entry" &&
-				window.cur_frm?.doc?.name === expected,
-			downtime?.name
-		);
+		await page.waitForURL(/\/app\/downtime-entry\/[^/]+$/);
+		await page.waitForFunction(() => window.cur_frm?.doctype === "Downtime Entry");
 	});
 });

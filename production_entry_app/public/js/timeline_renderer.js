@@ -99,6 +99,7 @@
 		if (!state) {
 			return;
 		}
+		state.stopped = true;
 		if (state.animationFrame) {
 			cancelAnimationFrame(state.animationFrame);
 		}
@@ -413,11 +414,15 @@
 			animationFrame: null,
 			resizeObserver: null,
 			resizeHandler: null,
+			stopped: false,
 		};
 		frm.__peaTimelineState = frm.__peaTimelineState || {};
 		frm.__peaTimelineState[htmlFieldname] = state;
 
 		const animate = () => {
+			if (state.stopped) {
+				return;
+			}
 			const alpha = 0.7 + (Math.sin(Date.now() / 450) + 1) * 0.15;
 			render(alpha);
 			state.animationFrame = requestAnimationFrame(animate);
