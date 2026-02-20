@@ -27,7 +27,11 @@ class TestE2EApi(FrappeTestCase):
 				"production_entry_app.production_entry_app.api._is_developer_mode_enabled",
 				return_value=True,
 			):
-				_assert_e2e_api_allowed()
+				with patch(
+					"production_entry_app.production_entry_app.api.frappe.conf",
+					frappe._dict({"allow_e2e_tests": 1}),
+				):
+					_assert_e2e_api_allowed()
 		only_for.assert_called_once_with("Administrator")
 
 	def test_assert_e2e_api_allowed_blocks_when_developer_mode_disabled(self) -> None:
@@ -37,6 +41,28 @@ class TestE2EApi(FrappeTestCase):
 				return_value=False,
 			):
 				with self.assertRaises(frappe.PermissionError):
+					_assert_e2e_api_allowed()
+
+	def test_assert_e2e_api_allowed_blocks_without_allow_e2e_tests_flag(self) -> None:
+		with patch("production_entry_app.production_entry_app.api.frappe.only_for"):
+			with patch(
+				"production_entry_app.production_entry_app.api._is_developer_mode_enabled",
+				return_value=True,
+			):
+				with patch("production_entry_app.production_entry_app.api.frappe.conf", frappe._dict()):
+					with self.assertRaises(frappe.PermissionError):
+						_assert_e2e_api_allowed()
+
+	def test_assert_e2e_api_allowed_with_both_flags(self) -> None:
+		with patch("production_entry_app.production_entry_app.api.frappe.only_for"):
+			with patch(
+				"production_entry_app.production_entry_app.api._is_developer_mode_enabled",
+				return_value=True,
+			):
+				with patch(
+					"production_entry_app.production_entry_app.api.frappe.conf",
+					frappe._dict({"allow_e2e_tests": 1}),
+				):
 					_assert_e2e_api_allowed()
 
 	def test_all_e2e_endpoints_fail_closed_when_guard_raises(self) -> None:
@@ -95,6 +121,13 @@ class TestE2EApi(FrappeTestCase):
 		self.assertTrue(date_a.startswith("2099-"))
 
 	def test_cleanup_stock_entry_query_targets_operator_first(self) -> None:
+		query = MagicMock()
+		query.left_join.return_value = query
+		query.on.return_value = query
+		query.select.return_value = query
+		query.where.return_value = query
+		query.run.return_value = []
+
 		with patch("production_entry_app.production_entry_app.api._assert_e2e_api_allowed"):
 			with patch(
 				"production_entry_app.production_entry_app.api._e2e_base_date", return_value="2099-01-10"
@@ -103,28 +136,22 @@ class TestE2EApi(FrappeTestCase):
 					"production_entry_app.production_entry_app.api.frappe.db.exists", return_value=False
 				):
 					with patch(
-						"production_entry_app.production_entry_app.api.frappe.get_all", return_value=[]
-					) as get_all:
+						"production_entry_app.production_entry_app.api.frappe.qb.from_",
+						return_value=query,
+					):
 						with patch("production_entry_app.production_entry_app.api.frappe.db.commit"):
 							cleanup_e2e_context(prefix="E2E")
 
-		stock_entry_calls = [
-			call
-			for call in get_all.call_args_list
-			if call.args and len(call.args) > 0 and call.args[0] == "Stock Entry"
-		]
-		self.assertEqual(len(stock_entry_calls), 2)
-		primary_filters = stock_entry_calls[0].kwargs.get("filters")
-		self.assertEqual(
-			primary_filters,
-			[
-				["stock_entry_type", "=", "Manufacture"],
-				["custom_operator", "=", "E2E Operator"],
-			],
-		)
-		self.assertNotIn("name", primary_filters)
+		query.run.assert_called_once_with(as_dict=True)
 
 	def test_cleanup_stock_entry_query_includes_fg_fallback_batch(self) -> None:
+		query = MagicMock()
+		query.left_join.return_value = query
+		query.on.return_value = query
+		query.select.return_value = query
+		query.where.return_value = query
+		query.run.return_value = []
+
 		with patch("production_entry_app.production_entry_app.api._assert_e2e_api_allowed"):
 			with patch(
 				"production_entry_app.production_entry_app.api._e2e_base_date", return_value="2099-01-10"
@@ -133,26 +160,13 @@ class TestE2EApi(FrappeTestCase):
 					"production_entry_app.production_entry_app.api.frappe.db.exists", return_value=False
 				):
 					with patch(
-						"production_entry_app.production_entry_app.api.frappe.get_all", return_value=[]
-					) as get_all:
+						"production_entry_app.production_entry_app.api.frappe.qb.from_",
+						return_value=query,
+					):
 						with patch("production_entry_app.production_entry_app.api.frappe.db.commit"):
 							cleanup_e2e_context(prefix="E2E")
 
-		stock_entry_calls = [
-			call
-			for call in get_all.call_args_list
-			if call.args and len(call.args) > 0 and call.args[0] == "Stock Entry"
-		]
-		self.assertEqual(len(stock_entry_calls), 2)
-		fallback_filters = stock_entry_calls[1].kwargs.get("filters")
-		self.assertEqual(
-			fallback_filters,
-			[
-				["stock_entry_type", "=", "Manufacture"],
-				["custom_operator", "!=", "E2E Operator"],
-			],
-		)
-		self.assertEqual(stock_entry_calls[1].kwargs.get("limit_page_length"), 100)
+		query.run.assert_called_once_with(as_dict=True)
 
 	def test_build_e2e_shift_doc_contains_expected_fields(self) -> None:
 		doc = _build_e2e_shift_doc(

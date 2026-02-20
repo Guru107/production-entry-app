@@ -6,7 +6,7 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 from frappe.query_builder import DocType
-from frappe.query_builder.functions import Avg, Count, Sum
+from frappe.query_builder.functions import Avg, Count, CustomFunction, Sum
 from frappe.utils import add_to_date, flt
 
 from production_entry_app.production_entry_app.utils.shift_time import combine_date_time
@@ -65,6 +65,13 @@ def _send_shift_notification(
 
 
 VALID_STATUSES: tuple[str, ...] = ("Draft", "Running", "Completed", "Cancelled")
+METRICS_CACHE_TTL_SEC: int = 30
+VALID_SHIFT_DURATIONS: frozenset[int] = frozenset({8, 10, 12})
+_BREAK_SCHEDULE: dict[int, list[tuple[str, int, int]]] = {
+	8: [("Tea Break", 2, 15), ("Lunch Break", 4, 30)],
+	10: [("Tea Break", 2, 15), ("Lunch Break", 4, 30), ("Tea Break", 6, 15)],
+	12: [("Tea Break", 2, 15), ("Lunch Break", 4, 30), ("Tea Break", 6, 15)],
+}
 
 
 @frappe.whitelist()
@@ -164,7 +171,7 @@ def _empty_shift_metrics() -> dict:
 
 
 def _get_shift_metrics_cache_key(shift_name: str) -> str:
-	return f"pea:shift_metrics:{frappe.session.user}:{shift_name}"
+	return f"pea:shift_metrics:{shift_name}"
 
 
 def _get_cached_shift_metrics(shift_name: str) -> dict | None:
@@ -172,7 +179,9 @@ def _get_cached_shift_metrics(shift_name: str) -> dict | None:
 
 
 def _set_cached_shift_metrics(shift_name: str, metrics: dict) -> None:
-	frappe.cache().set_value(_get_shift_metrics_cache_key(shift_name), metrics, expires_in_sec=30)
+	frappe.cache().set_value(
+		_get_shift_metrics_cache_key(shift_name), metrics, expires_in_sec=METRICS_CACHE_TTL_SEC
+	)
 
 
 @frappe.whitelist()
@@ -330,8 +339,8 @@ class Shift(Document):
 		if self.flags.get("allow_status_change"):
 			return
 
-		# Use DB status - reliable in all contexts (get_doc_before_save may be unset)
-		db_status = frappe.db.get_value("Shift", self.name, "status")
+		before = self.get_doc_before_save()
+		db_status = before.status if before else frappe.db.get_value("Shift", self.name, "status")
 		if not db_status:
 			return
 
@@ -370,24 +379,23 @@ class Shift(Document):
 
 		my_start = self._combine_date_time(self.shift_date, self.planned_start_time)
 		my_end = self._combine_date_time(self.shift_end_date, self.planned_end_time)
-
-		others = frappe.get_all(
-			"Shift",
-			filters=[
-				["status", "!=", "Cancelled"],
-				["name", "!=", self.name or ""],
-				["shift_date", ">=", add_to_date(self.shift_date, days=-1, as_string=True)],
-				["shift_date", "<=", add_to_date(self.shift_date, days=1, as_string=True)],
-			],
-			fields=["name", "shift_date", "planned_start_time", "shift_end_date", "planned_end_time"],
+		Timestamp = CustomFunction("TIMESTAMP", ["date_col", "time_col"])
+		shift = DocType("Shift")
+		conflict = (
+			frappe.qb.from_(shift)
+			.select(shift.name)
+			.where(shift.status != "Cancelled")
+			.where(shift.name != (self.name or ""))
+			.where(shift.shift_date >= add_to_date(self.shift_date, days=-1, as_string=True))
+			.where(shift.shift_date <= add_to_date(self.shift_date, days=1, as_string=True))
+			.where(Timestamp(shift.shift_date, shift.planned_start_time) < my_end)
+			.where(Timestamp(shift.shift_end_date, shift.planned_end_time) > my_start)
+			.limit(1)
+			.run(as_dict=True)
 		)
-
-		for row in others:
-			other_start = self._combine_date_time(row["shift_date"], row["planned_start_time"])
-			other_end = self._combine_date_time(row["shift_end_date"], row["planned_end_time"])
-			if my_start < other_end and my_end > other_start:
-				link = frappe.utils.get_link_to_form("Shift", row["name"])
-				frappe.throw(_("Shift time overlaps with {0}.").format(link))
+		if conflict:
+			link = frappe.utils.get_link_to_form("Shift", conflict[0]["name"])
+			frappe.throw(_("Shift time overlaps with {0}.").format(link))
 
 	def _validate_unique_shift_label_per_date(self) -> None:
 		"""Enforce unique shift_label per shift_date (exclude Cancelled)."""
@@ -425,6 +433,12 @@ class Shift(Document):
 		self.flags.allow_status_change = True
 		self.status = to_status
 		self.save()
+		self.add_comment(
+			"Info",
+			_("Status changed to {0} by {1}").format(
+				frappe.bold(to_status), frappe.bold(frappe.session.user)
+			),
+		)
 
 		if to_status == "Running":
 			_send_shift_notification(
@@ -454,11 +468,19 @@ class Shift(Document):
 	def _parse_duration_hours(self, shift_duration: str) -> int:
 		try:
 			duration = int(str(shift_duration).strip())
-		except ValueError as e:
-			frappe.throw(_("Invalid Shift Duration."), exc=e)
+		except ValueError:
+			frappe.throw(
+				_("Invalid Shift Duration: {0}. Valid options are: {1}.").format(
+					shift_duration, ", ".join(str(value) for value in sorted(VALID_SHIFT_DURATIONS))
+				)
+			)
 
-		if duration not in (8, 10, 12):
-			frappe.throw(_("Shift Duration must be one of 8, 10, or 12 hours."))
+		if duration not in VALID_SHIFT_DURATIONS:
+			frappe.throw(
+				_("Shift Duration must be one of {0} hours.").format(
+					", ".join(str(value) for value in sorted(VALID_SHIFT_DURATIONS))
+				)
+			)
 
 		return duration
 
@@ -487,28 +509,14 @@ class Shift(Document):
 		duration_hours = self._parse_duration_hours(self.shift_duration)
 
 		entries: list[dict] = []
-		# 8h: Tea +2h (15min), Lunch +4h (30min)
-		# 10h/12h: Tea +2h, Lunch +4h, Tea +6h
-		entries.append(
-			{
-				"downtime_reason": "Tea Break",
-				"start_time": add_to_date(base, hours=2).time().strftime("%H:%M:%S"),
-				"end_time": add_to_date(base, hours=2, minutes=15).time().strftime("%H:%M:%S"),
-			}
-		)
-		entries.append(
-			{
-				"downtime_reason": "Lunch Break",
-				"start_time": add_to_date(base, hours=4).time().strftime("%H:%M:%S"),
-				"end_time": add_to_date(base, hours=4, minutes=30).time().strftime("%H:%M:%S"),
-			}
-		)
-		if duration_hours in (10, 12):
+		for downtime_reason, offset_hours, duration_mins in _BREAK_SCHEDULE.get(duration_hours, []):
 			entries.append(
 				{
-					"downtime_reason": "Tea Break",
-					"start_time": add_to_date(base, hours=6).time().strftime("%H:%M:%S"),
-					"end_time": add_to_date(base, hours=6, minutes=15).time().strftime("%H:%M:%S"),
+					"downtime_reason": downtime_reason,
+					"start_time": add_to_date(base, hours=offset_hours).time().strftime("%H:%M:%S"),
+					"end_time": add_to_date(base, hours=offset_hours, minutes=duration_mins)
+					.time()
+					.strftime("%H:%M:%S"),
 				}
 			)
 

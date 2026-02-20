@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import datetime
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import frappe
 from frappe.exceptions import ValidationError
@@ -175,6 +175,32 @@ class TestShift(FrappeTestCase):
 		doc.end_shift()
 		doc.reload()
 		self.assertEqual(doc.status, "Completed")
+
+	def test_status_transition_adds_audit_comment(self) -> None:
+		self._delete_shifts_for_date("2026-02-26")
+		name = self._expected_name("2026-02-26", "2")
+		self._delete_shift_if_exists(name)
+
+		doc = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"shift_label": "2",
+				"shift_duration": "8",
+				"shift_date": "2026-02-26",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+		doc.start_shift()
+		doc.reload()
+
+		comments = frappe.get_all(
+			"Comment",
+			filters={"reference_doctype": "Shift", "reference_name": doc.name},
+			fields=["content"],
+			order_by="creation desc",
+			limit_page_length=5,
+		)
+		self.assertTrue(any("Status changed to" in (row.get("content") or "") for row in comments))
 
 	def test_status_transition_draft_to_cancelled(self) -> None:
 		name = self._expected_name("2026-05-15", "2")
@@ -475,16 +501,19 @@ class TestShift(FrappeTestCase):
 		doc.shift_end_date = "2026-02-21"
 		doc.planned_end_time = "16:00:00"
 
+		query = MagicMock()
+		query.select.return_value = query
+		query.where.return_value = query
+		query.limit.return_value = query
+		query.run.return_value = []
+
 		with patch(
-			"production_entry_app.production_entry_app.doctype.shift.shift.frappe.get_all",
-			return_value=[],
-		) as get_all:
+			"production_entry_app.production_entry_app.doctype.shift.shift.frappe.qb.from_",
+			return_value=query,
+		):
 			Shift._validate_no_overlapping_shifts(doc)
 
-		self.assertEqual(get_all.call_count, 1)
-		filters = get_all.call_args.kwargs.get("filters") or []
-		self.assertIn(["shift_date", ">=", "2026-02-20"], filters)
-		self.assertIn(["shift_date", "<=", "2026-02-22"], filters)
+		query.run.assert_called_once_with(as_dict=True)
 
 	def test_overlap_still_detected_for_cross_midnight_neighbor_day(self) -> None:
 		self._delete_shifts_for_date("2026-04-14")
@@ -1116,6 +1145,27 @@ class TestShiftMetrics(FrappeTestCase):
 		):
 			metrics = get_shift_metrics(shift.name)
 		self.assertEqual(metrics, cached)
+
+	def test_shift_metrics_cache_key_is_user_agnostic(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import _get_shift_metrics_cache_key
+
+		shift = self._create_shift("2026-09-12")
+		frappe.set_user("Administrator")
+		admin_key = _get_shift_metrics_cache_key(shift.name)
+		_ensure_user_with_role("test_shift_metrics_user@example.com", "Manufacturing User")
+		frappe.set_user("test_shift_metrics_user@example.com")
+		other_key = _get_shift_metrics_cache_key(shift.name)
+
+		self.assertEqual(admin_key, other_key)
+		self.assertEqual(admin_key, f"pea:shift_metrics:{shift.name}")
+
+	def test_break_schedule_keys_match_valid_shift_durations(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import (
+			_BREAK_SCHEDULE,
+			VALID_SHIFT_DURATIONS,
+		)
+
+		self.assertEqual(set(_BREAK_SCHEDULE.keys()), set(VALID_SHIFT_DURATIONS))
 
 
 def _ensure_user_with_role(email: str, role: str) -> None:

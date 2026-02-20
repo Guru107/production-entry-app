@@ -5,6 +5,7 @@ import json
 
 import frappe
 from frappe import _
+from frappe.query_builder import DocType
 from frappe.utils import add_to_date, cint, get_datetime, get_time, now_datetime
 
 from production_entry_app.production_entry_app.utils.die_tool_counter import (
@@ -24,6 +25,9 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	ensure_workstation,
 	resolve_test_company,
 )
+
+STOCK_ENTRY = DocType("Stock Entry")
+STOCK_ENTRY_DETAIL = DocType("Stock Entry Detail")
 
 
 @frappe.whitelist()
@@ -182,9 +186,13 @@ def _is_developer_mode_enabled() -> bool:
 
 def _assert_e2e_api_allowed() -> None:
 	frappe.only_for("Administrator")
-	if _is_developer_mode_enabled():
-		return
-	frappe.throw(_("E2E bootstrap APIs are only available in developer mode."), frappe.PermissionError)
+	if not _is_developer_mode_enabled():
+		frappe.throw(_("E2E bootstrap APIs are only available in developer mode."), frappe.PermissionError)
+	if not bool(cint(getattr(frappe.conf, "allow_e2e_tests", 0))):
+		frappe.throw(
+			_("E2E APIs require allow_e2e_tests=1 in site_config.json."),
+			frappe.PermissionError,
+		)
 
 
 def _stock_entry_matches_cleanup_target(se, target_operator: str, target_fg_item: str) -> bool:
@@ -382,27 +390,17 @@ def cleanup_e2e_context(prefix: str = "E2E") -> dict:
 		if doc.status in ("Draft", "Cancelled", "Completed"):
 			frappe.delete_doc("Shift", name, ignore_permissions=True, force=True)
 
-	stock_entries = frappe.get_all(
-		"Stock Entry",
-		filters=[
-			["stock_entry_type", "=", "Manufacture"],
-			["custom_operator", "=", target_operator],
-		],
-		fields=["name", "docstatus"],
-		order_by="creation desc",
-		limit_page_length=0,
-	)
-	stock_entries.extend(
-		frappe.get_all(
-			"Stock Entry",
-			filters=[
-				["stock_entry_type", "=", "Manufacture"],
-				["custom_operator", "!=", target_operator],
-			],
-			fields=["name", "docstatus"],
-			order_by="creation desc",
-			limit_page_length=100,
+	stock_entries = (
+		frappe.qb.from_(STOCK_ENTRY)
+		.left_join(STOCK_ENTRY_DETAIL)
+		.on(STOCK_ENTRY_DETAIL.parent == STOCK_ENTRY.name)
+		.select(STOCK_ENTRY.name, STOCK_ENTRY.docstatus)
+		.where(STOCK_ENTRY.stock_entry_type == "Manufacture")
+		.where(
+			(STOCK_ENTRY.custom_operator == target_operator)
+			| ((STOCK_ENTRY_DETAIL.item_code == target_fg_item) & (STOCK_ENTRY_DETAIL.is_finished_item == 1))
 		)
+		.run(as_dict=True)
 	)
 
 	seen_entries = set()
@@ -410,19 +408,38 @@ def cleanup_e2e_context(prefix: str = "E2E") -> dict:
 		if row.name in seen_entries:
 			continue
 		seen_entries.add(row.name)
-		se = frappe.get_doc("Stock Entry", row.name)
+		try:
+			se = frappe.get_doc("Stock Entry", row.name)
+		except Exception:
+			frappe.log_error(
+				title="Production Entry App",
+				message=f"Failed loading Stock Entry during E2E cleanup: {row.name}",
+			)
+			continue
 		if not _stock_entry_matches_cleanup_target(
 			se, target_operator=target_operator, target_fg_item=target_fg_item
 		):
 			continue
-		if se.docstatus == 1:
-			se.cancel()
-		if se.docstatus in (0, 2):
-			frappe.delete_doc("Stock Entry", se.name, ignore_permissions=True, force=True)
+		try:
+			if se.docstatus == 1:
+				se.cancel()
+			if se.docstatus in (0, 2):
+				frappe.delete_doc("Stock Entry", se.name, ignore_permissions=True, force=True)
+		except Exception:
+			frappe.log_error(
+				title="Production Entry App",
+				message=f"Failed deleting Stock Entry during E2E cleanup: {se.name}",
+			)
 
 	for doctype, name in (("Workstation", target_workstation), ("Operator", target_operator)):
 		if frappe.db.exists(doctype, name):
-			frappe.delete_doc(doctype, name, ignore_permissions=True, force=True)
+			try:
+				frappe.delete_doc(doctype, name, ignore_permissions=True, force=True)
+			except Exception:
+				frappe.log_error(
+					title="Production Entry App",
+					message=f"Failed deleting {doctype} during E2E cleanup: {name}",
+				)
 
 	for item in (target_fg_item, target_rm_item):
 		if frappe.db.exists("Die Tool Counter", {"die_tool_item": item}):

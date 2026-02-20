@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from typing import ClassVar
+from unittest.mock import patch
 
 import frappe
 from frappe.exceptions import ValidationError
@@ -691,6 +692,51 @@ class TestStockEntryHooks(FrappeTestCase):
 
 		with self.assertRaises(ValidationError):
 			se.save()
+
+	def test_shift_buffer_negative_is_clamped_to_zero(self) -> None:
+		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
+			_get_shift_buffer_minutes,
+		)
+
+		meta = frappe._dict(has_field=lambda _fieldname: True)
+		with patch(
+			"production_entry_app.production_entry_app.overrides.stock_entry_hooks.frappe.get_meta",
+			return_value=meta,
+		):
+			with patch(
+				"production_entry_app.production_entry_app.overrides.stock_entry_hooks.frappe.db.get_single_value",
+				return_value=-15,
+			):
+				with patch(
+					"production_entry_app.production_entry_app.overrides.stock_entry_hooks.frappe.log_error"
+				) as log_error:
+					value = _get_shift_buffer_minutes("shift_start_buffer_mins", 60)
+
+		self.assertEqual(value, 0)
+		log_error.assert_called_once()
+
+	def test_shift_buffer_overflow_is_clamped_to_max(self) -> None:
+		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
+			_MAX_BUFFER_MINS,
+			_get_shift_buffer_minutes,
+		)
+
+		meta = frappe._dict(has_field=lambda _fieldname: True)
+		with patch(
+			"production_entry_app.production_entry_app.overrides.stock_entry_hooks.frappe.get_meta",
+			return_value=meta,
+		):
+			with patch(
+				"production_entry_app.production_entry_app.overrides.stock_entry_hooks.frappe.db.get_single_value",
+				return_value=9999,
+			):
+				with patch(
+					"production_entry_app.production_entry_app.overrides.stock_entry_hooks.frappe.log_error"
+				) as log_error:
+					value = _get_shift_buffer_minutes("shift_end_buffer_mins", 60)
+
+		self.assertEqual(value, _MAX_BUFFER_MINS)
+		log_error.assert_called_once()
 
 	def test_metrics_calculated_from_actual_times_and_output(self) -> None:
 		shift = _create_test_shift(
@@ -2220,3 +2266,35 @@ class TestDieToolCounter(FrappeTestCase):
 		self.assertIsNone(_get_fg_item_code(doc_without_fg))
 		self.assertEqual(_get_total_units(doc_without_fg), 0.0)
 		self.assertIsNone(_get_fg_row(doc_without_fg))
+
+	def test_cache_invalidated_on_stock_entry_submit(self) -> None:
+		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
+			on_submit_stock_entry,
+		)
+
+		doc = frappe._dict({"purpose": "Manufacture", "custom_shift": "SHIFT-TEST-001"})
+		with patch(
+			"production_entry_app.production_entry_app.overrides.stock_entry_hooks.update_counter_for_stock_entry"
+		):
+			with patch(
+				"production_entry_app.production_entry_app.overrides.stock_entry_hooks.frappe.cache"
+			) as cache:
+				on_submit_stock_entry(doc, "on_submit")
+
+		cache.return_value.delete_value.assert_called_once_with("pea:shift_metrics:SHIFT-TEST-001")
+
+	def test_cache_invalidated_on_stock_entry_cancel(self) -> None:
+		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
+			on_cancel_stock_entry,
+		)
+
+		doc = frappe._dict({"purpose": "Manufacture", "custom_shift": "SHIFT-TEST-002"})
+		with patch(
+			"production_entry_app.production_entry_app.overrides.stock_entry_hooks.update_counter_for_stock_entry"
+		):
+			with patch(
+				"production_entry_app.production_entry_app.overrides.stock_entry_hooks.frappe.cache"
+			) as cache:
+				on_cancel_stock_entry(doc, "on_cancel")
+
+		cache.return_value.delete_value.assert_called_once_with("pea:shift_metrics:SHIFT-TEST-002")

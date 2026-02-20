@@ -1,6 +1,8 @@
 // Copyright (c) 2026, Gurudatt Kulkarni and contributors
 // For license information, please see license.txt
 
+let _plannedBreakDebounceTimer = null;
+
 frappe.ui.form.on("Shift", {
 	planned_start_time(frm) {
 		_populate_default_breaks_if_draft(frm);
@@ -109,21 +111,30 @@ function _populate_default_breaks_if_draft(frm) {
 	) {
 		return;
 	}
-	frappe.call({
-		method: "production_entry_app.production_entry_app.doctype.shift.shift.get_planned_losses_for_duration",
-		args: {
-			shift_duration: frm.doc.shift_duration,
-			planned_start_time: frm.doc.planned_start_time,
-			shift_date: frm.doc.shift_date,
-		},
-		callback(r) {
-			if (r.message && r.message.length > 0) {
-				frm.clear_table("planned_losses");
-				r.message.forEach((row) => frm.add_child("planned_losses", row));
-				frm.refresh_field("planned_losses");
-			}
-		},
-	});
+	if (_plannedBreakDebounceTimer) {
+		clearTimeout(_plannedBreakDebounceTimer);
+	}
+	_plannedBreakDebounceTimer = setTimeout(() => {
+		frappe.call({
+			method: "production_entry_app.production_entry_app.doctype.shift.shift.get_planned_losses_for_duration",
+			args: {
+				shift_duration: frm.doc.shift_duration,
+				planned_start_time: frm.doc.planned_start_time,
+				shift_date: frm.doc.shift_date,
+			},
+			callback(r) {
+				if (r.message && r.message.length > 0) {
+					frm.clear_table("planned_losses");
+					r.message.forEach((row) => frm.add_child("planned_losses", row));
+					frm.refresh_field("planned_losses");
+				}
+			},
+			error(error) {
+				console.warn("Failed to load planned breaks.", error);
+				frappe.msgprint(__("Failed to load planned breaks. Please retry."));
+			},
+		});
+	}, 300);
 }
 
 function _render_linked_downtime_entries(frm) {
@@ -157,6 +168,10 @@ function _render_linked_downtime_entries(frm) {
 				html = `<table class="table table-bordered table-condensed"><thead><tr><th>Name</th><th>Workstation</th><th>From Time</th><th>To Time</th><th>Downtime (mins)</th><th>Stop Reason</th></tr></thead><tbody>${rows}</tbody></table>`;
 			}
 			_set_shared_html_field(frm, "linked_downtime_entries", html);
+		},
+		error(error) {
+			console.warn("Failed to load linked downtime entries.", error);
+			frappe.msgprint(__("Failed to load linked downtime entries."));
 		},
 	});
 }
@@ -200,6 +215,10 @@ function _render_shift_metrics(frm) {
 				.join("");
 			const html = `<table class="table table-condensed table-bordered"><tbody>${htmlRows}</tbody></table>`;
 			_set_shared_html_field(frm, "shift_metrics", html);
+		},
+		error(error) {
+			console.warn("Failed to load shift metrics.", error);
+			frappe.msgprint(__("Failed to load shift metrics."));
 		},
 	});
 }

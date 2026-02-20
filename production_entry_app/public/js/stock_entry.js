@@ -36,6 +36,7 @@ const MANUFACTURE_SECTIONS = [
 
 const ALWAYS_HIDDEN_FIELDS = ["process_loss_percentage", "process_loss_qty"];
 const ALWAYS_HIDDEN_SECTIONS = ["section_break_7qsm"];
+let _dieToolRequestId = 0;
 
 // Suppress ERPNext's auto-populate on fg_completed_qty change for Manufacture
 // entries so the user can set both Qty to Manufacture and Rejection Qty before
@@ -231,11 +232,15 @@ function _update_die_tool_metrics(frm) {
 		_set_die_tool_metric_fields(frm, 0, 0);
 		return;
 	}
+	const reqId = ++_dieToolRequestId;
 
 	frappe.call({
 		method: "production_entry_app.production_entry_app.api.get_die_tool_counter",
 		args: { die_tool_code: item_code },
 		callback(r) {
+			if (reqId !== _dieToolRequestId) {
+				return;
+			}
 			if (!r.message) return;
 			const data = r.message;
 			const utilization = parseFloat(data.utilization_pct || 0);
@@ -251,6 +256,13 @@ function _update_die_tool_metrics(frm) {
 					"orange"
 				);
 			}
+		},
+		error(error) {
+			if (reqId !== _dieToolRequestId) {
+				return;
+			}
+			console.warn("Failed to load die tool metrics.", error);
+			frappe.msgprint(__("Failed to load die tool metrics. Please refresh."));
 		},
 	});
 }
