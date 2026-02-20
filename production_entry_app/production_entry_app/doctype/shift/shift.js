@@ -123,6 +123,9 @@ function _populate_default_breaks_if_draft(frm) {
 				frm.refresh_field("planned_losses");
 			}
 		},
+		error() {
+			frappe.msgprint(__("Failed to load planned breaks. Please retry."));
+		},
 	});
 }
 
@@ -157,6 +160,13 @@ function _render_linked_downtime_entries(frm) {
 				html = `<table class="table table-bordered table-condensed"><thead><tr><th>Name</th><th>Workstation</th><th>From Time</th><th>To Time</th><th>Downtime (mins)</th><th>Stop Reason</th></tr></thead><tbody>${rows}</tbody></table>`;
 			}
 			_set_shared_html_field(frm, "linked_downtime_entries", html);
+		},
+		error() {
+			_set_shared_html_field(
+				frm,
+				"linked_downtime_entries",
+				`<p class="text-muted">${__("Unable to load linked downtime entries.")}</p>`
+			);
 		},
 	});
 }
@@ -200,6 +210,13 @@ function _render_shift_metrics(frm) {
 				.join("");
 			const html = `<table class="table table-condensed table-bordered"><tbody>${htmlRows}</tbody></table>`;
 			_set_shared_html_field(frm, "shift_metrics", html);
+		},
+		error() {
+			_set_shared_html_field(
+				frm,
+				"shift_metrics",
+				`<p class="text-muted">${__("Unable to load shift metrics.")}</p>`
+			);
 		},
 	});
 }
