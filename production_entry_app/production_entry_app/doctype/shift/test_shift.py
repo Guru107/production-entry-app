@@ -17,9 +17,14 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 
 def _ensure_downtime_reasons() -> None:
 	"""Ensure Tea Break and Lunch Break Downtime Reasons exist (for planned losses tests)."""
+	if not frappe.get_meta("Downtime Reason", cached=True).has_field("is_active"):
+		frappe.reload_doc("production_entry_app", "doctype", "downtime_reason")
+		frappe.clear_cache(doctype="Downtime Reason")
 	for name in ("Tea Break", "Lunch Break"):
 		if not frappe.db.exists("Downtime Reason", name):
 			frappe.get_doc({"doctype": "Downtime Reason", "downtime_reason_name": name}).insert()
+		if frappe.get_meta("Downtime Reason", cached=True).has_field("is_active"):
+			frappe.db.set_value("Downtime Reason", name, "is_active", 1, update_modified=False)
 
 
 class TestShift(FrappeTestCase):
@@ -196,6 +201,70 @@ class TestShift(FrappeTestCase):
 		doc.reload()
 		self.assertEqual(doc.status, "Cancelled")
 
+	def test_start_shift_adds_status_audit_comment(self) -> None:
+		name = self._expected_name("2026-05-16", "1")
+		self._delete_shift_if_exists(name)
+		doc = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": "2026-05-16",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+
+		doc.start_shift()
+		comments = frappe.get_all(
+			"Comment",
+			filters={"reference_doctype": "Shift", "reference_name": name},
+			pluck="content",
+		)
+		self.assertTrue(any("Status changed to" in (c or "") and "Running" in (c or "") for c in comments))
+
+	def test_end_shift_adds_status_audit_comment(self) -> None:
+		name = self._expected_name("2026-05-17", "1")
+		self._delete_shift_if_exists(name)
+		doc = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": "2026-05-17",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+		doc.start_shift()
+		doc.end_shift()
+
+		comments = frappe.get_all(
+			"Comment",
+			filters={"reference_doctype": "Shift", "reference_name": name},
+			pluck="content",
+		)
+		self.assertTrue(any("Status changed to" in (c or "") and "Completed" in (c or "") for c in comments))
+
+	def test_cancel_shift_adds_status_audit_comment(self) -> None:
+		name = self._expected_name("2026-05-18", "2")
+		self._delete_shift_if_exists(name)
+		doc = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"shift_label": "2",
+				"shift_duration": "8",
+				"shift_date": "2026-05-18",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+		doc.cancel_shift()
+
+		comments = frappe.get_all(
+			"Comment",
+			filters={"reference_doctype": "Shift", "reference_name": name},
+			pluck="content",
+		)
+		self.assertTrue(any("Status changed to" in (c or "") and "Cancelled" in (c or "") for c in comments))
+
 	def test_cancel_shift_not_allowed_from_running(self) -> None:
 		name = self._expected_name("2026-02-16", "1")
 		self._delete_shift_if_exists(name)
@@ -283,6 +352,22 @@ class TestShift(FrappeTestCase):
 		doc.supervisor = "Administrator"
 		with self.assertRaises(ValidationError):
 			doc.save()
+
+	def test_field_locking_uses_doc_before_save_before_db_lookup(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import Shift
+
+		doc = frappe.new_doc("Shift")
+		doc.name = "SHIFT-TEST-LOCKING"
+		doc.flags.allow_status_change = False
+		doc.planned_losses = []
+		doc.get_doc_before_save = lambda: frappe._dict({"status": "Running", "planned_losses": []})
+		doc._planned_losses_changed = lambda: False
+
+		with patch(
+			"production_entry_app.production_entry_app.doctype.shift.shift.frappe.db.get_value"
+		) as get_value:
+			Shift._validate_field_locking(doc)
+		get_value.assert_not_called()
 
 	def test_planned_losses_auto_populate_8_hour_shift(self) -> None:
 		name = self._expected_name("2026-02-11", "1")
@@ -387,6 +472,58 @@ class TestShift(FrappeTestCase):
 		self.assertEqual(len(doc.planned_losses), 3)
 		self.assertEqual(doc.planned_losses[2].downtime_reason, "Tea Break")
 		self.assertEqual(doc.planned_losses[2].start_time, "14:00:00")
+
+	def test_inactive_downtime_reason_not_included_in_planned_losses(self) -> None:
+		if not frappe.get_meta("Downtime Reason", cached=True).has_field("is_active"):
+			self.skipTest("Downtime Reason.is_active field is not available in current schema.")
+		name = self._expected_name("2026-06-01", "1")
+		self._delete_shift_if_exists(name)
+		original_tea_state = frappe.db.get_value("Downtime Reason", "Tea Break", "is_active")
+		try:
+			frappe.db.set_value("Downtime Reason", "Tea Break", "is_active", 0, update_modified=False)
+			doc = frappe.get_doc(
+				{
+					"doctype": "Shift",
+					"shift_label": "1",
+					"shift_duration": "10",
+					"shift_date": "2026-06-01",
+					"planned_start_time": "08:00:00",
+				}
+			).insert()
+			reasons = [row.downtime_reason for row in doc.planned_losses]
+			self.assertNotIn("Tea Break", reasons)
+			self.assertIn("Lunch Break", reasons)
+		finally:
+			frappe.db.set_value(
+				"Downtime Reason",
+				"Tea Break",
+				"is_active",
+				1 if original_tea_state is None else original_tea_state,
+				update_modified=False,
+			)
+
+	def test_break_schedule_keys_match_valid_durations(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import (
+			_BREAK_SCHEDULE,
+			VALID_SHIFT_DURATIONS,
+		)
+
+		self.assertEqual(set(_BREAK_SCHEDULE.keys()), set(VALID_SHIFT_DURATIONS))
+
+	def test_invalid_shift_duration_message_lists_valid_options(self) -> None:
+		name = self._expected_name("2026-05-19", "1")
+		self._delete_shift_if_exists(name)
+		with self.assertRaises(ValidationError) as exc:
+			frappe.get_doc(
+				{
+					"doctype": "Shift",
+					"shift_label": "1",
+					"shift_duration": "9",
+					"shift_date": "2026-05-19",
+					"planned_start_time": "08:00:00",
+				}
+			).insert()
+		self.assertIn("8, 10, 12", str(exc.exception))
 
 	def test_status_cannot_be_changed_directly(self) -> None:
 		name = self._expected_name("2026-02-10", "2")
@@ -906,6 +1043,19 @@ class TestShiftLayout(FrappeTestCase):
 			self.assertTrue(field, f"Expected field {fieldname} to exist")
 			self.assertEqual(field.fieldtype, "Tab Break")
 
+	def test_shift_date_is_required(self) -> None:
+		meta = frappe.get_meta("Shift")
+		field = meta.get_field("shift_date")
+		self.assertTrue(field)
+		self.assertEqual(int(field.reqd or 0), 1)
+
+	def test_search_indexes_enabled_for_key_shift_fields(self) -> None:
+		meta = frappe.get_meta("Shift")
+		for fieldname in ("shift_date", "status", "supervisor"):
+			field = meta.get_field(fieldname)
+			self.assertTrue(field)
+			self.assertEqual(int(field.search_index or 0), 1)
+
 	def test_warehouse_fields_follow_warehouses_tab(self) -> None:
 		meta = frappe.get_meta("Shift")
 		tab_start = self._field_index(meta, "tab_warehouses")
@@ -1159,6 +1309,10 @@ class TestShiftPermissions(FrappeTestCase):
 
 	def setUp(self) -> None:
 		_ensure_downtime_reasons()
+		frappe.reload_doc("production_entry_app", "doctype", "loss_entry")
+		frappe.reload_doc("production_entry_app", "doctype", "rejection_breakup")
+		frappe.clear_cache(doctype="Loss Entry")
+		frappe.clear_cache(doctype="Rejection Breakup")
 		# Ensure Manufacturing User and Manufacturing Manager roles exist (ERPNext)
 		if not frappe.db.exists("Role", "Manufacturing User"):
 			frappe.get_doc({"doctype": "Role", "role_name": "Manufacturing User"}).insert(
@@ -1254,6 +1408,18 @@ class TestShiftPermissions(FrappeTestCase):
 			frappe.has_permission("Shift", "read"),
 			"User with only Blogger role must not have Shift read permission.",
 		)
+
+	def test_loss_entry_permissions_include_manufacturing_roles(self) -> None:
+		meta = frappe.get_meta("Loss Entry")
+		roles = {perm.role for perm in meta.permissions}
+		self.assertIn("Manufacturing User", roles)
+		self.assertIn("Manufacturing Manager", roles)
+
+	def test_rejection_breakup_permissions_include_manufacturing_roles(self) -> None:
+		meta = frappe.get_meta("Rejection Breakup")
+		roles = {perm.role for perm in meta.permissions}
+		self.assertIn("Manufacturing User", roles)
+		self.assertIn("Manufacturing Manager", roles)
 
 	def _expected_name(self, shift_date: str, shift_label: str) -> str:
 		return f"SHIFT-{shift_date}.Shift-{shift_label}"

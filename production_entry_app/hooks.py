@@ -152,23 +152,11 @@ doc_events = {
 # Scheduled Tasks
 # ---------------
 
-# scheduler_events = {
-# 	"all": [
-# 		"production_entry_app.tasks.all"
-# 	],
-# 	"daily": [
-# 		"production_entry_app.tasks.daily"
-# 	],
-# 	"hourly": [
-# 		"production_entry_app.tasks.hourly"
-# 	],
-# 	"weekly": [
-# 		"production_entry_app.tasks.weekly"
-# 	],
-# 	"monthly": [
-# 		"production_entry_app.tasks.monthly"
-# 	],
-# }
+scheduler_events = {
+	"daily": [
+		"production_entry_app.tasks.send_daily_die_tool_maintenance_alerts",
+	]
+}
 
 # Testing
 # -------

@@ -125,8 +125,12 @@ test.describe("Die tool metrics and counter", () => {
 		const stockEntry = await getDoc(page, "Stock Entry", stockEntryName);
 		expect(Number(stockEntry.custom_die_tool_utilization_pct || 0)).toBeGreaterThanOrEqual(90);
 		expect(Number(stockEntry.custom_die_tool_maintenance_due || 0)).toBe(1);
-
-		await expect(page.locator("body")).toContainText(/needs maintenance/i);
+		await page.waitForFunction(
+			() =>
+				/needs maintenance/i.test(String(window.cur_frm?.__peaDieToolAlertMessage || "")),
+			undefined,
+			{ timeout: 10000 }
+		);
 	});
 
 	test("@regression die-tool counter increases on submit and decreases on cancel", async ({

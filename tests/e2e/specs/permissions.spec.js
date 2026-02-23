@@ -43,25 +43,31 @@ async function runShiftCrudAsRole(page, { email, role, dayOffset }) {
 
 	await loginAs(page, email, TEST_PASSWORD);
 
+	const shiftDate = futureDate(dayOffset + Math.floor(Math.random() * 3650));
 	const shiftPage = new ShiftPage(page);
-	await shiftPage.openNew();
-	await shiftPage.setDraftFields({
-		date: futureDate(dayOffset),
-		label: "1",
-		duration: "8",
-		startTime: "06:00:00",
+	const createdDoc = await callFrappeMethod(page, "frappe.client.insert", {
+		doc: JSON.stringify({
+			doctype: "Shift",
+			shift_label: "1",
+			shift_duration: "8",
+			shift_date: shiftDate,
+			planned_start_time: "06:00:00",
+		}),
 	});
-	await shiftPage.saveDraft();
 
-	const createdShiftName = await page.evaluate(() => window.cur_frm?.doc?.name || "");
+	const createdShiftName = createdDoc?.name || "";
 	expect(createdShiftName).toContain("SHIFT-");
 
 	await shiftPage.open(createdShiftName);
-	const createdDoc = await getDoc(page, "Shift", createdShiftName);
-	expect(createdDoc.name).toBe(createdShiftName);
+	const fetchedCreatedDoc = await getDoc(page, "Shift", createdShiftName);
+	expect(fetchedCreatedDoc.name).toBe(createdShiftName);
 
-	await shiftPage.setDraftFields({ duration: "10" });
-	await shiftPage.saveDraft();
+	await callFrappeMethod(page, "frappe.client.set_value", {
+		doctype: "Shift",
+		name: createdShiftName,
+		fieldname: "shift_duration",
+		value: "10",
+	});
 	const updatedDoc = await getDoc(page, "Shift", createdShiftName);
 	expect(String(updatedDoc.shift_duration)).toBe("10");
 

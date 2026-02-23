@@ -5,7 +5,8 @@
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
-  "rejection_reason_name"
+  "rejection_reason_name",
+  "is_active"
  ],
  "fields": [
   {
@@ -15,6 +16,13 @@
    "label": "Rejection Reason",
    "reqd": 1,
    "unique": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Is Active"
   }
  ],
  "index_web_pages_for_search": 1,

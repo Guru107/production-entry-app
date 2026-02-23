@@ -1,6 +1,8 @@
 // Copyright (c) 2026, Gurudatt Kulkarni and contributors
 // For license information, please see license.txt
 
+const PLANNED_BREAKS_DEBOUNCE_MS = 300;
+
 frappe.ui.form.on("Shift", {
 	planned_start_time(frm) {
 		_populate_default_breaks_if_draft(frm);
@@ -109,24 +111,38 @@ function _populate_default_breaks_if_draft(frm) {
 	) {
 		return;
 	}
-	frappe.call({
-		method: "production_entry_app.production_entry_app.doctype.shift.shift.get_planned_losses_for_duration",
-		args: {
-			shift_duration: frm.doc.shift_duration,
-			planned_start_time: frm.doc.planned_start_time,
-			shift_date: frm.doc.shift_date,
-		},
-		callback(r) {
-			if (r.message && r.message.length > 0) {
-				frm.clear_table("planned_losses");
-				r.message.forEach((row) => frm.add_child("planned_losses", row));
-				frm.refresh_field("planned_losses");
-			}
-		},
-		error() {
-			frappe.msgprint(__("Failed to load planned breaks. Please retry."));
-		},
-	});
+	if (frm.__plannedBreaksDebounceTimer) {
+		clearTimeout(frm.__plannedBreaksDebounceTimer);
+	}
+	frm.__plannedBreaksDebounceTimer = setTimeout(() => {
+		frm.__plannedBreaksDebounceTimer = null;
+		if (
+			frm.doc.status !== "Draft" ||
+			!frm.doc.shift_duration ||
+			!frm.doc.planned_start_time ||
+			!frm.doc.shift_date
+		) {
+			return;
+		}
+		frappe.call({
+			method: "production_entry_app.production_entry_app.doctype.shift.shift.get_planned_losses_for_duration",
+			args: {
+				shift_duration: frm.doc.shift_duration,
+				planned_start_time: frm.doc.planned_start_time,
+				shift_date: frm.doc.shift_date,
+			},
+			callback(r) {
+				if (r.message && r.message.length > 0) {
+					frm.clear_table("planned_losses");
+					r.message.forEach((row) => frm.add_child("planned_losses", row));
+					frm.refresh_field("planned_losses");
+				}
+			},
+			error() {
+				frappe.msgprint(__("Failed to load planned breaks. Please retry."));
+			},
+		});
+	}, PLANNED_BREAKS_DEBOUNCE_MS);
 }
 
 function _render_linked_downtime_entries(frm) {
@@ -140,7 +156,9 @@ function _render_linked_downtime_entries(frm) {
 			const list = r.message || [];
 			let html;
 			if (list.length === 0) {
-				html = '<p class="text-muted">No Downtime Entries linked to this Shift.</p>';
+				html = `<p class="text-muted">${__(
+					"No Downtime Entries linked to this Shift."
+				)}</p>`;
 			} else {
 				const escape = (s) => (s != null ? frappe.utils.escape_html(String(s)) : "");
 				const rows = list
@@ -157,7 +175,13 @@ function _render_linked_downtime_entries(frm) {
 							)}</td></tr>`
 					)
 					.join("");
-				html = `<table class="table table-bordered table-condensed"><thead><tr><th>Name</th><th>Workstation</th><th>From Time</th><th>To Time</th><th>Downtime (mins)</th><th>Stop Reason</th></tr></thead><tbody>${rows}</tbody></table>`;
+				html = `<table class="table table-bordered table-condensed"><thead><tr><th>${__(
+					"Name"
+				)}</th><th>${__("Workstation")}</th><th>${__("From Time")}</th><th>${__(
+					"To Time"
+				)}</th><th>${__("Downtime (mins)")}</th><th>${__(
+					"Stop Reason"
+				)}</th></tr></thead><tbody>${rows}</tbody></table>`;
 			}
 			_set_shared_html_field(frm, "linked_downtime_entries", html);
 		},
@@ -185,19 +209,21 @@ function _render_shift_metrics(frm) {
 				_set_shared_html_field(
 					frm,
 					"shift_metrics",
-					'<p class="text-muted">No production entries linked to this shift yet.</p>'
+					`<p class="text-muted">${__(
+						"No production entries linked to this shift yet."
+					)}</p>`
 				);
 				return;
 			}
 
 			const rows = [
-				["Entries", metrics.entry_count],
-				["Good Qty", metrics.total_good_qty],
-				["Rejection Qty", metrics.total_rejection_qty],
-				["OK Qty", metrics.total_ok_qty],
-				["Total Duration (mins)", metrics.total_duration_mins],
-				["Avg Actual SPM", metrics.avg_actual_spm],
-				["Avg Efficiency (%)", metrics.avg_efficiency_pct],
+				[__("Entries"), metrics.entry_count],
+				[__("Good Qty"), metrics.total_good_qty],
+				[__("Rejection Qty"), metrics.total_rejection_qty],
+				[__("OK Qty"), metrics.total_ok_qty],
+				[__("Total Duration (mins)"), metrics.total_duration_mins],
+				[__("Avg Actual SPM"), metrics.avg_actual_spm],
+				[__("Avg Efficiency (%)"), metrics.avg_efficiency_pct],
 			];
 
 			const htmlRows = rows
