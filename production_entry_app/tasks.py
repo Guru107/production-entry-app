@@ -19,7 +19,7 @@ def _get_maintenance_recipients() -> list[str]:
 		values = [email.strip() for email in raw_recipients.split(",")]
 		return [email for email in values if email]
 
-	if isinstance(raw_recipients, (list, tuple, set)):
+	if isinstance(raw_recipients, list | tuple | set):
 		return [str(email).strip() for email in raw_recipients if str(email).strip()]
 
 	return []
