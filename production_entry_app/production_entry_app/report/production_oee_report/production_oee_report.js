@@ -31,28 +31,17 @@ frappe.query_reports["Production OEE Report"] = {
 			},
 		},
 		{
-			fieldname: "custom_shift",
-			label: __("Shift"),
-			fieldtype: "Link",
-			options: "Shift",
-		},
-		{
-			fieldname: "custom_operator",
-			label: __("Operator"),
-			fieldtype: "Link",
-			options: "Operator",
-		},
-		{
 			fieldname: "custom_workstation",
 			label: __("Workstation"),
 			fieldtype: "Link",
 			options: "Workstation",
 		},
 		{
-			fieldname: "fg_item",
-			label: __("Die Tool Item"),
-			fieldtype: "Link",
-			options: "Item",
+			fieldname: "avl_hours_per_day",
+			label: __("Avl Hrs"),
+			fieldtype: "Float",
+			default: 24,
+			reqd: 1,
 		},
 	],
 };

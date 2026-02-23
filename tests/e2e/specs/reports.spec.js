@@ -10,7 +10,12 @@ async function setupFreshContext(page, prefix) {
 	return await bootstrapE2E(page, prefix);
 }
 
-async function createSubmittedStockEntryForReports(page, ctx, rejectionQty = 0) {
+async function createSubmittedStockEntryForReports(
+	page,
+	ctx,
+	rejectionQty = 0,
+	unplannedLossRows = []
+) {
 	const stockEntryPage = new StockEntryPage(page);
 	await stockEntryPage.openNew();
 	await stockEntryPage.setManufactureFields(ctx, {
@@ -19,7 +24,14 @@ async function createSubmittedStockEntryForReports(page, ctx, rejectionQty = 0) 
 		actualStart: `${ctx.shift_date} 08:00:00`,
 		actualEnd: `${ctx.shift_date} 09:00:00`,
 	});
+	await page.evaluate(async (shiftDate) => {
+		await cur_frm.set_value("posting_date", shiftDate);
+		await cur_frm.set_value("posting_time", "09:00:00");
+	}, ctx.shift_date);
 	await stockEntryPage.fetchItems();
+	for (const row of unplannedLossRows) {
+		await stockEntryPage.addUnplannedLossRow(row);
+	}
 	if (rejectionQty > 0) {
 		await stockEntryPage.setRejectionBreakupRows([
 			{ rejection_reason: "Burr", qty: rejectionQty },
@@ -35,45 +47,94 @@ async function createSubmittedStockEntryForReports(page, ctx, rejectionQty = 0) 
 test.describe("Production reports", () => {
 	const lifecycle = registerE2ELifecycle(test);
 
-	test("@smoke OEE report shows seeded entry for date range", async ({ page }) => {
+	test("@smoke OEE report shows day-workstation aggregate row", async ({ page }) => {
 		await page.goto("/app/home");
 		const prefix = lifecycle.getPrefix();
 		const ctx = await setupFreshContext(page, prefix);
-		const seeded = await createSubmittedStockEntryForReports(page, ctx, 0);
+		const seeded = await createSubmittedStockEntryForReports(page, ctx, 0, [
+			{ downtime_reason: "Other", start_time: "11:00:00", end_time: "13:00:00" },
+		]);
 
 		const reportsPage = new ReportsPage(page);
 		await reportsPage.open("Production OEE Report");
 		await reportsPage.runWithDateRange(seeded.posting_date, seeded.posting_date);
-		await reportsPage.waitForRows(1);
-
-		const rows = await reportsPage.getRows();
-		const seededRow = rows.find((row) => row.stock_entry === seeded.name);
-		expect(Boolean(seededRow)).toBeTruthy();
-		expect(String(seededRow.posting_date)).toContain(seeded.posting_date);
-	});
-
-	test("@regression OEE report honors fg_item filter", async ({ page }) => {
-		await page.goto("/app/home");
-		const prefix = lifecycle.getPrefix();
-		const ctx = await setupFreshContext(page, prefix);
-		const seeded = await createSubmittedStockEntryForReports(page, ctx, 0);
-
-		const reportsPage = new ReportsPage(page);
-		await reportsPage.open("Production OEE Report");
-		await reportsPage.runWithDateRange(seeded.posting_date, seeded.posting_date);
-		await reportsPage.setFilterByFieldname("fg_item", ctx.fg_item);
-		await reportsPage.setFilterByFieldname("custom_shift", ctx.shift_name);
+		await reportsPage.setFilterByFieldname("custom_workstation", ctx.workstation);
+		await reportsPage.setFilterByFieldname("avl_hours_per_day", 24);
 		await reportsPage.clickRefresh();
 		await reportsPage.waitForRows(1);
 
-		const filters = await reportsPage.getFilterValues();
-		expect(filters.fg_item).toBe(ctx.fg_item);
-		expect(filters.custom_shift).toBe(ctx.shift_name);
-
 		const rows = await reportsPage.getRows();
-		const seededRow = rows.find((row) => row.stock_entry === seeded.name);
+		const seededRow = rows.find(
+			(row) =>
+				String(row.day || "").includes(seeded.posting_date) &&
+				row.workstation === ctx.workstation
+		);
 		expect(Boolean(seededRow)).toBeTruthy();
-		expect(seededRow.item_code).toBe(ctx.fg_item);
+		expect(Number(seededRow.total_strokes || 0)).toBeGreaterThan(0);
+		expect(Number(seededRow.other_1st || 0)).toBe(2);
+	});
+
+	test("@regression OEE report availability responds to avl_hours_per_day filter", async ({
+		page,
+	}) => {
+		await page.goto("/app/home");
+		const prefix = lifecycle.getPrefix();
+		const ctx = await setupFreshContext(page, prefix);
+		const seeded = await createSubmittedStockEntryForReports(page, ctx, 0);
+
+		const reportsPage = new ReportsPage(page);
+		await reportsPage.open("Production OEE Report");
+		await reportsPage.runWithDateRange(seeded.posting_date, seeded.posting_date);
+		await reportsPage.setFilterByFieldname("custom_workstation", ctx.workstation);
+		await reportsPage.setFilterByFieldname("avl_hours_per_day", 24);
+		await reportsPage.clickRefresh();
+		await reportsPage.waitForRows(1);
+		const rows24 = await reportsPage.getRows();
+		const row24 = rows24.find((row) => row.workstation === ctx.workstation);
+		expect(Boolean(row24)).toBeTruthy();
+
+		await reportsPage.setFilterByFieldname("avl_hours_per_day", 8);
+		await reportsPage.clickRefresh();
+		await reportsPage.waitForRows(1);
+		const filters = await reportsPage.getFilterValues();
+		expect(Number(filters.avl_hours_per_day)).toBe(8);
+
+		const rows8 = await reportsPage.getRows();
+		const row8 = rows8.find((row) => row.workstation === ctx.workstation);
+		expect(Boolean(row8)).toBeTruthy();
+		expect(Number(row8.total_strokes || 0)).toBeGreaterThan(0);
+	});
+
+	test("@regression OEE report ignores Downtime Entry rows for loss buckets", async ({
+		page,
+	}) => {
+		await page.goto("/app/home");
+		const prefix = lifecycle.getPrefix();
+		const ctx = await setupFreshContext(page, prefix);
+		const seeded = await createSubmittedStockEntryForReports(page, ctx, 0);
+		await callFrappeMethod(
+			page,
+			"production_entry_app.production_entry_app.api.create_e2e_downtime_entry",
+			{
+				prefix,
+				from_time: "11:00:00",
+				to_time: "13:00:00",
+				stop_reason: "Other",
+			}
+		);
+
+		const reportsPage = new ReportsPage(page);
+		await reportsPage.open("Production OEE Report");
+		await reportsPage.runWithDateRange(seeded.posting_date, seeded.posting_date);
+		await reportsPage.setFilterByFieldname("custom_workstation", ctx.workstation);
+		await reportsPage.setFilterByFieldname("avl_hours_per_day", 24);
+		await reportsPage.clickRefresh();
+		await reportsPage.waitForRows(1);
+		const rows = await reportsPage.getRows();
+		const seededRow = rows.find((row) => row.workstation === ctx.workstation);
+		expect(Boolean(seededRow)).toBeTruthy();
+		expect(Number(seededRow.other_1st || 0)).toBe(0);
+		expect(Number(seededRow.total_loss_time || 0)).toBe(0);
 	});
 
 	test("@regression Operator report honors operator and shift filters", async ({ page }) => {

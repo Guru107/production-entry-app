@@ -36,4 +36,42 @@ test.describe("Stock Entry integration", () => {
 		expect(Number(dieCounter.current_strokes)).toBeGreaterThan(0);
 		expect(Number(dieCounter.utilization_pct)).toBeGreaterThan(0);
 	});
+
+	test("@regression manufacture stock entry keeps die tool metrics zero when item has no die tool", async ({
+		page,
+	}) => {
+		await page.goto("/app/home");
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		await callFrappeMethod(page, "frappe.client.set_value", {
+			doctype: "Item",
+			name: ctx.fg_item,
+			fieldname: "custom_has_die_tool",
+			value: 0,
+		});
+
+		const stockEntryPage = new StockEntryPage(page);
+		await stockEntryPage.openNew();
+		await stockEntryPage.fillManufactureEntry(ctx);
+		await stockEntryPage.fetchItems();
+		await stockEntryPage.setRejectionBreakup();
+		await stockEntryPage.saveAndSubmit();
+
+		const stockEntryName = await page.evaluate(() => cur_frm.doc.name);
+		const stockEntry = await getDoc(page, "Stock Entry", stockEntryName);
+		expect(Number(stockEntry.custom_die_tool_utilization_pct || 0)).toBe(0);
+		expect(Number(stockEntry.custom_die_tool_maintenance_due || 0)).toBe(0);
+
+		const dieCounter = await callFrappeMethod(
+			page,
+			"production_entry_app.production_entry_app.api.get_die_tool_counter",
+			{ die_tool_code: ctx.fg_item }
+		);
+		expect(Number(dieCounter.has_die_tool || 0)).toBe(0);
+		expect(Number(dieCounter.current_strokes || 0)).toBe(0);
+
+		const warningMessage = await page.evaluate(() =>
+			String(window.cur_frm?.__peaDieToolAlertMessage || "")
+		);
+		expect(warningMessage).toBe("");
+	});
 });

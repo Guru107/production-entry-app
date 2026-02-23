@@ -1,6 +1,61 @@
 [
 	{
 		"doctype": "Downtime Reason",
+		"name": "Setup time",
+		"downtime_reason_name": "Setup time"
+	},
+	{
+		"doctype": "Downtime Reason",
+		"name": "Trial",
+		"downtime_reason_name": "Trial"
+	},
+	{
+		"doctype": "Downtime Reason",
+		"name": "Mtrl Handl",
+		"downtime_reason_name": "Mtrl Handl"
+	},
+	{
+		"doctype": "Downtime Reason",
+		"name": "No Operator",
+		"downtime_reason_name": "No Operator"
+	},
+	{
+		"doctype": "Downtime Reason",
+		"name": "No Mtrl",
+		"downtime_reason_name": "No Mtrl"
+	},
+	{
+		"doctype": "Downtime Reason",
+		"name": "Maint",
+		"downtime_reason_name": "Maint"
+	},
+	{
+		"doctype": "Downtime Reason",
+		"name": "P. Maint",
+		"downtime_reason_name": "P. Maint"
+	},
+	{
+		"doctype": "Downtime Reason",
+		"name": "Tool Break",
+		"downtime_reason_name": "Tool Break"
+	},
+	{
+		"doctype": "Downtime Reason",
+		"name": "Other",
+		"downtime_reason_name": "Other"
+	},
+	{
+		"doctype": "Downtime Reason",
+		"name": "No Helper",
+		"downtime_reason_name": "No Helper"
+	},
+	{
+		"doctype": "Downtime Reason",
+		"name": "Power Off",
+		"downtime_reason_name": "Power Off"
+	},
+	{
+		"doctype": "Downtime Reason",
 		"name": "Tea Break",
 		"downtime_reason_name": "Tea Break"
 	},

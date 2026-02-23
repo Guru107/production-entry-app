@@ -72,6 +72,13 @@ def _ensure_die_tool_counter_doctype() -> None:
 		frappe.reload_doc("production_entry_app", "doctype", "die_tool_counter")
 
 
+def _ensure_loss_entry_shift_field() -> None:
+	if frappe.get_meta("Loss Entry", cached=True).has_field("shift"):
+		return
+	frappe.reload_doc("production_entry_app", "doctype", "loss_entry")
+	frappe.clear_cache(doctype="Loss Entry")
+
+
 def _ensure_item_die_tool_fields() -> None:
 	created = False
 	if not frappe.db.exists("Custom Field", "Item-custom_strokes_per_unit"):
@@ -97,6 +104,21 @@ def _ensure_item_die_tool_fields() -> None:
 				"fieldtype": "Float",
 				"label": "Max Stroke Count",
 				"insert_after": "custom_strokes_per_unit",
+				"module": "Production Entry App",
+			}
+		).insert(ignore_permissions=True)
+		created = True
+
+	if not frappe.db.exists("Custom Field", "Item-custom_has_die_tool"):
+		frappe.get_doc(
+			{
+				"doctype": "Custom Field",
+				"dt": "Item",
+				"fieldname": "custom_has_die_tool",
+				"fieldtype": "Check",
+				"label": "Has Die Tool",
+				"default": "1",
+				"insert_after": "custom_stroke_capacity",
 				"module": "Production Entry App",
 			}
 		).insert(ignore_permissions=True)
@@ -186,9 +208,12 @@ def _get_or_create_item(item_code: str) -> str:
 	return ensure_item(item_code)
 
 
-def _set_item_die_tool_fields(item_code: str, strokes_per_unit: float, stroke_capacity: float) -> None:
+def _set_item_die_tool_fields(
+	item_code: str, strokes_per_unit: float, stroke_capacity: float, has_die_tool: int = 1
+) -> None:
 	frappe.db.set_value("Item", item_code, "custom_strokes_per_unit", strokes_per_unit)
 	frappe.db.set_value("Item", item_code, "custom_stroke_capacity", stroke_capacity)
+	frappe.db.set_value("Item", item_code, "custom_has_die_tool", has_die_tool)
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit - ensure custom fields are persisted
 
 
@@ -393,6 +418,7 @@ class TestStockEntryHooks(FrappeTestCase):
 	@classmethod
 	def setUpClass(cls) -> None:
 		super().setUpClass()
+		_ensure_loss_entry_shift_field()
 		_ensure_rejection_breakup_doctype()
 		_ensure_rejection_reason_doctype()
 		_ensure_rejection_reasons()
@@ -410,6 +436,7 @@ class TestStockEntryHooks(FrappeTestCase):
 	def setUp(self) -> None:
 		cleanup_running_shifts()
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit - ensure running shift cleanup is visible
+		_ensure_loss_entry_shift_field()
 		_ensure_rejection_breakup_doctype()
 		_ensure_rejection_reason_doctype()
 		_ensure_rejection_reasons()
@@ -956,7 +983,25 @@ class TestStockEntryHooks(FrappeTestCase):
 		self.assertEqual(float(se.get("custom_die_tool_utilization_pct") or 0), 0.0)
 		self.assertEqual(int(se.get("custom_die_tool_maintenance_due") or 0), 0)
 
+	def test_entry_metrics_with_die_tool_disabled_sets_die_tool_fields_to_zero(self) -> None:
+		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import _set_entry_metrics
+
+		_set_item_die_tool_fields(self.fg_item, strokes_per_unit=12, stroke_capacity=1000, has_die_tool=0)
+
+		se = frappe.new_doc("Stock Entry")
+		se.purpose = "Manufacture"
+		se.stock_entry_type = "Manufacture"
+		se.company = self.company
+		se.fg_item = self.fg_item
+
+		_set_entry_metrics(se)
+
+		self.assertEqual(float(se.get("custom_die_tool_utilization_pct") or 0), 0.0)
+		self.assertEqual(int(se.get("custom_die_tool_maintenance_due") or 0), 0)
+
 	def test_die_tool_warning_metrics_populated_from_counter(self) -> None:
+		_set_item_die_tool_fields(self.fg_item, strokes_per_unit=12, stroke_capacity=1000, has_die_tool=1)
+
 		shift = _create_test_shift(
 			shift_date="2026-04-18",
 			wip_warehouse=self.wip_warehouse,
@@ -1234,11 +1279,16 @@ class TestStockEntryHooks(FrappeTestCase):
 
 	def test_unplanned_losses_can_be_added_to_stock_entry(self) -> None:
 		_ensure_downtime_reasons()
+		shift = _create_test_shift(
+			shift_date="2026-04-18",
+			wip_warehouse=self.wip_warehouse,
+		)
 
 		se = _create_manufacture_stock_entry(
 			company=self.company,
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
+			custom_shift=shift.name,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
@@ -1255,6 +1305,36 @@ class TestStockEntryHooks(FrappeTestCase):
 
 		self.assertEqual(len(se.custom_unplanned_losses), 1)
 		self.assertEqual(se.custom_unplanned_losses[0].downtime_reason, "Tea Break")
+		self.assertEqual(se.custom_unplanned_losses[0].shift, shift.name)
+
+	def test_unplanned_loss_shift_link_clears_when_shift_is_removed(self) -> None:
+		_ensure_downtime_reasons()
+		shift = _create_test_shift(
+			shift_date="2026-04-19",
+			wip_warehouse=self.wip_warehouse,
+		)
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			custom_shift=shift.name,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		se.append(
+			"custom_unplanned_losses",
+			{
+				"downtime_reason": "Tea Break",
+				"start_time": "10:00:00",
+				"end_time": "10:15:00",
+			},
+		)
+		se.save()
+		self.assertEqual(se.custom_unplanned_losses[0].shift, shift.name)
+
+		se.custom_shift = ""
+		se.save()
+		self.assertEqual(se.custom_unplanned_losses[0].shift, "")
 
 
 class TestOverlapValidation(FrappeTestCase):
@@ -2219,6 +2299,18 @@ class TestDieToolCounter(FrappeTestCase):
 		result = get_die_tool_counter(counter.die_tool_item)
 		self.assertEqual(float(result.get("utilization_pct") or 0), 90.0)
 		self.assertEqual(int(result.get("is_maintenance_due") or 0), 1)
+		self.assertEqual(int(result.get("has_die_tool") or 0), 1)
+
+	def test_get_die_tool_counter_returns_zero_payload_when_item_has_no_die_tool(self) -> None:
+		from production_entry_app.production_entry_app.api import get_die_tool_counter
+
+		_set_item_die_tool_fields(self.fg_item, strokes_per_unit=12, stroke_capacity=1000, has_die_tool=0)
+		result = get_die_tool_counter(self.fg_item)
+		self.assertEqual(int(result.get("has_die_tool") or 0), 0)
+		self.assertEqual(float(result.get("current_strokes") or 0), 0.0)
+		self.assertEqual(float(result.get("utilization_pct") or 0), 0.0)
+		self.assertEqual(int(result.get("is_maintenance_due") or 0), 0)
+		self.assertFalse(frappe.db.exists("Die Tool Counter", self.fg_item))
 
 	def test_reset_die_tool_counter_api_returns_zero(self) -> None:
 		from production_entry_app.production_entry_app.api import reset_die_tool_counter
@@ -2249,6 +2341,13 @@ class TestDieToolCounter(FrappeTestCase):
 		self.assertEqual(maintenance.docstatus, 1)
 		self.assertEqual(maintenance.die_tool_item, self.fg_item)
 
+	def test_reset_die_tool_counter_api_rejects_disabled_item(self) -> None:
+		from production_entry_app.production_entry_app.api import reset_die_tool_counter
+
+		_set_item_die_tool_fields(self.fg_item, strokes_per_unit=12, stroke_capacity=1000, has_die_tool=0)
+		with self.assertRaises(ValidationError):
+			reset_die_tool_counter(self.fg_item, "2026-05-03 10:00:00")
+
 	def test_update_counter_ignores_non_manufacture_purpose(self) -> None:
 		from production_entry_app.production_entry_app.utils.die_tool_counter import (
 			update_counter_for_stock_entry,
@@ -2275,6 +2374,23 @@ class TestDieToolCounter(FrappeTestCase):
 				"purpose": "Manufacture",
 				"fg_completed_qty": 10,
 				"items": [{"item_code": self.rm_item, "qty": 10}],
+			}
+		)
+		update_counter_for_stock_entry(doc, direction=1)
+
+		self.assertFalse(frappe.db.exists("Die Tool Counter", self.fg_item))
+
+	def test_update_counter_ignores_when_die_tool_disabled(self) -> None:
+		from production_entry_app.production_entry_app.utils.die_tool_counter import (
+			update_counter_for_stock_entry,
+		)
+
+		_set_item_die_tool_fields(self.fg_item, strokes_per_unit=12, stroke_capacity=1000, has_die_tool=0)
+		doc = frappe._dict(
+			{
+				"purpose": "Manufacture",
+				"fg_item": self.fg_item,
+				"fg_completed_qty": 10,
 			}
 		)
 		update_counter_for_stock_entry(doc, direction=1)

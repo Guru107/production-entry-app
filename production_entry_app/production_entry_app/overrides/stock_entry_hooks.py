@@ -10,6 +10,7 @@ from frappe.utils import flt, format_datetime, get_datetime, get_time
 from production_entry_app.production_entry_app.doctype.shift.shift import _get_shift_metrics_cache_key
 from production_entry_app.production_entry_app.utils.die_tool_counter import (
 	get_counter_health,
+	is_die_tool_enabled,
 	update_counter_for_stock_entry,
 )
 from production_entry_app.production_entry_app.utils.shift_time import get_shift_planned_end_datetime
@@ -27,6 +28,7 @@ def validate_stock_entry(doc, method: str | None = None) -> None:
 	"""
 	if doc.get("custom_shift"):
 		_apply_shift_defaults(doc)
+	_sync_unplanned_loss_shift_links(doc)
 
 	_validate_actual_times(doc)
 	_validate_workstation_overlap(doc)
@@ -80,6 +82,13 @@ def _apply_shift_defaults(doc) -> None:
 	if shift.work_in_progress_warehouse:
 		doc.from_warehouse = shift.work_in_progress_warehouse
 		doc.to_warehouse = shift.work_in_progress_warehouse
+
+
+def _sync_unplanned_loss_shift_links(doc) -> None:
+	"""Keep unplanned loss rows linked to the currently selected shift."""
+	shift_name = doc.get("custom_shift") or ""
+	for row in doc.get("custom_unplanned_losses") or []:
+		row.shift = shift_name
 
 
 def _validate_actual_times(doc) -> None:
@@ -436,7 +445,7 @@ def _set_if_field(doc, meta, fieldname: str, value) -> None:
 
 def _set_die_tool_health_metrics(doc, meta) -> None:
 	item_code = _get_fg_item_code_for_metrics(doc)
-	if not item_code:
+	if not item_code or not is_die_tool_enabled(item_code):
 		_set_if_field(doc, meta, "custom_die_tool_utilization_pct", 0)
 		_set_if_field(doc, meta, "custom_die_tool_maintenance_due", 0)
 		return
