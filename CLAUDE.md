@@ -88,8 +88,8 @@ npx playwright test --debug    # step-through
 - Python line length: **110 characters**.
 - Python target: **3.10+** (use `match`, `X | Y` unions, `str | None` type hints).
 - All Python functions must have **type hints** on parameters and return type.
-- `ruff format` for Python, `prettier` for JS/JSON. Run `pre-commit run --all-files` before
-  every commit.
+- `ruff format` for Python, `prettier` for JS/JSON.
+- Always run `pre-commit run --all-files` after implementation when you are ready to tell the human that changes are done.
 
 ---
 

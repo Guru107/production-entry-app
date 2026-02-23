@@ -247,9 +247,7 @@ class TestProductionReports(FrappeTestCase):
 			fg_qty=100,
 			rejection_qty=0,
 			shift_name=shift_2.name,
-			unplanned_losses=[
-				{"downtime_reason": "Other", "start_time": "23:30:00", "end_time": "00:30:00"}
-			],
+			unplanned_losses=[{"downtime_reason": "Other", "start_time": "23:30:00", "end_time": "00:30:00"}],
 		)
 
 		_, rows = execute({"from_date": "2026-06-09", "to_date": "2026-06-09", "avl_hours_per_day": 24})
