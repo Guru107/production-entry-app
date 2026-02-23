@@ -27,9 +27,17 @@ def _ensure_downtime_reasons() -> None:
 			frappe.db.set_value("Downtime Reason", name, "is_active", 1, update_modified=False)
 
 
+def _ensure_loss_entry_shift_field() -> None:
+	if frappe.get_meta("Loss Entry", cached=True).has_field("shift"):
+		return
+	frappe.reload_doc("production_entry_app", "doctype", "loss_entry")
+	frappe.clear_cache(doctype="Loss Entry")
+
+
 class TestShift(FrappeTestCase):
 	def setUp(self) -> None:
 		_ensure_downtime_reasons()
+		_ensure_loss_entry_shift_field()
 		# End any stale Running shifts so start_shift() is not blocked
 		for sn in frappe.get_all("Shift", filters={"status": "Running"}, pluck="name"):
 			frappe.db.set_value("Shift", sn, "status", "Completed", update_modified=False)

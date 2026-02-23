@@ -5,12 +5,21 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
+  "shift",
   "downtime_reason",
   "start_time",
   "end_time",
   "remark"
  ],
  "fields": [
+  {
+   "fieldname": "shift",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Shift",
+   "options": "Shift",
+   "read_only": 1
+  },
   {
    "fieldname": "downtime_reason",
    "fieldtype": "Link",

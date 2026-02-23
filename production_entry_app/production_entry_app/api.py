@@ -12,6 +12,7 @@ from pypika import Order
 from production_entry_app.production_entry_app.utils.die_tool_counter import (
 	_get_or_create_counter,
 	get_counter_health,
+	is_die_tool_enabled,
 )
 from production_entry_app.production_entry_app.utils.shift_time import get_shift_planned_end_datetime
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
@@ -128,6 +129,17 @@ def get_items_with_rejection(doc: str) -> list[dict]:
 
 @frappe.whitelist()
 def get_die_tool_counter(die_tool_code: str) -> dict:
+	if not is_die_tool_enabled(die_tool_code):
+		return {
+			"die_tool_code": die_tool_code,
+			"has_die_tool": 0,
+			"current_strokes": 0,
+			"stroke_capacity": 0,
+			"warning_threshold_pct": 90,
+			"utilization_pct": 0,
+			"is_maintenance_due": 0,
+		}
+
 	counter = _get_or_create_counter(die_tool_code)
 	current_strokes = float(counter.current_stroke_count or 0)
 	stroke_capacity = float(counter.stroke_capacity or 0)
@@ -140,6 +152,7 @@ def get_die_tool_counter(die_tool_code: str) -> dict:
 	)
 	return {
 		"die_tool_code": die_tool_code,
+		"has_die_tool": 1,
 		"current_strokes": current_strokes,
 		"stroke_capacity": stroke_capacity,
 		"warning_threshold_pct": warning_threshold_pct,
@@ -152,6 +165,8 @@ def get_die_tool_counter(die_tool_code: str) -> dict:
 def reset_die_tool_counter(die_tool_code: str, maintenance_date: str | None = None) -> dict:
 	if not die_tool_code:
 		frappe.throw(_("Die Tool Item is required."))
+	if not is_die_tool_enabled(die_tool_code):
+		frappe.throw(_("Die tool counter reset is not allowed because this item has no die tool."))
 
 	maintenance_dt = get_datetime(maintenance_date) if maintenance_date else now_datetime()
 	maintenance_log = frappe.get_doc(

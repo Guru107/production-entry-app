@@ -255,6 +255,11 @@ function _update_die_tool_metrics(frm) {
 			if (reqId !== _dieToolRequestId) return;
 			if (!r.message) return;
 			const data = r.message;
+			if (parseInt(data.has_die_tool ?? 1, 10) !== 1) {
+				_set_die_tool_metric_fields(frm, 0, 0);
+				_clear_die_tool_alert(frm);
+				return;
+			}
 			const utilization = parseFloat(data.utilization_pct || 0);
 			const due = parseInt(data.is_maintenance_due || 0, 10) === 1;
 			_set_die_tool_metric_fields(frm, utilization, due ? 1 : 0);
@@ -269,7 +274,7 @@ function _update_die_tool_metrics(frm) {
 					frm.__peaDieToolAlertMessage = message;
 				}
 			} else if (!due) {
-				frm.__peaDieToolAlertMessage = null;
+				_clear_die_tool_alert(frm);
 			}
 		},
 		error() {
@@ -287,6 +292,13 @@ function _set_die_tool_metric_fields(frm, utilization, due) {
 		frm.doc.custom_die_tool_maintenance_due = due;
 	}
 	frm.refresh_fields(["custom_die_tool_utilization_pct", "custom_die_tool_maintenance_due"]);
+}
+
+function _clear_die_tool_alert(frm) {
+	frm.__peaDieToolAlertMessage = null;
+	if (frm.dashboard && typeof frm.dashboard.clear_headline === "function") {
+		frm.dashboard.clear_headline();
+	}
 }
 
 function _ensure_use_multi_level_bom_unchecked(frm) {
