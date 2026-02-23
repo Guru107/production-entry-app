@@ -669,6 +669,7 @@ class TestProductionReports(FrappeTestCase):
 				"shift_duration": "8",
 				"shift_date": shift_date,
 				"planned_start_time": "08:00:00" if shift_label == "1" else "16:00:00",
+				"rejection_warehouse": self.rejection_warehouse,
 			}
 		).insert(ignore_permissions=True)
 
