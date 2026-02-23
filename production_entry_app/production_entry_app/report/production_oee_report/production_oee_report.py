@@ -392,6 +392,9 @@ def _get_loss_buckets_from_stock_entry_losses(filters: dict, groups: dict[tuple[
 		start_mins = (start.hour * 60) + start.minute + (start.second / 60)
 		end_mins = (end.hour * 60) + end.minute + (end.second / 60)
 		duration_mins = end_mins - start_mins
+		if duration_mins < 0:
+			# Overnight loss interval (e.g. 23:30 -> 00:30).
+			duration_mins += 24 * 60
 		if duration_mins <= 0:
 			continue
 		hours = flt(duration_mins / 60, 3)

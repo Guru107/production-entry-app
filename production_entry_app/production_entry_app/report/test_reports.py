@@ -232,6 +232,32 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(float(row["p_maint_2nd"]), 1.0)
 		self.assertEqual(float(row["total_loss_time"]), 1.5)
 
+	def test_production_oee_report_counts_cross_midnight_loss_for_second_shift(self) -> None:
+		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
+			execute,
+		)
+
+		shift_2 = self._create_shift_for_label("2026-06-09", "2")
+		self._create_mock_submitted_entry(
+			posting_date="2026-06-09",
+			planned_start="2026-06-09 16:00:00",
+			planned_end="2026-06-09 23:00:00",
+			actual_start="2026-06-09 16:00:00",
+			actual_end="2026-06-09 23:00:00",
+			fg_qty=100,
+			rejection_qty=0,
+			shift_name=shift_2.name,
+			unplanned_losses=[
+				{"downtime_reason": "Other", "start_time": "23:30:00", "end_time": "00:30:00"}
+			],
+		)
+
+		_, rows = execute({"from_date": "2026-06-09", "to_date": "2026-06-09", "avl_hours_per_day": 24})
+		self.assertEqual(len(rows), 1)
+		row = rows[0]
+		self.assertEqual(float(row["other_2nd"]), 1.0)
+		self.assertEqual(float(row["total_loss_time"]), 1.0)
+
 	def test_production_oee_report_ignores_unmapped_loss_reasons(self) -> None:
 		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
 			execute,
