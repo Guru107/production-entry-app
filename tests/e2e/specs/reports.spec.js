@@ -146,4 +146,21 @@ test.describe("Production reports", () => {
 		expect(filteredRow.maintenance_due).toBeDefined();
 		expect(filteredRow.maintenance_count).toBeDefined();
 	});
+
+	test("@regression report date range prevents from_date > to_date", async ({ page }) => {
+		await page.goto("/app/home");
+		const reportsPage = new ReportsPage(page);
+		for (const reportName of [
+			"Production OEE Report",
+			"Operator Efficiency Report",
+			"Workstation Efficiency Report",
+		]) {
+			await reportsPage.open(reportName);
+			await reportsPage.setFilterByFieldname("to_date", "2026-02-10");
+			await reportsPage.setFilterByFieldname("from_date", "2026-02-11");
+			const filters = await reportsPage.getFilterValues();
+			expect(filters.from_date).toBe("2026-02-10");
+			expect(filters.to_date).toBe("2026-02-10");
+		}
+	});
 });

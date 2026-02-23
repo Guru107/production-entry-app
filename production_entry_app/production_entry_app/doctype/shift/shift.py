@@ -12,6 +12,7 @@ from frappe.utils import add_to_date, flt
 from production_entry_app.production_entry_app.utils.shift_time import combine_date_time
 
 METRICS_CACHE_TTL_SEC: int = 30
+WARNING_THRESHOLD_PCT_DEFAULT: float = 90.0
 VALID_SHIFT_DURATIONS: frozenset[int] = frozenset({8, 10, 12})
 _BREAK_SCHEDULE: dict[int, list[tuple[str, int, int]]] = {
 	8: [("Tea Break", 2, 15), ("Lunch Break", 4, 30)],
@@ -340,17 +341,17 @@ class Shift(Document):
 		if self.flags.get("allow_status_change"):
 			return
 
-		# Use DB status - reliable in all contexts (get_doc_before_save may be unset)
-		db_status = frappe.db.get_value("Shift", self.name, "status")
-		if not db_status:
+		before = self.get_doc_before_save()
+		current_status = before.status if before else frappe.db.get_value("Shift", self.name, "status")
+		if not current_status:
 			return
 
-		if db_status == "Running":
+		if current_status == "Running":
 			if self._planned_losses_changed():
 				frappe.throw(_("Planned Losses cannot be edited when shift is Running."))
 
-		if db_status in ("Completed", "Cancelled"):
-			frappe.throw(_("Shift in {0} state cannot be modified.").format(frappe.bold(db_status)))
+		if current_status in ("Completed", "Cancelled"):
+			frappe.throw(_("Shift in {0} state cannot be modified.").format(frappe.bold(current_status)))
 
 	def _planned_losses_changed(self) -> bool:
 		"""Return True if planned_losses table content has changed."""
@@ -508,8 +509,26 @@ class Shift(Document):
 		"""Populate planned_losses based on shift duration and planned_start_time."""
 		base = self._combine_date_time(self.shift_date, self.planned_start_time)
 		duration_hours = self._parse_duration_hours(self.shift_duration)
+		reason_active_cache: dict[str, bool] = {}
+		downtime_reason_meta = frappe.get_meta("Downtime Reason", cached=True)
+		has_is_active_field = bool(downtime_reason_meta.has_field("is_active"))
+
+		def is_active_reason(reason: str) -> bool:
+			if reason in reason_active_cache:
+				return reason_active_cache[reason]
+			if not frappe.db.exists("Downtime Reason", reason):
+				reason_active_cache[reason] = False
+				return False
+			if not has_is_active_field:
+				reason_active_cache[reason] = True
+				return True
+			reason_active_cache[reason] = bool(frappe.db.get_value("Downtime Reason", reason, "is_active"))
+			return reason_active_cache[reason]
+
 		entries: list[dict] = []
 		for reason, offset_hours, duration_mins in _BREAK_SCHEDULE.get(duration_hours, []):
+			if not is_active_reason(reason):
+				continue
 			entries.append(
 				{
 					"downtime_reason": reason,

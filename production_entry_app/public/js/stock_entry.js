@@ -43,18 +43,21 @@ let _shiftDetailsRequestId = 0;
 // entries so the user can set both Qty to Manufacture and Rejection Qty before
 // explicitly clicking "Fetch Items".
 if (typeof window !== "undefined" && window.erpnext && erpnext.stock && erpnext.stock.StockEntry) {
-	const _original_fg_completed_qty = erpnext.stock.StockEntry.prototype.fg_completed_qty;
-
-	erpnext.stock.StockEntry.prototype.fg_completed_qty = function () {
-		if (_is_manufacture_doc(this.frm.doc) && this.frm.doc.from_bom) {
-			// Skip the standard get_items() call — handled by our Fetch Items button
-			return;
-		}
-		// For all other purposes, keep the standard behaviour
-		if (_original_fg_completed_qty) {
-			return _original_fg_completed_qty.call(this);
-		}
-	};
+	const originalFgCompletedQty = erpnext.stock.StockEntry.prototype.fg_completed_qty;
+	if (typeof originalFgCompletedQty !== "function") {
+		console.warn(
+			"Production Entry App: erpnext.stock.StockEntry.prototype.fg_completed_qty is unavailable; skipping fg_completed_qty override."
+		);
+	} else {
+		erpnext.stock.StockEntry.prototype.fg_completed_qty = function () {
+			if (_is_manufacture_doc(this.frm.doc) && this.frm.doc.from_bom) {
+				// Skip the standard get_items() call for Manufacture; handled by Fetch Items.
+				return;
+			}
+			// For all other purposes, keep the standard behaviour.
+			return originalFgCompletedQty.call(this);
+		};
+	}
 }
 
 if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {

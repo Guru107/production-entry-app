@@ -15,6 +15,9 @@
 		"#FF6B6B",
 	];
 	const CANVAS_HEIGHT = 130;
+	const FONT_SIZE_LABEL = 11;
+	const FONT_SIZE_BAR = 11;
+	const ANIMATION_PERIOD_MS = 450;
 
 	function _clamp_pct(value) {
 		return Math.max(0, Math.min(100, value));
@@ -153,14 +156,14 @@
 			ctx.stroke();
 			const label = _format_label_time(new Date(t));
 			ctx.fillStyle = "#666";
-			ctx.font = "11px sans-serif";
+			ctx.font = `${FONT_SIZE_LABEL}px sans-serif`;
 			ctx.textAlign = "center";
 			ctx.fillText(label, x, axisY);
 		}
 		ctx.restore();
 
 		ctx.fillStyle = "#666";
-		ctx.font = "11px sans-serif";
+		ctx.font = `${FONT_SIZE_LABEL}px sans-serif`;
 		ctx.textAlign = "left";
 		ctx.fillText(_format_label_time(shiftStart), barX, axisY);
 		ctx.textAlign = "right";
@@ -202,12 +205,12 @@
 				_rounded_rect(ctx, x, y, w, h, 5);
 				ctx.clip();
 				ctx.fillStyle = "#fff";
-				ctx.font = "bold 11px sans-serif";
+				ctx.font = `bold ${FONT_SIZE_BAR}px sans-serif`;
 				ctx.textAlign = "left";
 				ctx.shadowColor = "rgba(0,0,0,0.2)";
 				ctx.shadowBlur = 2;
 				const label = isDowntime
-					? `DT ${entry.stop_reason || "Downtime"}`
+					? `DT ${entry.stop_reason || __("Downtime")}`
 					: `${entry.fg_item || "-"} ${entry.ok_qty || 0}`;
 				const maxChars = Math.max(4, Math.floor((w - 12) / 7));
 				ctx.fillText(_truncate_label(label, maxChars), x + 6, y + h / 2 + 4);
@@ -222,7 +225,7 @@
 			ctx.font = "12px sans-serif";
 			ctx.textAlign = "center";
 			ctx.fillText(
-				"No production entries for current running shift.",
+				__("No production entries for current running shift."),
 				barX + barW / 2,
 				barY + barH / 2 + 4
 			);
@@ -282,19 +285,23 @@
 			if (entry.entry_type === "downtime") {
 				tooltip.innerHTML = [
 					`<div><strong>${safe(entry.name)}</strong></div>`,
-					`<div>Type: ${safe("Downtime")}</div>`,
-					`<div>Reason: ${safe(entry.stop_reason || "Other")}</div>`,
-					`<div>Duration: ${safe(_format_duration(entry.__start, entry.__end))}</div>`,
+					`<div>${safe(__("Type"))}: ${safe(__("Downtime"))}</div>`,
+					`<div>${safe(__("Reason"))}: ${safe(entry.stop_reason || __("Other"))}</div>`,
+					`<div>${safe(__("Duration"))}: ${safe(
+						_format_duration(entry.__start, entry.__end)
+					)}</div>`,
 				].join("");
 			} else {
 				tooltip.innerHTML = [
 					`<div><strong>${safe(entry.name)}</strong></div>`,
-					`<div>Type: ${safe("Production")}</div>`,
-					`<div>FG: ${safe(entry.fg_item || "-")}</div>`,
-					`<div>FG Qty: ${safe(entry.fg_qty || 0)}</div>`,
-					`<div>Rejection Qty: ${safe(entry.rejection_qty || 0)}</div>`,
-					`<div>OK Qty: ${safe(entry.ok_qty || 0)}</div>`,
-					`<div>Duration: ${safe(_format_duration(entry.__start, entry.__end))}</div>`,
+					`<div>${safe(__("Type"))}: ${safe(__("Production"))}</div>`,
+					`<div>${safe(__("FG"))}: ${safe(entry.fg_item || "-")}</div>`,
+					`<div>${safe(__("FG Qty"))}: ${safe(entry.fg_qty || 0)}</div>`,
+					`<div>${safe(__("Rejection Qty"))}: ${safe(entry.rejection_qty || 0)}</div>`,
+					`<div>${safe(__("OK Qty"))}: ${safe(entry.ok_qty || 0)}</div>`,
+					`<div>${safe(__("Duration"))}: ${safe(
+						_format_duration(entry.__start, entry.__end)
+					)}</div>`,
 				].join("");
 			}
 			const card = cardRect();
@@ -327,7 +334,7 @@
 		const shiftStart = _as_date(data.shift_start);
 		const shiftEnd = _as_date(data.shift_end);
 		if (!shiftStart || !shiftEnd || shiftEnd.getTime() <= shiftStart.getTime()) {
-			_render_timeline_message(frm, htmlFieldname, "Invalid shift window for timeline.");
+			_render_timeline_message(frm, htmlFieldname, __("Invalid shift window for timeline."));
 			return;
 		}
 
@@ -336,7 +343,9 @@
 		const shiftName = frappe.utils.escape_html(String(data.shift_name || ""));
 		const html = [
 			`<div class="pea-shift-timeline-card form-section" data-pea-id="${domId}" style="position:relative;">`,
-			`<div style="margin-bottom:8px;"><strong>Running Shift Timeline</strong>: ${shiftName}</div>`,
+			`<div style="margin-bottom:8px;"><strong>${frappe.utils.escape_html(
+				__("Running Shift Timeline")
+			)}</strong>: ${shiftName}</div>`,
 			`<div style="display:flex;justify-content:space-between;font-size:12px;color:#666;margin-bottom:6px;">`,
 			`<span>${frappe.utils.escape_html(
 				frappe.datetime.str_to_user(String(data.shift_start || ""))
@@ -423,7 +432,7 @@
 			if (state.stopped) {
 				return;
 			}
-			const alpha = 0.7 + (Math.sin(Date.now() / 450) + 1) * 0.15;
+			const alpha = 0.7 + (Math.sin(Date.now() / ANIMATION_PERIOD_MS) + 1) * 0.15;
 			render(alpha);
 			state.animationFrame = requestAnimationFrame(animate);
 		};
@@ -463,7 +472,9 @@
 		_clear_timeline_state(frm, htmlFieldname);
 		const container = $('<div class="form-section">');
 		container.append(
-			`<div><strong>Running Shift Timeline</strong></div><div class="text-muted" style="margin-top:6px;">${frappe.utils.escape_html(
+			`<div><strong>${frappe.utils.escape_html(
+				__("Running Shift Timeline")
+			)}</strong></div><div class="text-muted" style="margin-top:6px;">${frappe.utils.escape_html(
 				message
 			)}</div>`
 		);
@@ -482,13 +493,13 @@
 				const data = r.message || {};
 				const shiftName = data.shift_name;
 				if (!shiftName) {
-					_render_timeline_message(frm, htmlFieldname, "No running shift found.");
+					_render_timeline_message(frm, htmlFieldname, __("No running shift found."));
 					return;
 				}
 				_render_canvas_timeline(frm, htmlFieldname, data);
 			},
 			error() {
-				_render_timeline_message(frm, htmlFieldname, "Unable to load timeline data.");
+				_render_timeline_message(frm, htmlFieldname, __("Unable to load timeline data."));
 			},
 		});
 	}
