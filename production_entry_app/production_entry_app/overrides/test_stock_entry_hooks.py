@@ -1174,8 +1174,8 @@ class TestStockEntryHooks(FrappeTestCase):
 		)
 		se.save()
 
-		# Find the FG row (is_finished_item=1)
-		fg_rows = [r for r in se.items if r.is_finished_item]
+		# Find the true FG row (exclude rejection row flagged as finished item)
+		fg_rows = [r for r in se.items if r.is_finished_item and not r.custom_is_rejection_item]
 		self.assertEqual(len(fg_rows), 1)
 		self.assertEqual(fg_rows[0].qty, 95)
 
@@ -1266,13 +1266,13 @@ class TestStockEntryHooks(FrappeTestCase):
 
 		# First save: 3 items (RM, FG@90, Rejection@10)
 		self.assertEqual(len(se.items), 3)
-		fg_rows = [r for r in se.items if r.is_finished_item]
+		fg_rows = [r for r in se.items if r.is_finished_item and not r.custom_is_rejection_item]
 		self.assertEqual(fg_rows[0].qty, 90)
 
 		# Re-save should produce the same result
 		se.save()
 		self.assertEqual(len(se.items), 3)
-		fg_rows = [r for r in se.items if r.is_finished_item]
+		fg_rows = [r for r in se.items if r.is_finished_item and not r.custom_is_rejection_item]
 		rejection_rows = [r for r in se.items if r.custom_is_rejection_item]
 		self.assertEqual(fg_rows[0].qty, 90)
 		self.assertEqual(len(rejection_rows), 1)
@@ -1280,6 +1280,9 @@ class TestStockEntryHooks(FrappeTestCase):
 
 	def test_rejection_row_target_warehouse_persists_when_user_overrides(self) -> None:
 		explicit_rejection_warehouse = _get_or_create_warehouse("SE Hook Explicit Rejection", self.company)
+		frappe.db.set_value(
+			"Warehouse", explicit_rejection_warehouse, "is_rejected_warehouse", 1, update_modified=False
+		)
 		shift = _create_test_shift(
 			shift_date="2026-04-16",
 			wip_warehouse=self.wip_warehouse,
@@ -1312,6 +1315,212 @@ class TestStockEntryHooks(FrappeTestCase):
 		rejection_rows = [r for r in se.items if r.custom_is_rejection_item]
 		self.assertEqual(len(rejection_rows), 1)
 		self.assertEqual(rejection_rows[0].t_warehouse, explicit_rejection_warehouse)
+
+	def test_rejection_row_target_warehouse_override_is_respected_on_first_save(self) -> None:
+		explicit_rejection_warehouse = _get_or_create_warehouse("SE Hook First Save Rejection", self.company)
+		frappe.db.set_value(
+			"Warehouse", explicit_rejection_warehouse, "is_rejected_warehouse", 1, update_modified=False
+		)
+		shift = _create_test_shift(
+			shift_date="2026-04-16",
+			wip_warehouse=self.wip_warehouse,
+			rejection_warehouse=self.rejection_warehouse,
+		)
+
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			fg_qty=100,
+			custom_shift=shift.name,
+			custom_rejection_qty=10,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		_append_rejection_breakup_rows(
+			se,
+			[
+				{"rejection_reason": "Burr", "qty": 4, "remark": "Edge burr"},
+				{"rejection_reason": "Crack", "qty": 6, "remark": "Surface crack"},
+			],
+		)
+
+		# Simulate browser state before first save: FG already reduced and rejection row present.
+		fg_rows = [r for r in se.items if r.is_finished_item]
+		self.assertEqual(len(fg_rows), 1)
+		fg_rows[0].qty = 90
+		se.append(
+			"items",
+			{
+				"item_code": self.fg_item,
+				"qty": 10,
+				"uom": fg_rows[0].uom,
+				"stock_uom": fg_rows[0].stock_uom,
+				"conversion_factor": fg_rows[0].conversion_factor,
+				"t_warehouse": explicit_rejection_warehouse,
+				"s_warehouse": fg_rows[0].s_warehouse,
+				"custom_is_rejection_item": 1,
+				"is_finished_item": 1,
+				"is_scrap_item": 0,
+			},
+		)
+
+		se.save()
+		rejection_rows = [r for r in se.items if r.custom_is_rejection_item]
+		self.assertEqual(len(rejection_rows), 1)
+		self.assertEqual(rejection_rows[0].t_warehouse, explicit_rejection_warehouse)
+
+	def test_rejection_row_target_warehouse_must_be_marked_rejected(self) -> None:
+		non_rejected_warehouse = _get_or_create_warehouse("SE Hook Non-Rejection", self.company)
+		frappe.db.set_value(
+			"Warehouse", non_rejected_warehouse, "is_rejected_warehouse", 0, update_modified=False
+		)
+		shift = _create_test_shift(
+			shift_date="2026-04-16",
+			wip_warehouse=self.wip_warehouse,
+			rejection_warehouse=self.rejection_warehouse,
+		)
+
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			fg_qty=100,
+			custom_shift=shift.name,
+			custom_rejection_qty=10,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		_append_rejection_breakup_rows(
+			se,
+			[
+				{"rejection_reason": "Burr", "qty": 4, "remark": "Edge burr"},
+				{"rejection_reason": "Crack", "qty": 6, "remark": "Surface crack"},
+			],
+		)
+		se.save()
+		rejection_rows = [r for r in se.items if r.custom_is_rejection_item]
+		self.assertEqual(len(rejection_rows), 1)
+		rejection_rows[0].t_warehouse = non_rejected_warehouse
+
+		with self.assertRaisesRegex(ValidationError, "Rejected Warehouse"):
+			se.save()
+
+	def test_rejection_row_latest_idx_warehouse_wins_and_normalizes_rows(self) -> None:
+		non_rejected_warehouse = _get_or_create_warehouse("SE Hook Non-Rejection 2", self.company)
+		valid_rejected_warehouse = _get_or_create_warehouse("SE Hook Valid Rejection", self.company)
+		frappe.db.set_value(
+			"Warehouse", non_rejected_warehouse, "is_rejected_warehouse", 0, update_modified=False
+		)
+		frappe.db.set_value(
+			"Warehouse", valid_rejected_warehouse, "is_rejected_warehouse", 1, update_modified=False
+		)
+		shift = _create_test_shift(
+			shift_date="2026-04-16",
+			wip_warehouse=self.wip_warehouse,
+			rejection_warehouse=self.rejection_warehouse,
+		)
+
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			fg_qty=100,
+			custom_shift=shift.name,
+			custom_rejection_qty=10,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		_append_rejection_breakup_rows(
+			se,
+			[
+				{"rejection_reason": "Burr", "qty": 4, "remark": "Edge burr"},
+				{"rejection_reason": "Crack", "qty": 6, "remark": "Surface crack"},
+			],
+		)
+		se.save()
+
+		# Legacy/bad state simulation: two rejection rows where last edited row is valid.
+		rejection_rows = [r for r in se.items if r.custom_is_rejection_item]
+		self.assertEqual(len(rejection_rows), 1)
+		rejection_rows[0].t_warehouse = non_rejected_warehouse
+		se.append(
+			"items",
+			{
+				"item_code": self.fg_item,
+				"qty": 10,
+				"uom": "Nos",
+				"stock_uom": "Nos",
+				"conversion_factor": 1,
+				"t_warehouse": valid_rejected_warehouse,
+				"custom_is_rejection_item": 1,
+				"is_finished_item": 1,
+				"is_scrap_item": 0,
+			},
+		)
+
+		se.save()
+		rejection_rows = [r for r in se.items if r.custom_is_rejection_item]
+		self.assertEqual(len(rejection_rows), 1)
+		self.assertEqual(rejection_rows[0].t_warehouse, valid_rejected_warehouse)
+
+	def test_rejection_row_prefers_valid_rejected_warehouse_among_duplicates(self) -> None:
+		non_rejected_warehouse = _get_or_create_warehouse("SE Hook Non-Rejection 3", self.company)
+		valid_rejected_warehouse = _get_or_create_warehouse("SE Hook Valid Rejection 2", self.company)
+		frappe.db.set_value(
+			"Warehouse", non_rejected_warehouse, "is_rejected_warehouse", 0, update_modified=False
+		)
+		frappe.db.set_value(
+			"Warehouse", valid_rejected_warehouse, "is_rejected_warehouse", 1, update_modified=False
+		)
+		shift = _create_test_shift(
+			shift_date="2026-04-16",
+			wip_warehouse=self.wip_warehouse,
+			rejection_warehouse=self.rejection_warehouse,
+		)
+
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			fg_qty=100,
+			custom_shift=shift.name,
+			custom_rejection_qty=10,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		_append_rejection_breakup_rows(
+			se,
+			[
+				{"rejection_reason": "Burr", "qty": 4, "remark": "Edge burr"},
+				{"rejection_reason": "Crack", "qty": 6, "remark": "Surface crack"},
+			],
+		)
+		se.save()
+
+		# Duplicate-row simulation where the latest row is invalid but an earlier row is valid.
+		rejection_rows = [r for r in se.items if r.custom_is_rejection_item]
+		self.assertEqual(len(rejection_rows), 1)
+		rejection_rows[0].t_warehouse = valid_rejected_warehouse
+		se.append(
+			"items",
+			{
+				"item_code": self.fg_item,
+				"qty": 10,
+				"uom": "Nos",
+				"stock_uom": "Nos",
+				"conversion_factor": 1,
+				"t_warehouse": non_rejected_warehouse,
+				"custom_is_rejection_item": 1,
+				"is_finished_item": 1,
+				"is_scrap_item": 0,
+			},
+		)
+
+		se.save()
+		rejection_rows = [r for r in se.items if r.custom_is_rejection_item]
+		self.assertEqual(len(rejection_rows), 1)
+		self.assertEqual(rejection_rows[0].t_warehouse, valid_rejected_warehouse)
 
 	def test_remove_rejection_rows_no_op_when_none_found(self) -> None:
 		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
@@ -1998,12 +2207,12 @@ class TestGetItemsWithRejection(FrappeTestCase):
 			custom_rejection_qty=10,
 			custom_shift=shift.name,
 		)
-		fg_rows = [r for r in items if r.get("is_finished_item")]
+		fg_rows = [r for r in items if r.get("is_finished_item") and not r.get("custom_is_rejection_item")]
 		self.assertEqual(len(fg_rows), 1)
 		self.assertEqual(fg_rows[0]["qty"], 90)
 
 	def test_get_items_with_rejection_adds_rejection_row(self) -> None:
-		"""Rejection row must have is_scrap_item=1, correct qty, rejection warehouse, and same basic_rate as FG."""
+		"""Rejection row must have expected flags, qty, rejection warehouse, and same basic_rate as FG."""
 		shift = _create_test_shift(
 			shift_date="2026-04-21",
 			wip_warehouse=self.wip_warehouse,
@@ -2013,14 +2222,15 @@ class TestGetItemsWithRejection(FrappeTestCase):
 			custom_rejection_qty=10,
 			custom_shift=shift.name,
 		)
-		fg_rows = [r for r in items if r.get("is_finished_item")]
+		fg_rows = [r for r in items if r.get("is_finished_item") and not r.get("custom_is_rejection_item")]
 		rejection_rows = [r for r in items if r.get("custom_is_rejection_item")]
 		self.assertEqual(len(rejection_rows), 1)
 		rr = rejection_rows[0]
 		self.assertEqual(rr["qty"], 10)
 		self.assertEqual(rr["item_code"], self.fg_item)
 		self.assertEqual(rr["t_warehouse"], self.rejection_warehouse)
-		self.assertTrue(rr.get("is_scrap_item"), "rejection row must have is_scrap_item=1")
+		self.assertFalse(rr.get("is_scrap_item"), "rejection row must have is_scrap_item=0")
+		self.assertTrue(rr.get("is_finished_item"), "rejection row must have is_finished_item=1")
 		# basic_rate must match FG row
 		fg_rate = fg_rows[0].get("basic_rate", 0)
 		self.assertGreater(fg_rate, 0, "FG row must have a basic_rate")
@@ -2056,7 +2266,7 @@ class TestGetItemsWithRejection(FrappeTestCase):
 				row.basic_rate = 200
 		se.save()
 
-		fg_rows = [r for r in se.items if r.is_finished_item]
+		fg_rows = [r for r in se.items if r.is_finished_item and not r.custom_is_rejection_item]
 		rejection_rows = [r for r in se.items if r.custom_is_rejection_item]
 		self.assertEqual(len(rejection_rows), 1)
 		self.assertEqual(rejection_rows[0].basic_rate, fg_rows[0].basic_rate)
@@ -2096,13 +2306,14 @@ class TestGetItemsWithRejection(FrappeTestCase):
 
 		items = get_items_with_rejection(json.dumps(doc_dict, default=str))
 
-		fg_rows = [r for r in items if r.get("is_finished_item")]
+		fg_rows = [r for r in items if r.get("is_finished_item") and not r.get("custom_is_rejection_item")]
 		rejection_rows = [r for r in items if r.get("custom_is_rejection_item")]
 		self.assertEqual(len(fg_rows), 1)
 		self.assertEqual(fg_rows[0]["qty"], 85)
 		self.assertEqual(len(rejection_rows), 1)
 		self.assertEqual(rejection_rows[0]["qty"], 15)
-		self.assertTrue(rejection_rows[0].get("is_scrap_item"))
+		self.assertFalse(rejection_rows[0].get("is_scrap_item"))
+		self.assertTrue(rejection_rows[0].get("is_finished_item"))
 		self.assertEqual(rejection_rows[0]["t_warehouse"], self.rejection_warehouse)
 
 	def test_rejection_qty_field_depends_on_from_bom(self) -> None:

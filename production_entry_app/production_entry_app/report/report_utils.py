@@ -47,6 +47,10 @@ def get_stock_entries_for_fg_item(item_code: str) -> list[str]:
 			# from report filter builders.
 			(stock_entry_detail.item_code == item_code)
 			& (stock_entry_detail.is_finished_item == 1)
+			& (
+				stock_entry_detail.custom_is_rejection_item.isnull()
+				| (stock_entry_detail.custom_is_rejection_item == 0)
+			)
 			& (stock_entry.docstatus == 1)
 			& (stock_entry.purpose == "Manufacture")
 		)
@@ -63,7 +67,12 @@ def get_entry_qty_maps(
 
 	stock_entry_detail = DocType("Stock Entry Detail")
 	good_query = frappe.qb.from_(stock_entry_detail).where(
-		(stock_entry_detail.parent.isin(stock_entry_names)) & (stock_entry_detail.is_finished_item == 1)
+		(stock_entry_detail.parent.isin(stock_entry_names))
+		& (stock_entry_detail.is_finished_item == 1)
+		& (
+			stock_entry_detail.custom_is_rejection_item.isnull()
+			| (stock_entry_detail.custom_is_rejection_item == 0)
+		)
 	)
 	if include_fg_item:
 		good_rows = (

@@ -355,6 +355,10 @@ def bootstrap_e2e_context(prefix: str = "E2E") -> dict:
 	rm_warehouse = ensure_warehouse(f"{prefix} RM - {abbr}", company)
 	fg_warehouse = ensure_warehouse(f"{prefix} FG - {abbr}", company)
 	rejection_warehouse = ensure_warehouse(f"{prefix} Rejection - {abbr}", company)
+	if frappe.get_meta("Warehouse", cached=True).has_field("is_rejected_warehouse"):
+		frappe.db.set_value(
+			"Warehouse", rejection_warehouse, "is_rejected_warehouse", 1, update_modified=False
+		)
 
 	fg_item = ensure_item(f"_{prefix}_FG_Item")
 	rm_item = ensure_item(f"_{prefix}_RM_Item")

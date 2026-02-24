@@ -36,6 +36,7 @@ def validate_stock_entry(doc, method: str | None = None) -> None:
 	_validate_workstation_downtime_overlap(doc)
 	_validate_rejection_breakup(doc)
 	_apply_rejection_entries(doc)
+	_validate_rejection_target_warehouses(doc)
 	_set_entry_metrics(doc)
 
 
@@ -334,9 +335,27 @@ def _apply_rejection_entries(doc) -> None:
 	if hasattr(fg_row, "project") and fg_row.project:
 		rejection_row.project = fg_row.project
 	rejection_row.custom_is_rejection_item = 1
-	rejection_row.is_scrap_item = 1
-	rejection_row.is_finished_item = 0
+	rejection_row.is_scrap_item = 0
+	rejection_row.is_finished_item = 1
 	rejection_row.bom_no = ""
+
+
+def _validate_rejection_target_warehouses(doc) -> None:
+	"""Ensure rejection rows always target a warehouse marked as rejected."""
+	if not _has_rejected_warehouse_flag():
+		return
+
+	for row in doc.get("items") or []:
+		if not row.get("custom_is_rejection_item"):
+			continue
+		if not row.get("t_warehouse"):
+			frappe.throw(_("Rejection row must have a Target Warehouse."))
+		if not _is_rejected_warehouse(row.t_warehouse):
+			frappe.throw(
+				_("Rejection row Target Warehouse must be marked as Rejected Warehouse: {0}").format(
+					row.t_warehouse
+				)
+			)
 
 
 def _remove_existing_rejection_rows(doc) -> None:
@@ -394,10 +413,33 @@ def _get_rejection_warehouse(doc, preferred_warehouse: str | None = None) -> str
 
 
 def _get_existing_rejection_target_warehouse(doc) -> str | None:
-	for row in doc.get("items", []):
-		if row.get("custom_is_rejection_item") and row.get("t_warehouse"):
-			return row.get("t_warehouse")
-	return None
+	candidates = [
+		row for row in doc.get("items", []) if row.get("custom_is_rejection_item") and row.get("t_warehouse")
+	]
+	if not candidates:
+		return None
+	# Legacy docs can contain multiple rejection rows. Prefer an already-valid rejected warehouse;
+	# among matches keep latest idx. If none are valid, fall back to latest row overall.
+	if _has_rejected_warehouse_flag():
+		valid_candidates = [row for row in candidates if _is_rejected_warehouse(row.get("t_warehouse"))]
+		if valid_candidates:
+			latest_valid = max(valid_candidates, key=lambda row: int(row.get("idx") or 0))
+			return latest_valid.get("t_warehouse")
+		if doc.is_new():
+			# For first-save docs, ignore invalid provisional row warehouses and use Shift/Settings defaults.
+			return None
+	latest = max(candidates, key=lambda row: int(row.get("idx") or 0))
+	return latest.get("t_warehouse")
+
+
+def _has_rejected_warehouse_flag() -> bool:
+	return frappe.get_meta("Warehouse", cached=True).has_field("is_rejected_warehouse")
+
+
+def _is_rejected_warehouse(warehouse: str | None) -> bool:
+	if not warehouse:
+		return False
+	return bool(frappe.db.get_value("Warehouse", warehouse, "is_rejected_warehouse"))
 
 
 def _set_entry_metrics(doc) -> None:

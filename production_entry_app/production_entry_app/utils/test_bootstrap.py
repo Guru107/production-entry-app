@@ -173,11 +173,16 @@ def cleanup_running_shifts() -> None:
 def bootstrap_manufacturing_test_context(prefix: str) -> dict[str, Any]:
 	company = resolve_test_company()
 	abbr = get_company_abbr(company)
+	rejection_warehouse = ensure_warehouse(f"{prefix} Rejection - {abbr}", company)
+	if frappe.get_meta("Warehouse", cached=True).has_field("is_rejected_warehouse"):
+		frappe.db.set_value(
+			"Warehouse", rejection_warehouse, "is_rejected_warehouse", 1, update_modified=False
+		)
 	return {
 		"company": company,
 		"abbr": abbr,
 		"wip_warehouse": ensure_warehouse(f"{prefix} WIP - {abbr}", company),
 		"rm_warehouse": ensure_warehouse(f"{prefix} RM - {abbr}", company),
 		"fg_warehouse": ensure_warehouse(f"{prefix} FG - {abbr}", company),
-		"rejection_warehouse": ensure_warehouse(f"{prefix} Rejection - {abbr}", company),
+		"rejection_warehouse": rejection_warehouse,
 	}

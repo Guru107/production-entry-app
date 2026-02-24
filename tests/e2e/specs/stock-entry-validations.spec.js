@@ -320,7 +320,7 @@ test.describe("Stock Entry validation matrix", () => {
 			Boolean(row.custom_is_rejection_item)
 		);
 		expect(rejectionRows).toHaveLength(1);
-		rejectionRows[0].t_warehouse = ctx.fg_warehouse;
+		rejectionRows[0].t_warehouse = ctx.rejection_warehouse;
 
 		await callFrappeMethod(page, "frappe.client.save", {
 			doc: JSON.stringify(savedAfterFirstSave),
@@ -333,7 +333,51 @@ test.describe("Stock Entry validation matrix", () => {
 			Boolean(row.custom_is_rejection_item)
 		);
 		expect(rejectionRowsAfterResave).toHaveLength(1);
-		expect(rejectionRowsAfterResave[0].t_warehouse).toBe(ctx.fg_warehouse);
+		expect(rejectionRowsAfterResave[0].t_warehouse).toBe(ctx.rejection_warehouse);
+	});
+
+	test("@regression latest rejection row warehouse is used when legacy duplicate rows exist", async ({
+		page,
+	}) => {
+		await page.goto("/app/home");
+		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
+
+		const stockEntryPage = await openManufactureEntry(page, ctx, {
+			fgQty: 100,
+			rejectionQty: 10,
+		});
+		await stockEntryPage.fetchItems();
+		await stockEntryPage.setRejectionBreakupRows([
+			{ rejection_reason: "Burr", qty: 4 },
+			{ rejection_reason: "Crack", qty: 6 },
+		]);
+		await stockEntryPage.saveDraft();
+
+		const stockEntryName = await page.evaluate(() => window.cur_frm?.doc?.name);
+		const saved = await getDoc(page, "Stock Entry", stockEntryName);
+		const rejectionRows = (saved.items || []).filter((row) =>
+			Boolean(row.custom_is_rejection_item)
+		);
+		expect(rejectionRows).toHaveLength(1);
+
+		rejectionRows[0].t_warehouse = ctx.fg_warehouse;
+		saved.items.push({
+			...rejectionRows[0],
+			name: undefined,
+			idx: undefined,
+			t_warehouse: ctx.rejection_warehouse,
+		});
+
+		await callFrappeMethod(page, "frappe.client.save", {
+			doc: JSON.stringify(saved),
+		});
+
+		const reloaded = await getDoc(page, "Stock Entry", stockEntryName);
+		const reloadedRejectionRows = (reloaded.items || []).filter((row) =>
+			Boolean(row.custom_is_rejection_item)
+		);
+		expect(reloadedRejectionRows).toHaveLength(1);
+		expect(reloadedRejectionRows[0].t_warehouse).toBe(ctx.rejection_warehouse);
 	});
 
 	test("@regression ok qty is computed as fg completed minus rejection qty", async ({
