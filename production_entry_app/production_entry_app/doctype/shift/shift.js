@@ -99,6 +99,7 @@ frappe.ui.form.on("Shift", {
 
 		_render_linked_downtime_entries(frm);
 		_render_shift_metrics(frm);
+		_render_aggregate_production_entries(frm);
 	},
 });
 
@@ -218,7 +219,7 @@ function _render_shift_metrics(frm) {
 
 			const rows = [
 				[__("Entries"), metrics.entry_count],
-				[__("Good Qty"), metrics.total_good_qty],
+				[__("Total Qty"), metrics.total_qty],
 				[__("Rejection Qty"), metrics.total_rejection_qty],
 				[__("OK Qty"), metrics.total_ok_qty],
 				[__("Total Duration (mins)"), metrics.total_duration_mins],
@@ -242,6 +243,71 @@ function _render_shift_metrics(frm) {
 				frm,
 				"shift_metrics",
 				`<p class="text-muted">${__("Unable to load shift metrics.")}</p>`
+			);
+		},
+	});
+}
+
+function _render_aggregate_production_entries(frm) {
+	if (!frm.doc.name) {
+		return;
+	}
+	frappe.call({
+		method: "production_entry_app.production_entry_app.doctype.shift.shift.get_shift_aggregate_production_entries",
+		args: { shift_name: frm.doc.name },
+		callback(r) {
+			const rows = r.message || [];
+			if (!rows.length) {
+				_set_shared_html_field(
+					frm,
+					"aggregate_production_entries",
+					`<p class="text-muted">${__(
+						"No production entries linked to this shift yet."
+					)}</p>`
+				);
+				return;
+			}
+
+			const headers = [
+				__("BOM Used"),
+				__("Item Code"),
+				__("Total Qty"),
+				__("Total OK Qty"),
+				__("Total Reject Qty"),
+				__("Avg SPM"),
+			];
+			const thead = `<thead><tr>${headers
+				.map((header) => `<th>${frappe.utils.escape_html(String(header))}</th>`)
+				.join("")}</tr></thead>`;
+			const tbody = `<tbody>${rows
+				.map(
+					(row) =>
+						`<tr><td>${frappe.utils.escape_html(
+							String(row.bom_used || "")
+						)}</td><td>${frappe.utils.escape_html(
+							String(row.item_code || "")
+						)}</td><td>${frappe.utils.escape_html(
+							String(row.total_qty ?? "")
+						)}</td><td>${frappe.utils.escape_html(
+							String(row.total_ok_qty ?? "")
+						)}</td><td>${frappe.utils.escape_html(
+							String(row.total_reject_qty ?? "")
+						)}</td><td>${frappe.utils.escape_html(
+							String(row.avg_spm ?? "")
+						)}</td></tr>`
+				)
+				.join("")}</tbody>`;
+			_set_shared_html_field(
+				frm,
+				"aggregate_production_entries",
+				`<table class="table table-condensed table-bordered">${thead}${tbody}</table>`
+			);
+		},
+		error() {
+			_set_shared_html_field(
+				frm,
+				"aggregate_production_entries",
+				`<p class="text-muted">${__("Unable to load aggregate production entries.")}</p>`
 			);
 		},
 	});

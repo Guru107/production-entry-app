@@ -163,7 +163,7 @@ def check_running_shift_conflict(shift_name: str) -> dict:
 def _empty_shift_metrics() -> dict:
 	return {
 		"entry_count": 0,
-		"total_good_qty": 0,
+		"total_qty": 0,
 		"total_rejection_qty": 0,
 		"total_ok_qty": 0,
 		"total_duration_mins": 0,
@@ -202,7 +202,7 @@ def get_shift_metrics(shift_name: str) -> dict:
 		frappe.qb.from_(stock_entry)
 		.select(
 			Count(stock_entry.name).as_("entry_count"),
-			Sum(stock_entry.fg_completed_qty).as_("total_good_qty"),
+			Sum(stock_entry.fg_completed_qty).as_("total_qty"),
 			Sum(stock_entry.custom_rejection_qty).as_("total_rejection_qty"),
 			Sum(stock_entry.custom_actual_duration_mins).as_("total_duration_mins"),
 			Avg(stock_entry.custom_operator_efficiency_pct).as_("avg_efficiency_pct"),
@@ -226,16 +226,16 @@ def get_shift_metrics(shift_name: str) -> dict:
 		_set_cached_shift_metrics(shift_name, empty_metrics)
 		return empty_metrics
 
-	total_good_qty = flt(metrics.get("total_good_qty") or 0, 3)
+	total_qty = flt(metrics.get("total_qty") or 0, 3)
 	total_rejection_qty = flt(metrics.get("total_rejection_qty") or 0, 3)
-	total_ok_qty = flt(total_good_qty - total_rejection_qty, 3)
+	total_ok_qty = flt(total_qty - total_rejection_qty, 3)
 	total_duration_mins = flt(metrics.get("total_duration_mins") or 0, 3)
 	avg_actual_spm = flt((total_ok_qty / total_duration_mins), 3) if total_duration_mins > 0 else 0
 	avg_efficiency_pct = flt(metrics.get("avg_efficiency_pct") or 0, 2)
 
 	result = {
 		"entry_count": entry_count,
-		"total_good_qty": total_good_qty,
+		"total_qty": total_qty,
 		"total_rejection_qty": total_rejection_qty,
 		"total_ok_qty": total_ok_qty,
 		"total_duration_mins": total_duration_mins,
@@ -243,6 +243,60 @@ def get_shift_metrics(shift_name: str) -> dict:
 		"avg_efficiency_pct": avg_efficiency_pct,
 	}
 	_set_cached_shift_metrics(shift_name, result)
+	return result
+
+
+@frappe.whitelist()
+def get_shift_aggregate_production_entries(shift_name: str) -> list[dict]:
+	"""Return per-BOM aggregate production values for submitted manufacture entries in a shift."""
+	if not shift_name:
+		return []
+	if not frappe.has_permission("Shift", "read", shift_name):
+		raise frappe.PermissionError
+
+	stock_entry = DocType("Stock Entry")
+	bom = DocType("BOM")
+	rows = (
+		frappe.qb.from_(stock_entry)
+		.inner_join(bom)
+		.on(bom.name == stock_entry.bom_no)
+		.select(
+			stock_entry.bom_no.as_("bom_used"),
+			bom.item.as_("item_code"),
+			Sum(stock_entry.fg_completed_qty).as_("total_qty"),
+			Sum(stock_entry.custom_rejection_qty).as_("total_reject_qty"),
+			Sum(stock_entry.custom_actual_duration_mins).as_("total_duration_mins"),
+		)
+		.where(
+			(stock_entry.docstatus == 1)
+			& (stock_entry.purpose == "Manufacture")
+			& (stock_entry.custom_shift == shift_name)
+			& stock_entry.bom_no.isnotnull()
+			& (stock_entry.bom_no != "")
+		)
+		.groupby(stock_entry.bom_no, bom.item)
+		.orderby(stock_entry.bom_no, order=frappe.qb.asc)
+		.orderby(bom.item, order=frappe.qb.asc)
+	).run(as_dict=True)
+
+	result: list[dict] = []
+	for row in rows:
+		total_qty = flt(row.get("total_qty") or 0, 3)
+		total_reject_qty = flt(row.get("total_reject_qty") or 0, 3)
+		total_ok_qty = flt(total_qty - total_reject_qty, 3)
+		total_duration_mins = flt(row.get("total_duration_mins") or 0, 3)
+		avg_spm = flt((total_ok_qty / total_duration_mins), 3) if total_duration_mins > 0 else 0
+		result.append(
+			{
+				"bom_used": row.get("bom_used"),
+				"item_code": row.get("item_code"),
+				"total_qty": total_qty,
+				"total_ok_qty": total_ok_qty,
+				"total_reject_qty": total_reject_qty,
+				"avg_spm": avg_spm,
+			}
+		)
+
 	return result
 
 

@@ -132,6 +132,13 @@ def _ensure_item_die_tool_fields() -> None:
 def _ensure_stock_entry_metric_fields() -> None:
 	metric_fields = [
 		{
+			"name": "Stock Entry-custom_ok_qty",
+			"fieldname": "custom_ok_qty",
+			"fieldtype": "Float",
+			"label": "OK Qty",
+			"insert_after": "bom_no",
+		},
+		{
 			"name": "Stock Entry-custom_actual_duration_mins",
 			"fieldname": "custom_actual_duration_mins",
 			"fieldtype": "Float",
@@ -791,10 +798,23 @@ class TestStockEntryHooks(FrappeTestCase):
 
 		se.save()
 
+		expected_ok_qty = max(
+			float(se.get("fg_completed_qty") or 0) - float(se.get("custom_rejection_qty") or 0),
+			0,
+		)
+		self.assertEqual(float(se.custom_ok_qty), expected_ok_qty)
 		self.assertEqual(float(se.custom_actual_duration_mins), 100.0)
-		self.assertEqual(float(se.custom_actual_spm), 1.0)
-		self.assertEqual(float(se.custom_cycle_time_sec), 60.0)
-		self.assertEqual(float(se.custom_operator_efficiency_pct), 100.0)
+		self.assertAlmostEqual(
+			float(se.custom_actual_spm),
+			float(expected_ok_qty / 100.0 if expected_ok_qty > 0 else 0),
+			places=3,
+		)
+		self.assertAlmostEqual(
+			float(se.custom_cycle_time_sec),
+			float((6000.0 / expected_ok_qty) if expected_ok_qty > 0 else 0),
+			places=3,
+		)
+		self.assertAlmostEqual(float(se.custom_operator_efficiency_pct), float(expected_ok_qty), places=2)
 
 	def test_metrics_remain_empty_when_actual_times_missing(self) -> None:
 		shift = _create_test_shift(
@@ -1105,6 +1125,29 @@ class TestStockEntryHooks(FrappeTestCase):
 		self.assertEqual(se.from_warehouse, self.wip_warehouse)
 		self.assertEqual(se.to_warehouse, self.wip_warehouse)
 
+	def test_shift_reference_preserves_explicit_parent_warehouses(self) -> None:
+		explicit_from = _get_or_create_warehouse("SE Hook Explicit From", self.company)
+		explicit_to = _get_or_create_warehouse("SE Hook Explicit To", self.company)
+		shift = _create_test_shift(
+			shift_date="2026-04-12",
+			wip_warehouse=self.wip_warehouse,
+		)
+
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			custom_shift=shift.name,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		se.from_warehouse = explicit_from
+		se.to_warehouse = explicit_to
+		se.save()
+
+		self.assertEqual(se.from_warehouse, explicit_from)
+		self.assertEqual(se.to_warehouse, explicit_to)
+
 	def test_rejection_qty_deducts_from_finished_good(self) -> None:
 		shift = _create_test_shift(
 			shift_date="2026-04-13",
@@ -1234,6 +1277,41 @@ class TestStockEntryHooks(FrappeTestCase):
 		self.assertEqual(fg_rows[0].qty, 90)
 		self.assertEqual(len(rejection_rows), 1)
 		self.assertEqual(rejection_rows[0].qty, 10)
+
+	def test_rejection_row_target_warehouse_persists_when_user_overrides(self) -> None:
+		explicit_rejection_warehouse = _get_or_create_warehouse("SE Hook Explicit Rejection", self.company)
+		shift = _create_test_shift(
+			shift_date="2026-04-16",
+			wip_warehouse=self.wip_warehouse,
+			rejection_warehouse=self.rejection_warehouse,
+		)
+
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			fg_qty=100,
+			custom_shift=shift.name,
+			custom_rejection_qty=10,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		_append_rejection_breakup_rows(
+			se,
+			[
+				{"rejection_reason": "Burr", "qty": 4, "remark": "Edge burr"},
+				{"rejection_reason": "Crack", "qty": 6, "remark": "Surface crack"},
+			],
+		)
+		se.save()
+		rejection_rows = [r for r in se.items if r.custom_is_rejection_item]
+		self.assertEqual(len(rejection_rows), 1)
+		rejection_rows[0].t_warehouse = explicit_rejection_warehouse
+
+		se.save()
+		rejection_rows = [r for r in se.items if r.custom_is_rejection_item]
+		self.assertEqual(len(rejection_rows), 1)
+		self.assertEqual(rejection_rows[0].t_warehouse, explicit_rejection_warehouse)
 
 	def test_remove_rejection_rows_no_op_when_none_found(self) -> None:
 		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (

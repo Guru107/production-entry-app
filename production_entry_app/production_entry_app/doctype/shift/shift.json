@@ -30,6 +30,8 @@
   "linked_downtime_entries",
   "tab_metrics",
   "shift_metrics",
+  "tab_aggregate_entries",
+  "aggregate_production_entries",
   "status"
  ],
  "fields": [
@@ -180,6 +182,18 @@
    "fieldname": "shift_metrics",
    "fieldtype": "HTML",
    "label": "Shift Metrics",
+   "options": "<p class=\"text-muted\">Loading...</p>",
+   "read_only": 1
+  },
+  {
+   "fieldname": "tab_aggregate_entries",
+   "fieldtype": "Tab Break",
+   "label": "Aggregate Entries"
+  },
+  {
+   "fieldname": "aggregate_production_entries",
+   "fieldtype": "HTML",
+   "label": "Aggregate Production Entries",
    "options": "<p class=\"text-muted\">Loading...</p>",
    "read_only": 1
   },

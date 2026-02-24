@@ -80,8 +80,11 @@ def _apply_shift_defaults(doc) -> None:
 		doc.custom_planned_end_date = planned_end
 
 	if shift.work_in_progress_warehouse:
-		doc.from_warehouse = shift.work_in_progress_warehouse
-		doc.to_warehouse = shift.work_in_progress_warehouse
+		# Shift warehouse values are defaults only; preserve explicit user choices.
+		if not doc.from_warehouse:
+			doc.from_warehouse = shift.work_in_progress_warehouse
+		if not doc.to_warehouse:
+			doc.to_warehouse = shift.work_in_progress_warehouse
 
 
 def _sync_unplanned_loss_shift_links(doc) -> None:
@@ -283,6 +286,7 @@ def _validate_rejection_breakup(doc) -> None:
 def _apply_rejection_entries(doc) -> None:
 	"""Handle rejection quantity: deduct from FG row and add rejection row."""
 	rejection_qty = float(doc.get("custom_rejection_qty") or 0)
+	existing_rejection_t_warehouse = _get_existing_rejection_target_warehouse(doc)
 
 	# Step 1: Remove any existing rejection rows and restore FG qty
 	_remove_existing_rejection_rows(doc)
@@ -304,7 +308,7 @@ def _apply_rejection_entries(doc) -> None:
 		)
 
 	# Step 4: Resolve rejection warehouse
-	rejection_warehouse = _get_rejection_warehouse(doc)
+	rejection_warehouse = _get_rejection_warehouse(doc, preferred_warehouse=existing_rejection_t_warehouse)
 
 	# Step 5: Deduct from FG row
 	fg_row.qty -= rejection_qty
@@ -368,8 +372,11 @@ def _find_finished_good_row(doc):
 	return None
 
 
-def _get_rejection_warehouse(doc) -> str:
-	"""Resolve rejection warehouse: Shift > Manufacturing Settings > error."""
+def _get_rejection_warehouse(doc, preferred_warehouse: str | None = None) -> str:
+	"""Resolve rejection warehouse, honoring explicit row-level warehouse when present."""
+	if preferred_warehouse:
+		return preferred_warehouse
+
 	# Try from linked Shift
 	if doc.get("custom_shift"):
 		shift_rejection_wh = frappe.db.get_value("Shift", doc.custom_shift, "rejection_warehouse")
@@ -386,10 +393,19 @@ def _get_rejection_warehouse(doc) -> str:
 	frappe.throw(_("Please set a Rejection Warehouse on the Shift or in Manufacturing Settings."))
 
 
+def _get_existing_rejection_target_warehouse(doc) -> str | None:
+	for row in doc.get("items", []):
+		if row.get("custom_is_rejection_item") and row.get("t_warehouse"):
+			return row.get("t_warehouse")
+	return None
+
+
 def _set_entry_metrics(doc) -> None:
 	"""Compute read-only entry metrics used by operators and supervisors."""
 	meta = frappe.get_meta("Stock Entry", cached=True)
 	_set_die_tool_health_metrics(doc, meta)
+	ok_qty = _get_ok_units_for_metrics(doc)
+	_set_if_field(doc, meta, "custom_ok_qty", flt(ok_qty, 3))
 	actual_start = _as_datetime(doc.get("custom_actual_start_date"))
 	actual_end = _as_datetime(doc.get("custom_actual_end_date"))
 
@@ -408,9 +424,9 @@ def _set_entry_metrics(doc) -> None:
 		_set_if_field(doc, meta, "custom_operator_efficiency_pct", None)
 		return
 
-	total_units = _get_total_units_for_metrics(doc)
-	actual_spm = (total_units / duration_mins) if total_units > 0 else 0
-	cycle_time_sec = ((duration_mins * 60) / total_units) if total_units > 0 else 0
+	ok_units = _get_ok_units_for_metrics(doc)
+	actual_spm = (ok_units / duration_mins) if ok_units > 0 else 0
+	cycle_time_sec = ((duration_mins * 60) / ok_units) if ok_units > 0 else 0
 	standard_spm = flt(doc.get("custom_standard_spm") or 0)
 	operator_efficiency = ((actual_spm / standard_spm) * 100) if standard_spm > 0 else 0
 
@@ -420,22 +436,10 @@ def _set_entry_metrics(doc) -> None:
 	_set_if_field(doc, meta, "custom_operator_efficiency_pct", flt(operator_efficiency, 2))
 
 
-def _get_total_units_for_metrics(doc) -> float:
+def _get_ok_units_for_metrics(doc) -> float:
 	fg_completed_qty = flt(doc.get("fg_completed_qty") or 0)
 	rejection_qty_field = flt(doc.get("custom_rejection_qty") or 0)
-	if fg_completed_qty > 0:
-		return fg_completed_qty + rejection_qty_field
-
-	fg_qty = 0.0
-	rejection_qty = 0.0
-	for row in doc.get("items", []):
-		if row.get("custom_is_rejection_item"):
-			rejection_qty += flt(row.get("qty") or 0)
-		elif row.get("is_finished_item"):
-			fg_qty += flt(row.get("qty") or 0)
-	if rejection_qty <= 0:
-		rejection_qty = rejection_qty_field
-	return fg_qty + rejection_qty
+	return max(fg_completed_qty - rejection_qty_field, 0)
 
 
 def _set_if_field(doc, meta, fieldname: str, value) -> None:

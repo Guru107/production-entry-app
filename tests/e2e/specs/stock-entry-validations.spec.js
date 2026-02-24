@@ -294,6 +294,72 @@ test.describe("Stock Entry validation matrix", () => {
 		expect(Number(fgRows[0].qty)).toBe(90);
 	});
 
+	test("@regression explicit warehouse overrides persist after save", async ({ page }) => {
+		await page.goto("/app/home");
+		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
+
+		const stockEntryPage = await openManufactureEntry(page, ctx, {
+			fgQty: 100,
+			rejectionQty: 10,
+		});
+		await stockEntryPage.fetchItems();
+		await setFieldValue(page, "from_warehouse", ctx.rm_warehouse);
+		await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
+		await stockEntryPage.setRejectionBreakupRows([
+			{ rejection_reason: "Burr", qty: 4 },
+			{ rejection_reason: "Crack", qty: 6 },
+		]);
+		await stockEntryPage.saveDraft();
+
+		const stockEntryName = await page.evaluate(() => window.cur_frm?.doc?.name);
+		const savedAfterFirstSave = await getDoc(page, "Stock Entry", stockEntryName);
+		expect(savedAfterFirstSave.from_warehouse).toBe(ctx.rm_warehouse);
+		expect(savedAfterFirstSave.to_warehouse).toBe(ctx.fg_warehouse);
+
+		const rejectionRows = (savedAfterFirstSave.items || []).filter((row) =>
+			Boolean(row.custom_is_rejection_item)
+		);
+		expect(rejectionRows).toHaveLength(1);
+		rejectionRows[0].t_warehouse = ctx.fg_warehouse;
+
+		await callFrappeMethod(page, "frappe.client.save", {
+			doc: JSON.stringify(savedAfterFirstSave),
+		});
+
+		const savedAfterResave = await getDoc(page, "Stock Entry", stockEntryName);
+		expect(savedAfterResave.from_warehouse).toBe(ctx.rm_warehouse);
+		expect(savedAfterResave.to_warehouse).toBe(ctx.fg_warehouse);
+		const rejectionRowsAfterResave = (savedAfterResave.items || []).filter((row) =>
+			Boolean(row.custom_is_rejection_item)
+		);
+		expect(rejectionRowsAfterResave).toHaveLength(1);
+		expect(rejectionRowsAfterResave[0].t_warehouse).toBe(ctx.fg_warehouse);
+	});
+
+	test("@regression ok qty is computed as fg completed minus rejection qty", async ({
+		page,
+	}) => {
+		await page.goto("/app/home");
+		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
+
+		const stockEntryPage = await openManufactureEntry(page, ctx, {
+			fgQty: 100,
+			rejectionQty: 10,
+		});
+		await stockEntryPage.fetchItems();
+		await stockEntryPage.setRejectionBreakupRows([
+			{ rejection_reason: "Burr", qty: 4 },
+			{ rejection_reason: "Crack", qty: 6 },
+		]);
+		await stockEntryPage.saveDraft();
+
+		const stockEntryName = await page.evaluate(() => window.cur_frm?.doc?.name);
+		const savedStockEntry = await getDoc(page, "Stock Entry", stockEntryName);
+		expect(Number(savedStockEntry.fg_completed_qty || 0)).toBe(100);
+		expect(Number(savedStockEntry.custom_rejection_qty || 0)).toBe(10);
+		expect(Number(savedStockEntry.custom_ok_qty || 0)).toBe(90);
+	});
+
 	test("@regression blocks overlapping stock entry when workstation is already in use", async ({
 		page,
 	}) => {
