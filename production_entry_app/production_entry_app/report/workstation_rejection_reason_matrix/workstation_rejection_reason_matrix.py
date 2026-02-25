@@ -113,7 +113,9 @@ def _get_rows(filters: dict, top_n: int) -> tuple[list[dict], list[str]]:
 
 	reason_order = [
 		reason
-		for reason, _qty in sorted(reason_totals.items(), key=lambda item: (-flt(item[1], 3), item[0]))[:top_n]
+		for reason, _qty in sorted(reason_totals.items(), key=lambda item: (-flt(item[1], 3), item[0]))[
+			:top_n
+		]
 	]
 	rows: list[dict] = []
 	for workstation in sorted(matrix.keys()):

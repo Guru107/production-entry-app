@@ -822,9 +822,7 @@ class TestProductionReports(FrappeTestCase):
 			breakup_rows=[{"rejection_reason": "Blank Cut", "qty": 4}],
 		)
 
-		columns, rows = execute(
-			{"from_date": "2026-06-23", "to_date": "2026-06-23", "top_n_reasons": 2}
-		)
+		columns, rows = execute({"from_date": "2026-06-23", "to_date": "2026-06-23", "top_n_reasons": 2})
 		column_labels = [col.get("label") for col in columns]
 		self.assertIn("Crack", column_labels)
 		self.assertIn("Blank Cut", column_labels)
@@ -842,9 +840,9 @@ class TestProductionReports(FrappeTestCase):
 
 		operator_2 = "Report Operator 2"
 		if not frappe.db.exists("Operator", operator_2):
-			frappe.get_doc(
-				{"doctype": "Operator", "operator_name": operator_2, "is_active": 1}
-			).insert(ignore_permissions=True)
+			frappe.get_doc({"doctype": "Operator", "operator_name": operator_2, "is_active": 1}).insert(
+				ignore_permissions=True
+			)
 		shift = self._create_shift_for_label("2026-06-24", "1")
 		self._create_mock_submitted_entry_with_breakup(
 			posting_date="2026-06-24",
@@ -888,9 +886,9 @@ class TestProductionReports(FrappeTestCase):
 		shift = self._create_shift_for_label("2026-06-25", "1")
 		operator_2 = "Report Operator 2"
 		if not frappe.db.exists("Operator", operator_2):
-			frappe.get_doc(
-				{"doctype": "Operator", "operator_name": operator_2, "is_active": 1}
-			).insert(ignore_permissions=True)
+			frappe.get_doc({"doctype": "Operator", "operator_name": operator_2, "is_active": 1}).insert(
+				ignore_permissions=True
+			)
 
 		self._create_mock_submitted_entry_with_breakup(
 			posting_date="2026-06-25",
@@ -1051,9 +1049,7 @@ class TestProductionReports(FrappeTestCase):
 			breakup_rows=[{"rejection_reason": "Burr", "qty": 9}],
 		)
 
-		_, rows = execute(
-			{"from_date": "2026-06-28", "to_date": "2026-06-28", "fg_item": self.fg_item}
-		)
+		_, rows = execute({"from_date": "2026-06-28", "to_date": "2026-06-28", "fg_item": self.fg_item})
 		self.assertEqual(len(rows), 1)
 		self.assertEqual(rows[0]["item_code"], self.fg_item)
 		self.assertEqual(float(rows[0]["rejection_qty"]), 5.0)

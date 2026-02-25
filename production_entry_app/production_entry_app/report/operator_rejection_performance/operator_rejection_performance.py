@@ -23,7 +23,12 @@ def _get_columns() -> list[dict]:
 		{"label": _("Entries"), "fieldname": "entries", "fieldtype": "Int", "width": 90},
 		{"label": _("Total Qty"), "fieldname": "total_qty", "fieldtype": "Float", "width": 120},
 		{"label": _("Rejection Qty"), "fieldname": "rejection_qty", "fieldtype": "Float", "width": 130},
-		{"label": _("Rejection Rate %"), "fieldname": "rejection_rate_pct", "fieldtype": "Percent", "width": 150},
+		{
+			"label": _("Rejection Rate %"),
+			"fieldname": "rejection_rate_pct",
+			"fieldtype": "Percent",
+			"width": 150,
+		},
 		{"label": _("Top 3 Reasons"), "fieldname": "top_3_reasons", "fieldtype": "Data", "width": 260},
 		{"label": _("Avg Actual SPM"), "fieldname": "avg_actual_spm", "fieldtype": "Float", "width": 130},
 	]
@@ -114,9 +119,7 @@ def _get_rows(filters: dict) -> list[dict]:
 		rejection_qty = flt(agg["rejection_qty"], 3)
 		rejection_rate_pct = flt((rejection_qty / total_qty) * 100, 2) if total_qty > 0 else 0
 		avg_actual_spm = (
-			flt(agg["actual_spm_sum"] / agg["actual_spm_count"], 3)
-			if agg["actual_spm_count"] > 0
-			else 0
+			flt(agg["actual_spm_sum"] / agg["actual_spm_count"], 3) if agg["actual_spm_count"] > 0 else 0
 		)
 		reason_totals = agg.get("reason_totals") or {}
 		top_reasons = sorted(reason_totals.items(), key=lambda item: (-flt(item[1], 3), item[0]))[:3]
