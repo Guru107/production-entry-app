@@ -130,6 +130,20 @@ class ReportsPage {
 		}, fieldnames);
 	}
 
+	async getColumnLabels() {
+		return await this.page.evaluate(() => {
+			const columns = window.frappe?.query_report?.columns || [];
+			return columns.map((column) => column?.label).filter(Boolean);
+		});
+	}
+
+	async hasChart() {
+		return await this.page.evaluate(() => {
+			const chart = window.frappe?.query_report?.chart;
+			return Boolean(chart && chart.data);
+		});
+	}
+
 	async runWithDateRange(fromDate, toDate) {
 		await this.setFilterByFieldname("from_date", fromDate);
 		await this.setFilterByFieldname("to_date", toDate);
