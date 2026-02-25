@@ -128,6 +128,7 @@
 		"fieldtype": "Link",
 		"label": "Shift",
 		"options": "Shift",
+		"depends_on": "eval:doc.custom_stock_entry_purpose=='Manufacture'",
 		"is_index": 1,
 		"insert_after": "custom_stock_entry_purpose",
 		"module": "Production Entry App"
@@ -295,6 +296,18 @@
 		"description": "Deducted from FG qty; moved to rejection warehouse",
 		"insert_after": "fg_completed_qty",
 		"depends_on": "eval:doc.from_bom",
+		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Custom Field",
+		"name": "Stock Entry-custom_ok_qty",
+		"dt": "Stock Entry",
+		"fieldname": "custom_ok_qty",
+		"fieldtype": "Float",
+		"label": "OK Qty",
+		"description": "Computed as FG Completed Qty - Rejection Quantity",
+		"read_only": 1,
+		"insert_after": "bom_no",
 		"module": "Production Entry App"
 	},
 	{

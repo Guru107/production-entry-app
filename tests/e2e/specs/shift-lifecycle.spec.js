@@ -99,11 +99,9 @@ test.describe("Shift lifecycle", () => {
 		await page.evaluate(
 			async ({ dateValue }) => {
 				const frm = window.cur_frm;
-				await Promise.all([
-					frm.set_value("shift_date", dateValue),
-					frm.set_value("planned_start_time", "08:00:00"),
-					frm.set_value("shift_duration", "8"),
-				]);
+				await frm.set_value("shift_date", dateValue);
+				await frm.set_value("planned_start_time", "08:00:00");
+				await frm.set_value("shift_duration", "8");
 			},
 			{ dateValue: shiftDate }
 		);

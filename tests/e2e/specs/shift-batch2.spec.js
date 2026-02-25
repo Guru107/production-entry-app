@@ -140,9 +140,11 @@ test.describe("Batch 2 shift UX", () => {
 				"tab_breaks",
 				"tab_activity",
 				"tab_metrics",
+				"tab_aggregate_entries",
 			])
 		);
 		expect(meta.fieldNames).toContain("shift_metrics");
+		expect(meta.fieldNames).toContain("aggregate_production_entries");
 	});
 
 	test("@regression shift metrics renders empty state then table after production entry", async ({
@@ -158,7 +160,7 @@ test.describe("Batch 2 shift UX", () => {
 			const text = (field?.$wrapper?.text?.() || "").replace(/\s+/g, " ").trim();
 			return (
 				text.includes("No production entries linked to this shift yet.") ||
-				(text.includes("Entries") && text.includes("Good Qty"))
+				(text.includes("Entries") && text.includes("Total Qty"))
 			);
 		});
 
@@ -173,8 +175,50 @@ test.describe("Batch 2 shift UX", () => {
 		await page.waitForFunction(() => {
 			const field = window.cur_frm?.fields_dict?.shift_metrics;
 			const text = (field?.$wrapper?.text?.() || "").replace(/\s+/g, " ").trim();
-			return text.includes("Entries") && text.includes("Good Qty");
+			return text.includes("Entries") && text.includes("Total Qty");
 		});
+	});
+
+	test("@regression shift aggregate entries renders empty state then table after production entry", async ({
+		page,
+	}) => {
+		await page.goto("/app/home");
+		const testPrefix = `${lifecycle.getPrefix()}-aggregate`;
+		const ctx = await setupFreshContext(page, testPrefix);
+
+		await openForm(page, "shift", ctx.shift_name);
+		await page.waitForFunction(() => {
+			const field = window.cur_frm?.fields_dict?.aggregate_production_entries;
+			const text = (field?.$wrapper?.text?.() || "").replace(/\s+/g, " ").trim();
+			return (
+				text.includes("No production entries linked to this shift yet.") ||
+				(text.includes("BOM Used") && text.includes("Item Code"))
+			);
+		});
+
+		await callFrappeMethod(
+			page,
+			"production_entry_app.production_entry_app.api.create_e2e_submitted_stock_entry",
+			{ prefix: testPrefix, rejection_qty: 5 }
+		);
+		await page.evaluate(async () => {
+			await cur_frm.reload_doc();
+		});
+		await page.waitForFunction(() => {
+			const field = window.cur_frm?.fields_dict?.aggregate_production_entries;
+			const text = (field?.$wrapper?.text?.() || "").replace(/\s+/g, " ").trim();
+			return (
+				text.includes("BOM Used") &&
+				text.includes("Item Code") &&
+				text.includes("Total Qty") &&
+				text.includes("Total OK Qty") &&
+				text.includes("Total Reject Qty") &&
+				text.includes("Avg SPM")
+			);
+		});
+		const aggregateText = await getFieldText(page, "aggregate_production_entries");
+		expect(aggregateText).toContain(ctx.bom);
+		expect(aggregateText).toContain(ctx.fg_item);
 	});
 
 	test("@regression workstation and operator render timeline in dedicated html fields", async ({

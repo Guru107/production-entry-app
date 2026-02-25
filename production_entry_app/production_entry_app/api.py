@@ -39,6 +39,13 @@ def get_shift_details_for_stock_entry(shift_name: str) -> dict:
 		return {}
 
 	shift = frappe.get_doc("Shift", shift_name)
+	if shift.status != "Running":
+		frappe.throw(
+			_("Only Running shifts can be linked in Shift. Selected shift {0} is {1}.").format(
+				frappe.bold(shift.name),
+				frappe.bold(shift.status or _("not found")),
+			)
+		)
 
 	planned_start = None
 	if shift.shift_date and shift.planned_start_time:
@@ -355,6 +362,10 @@ def bootstrap_e2e_context(prefix: str = "E2E") -> dict:
 	rm_warehouse = ensure_warehouse(f"{prefix} RM - {abbr}", company)
 	fg_warehouse = ensure_warehouse(f"{prefix} FG - {abbr}", company)
 	rejection_warehouse = ensure_warehouse(f"{prefix} Rejection - {abbr}", company)
+	if frappe.get_meta("Warehouse", cached=True).has_field("is_rejected_warehouse"):
+		frappe.db.set_value(
+			"Warehouse", rejection_warehouse, "is_rejected_warehouse", 1, update_modified=False
+		)
 
 	fg_item = ensure_item(f"_{prefix}_FG_Item")
 	rm_item = ensure_item(f"_{prefix}_RM_Item")

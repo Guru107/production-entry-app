@@ -94,6 +94,7 @@ test.describe("Stock Entry validation matrix", () => {
 		expect(await stockEntryPage.isSectionVisible("custom_operation_details_section")).toBe(
 			true
 		);
+		expect(await stockEntryPage.isFieldVisible("custom_shift")).toBe(true);
 		expect(await stockEntryPage.isFieldVisible("custom_workstation")).toBe(true);
 	});
 
@@ -114,8 +115,62 @@ test.describe("Stock Entry validation matrix", () => {
 		expect(await stockEntryPage.isSectionVisible("custom_operation_details_section")).toBe(
 			false
 		);
+		expect(await stockEntryPage.isFieldVisible("custom_shift")).toBe(false);
 		expect(await stockEntryPage.isFieldVisible("custom_workstation")).toBe(false);
 		expect(await stockEntryPage.isFieldVisible("custom_fetch_items")).toBe(false);
+	});
+
+	test("@regression purpose switch from manufacture clears manufacture fields and tables", async ({
+		page,
+	}) => {
+		await page.goto("/app/home");
+		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
+
+		const stockEntryPage = await openManufactureEntry(page, ctx, {
+			fgQty: 100,
+			rejectionQty: 5,
+		});
+		await stockEntryPage.fetchItems();
+		await stockEntryPage.setRejectionBreakupRows([{ rejection_reason: "Burr", qty: 5 }]);
+		await stockEntryPage.addUnplannedLossRow({
+			downtime_reason: "Tea Break",
+			start_time: "10:00:00",
+			end_time: "10:15:00",
+		});
+
+		await setFieldValue(page, "stock_entry_type", "Material Transfer");
+		await stockEntryPage.waitForFieldValue("custom_stock_entry_purpose", "Material Transfer");
+
+		const state = await page.evaluate(() => {
+			const doc = window.cur_frm?.doc || {};
+			return {
+				from_bom: doc.from_bom,
+				bom_no: doc.bom_no,
+				fg_completed_qty: doc.fg_completed_qty,
+				custom_rejection_qty: doc.custom_rejection_qty,
+				custom_shift: doc.custom_shift,
+				custom_workstation: doc.custom_workstation,
+				custom_operator: doc.custom_operator,
+				custom_actual_start_date: doc.custom_actual_start_date,
+				custom_actual_end_date: doc.custom_actual_end_date,
+				custom_unplanned_losses_len: (doc.custom_unplanned_losses || []).length,
+				custom_rejection_breakup_len: (doc.custom_rejection_breakup || []).length,
+				items_len: (doc.items || []).length,
+			};
+		});
+
+		expect(state.from_bom).toBe(0);
+		expect(state.bom_no).toBeFalsy();
+		expect(state.fg_completed_qty).toBeFalsy();
+		expect(state.custom_rejection_qty).toBeFalsy();
+		expect(state.custom_shift).toBeFalsy();
+		expect(state.custom_workstation).toBeFalsy();
+		expect(state.custom_operator).toBeFalsy();
+		expect(state.custom_actual_start_date).toBeFalsy();
+		expect(state.custom_actual_end_date).toBeFalsy();
+		expect(state.custom_unplanned_losses_len).toBe(0);
+		expect(state.custom_rejection_breakup_len).toBe(0);
+		expect(state.items_len).toBe(0);
 	});
 
 	test("@regression manufacture sections remain visible after fetch items", async ({ page }) => {
@@ -292,6 +347,116 @@ test.describe("Stock Entry validation matrix", () => {
 		expect(Number(rejectionRows[0].qty)).toBe(10);
 		expect(fgRows.length).toBeGreaterThan(0);
 		expect(Number(fgRows[0].qty)).toBe(90);
+	});
+
+	test("@regression explicit warehouse overrides persist after save", async ({ page }) => {
+		await page.goto("/app/home");
+		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
+
+		const stockEntryPage = await openManufactureEntry(page, ctx, {
+			fgQty: 100,
+			rejectionQty: 10,
+		});
+		await stockEntryPage.fetchItems();
+		await setFieldValue(page, "from_warehouse", ctx.rm_warehouse);
+		await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
+		await stockEntryPage.setRejectionBreakupRows([
+			{ rejection_reason: "Burr", qty: 4 },
+			{ rejection_reason: "Crack", qty: 6 },
+		]);
+		await stockEntryPage.saveDraft();
+
+		const stockEntryName = await page.evaluate(() => window.cur_frm?.doc?.name);
+		const savedAfterFirstSave = await getDoc(page, "Stock Entry", stockEntryName);
+		expect(savedAfterFirstSave.from_warehouse).toBe(ctx.rm_warehouse);
+		expect(savedAfterFirstSave.to_warehouse).toBe(ctx.fg_warehouse);
+
+		const rejectionRows = (savedAfterFirstSave.items || []).filter((row) =>
+			Boolean(row.custom_is_rejection_item)
+		);
+		expect(rejectionRows).toHaveLength(1);
+		rejectionRows[0].t_warehouse = ctx.rejection_warehouse;
+
+		await callFrappeMethod(page, "frappe.client.save", {
+			doc: JSON.stringify(savedAfterFirstSave),
+		});
+
+		const savedAfterResave = await getDoc(page, "Stock Entry", stockEntryName);
+		expect(savedAfterResave.from_warehouse).toBe(ctx.rm_warehouse);
+		expect(savedAfterResave.to_warehouse).toBe(ctx.fg_warehouse);
+		const rejectionRowsAfterResave = (savedAfterResave.items || []).filter((row) =>
+			Boolean(row.custom_is_rejection_item)
+		);
+		expect(rejectionRowsAfterResave).toHaveLength(1);
+		expect(rejectionRowsAfterResave[0].t_warehouse).toBe(ctx.rejection_warehouse);
+	});
+
+	test("@regression latest rejection row warehouse is used when legacy duplicate rows exist", async ({
+		page,
+	}) => {
+		await page.goto("/app/home");
+		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
+
+		const stockEntryPage = await openManufactureEntry(page, ctx, {
+			fgQty: 100,
+			rejectionQty: 10,
+		});
+		await stockEntryPage.fetchItems();
+		await stockEntryPage.setRejectionBreakupRows([
+			{ rejection_reason: "Burr", qty: 4 },
+			{ rejection_reason: "Crack", qty: 6 },
+		]);
+		await stockEntryPage.saveDraft();
+
+		const stockEntryName = await page.evaluate(() => window.cur_frm?.doc?.name);
+		const saved = await getDoc(page, "Stock Entry", stockEntryName);
+		const rejectionRows = (saved.items || []).filter((row) =>
+			Boolean(row.custom_is_rejection_item)
+		);
+		expect(rejectionRows).toHaveLength(1);
+
+		rejectionRows[0].t_warehouse = ctx.fg_warehouse;
+		saved.items.push({
+			...rejectionRows[0],
+			name: undefined,
+			idx: undefined,
+			t_warehouse: ctx.rejection_warehouse,
+		});
+
+		await callFrappeMethod(page, "frappe.client.save", {
+			doc: JSON.stringify(saved),
+		});
+
+		const reloaded = await getDoc(page, "Stock Entry", stockEntryName);
+		const reloadedRejectionRows = (reloaded.items || []).filter((row) =>
+			Boolean(row.custom_is_rejection_item)
+		);
+		expect(reloadedRejectionRows).toHaveLength(1);
+		expect(reloadedRejectionRows[0].t_warehouse).toBe(ctx.rejection_warehouse);
+	});
+
+	test("@regression ok qty is computed as fg completed minus rejection qty", async ({
+		page,
+	}) => {
+		await page.goto("/app/home");
+		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
+
+		const stockEntryPage = await openManufactureEntry(page, ctx, {
+			fgQty: 100,
+			rejectionQty: 10,
+		});
+		await stockEntryPage.fetchItems();
+		await stockEntryPage.setRejectionBreakupRows([
+			{ rejection_reason: "Burr", qty: 4 },
+			{ rejection_reason: "Crack", qty: 6 },
+		]);
+		await stockEntryPage.saveDraft();
+
+		const stockEntryName = await page.evaluate(() => window.cur_frm?.doc?.name);
+		const savedStockEntry = await getDoc(page, "Stock Entry", stockEntryName);
+		expect(Number(savedStockEntry.fg_completed_qty || 0)).toBe(100);
+		expect(Number(savedStockEntry.custom_rejection_qty || 0)).toBe(10);
+		expect(Number(savedStockEntry.custom_ok_qty || 0)).toBe(90);
 	});
 
 	test("@regression blocks overlapping stock entry when workstation is already in use", async ({

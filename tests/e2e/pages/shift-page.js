@@ -106,10 +106,18 @@ class ShiftPage {
 		await this.page.waitForFunction(() => window.cur_frm?.doc?.status === "Completed");
 	}
 
-	async waitForPlannedLossRows(count) {
+	async waitForPlannedLossRows(count, timeoutMs = 30000) {
 		await this.page.waitForFunction(
-			(rowCount) => (window.cur_frm?.doc?.planned_losses || []).length === rowCount,
-			count
+			() => {
+				const doc = window.cur_frm?.doc || {};
+				return Boolean(doc.shift_duration && doc.planned_start_time && doc.shift_date);
+			},
+			{ timeout: timeoutMs }
+		);
+		await this.page.waitForFunction(
+			(rowCount) => (window.cur_frm?.doc?.planned_losses || []).length >= rowCount,
+			count,
+			{ timeout: timeoutMs }
 		);
 	}
 

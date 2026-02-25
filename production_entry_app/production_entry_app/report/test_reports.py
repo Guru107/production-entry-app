@@ -58,6 +58,10 @@ class TestProductionReports(FrappeTestCase):
 		cls.rm_warehouse = _get_or_create_warehouse(f"RM Report - {abbr}", cls.company)
 		cls.fg_warehouse = _get_or_create_warehouse(f"FG Report - {abbr}", cls.company)
 		cls.rejection_warehouse = _get_or_create_warehouse(f"RJ Report - {abbr}", cls.company)
+		if frappe.get_meta("Warehouse", cached=True).has_field("is_rejected_warehouse"):
+			frappe.db.set_value(
+				"Warehouse", cls.rejection_warehouse, "is_rejected_warehouse", 1, update_modified=False
+			)
 
 		cls.fg_item = _get_or_create_item("_Test FG Item For Reports")
 		cls.rm_item = _get_or_create_item("_Test RM Item For Reports")
@@ -662,7 +666,7 @@ class TestProductionReports(FrappeTestCase):
 		shift_name = f"SHIFT-{shift_date}.Shift-{shift_label}"
 		if frappe.db.exists("Shift", shift_name):
 			frappe.delete_doc("Shift", shift_name, force=True, ignore_permissions=True)
-		return frappe.get_doc(
+		shift = frappe.get_doc(
 			{
 				"doctype": "Shift",
 				"shift_label": shift_label,
@@ -672,6 +676,11 @@ class TestProductionReports(FrappeTestCase):
 				"rejection_warehouse": self.rejection_warehouse,
 			}
 		).insert(ignore_permissions=True)
+		# Report tests link Stock Entries to these shifts; keep them Running so
+		# stock-entry validation matches production constraints.
+		frappe.db.set_value("Shift", shift.name, "status", "Running", update_modified=False)
+		shift.reload()
+		return shift
 
 	def _create_downtime_entry(
 		self,

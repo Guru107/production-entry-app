@@ -10,6 +10,9 @@ from frappe.tests.utils import FrappeTestCase
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	bootstrap_manufacturing_test_context,
 	cleanup_running_shifts,
+	ensure_default_bom,
+	ensure_item,
+	ensure_warehouse,
 	get_company_abbr,
 	resolve_test_company,
 )
@@ -317,6 +320,38 @@ class TestShift(FrappeTestCase):
 
 		# End shift so it does not leak into subsequent tests (e.g. conflict check)
 		frappe.get_doc("Shift", name).end_shift()
+
+	def test_warehouse_defaults_can_be_edited_in_running_state(self) -> None:
+		shift_date = "2026-03-17"
+		name = self._expected_name(shift_date, "1")
+		self._delete_shift_if_exists(name)
+		company = resolve_test_company()
+		abbr = get_company_abbr(company)
+		initial_wip = ensure_warehouse(f"Shift Running WIP A - {abbr}", company)
+		updated_wip = ensure_warehouse(f"Shift Running WIP B - {abbr}", company)
+
+		doc = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": shift_date,
+				"planned_start_time": "08:00:00",
+				"work_in_progress_warehouse": initial_wip,
+			}
+		).insert()
+		doc.start_shift()
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so _validate_field_locking sees persisted status via get_value
+
+		running_doc = frappe.get_doc("Shift", name)
+		running_doc.work_in_progress_warehouse = updated_wip
+		running_doc.save()
+
+		reloaded = frappe.get_doc("Shift", name)
+		self.assertEqual(reloaded.work_in_progress_warehouse, updated_wip)
+
+		# End shift so it does not leak into subsequent tests (e.g. conflict check)
+		reloaded.end_shift()
 
 	def test_document_locked_in_completed_state(self) -> None:
 		name = self._expected_name("2026-02-18", "1")
@@ -1046,6 +1081,7 @@ class TestShiftLayout(FrappeTestCase):
 			"tab_breaks",
 			"tab_activity",
 			"tab_metrics",
+			"tab_aggregate_entries",
 		):
 			field = meta.get_field(fieldname)
 			self.assertTrue(field, f"Expected field {fieldname} to exist")
@@ -1089,6 +1125,12 @@ class TestShiftLayout(FrappeTestCase):
 		linked_idx = self._field_index(meta, "linked_downtime_entries")
 		self.assertGreater(linked_idx, self._field_index(meta, "tab_activity"))
 		self.assertLess(linked_idx, self._field_index(meta, "tab_metrics"))
+
+	def test_aggregate_entries_follows_metrics_tab(self) -> None:
+		meta = frappe.get_meta("Shift")
+		aggregate_idx = self._field_index(meta, "aggregate_production_entries")
+		self.assertGreater(aggregate_idx, self._field_index(meta, "tab_metrics"))
+		self.assertGreater(aggregate_idx, self._field_index(meta, "shift_metrics"))
 
 
 class TestShiftMetrics(FrappeTestCase):
@@ -1153,7 +1195,7 @@ class TestShiftMetrics(FrappeTestCase):
 		shift = self._create_shift("2026-09-01")
 		metrics = get_shift_metrics(shift.name)
 		self.assertEqual(metrics["entry_count"], 0)
-		self.assertEqual(metrics["total_good_qty"], 0)
+		self.assertEqual(metrics["total_qty"], 0)
 		self.assertEqual(metrics["total_rejection_qty"], 0)
 		self.assertEqual(metrics["total_ok_qty"], 0)
 		self.assertEqual(metrics["total_duration_mins"], 0)
@@ -1167,7 +1209,7 @@ class TestShiftMetrics(FrappeTestCase):
 		self._create_submitted_like_entry(shift.name, good_qty=100, rejection_qty=0)
 		self._create_submitted_like_entry(shift.name, good_qty=40, rejection_qty=0)
 		metrics = get_shift_metrics(shift.name)
-		self.assertEqual(float(metrics["total_good_qty"]), 140.0)
+		self.assertEqual(float(metrics["total_qty"]), 140.0)
 
 	def test_aggregates_rejection_qty(self) -> None:
 		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_metrics
@@ -1239,7 +1281,7 @@ class TestShiftMetrics(FrappeTestCase):
 
 		metrics = get_shift_metrics("")
 		self.assertEqual(metrics["entry_count"], 0)
-		self.assertEqual(metrics["total_good_qty"], 0)
+		self.assertEqual(metrics["total_qty"], 0)
 
 	def test_requires_shift_read_permission(self) -> None:
 		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_metrics
@@ -1263,7 +1305,7 @@ class TestShiftMetrics(FrappeTestCase):
 		shift = self._create_shift("2026-09-11")
 		cached = {
 			"entry_count": 7,
-			"total_good_qty": 70,
+			"total_qty": 70,
 			"total_rejection_qty": 2,
 			"total_ok_qty": 68,
 			"total_duration_mins": 40,
@@ -1286,7 +1328,7 @@ class TestShiftMetrics(FrappeTestCase):
 		shift = self._create_shift("2026-09-12")
 		self._create_submitted_like_entry(shift.name, good_qty=50, rejection_qty=0)
 		first = get_shift_metrics(shift.name)
-		self.assertEqual(float(first["total_good_qty"]), 50.0)
+		self.assertEqual(float(first["total_qty"]), 50.0)
 
 		new_entry_name = self._create_submitted_like_entry(shift.name, good_qty=30, rejection_qty=0)
 		with patch(
@@ -1295,7 +1337,164 @@ class TestShiftMetrics(FrappeTestCase):
 			on_submit_stock_entry(frappe.get_doc("Stock Entry", new_entry_name), "on_submit")
 
 		second = get_shift_metrics(shift.name)
-		self.assertEqual(float(second["total_good_qty"]), 80.0)
+		self.assertEqual(float(second["total_qty"]), 80.0)
+
+
+class TestShiftAggregateProductionEntries(FrappeTestCase):
+	@classmethod
+	def setUpClass(cls) -> None:
+		super().setUpClass()
+		cls.ctx = bootstrap_manufacturing_test_context("SHIFT-AGG")
+
+	def setUp(self) -> None:
+		cleanup_running_shifts()
+		self.fg_item = ensure_item("_SHIFT_AGG_FG")
+		self.rm_item = ensure_item("_SHIFT_AGG_RM")
+		self.bom = ensure_default_bom(self.fg_item, self.rm_item, self.ctx["company"])
+
+	def tearDown(self) -> None:
+		frappe.set_user("Administrator")
+		frappe.db.rollback()
+
+	def _create_shift(self, shift_date: str, shift_label: str = "1"):
+		name = f"SHIFT-{shift_date}.Shift-{shift_label}"
+		if frappe.db.exists("Shift", name):
+			frappe.delete_doc("Shift", name, force=True, ignore_permissions=True)
+		return frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"shift_label": shift_label,
+				"shift_duration": "8",
+				"shift_date": shift_date,
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+
+	def _create_submitted_like_entry(
+		self,
+		shift_name: str,
+		*,
+		good_qty: float,
+		rejection_qty: float,
+		duration_mins: float,
+		bom_no: str | None = None,
+		purpose: str = "Manufacture",
+	) -> str:
+		entry = frappe.get_doc(
+			{
+				"doctype": "Stock Entry",
+				"stock_entry_type": "Manufacture",
+				"purpose": purpose,
+				"company": self.ctx["company"],
+				"posting_date": "2026-10-01",
+				"posting_time": "09:00:00",
+				"custom_shift": shift_name,
+				"bom_no": bom_no,
+				"fg_completed_qty": good_qty,
+				"custom_rejection_qty": rejection_qty,
+				"custom_actual_duration_mins": duration_mins,
+				"docstatus": 1,
+			}
+		)
+		entry.db_insert()
+		return entry.name
+
+	def test_returns_empty_when_no_entries(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import (
+			get_shift_aggregate_production_entries,
+		)
+
+		shift = self._create_shift("2026-10-01")
+		rows = get_shift_aggregate_production_entries(shift.name)
+		self.assertEqual(rows, [])
+
+	def test_requires_shift_read_permission(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import (
+			get_shift_aggregate_production_entries,
+		)
+
+		shift = self._create_shift("2026-10-02")
+		_ensure_user_with_role("test_shift_agg_blogger@example.com", "Blogger")
+		user = frappe.get_doc("User", "test_shift_agg_blogger@example.com")
+		for role in ("Manufacturing User", "Manufacturing Manager"):
+			if role in frappe.get_roles(user.name):
+				user.remove_roles(role)
+		user.save(ignore_permissions=True)
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit
+		frappe.set_user(user.name)
+
+		with self.assertRaises(frappe.PermissionError):
+			get_shift_aggregate_production_entries(shift.name)
+
+	def test_aggregates_bom_based_quantities(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import (
+			get_shift_aggregate_production_entries,
+		)
+
+		shift = self._create_shift("2026-10-03")
+		self._create_submitted_like_entry(
+			shift.name,
+			good_qty=100,
+			rejection_qty=5,
+			duration_mins=60,
+			bom_no=self.bom,
+		)
+		self._create_submitted_like_entry(
+			shift.name,
+			good_qty=50,
+			rejection_qty=3,
+			duration_mins=30,
+			bom_no=self.bom,
+		)
+		rows = get_shift_aggregate_production_entries(shift.name)
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(rows[0]["bom_used"], self.bom)
+		self.assertEqual(rows[0]["item_code"], self.fg_item)
+		self.assertEqual(float(rows[0]["total_qty"]), 150.0)
+		self.assertEqual(float(rows[0]["total_reject_qty"]), 8.0)
+		self.assertEqual(float(rows[0]["total_ok_qty"]), 142.0)
+		self.assertEqual(float(rows[0]["avg_spm"]), float(frappe.utils.flt(142 / 90, 3)))
+
+	def test_avg_spm_is_zero_when_total_duration_is_zero(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import (
+			get_shift_aggregate_production_entries,
+		)
+
+		shift = self._create_shift("2026-10-04")
+		self._create_submitted_like_entry(
+			shift.name,
+			good_qty=40,
+			rejection_qty=2,
+			duration_mins=0,
+			bom_no=self.bom,
+		)
+		rows = get_shift_aggregate_production_entries(shift.name)
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(float(rows[0]["avg_spm"]), 0.0)
+
+	def test_ignores_non_manufacture_and_missing_bom_rows(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import (
+			get_shift_aggregate_production_entries,
+		)
+
+		shift = self._create_shift("2026-10-05")
+		self._create_submitted_like_entry(
+			shift.name,
+			good_qty=10,
+			rejection_qty=1,
+			duration_mins=10,
+			bom_no="",
+		)
+		self._create_submitted_like_entry(
+			shift.name,
+			good_qty=20,
+			rejection_qty=2,
+			duration_mins=20,
+			bom_no=self.bom,
+			purpose="Material Transfer",
+		)
+		rows = get_shift_aggregate_production_entries(shift.name)
+		self.assertEqual(rows, [])
 
 
 def _ensure_user_with_role(email: str, role: str) -> None:

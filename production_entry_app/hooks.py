@@ -183,6 +183,7 @@ fixtures = [
 	{"dt": "Custom Field", "filters": [["module", "=", "Production Entry App"]]},
 	{"dt": "Property Setter", "filters": [["module", "=", "Production Entry App"]]},
 	"Downtime Reason",
+	"Rejection Reason",
 ]
 
 # exempt linked doctypes from being automatically cancelled

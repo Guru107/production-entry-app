@@ -137,3 +137,17 @@ class TestTestBootstrap(FrappeTestCase):
 		):
 			self.assertIn(key, context)
 		self.assertTrue(frappe.db.exists("Company", context["company"]))
+
+	def test_standard_rejection_reason_fixtures_exist(self) -> None:
+		expected = [
+			"Double Stroke",
+			"Part Shift",
+			"Piercing Shift",
+			"Blank Cut",
+			"Crack",
+			"Part Dent/Damage",
+			"Taper Shearing",
+			"Burr",
+		]
+		for name in expected:
+			self.assertTrue(frappe.db.exists("Rejection Reason", name), msg=f"Missing fixture: {name}")

@@ -1,0 +1,42 @@
+[
+	{
+		"doctype": "Rejection Reason",
+		"name": "Double Stroke",
+		"rejection_reason_name": "Double Stroke"
+	},
+	{
+		"doctype": "Rejection Reason",
+		"name": "Part Shift",
+		"rejection_reason_name": "Part Shift"
+	},
+	{
+		"doctype": "Rejection Reason",
+		"name": "Piercing Shift",
+		"rejection_reason_name": "Piercing Shift"
+	},
+	{
+		"doctype": "Rejection Reason",
+		"name": "Blank Cut",
+		"rejection_reason_name": "Blank Cut"
+	},
+	{
+		"doctype": "Rejection Reason",
+		"name": "Crack",
+		"rejection_reason_name": "Crack"
+	},
+	{
+		"doctype": "Rejection Reason",
+		"name": "Part Dent/Damage",
+		"rejection_reason_name": "Part Dent/Damage"
+	},
+	{
+		"doctype": "Rejection Reason",
+		"name": "Taper Shearing",
+		"rejection_reason_name": "Taper Shearing"
+	},
+	{
+		"doctype": "Rejection Reason",
+		"name": "Burr",
+		"rejection_reason_name": "Burr"
+	}
+]

@@ -2,6 +2,12 @@
 // For license information, please see license.txt
 
 const PLANNED_BREAKS_DEBOUNCE_MS = 300;
+const WAREHOUSE_FIELDS = [
+	"raw_material_warehouse",
+	"work_in_progress_warehouse",
+	"rejection_warehouse",
+	"scrap_warehouse",
+];
 
 frappe.ui.form.on("Shift", {
 	planned_start_time(frm) {
@@ -16,6 +22,7 @@ frappe.ui.form.on("Shift", {
 	refresh(frm) {
 		// Prevent editing planned losses after shift has started
 		frm.set_df_property("planned_losses", "read_only", frm.doc.status !== "Draft");
+		_set_warehouse_field_editability(frm);
 
 		const actions_group = __("Actions");
 		if (frm.doc.status === "Draft") {
@@ -99,12 +106,20 @@ frappe.ui.form.on("Shift", {
 
 		_render_linked_downtime_entries(frm);
 		_render_shift_metrics(frm);
+		_render_aggregate_production_entries(frm);
 	},
 });
 
+function _set_warehouse_field_editability(frm) {
+	const isLockedStatus = ["Completed", "Cancelled"].includes(frm.doc.status || "");
+	WAREHOUSE_FIELDS.forEach((fieldname) => {
+		frm.set_df_property(fieldname, "read_only", isLockedStatus ? 1 : 0);
+	});
+}
+
 function _populate_default_breaks_if_draft(frm) {
 	if (
-		frm.doc.status !== "Draft" ||
+		!_is_draft_or_new(frm) ||
 		!frm.doc.shift_duration ||
 		!frm.doc.planned_start_time ||
 		!frm.doc.shift_date
@@ -117,13 +132,19 @@ function _populate_default_breaks_if_draft(frm) {
 	frm.__plannedBreaksDebounceTimer = setTimeout(() => {
 		frm.__plannedBreaksDebounceTimer = null;
 		if (
-			frm.doc.status !== "Draft" ||
+			!_is_draft_or_new(frm) ||
 			!frm.doc.shift_duration ||
 			!frm.doc.planned_start_time ||
 			!frm.doc.shift_date
 		) {
 			return;
 		}
+		const requestKey = [
+			String(frm.doc.shift_duration || ""),
+			String(frm.doc.planned_start_time || ""),
+			String(frm.doc.shift_date || ""),
+		].join("|");
+		frm.__plannedBreaksRequestKey = requestKey;
 		frappe.call({
 			method: "production_entry_app.production_entry_app.doctype.shift.shift.get_planned_losses_for_duration",
 			args: {
@@ -132,17 +153,27 @@ function _populate_default_breaks_if_draft(frm) {
 				shift_date: frm.doc.shift_date,
 			},
 			callback(r) {
-				if (r.message && r.message.length > 0) {
-					frm.clear_table("planned_losses");
-					r.message.forEach((row) => frm.add_child("planned_losses", row));
-					frm.refresh_field("planned_losses");
+				const currentKey = [
+					String(frm.doc.shift_duration || ""),
+					String(frm.doc.planned_start_time || ""),
+					String(frm.doc.shift_date || ""),
+				].join("|");
+				if (currentKey !== requestKey || frm.__plannedBreaksRequestKey !== requestKey) {
+					return;
 				}
+				frm.clear_table("planned_losses");
+				(r.message || []).forEach((row) => frm.add_child("planned_losses", row));
+				frm.refresh_field("planned_losses");
 			},
 			error() {
 				frappe.msgprint(__("Failed to load planned breaks. Please retry."));
 			},
 		});
 	}, PLANNED_BREAKS_DEBOUNCE_MS);
+}
+
+function _is_draft_or_new(frm) {
+	return Boolean(frm.doc.__islocal || !frm.doc.status || frm.doc.status === "Draft");
 }
 
 function _render_linked_downtime_entries(frm) {
@@ -218,7 +249,7 @@ function _render_shift_metrics(frm) {
 
 			const rows = [
 				[__("Entries"), metrics.entry_count],
-				[__("Good Qty"), metrics.total_good_qty],
+				[__("Total Qty"), metrics.total_qty],
 				[__("Rejection Qty"), metrics.total_rejection_qty],
 				[__("OK Qty"), metrics.total_ok_qty],
 				[__("Total Duration (mins)"), metrics.total_duration_mins],
@@ -242,6 +273,71 @@ function _render_shift_metrics(frm) {
 				frm,
 				"shift_metrics",
 				`<p class="text-muted">${__("Unable to load shift metrics.")}</p>`
+			);
+		},
+	});
+}
+
+function _render_aggregate_production_entries(frm) {
+	if (!frm.doc.name) {
+		return;
+	}
+	frappe.call({
+		method: "production_entry_app.production_entry_app.doctype.shift.shift.get_shift_aggregate_production_entries",
+		args: { shift_name: frm.doc.name },
+		callback(r) {
+			const rows = r.message || [];
+			if (!rows.length) {
+				_set_shared_html_field(
+					frm,
+					"aggregate_production_entries",
+					`<p class="text-muted">${__(
+						"No production entries linked to this shift yet."
+					)}</p>`
+				);
+				return;
+			}
+
+			const headers = [
+				__("BOM Used"),
+				__("Item Code"),
+				__("Total Qty"),
+				__("Total OK Qty"),
+				__("Total Reject Qty"),
+				__("Avg SPM"),
+			];
+			const thead = `<thead><tr>${headers
+				.map((header) => `<th>${frappe.utils.escape_html(String(header))}</th>`)
+				.join("")}</tr></thead>`;
+			const tbody = `<tbody>${rows
+				.map(
+					(row) =>
+						`<tr><td>${frappe.utils.escape_html(
+							String(row.bom_used || "")
+						)}</td><td>${frappe.utils.escape_html(
+							String(row.item_code || "")
+						)}</td><td>${frappe.utils.escape_html(
+							String(row.total_qty ?? "")
+						)}</td><td>${frappe.utils.escape_html(
+							String(row.total_ok_qty ?? "")
+						)}</td><td>${frappe.utils.escape_html(
+							String(row.total_reject_qty ?? "")
+						)}</td><td>${frappe.utils.escape_html(
+							String(row.avg_spm ?? "")
+						)}</td></tr>`
+				)
+				.join("")}</tbody>`;
+			_set_shared_html_field(
+				frm,
+				"aggregate_production_entries",
+				`<table class="table table-condensed table-bordered">${thead}${tbody}</table>`
+			);
+		},
+		error() {
+			_set_shared_html_field(
+				frm,
+				"aggregate_production_entries",
+				`<p class="text-muted">${__("Unable to load aggregate production entries.")}</p>`
 			);
 		},
 	});

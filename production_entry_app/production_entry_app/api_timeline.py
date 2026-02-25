@@ -89,7 +89,14 @@ def get_shift_timeline_data(doctype: str, docname: str) -> dict:
 				stock_entry_detail.item_code,
 				Sum(stock_entry_detail.qty).as_("fg_qty"),
 			)
-			.where((stock_entry_detail.parent.isin(names)) & (stock_entry_detail.is_finished_item == 1))
+			.where(
+				(stock_entry_detail.parent.isin(names))
+				& (stock_entry_detail.is_finished_item == 1)
+				& (
+					stock_entry_detail.custom_is_rejection_item.isnull()
+					| (stock_entry_detail.custom_is_rejection_item == 0)
+				)
+			)
 			.groupby(stock_entry_detail.parent, stock_entry_detail.item_code)
 		).run(as_dict=True)
 	fg_item_by_entry = {}

@@ -10,6 +10,7 @@ const MANUFACTURE_FIELDS = [
 	"fg_completed_qty",
 	"custom_rejection_qty",
 	"custom_fetch_items",
+	"custom_shift",
 	"custom_planned_start_date",
 	"custom_planned_end_date",
 	"custom_actual_start_date",
@@ -36,6 +37,11 @@ const MANUFACTURE_SECTIONS = [
 
 const ALWAYS_HIDDEN_FIELDS = ["process_loss_percentage", "process_loss_qty"];
 const ALWAYS_HIDDEN_SECTIONS = ["section_break_7qsm"];
+const MANUFACTURE_CLEAR_TABLE_FIELDS = [
+	"custom_unplanned_losses",
+	"custom_rejection_breakup",
+	"items",
+];
 let _dieToolRequestId = 0;
 let _shiftDetailsRequestId = 0;
 
@@ -63,6 +69,7 @@ if (typeof window !== "undefined" && window.erpnext && erpnext.stock && erpnext.
 if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 	frappe.ui.form.on("Stock Entry", {
 		onload(frm) {
+			_set_prev_purpose(frm);
 			_hide_standard_get_items(frm);
 			_apply_manufacture_visibility(frm);
 		},
@@ -77,13 +84,16 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 			_ensure_use_multi_level_bom_unchecked(frm);
 			_apply_manufacture_visibility(frm);
 			_hide_standard_get_items(frm);
+			_set_prev_purpose(frm);
 		},
 		stock_entry_type(frm) {
 			// custom_stock_entry_purpose is fetched via fetch_from and will re-trigger visibility.
 			_apply_manufacture_visibility(frm);
 		},
 		custom_stock_entry_purpose(frm) {
+			_clear_manufacture_data_on_leave(frm);
 			_apply_manufacture_visibility(frm);
+			_set_prev_purpose(frm);
 		},
 		from_bom(frm) {
 			_ensure_use_multi_level_bom_unchecked(frm);
@@ -204,6 +214,70 @@ function _apply_manufacture_visibility(frm) {
 	_update_die_tool_metrics(frm);
 }
 
+function _set_prev_purpose(frm) {
+	frm.__pea_prev_stock_entry_purpose = _normalize_purpose(frm.doc?.custom_stock_entry_purpose);
+}
+
+function _did_leave_manufacture(previousPurpose, currentPurpose) {
+	return (
+		_normalize_purpose(previousPurpose) === "Manufacture" &&
+		_normalize_purpose(currentPurpose) !== "Manufacture"
+	);
+}
+
+function _clear_manufacture_data_on_leave(frm) {
+	const previousPurpose = frm.__pea_prev_stock_entry_purpose;
+	const currentPurpose = frm.doc?.custom_stock_entry_purpose;
+	if (!_did_leave_manufacture(previousPurpose, currentPurpose)) {
+		return;
+	}
+
+	_shiftDetailsRequestId++;
+	_dieToolRequestId++;
+
+	const refreshFieldnames = new Set();
+	let changed = false;
+	for (const fieldname of MANUFACTURE_FIELDS) {
+		const field = frm.get_field(fieldname);
+		const fieldtype = field?.df?.fieldtype || "";
+		if (
+			[
+				"Button",
+				"Section Break",
+				"Column Break",
+				"HTML",
+				"Table",
+				"Table MultiSelect",
+			].includes(fieldtype)
+		) {
+			continue;
+		}
+		const clearValue = fieldtype === "Check" ? 0 : "";
+		if (frm.doc?.[fieldname] === clearValue) continue;
+		frm.doc[fieldname] = clearValue;
+		refreshFieldnames.add(fieldname);
+		changed = true;
+	}
+
+	for (const tableField of MANUFACTURE_CLEAR_TABLE_FIELDS) {
+		const rows = frm.doc?.[tableField] || [];
+		if (Array.isArray(rows) && rows.length > 0) {
+			frm.clear_table(tableField);
+			refreshFieldnames.add(tableField);
+			changed = true;
+		}
+	}
+
+	if (refreshFieldnames.size > 0) {
+		frm.refresh_fields(Array.from(refreshFieldnames));
+	}
+
+	_clear_die_tool_alert(frm);
+	if (changed) {
+		frm.dirty();
+	}
+}
+
 function _expand_sections(frm, sectionFieldnames) {
 	sectionFieldnames.forEach((sectionFieldname) => {
 		const section = (frm.layout?.sections || []).find(
@@ -319,9 +393,11 @@ if (typeof module !== "undefined" && module.exports) {
 	module.exports = {
 		_normalize_purpose,
 		_is_manufacture_doc,
+		_did_leave_manufacture,
 		MANUFACTURE_FIELDS,
 		MANUFACTURE_SECTIONS,
 		ALWAYS_HIDDEN_FIELDS,
 		ALWAYS_HIDDEN_SECTIONS,
+		MANUFACTURE_CLEAR_TABLE_FIELDS,
 	};
 }
