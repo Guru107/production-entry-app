@@ -979,6 +979,85 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(len(rows), 1)
 		self.assertEqual(float(rows[0]["rejection_qty"]), 6.0)
 
+	def test_item_bom_rejection_hotspots_aggregates_and_sorts(self) -> None:
+		from production_entry_app.production_entry_app.report.item_bom_rejection_hotspots.item_bom_rejection_hotspots import (
+			execute,
+		)
+
+		shift = self._create_shift_for_label("2026-06-27", "1")
+		item_2 = _get_or_create_item("_Test FG Item For Reports 2")
+		self._create_mock_submitted_entry_with_breakup(
+			posting_date="2026-06-27",
+			planned_start="2026-06-27 08:00:00",
+			planned_end="2026-06-27 09:00:00",
+			actual_start="2026-06-27 08:00:00",
+			actual_end="2026-06-27 09:00:00",
+			fg_qty=100,
+			fg_item=self.fg_item,
+			shift_name=shift.name,
+			breakup_rows=[
+				{"rejection_reason": "Crack", "qty": 6},
+				{"rejection_reason": "Burr", "qty": 2},
+			],
+		)
+		self._create_mock_submitted_entry_with_breakup(
+			posting_date="2026-06-27",
+			planned_start="2026-06-27 10:00:00",
+			planned_end="2026-06-27 11:00:00",
+			actual_start="2026-06-27 10:00:00",
+			actual_end="2026-06-27 11:00:00",
+			fg_qty=80,
+			fg_item=item_2,
+			shift_name=shift.name,
+			breakup_rows=[{"rejection_reason": "Blank Cut", "qty": 4}],
+		)
+
+		_, rows = execute({"from_date": "2026-06-27", "to_date": "2026-06-27"})
+		self.assertEqual(len(rows), 2)
+		self.assertEqual(rows[0]["item_code"], self.fg_item)
+		self.assertEqual(float(rows[0]["total_qty"]), 100.0)
+		self.assertEqual(float(rows[0]["rejection_qty"]), 8.0)
+		self.assertEqual(float(rows[0]["rejection_rate_pct"]), 8.0)
+		self.assertIn("Crack (6.0)", rows[0]["dominant_reason"])
+		self.assertEqual(float(rows[1]["rejection_qty"]), 4.0)
+
+	def test_item_bom_rejection_hotspots_filters_fg_item(self) -> None:
+		from production_entry_app.production_entry_app.report.item_bom_rejection_hotspots.item_bom_rejection_hotspots import (
+			execute,
+		)
+
+		shift = self._create_shift_for_label("2026-06-28", "1")
+		item_2 = _get_or_create_item("_Test FG Item For Reports 3")
+		self._create_mock_submitted_entry_with_breakup(
+			posting_date="2026-06-28",
+			planned_start="2026-06-28 08:00:00",
+			planned_end="2026-06-28 09:00:00",
+			actual_start="2026-06-28 08:00:00",
+			actual_end="2026-06-28 09:00:00",
+			fg_qty=100,
+			fg_item=self.fg_item,
+			shift_name=shift.name,
+			breakup_rows=[{"rejection_reason": "Crack", "qty": 5}],
+		)
+		self._create_mock_submitted_entry_with_breakup(
+			posting_date="2026-06-28",
+			planned_start="2026-06-28 10:00:00",
+			planned_end="2026-06-28 11:00:00",
+			actual_start="2026-06-28 10:00:00",
+			actual_end="2026-06-28 11:00:00",
+			fg_qty=100,
+			fg_item=item_2,
+			shift_name=shift.name,
+			breakup_rows=[{"rejection_reason": "Burr", "qty": 9}],
+		)
+
+		_, rows = execute(
+			{"from_date": "2026-06-28", "to_date": "2026-06-28", "fg_item": self.fg_item}
+		)
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(rows[0]["item_code"], self.fg_item)
+		self.assertEqual(float(rows[0]["rejection_qty"]), 5.0)
+
 	def _create_mock_submitted_entry(
 		self,
 		posting_date: str,
