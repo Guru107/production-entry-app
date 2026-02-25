@@ -1,13 +1,3 @@
-function _validate_report_date_range(report) {
-	const fromDate = report.get_filter_value("from_date");
-	const toDate = report.get_filter_value("to_date");
-	if (!fromDate || !toDate || fromDate <= toDate) {
-		return;
-	}
-	frappe.msgprint(__("From Date cannot be after To Date."));
-	report.set_filter_value("from_date", toDate);
-}
-
 frappe.query_reports["Workstation Rejection Reason Matrix"] = {
 	filters: [
 		{
@@ -17,7 +7,9 @@ frappe.query_reports["Workstation Rejection Reason Matrix"] = {
 			reqd: 1,
 			default: frappe.datetime.month_start(),
 			on_change(report) {
-				_validate_report_date_range(report);
+				window.production_entry_app?.report_filter_utils?.validate_report_date_range?.(
+					report
+				);
 			},
 		},
 		{
@@ -27,7 +19,9 @@ frappe.query_reports["Workstation Rejection Reason Matrix"] = {
 			reqd: 1,
 			default: frappe.datetime.month_end(),
 			on_change(report) {
-				_validate_report_date_range(report);
+				window.production_entry_app?.report_filter_utils?.validate_report_date_range?.(
+					report
+				);
 			},
 		},
 		{
@@ -35,6 +29,8 @@ frappe.query_reports["Workstation Rejection Reason Matrix"] = {
 			label: __("Top N Reasons"),
 			fieldtype: "Int",
 			default: 10,
+			min_value: 1,
+			max_value: 20,
 		},
 		{
 			fieldname: "custom_workstation",

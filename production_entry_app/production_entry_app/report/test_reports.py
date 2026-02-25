@@ -630,7 +630,7 @@ class TestProductionReports(FrappeTestCase):
 			],
 		)
 
-		_, rows = execute({"from_date": "2026-06-10", "to_date": "2026-06-10"})
+		_, rows, _, chart = execute({"from_date": "2026-06-10", "to_date": "2026-06-10"})
 		self.assertEqual([row["rejection_reason"] for row in rows], ["Crack", "Blank Cut", "Burr"])
 		self.assertEqual(float(rows[0]["rejection_qty"]), 6.0)
 		self.assertEqual(float(rows[1]["rejection_qty"]), 3.0)
@@ -641,6 +641,8 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(float(rows[2]["cumulative_pct"]), 100.0)
 		self.assertEqual(int(rows[0]["entries"]), 2)
 		self.assertEqual(int(rows[0]["shifts"]), 1)
+		self.assertEqual(chart.get("type"), "axis-mixed")
+		self.assertEqual(chart.get("data", {}).get("labels"), ["Crack", "Blank Cut", "Burr"])
 
 	def test_rejection_pareto_report_filters_workstation(self) -> None:
 		from production_entry_app.production_entry_app.report.rejection_pareto_report.rejection_pareto_report import (
@@ -682,7 +684,7 @@ class TestProductionReports(FrappeTestCase):
 			breakup_rows=[{"rejection_reason": "Burr", "qty": 4}],
 		)
 
-		_, rows = execute(
+		_, rows, _, _chart = execute(
 			{
 				"from_date": "2026-06-11",
 				"to_date": "2026-06-11",
@@ -721,7 +723,9 @@ class TestProductionReports(FrappeTestCase):
 			shift_name=shift_day_2.name,
 		)
 
-		_, rows = execute({"from_date": "2026-06-12", "to_date": "2026-06-13", "time_grain": "Daily"})
+		_, rows, _, chart = execute(
+			{"from_date": "2026-06-12", "to_date": "2026-06-13", "time_grain": "Daily"}
+		)
 		self.assertEqual(len(rows), 2)
 		self.assertEqual(rows[0]["period"], "2026-06-12")
 		self.assertEqual(float(rows[0]["total_qty"]), 100.0)
@@ -730,6 +734,8 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(float(rows[0]["rejection_rate_pct"]), 10.0)
 		self.assertEqual(rows[1]["period"], "2026-06-13")
 		self.assertEqual(float(rows[1]["rejection_rate_pct"]), 10.0)
+		self.assertEqual(chart.get("type"), "axis-mixed")
+		self.assertEqual(chart.get("data", {}).get("labels"), ["2026-06-12", "2026-06-13"])
 
 	def test_rejection_trend_report_weekly_aggregation(self) -> None:
 		from production_entry_app.production_entry_app.report.rejection_trend_report.rejection_trend_report import (
@@ -770,12 +776,51 @@ class TestProductionReports(FrappeTestCase):
 			shift_name=shift_day_3.name,
 		)
 
-		_, rows = execute({"from_date": "2026-06-15", "to_date": "2026-06-22", "time_grain": "Weekly"})
+		_, rows, _, _chart = execute(
+			{"from_date": "2026-06-15", "to_date": "2026-06-22", "time_grain": "Weekly"}
+		)
 		self.assertEqual(len(rows), 2)
 		self.assertEqual(rows[0]["period"], "2026-06-15 to 2026-06-21")
 		self.assertEqual(float(rows[0]["total_qty"]), 160.0)
 		self.assertEqual(float(rows[0]["rejection_qty"]), 8.0)
 		self.assertEqual(float(rows[1]["total_qty"]), 90.0)
+		self.assertEqual(float(rows[1]["rejection_rate_pct"]), 10.0)
+
+	def test_rejection_trend_report_monthly_aggregation(self) -> None:
+		from production_entry_app.production_entry_app.report.rejection_trend_report.rejection_trend_report import (
+			execute,
+		)
+
+		shift_june = self._create_shift_for_label("2026-06-29", "1")
+		shift_july = self._create_shift_for_label("2026-07-02", "1")
+		self._create_mock_submitted_entry(
+			posting_date="2026-06-29",
+			planned_start="2026-06-29 08:00:00",
+			planned_end="2026-06-29 09:00:00",
+			actual_start="2026-06-29 08:00:00",
+			actual_end="2026-06-29 09:00:00",
+			fg_qty=100,
+			rejection_qty=10,
+			shift_name=shift_june.name,
+		)
+		self._create_mock_submitted_entry(
+			posting_date="2026-07-02",
+			planned_start="2026-07-02 08:00:00",
+			planned_end="2026-07-02 09:00:00",
+			actual_start="2026-07-02 08:00:00",
+			actual_end="2026-07-02 09:00:00",
+			fg_qty=80,
+			rejection_qty=8,
+			shift_name=shift_july.name,
+		)
+
+		_, rows, _, _chart = execute(
+			{"from_date": "2026-06-01", "to_date": "2026-07-31", "time_grain": "Monthly"}
+		)
+		self.assertEqual(len(rows), 2)
+		self.assertEqual(rows[0]["period"], "2026-06")
+		self.assertEqual(float(rows[0]["rejection_rate_pct"]), 10.0)
+		self.assertEqual(rows[1]["period"], "2026-07")
 		self.assertEqual(float(rows[1]["rejection_rate_pct"]), 10.0)
 
 	def test_workstation_rejection_reason_matrix_aggregates_top_reasons(self) -> None:
@@ -1160,6 +1205,8 @@ class TestProductionReports(FrappeTestCase):
 		frappe.db.set_value(
 			"Stock Entry", stock_entry.name, "posting_date", posting_date, update_modified=False
 		)
+		# Intentionally mark submitted in DB for report isolation; these tests
+		# validate query/report logic, not full stock-entry submit side effects.
 		frappe.db.set_value("Stock Entry", stock_entry.name, "docstatus", 1, update_modified=False)
 		stock_entry.reload()
 		return stock_entry

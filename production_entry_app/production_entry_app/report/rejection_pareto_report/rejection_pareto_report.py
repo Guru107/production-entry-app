@@ -11,7 +11,8 @@ def execute(filters: dict | None = None):
 	filters = filters or {}
 	columns = _get_columns()
 	rows = _get_rows(filters)
-	return columns, rows
+	chart = _get_chart(rows)
+	return columns, rows, None, chart
 
 
 def _get_columns() -> list[dict]:
@@ -85,6 +86,8 @@ def _get_rows(filters: dict) -> list[dict]:
 	for index, (reason, qty) in enumerate(sorted_reasons, start=1):
 		reason_pct = flt((qty / total_rejection_qty) * 100, 2)
 		cumulative = flt(cumulative + reason_pct, 2)
+		if index == len(sorted_reasons):
+			cumulative = 100.0
 		rows.append(
 			{
 				"rank": index,
@@ -98,3 +101,28 @@ def _get_rows(filters: dict) -> list[dict]:
 		)
 
 	return rows
+
+
+def _get_chart(rows: list[dict]) -> dict | None:
+	if not rows:
+		return None
+	return {
+		"data": {
+			"labels": [row["rejection_reason"] for row in rows],
+			"datasets": [
+				{
+					"name": _("Rejection Qty"),
+					"values": [flt(row["rejection_qty"], 3) for row in rows],
+					"chartType": "bar",
+				},
+				{
+					"name": _("Cumulative %"),
+					"values": [flt(row["cumulative_pct"], 2) for row in rows],
+					"chartType": "line",
+				},
+			],
+		},
+		"type": "axis-mixed",
+		"height": 280,
+		"axisOptions": {"xAxisMode": "tick", "xIsSeries": 1},
+	}

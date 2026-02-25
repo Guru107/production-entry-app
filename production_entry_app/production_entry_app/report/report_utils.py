@@ -4,9 +4,12 @@ import datetime
 from collections import defaultdict
 
 import frappe
+from frappe import _
 from frappe.query_builder import DocType
 from frappe.query_builder.functions import Sum
 from frappe.utils import flt, get_datetime
+
+_MAX_FG_ITEM_PARENT_MATCHES = 5000
 
 
 def build_stock_entry_filters(filters: dict, filter_keys: tuple[str, ...]) -> dict:
@@ -54,7 +57,14 @@ def get_stock_entries_for_fg_item(item_code: str) -> list[str]:
 			& (stock_entry.docstatus == 1)
 			& (stock_entry.purpose == "Manufacture")
 		)
+		.limit(_MAX_FG_ITEM_PARENT_MATCHES + 1)
 	).run(as_dict=True)
+	if len(rows) > _MAX_FG_ITEM_PARENT_MATCHES:
+		frappe.throw(
+			_(
+				"FG Item filter matches more than {0} Stock Entries. Narrow filters by date, shift, workstation, or operator."
+			).format(_MAX_FG_ITEM_PARENT_MATCHES)
+		)
 	return [row.get("parent") for row in rows if row.get("parent")]
 
 

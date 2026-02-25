@@ -60,7 +60,7 @@ def _get_columns(reason_order: list[str]) -> list[dict]:
 	for reason in reason_order:
 		columns.append(
 			{
-				"label": reason,
+				"label": _(reason),
 				"fieldname": _sanitize_reason_fieldname(reason),
 				"fieldtype": "Float",
 				"width": 130,
