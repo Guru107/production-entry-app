@@ -105,7 +105,7 @@ frappe.ui.form.on("Shift", {
 
 function _populate_default_breaks_if_draft(frm) {
 	if (
-		frm.doc.status !== "Draft" ||
+		!_is_draft_or_new(frm) ||
 		!frm.doc.shift_duration ||
 		!frm.doc.planned_start_time ||
 		!frm.doc.shift_date
@@ -118,13 +118,19 @@ function _populate_default_breaks_if_draft(frm) {
 	frm.__plannedBreaksDebounceTimer = setTimeout(() => {
 		frm.__plannedBreaksDebounceTimer = null;
 		if (
-			frm.doc.status !== "Draft" ||
+			!_is_draft_or_new(frm) ||
 			!frm.doc.shift_duration ||
 			!frm.doc.planned_start_time ||
 			!frm.doc.shift_date
 		) {
 			return;
 		}
+		const requestKey = [
+			String(frm.doc.shift_duration || ""),
+			String(frm.doc.planned_start_time || ""),
+			String(frm.doc.shift_date || ""),
+		].join("|");
+		frm.__plannedBreaksRequestKey = requestKey;
 		frappe.call({
 			method: "production_entry_app.production_entry_app.doctype.shift.shift.get_planned_losses_for_duration",
 			args: {
@@ -133,17 +139,27 @@ function _populate_default_breaks_if_draft(frm) {
 				shift_date: frm.doc.shift_date,
 			},
 			callback(r) {
-				if (r.message && r.message.length > 0) {
-					frm.clear_table("planned_losses");
-					r.message.forEach((row) => frm.add_child("planned_losses", row));
-					frm.refresh_field("planned_losses");
+				const currentKey = [
+					String(frm.doc.shift_duration || ""),
+					String(frm.doc.planned_start_time || ""),
+					String(frm.doc.shift_date || ""),
+				].join("|");
+				if (currentKey !== requestKey || frm.__plannedBreaksRequestKey !== requestKey) {
+					return;
 				}
+				frm.clear_table("planned_losses");
+				(r.message || []).forEach((row) => frm.add_child("planned_losses", row));
+				frm.refresh_field("planned_losses");
 			},
 			error() {
 				frappe.msgprint(__("Failed to load planned breaks. Please retry."));
 			},
 		});
 	}, PLANNED_BREAKS_DEBOUNCE_MS);
+}
+
+function _is_draft_or_new(frm) {
+	return Boolean(frm.doc.__islocal || !frm.doc.status || frm.doc.status === "Draft");
 }
 
 function _render_linked_downtime_entries(frm) {

@@ -119,6 +119,30 @@ test.describe("Shift validations", () => {
 		expect(planned12h[2].downtime_reason).toBe("Tea Break");
 	});
 
+	test("@regression planned losses auto-populate on new doc even when status is temporarily blank", async ({
+		page,
+	}) => {
+		await page.goto("/app/home");
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const shiftPage = new ShiftPage(page);
+
+		await shiftPage.openNew();
+		await page.evaluate(() => {
+			if (window.cur_frm?.doc) {
+				window.cur_frm.doc.status = "";
+			}
+		});
+		await shiftPage.setDraftFields({
+			date: plusOneDay(ctx.shift_date),
+			label: "2",
+			duration: "8",
+			startTime: "08:00:00",
+		});
+		await shiftPage.waitForPlannedLossRows(2);
+		const planned = await shiftPage.getPlannedLosses();
+		expect(planned).toHaveLength(2);
+	});
+
 	test("@regression planned losses grid is non-editable once shift starts", async ({ page }) => {
 		await page.goto("/app/home");
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
