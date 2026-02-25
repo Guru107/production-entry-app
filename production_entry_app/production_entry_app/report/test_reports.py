@@ -666,7 +666,7 @@ class TestProductionReports(FrappeTestCase):
 		shift_name = f"SHIFT-{shift_date}.Shift-{shift_label}"
 		if frappe.db.exists("Shift", shift_name):
 			frappe.delete_doc("Shift", shift_name, force=True, ignore_permissions=True)
-		return frappe.get_doc(
+		shift = frappe.get_doc(
 			{
 				"doctype": "Shift",
 				"shift_label": shift_label,
@@ -676,6 +676,11 @@ class TestProductionReports(FrappeTestCase):
 				"rejection_warehouse": self.rejection_warehouse,
 			}
 		).insert(ignore_permissions=True)
+		# Report tests link Stock Entries to these shifts; keep them Running so
+		# stock-entry validation matches production constraints.
+		frappe.db.set_value("Shift", shift.name, "status", "Running", update_modified=False)
+		shift.reload()
+		return shift
 
 	def _create_downtime_entry(
 		self,
