@@ -94,6 +94,7 @@ test.describe("Stock Entry validation matrix", () => {
 		expect(await stockEntryPage.isSectionVisible("custom_operation_details_section")).toBe(
 			true
 		);
+		expect(await stockEntryPage.isFieldVisible("custom_shift")).toBe(true);
 		expect(await stockEntryPage.isFieldVisible("custom_workstation")).toBe(true);
 	});
 
@@ -114,8 +115,62 @@ test.describe("Stock Entry validation matrix", () => {
 		expect(await stockEntryPage.isSectionVisible("custom_operation_details_section")).toBe(
 			false
 		);
+		expect(await stockEntryPage.isFieldVisible("custom_shift")).toBe(false);
 		expect(await stockEntryPage.isFieldVisible("custom_workstation")).toBe(false);
 		expect(await stockEntryPage.isFieldVisible("custom_fetch_items")).toBe(false);
+	});
+
+	test("@regression purpose switch from manufacture clears manufacture fields and tables", async ({
+		page,
+	}) => {
+		await page.goto("/app/home");
+		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
+
+		const stockEntryPage = await openManufactureEntry(page, ctx, {
+			fgQty: 100,
+			rejectionQty: 5,
+		});
+		await stockEntryPage.fetchItems();
+		await stockEntryPage.setRejectionBreakupRows([{ rejection_reason: "Burr", qty: 5 }]);
+		await stockEntryPage.addUnplannedLossRow({
+			downtime_reason: "Tea Break",
+			start_time: "10:00:00",
+			end_time: "10:15:00",
+		});
+
+		await setFieldValue(page, "stock_entry_type", "Material Transfer");
+		await stockEntryPage.waitForFieldValue("custom_stock_entry_purpose", "Material Transfer");
+
+		const state = await page.evaluate(() => {
+			const doc = window.cur_frm?.doc || {};
+			return {
+				from_bom: doc.from_bom,
+				bom_no: doc.bom_no,
+				fg_completed_qty: doc.fg_completed_qty,
+				custom_rejection_qty: doc.custom_rejection_qty,
+				custom_shift: doc.custom_shift,
+				custom_workstation: doc.custom_workstation,
+				custom_operator: doc.custom_operator,
+				custom_actual_start_date: doc.custom_actual_start_date,
+				custom_actual_end_date: doc.custom_actual_end_date,
+				custom_unplanned_losses_len: (doc.custom_unplanned_losses || []).length,
+				custom_rejection_breakup_len: (doc.custom_rejection_breakup || []).length,
+				items_len: (doc.items || []).length,
+			};
+		});
+
+		expect(state.from_bom).toBe(0);
+		expect(state.bom_no).toBeFalsy();
+		expect(state.fg_completed_qty).toBeFalsy();
+		expect(state.custom_rejection_qty).toBeFalsy();
+		expect(state.custom_shift).toBeFalsy();
+		expect(state.custom_workstation).toBeFalsy();
+		expect(state.custom_operator).toBeFalsy();
+		expect(state.custom_actual_start_date).toBeFalsy();
+		expect(state.custom_actual_end_date).toBeFalsy();
+		expect(state.custom_unplanned_losses_len).toBe(0);
+		expect(state.custom_rejection_breakup_len).toBe(0);
+		expect(state.items_len).toBe(0);
 	});
 
 	test("@regression manufacture sections remain visible after fetch items", async ({ page }) => {

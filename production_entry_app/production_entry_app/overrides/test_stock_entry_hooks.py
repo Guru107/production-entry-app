@@ -990,6 +990,54 @@ class TestStockEntryHooks(FrappeTestCase):
 		self.assertIn("2026-04-22 00:00:00", result.get("custom_planned_end_date") or "")
 		self.assertEqual(result.get("from_warehouse"), self.wip_warehouse)
 
+	def test_get_shift_details_for_stock_entry_api_blocks_non_running_shift(self) -> None:
+		from production_entry_app.production_entry_app.api import get_shift_details_for_stock_entry
+
+		cleanup_running_shifts()
+		shift_name = "SHIFT-2090-01-23.Shift-2"
+		if frappe.db.exists("Shift", shift_name):
+			frappe.delete_doc("Shift", shift_name, force=True, ignore_permissions=True)
+		draft_shift = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"shift_label": "2",
+				"shift_duration": "8",
+				"shift_date": "2090-01-23",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+
+		with self.assertRaisesRegex(ValidationError, "Only Running shifts can be linked"):
+			get_shift_details_for_stock_entry(draft_shift.name)
+
+	def test_stock_entry_blocks_non_running_shift_on_save(self) -> None:
+		cleanup_running_shifts()
+		shift_name = "SHIFT-2090-01-24.Shift-2"
+		if frappe.db.exists("Shift", shift_name):
+			frappe.delete_doc("Shift", shift_name, force=True, ignore_permissions=True)
+		draft_shift = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"shift_label": "2",
+				"shift_duration": "8",
+				"shift_date": "2090-01-24",
+				"planned_start_time": "08:00:00",
+				"work_in_progress_warehouse": self.wip_warehouse,
+			}
+		).insert()
+
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		se.custom_shift = draft_shift.name
+
+		with self.assertRaisesRegex(ValidationError, "Only Running shifts can be linked"):
+			se.save()
+
 	def test_entry_metrics_with_no_fg_item_sets_die_tool_fields_to_zero(self) -> None:
 		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import _set_entry_metrics
 

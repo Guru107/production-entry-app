@@ -27,6 +27,7 @@ def validate_stock_entry(doc, method: str | None = None) -> None:
 	2. Handles rejection quantity logic (if custom_rejection_qty > 0).
 	"""
 	if doc.get("custom_shift"):
+		_validate_linked_shift_is_running(doc)
 		_apply_shift_defaults(doc)
 	_sync_unplanned_loss_shift_links(doc)
 
@@ -86,6 +87,22 @@ def _apply_shift_defaults(doc) -> None:
 			doc.from_warehouse = shift.work_in_progress_warehouse
 		if not doc.to_warehouse:
 			doc.to_warehouse = shift.work_in_progress_warehouse
+
+
+def _validate_linked_shift_is_running(doc) -> None:
+	"""Allow linking only Running shifts on Stock Entry."""
+	shift_name = doc.get("custom_shift")
+	if not shift_name:
+		return
+
+	status = frappe.db.get_value("Shift", shift_name, "status")
+	if status != "Running":
+		frappe.throw(
+			_("Only Running shifts can be linked in Shift. Selected shift {0} is {1}.").format(
+				frappe.bold(shift_name),
+				frappe.bold(status or _("not found")),
+			)
+		)
 
 
 def _sync_unplanned_loss_shift_links(doc) -> None:

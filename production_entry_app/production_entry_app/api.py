@@ -39,6 +39,13 @@ def get_shift_details_for_stock_entry(shift_name: str) -> dict:
 		return {}
 
 	shift = frappe.get_doc("Shift", shift_name)
+	if shift.status != "Running":
+		frappe.throw(
+			_("Only Running shifts can be linked in Shift. Selected shift {0} is {1}.").format(
+				frappe.bold(shift.name),
+				frappe.bold(shift.status or _("not found")),
+			)
+		)
 
 	planned_start = None
 	if shift.shift_date and shift.planned_start_time:

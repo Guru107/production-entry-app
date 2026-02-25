@@ -128,6 +128,7 @@
 		"fieldtype": "Link",
 		"label": "Shift",
 		"options": "Shift",
+		"depends_on": "eval:doc.custom_stock_entry_purpose=='Manufacture'",
 		"is_index": 1,
 		"insert_after": "custom_stock_entry_purpose",
 		"module": "Production Entry App"
