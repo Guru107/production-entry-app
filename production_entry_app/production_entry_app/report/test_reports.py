@@ -597,6 +597,388 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(len(workstation_rows), 1)
 		self.assertEqual(workstation_rows[0]["workstation"], "Unassigned")
 
+	def test_rejection_pareto_report_aggregates_and_sorts_reasons(self) -> None:
+		from production_entry_app.production_entry_app.report.rejection_pareto_report.rejection_pareto_report import (
+			execute,
+		)
+
+		shift = self._create_shift_for_label("2026-06-10", "1")
+		self._create_mock_submitted_entry_with_breakup(
+			posting_date="2026-06-10",
+			planned_start="2026-06-10 08:00:00",
+			planned_end="2026-06-10 09:00:00",
+			actual_start="2026-06-10 08:00:00",
+			actual_end="2026-06-10 09:00:00",
+			fg_qty=120,
+			shift_name=shift.name,
+			breakup_rows=[
+				{"rejection_reason": "Crack", "qty": 4},
+				{"rejection_reason": "Burr", "qty": 1},
+			],
+		)
+		self._create_mock_submitted_entry_with_breakup(
+			posting_date="2026-06-10",
+			planned_start="2026-06-10 10:00:00",
+			planned_end="2026-06-10 11:00:00",
+			actual_start="2026-06-10 10:00:00",
+			actual_end="2026-06-10 11:00:00",
+			fg_qty=100,
+			shift_name=shift.name,
+			breakup_rows=[
+				{"rejection_reason": "Crack", "qty": 2},
+				{"rejection_reason": "Blank Cut", "qty": 3},
+			],
+		)
+
+		_, rows = execute({"from_date": "2026-06-10", "to_date": "2026-06-10"})
+		self.assertEqual([row["rejection_reason"] for row in rows], ["Crack", "Blank Cut", "Burr"])
+		self.assertEqual(float(rows[0]["rejection_qty"]), 6.0)
+		self.assertEqual(float(rows[1]["rejection_qty"]), 3.0)
+		self.assertEqual(float(rows[2]["rejection_qty"]), 1.0)
+		self.assertEqual(float(rows[0]["rejection_pct"]), 60.0)
+		self.assertEqual(float(rows[0]["cumulative_pct"]), 60.0)
+		self.assertEqual(float(rows[1]["cumulative_pct"]), 90.0)
+		self.assertEqual(float(rows[2]["cumulative_pct"]), 100.0)
+		self.assertEqual(int(rows[0]["entries"]), 2)
+		self.assertEqual(int(rows[0]["shifts"]), 1)
+
+	def test_rejection_pareto_report_filters_workstation(self) -> None:
+		from production_entry_app.production_entry_app.report.rejection_pareto_report.rejection_pareto_report import (
+			execute,
+		)
+
+		shift = self._create_shift_for_label("2026-06-11", "1")
+		self._create_mock_submitted_entry_with_breakup(
+			posting_date="2026-06-11",
+			planned_start="2026-06-11 08:00:00",
+			planned_end="2026-06-11 09:00:00",
+			actual_start="2026-06-11 08:00:00",
+			actual_end="2026-06-11 09:00:00",
+			fg_qty=80,
+			workstation="Report Workstation",
+			shift_name=shift.name,
+			breakup_rows=[{"rejection_reason": "Crack", "qty": 5}],
+		)
+		other_workstation = "Report Workstation 2"
+		if not frappe.db.exists("Workstation", other_workstation):
+			frappe.get_doc(
+				{
+					"doctype": "Workstation",
+					"workstation_name": other_workstation,
+					"production_capacity": 1,
+					"hour_rate": 100,
+					"custom_standard_spm": 2,
+				}
+			).insert(ignore_permissions=True)
+		self._create_mock_submitted_entry_with_breakup(
+			posting_date="2026-06-11",
+			planned_start="2026-06-11 10:00:00",
+			planned_end="2026-06-11 11:00:00",
+			actual_start="2026-06-11 10:00:00",
+			actual_end="2026-06-11 11:00:00",
+			fg_qty=80,
+			workstation=other_workstation,
+			shift_name=shift.name,
+			breakup_rows=[{"rejection_reason": "Burr", "qty": 4}],
+		)
+
+		_, rows = execute(
+			{
+				"from_date": "2026-06-11",
+				"to_date": "2026-06-11",
+				"custom_workstation": "Report Workstation",
+			}
+		)
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(rows[0]["rejection_reason"], "Crack")
+		self.assertEqual(float(rows[0]["rejection_qty"]), 5.0)
+
+	def test_rejection_trend_report_daily_aggregation(self) -> None:
+		from production_entry_app.production_entry_app.report.rejection_trend_report.rejection_trend_report import (
+			execute,
+		)
+
+		shift_day_1 = self._create_shift_for_label("2026-06-12", "1")
+		shift_day_2 = self._create_shift_for_label("2026-06-13", "1")
+		self._create_mock_submitted_entry(
+			posting_date="2026-06-12",
+			planned_start="2026-06-12 08:00:00",
+			planned_end="2026-06-12 09:00:00",
+			actual_start="2026-06-12 08:00:00",
+			actual_end="2026-06-12 09:00:00",
+			fg_qty=100,
+			rejection_qty=10,
+			shift_name=shift_day_1.name,
+		)
+		self._create_mock_submitted_entry(
+			posting_date="2026-06-13",
+			planned_start="2026-06-13 08:00:00",
+			planned_end="2026-06-13 09:00:00",
+			actual_start="2026-06-13 08:00:00",
+			actual_end="2026-06-13 09:00:00",
+			fg_qty=80,
+			rejection_qty=8,
+			shift_name=shift_day_2.name,
+		)
+
+		_, rows = execute({"from_date": "2026-06-12", "to_date": "2026-06-13", "time_grain": "Daily"})
+		self.assertEqual(len(rows), 2)
+		self.assertEqual(rows[0]["period"], "2026-06-12")
+		self.assertEqual(float(rows[0]["total_qty"]), 100.0)
+		self.assertEqual(float(rows[0]["rejection_qty"]), 10.0)
+		self.assertEqual(float(rows[0]["ok_qty"]), 90.0)
+		self.assertEqual(float(rows[0]["rejection_rate_pct"]), 10.0)
+		self.assertEqual(rows[1]["period"], "2026-06-13")
+		self.assertEqual(float(rows[1]["rejection_rate_pct"]), 10.0)
+
+	def test_rejection_trend_report_weekly_aggregation(self) -> None:
+		from production_entry_app.production_entry_app.report.rejection_trend_report.rejection_trend_report import (
+			execute,
+		)
+
+		shift_day_1 = self._create_shift_for_label("2026-06-15", "1")
+		shift_day_2 = self._create_shift_for_label("2026-06-16", "1")
+		shift_day_3 = self._create_shift_for_label("2026-06-22", "1")
+		self._create_mock_submitted_entry(
+			posting_date="2026-06-15",
+			planned_start="2026-06-15 08:00:00",
+			planned_end="2026-06-15 09:00:00",
+			actual_start="2026-06-15 08:00:00",
+			actual_end="2026-06-15 09:00:00",
+			fg_qty=100,
+			rejection_qty=5,
+			shift_name=shift_day_1.name,
+		)
+		self._create_mock_submitted_entry(
+			posting_date="2026-06-16",
+			planned_start="2026-06-16 08:00:00",
+			planned_end="2026-06-16 09:00:00",
+			actual_start="2026-06-16 08:00:00",
+			actual_end="2026-06-16 09:00:00",
+			fg_qty=60,
+			rejection_qty=3,
+			shift_name=shift_day_2.name,
+		)
+		self._create_mock_submitted_entry(
+			posting_date="2026-06-22",
+			planned_start="2026-06-22 08:00:00",
+			planned_end="2026-06-22 09:00:00",
+			actual_start="2026-06-22 08:00:00",
+			actual_end="2026-06-22 09:00:00",
+			fg_qty=90,
+			rejection_qty=9,
+			shift_name=shift_day_3.name,
+		)
+
+		_, rows = execute({"from_date": "2026-06-15", "to_date": "2026-06-22", "time_grain": "Weekly"})
+		self.assertEqual(len(rows), 2)
+		self.assertEqual(rows[0]["period"], "2026-06-15 to 2026-06-21")
+		self.assertEqual(float(rows[0]["total_qty"]), 160.0)
+		self.assertEqual(float(rows[0]["rejection_qty"]), 8.0)
+		self.assertEqual(float(rows[1]["total_qty"]), 90.0)
+		self.assertEqual(float(rows[1]["rejection_rate_pct"]), 10.0)
+
+	def test_workstation_rejection_reason_matrix_aggregates_top_reasons(self) -> None:
+		from production_entry_app.production_entry_app.report.workstation_rejection_reason_matrix.workstation_rejection_reason_matrix import (
+			execute,
+		)
+
+		shift = self._create_shift_for_label("2026-06-23", "1")
+		workstation_2 = "Report Workstation 3"
+		if not frappe.db.exists("Workstation", workstation_2):
+			frappe.get_doc(
+				{
+					"doctype": "Workstation",
+					"workstation_name": workstation_2,
+					"production_capacity": 1,
+					"hour_rate": 100,
+					"custom_standard_spm": 2,
+				}
+			).insert(ignore_permissions=True)
+
+		self._create_mock_submitted_entry_with_breakup(
+			posting_date="2026-06-23",
+			planned_start="2026-06-23 08:00:00",
+			planned_end="2026-06-23 09:00:00",
+			actual_start="2026-06-23 08:00:00",
+			actual_end="2026-06-23 09:00:00",
+			fg_qty=100,
+			workstation="Report Workstation",
+			shift_name=shift.name,
+			breakup_rows=[
+				{"rejection_reason": "Crack", "qty": 5},
+				{"rejection_reason": "Burr", "qty": 2},
+			],
+		)
+		self._create_mock_submitted_entry_with_breakup(
+			posting_date="2026-06-23",
+			planned_start="2026-06-23 10:00:00",
+			planned_end="2026-06-23 11:00:00",
+			actual_start="2026-06-23 10:00:00",
+			actual_end="2026-06-23 11:00:00",
+			fg_qty=80,
+			workstation=workstation_2,
+			shift_name=shift.name,
+			breakup_rows=[{"rejection_reason": "Blank Cut", "qty": 4}],
+		)
+
+		columns, rows = execute(
+			{"from_date": "2026-06-23", "to_date": "2026-06-23", "top_n_reasons": 2}
+		)
+		column_labels = [col.get("label") for col in columns]
+		self.assertIn("Crack", column_labels)
+		self.assertIn("Blank Cut", column_labels)
+		self.assertNotIn("Burr", column_labels)
+		self.assertEqual(len(rows), 2)
+		row_by_workstation = {row["workstation"]: row for row in rows}
+		self.assertEqual(float(row_by_workstation["Report Workstation"]["reason_crack"]), 5.0)
+		self.assertEqual(float(row_by_workstation[workstation_2]["reason_blank_cut"]), 4.0)
+		self.assertEqual(float(row_by_workstation["Report Workstation"]["total_rejection_qty"]), 7.0)
+
+	def test_workstation_rejection_reason_matrix_filters_operator(self) -> None:
+		from production_entry_app.production_entry_app.report.workstation_rejection_reason_matrix.workstation_rejection_reason_matrix import (
+			execute,
+		)
+
+		operator_2 = "Report Operator 2"
+		if not frappe.db.exists("Operator", operator_2):
+			frappe.get_doc(
+				{"doctype": "Operator", "operator_name": operator_2, "is_active": 1}
+			).insert(ignore_permissions=True)
+		shift = self._create_shift_for_label("2026-06-24", "1")
+		self._create_mock_submitted_entry_with_breakup(
+			posting_date="2026-06-24",
+			planned_start="2026-06-24 08:00:00",
+			planned_end="2026-06-24 09:00:00",
+			actual_start="2026-06-24 08:00:00",
+			actual_end="2026-06-24 09:00:00",
+			fg_qty=100,
+			operator="Report Operator",
+			shift_name=shift.name,
+			breakup_rows=[{"rejection_reason": "Crack", "qty": 5}],
+		)
+		self._create_mock_submitted_entry_with_breakup(
+			posting_date="2026-06-24",
+			planned_start="2026-06-24 10:00:00",
+			planned_end="2026-06-24 11:00:00",
+			actual_start="2026-06-24 10:00:00",
+			actual_end="2026-06-24 11:00:00",
+			fg_qty=90,
+			operator=operator_2,
+			shift_name=shift.name,
+			breakup_rows=[{"rejection_reason": "Burr", "qty": 3}],
+		)
+
+		_, rows = execute(
+			{
+				"from_date": "2026-06-24",
+				"to_date": "2026-06-24",
+				"custom_operator": "Report Operator",
+			}
+		)
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(rows[0]["workstation"], "Report Workstation")
+		self.assertEqual(float(rows[0]["total_rejection_qty"]), 5.0)
+
+	def test_operator_rejection_performance_metrics_and_top_reasons(self) -> None:
+		from production_entry_app.production_entry_app.report.operator_rejection_performance.operator_rejection_performance import (
+			execute,
+		)
+
+		shift = self._create_shift_for_label("2026-06-25", "1")
+		operator_2 = "Report Operator 2"
+		if not frappe.db.exists("Operator", operator_2):
+			frappe.get_doc(
+				{"doctype": "Operator", "operator_name": operator_2, "is_active": 1}
+			).insert(ignore_permissions=True)
+
+		self._create_mock_submitted_entry_with_breakup(
+			posting_date="2026-06-25",
+			planned_start="2026-06-25 08:00:00",
+			planned_end="2026-06-25 09:00:00",
+			actual_start="2026-06-25 08:00:00",
+			actual_end="2026-06-25 09:00:00",
+			fg_qty=100,
+			operator="Report Operator",
+			shift_name=shift.name,
+			breakup_rows=[
+				{"rejection_reason": "Crack", "qty": 6},
+				{"rejection_reason": "Burr", "qty": 2},
+			],
+		)
+		self._create_mock_submitted_entry_with_breakup(
+			posting_date="2026-06-25",
+			planned_start="2026-06-25 10:00:00",
+			planned_end="2026-06-25 11:00:00",
+			actual_start="2026-06-25 10:00:00",
+			actual_end="2026-06-25 11:00:00",
+			fg_qty=80,
+			operator=operator_2,
+			shift_name=shift.name,
+			breakup_rows=[{"rejection_reason": "Blank Cut", "qty": 4}],
+		)
+
+		_, rows = execute({"from_date": "2026-06-25", "to_date": "2026-06-25"})
+		self.assertEqual(len(rows), 2)
+		row_by_operator = {row["operator"]: row for row in rows}
+		self.assertEqual(float(row_by_operator["Report Operator"]["total_qty"]), 100.0)
+		self.assertEqual(float(row_by_operator["Report Operator"]["rejection_qty"]), 8.0)
+		self.assertEqual(float(row_by_operator["Report Operator"]["rejection_rate_pct"]), 8.0)
+		self.assertIn("Crack (6.0)", row_by_operator["Report Operator"]["top_3_reasons"])
+		self.assertIn("Burr (2.0)", row_by_operator["Report Operator"]["top_3_reasons"])
+		self.assertEqual(float(row_by_operator[operator_2]["rejection_rate_pct"]), 5.0)
+
+	def test_operator_rejection_performance_filters_workstation(self) -> None:
+		from production_entry_app.production_entry_app.report.operator_rejection_performance.operator_rejection_performance import (
+			execute,
+		)
+
+		workstation_2 = "Report Workstation 4"
+		if not frappe.db.exists("Workstation", workstation_2):
+			frappe.get_doc(
+				{
+					"doctype": "Workstation",
+					"workstation_name": workstation_2,
+					"production_capacity": 1,
+					"hour_rate": 100,
+					"custom_standard_spm": 2,
+				}
+			).insert(ignore_permissions=True)
+		shift = self._create_shift_for_label("2026-06-26", "1")
+
+		self._create_mock_submitted_entry_with_breakup(
+			posting_date="2026-06-26",
+			planned_start="2026-06-26 08:00:00",
+			planned_end="2026-06-26 09:00:00",
+			actual_start="2026-06-26 08:00:00",
+			actual_end="2026-06-26 09:00:00",
+			fg_qty=100,
+			workstation="Report Workstation",
+			shift_name=shift.name,
+			breakup_rows=[{"rejection_reason": "Crack", "qty": 3}],
+		)
+		self._create_mock_submitted_entry_with_breakup(
+			posting_date="2026-06-26",
+			planned_start="2026-06-26 10:00:00",
+			planned_end="2026-06-26 11:00:00",
+			actual_start="2026-06-26 10:00:00",
+			actual_end="2026-06-26 11:00:00",
+			fg_qty=100,
+			workstation=workstation_2,
+			shift_name=shift.name,
+			breakup_rows=[{"rejection_reason": "Burr", "qty": 6}],
+		)
+
+		_, rows = execute(
+			{
+				"from_date": "2026-06-26",
+				"to_date": "2026-06-26",
+				"custom_workstation": workstation_2,
+			}
+		)
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(float(rows[0]["rejection_qty"]), 6.0)
+
 	def _create_mock_submitted_entry(
 		self,
 		posting_date: str,
@@ -658,6 +1040,51 @@ class TestProductionReports(FrappeTestCase):
 		)
 		# Intentionally mark submitted in DB for report isolation; these tests
 		# validate query/report logic, not full stock-entry submit side effects.
+		frappe.db.set_value("Stock Entry", stock_entry.name, "docstatus", 1, update_modified=False)
+		stock_entry.reload()
+		return stock_entry
+
+	def _create_mock_submitted_entry_with_breakup(
+		self,
+		*,
+		posting_date: str,
+		planned_start: str,
+		planned_end: str,
+		actual_start: str,
+		actual_end: str,
+		fg_qty: float,
+		breakup_rows: list[dict],
+		fg_item: str | None = None,
+		operator: str | None = "Report Operator",
+		workstation: str | None = "Report Workstation",
+		shift_name: str | None = None,
+	):
+		rejection_qty = sum(float(row.get("qty") or 0) for row in breakup_rows)
+		stock_entry = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=fg_item or self.fg_item,
+			rm_item=self.rm_item,
+			fg_qty=fg_qty,
+			rm_qty=fg_qty,
+			custom_rejection_qty=rejection_qty,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		stock_entry.custom_operator = operator
+		stock_entry.custom_workstation = workstation
+		stock_entry.custom_shift = shift_name
+		stock_entry.custom_standard_spm = 2
+		stock_entry.custom_planned_start_date = planned_start
+		stock_entry.custom_planned_end_date = planned_end
+		stock_entry.custom_actual_start_date = actual_start
+		stock_entry.custom_actual_end_date = actual_end
+		stock_entry.posting_date = posting_date
+		stock_entry.posting_time = "09:00:00"
+		_append_rejection_breakup_rows(stock_entry, breakup_rows)
+		stock_entry.save()
+		frappe.db.set_value(
+			"Stock Entry", stock_entry.name, "posting_date", posting_date, update_modified=False
+		)
 		frappe.db.set_value("Stock Entry", stock_entry.name, "docstatus", 1, update_modified=False)
 		stock_entry.reload()
 		return stock_entry
