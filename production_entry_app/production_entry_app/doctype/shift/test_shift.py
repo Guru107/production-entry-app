@@ -12,6 +12,7 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	cleanup_running_shifts,
 	ensure_default_bom,
 	ensure_item,
+	ensure_warehouse,
 	get_company_abbr,
 	resolve_test_company,
 )
@@ -319,6 +320,38 @@ class TestShift(FrappeTestCase):
 
 		# End shift so it does not leak into subsequent tests (e.g. conflict check)
 		frappe.get_doc("Shift", name).end_shift()
+
+	def test_warehouse_defaults_can_be_edited_in_running_state(self) -> None:
+		shift_date = "2026-03-17"
+		name = self._expected_name(shift_date, "1")
+		self._delete_shift_if_exists(name)
+		company = resolve_test_company()
+		abbr = get_company_abbr(company)
+		initial_wip = ensure_warehouse(f"Shift Running WIP A - {abbr}", company)
+		updated_wip = ensure_warehouse(f"Shift Running WIP B - {abbr}", company)
+
+		doc = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": shift_date,
+				"planned_start_time": "08:00:00",
+				"work_in_progress_warehouse": initial_wip,
+			}
+		).insert()
+		doc.start_shift()
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so _validate_field_locking sees persisted status via get_value
+
+		running_doc = frappe.get_doc("Shift", name)
+		running_doc.work_in_progress_warehouse = updated_wip
+		running_doc.save()
+
+		reloaded = frappe.get_doc("Shift", name)
+		self.assertEqual(reloaded.work_in_progress_warehouse, updated_wip)
+
+		# End shift so it does not leak into subsequent tests (e.g. conflict check)
+		reloaded.end_shift()
 
 	def test_document_locked_in_completed_state(self) -> None:
 		name = self._expected_name("2026-02-18", "1")

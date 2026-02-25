@@ -2,6 +2,12 @@
 // For license information, please see license.txt
 
 const PLANNED_BREAKS_DEBOUNCE_MS = 300;
+const WAREHOUSE_FIELDS = [
+	"raw_material_warehouse",
+	"work_in_progress_warehouse",
+	"rejection_warehouse",
+	"scrap_warehouse",
+];
 
 frappe.ui.form.on("Shift", {
 	planned_start_time(frm) {
@@ -16,6 +22,7 @@ frappe.ui.form.on("Shift", {
 	refresh(frm) {
 		// Prevent editing planned losses after shift has started
 		frm.set_df_property("planned_losses", "read_only", frm.doc.status !== "Draft");
+		_set_warehouse_field_editability(frm);
 
 		const actions_group = __("Actions");
 		if (frm.doc.status === "Draft") {
@@ -102,6 +109,13 @@ frappe.ui.form.on("Shift", {
 		_render_aggregate_production_entries(frm);
 	},
 });
+
+function _set_warehouse_field_editability(frm) {
+	const isLockedStatus = ["Completed", "Cancelled"].includes(frm.doc.status || "");
+	WAREHOUSE_FIELDS.forEach((fieldname) => {
+		frm.set_df_property(fieldname, "read_only", isLockedStatus ? 1 : 0);
+	});
+}
 
 function _populate_default_breaks_if_draft(frm) {
 	if (
