@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
@@ -1321,6 +1323,31 @@ class TestProductionReports(FrappeTestCase):
 		self._ensure_fiscal_year("2099-2100", "2099-04-01", "2100-03-31")
 		_, rows = execute({"fiscal_year": "2099-2100", "month": "April"})
 		self.assertEqual(rows, [])
+
+	def test_daily_strokes_spm_monitor_throws_for_invalid_fiscal_year(self) -> None:
+		from production_entry_app.production_entry_app.report.daily_strokes_spm_monitor.daily_strokes_spm_monitor import (
+			execute,
+		)
+
+		with self.assertRaises(frappe.ValidationError) as exc:
+			execute({"fiscal_year": "DOES-NOT-EXIST", "month": "April"})
+		self.assertIn("Fiscal Year", str(exc.exception))
+		self.assertIn("not found", str(exc.exception))
+
+	def test_daily_strokes_spm_monitor_throws_when_fiscal_year_dates_missing(self) -> None:
+		from production_entry_app.production_entry_app.report.daily_strokes_spm_monitor.daily_strokes_spm_monitor import (
+			execute,
+		)
+
+		with patch(
+			"production_entry_app.production_entry_app.report.daily_strokes_spm_monitor."
+			"daily_strokes_spm_monitor.frappe.db.get_value",
+			return_value={"year_start_date": None, "year_end_date": None},
+		):
+			with self.assertRaises(frappe.ValidationError) as exc:
+				execute({"fiscal_year": "2090-2091", "month": "April"})
+		self.assertIn("Fiscal Year", str(exc.exception))
+		self.assertIn("not found", str(exc.exception))
 
 	def _create_mock_submitted_entry(
 		self,

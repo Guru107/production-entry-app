@@ -91,9 +91,15 @@ def _get_date_range(filters: dict) -> tuple[str, str]:
 	if not fiscal_year or not month_name:
 		frappe.throw(_("Fiscal Year and Month are required."))
 
-	fy_start = getdate(frappe.db.get_value("Fiscal Year", fiscal_year, "year_start_date"))
-	if not fy_start:
+	fy_dates = frappe.db.get_value(
+		"Fiscal Year",
+		fiscal_year,
+		["year_start_date", "year_end_date"],
+		as_dict=True,
+	)
+	if not fy_dates or not fy_dates.get("year_start_date") or not fy_dates.get("year_end_date"):
 		frappe.throw(_("Fiscal Year {0} not found.").format(frappe.bold(fiscal_year)))
+	fy_start = getdate(fy_dates.get("year_start_date"))
 
 	month_num = MONTH_NAME_TO_NUMBER.get(month_name)
 	if not month_num:
