@@ -26,7 +26,10 @@ app_license = "mit"
 
 # include js, css files in header of desk.html
 # app_include_css = "/assets/production_entry_app/css/production_entry_app.css"
-app_include_js = ["/assets/production_entry_app/js/timeline_renderer.js"]
+app_include_js = [
+	"/assets/production_entry_app/js/report_filter_utils.js",
+	"/assets/production_entry_app/js/timeline_renderer.js",
+]
 
 # include js, css files in header of web template
 # web_include_css = "/assets/production_entry_app/css/production_entry_app.css"

@@ -1,4 +1,4 @@
-frappe.query_reports["Workstation Efficiency Report"] = {
+frappe.query_reports["Rejection Trend Report"] = {
 	filters: [
 		{
 			fieldname: "from_date",
@@ -25,6 +25,13 @@ frappe.query_reports["Workstation Efficiency Report"] = {
 			},
 		},
 		{
+			fieldname: "time_grain",
+			label: __("Time Grain"),
+			fieldtype: "Select",
+			options: ["Daily", "Weekly", "Monthly"],
+			default: "Daily",
+		},
+		{
 			fieldname: "custom_workstation",
 			label: __("Workstation"),
 			fieldtype: "Link",
@@ -44,9 +51,15 @@ frappe.query_reports["Workstation Efficiency Report"] = {
 		},
 		{
 			fieldname: "fg_item",
-			label: __("Die Tool Item"),
+			label: __("FG Item"),
 			fieldtype: "Link",
 			options: "Item",
+		},
+		{
+			fieldname: "bom_no",
+			label: __("BOM"),
+			fieldtype: "Link",
+			options: "BOM",
 		},
 	],
 };

@@ -14,15 +14,23 @@ async function createSubmittedStockEntryForReports(
 	page,
 	ctx,
 	rejectionQty = 0,
-	unplannedLossRows = []
+	unplannedLossRows = [],
+	breakupRows = null,
+	timeWindow = {}
 ) {
 	const stockEntryPage = new StockEntryPage(page);
+	const actualStart = timeWindow.actualStart || `${ctx.shift_date} 08:00:00`;
+	const actualEnd = timeWindow.actualEnd || `${ctx.shift_date} 09:00:00`;
+	const plannedStart = timeWindow.plannedStart || actualStart;
+	const plannedEnd = timeWindow.plannedEnd || actualEnd;
 	await stockEntryPage.openNew();
 	await stockEntryPage.setManufactureFields(ctx, {
 		fgQty: 100,
 		rejectionQty,
-		actualStart: `${ctx.shift_date} 08:00:00`,
-		actualEnd: `${ctx.shift_date} 09:00:00`,
+		actualStart,
+		actualEnd,
+		plannedStart,
+		plannedEnd,
 	});
 	await page.evaluate(async (shiftDate) => {
 		await cur_frm.set_value("posting_date", shiftDate);
@@ -32,7 +40,9 @@ async function createSubmittedStockEntryForReports(
 	for (const row of unplannedLossRows) {
 		await stockEntryPage.addUnplannedLossRow(row);
 	}
-	if (rejectionQty > 0) {
+	if (Array.isArray(breakupRows) && breakupRows.length) {
+		await stockEntryPage.setRejectionBreakupRows(breakupRows);
+	} else if (rejectionQty > 0) {
 		await stockEntryPage.setRejectionBreakupRows([
 			{ rejection_reason: "Burr", qty: rejectionQty },
 		]);
@@ -208,6 +218,163 @@ test.describe("Production reports", () => {
 		expect(filteredRow.maintenance_count).toBeDefined();
 	});
 
+	test("@regression Rejection Pareto report loads and renders chart with grouped reasons", async ({
+		page,
+	}) => {
+		await page.goto("/app/home");
+		const prefix = lifecycle.getPrefix();
+		const ctx = await setupFreshContext(page, prefix);
+		const seeded = await createSubmittedStockEntryForReports(
+			page,
+			ctx,
+			8,
+			[],
+			[
+				{ rejection_reason: "Crack", qty: 5 },
+				{ rejection_reason: "Burr", qty: 3 },
+			]
+		);
+
+		const reportsPage = new ReportsPage(page);
+		await reportsPage.open("Rejection Pareto Report");
+		await reportsPage.runWithDateRange(seeded.posting_date, seeded.posting_date);
+		await reportsPage.setFilterByFieldname("custom_workstation", ctx.workstation);
+		await reportsPage.clickRefresh();
+		await reportsPage.waitForRows(1);
+
+		const rows = await reportsPage.getRows();
+		expect(rows.length).toBeGreaterThan(0);
+		expect(rows.some((row) => row.rejection_reason === "Crack")).toBeTruthy();
+		expect(await reportsPage.hasChart()).toBeTruthy();
+	});
+
+	test("@regression Rejection Trend report supports daily and monthly grain", async ({
+		page,
+	}) => {
+		await page.goto("/app/home");
+		const prefix = lifecycle.getPrefix();
+		const ctx = await setupFreshContext(page, prefix);
+
+		await createSubmittedStockEntryForReports(page, ctx, 10, [], null, {
+			actualStart: `${ctx.shift_date} 08:00:00`,
+			actualEnd: `${ctx.shift_date} 09:00:00`,
+		});
+		await createSubmittedStockEntryForReports(page, ctx, 6, [], null, {
+			actualStart: `${ctx.shift_date} 09:00:00`,
+			actualEnd: `${ctx.shift_date} 10:00:00`,
+		});
+
+		const reportsPage = new ReportsPage(page);
+		await reportsPage.open("Rejection Trend Report");
+		await reportsPage.runWithDateRange(ctx.shift_date, ctx.shift_date);
+		await reportsPage.setFilterByFieldname("time_grain", "Daily");
+		await reportsPage.clickRefresh();
+		await reportsPage.waitForRows(1);
+		const dailyRows = await reportsPage.getRows();
+		expect(dailyRows.length).toBeGreaterThan(0);
+		expect(await reportsPage.hasChart()).toBeTruthy();
+
+		await reportsPage.setFilterByFieldname("time_grain", "Monthly");
+		await reportsPage.clickRefresh();
+		await reportsPage.waitForRows(1);
+		const monthlyFilters = await reportsPage.getFilterValues();
+		expect(monthlyFilters.time_grain).toBe("Monthly");
+		const monthlyRows = await reportsPage.getRows();
+		expect(monthlyRows.length).toBeGreaterThan(0);
+	});
+
+	test("@regression Workstation rejection matrix renders dynamic reason columns", async ({
+		page,
+	}) => {
+		await page.goto("/app/home");
+		const prefix = lifecycle.getPrefix();
+		const ctx = await setupFreshContext(page, prefix);
+		const seeded = await createSubmittedStockEntryForReports(
+			page,
+			ctx,
+			9,
+			[],
+			[
+				{ rejection_reason: "Crack", qty: 6 },
+				{ rejection_reason: "Burr", qty: 3 },
+			]
+		);
+
+		const reportsPage = new ReportsPage(page);
+		await reportsPage.open("Workstation Rejection Reason Matrix");
+		await reportsPage.runWithDateRange(seeded.posting_date, seeded.posting_date);
+		await reportsPage.setFilterByFieldname("custom_workstation", ctx.workstation);
+		await reportsPage.setFilterByFieldname("top_n_reasons", 2);
+		await reportsPage.clickRefresh();
+		await reportsPage.waitForRows(1);
+
+		const rows = await reportsPage.getRows();
+		expect(rows.some((row) => row.workstation === ctx.workstation)).toBeTruthy();
+		const labels = await reportsPage.getColumnLabels();
+		expect(labels).toContain("Crack");
+	});
+
+	test("@regression Operator rejection report shows top reasons and rates", async ({ page }) => {
+		await page.goto("/app/home");
+		const prefix = lifecycle.getPrefix();
+		const ctx = await setupFreshContext(page, prefix);
+		const seeded = await createSubmittedStockEntryForReports(
+			page,
+			ctx,
+			8,
+			[],
+			[
+				{ rejection_reason: "Crack", qty: 6 },
+				{ rejection_reason: "Burr", qty: 2 },
+			]
+		);
+
+		const reportsPage = new ReportsPage(page);
+		await reportsPage.open("Operator Rejection Performance");
+		await reportsPage.runWithDateRange(seeded.posting_date, seeded.posting_date);
+		await reportsPage.setFilterByFieldname("custom_operator", ctx.operator);
+		await reportsPage.clickRefresh();
+		await reportsPage.waitForRows(1);
+
+		const rows = await reportsPage.getRows();
+		const row = rows.find((item) => item.operator === ctx.operator);
+		expect(Boolean(row)).toBeTruthy();
+		expect(Number(row.rejection_rate_pct || 0)).toBeGreaterThan(0);
+		expect(String(row.top_3_reasons || "")).toContain("Crack");
+	});
+
+	test("@regression Item BOM hotspots report shows dominant reason", async ({ page }) => {
+		await page.goto("/app/home");
+		const prefix = lifecycle.getPrefix();
+		const ctx = await setupFreshContext(page, prefix);
+		const seeded = await createSubmittedStockEntryForReports(
+			page,
+			ctx,
+			7,
+			[],
+			[
+				{ rejection_reason: "Blank Cut", qty: 4 },
+				{ rejection_reason: "Burr", qty: 3 },
+			]
+		);
+
+		const reportsPage = new ReportsPage(page);
+		await reportsPage.open("Item BOM Rejection Hotspots");
+		await reportsPage.runWithDateRange(seeded.posting_date, seeded.posting_date);
+		await reportsPage.setFilterByFieldname("fg_item", ctx.fg_item);
+		await reportsPage.setFilterByFieldname("custom_shift", ctx.shift_name);
+		await reportsPage.setFilterByFieldname("custom_workstation", ctx.workstation);
+		await reportsPage.clickRefresh();
+		await reportsPage.waitForRows(1);
+
+		const rows = await reportsPage.getRows();
+		expect(rows.length).toBeGreaterThan(0);
+		expect(rows.some((row) => row.item_code === ctx.fg_item)).toBeTruthy();
+		expect(
+			rows.some((row) => String(row.dominant_reason || "").includes("Blank Cut"))
+		).toBeTruthy();
+	});
+
 	test("@regression report date range prevents from_date > to_date", async ({ page }) => {
 		await page.goto("/app/home");
 		const reportsPage = new ReportsPage(page);
@@ -215,6 +382,11 @@ test.describe("Production reports", () => {
 			"Production OEE Report",
 			"Operator Efficiency Report",
 			"Workstation Efficiency Report",
+			"Rejection Pareto Report",
+			"Rejection Trend Report",
+			"Workstation Rejection Reason Matrix",
+			"Operator Rejection Performance",
+			"Item BOM Rejection Hotspots",
 		]) {
 			await reportsPage.open(reportName);
 			await reportsPage.setFilterByFieldname("to_date", "2026-02-10");

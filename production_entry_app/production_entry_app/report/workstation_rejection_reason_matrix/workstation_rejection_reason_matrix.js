@@ -1,4 +1,4 @@
-frappe.query_reports["Workstation Efficiency Report"] = {
+frappe.query_reports["Workstation Rejection Reason Matrix"] = {
 	filters: [
 		{
 			fieldname: "from_date",
@@ -25,6 +25,14 @@ frappe.query_reports["Workstation Efficiency Report"] = {
 			},
 		},
 		{
+			fieldname: "top_n_reasons",
+			label: __("Top N Reasons"),
+			fieldtype: "Int",
+			default: 10,
+			min_value: 1,
+			max_value: 20,
+		},
+		{
 			fieldname: "custom_workstation",
 			label: __("Workstation"),
 			fieldtype: "Link",
@@ -44,9 +52,15 @@ frappe.query_reports["Workstation Efficiency Report"] = {
 		},
 		{
 			fieldname: "fg_item",
-			label: __("Die Tool Item"),
+			label: __("FG Item"),
 			fieldtype: "Link",
 			options: "Item",
+		},
+		{
+			fieldname: "bom_no",
+			label: __("BOM"),
+			fieldtype: "Link",
+			options: "BOM",
 		},
 	],
 };

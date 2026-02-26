@@ -1,4 +1,4 @@
-frappe.query_reports["Workstation Efficiency Report"] = {
+frappe.query_reports["Rejection Pareto Report"] = {
 	filters: [
 		{
 			fieldname: "from_date",
@@ -44,9 +44,15 @@ frappe.query_reports["Workstation Efficiency Report"] = {
 		},
 		{
 			fieldname: "fg_item",
-			label: __("Die Tool Item"),
+			label: __("FG Item"),
 			fieldtype: "Link",
 			options: "Item",
+		},
+		{
+			fieldname: "bom_no",
+			label: __("BOM"),
+			fieldtype: "Link",
+			options: "BOM",
 		},
 	],
 };
