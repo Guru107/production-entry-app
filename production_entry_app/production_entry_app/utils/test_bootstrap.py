@@ -85,10 +85,13 @@ def ensure_rejection_reason(name: str) -> None:
 
 def ensure_downtime_reason(name: str) -> None:
 	if frappe.db.exists("Downtime Reason", name):
+		if frappe.get_meta("Downtime Reason", cached=True).has_field("is_active"):
+			frappe.db.set_value("Downtime Reason", name, "is_active", 1, update_modified=False)
 		return
-	frappe.get_doc({"doctype": "Downtime Reason", "downtime_reason_name": name}).insert(
-		ignore_permissions=True
-	)
+	doc = {"doctype": "Downtime Reason", "downtime_reason_name": name}
+	if frappe.get_meta("Downtime Reason", cached=True).has_field("is_active"):
+		doc["is_active"] = 1
+	frappe.get_doc(doc).insert(ignore_permissions=True)
 
 
 def ensure_operator(name: str) -> None:

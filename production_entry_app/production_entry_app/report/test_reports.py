@@ -33,7 +33,7 @@ class TestProductionReports(FrappeTestCase):
 		_ensure_rejection_breakup_custom_field()
 		_ensure_item_die_tool_fields()
 		for reason in (
-			"Setup time",
+			"Setup Time",
 			"Trial",
 			"Mtrl Handl",
 			"No Operator",
@@ -211,7 +211,7 @@ class TestProductionReports(FrappeTestCase):
 			rejection_qty=0,
 			shift_name=shift_1.name,
 			unplanned_losses=[
-				{"downtime_reason": "Setup time", "start_time": "10:00:00", "end_time": "10:30:00"}
+				{"downtime_reason": "Setup Time", "start_time": "10:00:00", "end_time": "10:30:00"}
 			],
 		)
 		self._create_mock_submitted_entry(
