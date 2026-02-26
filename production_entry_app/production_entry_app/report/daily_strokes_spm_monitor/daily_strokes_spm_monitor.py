@@ -100,16 +100,34 @@ def _get_date_range(filters: dict) -> tuple[str, str]:
 	if not fy_dates or not fy_dates.get("year_start_date") or not fy_dates.get("year_end_date"):
 		frappe.throw(_("Fiscal Year {0} not found.").format(frappe.bold(fiscal_year)))
 	fy_start = getdate(fy_dates.get("year_start_date"))
+	fy_end = getdate(fy_dates.get("year_end_date"))
+	if fy_end < fy_start:
+		frappe.throw(_("Fiscal Year {0} has invalid date boundaries.").format(frappe.bold(fiscal_year)))
 
 	month_num = MONTH_NAME_TO_NUMBER.get(month_name)
 	if not month_num:
 		frappe.throw(_("Invalid month: {0}").format(frappe.bold(month_name)))
 
-	# April-December use FY start year; January-March use FY start year + 1
-	if month_num >= 4:
+	start_month = fy_start.month
+	end_month = fy_end.month
+	if fy_start.year == fy_end.year:
+		if not (start_month <= month_num <= end_month):
+			frappe.throw(
+				_("Month {0} is outside Fiscal Year {1}.").format(
+					frappe.bold(month_name), frappe.bold(fiscal_year)
+				)
+			)
 		year = fy_start.year
+	elif month_num >= start_month:
+		year = fy_start.year
+	elif month_num <= end_month:
+		year = fy_end.year
 	else:
-		year = fy_start.year + 1
+		frappe.throw(
+			_("Month {0} is outside Fiscal Year {1}.").format(
+				frappe.bold(month_name), frappe.bold(fiscal_year)
+			)
+		)
 
 	last_day = calendar.monthrange(year, month_num)[1]
 	from_date = f"{year}-{month_num:02d}-01"

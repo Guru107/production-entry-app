@@ -1349,6 +1349,50 @@ class TestProductionReports(FrappeTestCase):
 		self.assertIn("Fiscal Year", str(exc.exception))
 		self.assertIn("not found", str(exc.exception))
 
+	def test_daily_strokes_spm_monitor_date_range_supports_jan_dec_fiscal_year(self) -> None:
+		from production_entry_app.production_entry_app.report.daily_strokes_spm_monitor.daily_strokes_spm_monitor import (
+			execute,
+		)
+
+		self._ensure_fiscal_year("2092", "2092-01-01", "2092-12-31")
+		shift = self._create_shift_for_label("2092-01-10", "1")
+		self._create_mock_submitted_entry(
+			posting_date="2092-01-10",
+			planned_start="2092-01-10 08:00:00",
+			planned_end="2092-01-10 09:00:00",
+			actual_start="2092-01-10 08:00:00",
+			actual_end="2092-01-10 09:00:00",
+			fg_qty=50,
+			rejection_qty=5,
+			shift_name=shift.name,
+		)
+
+		_, rows = execute({"fiscal_year": "2092", "month": "January", "custom_operator": "Report Operator"})
+		self.assertEqual(rows[0]["date"], "2092-01-10")
+
+	def test_daily_strokes_spm_monitor_date_range_supports_non_april_cross_year_fiscal_year(self) -> None:
+		from production_entry_app.production_entry_app.report.daily_strokes_spm_monitor.daily_strokes_spm_monitor import (
+			execute,
+		)
+
+		self._ensure_fiscal_year("2092-2093", "2092-10-01", "2093-09-30")
+		shift = self._create_shift_for_label("2093-09-15", "1")
+		self._create_mock_submitted_entry(
+			posting_date="2093-09-15",
+			planned_start="2093-09-15 08:00:00",
+			planned_end="2093-09-15 09:00:00",
+			actual_start="2093-09-15 08:00:00",
+			actual_end="2093-09-15 09:00:00",
+			fg_qty=60,
+			rejection_qty=6,
+			shift_name=shift.name,
+		)
+
+		_, rows = execute(
+			{"fiscal_year": "2092-2093", "month": "September", "custom_operator": "Report Operator"}
+		)
+		self.assertEqual(rows[0]["date"], "2093-09-15")
+
 	def _create_mock_submitted_entry(
 		self,
 		posting_date: str,
