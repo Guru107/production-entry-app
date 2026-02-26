@@ -478,3 +478,9 @@ After changing fixtures: `bench export-fixtures --app production_entry_app`
 After pulling fixture changes: `bench --site development.localhost migrate`
 
 Never commit human-input.md and PLAN.md files to git
+
+## Application Specific Considerations
+
+- `fg_completed_qty`  is the total production quantity. So by that we can come to a conclusion that `custom_ok_qty` = `fg_completed_qty` - `custom_rejection_qty`.
+- User only enters `fg_completed_qty` and `custom_rejection_qty` in the Stock Entry document when `from_bom` is checked.
+- It is mandatory for the user to enter `fg_completed_qty` and `custom_rejection_qty` if available for Manufacturing entries.
