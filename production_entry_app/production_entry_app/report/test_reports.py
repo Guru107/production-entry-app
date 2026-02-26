@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
@@ -1168,6 +1170,228 @@ class TestProductionReports(FrappeTestCase):
 		_, rows, _, chart = execute({"from_date": "2099-01-01", "to_date": "2099-01-31"})
 		self.assertEqual(rows, [])
 		self.assertIsNone(chart)
+
+	# ── Daily Strokes SPM Monitor ─────────────────────────────────────
+
+	def _ensure_fiscal_year(self, fy_name: str, start_date: str, end_date: str) -> None:
+		if not frappe.db.exists("Fiscal Year", fy_name):
+			frappe.get_doc(
+				{
+					"doctype": "Fiscal Year",
+					"year": fy_name,
+					"year_start_date": start_date,
+					"year_end_date": end_date,
+				}
+			).insert(ignore_permissions=True)
+
+	def test_daily_strokes_spm_monitor_columns_without_operator(self) -> None:
+		from production_entry_app.production_entry_app.report.daily_strokes_spm_monitor.daily_strokes_spm_monitor import (
+			execute,
+		)
+
+		self._ensure_fiscal_year("2090-2091", "2090-04-01", "2091-03-31")
+		columns, _ = execute({"fiscal_year": "2090-2091", "month": "April"})
+		fieldnames = [c["fieldname"] for c in columns]
+		self.assertIn("operator", fieldnames)
+		self.assertEqual(
+			fieldnames,
+			[
+				"date",
+				"operator",
+				"setup_time_hrs",
+				"loss_time_hrs",
+				"prod_time_hrs",
+				"total_strokes",
+				"spm",
+				"rejection",
+			],
+		)
+
+	def test_daily_strokes_spm_monitor_columns_with_operator(self) -> None:
+		from production_entry_app.production_entry_app.report.daily_strokes_spm_monitor.daily_strokes_spm_monitor import (
+			execute,
+		)
+
+		self._ensure_fiscal_year("2090-2091", "2090-04-01", "2091-03-31")
+		columns, _ = execute(
+			{"fiscal_year": "2090-2091", "month": "April", "custom_operator": "Report Operator"}
+		)
+		fieldnames = [c["fieldname"] for c in columns]
+		self.assertNotIn("operator", fieldnames)
+		self.assertEqual(
+			fieldnames,
+			["date", "setup_time_hrs", "loss_time_hrs", "prod_time_hrs", "total_strokes", "spm", "rejection"],
+		)
+
+	def test_daily_strokes_spm_monitor_data(self) -> None:
+		from production_entry_app.production_entry_app.report.daily_strokes_spm_monitor.daily_strokes_spm_monitor import (
+			execute,
+		)
+
+		self._ensure_fiscal_year("2080-2081", "2080-04-01", "2081-03-31")
+		shift = self._create_shift_for_label("2080-05-10", "1")
+		# actual_duration = 60 mins = 1 hour; fg_qty=100, rejection_qty=10
+		# After rejection hook: FG row=90, rejection row=10 → good_qty_map=90
+		# total_strokes = 90 + 10 = 100; SPM = 100 / (1 * 60) ~= 1.667
+		self._create_mock_submitted_entry(
+			posting_date="2080-05-10",
+			planned_start="2080-05-10 08:00:00",
+			planned_end="2080-05-10 09:00:00",
+			actual_start="2080-05-10 08:00:00",
+			actual_end="2080-05-10 09:00:00",
+			fg_qty=100,
+			rejection_qty=10,
+			shift_name=shift.name,
+			unplanned_losses=[
+				{
+					"downtime_reason": "Setup Time",
+					"start_time": "08:00:00",
+					"end_time": "08:30:00",
+					"remark": "setup",
+				},
+				{
+					"downtime_reason": "Maint",
+					"start_time": "08:30:00",
+					"end_time": "08:45:00",
+					"remark": "maint",
+				},
+			],
+		)
+
+		_, rows = execute({"fiscal_year": "2080-2081", "month": "May", "custom_operator": "Report Operator"})
+		# Should have 1 data row + 1 totals row
+		self.assertEqual(len(rows), 2)
+		data_row = rows[0]
+		self.assertEqual(data_row["date"], "2080-05-10")
+		# setup = 30 mins = 0.5 hrs
+		self.assertAlmostEqual(float(data_row["setup_time_hrs"]), 0.5, places=2)
+		# loss = 15 mins = 0.25 hrs
+		self.assertAlmostEqual(float(data_row["loss_time_hrs"]), 0.25, places=2)
+		# prod_time = custom_actual_duration_mins / 60 = 60/60 = 1.0
+		self.assertAlmostEqual(float(data_row["prod_time_hrs"]), 1.0, places=2)
+		# total_strokes = good_qty(90) + rejection(10) = 100
+		self.assertAlmostEqual(float(data_row["total_strokes"]), 100.0, places=2)
+		# SPM = 100 / (1.0 * 60) ~= 1.667
+		self.assertAlmostEqual(float(data_row["spm"]), 1.667, places=2)
+		self.assertAlmostEqual(float(data_row["rejection"]), 10.0, places=2)
+
+	def test_daily_strokes_spm_monitor_totals_row(self) -> None:
+		from production_entry_app.production_entry_app.report.daily_strokes_spm_monitor.daily_strokes_spm_monitor import (
+			execute,
+		)
+
+		self._ensure_fiscal_year("2081-2082", "2081-04-01", "2082-03-31")
+		shift1 = self._create_shift_for_label("2081-06-01", "1")
+		shift2 = self._create_shift_for_label("2081-06-02", "1")
+		self._create_mock_submitted_entry(
+			posting_date="2081-06-01",
+			planned_start="2081-06-01 08:00:00",
+			planned_end="2081-06-01 09:00:00",
+			actual_start="2081-06-01 08:00:00",
+			actual_end="2081-06-01 09:00:00",
+			fg_qty=100,
+			rejection_qty=10,
+			shift_name=shift1.name,
+		)
+		self._create_mock_submitted_entry(
+			posting_date="2081-06-02",
+			planned_start="2081-06-02 08:00:00",
+			planned_end="2081-06-02 09:00:00",
+			actual_start="2081-06-02 08:00:00",
+			actual_end="2081-06-02 09:00:00",
+			fg_qty=200,
+			rejection_qty=20,
+			shift_name=shift2.name,
+		)
+
+		_, rows = execute({"fiscal_year": "2081-2082", "month": "June", "custom_operator": "Report Operator"})
+		# 2 data rows + 1 totals
+		self.assertEqual(len(rows), 3)
+		totals = rows[-1]
+		# Entry 1: good=90, rej=10 → total=100; Entry 2: good=180, rej=20 → total=200
+		self.assertAlmostEqual(float(totals["total_strokes"]), 300.0, places=2)
+		self.assertAlmostEqual(float(totals["rejection"]), 30.0, places=2)
+		self.assertAlmostEqual(float(totals["prod_time_hrs"]), 2.0, places=2)
+		# weighted SPM = 300 / (2.0 * 60) = 2.5
+		self.assertAlmostEqual(float(totals["spm"]), 2.5, places=2)
+
+	def test_daily_strokes_spm_monitor_empty(self) -> None:
+		from production_entry_app.production_entry_app.report.daily_strokes_spm_monitor.daily_strokes_spm_monitor import (
+			execute,
+		)
+
+		self._ensure_fiscal_year("2099-2100", "2099-04-01", "2100-03-31")
+		_, rows = execute({"fiscal_year": "2099-2100", "month": "April"})
+		self.assertEqual(rows, [])
+
+	def test_daily_strokes_spm_monitor_throws_for_invalid_fiscal_year(self) -> None:
+		from production_entry_app.production_entry_app.report.daily_strokes_spm_monitor.daily_strokes_spm_monitor import (
+			execute,
+		)
+
+		with self.assertRaises(frappe.ValidationError) as exc:
+			execute({"fiscal_year": "DOES-NOT-EXIST", "month": "April"})
+		self.assertIn("Fiscal Year", str(exc.exception))
+		self.assertIn("not found", str(exc.exception))
+
+	def test_daily_strokes_spm_monitor_throws_when_fiscal_year_dates_missing(self) -> None:
+		from production_entry_app.production_entry_app.report.daily_strokes_spm_monitor.daily_strokes_spm_monitor import (
+			execute,
+		)
+
+		with patch(
+			"production_entry_app.production_entry_app.report.daily_strokes_spm_monitor."
+			"daily_strokes_spm_monitor.frappe.db.get_value",
+			return_value={"year_start_date": None, "year_end_date": None},
+		):
+			with self.assertRaises(frappe.ValidationError) as exc:
+				execute({"fiscal_year": "2090-2091", "month": "April"})
+		self.assertIn("Fiscal Year", str(exc.exception))
+		self.assertIn("not found", str(exc.exception))
+
+	def test_daily_strokes_spm_monitor_date_range_supports_jan_dec_fiscal_year(self) -> None:
+		from production_entry_app.production_entry_app.report.daily_strokes_spm_monitor.daily_strokes_spm_monitor import (
+			execute,
+		)
+
+		self._ensure_fiscal_year("2092", "2092-01-01", "2092-12-31")
+		shift = self._create_shift_for_label("2092-01-10", "1")
+		self._create_mock_submitted_entry(
+			posting_date="2092-01-10",
+			planned_start="2092-01-10 08:00:00",
+			planned_end="2092-01-10 09:00:00",
+			actual_start="2092-01-10 08:00:00",
+			actual_end="2092-01-10 09:00:00",
+			fg_qty=50,
+			rejection_qty=5,
+			shift_name=shift.name,
+		)
+
+		_, rows = execute({"fiscal_year": "2092", "month": "January", "custom_operator": "Report Operator"})
+		self.assertEqual(rows[0]["date"], "2092-01-10")
+
+	def test_daily_strokes_spm_monitor_date_range_supports_non_april_cross_year_fiscal_year(self) -> None:
+		from production_entry_app.production_entry_app.report.daily_strokes_spm_monitor.daily_strokes_spm_monitor import (
+			execute,
+		)
+
+		self._ensure_fiscal_year("2092-2093", "2092-10-01", "2093-09-30")
+		shift = self._create_shift_for_label("2093-09-15", "1")
+		self._create_mock_submitted_entry(
+			posting_date="2093-09-15",
+			planned_start="2093-09-15 08:00:00",
+			planned_end="2093-09-15 09:00:00",
+			actual_start="2093-09-15 08:00:00",
+			actual_end="2093-09-15 09:00:00",
+			fg_qty=60,
+			rejection_qty=6,
+			shift_name=shift.name,
+		)
+
+		_, rows = execute(
+			{"fiscal_year": "2092-2093", "month": "September", "custom_operator": "Report Operator"}
+		)
+		self.assertEqual(rows[0]["date"], "2093-09-15")
 
 	def _create_mock_submitted_entry(
 		self,
