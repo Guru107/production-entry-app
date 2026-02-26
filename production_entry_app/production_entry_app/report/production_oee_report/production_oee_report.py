@@ -9,7 +9,7 @@ from frappe.utils import flt, get_datetime, get_time
 from production_entry_app.production_entry_app.report.report_utils import get_entry_qty_maps
 
 LOSS_BUCKETS: tuple[tuple[str, str], ...] = (
-	("setup", "Setup time"),
+	("setup", "Setup Time"),
 	("trial", "Trial"),
 	("mtrl_handl", "Mtrl Handl"),
 	("no_operator", "No Operator"),
@@ -23,6 +23,7 @@ LOSS_BUCKETS: tuple[tuple[str, str], ...] = (
 )
 
 LOSS_REASON_TO_BUCKET: dict[str, str] = {
+	"Setup Time": "setup",
 	"Setup time": "setup",
 	"Trial": "trial",
 	"Mtrl Handl": "mtrl_handl",
