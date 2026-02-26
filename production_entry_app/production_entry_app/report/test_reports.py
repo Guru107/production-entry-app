@@ -1230,7 +1230,7 @@ class TestProductionReports(FrappeTestCase):
 		shift = self._create_shift_for_label("2080-05-10", "1")
 		# actual_duration = 60 mins = 1 hour; fg_qty=100, rejection_qty=10
 		# After rejection hook: FG row=90, rejection row=10 → good_qty_map=90
-		# total_strokes = 90 + 10 = 100; SPM = 100 / (1 * 60) ≈ 1.667
+		# total_strokes = 90 + 10 = 100; SPM = 100 / (1 * 60) ~= 1.667
 		self._create_mock_submitted_entry(
 			posting_date="2080-05-10",
 			planned_start="2080-05-10 08:00:00",
@@ -1269,7 +1269,7 @@ class TestProductionReports(FrappeTestCase):
 		self.assertAlmostEqual(float(data_row["prod_time_hrs"]), 1.0, places=2)
 		# total_strokes = good_qty(90) + rejection(10) = 100
 		self.assertAlmostEqual(float(data_row["total_strokes"]), 100.0, places=2)
-		# SPM = 100 / (1.0 * 60) ≈ 1.667
+		# SPM = 100 / (1.0 * 60) ~= 1.667
 		self.assertAlmostEqual(float(data_row["spm"]), 1.667, places=2)
 		self.assertAlmostEqual(float(data_row["rejection"]), 10.0, places=2)
 

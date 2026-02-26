@@ -56,14 +56,27 @@ def _get_columns(filters: dict) -> list[dict]:
 		{"label": _("Date"), "fieldname": "date", "fieldtype": "Date", "width": 120},
 	]
 	if not filters.get("custom_operator"):
-		columns.append(
-			{"label": _("Operator"), "fieldname": "operator", "fieldtype": "Data", "width": 150}
-		)
+		columns.append({"label": _("Operator"), "fieldname": "operator", "fieldtype": "Data", "width": 150})
 	columns.extend(
 		[
-			{"label": _("Setup Time (Hrs.)"), "fieldname": "setup_time_hrs", "fieldtype": "Float", "width": 130},
-			{"label": _("Loss Time (Hrs.)"), "fieldname": "loss_time_hrs", "fieldtype": "Float", "width": 130},
-			{"label": _("Prod. Time (Hrs.)"), "fieldname": "prod_time_hrs", "fieldtype": "Float", "width": 130},
+			{
+				"label": _("Setup Time (Hrs.)"),
+				"fieldname": "setup_time_hrs",
+				"fieldtype": "Float",
+				"width": 130,
+			},
+			{
+				"label": _("Loss Time (Hrs.)"),
+				"fieldname": "loss_time_hrs",
+				"fieldtype": "Float",
+				"width": 130,
+			},
+			{
+				"label": _("Prod. Time (Hrs.)"),
+				"fieldname": "prod_time_hrs",
+				"fieldtype": "Float",
+				"width": 130,
+			},
 			{"label": _("Total Strokes"), "fieldname": "total_strokes", "fieldtype": "Float", "width": 120},
 			{"label": _("SPM"), "fieldname": "spm", "fieldtype": "Float", "width": 90},
 			{"label": _("Rejection"), "fieldname": "rejection", "fieldtype": "Float", "width": 100},
@@ -86,7 +99,7 @@ def _get_date_range(filters: dict) -> tuple[str, str]:
 	if not month_num:
 		frappe.throw(_("Invalid month: {0}").format(frappe.bold(month_name)))
 
-	# April–December use FY start year; January–March use FY start year + 1
+	# April-December use FY start year; January-March use FY start year + 1
 	if month_num >= 4:
 		year = fy_start.year
 	else:
@@ -183,13 +196,19 @@ def _get_rows(filters: dict) -> list[dict]:
 
 		agg = aggregates[group_key]
 		entry_name = entry.get("name")
-		fg_qty = flt(entry.get("fg_completed_qty") or 0, 3)
-		if fg_qty <= 0 and entry_name:
-			fg_qty = flt(good_qty_map.get(entry_name) or 0, 3)
 		rejection_qty = flt(entry.get("custom_rejection_qty") or 0, 3)
 		if rejection_qty <= 0 and entry_name:
 			rejection_qty = flt(rejection_qty_map.get(entry_name) or 0, 3)
-		total_strokes = flt(fg_qty + rejection_qty, 3)
+		# fg_completed_qty is the total production quantity (good + rejection).
+		# When available, it IS total_strokes directly. When zero (from_bom not
+		# set), fall back to good_qty_map (good only) + rejection.
+		fg_completed = flt(entry.get("fg_completed_qty") or 0, 3)
+		if fg_completed > 0:
+			total_strokes = fg_completed
+		elif entry_name:
+			total_strokes = flt(good_qty_map.get(entry_name, 0) + rejection_qty, 3)
+		else:
+			total_strokes = rejection_qty
 		duration_mins = flt(entry.get("custom_actual_duration_mins") or 0, 3)
 		prod_time_hrs = flt(duration_mins / 60, 3) if duration_mins > 0 else 0.0
 
