@@ -1099,6 +1099,76 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(rows[0]["item_code"], self.fg_item)
 		self.assertEqual(float(rows[0]["rejection_qty"]), 5.0)
 
+	# ── Rejection PPM Report ──────────────────────────────────────────
+
+	def test_rejection_ppm_report_columns(self) -> None:
+		from production_entry_app.production_entry_app.report.rejection_ppm_report.rejection_ppm_report import (
+			execute,
+		)
+
+		columns, _, _, _ = execute({})
+		fieldnames = [c["fieldname"] for c in columns]
+		self.assertEqual(fieldnames, ["date", "entries", "total_qty", "rejection_qty", "ppm"])
+
+	def test_rejection_ppm_report_data(self) -> None:
+		from production_entry_app.production_entry_app.report.rejection_ppm_report.rejection_ppm_report import (
+			execute,
+		)
+
+		shift = self._create_shift_for_label("2026-06-30", "1")
+		self._create_mock_submitted_entry(
+			posting_date="2026-06-30",
+			planned_start="2026-06-30 08:00:00",
+			planned_end="2026-06-30 09:00:00",
+			actual_start="2026-06-30 08:00:00",
+			actual_end="2026-06-30 09:00:00",
+			fg_qty=100,
+			rejection_qty=10,
+			shift_name=shift.name,
+		)
+
+		_, rows, _, _ = execute({"from_date": "2026-06-30", "to_date": "2026-06-30"})
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(rows[0]["date"], "2026-06-30")
+		self.assertEqual(float(rows[0]["total_qty"]), 100.0)
+		self.assertEqual(float(rows[0]["rejection_qty"]), 10.0)
+		# PPM = (10 / 100) * 1_000_000 = 100_000
+		self.assertEqual(float(rows[0]["ppm"]), 100_000.0)
+
+	def test_rejection_ppm_report_chart(self) -> None:
+		from production_entry_app.production_entry_app.report.rejection_ppm_report.rejection_ppm_report import (
+			execute,
+		)
+
+		shift = self._create_shift_for_label("2026-07-03", "1")
+		self._create_mock_submitted_entry(
+			posting_date="2026-07-03",
+			planned_start="2026-07-03 08:00:00",
+			planned_end="2026-07-03 09:00:00",
+			actual_start="2026-07-03 08:00:00",
+			actual_end="2026-07-03 09:00:00",
+			fg_qty=200,
+			rejection_qty=5,
+			shift_name=shift.name,
+		)
+
+		_, rows, _, chart = execute({"from_date": "2026-07-03", "to_date": "2026-07-03"})
+		self.assertIsNotNone(chart)
+		self.assertEqual(chart.get("type"), "bar")
+		self.assertEqual(chart.get("height"), 280)
+		self.assertEqual(chart["data"]["labels"], ["2026-07-03"])
+		# PPM = (5 / 200) * 1_000_000 = 25_000
+		self.assertEqual(chart["data"]["datasets"][0]["values"], [25_000.0])
+
+	def test_rejection_ppm_report_empty(self) -> None:
+		from production_entry_app.production_entry_app.report.rejection_ppm_report.rejection_ppm_report import (
+			execute,
+		)
+
+		_, rows, _, chart = execute({"from_date": "2099-01-01", "to_date": "2099-01-31"})
+		self.assertEqual(rows, [])
+		self.assertIsNone(chart)
+
 	def _create_mock_submitted_entry(
 		self,
 		posting_date: str,
