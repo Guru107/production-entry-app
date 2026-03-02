@@ -2751,6 +2751,34 @@ class TestDieToolCounter(FrappeTestCase):
 		self.assertEqual(int(result.get("is_maintenance_due") or 0), 0)
 		self.assertFalse(frappe.db.exists("Die Tool Counter", self.fg_item))
 
+	def test_get_die_tool_counter_returns_zero_payload_for_non_item_code(self) -> None:
+		from production_entry_app.production_entry_app.api import get_die_tool_counter
+
+		non_item_code = "BOM-_SHIFT_AGG_FG-001"
+		result = get_die_tool_counter(non_item_code)
+		self.assertEqual(result.get("die_tool_code"), non_item_code)
+		self.assertEqual(int(result.get("has_die_tool") or 0), 0)
+		self.assertEqual(float(result.get("current_strokes") or 0), 0.0)
+		self.assertEqual(float(result.get("utilization_pct") or 0), 0.0)
+		self.assertEqual(int(result.get("is_maintenance_due") or 0), 0)
+		self.assertFalse(frappe.db.exists("Die Tool Counter", non_item_code))
+
+	def test_get_die_tool_counter_returns_safe_payload_when_counter_snapshot_missing(self) -> None:
+		from production_entry_app.production_entry_app.api import get_die_tool_counter
+
+		with patch(
+			"production_entry_app.production_entry_app.api.get_counter_snapshot",
+			return_value=None,
+		):
+			result = get_die_tool_counter(self.fg_item)
+
+		self.assertEqual(result.get("die_tool_code"), self.fg_item)
+		self.assertEqual(int(result.get("has_die_tool") or 0), 1)
+		self.assertEqual(float(result.get("current_strokes") or 0), 0.0)
+		self.assertEqual(float(result.get("stroke_capacity") or 0), 0.0)
+		self.assertEqual(float(result.get("utilization_pct") or 0), 0.0)
+		self.assertEqual(int(result.get("is_maintenance_due") or 0), 0)
+
 	def test_reset_die_tool_counter_api_returns_zero(self) -> None:
 		from production_entry_app.production_entry_app.api import reset_die_tool_counter
 

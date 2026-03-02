@@ -12,6 +12,7 @@ from pypika import Order
 from production_entry_app.production_entry_app.utils.die_tool_counter import (
 	_get_or_create_counter,
 	get_counter_health,
+	get_counter_snapshot,
 	is_die_tool_enabled,
 )
 from production_entry_app.production_entry_app.utils.shift_time import get_shift_planned_end_datetime
@@ -136,21 +137,25 @@ def get_items_with_rejection(doc: str) -> list[dict]:
 
 @frappe.whitelist()
 def get_die_tool_counter(die_tool_code: str) -> dict:
+	if not die_tool_code or not frappe.db.exists("Item", die_tool_code):
+		return _empty_die_tool_payload(die_tool_code)
 	if not is_die_tool_enabled(die_tool_code):
+		return _empty_die_tool_payload(die_tool_code)
+
+	counter = get_counter_snapshot(die_tool_code)
+	if not counter:
 		return {
 			"die_tool_code": die_tool_code,
-			"has_die_tool": 0,
+			"has_die_tool": 1,
 			"current_strokes": 0,
 			"stroke_capacity": 0,
 			"warning_threshold_pct": 90,
 			"utilization_pct": 0,
 			"is_maintenance_due": 0,
 		}
-
-	counter = _get_or_create_counter(die_tool_code)
-	current_strokes = float(counter.current_stroke_count or 0)
-	stroke_capacity = float(counter.stroke_capacity or 0)
-	warning_threshold_pct = float(counter.warning_threshold_pct or 90)
+	current_strokes = float(counter.get("current_stroke_count") or 0)
+	stroke_capacity = float(counter.get("stroke_capacity") or 0)
+	warning_threshold_pct = float(counter.get("warning_threshold_pct") or 90)
 	utilization_pct, is_maintenance_due = get_counter_health(
 		current_strokes=current_strokes,
 		stroke_capacity=stroke_capacity,
@@ -165,6 +170,18 @@ def get_die_tool_counter(die_tool_code: str) -> dict:
 		"warning_threshold_pct": warning_threshold_pct,
 		"utilization_pct": utilization_pct,
 		"is_maintenance_due": is_maintenance_due,
+	}
+
+
+def _empty_die_tool_payload(die_tool_code: str | None) -> dict:
+	return {
+		"die_tool_code": die_tool_code,
+		"has_die_tool": 0,
+		"current_strokes": 0,
+		"stroke_capacity": 0,
+		"warning_threshold_pct": 90,
+		"utilization_pct": 0,
+		"is_maintenance_due": 0,
 	}
 
 

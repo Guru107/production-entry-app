@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+import time
 
 import frappe
 from frappe import _
@@ -101,6 +102,26 @@ def _ensure_counter_exists(item_code: str) -> str:
 
 def _get_or_create_counter(item_code: str):
 	return frappe.get_doc("Die Tool Counter", _ensure_counter_exists(item_code))
+
+
+def get_counter_snapshot(item_code: str, retries: int = 2) -> frappe._dict | None:
+	if not item_code or not frappe.db.exists("Item", item_code):
+		return None
+
+	_ensure_counter_exists(item_code)
+	attempts = max(int(retries), 0) + 1
+	for attempt in range(attempts):
+		row = frappe.db.get_value(
+			"Die Tool Counter",
+			{"die_tool_item": item_code},
+			["name", "current_stroke_count", "stroke_capacity", "warning_threshold_pct"],
+			as_dict=True,
+		)
+		if row:
+			return row
+		if attempt < attempts - 1:
+			time.sleep(0.02)
+	return None
 
 
 def is_die_tool_enabled(item_code: str | None) -> bool:

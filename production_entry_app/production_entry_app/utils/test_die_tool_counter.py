@@ -8,6 +8,7 @@ from frappe.tests.utils import FrappeTestCase
 from production_entry_app.production_entry_app.utils.die_tool_counter import (
 	_ensure_counter_exists,
 	_get_or_create_counter,
+	get_counter_snapshot,
 	is_die_tool_enabled,
 )
 
@@ -112,3 +113,35 @@ class TestDieToolCounterUtils(FrappeTestCase):
 				return_value=0,
 			):
 				self.assertFalse(is_die_tool_enabled("ITEM-001"))
+
+	def test_get_counter_snapshot_returns_existing_row(self) -> None:
+		with patch(
+			"production_entry_app.production_entry_app.utils.die_tool_counter.frappe.db.exists",
+			side_effect=[True, True],
+		):
+			with patch(
+				"production_entry_app.production_entry_app.utils.die_tool_counter.frappe.db.get_value",
+				return_value=frappe._dict(
+					name="DIE-001",
+					current_stroke_count=100,
+					stroke_capacity=1000,
+					warning_threshold_pct=90,
+				),
+			) as get_value:
+				row = get_counter_snapshot("DIE-001")
+
+		self.assertEqual(row.get("name"), "DIE-001")
+		self.assertEqual(get_value.call_count, 1)
+
+	def test_get_counter_snapshot_retries_and_returns_none_when_missing(self) -> None:
+		with patch(
+			"production_entry_app.production_entry_app.utils.die_tool_counter.frappe.db.exists",
+			side_effect=[True, True],
+		):
+			with patch(
+				"production_entry_app.production_entry_app.utils.die_tool_counter.frappe.db.get_value",
+				return_value=None,
+			):
+				row = get_counter_snapshot("DIE-001")
+
+		self.assertIsNone(row)
