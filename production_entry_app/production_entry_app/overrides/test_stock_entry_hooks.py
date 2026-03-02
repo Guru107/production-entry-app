@@ -30,6 +30,11 @@ def _ensure_downtime_reasons() -> None:
 def _ensure_rejection_breakup_doctype() -> None:
 	if not frappe.db.exists("DocType", "Rejection Breakup"):
 		frappe.reload_doc("production_entry_app", "doctype", "rejection_breakup")
+		frappe.clear_cache(doctype="Rejection Breakup")
+		return
+	if not frappe.get_meta("Rejection Breakup", cached=True).has_field("is_rework"):
+		frappe.reload_doc("production_entry_app", "doctype", "rejection_breakup")
+		frappe.clear_cache(doctype="Rejection Breakup")
 
 
 def _ensure_rejection_reason_doctype() -> None:
@@ -137,6 +142,13 @@ def _ensure_stock_entry_metric_fields() -> None:
 			"fieldtype": "Float",
 			"label": "OK Qty",
 			"insert_after": "bom_no",
+		},
+		{
+			"name": "Stock Entry-custom_rework_qty",
+			"fieldname": "custom_rework_qty",
+			"fieldtype": "Float",
+			"label": "Rework Quantity",
+			"insert_after": "custom_ok_qty",
 		},
 		{
 			"name": "Stock Entry-custom_actual_duration_mins",
@@ -641,6 +653,96 @@ class TestStockEntryHooks(FrappeTestCase):
 		se.save()
 
 		self.assertEqual(len(se.custom_rejection_breakup), 2)
+
+	def test_rework_qty_is_computed_from_rework_rows(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-04-17",
+			wip_warehouse=self.wip_warehouse,
+			rejection_warehouse=self.rejection_warehouse,
+		)
+
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			fg_qty=100,
+			custom_shift=shift.name,
+			custom_rejection_qty=5,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		_append_rejection_breakup_rows(
+			se,
+			[
+				{"rejection_reason": "Burr", "qty": 3, "is_rework": 1},
+				{"rejection_reason": "Crack", "qty": 2, "is_rework": 0},
+			],
+		)
+
+		se.save()
+		self.assertEqual(float(se.custom_rework_qty or 0), 3.0)
+
+	def test_rework_qty_is_zero_when_no_rows_marked_rework(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-04-18",
+			shift_label="2",
+			planned_start_time="17:00:00",
+			wip_warehouse=self.wip_warehouse,
+			rejection_warehouse=self.rejection_warehouse,
+		)
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			fg_qty=100,
+			custom_shift=shift.name,
+			custom_rejection_qty=4,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		_append_rejection_breakup_rows(
+			se,
+			[
+				{"rejection_reason": "Burr", "qty": 2, "is_rework": 0},
+				{"rejection_reason": "Crack", "qty": 2, "is_rework": 0},
+			],
+		)
+
+		se.save()
+		self.assertEqual(float(se.custom_rework_qty or 0), 0.0)
+
+	def test_rework_qty_resets_to_zero_when_rejection_qty_zero(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-04-19",
+			shift_label="2",
+			planned_start_time="17:00:00",
+			wip_warehouse=self.wip_warehouse,
+			rejection_warehouse=self.rejection_warehouse,
+		)
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			fg_qty=100,
+			custom_shift=shift.name,
+			custom_rejection_qty=4,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		_append_rejection_breakup_rows(
+			se,
+			[
+				{"rejection_reason": "Burr", "qty": 2, "is_rework": 1},
+				{"rejection_reason": "Crack", "qty": 2, "is_rework": 1},
+			],
+		)
+		se.save()
+		self.assertEqual(float(se.custom_rework_qty or 0), 4.0)
+
+		se.custom_rejection_qty = 0
+		se.custom_rejection_breakup = []
+		se.save()
+		self.assertEqual(float(se.custom_rework_qty or 0), 0.0)
 
 	def test_actual_times_within_buffer_pass(self) -> None:
 		_set_shift_buffers()
@@ -2648,6 +2750,34 @@ class TestDieToolCounter(FrappeTestCase):
 		self.assertEqual(float(result.get("utilization_pct") or 0), 0.0)
 		self.assertEqual(int(result.get("is_maintenance_due") or 0), 0)
 		self.assertFalse(frappe.db.exists("Die Tool Counter", self.fg_item))
+
+	def test_get_die_tool_counter_returns_zero_payload_for_non_item_code(self) -> None:
+		from production_entry_app.production_entry_app.api import get_die_tool_counter
+
+		non_item_code = "BOM-_SHIFT_AGG_FG-001"
+		result = get_die_tool_counter(non_item_code)
+		self.assertEqual(result.get("die_tool_code"), non_item_code)
+		self.assertEqual(int(result.get("has_die_tool") or 0), 0)
+		self.assertEqual(float(result.get("current_strokes") or 0), 0.0)
+		self.assertEqual(float(result.get("utilization_pct") or 0), 0.0)
+		self.assertEqual(int(result.get("is_maintenance_due") or 0), 0)
+		self.assertFalse(frappe.db.exists("Die Tool Counter", non_item_code))
+
+	def test_get_die_tool_counter_returns_safe_payload_when_counter_snapshot_missing(self) -> None:
+		from production_entry_app.production_entry_app.api import get_die_tool_counter
+
+		with patch(
+			"production_entry_app.production_entry_app.api.get_counter_snapshot",
+			return_value=None,
+		):
+			result = get_die_tool_counter(self.fg_item)
+
+		self.assertEqual(result.get("die_tool_code"), self.fg_item)
+		self.assertEqual(int(result.get("has_die_tool") or 0), 1)
+		self.assertEqual(float(result.get("current_strokes") or 0), 0.0)
+		self.assertEqual(float(result.get("stroke_capacity") or 0), 0.0)
+		self.assertEqual(float(result.get("utilization_pct") or 0), 0.0)
+		self.assertEqual(int(result.get("is_maintenance_due") or 0), 0)
 
 	def test_reset_die_tool_counter_api_returns_zero(self) -> None:
 		from production_entry_app.production_entry_app.api import reset_die_tool_counter

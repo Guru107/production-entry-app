@@ -9,6 +9,7 @@ from frappe.utils import flt, get_time, getdate
 from production_entry_app.production_entry_app.report.report_utils import (
 	build_stock_entry_filters,
 	get_entry_qty_maps,
+	get_rework_qty_map,
 )
 
 SETUP_TIME_REASON: str = "Setup Time"
@@ -80,6 +81,7 @@ def _get_columns(filters: dict) -> list[dict]:
 			{"label": _("Total Strokes"), "fieldname": "total_strokes", "fieldtype": "Float", "width": 120},
 			{"label": _("SPM"), "fieldname": "spm", "fieldtype": "Float", "width": 90},
 			{"label": _("Rejection"), "fieldname": "rejection", "fieldtype": "Float", "width": 100},
+			{"label": _("Rework"), "fieldname": "rework", "fieldtype": "Float", "width": 100},
 		]
 	)
 	return columns
@@ -163,6 +165,7 @@ def _get_rows(filters: dict) -> list[dict]:
 			"custom_operator",
 			"fg_completed_qty",
 			"custom_rejection_qty",
+			"custom_rework_qty",
 			"custom_actual_duration_mins",
 		],
 		order_by="posting_date asc",
@@ -175,6 +178,7 @@ def _get_rows(filters: dict) -> list[dict]:
 
 	# Fallback qty maps for entries without fg_completed_qty / custom_rejection_qty
 	good_qty_map, rejection_qty_map, _ = get_entry_qty_maps(entry_names)
+	rework_qty_map = get_rework_qty_map(entry_names)
 
 	# Fetch loss entries from Stock Entry unplanned losses only
 	loss_rows = frappe.get_all(
@@ -213,6 +217,7 @@ def _get_rows(filters: dict) -> list[dict]:
 				"prod_time_hrs": 0.0,
 				"total_strokes": 0.0,
 				"rejection": 0.0,
+				"rework": 0.0,
 			}
 			if group_by_operator:
 				agg["operator"] = operator
@@ -223,6 +228,9 @@ def _get_rows(filters: dict) -> list[dict]:
 		rejection_qty = flt(entry.get("custom_rejection_qty") or 0, 3)
 		if rejection_qty <= 0 and entry_name:
 			rejection_qty = flt(rejection_qty_map.get(entry_name) or 0, 3)
+		rework_qty = flt(entry.get("custom_rework_qty") or 0, 3)
+		if rework_qty <= 0 and entry_name:
+			rework_qty = flt(rework_qty_map.get(entry_name) or 0, 3)
 		# fg_completed_qty is the total production quantity (good + rejection).
 		# When available, it IS total_strokes directly. When zero (from_bom not
 		# set), fall back to good_qty_map (good only) + rejection.
@@ -241,6 +249,7 @@ def _get_rows(filters: dict) -> list[dict]:
 		agg["prod_time_hrs"] += prod_time_hrs
 		agg["total_strokes"] += total_strokes
 		agg["rejection"] += rejection_qty
+		agg["rework"] += rework_qty
 
 	# Build sorted rows
 	rows: list[dict] = []
@@ -251,6 +260,7 @@ def _get_rows(filters: dict) -> list[dict]:
 		prod_hrs = flt(agg["prod_time_hrs"], 3)
 		strokes = flt(agg["total_strokes"], 3)
 		rejection = flt(agg["rejection"], 3)
+		rework = flt(agg["rework"], 3)
 		spm = flt(strokes / (prod_hrs * 60), 3) if prod_hrs > 0 else 0.0
 
 		row: dict = {"date": agg["date"]}
@@ -262,6 +272,7 @@ def _get_rows(filters: dict) -> list[dict]:
 		row["total_strokes"] = strokes
 		row["spm"] = spm
 		row["rejection"] = rejection
+		row["rework"] = rework
 		rows.append(row)
 
 	# Append totals row
@@ -277,6 +288,7 @@ def _build_totals_row(rows: list[dict], group_by_operator: bool) -> dict:
 	total_prod = sum(flt(r["prod_time_hrs"], 3) for r in rows)
 	total_strokes = sum(flt(r["total_strokes"], 3) for r in rows)
 	total_rejection = sum(flt(r["rejection"], 3) for r in rows)
+	total_rework = sum(flt(r["rework"], 3) for r in rows)
 	total_spm = flt(total_strokes / (total_prod * 60), 3) if total_prod > 0 else 0.0
 
 	totals: dict = {"date": _("Total")}
@@ -288,4 +300,5 @@ def _build_totals_row(rows: list[dict], group_by_operator: bool) -> dict:
 	totals["total_strokes"] = flt(total_strokes, 3)
 	totals["spm"] = total_spm
 	totals["rejection"] = flt(total_rejection, 3)
+	totals["rework"] = flt(total_rework, 3)
 	return totals

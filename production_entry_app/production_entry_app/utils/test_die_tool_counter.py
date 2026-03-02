@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -8,6 +8,7 @@ from frappe.tests.utils import FrappeTestCase
 from production_entry_app.production_entry_app.utils.die_tool_counter import (
 	_ensure_counter_exists,
 	_get_or_create_counter,
+	get_counter_snapshot,
 	is_die_tool_enabled,
 )
 
@@ -32,7 +33,8 @@ class TestDieToolCounterUtils(FrappeTestCase):
 		get_doc.assert_called_once_with("Die Tool Counter", "DIE-001")
 
 	def test_ensure_counter_exists_returns_inserted_name(self) -> None:
-		inserted = frappe._dict(name="DIE-001")
+		doc = MagicMock()
+		doc.name = "DIE-001"
 		with patch(
 			"production_entry_app.production_entry_app.utils.die_tool_counter.frappe.db.exists",
 			return_value=False,
@@ -40,21 +42,24 @@ class TestDieToolCounterUtils(FrappeTestCase):
 			with patch(
 				"production_entry_app.production_entry_app.utils.die_tool_counter.frappe.get_doc"
 			) as get_doc:
-				get_doc.return_value.insert.return_value = inserted
+				get_doc.return_value = doc
 				result = _ensure_counter_exists("DIE-001")
 
 		self.assertEqual(result, "DIE-001")
+		get_doc.return_value.insert.assert_called_once_with(ignore_permissions=True, ignore_if_duplicate=True)
 
 	def test_get_or_create_counter_handles_duplicate_insert_race(self) -> None:
 		existing_doc = object()
 
 		class _Doc:
-			def insert(self, ignore_permissions=True):
-				raise frappe.DuplicateEntryError("Die Tool Counter", "DIE-001")
+			name = "DIE-001"
+
+			def insert(self, ignore_permissions=True, ignore_if_duplicate=False):
+				return self
 
 		with patch(
 			"production_entry_app.production_entry_app.utils.die_tool_counter.frappe.db.exists",
-			side_effect=[False, True],
+			side_effect=[False, True, True],
 		):
 			with patch(
 				"production_entry_app.production_entry_app.utils.die_tool_counter.frappe.get_doc",
@@ -68,8 +73,10 @@ class TestDieToolCounterUtils(FrappeTestCase):
 		existing_doc = object()
 
 		class _Doc:
-			def insert(self, ignore_permissions=True):
-				raise frappe.DuplicateEntryError("Die Tool Counter", "DIE-001")
+			name = "DIE-001"
+
+			def insert(self, ignore_permissions=True, ignore_if_duplicate=False):
+				return self
 
 		with patch(
 			"production_entry_app.production_entry_app.utils.die_tool_counter.frappe.db.exists",
@@ -106,3 +113,35 @@ class TestDieToolCounterUtils(FrappeTestCase):
 				return_value=0,
 			):
 				self.assertFalse(is_die_tool_enabled("ITEM-001"))
+
+	def test_get_counter_snapshot_returns_existing_row(self) -> None:
+		with patch(
+			"production_entry_app.production_entry_app.utils.die_tool_counter.frappe.db.exists",
+			side_effect=[True, True],
+		):
+			with patch(
+				"production_entry_app.production_entry_app.utils.die_tool_counter.frappe.db.get_value",
+				return_value=frappe._dict(
+					name="DIE-001",
+					current_stroke_count=100,
+					stroke_capacity=1000,
+					warning_threshold_pct=90,
+				),
+			) as get_value:
+				row = get_counter_snapshot("DIE-001")
+
+		self.assertEqual(row.get("name"), "DIE-001")
+		self.assertEqual(get_value.call_count, 1)
+
+	def test_get_counter_snapshot_retries_and_returns_none_when_missing(self) -> None:
+		with patch(
+			"production_entry_app.production_entry_app.utils.die_tool_counter.frappe.db.exists",
+			side_effect=[True, True],
+		):
+			with patch(
+				"production_entry_app.production_entry_app.utils.die_tool_counter.frappe.db.get_value",
+				return_value=None,
+			):
+				row = get_counter_snapshot("DIE-001")
+
+		self.assertIsNone(row)

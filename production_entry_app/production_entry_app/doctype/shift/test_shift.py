@@ -19,11 +19,11 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 
 
 def _ensure_downtime_reasons() -> None:
-	"""Ensure Tea Break and Lunch Break Downtime Reasons exist (for planned losses tests)."""
+	"""Ensure planned-loss Downtime Reasons exist and are active."""
 	if not frappe.get_meta("Downtime Reason", cached=True).has_field("is_active"):
 		frappe.reload_doc("production_entry_app", "doctype", "downtime_reason")
 		frappe.clear_cache(doctype="Downtime Reason")
-	for name in ("Tea Break", "Lunch Break"):
+	for name in ("Shift Start Up", "JH Activity", "Tea Break", "Lunch Break", "Dinner"):
 		if not frappe.db.exists("Downtime Reason", name):
 			frappe.get_doc({"doctype": "Downtime Reason", "downtime_reason_name": name}).insert()
 		if frappe.get_meta("Downtime Reason", cached=True).has_field("is_active"):
@@ -37,8 +37,19 @@ def _ensure_loss_entry_shift_field() -> None:
 	frappe.clear_cache(doctype="Loss Entry")
 
 
+def _ensure_shift_duration_options() -> None:
+	shift_meta = frappe.get_meta("Shift", cached=True)
+	shift_duration = shift_meta.get_field("shift_duration")
+	options = (shift_duration.options or "").splitlines() if shift_duration else []
+	if "14" in options and "16" in options:
+		return
+	frappe.reload_doc("production_entry_app", "doctype", "shift")
+	frappe.clear_cache(doctype="Shift")
+
+
 class TestShift(FrappeTestCase):
 	def setUp(self) -> None:
+		_ensure_shift_duration_options()
 		_ensure_downtime_reasons()
 		_ensure_loss_entry_shift_field()
 		# End any stale Running shifts so start_shift() is not blocked
@@ -307,7 +318,7 @@ class TestShift(FrappeTestCase):
 				"planned_start_time": "08:00:00",
 			}
 		).insert()
-		self.assertEqual(len(doc.planned_losses), 2)
+		self.assertEqual(len(doc.planned_losses), 3)
 
 		doc.start_shift()
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so _validate_field_locking sees persisted status via get_value
@@ -426,16 +437,20 @@ class TestShift(FrappeTestCase):
 			}
 		).insert()
 
-		self.assertEqual(len(doc.planned_losses), 2)
+		self.assertEqual(len(doc.planned_losses), 3)
 
-		tea, lunch = doc.planned_losses[0], doc.planned_losses[1]
+		startup, jh_activity, tea = doc.planned_losses[0], doc.planned_losses[1], doc.planned_losses[2]
+		self.assertEqual(startup.downtime_reason, "Shift Start Up")
+		self.assertEqual(startup.start_time, "08:00:00")
+		self.assertEqual(startup.end_time, "08:10:00")
+
+		self.assertEqual(jh_activity.downtime_reason, "JH Activity")
+		self.assertEqual(jh_activity.start_time, "08:10:00")
+		self.assertEqual(jh_activity.end_time, "08:20:00")
+
 		self.assertEqual(tea.downtime_reason, "Tea Break")
-		self.assertEqual(tea.start_time, "10:00:00")
-		self.assertEqual(tea.end_time, "10:15:00")
-
-		self.assertEqual(lunch.downtime_reason, "Lunch Break")
-		self.assertEqual(lunch.start_time, "12:00:00")
-		self.assertEqual(lunch.end_time, "12:30:00")
+		self.assertEqual(tea.start_time, "09:00:00")
+		self.assertEqual(tea.end_time, "09:10:00")
 
 	def test_planned_losses_auto_populate_10_hour_shift(self) -> None:
 		name = self._expected_name("2026-02-12", "2")
@@ -453,20 +468,19 @@ class TestShift(FrappeTestCase):
 			}
 		).insert()
 
-		self.assertEqual(len(doc.planned_losses), 3)
+		self.assertEqual(len(doc.planned_losses), 5)
 
-		tea1, lunch, tea2 = doc.planned_losses[0], doc.planned_losses[1], doc.planned_losses[2]
-		self.assertEqual(tea1.downtime_reason, "Tea Break")
-		self.assertEqual(tea1.start_time, "10:00:00")
-		self.assertEqual(tea1.end_time, "10:15:00")
-
-		self.assertEqual(lunch.downtime_reason, "Lunch Break")
-		self.assertEqual(lunch.start_time, "12:00:00")
-		self.assertEqual(lunch.end_time, "12:30:00")
-
-		self.assertEqual(tea2.downtime_reason, "Tea Break")
-		self.assertEqual(tea2.start_time, "14:00:00")
-		self.assertEqual(tea2.end_time, "14:15:00")
+		rows = [(row.downtime_reason, row.start_time, row.end_time) for row in doc.planned_losses]
+		self.assertEqual(
+			rows,
+			[
+				("Shift Start Up", "08:00:00", "08:10:00"),
+				("JH Activity", "08:10:00", "08:20:00"),
+				("Tea Break", "09:00:00", "09:10:00"),
+				("Lunch Break", "12:00:00", "12:30:00"),
+				("Tea Break", "17:00:00", "17:10:00"),
+			],
+		)
 
 	def test_planned_losses_auto_populate_12_hour_shift(self) -> None:
 		name = self._expected_name("2026-02-13", "1")
@@ -482,15 +496,75 @@ class TestShift(FrappeTestCase):
 			}
 		).insert()
 
-		self.assertEqual(len(doc.planned_losses), 3)
+		self.assertEqual(len(doc.planned_losses), 5)
 
-		tea1, lunch, tea2 = doc.planned_losses[0], doc.planned_losses[1], doc.planned_losses[2]
-		self.assertEqual(tea1.start_time, "08:00:00")
-		self.assertEqual(tea1.end_time, "08:15:00")
-		self.assertEqual(lunch.start_time, "10:00:00")
-		self.assertEqual(lunch.end_time, "10:30:00")
-		self.assertEqual(tea2.start_time, "12:00:00")
-		self.assertEqual(tea2.end_time, "12:15:00")
+		rows = [(row.downtime_reason, row.start_time, row.end_time) for row in doc.planned_losses]
+		self.assertEqual(
+			rows,
+			[
+				("Shift Start Up", "06:00:00", "06:10:00"),
+				("JH Activity", "06:10:00", "06:20:00"),
+				("Tea Break", "09:00:00", "09:10:00"),
+				("Lunch Break", "12:00:00", "12:30:00"),
+				("Tea Break", "17:00:00", "17:20:00"),
+			],
+		)
+
+	def test_planned_losses_auto_populate_14_hour_shift(self) -> None:
+		name = self._expected_name("2026-02-15", "1")
+		self._delete_shift_if_exists(name)
+
+		doc = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"shift_label": "1",
+				"shift_duration": "14",
+				"shift_date": "2026-02-15",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+
+		rows = [(row.downtime_reason, row.start_time, row.end_time) for row in doc.planned_losses]
+		self.assertEqual(
+			rows,
+			[
+				("Shift Start Up", "08:00:00", "08:10:00"),
+				("JH Activity", "08:10:00", "08:20:00"),
+				("Tea Break", "09:00:00", "09:10:00"),
+				("Lunch Break", "12:00:00", "12:30:00"),
+				("Tea Break", "17:00:00", "17:20:00"),
+				("Tea Break", "20:00:00", "20:10:00"),
+			],
+		)
+
+	def test_planned_losses_auto_populate_16_hour_shift(self) -> None:
+		name = self._expected_name("2026-02-16", "2")
+		self._delete_shift_if_exists(name)
+		self._delete_shift_if_exists(self._expected_name("2026-02-16", "1"))
+
+		doc = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"shift_label": "2",
+				"shift_duration": "16",
+				"shift_date": "2026-02-16",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+
+		rows = [(row.downtime_reason, row.start_time, row.end_time) for row in doc.planned_losses]
+		self.assertEqual(
+			rows,
+			[
+				("Shift Start Up", "08:00:00", "08:10:00"),
+				("JH Activity", "08:10:00", "08:20:00"),
+				("Tea Break", "09:00:00", "09:10:00"),
+				("Lunch Break", "12:00:00", "12:30:00"),
+				("Tea Break", "17:00:00", "17:20:00"),
+				("Tea Break", "20:00:00", "20:10:00"),
+				("Dinner", "22:00:00", "22:30:00"),
+			],
+		)
 
 	def test_planned_losses_repopulate_when_shift_duration_changes(self) -> None:
 		self._delete_shifts_for_date("2026-02-14")
@@ -507,14 +581,14 @@ class TestShift(FrappeTestCase):
 			}
 		).insert()
 
-		self.assertEqual(len(doc.planned_losses), 2)
+		self.assertEqual(len(doc.planned_losses), 3)
 
 		doc.shift_duration = "10"
 		doc.save()
 
-		self.assertEqual(len(doc.planned_losses), 3)
-		self.assertEqual(doc.planned_losses[2].downtime_reason, "Tea Break")
-		self.assertEqual(doc.planned_losses[2].start_time, "14:00:00")
+		self.assertEqual(len(doc.planned_losses), 5)
+		self.assertEqual(doc.planned_losses[4].downtime_reason, "Tea Break")
+		self.assertEqual(doc.planned_losses[4].start_time, "17:00:00")
 
 	def test_inactive_downtime_reason_not_included_in_planned_losses(self) -> None:
 		if not frappe.get_meta("Downtime Reason", cached=True).has_field("is_active"):
@@ -547,11 +621,11 @@ class TestShift(FrappeTestCase):
 
 	def test_break_schedule_keys_match_valid_durations(self) -> None:
 		from production_entry_app.production_entry_app.doctype.shift.shift import (
-			_BREAK_SCHEDULE,
+			_FIXED_TIME_BREAKS,
 			VALID_SHIFT_DURATIONS,
 		)
 
-		self.assertEqual(set(_BREAK_SCHEDULE.keys()), set(VALID_SHIFT_DURATIONS))
+		self.assertEqual(set(_FIXED_TIME_BREAKS.keys()), set(VALID_SHIFT_DURATIONS))
 
 	def test_invalid_shift_duration_message_lists_valid_options(self) -> None:
 		name = self._expected_name("2026-05-19", "1")
@@ -566,7 +640,7 @@ class TestShift(FrappeTestCase):
 					"planned_start_time": "08:00:00",
 				}
 			).insert()
-		self.assertIn("8, 10, 12", str(exc.exception))
+		self.assertIn("8, 10, 12, 14, 16", str(exc.exception))
 
 	def test_status_cannot_be_changed_directly(self) -> None:
 		name = self._expected_name("2026-02-10", "2")

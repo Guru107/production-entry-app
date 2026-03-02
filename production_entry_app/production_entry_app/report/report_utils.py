@@ -128,6 +128,30 @@ def get_entry_qty_maps(
 	return good_qty_map, rejection_qty_map, fg_item_map
 
 
+def get_rework_qty_map(stock_entry_names: list[str]) -> dict[str, float]:
+	"""Return {entry_name: rework_qty} from Rejection Breakup rows where is_rework=1."""
+	if not stock_entry_names:
+		return {}
+
+	rejection_breakup = DocType("Rejection Breakup")
+	rows = (
+		frappe.qb.from_(rejection_breakup)
+		.select(rejection_breakup.parent, Sum(rejection_breakup.qty).as_("qty"))
+		.where(rejection_breakup.parenttype == "Stock Entry")
+		.where(rejection_breakup.parent.isin(stock_entry_names))
+		.where(rejection_breakup.is_rework == 1)
+		.groupby(rejection_breakup.parent)
+	).run(as_dict=True)
+
+	rework_qty_map: dict[str, float] = {}
+	for row in rows:
+		parent = row.get("parent")
+		if not parent:
+			continue
+		rework_qty_map[parent] = flt(row.get("qty") or 0, 3)
+	return rework_qty_map
+
+
 def get_duration_minutes(start_value, end_value) -> float:
 	if not start_value or not end_value:
 		return 0
@@ -149,6 +173,7 @@ def aggregate_efficiency_by_field(
 			"entries": 0,
 			"good_qty": 0.0,
 			"rejection_qty": 0.0,
+			"rework_qty": 0.0,
 			"total_units": 0.0,
 			"duration_mins": 0.0,
 			"standard_units": 0.0,
@@ -161,6 +186,7 @@ def aggregate_efficiency_by_field(
 		group_value = entry.get(group_field) or group_label_default
 		good_qty = flt(entry.get("_good_qty") or 0, 3)
 		rejection_qty = flt(entry.get("_rejection_qty") or 0, 3)
+		rework_qty = flt(entry.get("_rework_qty") or 0, 3)
 		total_units = flt(good_qty + rejection_qty, 3)
 		duration_mins = flt(entry.get("_duration_mins") or 0, 3)
 		standard_spm = flt(entry.get("custom_standard_spm") or 0, 3)
@@ -169,6 +195,7 @@ def aggregate_efficiency_by_field(
 		agg["entries"] += 1
 		agg["good_qty"] += good_qty
 		agg["rejection_qty"] += rejection_qty
+		agg["rework_qty"] += rework_qty
 		agg["total_units"] += total_units
 		agg["duration_mins"] += duration_mins
 		agg["standard_units"] += standard_spm * duration_mins
@@ -199,6 +226,7 @@ def build_efficiency_rows(
 				"entries": entry_count,
 				"good_qty": flt(agg["good_qty"], 3),
 				"rejection_qty": flt(agg["rejection_qty"], 3),
+				"rework_qty": flt(agg["rework_qty"], 3),
 				"total_units": flt(agg["total_units"], 3),
 				"actual_spm": actual_spm,
 				"standard_spm": standard_spm,

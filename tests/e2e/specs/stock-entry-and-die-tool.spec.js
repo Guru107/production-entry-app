@@ -74,4 +74,41 @@ test.describe("Stock Entry integration", () => {
 		);
 		expect(warningMessage).toBe("");
 	});
+
+	test("@regression get_die_tool_counter stays non-throwing during concurrent first reads", async ({
+		page,
+	}) => {
+		await page.goto("/app/home");
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+
+		const existingCounter = await callFrappeMethod(page, "frappe.client.get_value", {
+			doctype: "Die Tool Counter",
+			filters: JSON.stringify({ die_tool_item: ctx.fg_item }),
+			fieldname: "name",
+		});
+		const counterName = existingCounter?.name || existingCounter?.message?.name;
+		if (counterName) {
+			await callFrappeMethod(page, "frappe.client.delete", {
+				doctype: "Die Tool Counter",
+				name: counterName,
+			});
+		}
+
+		await Promise.all(
+			Array.from({ length: 8 }, () =>
+				callFrappeMethod(
+					page,
+					"production_entry_app.production_entry_app.api.get_die_tool_counter",
+					{
+						die_tool_code: ctx.fg_item,
+					}
+				)
+			)
+		);
+
+		const stockEntryPage = new StockEntryPage(page);
+		await stockEntryPage.openNew();
+		await stockEntryPage.fillManufactureEntry(ctx);
+		await stockEntryPage.fetchItems();
+	});
 });

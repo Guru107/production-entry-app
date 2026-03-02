@@ -97,26 +97,29 @@ test.describe("Shift validations", () => {
 			duration: "8",
 			startTime: "08:00:00",
 		});
-		await shiftPage.waitForPlannedLossRows(2);
+		await shiftPage.waitForPlannedLossRows(3);
 		const planned8h = await shiftPage.getPlannedLosses();
-		expect(planned8h).toHaveLength(2);
-		expect(planned8h[0].downtime_reason).toBe("Tea Break");
-		expect(planned8h[0].start_time).toBe("10:00:00");
-		expect(planned8h[1].downtime_reason).toBe("Lunch Break");
-		expect(planned8h[1].start_time).toBe("12:00:00");
+		expect(planned8h).toHaveLength(3);
+		expect(planned8h[0].downtime_reason).toBe("Shift Start Up");
+		expect(planned8h[0].start_time).toBe("08:00:00");
+		expect(planned8h[1].downtime_reason).toBe("JH Activity");
+		expect(planned8h[1].start_time).toBe("08:10:00");
+		expect(planned8h[2].downtime_reason).toBe("Tea Break");
+		expect(planned8h[2].start_time).toBe("09:00:00");
 
 		await shiftPage.setDraftFields({ duration: "10" });
-		await shiftPage.waitForPlannedLossRows(3);
+		await shiftPage.waitForPlannedLossRows(5);
 		const planned10h = await shiftPage.getPlannedLosses();
-		expect(planned10h).toHaveLength(3);
-		expect(planned10h[2].downtime_reason).toBe("Tea Break");
-		expect(planned10h[2].start_time).toBe("14:00:00");
+		expect(planned10h).toHaveLength(5);
+		expect(planned10h[4].downtime_reason).toBe("Tea Break");
+		expect(planned10h[4].start_time).toBe("17:00:00");
 
 		await shiftPage.setDraftFields({ duration: "12" });
-		await shiftPage.waitForPlannedLossRows(3);
+		await shiftPage.waitForPlannedLossRows(5);
 		const planned12h = await shiftPage.getPlannedLosses();
-		expect(planned12h).toHaveLength(3);
-		expect(planned12h[2].downtime_reason).toBe("Tea Break");
+		expect(planned12h).toHaveLength(5);
+		expect(planned12h[4].downtime_reason).toBe("Tea Break");
+		expect(planned12h[4].start_time).toBe("17:00:00");
 	});
 
 	test("@regression planned losses auto-populate on new doc even when status is temporarily blank", async ({
@@ -138,9 +141,9 @@ test.describe("Shift validations", () => {
 			duration: "8",
 			startTime: "08:00:00",
 		});
-		await shiftPage.waitForPlannedLossRows(2);
+		await shiftPage.waitForPlannedLossRows(3);
 		const planned = await shiftPage.getPlannedLosses();
-		expect(planned).toHaveLength(2);
+		expect(planned).toHaveLength(3);
 	});
 
 	test("@regression planned losses grid is non-editable once shift starts", async ({ page }) => {

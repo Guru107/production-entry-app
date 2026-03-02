@@ -7,6 +7,7 @@
  "field_order": [
   "rejection_reason",
   "qty",
+  "is_rework",
   "remark"
  ],
  "fields": [
@@ -24,6 +25,13 @@
    "in_list_view": 1,
    "label": "Qty",
    "reqd": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "is_rework",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Rework"
   },
   {
    "fieldname": "remark",

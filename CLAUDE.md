@@ -477,7 +477,7 @@ Registered in `hooks.py` for `validate`, `on_submit`, `on_cancel`. Key responsib
 After changing fixtures: `bench export-fixtures --app production_entry_app`
 After pulling fixture changes: `bench --site development.localhost migrate`
 
-Never commit human-input.md and PLAN.md files to git
+Never commit human-input.md and PLAN.md and shift_losses.csv files to git
 
 ## Application Specific Considerations
 
