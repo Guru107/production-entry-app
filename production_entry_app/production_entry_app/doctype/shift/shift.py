@@ -13,11 +13,28 @@ from production_entry_app.production_entry_app.utils.shift_time import combine_d
 
 METRICS_CACHE_TTL_SEC: int = 30
 WARNING_THRESHOLD_PCT_DEFAULT: float = 90.0
-VALID_SHIFT_DURATIONS: frozenset[int] = frozenset({8, 10, 12})
-_BREAK_SCHEDULE: dict[int, list[tuple[str, int, int]]] = {
-	8: [("Tea Break", 2, 15), ("Lunch Break", 4, 30)],
-	10: [("Tea Break", 2, 15), ("Lunch Break", 4, 30), ("Tea Break", 6, 15)],
-	12: [("Tea Break", 2, 15), ("Lunch Break", 4, 30), ("Tea Break", 6, 15)],
+VALID_SHIFT_DURATIONS: frozenset[int] = frozenset({8, 10, 12, 14, 16})
+_SHIFT_START_LOSSES: list[tuple[str, int, int]] = [
+	("Shift Start Up", 0, 10),
+	("JH Activity", 10, 10),
+]
+_FIXED_TIME_BREAKS: dict[int, list[tuple[str, str, int]]] = {
+	8: [("Tea Break", "09:00", 10)],
+	10: [("Tea Break", "09:00", 10), ("Lunch Break", "12:00", 30), ("Tea Break", "17:00", 10)],
+	12: [("Tea Break", "09:00", 10), ("Lunch Break", "12:00", 30), ("Tea Break", "17:00", 20)],
+	14: [
+		("Tea Break", "09:00", 10),
+		("Lunch Break", "12:00", 30),
+		("Tea Break", "17:00", 20),
+		("Tea Break", "20:00", 10),
+	],
+	16: [
+		("Tea Break", "09:00", 10),
+		("Lunch Break", "12:00", 30),
+		("Tea Break", "17:00", 20),
+		("Tea Break", "20:00", 10),
+		("Dinner", "22:00", 30),
+	],
 }
 
 
@@ -563,6 +580,7 @@ class Shift(Document):
 		"""Populate planned_losses based on shift duration and planned_start_time."""
 		base = self._combine_date_time(self.shift_date, self.planned_start_time)
 		duration_hours = self._parse_duration_hours(self.shift_duration)
+		shift_end = add_to_date(base, hours=duration_hours)
 		reason_active_cache: dict[str, bool] = {}
 		downtime_reason_meta = frappe.get_meta("Downtime Reason", cached=True)
 		has_is_active_field = bool(downtime_reason_meta.has_field("is_active"))
@@ -579,19 +597,47 @@ class Shift(Document):
 			reason_active_cache[reason] = bool(frappe.db.get_value("Downtime Reason", reason, "is_active"))
 			return reason_active_cache[reason]
 
-		entries: list[dict] = []
-		for reason, offset_hours, duration_mins in _BREAK_SCHEDULE.get(duration_hours, []):
+		entries_with_start: list[tuple[datetime.datetime, dict]] = []
+		for reason, offset_mins, duration_mins in _SHIFT_START_LOSSES:
 			if not is_active_reason(reason):
 				continue
-			entries.append(
-				{
-					"downtime_reason": reason,
-					"start_time": add_to_date(base, hours=offset_hours).time().strftime("%H:%M:%S"),
-					"end_time": add_to_date(base, hours=offset_hours, minutes=duration_mins)
-					.time()
-					.strftime("%H:%M:%S"),
-				}
+			start_dt = add_to_date(base, minutes=offset_mins)
+			end_dt = add_to_date(start_dt, minutes=duration_mins)
+			entries_with_start.append(
+				(
+					start_dt,
+					{
+						"downtime_reason": reason,
+						"start_time": start_dt.time().strftime("%H:%M:%S"),
+						"end_time": end_dt.time().strftime("%H:%M:%S"),
+					},
+				)
 			)
+
+		for reason, fixed_time, duration_mins in _FIXED_TIME_BREAKS.get(duration_hours, []):
+			if not is_active_reason(reason):
+				continue
+			fixed_time_value = datetime.datetime.strptime(fixed_time, "%H:%M").time()
+			candidates = [
+				datetime.datetime.combine(base.date(), fixed_time_value),
+				datetime.datetime.combine(base.date() + datetime.timedelta(days=1), fixed_time_value),
+			]
+			start_dt = next((candidate for candidate in candidates if base <= candidate < shift_end), None)
+			if not start_dt:
+				continue
+			end_dt = add_to_date(start_dt, minutes=duration_mins)
+			entries_with_start.append(
+				(
+					start_dt,
+					{
+						"downtime_reason": reason,
+						"start_time": start_dt.time().strftime("%H:%M:%S"),
+						"end_time": end_dt.time().strftime("%H:%M:%S"),
+					},
+				)
+			)
+
+		entries = [row for _, row in sorted(entries_with_start, key=lambda pair: pair[0])]
 
 		self.planned_losses = []
 		for row in entries:

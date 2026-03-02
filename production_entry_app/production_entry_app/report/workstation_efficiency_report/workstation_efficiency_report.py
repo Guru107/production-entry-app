@@ -10,6 +10,7 @@ from production_entry_app.production_entry_app.report.report_utils import (
 	build_stock_entry_filters,
 	get_duration_minutes,
 	get_entry_qty_maps,
+	get_rework_qty_map,
 )
 
 
@@ -32,6 +33,7 @@ def _get_columns() -> list[dict]:
 		{"label": _("Entries"), "fieldname": "entries", "fieldtype": "Int", "width": 90},
 		{"label": _("Good Qty"), "fieldname": "good_qty", "fieldtype": "Float", "width": 120},
 		{"label": _("Rejection Qty"), "fieldname": "rejection_qty", "fieldtype": "Float", "width": 120},
+		{"label": _("Rework Qty"), "fieldname": "rework_qty", "fieldtype": "Float", "width": 120},
 		{"label": _("Total Units"), "fieldname": "total_units", "fieldtype": "Float", "width": 120},
 		{"label": _("Actual SPM"), "fieldname": "actual_spm", "fieldtype": "Float", "width": 110},
 		{"label": _("Standard SPM"), "fieldname": "standard_spm", "fieldtype": "Float", "width": 120},
@@ -53,6 +55,7 @@ def _get_rows(filters: dict) -> list[dict]:
 			"custom_workstation",
 			"fg_completed_qty",
 			"custom_rejection_qty",
+			"custom_rework_qty",
 			"custom_actual_spm",
 			"custom_actual_duration_mins",
 			"custom_actual_start_date",
@@ -62,6 +65,7 @@ def _get_rows(filters: dict) -> list[dict]:
 	)
 	entry_names = [entry.get("name") for entry in entries if entry.get("name")]
 	good_qty_map, rejection_qty_map, _ = get_entry_qty_maps(entry_names)
+	rework_qty_map = get_rework_qty_map(entry_names)
 
 	for entry in entries:
 		good_qty = flt(entry.get("fg_completed_qty") or 0, 3)
@@ -70,6 +74,9 @@ def _get_rows(filters: dict) -> list[dict]:
 		rejection_qty = flt(entry.get("custom_rejection_qty") or 0, 3)
 		if rejection_qty <= 0:
 			rejection_qty = rejection_qty_map.get(entry.get("name"), 0)
+		rework_qty = flt(entry.get("custom_rework_qty") or 0, 3)
+		if rework_qty <= 0:
+			rework_qty = rework_qty_map.get(entry.get("name"), 0)
 		duration_mins = flt(entry.get("custom_actual_duration_mins") or 0, 3)
 		if duration_mins <= 0:
 			duration_mins = get_duration_minutes(
@@ -77,6 +84,7 @@ def _get_rows(filters: dict) -> list[dict]:
 			)
 		entry["_good_qty"] = good_qty
 		entry["_rejection_qty"] = rejection_qty
+		entry["_rework_qty"] = rework_qty
 		entry["_duration_mins"] = duration_mins
 
 	aggregates = aggregate_efficiency_by_field(entries, "custom_workstation")

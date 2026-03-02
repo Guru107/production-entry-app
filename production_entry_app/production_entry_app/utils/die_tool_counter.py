@@ -91,20 +91,12 @@ def _ensure_counter_exists(item_code: str) -> str:
 		}
 	)
 
-	try:
-		return doc.insert(ignore_permissions=True).name
-	except frappe.DuplicateEntryError:
-		# Concurrent requests can race here; read the winning row.
-		if frappe.db.exists("Die Tool Counter", item_code):
-			return item_code
-		existing_name = frappe.db.get_value(
-			"Die Tool Counter",
-			{"die_tool_item": item_code},
-			"name",
-		)
-		if existing_name:
-			return existing_name
-		raise
+	# Idempotent insert for concurrent requests: ignore duplicate if another request wins the race.
+	doc.insert(ignore_permissions=True, ignore_if_duplicate=True)
+	if frappe.db.exists("Die Tool Counter", item_code):
+		return item_code
+	existing_name = frappe.db.get_value("Die Tool Counter", {"die_tool_item": item_code}, "name")
+	return existing_name or doc.name
 
 
 def _get_or_create_counter(item_code: str):

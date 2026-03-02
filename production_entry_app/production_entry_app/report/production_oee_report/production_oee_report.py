@@ -6,7 +6,10 @@ import frappe
 from frappe import _
 from frappe.utils import flt, get_datetime, get_time
 
-from production_entry_app.production_entry_app.report.report_utils import get_entry_qty_maps
+from production_entry_app.production_entry_app.report.report_utils import (
+	get_entry_qty_maps,
+	get_rework_qty_map,
+)
 
 LOSS_BUCKETS: tuple[tuple[str, str], ...] = (
 	("setup", "Setup Time"),
@@ -74,6 +77,7 @@ def _get_columns() -> list[dict]:
 		},
 		{"label": _("Total Strokes"), "fieldname": "total_strokes", "fieldtype": "Float", "width": 110},
 		{"label": _("Rejection"), "fieldname": "rejection", "fieldtype": "Float", "width": 95},
+		{"label": _("Rework"), "fieldname": "rework", "fieldtype": "Float", "width": 95},
 		{"label": _("Std SPM"), "fieldname": "std_spm", "fieldtype": "Float", "width": 95},
 		{"label": _("Act SPM"), "fieldname": "act_spm", "fieldtype": "Float", "width": 95},
 		{
@@ -165,6 +169,7 @@ def _get_rows(filters: dict) -> list[dict]:
 			"second_shift_strokes": flt(group["second_shift_strokes"], 3),
 			"total_strokes": total_strokes,
 			"rejection": rejection,
+			"rework": flt(group["rework"], 3),
 			"std_spm": std_spm,
 			"act_spm": act_spm,
 			"productivity_pct": productivity_pct,
@@ -211,6 +216,7 @@ def _get_stock_entry_groups(filters: dict) -> dict[tuple[str, str], dict]:
 			"custom_workstation",
 			"fg_completed_qty",
 			"custom_rejection_qty",
+			"custom_rework_qty",
 			"custom_standard_spm",
 			"custom_actual_duration_mins",
 			"custom_actual_start_date",
@@ -222,6 +228,7 @@ def _get_stock_entry_groups(filters: dict) -> dict[tuple[str, str], dict]:
 
 	entry_names = [entry.get("name") for entry in entries if entry.get("name")]
 	good_qty_map, rejection_qty_map, _fg_map = get_entry_qty_maps(entry_names, include_fg_item=False)
+	rework_qty_map = get_rework_qty_map(entry_names)
 	shift_labels = _get_shift_label_map(entries)
 	groups: dict[tuple[str, str], dict] = {}
 	for entry in entries:
@@ -238,9 +245,13 @@ def _get_stock_entry_groups(filters: dict) -> dict[tuple[str, str], dict]:
 		rejection_qty = flt(entry.get("custom_rejection_qty") or 0, 3)
 		if rejection_qty <= 0:
 			rejection_qty = flt(rejection_qty_map.get(entry.get("name")) or 0, 3)
+		rework_qty = flt(entry.get("custom_rework_qty") or 0, 3)
+		if rework_qty <= 0:
+			rework_qty = flt(rework_qty_map.get(entry.get("name")) or 0, 3)
 		total_strokes = flt(good_qty + rejection_qty, 3)
 		group["total_strokes"] += total_strokes
 		group["rejection"] += rejection_qty
+		group["rework"] += rework_qty
 
 		shift_label = shift_labels.get(entry.get("custom_shift"))
 		if shift_label == "1":
@@ -292,6 +303,7 @@ def _new_group(day: str, workstation: str) -> dict:
 		"second_shift_strokes": 0.0,
 		"total_strokes": 0.0,
 		"rejection": 0.0,
+		"rework": 0.0,
 		"duration_hours_sum": 0.0,
 		"standard_spm_weighted_sum": 0.0,
 		"standard_spm_sum": 0.0,

@@ -278,6 +278,7 @@ def _find_overlapping_stock_entry(doc, fieldname: str, fieldvalue: str | None) -
 def _validate_rejection_breakup(doc) -> None:
 	rejection_qty = float(doc.get("custom_rejection_qty") or 0)
 	if rejection_qty <= 0:
+		doc.custom_rework_qty = 0
 		return
 
 	breakup_rows = doc.get("custom_rejection_breakup") or []
@@ -285,6 +286,7 @@ def _validate_rejection_breakup(doc) -> None:
 		frappe.throw(_("Rejection Breakup is mandatory when Rejection Quantity is greater than 0."))
 
 	total_qty = 0.0
+	rework_qty = 0.0
 	for row in breakup_rows:
 		row_qty = float(row.get("qty") or 0)
 		if row_qty <= 0:
@@ -292,6 +294,8 @@ def _validate_rejection_breakup(doc) -> None:
 		if not row.get("rejection_reason"):
 			frappe.throw(_("Rejection Breakup rows must have a rejection reason."))
 		total_qty += row_qty
+		if row.get("is_rework"):
+			rework_qty += row_qty
 
 	if flt(total_qty, 3) != flt(rejection_qty, 3):
 		frappe.throw(
@@ -299,6 +303,7 @@ def _validate_rejection_breakup(doc) -> None:
 				total_qty, rejection_qty
 			)
 		)
+	doc.custom_rework_qty = flt(rework_qty, 3)
 
 
 def _apply_rejection_entries(doc) -> None:

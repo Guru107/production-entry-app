@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import ExitStack
 from unittest.mock import MagicMock, patch
 
 import frappe
@@ -239,3 +240,92 @@ class TestE2EApi(FrappeTestCase):
 		)
 		self.assertIs(result, recreated)
 		recreated.start_shift.assert_called_once()
+
+	def test_bootstrap_e2e_context_re_enables_die_tool_flag_for_fg_item(self) -> None:
+		shift = MagicMock()
+		shift.name = "SHIFT-2099-01-20.Shift-1"
+
+		class _Meta:
+			def __init__(self, has_field_result: bool) -> None:
+				self._has_field_result = has_field_result
+
+			def has_field(self, _fieldname: str) -> bool:
+				return self._has_field_result
+
+		def _get_meta(doctype: str, cached: bool = True):
+			if doctype == "Warehouse":
+				return _Meta(True)
+			if doctype == "Item":
+				return _Meta(True)
+			return _Meta(False)
+
+		with ExitStack() as stack:
+			stack.enter_context(
+				patch("production_entry_app.production_entry_app.api._assert_e2e_api_allowed")
+			)
+			stack.enter_context(patch("production_entry_app.production_entry_app.api.cleanup_running_shifts"))
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.api.resolve_test_company",
+					return_value="_Test Company",
+				)
+			)
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.api.frappe.db.get_value",
+					return_value="TC",
+				)
+			)
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.api.ensure_warehouse",
+					side_effect=["WIP", "RM", "FG", "REJ"],
+				)
+			)
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.api.ensure_item",
+					side_effect=["_FG_ITEM", "_RM_ITEM"],
+				)
+			)
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.api.frappe.get_meta",
+					side_effect=_get_meta,
+				)
+			)
+			set_value = stack.enter_context(
+				patch("production_entry_app.production_entry_app.api.frappe.db.set_value")
+			)
+			stack.enter_context(patch("production_entry_app.production_entry_app.api.ensure_operator"))
+			stack.enter_context(patch("production_entry_app.production_entry_app.api.ensure_workstation"))
+			stack.enter_context(
+				patch("production_entry_app.production_entry_app.api.ensure_rejection_reason")
+			)
+			stack.enter_context(patch("production_entry_app.production_entry_app.api.ensure_downtime_reason"))
+			stack.enter_context(
+				patch("production_entry_app.production_entry_app.api.frappe.db.set_single_value")
+			)
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.api.ensure_default_bom",
+					return_value="BOM-001",
+				)
+			)
+			stack.enter_context(patch("production_entry_app.production_entry_app.api.ensure_stock"))
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.api._e2e_base_date",
+					return_value="2099-01-20",
+				)
+			)
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.api._get_or_create_e2e_shift",
+					return_value=shift,
+				)
+			)
+			stack.enter_context(patch("production_entry_app.production_entry_app.api.frappe.db.commit"))
+			bootstrap_e2e_context(prefix="E2E-DIE")
+
+		set_value.assert_any_call("Item", "_FG_ITEM", "custom_has_die_tool", 1, update_modified=False)

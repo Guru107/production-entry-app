@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -32,7 +32,8 @@ class TestDieToolCounterUtils(FrappeTestCase):
 		get_doc.assert_called_once_with("Die Tool Counter", "DIE-001")
 
 	def test_ensure_counter_exists_returns_inserted_name(self) -> None:
-		inserted = frappe._dict(name="DIE-001")
+		doc = MagicMock()
+		doc.name = "DIE-001"
 		with patch(
 			"production_entry_app.production_entry_app.utils.die_tool_counter.frappe.db.exists",
 			return_value=False,
@@ -40,21 +41,24 @@ class TestDieToolCounterUtils(FrappeTestCase):
 			with patch(
 				"production_entry_app.production_entry_app.utils.die_tool_counter.frappe.get_doc"
 			) as get_doc:
-				get_doc.return_value.insert.return_value = inserted
+				get_doc.return_value = doc
 				result = _ensure_counter_exists("DIE-001")
 
 		self.assertEqual(result, "DIE-001")
+		get_doc.return_value.insert.assert_called_once_with(ignore_permissions=True, ignore_if_duplicate=True)
 
 	def test_get_or_create_counter_handles_duplicate_insert_race(self) -> None:
 		existing_doc = object()
 
 		class _Doc:
-			def insert(self, ignore_permissions=True):
-				raise frappe.DuplicateEntryError("Die Tool Counter", "DIE-001")
+			name = "DIE-001"
+
+			def insert(self, ignore_permissions=True, ignore_if_duplicate=False):
+				return self
 
 		with patch(
 			"production_entry_app.production_entry_app.utils.die_tool_counter.frappe.db.exists",
-			side_effect=[False, True],
+			side_effect=[False, True, True],
 		):
 			with patch(
 				"production_entry_app.production_entry_app.utils.die_tool_counter.frappe.get_doc",
@@ -68,8 +72,10 @@ class TestDieToolCounterUtils(FrappeTestCase):
 		existing_doc = object()
 
 		class _Doc:
-			def insert(self, ignore_permissions=True):
-				raise frappe.DuplicateEntryError("Die Tool Counter", "DIE-001")
+			name = "DIE-001"
+
+			def insert(self, ignore_permissions=True, ignore_if_duplicate=False):
+				return self
 
 		with patch(
 			"production_entry_app.production_entry_app.utils.die_tool_counter.frappe.db.exists",

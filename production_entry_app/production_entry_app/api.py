@@ -371,6 +371,8 @@ def bootstrap_e2e_context(prefix: str = "E2E") -> dict:
 	rm_item = ensure_item(f"_{prefix}_RM_Item")
 	frappe.db.set_value("Item", fg_item, "custom_strokes_per_unit", 5, update_modified=False)
 	frappe.db.set_value("Item", fg_item, "custom_stroke_capacity", 10000, update_modified=False)
+	if frappe.get_meta("Item", cached=True).has_field("custom_has_die_tool"):
+		frappe.db.set_value("Item", fg_item, "custom_has_die_tool", 1, update_modified=False)
 
 	operator_name = f"{prefix} Operator"
 	workstation_name = f"{prefix} Workstation"
@@ -380,6 +382,9 @@ def bootstrap_e2e_context(prefix: str = "E2E") -> dict:
 	ensure_rejection_reason("Crack")
 	ensure_downtime_reason("Tea Break")
 	ensure_downtime_reason("Lunch Break")
+	ensure_downtime_reason("Shift Start Up")
+	ensure_downtime_reason("JH Activity")
+	ensure_downtime_reason("Dinner")
 
 	frappe.db.set_single_value("Manufacturing Settings", "shift_wip_warehouse", wip_warehouse)
 	frappe.db.set_single_value("Manufacturing Settings", "shift_raw_material_warehouse", rm_warehouse)

@@ -13,6 +13,7 @@ from production_entry_app.production_entry_app.overrides.test_stock_entry_hooks 
 	_ensure_rejection_breakup_doctype,
 	_ensure_rejection_reason_doctype,
 	_ensure_rejection_reasons,
+	_ensure_stock_entry_metric_fields,
 	_get_or_create_item,
 	_get_or_create_warehouse,
 	_set_shift_buffers,
@@ -33,6 +34,7 @@ class TestProductionReports(FrappeTestCase):
 		_ensure_rejection_reason_doctype()
 		_ensure_rejection_reasons()
 		_ensure_rejection_breakup_custom_field()
+		_ensure_stock_entry_metric_fields()
 		_ensure_item_die_tool_fields()
 		for reason in (
 			"Setup Time",
@@ -109,7 +111,7 @@ class TestProductionReports(FrappeTestCase):
 		columns, _rows = execute({})
 		fieldnames = [column.get("fieldname") for column in columns]
 		self.assertEqual(
-			fieldnames[0:17],
+			fieldnames[0:18],
 			[
 				"day",
 				"workstation",
@@ -118,6 +120,7 @@ class TestProductionReports(FrappeTestCase):
 				"second_shift_strokes",
 				"total_strokes",
 				"rejection",
+				"rework",
 				"std_spm",
 				"act_spm",
 				"productivity_pct",
@@ -461,6 +464,55 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(int(rows[0]["entries"]), 1)
 		self.assertEqual(float(rows[0]["actual_spm"]), 2.0)
 		self.assertEqual(float(rows[0]["workstation_efficiency_pct"]), 100.0)
+
+	def test_efficiency_oee_and_daily_reports_include_rework_values(self) -> None:
+		from production_entry_app.production_entry_app.report.daily_strokes_spm_monitor.daily_strokes_spm_monitor import (
+			execute as daily_execute,
+		)
+		from production_entry_app.production_entry_app.report.operator_efficiency_report.operator_efficiency_report import (
+			execute as operator_execute,
+		)
+		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
+			execute as oee_execute,
+		)
+		from production_entry_app.production_entry_app.report.workstation_efficiency_report.workstation_efficiency_report import (
+			execute as workstation_execute,
+		)
+
+		shift = self._create_shift_for_label("2094-06-07", "1")
+		self._ensure_fiscal_year("2094", "2094-01-01", "2094-12-31")
+		self._create_mock_submitted_entry_with_breakup(
+			posting_date="2094-06-07",
+			planned_start="2094-06-07 08:00:00",
+			planned_end="2094-06-07 09:00:00",
+			actual_start="2094-06-07 08:00:00",
+			actual_end="2094-06-07 09:00:00",
+			fg_qty=100,
+			shift_name=shift.name,
+			breakup_rows=[
+				{"rejection_reason": "Burr", "qty": 3, "is_rework": 1},
+				{"rejection_reason": "Crack", "qty": 2, "is_rework": 0},
+			],
+		)
+
+		operator_columns, operator_rows = operator_execute(
+			{"from_date": "2094-06-07", "to_date": "2094-06-07"}
+		)
+		workstation_columns, workstation_rows = workstation_execute(
+			{"from_date": "2094-06-07", "to_date": "2094-06-07"}
+		)
+		_, oee_rows = oee_execute({"from_date": "2094-06-07", "to_date": "2094-06-07"})
+		daily_columns, daily_rows = daily_execute(
+			{"fiscal_year": "2094", "month": "June", "custom_operator": "Report Operator"}
+		)
+
+		self.assertIn("rework_qty", [c.get("fieldname") for c in operator_columns])
+		self.assertIn("rework_qty", [c.get("fieldname") for c in workstation_columns])
+		self.assertIn("rework", [c.get("fieldname") for c in daily_columns])
+		self.assertEqual(float(operator_rows[0]["rework_qty"]), 3.0)
+		self.assertEqual(float(workstation_rows[0]["rework_qty"]), 3.0)
+		self.assertEqual(float(oee_rows[0]["rework"]), 3.0)
+		self.assertEqual(float(daily_rows[0]["rework"]), 3.0)
 
 	def test_die_tool_stroke_report_uses_counter_and_maintenance(self) -> None:
 		from production_entry_app.production_entry_app.report.die_tool_stroke_and_maintenance_report.die_tool_stroke_and_maintenance_report import (
@@ -1171,6 +1223,163 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(rows, [])
 		self.assertIsNone(chart)
 
+	def test_rework_pareto_report_counts_only_rework_rows(self) -> None:
+		from production_entry_app.production_entry_app.report.rework_pareto_report.rework_pareto_report import (
+			execute,
+		)
+
+		shift = self._create_shift_for_label("2026-07-04", "1")
+		self._create_mock_submitted_entry_with_breakup(
+			posting_date="2026-07-04",
+			planned_start="2026-07-04 08:00:00",
+			planned_end="2026-07-04 09:00:00",
+			actual_start="2026-07-04 08:00:00",
+			actual_end="2026-07-04 09:00:00",
+			fg_qty=100,
+			shift_name=shift.name,
+			breakup_rows=[
+				{"rejection_reason": "Crack", "qty": 5, "is_rework": 1},
+				{"rejection_reason": "Burr", "qty": 2, "is_rework": 0},
+			],
+		)
+
+		_, rows, _, _chart = execute({"from_date": "2026-07-04", "to_date": "2026-07-04"})
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(rows[0]["rejection_reason"], "Crack")
+		self.assertEqual(float(rows[0]["rework_qty"]), 5.0)
+
+	def test_rework_trend_report_returns_rework_and_non_rework_quantities(self) -> None:
+		from production_entry_app.production_entry_app.report.rework_trend_report.rework_trend_report import (
+			execute,
+		)
+
+		shift = self._create_shift_for_label("2026-07-05", "1")
+		self._create_mock_submitted_entry_with_breakup(
+			posting_date="2026-07-05",
+			planned_start="2026-07-05 08:00:00",
+			planned_end="2026-07-05 09:00:00",
+			actual_start="2026-07-05 08:00:00",
+			actual_end="2026-07-05 09:00:00",
+			fg_qty=100,
+			shift_name=shift.name,
+			breakup_rows=[
+				{"rejection_reason": "Crack", "qty": 6, "is_rework": 1},
+				{"rejection_reason": "Burr", "qty": 4, "is_rework": 0},
+			],
+		)
+
+		_, rows, _, _chart = execute({"from_date": "2026-07-05", "to_date": "2026-07-05"})
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(float(rows[0]["rework_qty"]), 6.0)
+		self.assertEqual(float(rows[0]["non_rework_rejection_qty"]), 4.0)
+		self.assertEqual(float(rows[0]["rework_rate_pct"]), 6.0)
+
+	def test_rework_ppm_report_data(self) -> None:
+		from production_entry_app.production_entry_app.report.rework_ppm_report.rework_ppm_report import (
+			execute,
+		)
+
+		shift = self._create_shift_for_label("2026-07-06", "1")
+		self._create_mock_submitted_entry_with_breakup(
+			posting_date="2026-07-06",
+			planned_start="2026-07-06 08:00:00",
+			planned_end="2026-07-06 09:00:00",
+			actual_start="2026-07-06 08:00:00",
+			actual_end="2026-07-06 09:00:00",
+			fg_qty=200,
+			shift_name=shift.name,
+			breakup_rows=[
+				{"rejection_reason": "Crack", "qty": 5, "is_rework": 1},
+				{"rejection_reason": "Burr", "qty": 5, "is_rework": 0},
+			],
+		)
+
+		_, rows, _, _chart = execute({"from_date": "2026-07-06", "to_date": "2026-07-06"})
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(float(rows[0]["rework_qty"]), 5.0)
+		self.assertEqual(float(rows[0]["ppm"]), 25_000.0)
+
+	def test_operator_rework_performance_metrics(self) -> None:
+		from production_entry_app.production_entry_app.report.operator_rework_performance.operator_rework_performance import (
+			execute,
+		)
+
+		shift = self._create_shift_for_label("2026-07-07", "1")
+		self._create_mock_submitted_entry_with_breakup(
+			posting_date="2026-07-07",
+			planned_start="2026-07-07 08:00:00",
+			planned_end="2026-07-07 09:00:00",
+			actual_start="2026-07-07 08:00:00",
+			actual_end="2026-07-07 09:00:00",
+			fg_qty=120,
+			operator="Report Operator",
+			shift_name=shift.name,
+			breakup_rows=[
+				{"rejection_reason": "Crack", "qty": 6, "is_rework": 1},
+				{"rejection_reason": "Burr", "qty": 2, "is_rework": 0},
+			],
+		)
+
+		_, rows = execute({"from_date": "2026-07-07", "to_date": "2026-07-07"})
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(float(rows[0]["rework_qty"]), 6.0)
+		self.assertEqual(float(rows[0]["rework_rate_pct"]), 5.0)
+		self.assertIn("Crack (6.0)", rows[0]["top_3_reasons"])
+
+	def test_item_bom_rework_hotspots_data(self) -> None:
+		from production_entry_app.production_entry_app.report.item_bom_rework_hotspots.item_bom_rework_hotspots import (
+			execute,
+		)
+
+		shift = self._create_shift_for_label("2026-07-08", "1")
+		self._create_mock_submitted_entry_with_breakup(
+			posting_date="2026-07-08",
+			planned_start="2026-07-08 08:00:00",
+			planned_end="2026-07-08 09:00:00",
+			actual_start="2026-07-08 08:00:00",
+			actual_end="2026-07-08 09:00:00",
+			fg_qty=120,
+			fg_item=self.fg_item,
+			shift_name=shift.name,
+			breakup_rows=[
+				{"rejection_reason": "Crack", "qty": 6, "is_rework": 1},
+				{"rejection_reason": "Burr", "qty": 2, "is_rework": 0},
+			],
+		)
+
+		_, rows = execute({"from_date": "2026-07-08", "to_date": "2026-07-08"})
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(rows[0]["item_code"], self.fg_item)
+		self.assertEqual(float(rows[0]["rework_qty"]), 6.0)
+		self.assertIn("Crack (6.0)", rows[0]["dominant_reason"])
+
+	def test_workstation_rework_reason_matrix_aggregates_top_reasons(self) -> None:
+		from production_entry_app.production_entry_app.report.workstation_rework_reason_matrix.workstation_rework_reason_matrix import (
+			execute,
+		)
+
+		shift = self._create_shift_for_label("2026-07-09", "1")
+		self._create_mock_submitted_entry_with_breakup(
+			posting_date="2026-07-09",
+			planned_start="2026-07-09 08:00:00",
+			planned_end="2026-07-09 09:00:00",
+			actual_start="2026-07-09 08:00:00",
+			actual_end="2026-07-09 09:00:00",
+			fg_qty=100,
+			workstation="Report Workstation",
+			shift_name=shift.name,
+			breakup_rows=[
+				{"rejection_reason": "Crack", "qty": 5, "is_rework": 1},
+				{"rejection_reason": "Burr", "qty": 2, "is_rework": 0},
+			],
+		)
+
+		columns, rows = execute({"from_date": "2026-07-09", "to_date": "2026-07-09", "top_n_reasons": 3})
+		self.assertIn("Crack", [col.get("label") for col in columns])
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(float(rows[0]["total_rework_qty"]), 5.0)
+		self.assertEqual(float(rows[0]["reason_crack"]), 5.0)
+
 	# ── Daily Strokes SPM Monitor ─────────────────────────────────────
 
 	def _ensure_fiscal_year(self, fy_name: str, start_date: str, end_date: str) -> None:
@@ -1204,6 +1413,7 @@ class TestProductionReports(FrappeTestCase):
 				"total_strokes",
 				"spm",
 				"rejection",
+				"rework",
 			],
 		)
 
@@ -1220,7 +1430,16 @@ class TestProductionReports(FrappeTestCase):
 		self.assertNotIn("operator", fieldnames)
 		self.assertEqual(
 			fieldnames,
-			["date", "setup_time_hrs", "loss_time_hrs", "prod_time_hrs", "total_strokes", "spm", "rejection"],
+			[
+				"date",
+				"setup_time_hrs",
+				"loss_time_hrs",
+				"prod_time_hrs",
+				"total_strokes",
+				"spm",
+				"rejection",
+				"rework",
+			],
 		)
 
 	def test_daily_strokes_spm_monitor_data(self) -> None:
@@ -1274,6 +1493,7 @@ class TestProductionReports(FrappeTestCase):
 		# SPM = 100 / (1.0 * 60) ~= 1.667
 		self.assertAlmostEqual(float(data_row["spm"]), 1.667, places=2)
 		self.assertAlmostEqual(float(data_row["rejection"]), 10.0, places=2)
+		self.assertAlmostEqual(float(data_row["rework"]), 0.0, places=2)
 
 	def test_daily_strokes_spm_monitor_totals_row(self) -> None:
 		from production_entry_app.production_entry_app.report.daily_strokes_spm_monitor.daily_strokes_spm_monitor import (
@@ -1311,6 +1531,7 @@ class TestProductionReports(FrappeTestCase):
 		# Entry 1: good=90, rej=10 → total=100; Entry 2: good=180, rej=20 → total=200
 		self.assertAlmostEqual(float(totals["total_strokes"]), 300.0, places=2)
 		self.assertAlmostEqual(float(totals["rejection"]), 30.0, places=2)
+		self.assertAlmostEqual(float(totals["rework"]), 0.0, places=2)
 		self.assertAlmostEqual(float(totals["prod_time_hrs"]), 2.0, places=2)
 		# weighted SPM = 300 / (2.0 * 60) = 2.5
 		self.assertAlmostEqual(float(totals["spm"]), 2.5, places=2)

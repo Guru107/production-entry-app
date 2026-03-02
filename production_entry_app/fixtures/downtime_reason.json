@@ -76,5 +76,23 @@
 		"name": "Lunch Break",
 		"downtime_reason_name": "Lunch Break",
 		"is_active": 1
+	},
+	{
+		"doctype": "Downtime Reason",
+		"name": "Shift Start Up",
+		"downtime_reason_name": "Shift Start Up",
+		"is_active": 1
+	},
+	{
+		"doctype": "Downtime Reason",
+		"name": "JH Activity",
+		"downtime_reason_name": "JH Activity",
+		"is_active": 1
+	},
+	{
+		"doctype": "Downtime Reason",
+		"name": "Dinner",
+		"downtime_reason_name": "Dinner",
+		"is_active": 1
 	}
 ]

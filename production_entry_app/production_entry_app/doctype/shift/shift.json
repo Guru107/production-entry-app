@@ -61,7 +61,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Shift Duration (Hours)",
-   "options": "8\n10\n12",
+   "options": "8\n10\n12\n14\n16",
    "reqd": 1
   },
   {

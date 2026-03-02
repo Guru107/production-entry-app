@@ -375,6 +375,116 @@ test.describe("Production reports", () => {
 		).toBeTruthy();
 	});
 
+	test("@regression Rework Pareto report counts only rows marked as rework", async ({
+		page,
+	}) => {
+		await page.goto("/app/home");
+		const prefix = lifecycle.getPrefix();
+		const ctx = await setupFreshContext(page, prefix);
+		const seeded = await createSubmittedStockEntryForReports(
+			page,
+			ctx,
+			8,
+			[],
+			[
+				{ rejection_reason: "Crack", qty: 5, is_rework: 1 },
+				{ rejection_reason: "Burr", qty: 3, is_rework: 0 },
+			]
+		);
+
+		const reportsPage = new ReportsPage(page);
+		await reportsPage.open("Rework Pareto Report");
+		await reportsPage.runWithDateRange(seeded.posting_date, seeded.posting_date);
+		await reportsPage.setFilterByFieldname("custom_workstation", ctx.workstation);
+		await reportsPage.clickRefresh();
+		await reportsPage.waitForRows(1);
+		const rows = await reportsPage.getRows();
+		expect(rows.length).toBeGreaterThan(0);
+		expect(rows.some((row) => row.rejection_reason === "Crack")).toBeTruthy();
+		expect(rows.some((row) => row.rejection_reason === "Burr")).toBeFalsy();
+		expect(await reportsPage.hasChart()).toBeTruthy();
+	});
+
+	test("@regression Rework Trend and Rework PPM reports render rework aggregates", async ({
+		page,
+	}) => {
+		await page.goto("/app/home");
+		const prefix = lifecycle.getPrefix();
+		const ctx = await setupFreshContext(page, prefix);
+		await createSubmittedStockEntryForReports(
+			page,
+			ctx,
+			10,
+			[],
+			[
+				{ rejection_reason: "Crack", qty: 6, is_rework: 1 },
+				{ rejection_reason: "Burr", qty: 4, is_rework: 0 },
+			]
+		);
+
+		const reportsPage = new ReportsPage(page);
+		await reportsPage.open("Rework Trend Report");
+		await reportsPage.runWithDateRange(ctx.shift_date, ctx.shift_date);
+		await reportsPage.clickRefresh();
+		await reportsPage.waitForRows(1);
+		const trendRows = await reportsPage.getRows();
+		expect(trendRows.length).toBeGreaterThan(0);
+		expect(Number(trendRows[0].rework_qty || 0)).toBeGreaterThan(0);
+		expect(await reportsPage.hasChart()).toBeTruthy();
+
+		await reportsPage.open("Rework PPM Report");
+		await reportsPage.runWithDateRange(ctx.shift_date, ctx.shift_date);
+		await reportsPage.clickRefresh();
+		await reportsPage.waitForRows(1);
+		const ppmRows = await reportsPage.getRows();
+		expect(ppmRows.length).toBeGreaterThan(0);
+		expect(Number(ppmRows[0].ppm || 0)).toBeGreaterThan(0);
+	});
+
+	test("@regression Operator/Item/Workstation rework reports load with rework data", async ({
+		page,
+	}) => {
+		await page.goto("/app/home");
+		const prefix = lifecycle.getPrefix();
+		const ctx = await setupFreshContext(page, prefix);
+		await createSubmittedStockEntryForReports(
+			page,
+			ctx,
+			9,
+			[],
+			[
+				{ rejection_reason: "Crack", qty: 5, is_rework: 1 },
+				{ rejection_reason: "Burr", qty: 4, is_rework: 0 },
+			]
+		);
+
+		const reportsPage = new ReportsPage(page);
+		await reportsPage.open("Operator Rework Performance");
+		await reportsPage.runWithDateRange(ctx.shift_date, ctx.shift_date);
+		await reportsPage.setFilterByFieldname("custom_operator", ctx.operator);
+		await reportsPage.clickRefresh();
+		await reportsPage.waitForRows(1);
+		const operatorRows = await reportsPage.getRows();
+		expect(operatorRows.some((row) => row.operator === ctx.operator)).toBeTruthy();
+		expect(Number(operatorRows[0].rework_qty || 0)).toBeGreaterThan(0);
+
+		await reportsPage.open("Item BOM Rework Hotspots");
+		await reportsPage.runWithDateRange(ctx.shift_date, ctx.shift_date);
+		await reportsPage.setFilterByFieldname("fg_item", ctx.fg_item);
+		await reportsPage.clickRefresh();
+		await reportsPage.waitForRows(1);
+		const itemRows = await reportsPage.getRows();
+		expect(itemRows.some((row) => row.item_code === ctx.fg_item)).toBeTruthy();
+
+		await reportsPage.open("Workstation Rework Reason Matrix");
+		await reportsPage.runWithDateRange(ctx.shift_date, ctx.shift_date);
+		await reportsPage.setFilterByFieldname("custom_workstation", ctx.workstation);
+		await reportsPage.clickRefresh();
+		await reportsPage.waitForRows(1);
+		const workstationRows = await reportsPage.getRows();
+		expect(workstationRows.some((row) => row.workstation === ctx.workstation)).toBeTruthy();
+	});
+
 	test("@regression report date range prevents from_date > to_date", async ({ page }) => {
 		await page.goto("/app/home");
 		const reportsPage = new ReportsPage(page);
@@ -387,6 +497,12 @@ test.describe("Production reports", () => {
 			"Workstation Rejection Reason Matrix",
 			"Operator Rejection Performance",
 			"Item BOM Rejection Hotspots",
+			"Rework Pareto Report",
+			"Rework Trend Report",
+			"Rework PPM Report",
+			"Operator Rework Performance",
+			"Item BOM Rework Hotspots",
+			"Workstation Rework Reason Matrix",
 		]) {
 			await reportsPage.open(reportName);
 			await reportsPage.setFilterByFieldname("to_date", "2026-02-10");
