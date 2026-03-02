@@ -1614,6 +1614,129 @@ class TestProductionReports(FrappeTestCase):
 		)
 		self.assertEqual(rows[0]["date"], "2093-09-15")
 
+	def test_operator_daily_spm_report_columns(self) -> None:
+		from production_entry_app.production_entry_app.report.operator_daily_spm_report.operator_daily_spm_report import (
+			execute,
+		)
+
+		columns, _rows = execute({"from_date": "2026-08-01", "to_date": "2026-08-01"})
+		fieldnames = [column.get("fieldname") for column in columns]
+		self.assertEqual(
+			fieldnames,
+			[
+				"date",
+				"operator",
+				"workstation",
+				"working_hours",
+				"setting_time_hrs",
+				"loss_time_hrs",
+				"production_time_hrs",
+				"total_strokes",
+				"spm",
+			],
+		)
+
+	def test_operator_daily_spm_report_empty(self) -> None:
+		from production_entry_app.production_entry_app.report.operator_daily_spm_report.operator_daily_spm_report import (
+			execute,
+		)
+
+		_, rows = execute({"from_date": "2026-08-01", "to_date": "2026-08-01"})
+		self.assertEqual(rows, [])
+
+	def test_operator_daily_spm_report_basic_data(self) -> None:
+		from production_entry_app.production_entry_app.report.operator_daily_spm_report.operator_daily_spm_report import (
+			execute,
+		)
+
+		shift = self._create_shift_for_label("2026-08-02", "1")
+		self._create_mock_submitted_entry(
+			posting_date="2026-08-02",
+			planned_start="2026-08-02 08:00:00",
+			planned_end="2026-08-02 12:00:00",
+			actual_start="2026-08-02 08:00:00",
+			actual_end="2026-08-02 12:00:00",
+			fg_qty=100,
+			rejection_qty=10,
+			shift_name=shift.name,
+			unplanned_losses=[
+				{
+					"downtime_reason": "Setup Time",
+					"start_time": "08:00:00",
+					"end_time": "08:30:00",
+					"remark": "setup",
+				},
+				{
+					"downtime_reason": "Maint",
+					"start_time": "09:00:00",
+					"end_time": "10:00:00",
+					"remark": "maint",
+				},
+			],
+		)
+
+		_, rows = execute({"from_date": "2026-08-02", "to_date": "2026-08-02"})
+		self.assertEqual(len(rows), 1)
+		row = rows[0]
+		self.assertEqual(row["date"], "2026-08-02")
+		self.assertEqual(row["operator"], "Report Operator")
+		self.assertEqual(row["workstation"], "Report Workstation")
+		self.assertAlmostEqual(float(row["working_hours"]), 8.0, places=3)
+		self.assertAlmostEqual(float(row["setting_time_hrs"]), 0.5, places=3)
+		self.assertAlmostEqual(float(row["loss_time_hrs"]), 1.0, places=3)
+		self.assertAlmostEqual(float(row["production_time_hrs"]), 2.5, places=3)
+		self.assertAlmostEqual(float(row["total_strokes"]), 100.0, places=3)
+		self.assertAlmostEqual(float(row["spm"]), 0.667, places=3)
+
+	def test_operator_daily_spm_report_multiple_workstations_same_day(self) -> None:
+		from production_entry_app.production_entry_app.report.operator_daily_spm_report.operator_daily_spm_report import (
+			execute,
+		)
+
+		if not frappe.db.exists("Workstation", "Report Workstation 2"):
+			frappe.get_doc(
+				{
+					"doctype": "Workstation",
+					"workstation_name": "Report Workstation 2",
+					"production_capacity": 1,
+					"hour_rate": 100,
+					"custom_standard_spm": 2,
+				}
+			).insert(ignore_permissions=True)
+
+		shift_1 = self._create_shift_for_label("2026-08-03", "1")
+		shift_2 = self._create_shift_for_label("2026-08-03", "2")
+		self._create_mock_submitted_entry(
+			posting_date="2026-08-03",
+			planned_start="2026-08-03 08:00:00",
+			planned_end="2026-08-03 09:00:00",
+			actual_start="2026-08-03 08:00:00",
+			actual_end="2026-08-03 09:00:00",
+			fg_qty=100,
+			rejection_qty=0,
+			workstation="Report Workstation",
+			shift_name=shift_1.name,
+		)
+		self._create_mock_submitted_entry(
+			posting_date="2026-08-03",
+			planned_start="2026-08-03 16:00:00",
+			planned_end="2026-08-03 17:00:00",
+			actual_start="2026-08-03 16:00:00",
+			actual_end="2026-08-03 17:00:00",
+			fg_qty=120,
+			rejection_qty=0,
+			workstation="Report Workstation 2",
+			shift_name=shift_2.name,
+		)
+
+		_, rows = execute({"from_date": "2026-08-03", "to_date": "2026-08-03"})
+		self.assertEqual(len(rows), 2)
+		self.assertEqual(
+			{row["workstation"] for row in rows},
+			{"Report Workstation", "Report Workstation 2"},
+		)
+		self.assertTrue(all(float(row["working_hours"]) == 8.0 for row in rows))
+
 	def _create_mock_submitted_entry(
 		self,
 		posting_date: str,
