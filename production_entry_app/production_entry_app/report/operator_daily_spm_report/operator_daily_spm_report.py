@@ -85,6 +85,7 @@ def _get_rows(filters: dict) -> list[dict]:
 			"custom_rejection_qty",
 			"custom_actual_start_date",
 			"custom_actual_end_date",
+			"custom_production_time_mins",
 		],
 		order_by="posting_date asc, custom_operator asc, custom_workstation asc",
 	)
@@ -116,7 +117,7 @@ def _get_rows(filters: dict) -> list[dict]:
 				"setting_time_hrs": 0.0,
 				"loss_time_hrs": 0.0,
 				"total_strokes": 0.0,
-				"base_prod_mins": 0.0,
+				"production_mins": 0.0,
 			},
 		)
 
@@ -138,10 +139,17 @@ def _get_rows(filters: dict) -> list[dict]:
 			total_strokes = flt(good_qty_map.get(entry_name) or 0, 3) + rejection_qty
 		agg["total_strokes"] += flt(total_strokes, 3)
 
-		agg["base_prod_mins"] += get_duration_minutes(
-			entry.get("custom_actual_start_date"),
-			entry.get("custom_actual_end_date"),
-		)
+		production_time_value = entry.get("custom_production_time_mins")
+		if production_time_value is not None:
+			agg["production_mins"] += flt(max(production_time_value, 0), 3)
+		else:
+			duration_mins = get_duration_minutes(
+				entry.get("custom_actual_start_date"),
+				entry.get("custom_actual_end_date"),
+			)
+			setup_mins = flt(setup_time_map.get(entry_name) or 0, 3) if entry_name else 0
+			loss_mins = flt(loss_time_map.get(entry_name) or 0, 3) if entry_name else 0
+			agg["production_mins"] += flt(max(duration_mins - setup_mins - loss_mins, 0), 3)
 
 	rows: list[dict] = []
 	for key in sorted(aggregates.keys()):
@@ -150,10 +158,10 @@ def _get_rows(filters: dict) -> list[dict]:
 			sum(shift_duration_map.get(shift_name, 0) for shift_name in agg["shift_names"]),
 			3,
 		)
-		base_prod_mins = flt(agg["base_prod_mins"], 3)
+		production_mins = flt(agg["production_mins"], 3)
 		setting_time_hrs = flt(agg["setting_time_hrs"], 3)
 		loss_time_hrs = flt(agg["loss_time_hrs"], 3)
-		production_time_hrs = flt(max((base_prod_mins / 60) - setting_time_hrs - loss_time_hrs, 0), 3)
+		production_time_hrs = flt(production_mins / 60, 3) if production_mins > 0 else 0
 		spm = flt((agg["total_strokes"] / (production_time_hrs * 60)), 3) if production_time_hrs > 0 else 0
 		rows.append(
 			{

@@ -20,6 +20,7 @@ const MANUFACTURE_FIELDS = [
 	"custom_operator",
 	"custom_unplanned_losses",
 	"custom_actual_duration_mins",
+	"custom_production_time_mins",
 	"custom_actual_spm",
 	"custom_cycle_time_sec",
 	"custom_operator_efficiency_pct",

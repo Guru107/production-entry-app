@@ -59,6 +59,7 @@ def _get_rows(filters: dict) -> list[dict]:
 			"custom_rework_qty",
 			"custom_actual_spm",
 			"custom_actual_duration_mins",
+			"custom_production_time_mins",
 			"custom_actual_start_date",
 			"custom_actual_end_date",
 			"custom_standard_spm",
@@ -84,9 +85,13 @@ def _get_rows(filters: dict) -> list[dict]:
 			duration_mins = get_duration_minutes(
 				entry.get("custom_actual_start_date"), entry.get("custom_actual_end_date")
 			)
-		setup_mins = flt(setup_time_map.get(entry.get("name"), 0), 3)
-		loss_mins = flt(loss_time_map.get(entry.get("name"), 0), 3)
-		production_time_mins = flt(max(duration_mins - setup_mins - loss_mins, 0), 3)
+		production_time_value = entry.get("custom_production_time_mins")
+		if production_time_value is not None:
+			production_time_mins = flt(max(production_time_value, 0), 3)
+		else:
+			setup_mins = flt(setup_time_map.get(entry.get("name"), 0), 3)
+			loss_mins = flt(loss_time_map.get(entry.get("name"), 0), 3)
+			production_time_mins = flt(max(duration_mins - setup_mins - loss_mins, 0), 3)
 		entry["_good_qty"] = good_qty
 		entry["_rejection_qty"] = rejection_qty
 		entry["_rework_qty"] = rework_qty

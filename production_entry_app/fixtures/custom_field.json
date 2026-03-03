@@ -370,13 +370,24 @@
 	},
 	{
 		"doctype": "Custom Field",
+		"name": "Stock Entry-custom_production_time_mins",
+		"dt": "Stock Entry",
+		"fieldname": "custom_production_time_mins",
+		"fieldtype": "Float",
+		"label": "Production Time (Minutes)",
+		"read_only": 1,
+		"insert_after": "custom_actual_duration_mins",
+		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Custom Field",
 		"name": "Stock Entry-custom_actual_spm",
 		"dt": "Stock Entry",
 		"fieldname": "custom_actual_spm",
 		"fieldtype": "Float",
 		"label": "Actual SPM",
 		"read_only": 1,
-		"insert_after": "custom_actual_duration_mins",
+		"insert_after": "custom_production_time_mins",
 		"module": "Production Entry App"
 	},
 	{

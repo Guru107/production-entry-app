@@ -1256,6 +1256,7 @@ class TestShiftMetrics(FrappeTestCase):
 				"fg_completed_qty": good_qty,
 				"custom_rejection_qty": rejection_qty,
 				"custom_actual_duration_mins": duration_mins,
+				"custom_production_time_mins": duration_mins,
 				"custom_operator_efficiency_pct": efficiency_pct,
 				"docstatus": docstatus,
 			}
@@ -1467,6 +1468,7 @@ class TestShiftAggregateProductionEntries(FrappeTestCase):
 				"fg_completed_qty": good_qty,
 				"custom_rejection_qty": rejection_qty,
 				"custom_actual_duration_mins": duration_mins,
+				"custom_production_time_mins": duration_mins,
 				"docstatus": 1,
 			}
 		)

@@ -158,11 +158,18 @@ def _ensure_stock_entry_metric_fields() -> None:
 			"insert_after": "custom_rejection_breakup",
 		},
 		{
+			"name": "Stock Entry-custom_production_time_mins",
+			"fieldname": "custom_production_time_mins",
+			"fieldtype": "Float",
+			"label": "Production Time (Minutes)",
+			"insert_after": "custom_actual_duration_mins",
+		},
+		{
 			"name": "Stock Entry-custom_actual_spm",
 			"fieldname": "custom_actual_spm",
 			"fieldtype": "Float",
 			"label": "Actual SPM",
-			"insert_after": "custom_actual_duration_mins",
+			"insert_after": "custom_production_time_mins",
 		},
 		{
 			"name": "Stock Entry-custom_cycle_time_sec",
@@ -907,17 +914,21 @@ class TestStockEntryHooks(FrappeTestCase):
 		total_strokes = float(se.get("fg_completed_qty") or 0)
 		self.assertEqual(float(se.custom_ok_qty), expected_ok_qty)
 		self.assertEqual(float(se.custom_actual_duration_mins), 100.0)
+		# Shift planned losses include Shift Start Up (10), JH Activity (10), Tea Break (10).
+		self.assertEqual(float(se.custom_production_time_mins), 70.0)
 		self.assertAlmostEqual(
 			float(se.custom_actual_spm),
-			float(total_strokes / 100.0 if total_strokes > 0 else 0),
+			float(total_strokes / 70.0 if total_strokes > 0 else 0),
 			places=3,
 		)
 		self.assertAlmostEqual(
 			float(se.custom_cycle_time_sec),
-			float((6000.0 / total_strokes) if total_strokes > 0 else 0),
+			float((4200.0 / total_strokes) if total_strokes > 0 else 0),
 			places=3,
 		)
-		self.assertAlmostEqual(float(se.custom_operator_efficiency_pct), float(total_strokes), places=2)
+		self.assertAlmostEqual(
+			float(se.custom_operator_efficiency_pct), float((total_strokes / 70.0) * 100), places=2
+		)
 
 	def test_metrics_use_production_time_after_setup_and_loss(self) -> None:
 		shift = _create_test_shift(
@@ -975,12 +986,73 @@ class TestStockEntryHooks(FrappeTestCase):
 		expected_spm = (total_strokes / 30.0) if total_strokes > 0 else 0.0
 		expected_cycle_time = (1800.0 / total_strokes) if total_strokes > 0 else 0.0
 		self.assertEqual(float(se.custom_actual_duration_mins), 60.0)
+		self.assertEqual(float(se.custom_production_time_mins), 30.0)
 		self.assertEqual(float(se.custom_ok_qty), ok_qty)
 		self.assertAlmostEqual(float(se.custom_actual_spm), expected_spm, places=3)
 		self.assertAlmostEqual(float(se.custom_cycle_time_sec), expected_cycle_time, places=3)
 		self.assertAlmostEqual(float(se.custom_operator_efficiency_pct), float(expected_spm * 50.0), places=2)
 		if total_strokes != ok_qty and ok_qty > 0:
 			self.assertNotAlmostEqual(float(se.custom_actual_spm), float(ok_qty / 30.0), places=3)
+
+	def test_metrics_deduct_shift_planned_break_overlap(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-04-16",
+			wip_warehouse=self.wip_warehouse,
+			rejection_warehouse=self.rejection_warehouse,
+		)
+
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			fg_qty=30,
+			custom_shift=shift.name,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		se.custom_standard_spm = 1
+		se.custom_actual_start_date = "2026-04-16 08:50:00"
+		se.custom_actual_end_date = "2026-04-16 09:20:00"
+		se.save()
+
+		self.assertEqual(float(se.custom_actual_duration_mins), 30.0)
+		# Shift has Tea Break 09:00-09:10; overlap should be auto-deducted.
+		self.assertEqual(float(se.custom_production_time_mins), 20.0)
+
+	def test_metrics_deduplicate_overlapping_planned_and_unplanned_breaks(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-04-16",
+			wip_warehouse=self.wip_warehouse,
+			rejection_warehouse=self.rejection_warehouse,
+		)
+
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			fg_qty=30,
+			custom_shift=shift.name,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		se.custom_standard_spm = 1
+		se.custom_actual_start_date = "2026-04-16 08:50:00"
+		se.custom_actual_end_date = "2026-04-16 09:20:00"
+		se.append(
+			"custom_unplanned_losses",
+			{
+				"downtime_reason": "Tea Break",
+				"start_time": "09:00:00",
+				"end_time": "09:10:00",
+				"remark": "duplicate planned break",
+				"shift": shift.name,
+			},
+		)
+		se.save()
+
+		self.assertEqual(float(se.custom_actual_duration_mins), 30.0)
+		# Planned + unplanned overlap the same interval; subtract once (10 mins), not twice.
+		self.assertEqual(float(se.custom_production_time_mins), 20.0)
 
 	def test_metrics_remain_empty_when_actual_times_missing(self) -> None:
 		shift = _create_test_shift(
@@ -1002,6 +1074,7 @@ class TestStockEntryHooks(FrappeTestCase):
 		se.save()
 
 		self.assertFalse(se.get("custom_actual_duration_mins"))
+		self.assertFalse(se.get("custom_production_time_mins"))
 		self.assertFalse(se.get("custom_actual_spm"))
 		self.assertFalse(se.get("custom_cycle_time_sec"))
 		self.assertFalse(se.get("custom_operator_efficiency_pct"))
@@ -1026,6 +1099,7 @@ class TestStockEntryHooks(FrappeTestCase):
 		se.save()
 
 		self.assertFalse(se.get("custom_actual_duration_mins"))
+		self.assertFalse(se.get("custom_production_time_mins"))
 		self.assertFalse(se.get("custom_actual_spm"))
 		self.assertFalse(se.get("custom_cycle_time_sec"))
 		self.assertFalse(se.get("custom_operator_efficiency_pct"))
