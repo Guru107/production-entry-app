@@ -2,15 +2,14 @@ from __future__ import annotations
 
 import frappe
 from frappe import _
-from frappe.utils import flt, get_time
+from frappe.utils import flt
 
 from production_entry_app.production_entry_app.report.report_utils import (
 	build_stock_entry_filters,
 	get_duration_minutes,
 	get_entry_qty_maps,
+	get_loss_time_maps,
 )
-
-SETUP_TIME_REASON: str = "Setup Time"
 
 
 def execute(filters: dict | None = None):
@@ -61,19 +60,6 @@ def _build_filters(filters: dict) -> dict:
 	)
 
 
-def _get_loss_duration_hours(start_time, end_time) -> float:
-	if not start_time or not end_time:
-		return 0.0
-	start = get_time(start_time)
-	end = get_time(end_time)
-	start_mins = (start.hour * 60) + start.minute + (start.second / 60)
-	end_mins = (end.hour * 60) + end.minute + (end.second / 60)
-	duration_mins = end_mins - start_mins
-	if duration_mins < 0:
-		duration_mins += 24 * 60
-	return flt(duration_mins / 60, 3) if duration_mins > 0 else 0.0
-
-
 def _get_shift_duration_map(shift_names: set[str]) -> dict[str, float]:
 	if not shift_names:
 		return {}
@@ -107,25 +93,7 @@ def _get_rows(filters: dict) -> list[dict]:
 
 	entry_names = [entry.get("name") for entry in entries if entry.get("name")]
 	good_qty_map, rejection_qty_map, _ = get_entry_qty_maps(entry_names)
-
-	loss_rows = frappe.get_all(
-		"Loss Entry",
-		filters={"parenttype": "Stock Entry", "parent": ["in", entry_names]},
-		fields=["parent", "downtime_reason", "start_time", "end_time"],
-	)
-	setup_time_map: dict[str, float] = {}
-	loss_time_map: dict[str, float] = {}
-	for row in loss_rows:
-		parent = row.get("parent")
-		if not parent:
-			continue
-		duration_hours = _get_loss_duration_hours(row.get("start_time"), row.get("end_time"))
-		if duration_hours <= 0:
-			continue
-		if row.get("downtime_reason") == SETUP_TIME_REASON:
-			setup_time_map[parent] = flt(setup_time_map.get(parent, 0) + duration_hours, 3)
-		else:
-			loss_time_map[parent] = flt(loss_time_map.get(parent, 0) + duration_hours, 3)
+	setup_time_map, loss_time_map = get_loss_time_maps(entry_names)
 
 	shift_duration_map = _get_shift_duration_map(
 		{entry.get("custom_shift") for entry in entries if entry.get("custom_shift")}
@@ -157,8 +125,8 @@ def _get_rows(filters: dict) -> list[dict]:
 			agg["shift_names"].add(shift_name)
 
 		if entry_name:
-			agg["setting_time_hrs"] += flt(setup_time_map.get(entry_name) or 0, 3)
-			agg["loss_time_hrs"] += flt(loss_time_map.get(entry_name) or 0, 3)
+			agg["setting_time_hrs"] += flt((setup_time_map.get(entry_name) or 0) / 60, 3)
+			agg["loss_time_hrs"] += flt((loss_time_map.get(entry_name) or 0) / 60, 3)
 
 		rejection_qty = flt(entry.get("custom_rejection_qty") or 0, 3)
 		if rejection_qty <= 0 and entry_name:

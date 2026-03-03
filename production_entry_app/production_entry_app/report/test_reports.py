@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
+from frappe.utils import flt
 
 from production_entry_app.production_entry_app.overrides.test_stock_entry_hooks import (
 	_append_rejection_breakup_rows,
@@ -521,6 +522,42 @@ class TestProductionReports(FrappeTestCase):
 		self.assertAlmostEqual(float(rows[0]["actual_spm"]), 3.0, places=3)
 		self.assertAlmostEqual(float(rows[0]["standard_spm"]), 3.0, places=3)
 		self.assertAlmostEqual(float(rows[0]["workstation_efficiency_pct"]), 100.0, places=2)
+
+	def test_aggregate_efficiency_ignores_raw_duration_when_production_time_is_zero(self) -> None:
+		from production_entry_app.production_entry_app.report.report_utils import (
+			aggregate_efficiency_by_field,
+			build_efficiency_rows,
+		)
+
+		entries = [
+			{
+				"custom_operator": "Report Operator",
+				"_good_qty": 0,
+				"_rejection_qty": 0,
+				"_rework_qty": 0,
+				"_production_time_mins": 0,
+				"_duration_mins": 60,
+				"custom_standard_spm": 2,
+				"custom_actual_spm": 0,
+			},
+			{
+				"custom_operator": "Report Operator",
+				"_good_qty": 60,
+				"_rejection_qty": 0,
+				"_rework_qty": 0,
+				"_production_time_mins": 30,
+				"_duration_mins": 30,
+				"custom_standard_spm": 2,
+				"custom_actual_spm": 2,
+			},
+		]
+
+		aggregates = aggregate_efficiency_by_field(entries, "custom_operator")
+		self.assertEqual(flt(aggregates["Report Operator"]["duration_mins"]), 30.0)
+
+		rows = build_efficiency_rows(aggregates, "operator", "operator_efficiency_pct")
+		self.assertEqual(len(rows), 1)
+		self.assertAlmostEqual(float(rows[0]["actual_spm"]), 2.0, places=3)
 
 	def test_efficiency_oee_and_daily_reports_include_rework_values(self) -> None:
 		from production_entry_app.production_entry_app.report.daily_strokes_spm_monitor.daily_strokes_spm_monitor import (

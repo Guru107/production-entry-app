@@ -13,12 +13,15 @@ from production_entry_app.production_entry_app.utils.die_tool_counter import (
 	is_die_tool_enabled,
 	update_counter_for_stock_entry,
 )
+from production_entry_app.production_entry_app.utils.loss_time import (
+	SETUP_TIME_REASON,
+	get_loss_duration_minutes,
+)
 from production_entry_app.production_entry_app.utils.shift_time import get_shift_planned_end_datetime
 
 _DEFAULT_START_BUFFER_MINS: int = 60
 _DEFAULT_END_BUFFER_MINS: int = 60
 _MAX_BUFFER_MINS: int = 480
-SETUP_TIME_REASON: str = "Setup Time"
 
 
 def validate_stock_entry(doc, method: str | None = None) -> None:
@@ -516,13 +519,7 @@ def _get_loss_times_for_entry(doc) -> tuple[float, float]:
 		end_value = row.get("end_time")
 		if not start_value or not end_value:
 			continue
-		start_time = get_time(start_value)
-		end_time = get_time(end_value)
-		start_mins = (start_time.hour * 60) + start_time.minute + (start_time.second / 60)
-		end_mins = (end_time.hour * 60) + end_time.minute + (end_time.second / 60)
-		duration_mins = end_mins - start_mins
-		if duration_mins < 0:
-			duration_mins += 24 * 60
+		duration_mins = get_loss_duration_minutes(start_value, end_value)
 		if duration_mins <= 0:
 			continue
 		if row.get("downtime_reason") == SETUP_TIME_REASON:

@@ -7,10 +7,14 @@ import frappe
 from frappe import _
 from frappe.query_builder import DocType
 from frappe.query_builder.functions import Sum
-from frappe.utils import flt, get_datetime, get_time
+from frappe.utils import flt, get_datetime
+
+from production_entry_app.production_entry_app.utils.loss_time import (
+	SETUP_TIME_REASON,
+	get_loss_duration_minutes,
+)
 
 _MAX_FG_ITEM_PARENT_MATCHES = 5000
-SETUP_TIME_REASON: str = "Setup Time"
 
 
 def build_stock_entry_filters(filters: dict, filter_keys: tuple[str, ...]) -> dict:
@@ -153,19 +157,6 @@ def get_rework_qty_map(stock_entry_names: list[str]) -> dict[str, float]:
 	return rework_qty_map
 
 
-def _get_loss_duration_minutes(start_value, end_value) -> float:
-	if not start_value or not end_value:
-		return 0.0
-	start = get_time(start_value)
-	end = get_time(end_value)
-	start_mins = (start.hour * 60) + start.minute + (start.second / 60)
-	end_mins = (end.hour * 60) + end.minute + (end.second / 60)
-	duration_mins = end_mins - start_mins
-	if duration_mins < 0:
-		duration_mins += 24 * 60
-	return flt(duration_mins if duration_mins > 0 else 0, 3)
-
-
 def get_loss_time_maps(entry_names: list[str]) -> tuple[dict[str, float], dict[str, float]]:
 	"""Return setup and non-setup loss minutes keyed by Stock Entry name."""
 	if not entry_names:
@@ -182,7 +173,7 @@ def get_loss_time_maps(entry_names: list[str]) -> tuple[dict[str, float], dict[s
 		parent = row.get("parent")
 		if not parent:
 			continue
-		duration_mins = _get_loss_duration_minutes(row.get("start_time"), row.get("end_time"))
+		duration_mins = get_loss_duration_minutes(row.get("start_time"), row.get("end_time"))
 		if duration_mins <= 0:
 			continue
 		if row.get("downtime_reason") == SETUP_TIME_REASON:
@@ -228,7 +219,11 @@ def aggregate_efficiency_by_field(
 		rejection_qty = flt(entry.get("_rejection_qty") or 0, 3)
 		rework_qty = flt(entry.get("_rework_qty") or 0, 3)
 		total_units = flt(good_qty + rejection_qty, 3)
-		duration_mins = flt(entry.get("_production_time_mins") or entry.get("_duration_mins") or 0, 3)
+		production_time_mins = entry.get("_production_time_mins")
+		duration_mins = flt(
+			production_time_mins if production_time_mins is not None else (entry.get("_duration_mins") or 0),
+			3,
+		)
 		standard_spm = flt(entry.get("custom_standard_spm") or 0, 3)
 
 		agg = aggregates[group_value]
