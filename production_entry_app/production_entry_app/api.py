@@ -5,6 +5,7 @@ import json
 
 import frappe
 from frappe import _
+from frappe.client import delete_doc as frappe_client_delete_doc
 from frappe.query_builder import DocType
 from frappe.utils import add_to_date, cint, get_datetime, get_time, now_datetime
 from pypika import Order
@@ -28,6 +29,43 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	ensure_workstation,
 	resolve_test_company,
 )
+
+
+def _cleanup_orphan_stock_entry_loss_links(shift_name: str) -> None:
+	"""Delete Loss Entry rows linked to deleted Stock Entry parents for a Shift."""
+	if not shift_name:
+		return
+
+	rows = frappe.get_all(
+		"Loss Entry",
+		filters={"shift": shift_name, "parenttype": "Stock Entry"},
+		fields=["name", "parent"],
+	)
+	if not rows:
+		return
+
+	parent_names = sorted({row.get("parent") for row in rows if row.get("parent")})
+	if not parent_names:
+		return
+
+	existing_parents = set(
+		frappe.get_all("Stock Entry", filters={"name": ("in", parent_names)}, pluck="name")
+	)
+	orphan_row_names = [
+		row.get("name")
+		for row in rows
+		if row.get("name") and row.get("parent") and row.get("parent") not in existing_parents
+	]
+	if orphan_row_names:
+		frappe.db.delete("Loss Entry", {"name": ("in", orphan_row_names)})
+
+
+@frappe.whitelist()
+def delete(doctype: str, name: str) -> None:
+	"""Delete wrapper that cleans orphan Shift loss links before link validation."""
+	if doctype == "Shift":
+		_cleanup_orphan_stock_entry_loss_links(name)
+	frappe_client_delete_doc(doctype, name)
 
 
 @frappe.whitelist()

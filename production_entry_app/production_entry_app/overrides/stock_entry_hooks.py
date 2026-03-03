@@ -60,6 +60,17 @@ def on_cancel_stock_entry(doc, method: str | None = None) -> None:
 	_invalidate_shift_metrics_cache(doc)
 
 
+def on_trash_stock_entry(doc, method: str | None = None) -> None:
+	"""Defensively delete Stock Entry loss rows in case table cleanup misses them."""
+	frappe.db.delete(
+		"Loss Entry",
+		{
+			"parenttype": "Stock Entry",
+			"parent": doc.name,
+		},
+	)
+
+
 def _invalidate_shift_metrics_cache(doc) -> None:
 	shift_name = doc.get("custom_shift")
 	if not shift_name:
