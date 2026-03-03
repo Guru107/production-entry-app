@@ -443,6 +443,34 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(float(rows[0]["standard_spm"]), 4.0)
 		self.assertAlmostEqual(float(rows[0]["operator_efficiency_pct"]), 83.33, delta=0.02)
 
+	def test_operator_efficiency_report_subtracts_setup_and_loss_time(self) -> None:
+		from production_entry_app.production_entry_app.report.operator_efficiency_report.operator_efficiency_report import (
+			execute,
+		)
+
+		self._create_shift_for_label("2026-06-14", "1")
+		self._create_mock_submitted_entry(
+			posting_date="2026-06-14",
+			planned_start="2026-06-14 08:00:00",
+			planned_end="2026-06-14 09:00:00",
+			actual_start="2026-06-14 08:00:00",
+			actual_end="2026-06-14 09:00:00",
+			fg_qty=60,
+			rejection_qty=0,
+			standard_spm=2,
+			unplanned_losses=[
+				{"downtime_reason": "Setup Time", "start_time": "08:00:00", "end_time": "08:30:00"},
+				{"downtime_reason": "Maint", "start_time": "08:30:00", "end_time": "08:45:00"},
+			],
+		)
+
+		_, rows = execute({"from_date": "2026-06-14", "to_date": "2026-06-14"})
+		self.assertEqual(len(rows), 1)
+		# 60 strokes over 15 minutes production time => 4 SPM, standard=2 => 200% efficiency.
+		self.assertAlmostEqual(float(rows[0]["actual_spm"]), 4.0, places=3)
+		self.assertAlmostEqual(float(rows[0]["standard_spm"]), 2.0, places=3)
+		self.assertAlmostEqual(float(rows[0]["operator_efficiency_pct"]), 200.0, places=2)
+
 	def test_workstation_efficiency_report_groups_by_workstation(self) -> None:
 		from production_entry_app.production_entry_app.report.workstation_efficiency_report.workstation_efficiency_report import (
 			execute,
@@ -464,6 +492,35 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(int(rows[0]["entries"]), 1)
 		self.assertEqual(float(rows[0]["actual_spm"]), 2.0)
 		self.assertEqual(float(rows[0]["workstation_efficiency_pct"]), 100.0)
+
+	def test_workstation_efficiency_report_subtracts_setup_and_loss_time(self) -> None:
+		from production_entry_app.production_entry_app.report.workstation_efficiency_report.workstation_efficiency_report import (
+			execute,
+		)
+
+		self._create_shift_for_label("2026-06-15", "1")
+		frappe.db.set_value("Workstation", "Report Workstation", "custom_standard_spm", 3)
+		self._create_mock_submitted_entry(
+			posting_date="2026-06-15",
+			planned_start="2026-06-15 08:00:00",
+			planned_end="2026-06-15 09:00:00",
+			actual_start="2026-06-15 08:00:00",
+			actual_end="2026-06-15 09:00:00",
+			fg_qty=90,
+			rejection_qty=0,
+			standard_spm=3,
+			unplanned_losses=[
+				{"downtime_reason": "Setup Time", "start_time": "08:00:00", "end_time": "08:20:00"},
+				{"downtime_reason": "Maint", "start_time": "08:20:00", "end_time": "08:30:00"},
+			],
+		)
+
+		_, rows = execute({"from_date": "2026-06-15", "to_date": "2026-06-15"})
+		self.assertEqual(len(rows), 1)
+		# 90 strokes over 30 minutes production time => 3 SPM, standard=3 => 100% efficiency.
+		self.assertAlmostEqual(float(rows[0]["actual_spm"]), 3.0, places=3)
+		self.assertAlmostEqual(float(rows[0]["standard_spm"]), 3.0, places=3)
+		self.assertAlmostEqual(float(rows[0]["workstation_efficiency_pct"]), 100.0, places=2)
 
 	def test_efficiency_oee_and_daily_reports_include_rework_values(self) -> None:
 		from production_entry_app.production_entry_app.report.daily_strokes_spm_monitor.daily_strokes_spm_monitor import (
@@ -1451,7 +1508,8 @@ class TestProductionReports(FrappeTestCase):
 		shift = self._create_shift_for_label("2080-05-10", "1")
 		# actual_duration = 60 mins = 1 hour; fg_qty=100, rejection_qty=10
 		# After rejection hook: FG row=90, rejection row=10 → good_qty_map=90
-		# total_strokes = 90 + 10 = 100; SPM = 100 / (1 * 60) ~= 1.667
+		# total_strokes = 90 + 10 = 100; production_time = 1 - 0.5 - 0.25 = 0.25 h
+		# SPM = 100 / (0.25 * 60) ~= 6.667
 		self._create_mock_submitted_entry(
 			posting_date="2080-05-10",
 			planned_start="2080-05-10 08:00:00",
@@ -1486,12 +1544,12 @@ class TestProductionReports(FrappeTestCase):
 		self.assertAlmostEqual(float(data_row["setup_time_hrs"]), 0.5, places=2)
 		# loss = 15 mins = 0.25 hrs
 		self.assertAlmostEqual(float(data_row["loss_time_hrs"]), 0.25, places=2)
-		# prod_time = custom_actual_duration_mins / 60 = 60/60 = 1.0
-		self.assertAlmostEqual(float(data_row["prod_time_hrs"]), 1.0, places=2)
+		# prod_time = (60 - 30 - 15) / 60 = 0.25
+		self.assertAlmostEqual(float(data_row["prod_time_hrs"]), 0.25, places=2)
 		# total_strokes = good_qty(90) + rejection(10) = 100
 		self.assertAlmostEqual(float(data_row["total_strokes"]), 100.0, places=2)
-		# SPM = 100 / (1.0 * 60) ~= 1.667
-		self.assertAlmostEqual(float(data_row["spm"]), 1.667, places=2)
+		# SPM = 100 / (0.25 * 60) ~= 6.667
+		self.assertAlmostEqual(float(data_row["spm"]), 6.667, places=2)
 		self.assertAlmostEqual(float(data_row["rejection"]), 10.0, places=2)
 		self.assertAlmostEqual(float(data_row["rework"]), 0.0, places=2)
 
@@ -1736,6 +1794,41 @@ class TestProductionReports(FrappeTestCase):
 			{"Report Workstation", "Report Workstation 2"},
 		)
 		self.assertTrue(all(float(row["working_hours"]) == 8.0 for row in rows))
+
+	def test_operator_daily_spm_report_sums_non_contiguous_entry_durations(self) -> None:
+		from production_entry_app.production_entry_app.report.operator_daily_spm_report.operator_daily_spm_report import (
+			execute,
+		)
+
+		shift = self._create_shift_for_label("2026-08-04", "1")
+		self._create_mock_submitted_entry(
+			posting_date="2026-08-04",
+			planned_start="2026-08-04 08:00:00",
+			planned_end="2026-08-04 09:00:00",
+			actual_start="2026-08-04 08:00:00",
+			actual_end="2026-08-04 09:00:00",
+			fg_qty=100,
+			rejection_qty=0,
+			shift_name=shift.name,
+		)
+		self._create_mock_submitted_entry(
+			posting_date="2026-08-04",
+			planned_start="2026-08-04 16:00:00",
+			planned_end="2026-08-04 17:00:00",
+			actual_start="2026-08-04 16:00:00",
+			actual_end="2026-08-04 17:00:00",
+			fg_qty=100,
+			rejection_qty=0,
+			shift_name=shift.name,
+		)
+
+		_, rows = execute({"from_date": "2026-08-04", "to_date": "2026-08-04"})
+		self.assertEqual(len(rows), 1)
+		row = rows[0]
+		# 1h + 1h actual runtime; must not include idle gap (09:00-16:00).
+		self.assertAlmostEqual(float(row["production_time_hrs"]), 2.0, places=3)
+		self.assertAlmostEqual(float(row["total_strokes"]), 200.0, places=3)
+		self.assertAlmostEqual(float(row["spm"]), 1.667, places=3)
 
 	def _create_mock_submitted_entry(
 		self,

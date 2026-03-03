@@ -494,8 +494,9 @@ test.describe("Production reports", () => {
 		await reportsPage.clickRefresh();
 		await reportsPage.waitForRows(1);
 		const operatorRows = await reportsPage.getRows();
-		expect(operatorRows.some((row) => row.operator === ctx.operator)).toBeTruthy();
-		expect(Number(operatorRows[0].rework_qty || 0)).toBeGreaterThan(0);
+		const operatorRow = operatorRows.find((row) => row.operator === ctx.operator);
+		expect(operatorRow).toBeTruthy();
+		expect(Number(operatorRow?.rework_qty || 0)).toBeGreaterThan(0);
 
 		await reportsPage.open("Item BOM Rework Hotspots");
 		await reportsPage.runWithDateRange(ctx.shift_date, ctx.shift_date);

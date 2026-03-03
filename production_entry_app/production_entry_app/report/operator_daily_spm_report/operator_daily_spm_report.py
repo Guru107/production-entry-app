@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import datetime
-
 import frappe
 from frappe import _
-from frappe.utils import flt, get_datetime, get_time
+from frappe.utils import flt, get_time
 
 from production_entry_app.production_entry_app.report.report_utils import (
 	build_stock_entry_filters,
@@ -87,13 +85,6 @@ def _get_shift_duration_map(shift_names: set[str]) -> dict[str, float]:
 	return {row.get("name"): flt(row.get("shift_duration") or 0, 3) for row in rows if row.get("name")}
 
 
-def _as_datetime(value) -> datetime.datetime | None:
-	if not value:
-		return None
-	dt = get_datetime(value)
-	return dt if isinstance(dt, datetime.datetime) else None
-
-
 def _get_rows(filters: dict) -> list[dict]:
 	entries = frappe.get_all(
 		"Stock Entry",
@@ -157,8 +148,7 @@ def _get_rows(filters: dict) -> list[dict]:
 				"setting_time_hrs": 0.0,
 				"loss_time_hrs": 0.0,
 				"total_strokes": 0.0,
-				"min_actual_start": None,
-				"max_actual_end": None,
+				"base_prod_mins": 0.0,
 			},
 		)
 
@@ -180,12 +170,10 @@ def _get_rows(filters: dict) -> list[dict]:
 			total_strokes = flt(good_qty_map.get(entry_name) or 0, 3) + rejection_qty
 		agg["total_strokes"] += flt(total_strokes, 3)
 
-		start_dt = _as_datetime(entry.get("custom_actual_start_date"))
-		end_dt = _as_datetime(entry.get("custom_actual_end_date"))
-		if start_dt and (not agg["min_actual_start"] or start_dt < agg["min_actual_start"]):
-			agg["min_actual_start"] = start_dt
-		if end_dt and (not agg["max_actual_end"] or end_dt > agg["max_actual_end"]):
-			agg["max_actual_end"] = end_dt
+		agg["base_prod_mins"] += get_duration_minutes(
+			entry.get("custom_actual_start_date"),
+			entry.get("custom_actual_end_date"),
+		)
 
 	rows: list[dict] = []
 	for key in sorted(aggregates.keys()):
@@ -194,7 +182,7 @@ def _get_rows(filters: dict) -> list[dict]:
 			sum(shift_duration_map.get(shift_name, 0) for shift_name in agg["shift_names"]),
 			3,
 		)
-		base_prod_mins = get_duration_minutes(agg["min_actual_start"], agg["max_actual_end"])
+		base_prod_mins = flt(agg["base_prod_mins"], 3)
 		setting_time_hrs = flt(agg["setting_time_hrs"], 3)
 		loss_time_hrs = flt(agg["loss_time_hrs"], 3)
 		production_time_hrs = flt(max((base_prod_mins / 60) - setting_time_hrs - loss_time_hrs, 0), 3)

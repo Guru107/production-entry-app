@@ -4,15 +4,14 @@ import calendar
 
 import frappe
 from frappe import _
-from frappe.utils import flt, get_time, getdate
+from frappe.utils import flt, getdate
 
 from production_entry_app.production_entry_app.report.report_utils import (
 	build_stock_entry_filters,
 	get_entry_qty_maps,
+	get_loss_time_maps,
 	get_rework_qty_map,
 )
-
-SETUP_TIME_REASON: str = "Setup Time"
 
 MONTH_OPTIONS: tuple[str, ...] = (
 	"April",
@@ -137,19 +136,6 @@ def _get_date_range(filters: dict) -> tuple[str, str]:
 	return from_date, to_date
 
 
-def _get_loss_duration_hours(start_time, end_time) -> float:
-	if not start_time or not end_time:
-		return 0.0
-	start = get_time(start_time)
-	end = get_time(end_time)
-	start_mins = (start.hour * 60) + start.minute + (start.second / 60)
-	end_mins = (end.hour * 60) + end.minute + (end.second / 60)
-	duration_mins = end_mins - start_mins
-	if duration_mins < 0:
-		duration_mins += 24 * 60
-	return flt(duration_mins / 60, 3) if duration_mins > 0 else 0.0
-
-
 def _get_rows(filters: dict) -> list[dict]:
 	from_date, to_date = _get_date_range(filters)
 	filters["from_date"] = from_date
@@ -179,28 +165,7 @@ def _get_rows(filters: dict) -> list[dict]:
 	# Fallback qty maps for entries without fg_completed_qty / custom_rejection_qty
 	good_qty_map, rejection_qty_map, _ = get_entry_qty_maps(entry_names)
 	rework_qty_map = get_rework_qty_map(entry_names)
-
-	# Fetch loss entries from Stock Entry unplanned losses only
-	loss_rows = frappe.get_all(
-		"Loss Entry",
-		filters={"parenttype": "Stock Entry", "parent": ["in", entry_names]},
-		fields=["parent", "downtime_reason", "start_time", "end_time"],
-	)
-
-	# Build loss maps keyed by SE name
-	setup_time_map: dict[str, float] = {}
-	loss_time_map: dict[str, float] = {}
-	for row in loss_rows:
-		parent = row.get("parent")
-		if not parent:
-			continue
-		hours = _get_loss_duration_hours(row.get("start_time"), row.get("end_time"))
-		if hours <= 0:
-			continue
-		if row.get("downtime_reason") == SETUP_TIME_REASON:
-			setup_time_map[parent] = flt(setup_time_map.get(parent, 0) + hours, 3)
-		else:
-			loss_time_map[parent] = flt(loss_time_map.get(parent, 0) + hours, 3)
+	setup_time_map, loss_time_map = get_loss_time_maps(entry_names)
 
 	# Aggregate by group key
 	aggregates: dict[tuple, dict] = {}
@@ -225,6 +190,10 @@ def _get_rows(filters: dict) -> list[dict]:
 
 		agg = aggregates[group_key]
 		entry_name = entry.get("name")
+		setup_mins = flt(setup_time_map.get(entry_name, 0), 3)
+		loss_mins = flt(loss_time_map.get(entry_name, 0), 3)
+		setup_hrs = flt(setup_mins / 60, 3)
+		loss_hrs = flt(loss_mins / 60, 3)
 		rejection_qty = flt(entry.get("custom_rejection_qty") or 0, 3)
 		if rejection_qty <= 0 and entry_name:
 			rejection_qty = flt(rejection_qty_map.get(entry_name) or 0, 3)
@@ -242,11 +211,12 @@ def _get_rows(filters: dict) -> list[dict]:
 		else:
 			total_strokes = rejection_qty
 		duration_mins = flt(entry.get("custom_actual_duration_mins") or 0, 3)
-		prod_time_hrs = flt(duration_mins / 60, 3) if duration_mins > 0 else 0.0
+		production_time_mins = flt(max(duration_mins - setup_mins - loss_mins, 0), 3)
+		production_time_hrs = flt(production_time_mins / 60, 3) if production_time_mins > 0 else 0.0
 
-		agg["setup_time_hrs"] += flt(setup_time_map.get(entry_name, 0), 3)
-		agg["loss_time_hrs"] += flt(loss_time_map.get(entry_name, 0), 3)
-		agg["prod_time_hrs"] += prod_time_hrs
+		agg["setup_time_hrs"] += setup_hrs
+		agg["loss_time_hrs"] += loss_hrs
+		agg["prod_time_hrs"] += production_time_hrs
 		agg["total_strokes"] += total_strokes
 		agg["rejection"] += rejection_qty
 		agg["rework"] += rework_qty

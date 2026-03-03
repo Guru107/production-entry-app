@@ -18,6 +18,7 @@ from production_entry_app.production_entry_app.utils.shift_time import get_shift
 _DEFAULT_START_BUFFER_MINS: int = 60
 _DEFAULT_END_BUFFER_MINS: int = 60
 _MAX_BUFFER_MINS: int = 480
+SETUP_TIME_REASON: str = "Setup Time"
 
 
 def validate_stock_entry(doc, method: str | None = None) -> None:
@@ -488,9 +489,15 @@ def _set_entry_metrics(doc) -> None:
 		_set_if_field(doc, meta, "custom_operator_efficiency_pct", None)
 		return
 
-	ok_units = _get_ok_units_for_metrics(doc)
-	actual_spm = (ok_units / duration_mins) if ok_units > 0 else 0
-	cycle_time_sec = ((duration_mins * 60) / ok_units) if ok_units > 0 else 0
+	setup_mins, loss_mins = _get_loss_times_for_entry(doc)
+	production_time_mins = max(duration_mins - setup_mins - loss_mins, 0)
+	total_strokes = max(flt(doc.get("fg_completed_qty") or 0), 0)
+	actual_spm = (
+		(total_strokes / production_time_mins) if production_time_mins > 0 and total_strokes > 0 else 0
+	)
+	cycle_time_sec = (
+		(production_time_mins * 60) / total_strokes if production_time_mins > 0 and total_strokes > 0 else 0
+	)
 	standard_spm = flt(doc.get("custom_standard_spm") or 0)
 	operator_efficiency = ((actual_spm / standard_spm) * 100) if standard_spm > 0 else 0
 
@@ -498,6 +505,31 @@ def _set_entry_metrics(doc) -> None:
 	_set_if_field(doc, meta, "custom_actual_spm", flt(actual_spm, 3))
 	_set_if_field(doc, meta, "custom_cycle_time_sec", flt(cycle_time_sec, 3))
 	_set_if_field(doc, meta, "custom_operator_efficiency_pct", flt(operator_efficiency, 2))
+
+
+def _get_loss_times_for_entry(doc) -> tuple[float, float]:
+	"""Return setup and non-setup loss durations in minutes from unplanned losses."""
+	setup_mins = 0.0
+	loss_mins = 0.0
+	for row in doc.get("custom_unplanned_losses") or []:
+		start_value = row.get("start_time")
+		end_value = row.get("end_time")
+		if not start_value or not end_value:
+			continue
+		start_time = get_time(start_value)
+		end_time = get_time(end_value)
+		start_mins = (start_time.hour * 60) + start_time.minute + (start_time.second / 60)
+		end_mins = (end_time.hour * 60) + end_time.minute + (end_time.second / 60)
+		duration_mins = end_mins - start_mins
+		if duration_mins < 0:
+			duration_mins += 24 * 60
+		if duration_mins <= 0:
+			continue
+		if row.get("downtime_reason") == SETUP_TIME_REASON:
+			setup_mins += duration_mins
+		else:
+			loss_mins += duration_mins
+	return flt(setup_mins, 3), flt(loss_mins, 3)
 
 
 def _get_ok_units_for_metrics(doc) -> float:

@@ -10,6 +10,7 @@ from production_entry_app.production_entry_app.report.report_utils import (
 	build_stock_entry_filters,
 	get_duration_minutes,
 	get_entry_qty_maps,
+	get_loss_time_maps,
 	get_rework_qty_map,
 )
 
@@ -66,6 +67,7 @@ def _get_rows(filters: dict) -> list[dict]:
 	entry_names = [entry.get("name") for entry in entries if entry.get("name")]
 	good_qty_map, rejection_qty_map, _ = get_entry_qty_maps(entry_names)
 	rework_qty_map = get_rework_qty_map(entry_names)
+	setup_time_map, loss_time_map = get_loss_time_maps(entry_names)
 
 	for entry in entries:
 		good_qty = flt(entry.get("fg_completed_qty") or 0, 3)
@@ -82,10 +84,14 @@ def _get_rows(filters: dict) -> list[dict]:
 			duration_mins = get_duration_minutes(
 				entry.get("custom_actual_start_date"), entry.get("custom_actual_end_date")
 			)
+		setup_mins = flt(setup_time_map.get(entry.get("name"), 0), 3)
+		loss_mins = flt(loss_time_map.get(entry.get("name"), 0), 3)
+		production_time_mins = flt(max(duration_mins - setup_mins - loss_mins, 0), 3)
 		entry["_good_qty"] = good_qty
 		entry["_rejection_qty"] = rejection_qty
 		entry["_rework_qty"] = rework_qty
 		entry["_duration_mins"] = duration_mins
+		entry["_production_time_mins"] = production_time_mins
 
 	aggregates = aggregate_efficiency_by_field(entries, "custom_workstation")
 	return build_efficiency_rows(
