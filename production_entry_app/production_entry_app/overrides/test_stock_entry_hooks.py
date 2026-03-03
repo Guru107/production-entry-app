@@ -22,7 +22,7 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 
 def _ensure_downtime_reasons() -> None:
 	"""Ensure Tea Break and Lunch Break Downtime Reasons exist."""
-	for name in ("Tea Break", "Lunch Break"):
+	for name in ("Tea Break", "Lunch Break", "Setup Time", "Maint"):
 		if not frappe.db.exists("Downtime Reason", name):
 			frappe.get_doc({"doctype": "Downtime Reason", "downtime_reason_name": name}).insert()
 
@@ -904,19 +904,83 @@ class TestStockEntryHooks(FrappeTestCase):
 			float(se.get("fg_completed_qty") or 0) - float(se.get("custom_rejection_qty") or 0),
 			0,
 		)
+		total_strokes = float(se.get("fg_completed_qty") or 0)
 		self.assertEqual(float(se.custom_ok_qty), expected_ok_qty)
 		self.assertEqual(float(se.custom_actual_duration_mins), 100.0)
 		self.assertAlmostEqual(
 			float(se.custom_actual_spm),
-			float(expected_ok_qty / 100.0 if expected_ok_qty > 0 else 0),
+			float(total_strokes / 100.0 if total_strokes > 0 else 0),
 			places=3,
 		)
 		self.assertAlmostEqual(
 			float(se.custom_cycle_time_sec),
-			float((6000.0 / expected_ok_qty) if expected_ok_qty > 0 else 0),
+			float((6000.0 / total_strokes) if total_strokes > 0 else 0),
 			places=3,
 		)
-		self.assertAlmostEqual(float(se.custom_operator_efficiency_pct), float(expected_ok_qty), places=2)
+		self.assertAlmostEqual(float(se.custom_operator_efficiency_pct), float(total_strokes), places=2)
+
+	def test_metrics_use_production_time_after_setup_and_loss(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-04-16",
+			wip_warehouse=self.wip_warehouse,
+			rejection_warehouse=self.rejection_warehouse,
+		)
+
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			fg_qty=120,
+			custom_shift=shift.name,
+			custom_rejection_qty=20,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		se.custom_standard_spm = 2
+		se.custom_actual_start_date = "2026-04-16 08:00:00"
+		se.custom_actual_end_date = "2026-04-16 09:00:00"
+		_append_rejection_breakup_rows(
+			se,
+			[
+				{"rejection_reason": "Burr", "qty": 12, "remark": "Edge burr"},
+				{"rejection_reason": "Crack", "qty": 8, "remark": "Surface crack"},
+			],
+		)
+		se.append(
+			"custom_unplanned_losses",
+			{
+				"downtime_reason": "Setup Time",
+				"start_time": "08:00:00",
+				"end_time": "08:20:00",
+				"remark": "setup",
+				"shift": shift.name,
+			},
+		)
+		se.append(
+			"custom_unplanned_losses",
+			{
+				"downtime_reason": "Maint",
+				"start_time": "08:20:00",
+				"end_time": "08:30:00",
+				"remark": "maint",
+				"shift": shift.name,
+			},
+		)
+
+		se.save()
+
+		# Wall-clock duration remains 60 mins, but production time is 30 mins after losses.
+		total_strokes = float(se.get("fg_completed_qty") or 0)
+		ok_qty = max(total_strokes - float(se.get("custom_rejection_qty") or 0), 0)
+		expected_spm = (total_strokes / 30.0) if total_strokes > 0 else 0.0
+		expected_cycle_time = (1800.0 / total_strokes) if total_strokes > 0 else 0.0
+		self.assertEqual(float(se.custom_actual_duration_mins), 60.0)
+		self.assertEqual(float(se.custom_ok_qty), ok_qty)
+		self.assertAlmostEqual(float(se.custom_actual_spm), expected_spm, places=3)
+		self.assertAlmostEqual(float(se.custom_cycle_time_sec), expected_cycle_time, places=3)
+		self.assertAlmostEqual(float(se.custom_operator_efficiency_pct), float(expected_spm * 50.0), places=2)
+		if total_strokes != ok_qty and ok_qty > 0:
+			self.assertNotAlmostEqual(float(se.custom_actual_spm), float(ok_qty / 30.0), places=3)
 
 	def test_metrics_remain_empty_when_actual_times_missing(self) -> None:
 		shift = _create_test_shift(

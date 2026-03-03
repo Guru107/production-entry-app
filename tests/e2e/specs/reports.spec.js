@@ -169,6 +169,35 @@ test.describe("Production reports", () => {
 		expect(rows.some((row) => row.operator === ctx.operator)).toBeTruthy();
 	});
 
+	test("@regression Operator Daily SPM report loads grouped operator-workstation rows", async ({
+		page,
+	}) => {
+		await page.goto("/app/home");
+		const prefix = lifecycle.getPrefix();
+		const ctx = await setupFreshContext(page, prefix);
+		await createSubmittedStockEntryForReports(page, ctx, 0, [
+			{ downtime_reason: "Setup Time", start_time: "08:00:00", end_time: "08:30:00" },
+		]);
+
+		const reportsPage = new ReportsPage(page);
+		await reportsPage.open("Operator Daily SPM Report");
+		await reportsPage.runWithDateRange(ctx.shift_date, ctx.shift_date);
+		await reportsPage.setFilterByFieldname("custom_operator", ctx.operator);
+		await reportsPage.setFilterByFieldname("custom_workstation", ctx.workstation);
+		await reportsPage.setFilterByFieldname("custom_shift", ctx.shift_name);
+		await reportsPage.clickRefresh();
+		await reportsPage.waitForRows(1);
+
+		const rows = await reportsPage.getRows();
+		const row = rows.find(
+			(item) => item.operator === ctx.operator && item.workstation === ctx.workstation
+		);
+		expect(Boolean(row)).toBeTruthy();
+		expect(Number(row.total_strokes || 0)).toBeGreaterThan(0);
+		expect(Number(row.working_hours || 0)).toBeGreaterThan(0);
+		expect(Number(row.spm || 0)).toBeGreaterThan(0);
+	});
+
 	test("@regression Workstation report honors workstation and shift filters", async ({
 		page,
 	}) => {
@@ -465,8 +494,9 @@ test.describe("Production reports", () => {
 		await reportsPage.clickRefresh();
 		await reportsPage.waitForRows(1);
 		const operatorRows = await reportsPage.getRows();
-		expect(operatorRows.some((row) => row.operator === ctx.operator)).toBeTruthy();
-		expect(Number(operatorRows[0].rework_qty || 0)).toBeGreaterThan(0);
+		const operatorRow = operatorRows.find((row) => row.operator === ctx.operator);
+		expect(operatorRow).toBeTruthy();
+		expect(Number(operatorRow?.rework_qty || 0)).toBeGreaterThan(0);
 
 		await reportsPage.open("Item BOM Rework Hotspots");
 		await reportsPage.runWithDateRange(ctx.shift_date, ctx.shift_date);
@@ -491,6 +521,7 @@ test.describe("Production reports", () => {
 		for (const reportName of [
 			"Production OEE Report",
 			"Operator Efficiency Report",
+			"Operator Daily SPM Report",
 			"Workstation Efficiency Report",
 			"Rejection Pareto Report",
 			"Rejection Trend Report",
