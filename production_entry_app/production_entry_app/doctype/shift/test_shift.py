@@ -1348,7 +1348,7 @@ class TestShiftMetrics(FrappeTestCase):
 	def test_avg_spm_is_zero_when_duration_is_zero(self) -> None:
 		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_metrics
 
-		shift = self._create_shift("2026-09-09")
+		shift = self._create_shift("2026-09-21")
 		self._create_submitted_like_entry(shift.name, good_qty=60, rejection_qty=10, duration_mins=0)
 		metrics = get_shift_metrics(shift.name)
 		self.assertEqual(float(metrics["total_ok_qty"]), 50.0)
