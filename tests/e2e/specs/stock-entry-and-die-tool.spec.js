@@ -25,6 +25,7 @@ test.describe("Stock Entry integration", () => {
 
 		expect(stockEntry.docstatus).toBe(1);
 		expect(Number(stockEntry.custom_actual_duration_mins)).toBeGreaterThan(0);
+		expect(Number(stockEntry.custom_production_time_mins)).toBeGreaterThan(0);
 		expect(Number(stockEntry.custom_actual_spm)).toBeGreaterThan(0);
 		expect(Number(stockEntry.custom_operator_efficiency_pct)).toBeGreaterThan(0);
 

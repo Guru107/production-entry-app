@@ -9,12 +9,14 @@ from frappe.tests.utils import FrappeTestCase
 from production_entry_app.production_entry_app.api import (
 	_assert_e2e_api_allowed,
 	_build_e2e_shift_doc,
+	_cleanup_orphan_stock_entry_loss_links,
 	_e2e_base_date,
 	_get_or_create_e2e_shift,
 	_stock_entry_matches_cleanup_target,
 	bootstrap_e2e_context,
 	cleanup_e2e_context,
 	create_e2e_submitted_stock_entry,
+	delete,
 )
 
 
@@ -105,6 +107,47 @@ class TestE2EApi(FrappeTestCase):
 				no_match, target_operator="E2E Operator", target_fg_item="_E2E_FG_Item"
 			)
 		)
+
+	def test_cleanup_orphan_stock_entry_loss_links_deletes_only_orphans(self) -> None:
+		with patch(
+			"production_entry_app.production_entry_app.api.frappe.get_all",
+			side_effect=[
+				[
+					{"name": "LOSS-001", "parent": "MAT-STE-MISSING"},
+					{"name": "LOSS-002", "parent": "MAT-STE-EXISTS"},
+				],
+				["MAT-STE-EXISTS"],
+			],
+		):
+			with patch("production_entry_app.production_entry_app.api.frappe.db.delete") as db_delete:
+				_cleanup_orphan_stock_entry_loss_links("SHIFT-2026-02-22.Shift-1")
+		db_delete.assert_called_once_with("Loss Entry", {"name": ("in", ["LOSS-001"])})
+
+	def test_delete_wrapper_cleans_shift_orphans_before_delete(self) -> None:
+		with patch(
+			"production_entry_app.production_entry_app.api._cleanup_orphan_stock_entry_loss_links"
+		) as cleanup:
+			with patch(
+				"production_entry_app.production_entry_app.api.frappe_client_delete_doc"
+			) as delete_doc:
+				delete("Shift", "SHIFT-2026-02-22.Shift-1")
+		cleanup.assert_called_once_with("SHIFT-2026-02-22.Shift-1")
+		delete_doc.assert_called_once_with("Shift", "SHIFT-2026-02-22.Shift-1")
+
+	def test_delete_wrapper_does_not_cleanup_non_shift_doctypes(self) -> None:
+		with patch(
+			"production_entry_app.production_entry_app.api._cleanup_orphan_stock_entry_loss_links"
+		) as cleanup:
+			with patch(
+				"production_entry_app.production_entry_app.api.frappe_client_delete_doc"
+			) as delete_doc:
+				delete("Stock Entry", "MAT-STE-2026-00001")
+		cleanup.assert_not_called()
+		delete_doc.assert_called_once_with("Stock Entry", "MAT-STE-2026-00001")
+
+	def test_delete_wrapper_http_methods_match_frappe_client_delete(self) -> None:
+		allowed_methods = frappe.allowed_http_methods_for_whitelisted_func.get(delete, [])
+		self.assertEqual(set(allowed_methods), {"DELETE", "POST"})
 
 	def test_e2e_base_date_is_deterministic(self) -> None:
 		date_a = _e2e_base_date("StablePrefix")

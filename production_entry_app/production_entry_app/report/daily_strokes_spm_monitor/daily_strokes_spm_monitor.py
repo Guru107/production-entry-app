@@ -153,6 +153,7 @@ def _get_rows(filters: dict) -> list[dict]:
 			"custom_rejection_qty",
 			"custom_rework_qty",
 			"custom_actual_duration_mins",
+			"custom_production_time_mins",
 		],
 		order_by="posting_date asc",
 	)
@@ -211,7 +212,11 @@ def _get_rows(filters: dict) -> list[dict]:
 		else:
 			total_strokes = rejection_qty
 		duration_mins = flt(entry.get("custom_actual_duration_mins") or 0, 3)
-		production_time_mins = flt(max(duration_mins - setup_mins - loss_mins, 0), 3)
+		production_time_value = entry.get("custom_production_time_mins")
+		if production_time_value is not None:
+			production_time_mins = flt(max(production_time_value, 0), 3)
+		else:
+			production_time_mins = flt(max(duration_mins - setup_mins - loss_mins, 0), 3)
 		production_time_hrs = flt(production_time_mins / 60, 3) if production_time_mins > 0 else 0.0
 
 		agg["setup_time_hrs"] += setup_hrs

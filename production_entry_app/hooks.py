@@ -149,6 +149,7 @@ doc_events = {
 		"validate": "production_entry_app.production_entry_app.overrides.stock_entry_hooks.validate_stock_entry",
 		"on_submit": "production_entry_app.production_entry_app.overrides.stock_entry_hooks.on_submit_stock_entry",
 		"on_cancel": "production_entry_app.production_entry_app.overrides.stock_entry_hooks.on_cancel_stock_entry",
+		"on_trash": "production_entry_app.production_entry_app.overrides.stock_entry_hooks.on_trash_stock_entry",
 	}
 }
 
@@ -168,9 +169,9 @@ before_tests = "production_entry_app.production_entry_app.utils.test_setup.befor
 # Overriding Methods
 # ------------------------------
 #
-# override_whitelisted_methods = {
-# 	"frappe.desk.doctype.event.event.get_events": "production_entry_app.event.get_events"
-# }
+override_whitelisted_methods = {
+	"frappe.client.delete": "production_entry_app.production_entry_app.api.delete",
+}
 #
 # each overriding function accepts a `data` argument;
 # generated from the base implementation of the doctype dashboard,

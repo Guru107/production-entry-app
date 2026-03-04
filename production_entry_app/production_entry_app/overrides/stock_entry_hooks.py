@@ -14,10 +14,15 @@ from production_entry_app.production_entry_app.utils.die_tool_counter import (
 	update_counter_for_stock_entry,
 )
 from production_entry_app.production_entry_app.utils.loss_time import (
-	SETUP_TIME_REASON,
-	get_loss_duration_minutes,
+	get_interval_minutes,
+	get_interval_overlap,
+	merge_intervals,
+	resolve_time_interval_in_window,
 )
-from production_entry_app.production_entry_app.utils.shift_time import get_shift_planned_end_datetime
+from production_entry_app.production_entry_app.utils.shift_time import (
+	combine_date_time,
+	get_shift_planned_end_datetime,
+)
 
 _DEFAULT_START_BUFFER_MINS: int = 60
 _DEFAULT_END_BUFFER_MINS: int = 60
@@ -53,6 +58,17 @@ def on_submit_stock_entry(doc, method: str | None = None) -> None:
 def on_cancel_stock_entry(doc, method: str | None = None) -> None:
 	update_counter_for_stock_entry(doc, direction=-1)
 	_invalidate_shift_metrics_cache(doc)
+
+
+def on_trash_stock_entry(doc, method: str | None = None) -> None:
+	"""Defensively delete Stock Entry loss rows in case table cleanup misses them."""
+	frappe.db.delete(
+		"Loss Entry",
+		{
+			"parenttype": "Stock Entry",
+			"parent": doc.name,
+		},
+	)
 
 
 def _invalidate_shift_metrics_cache(doc) -> None:
@@ -479,6 +495,7 @@ def _set_entry_metrics(doc) -> None:
 
 	if not actual_start or not actual_end:
 		_set_if_field(doc, meta, "custom_actual_duration_mins", None)
+		_set_if_field(doc, meta, "custom_production_time_mins", None)
 		_set_if_field(doc, meta, "custom_actual_spm", None)
 		_set_if_field(doc, meta, "custom_cycle_time_sec", None)
 		_set_if_field(doc, meta, "custom_operator_efficiency_pct", None)
@@ -487,13 +504,14 @@ def _set_entry_metrics(doc) -> None:
 	duration_mins = (actual_end - actual_start).total_seconds() / 60
 	if duration_mins <= 0:
 		_set_if_field(doc, meta, "custom_actual_duration_mins", None)
+		_set_if_field(doc, meta, "custom_production_time_mins", None)
 		_set_if_field(doc, meta, "custom_actual_spm", None)
 		_set_if_field(doc, meta, "custom_cycle_time_sec", None)
 		_set_if_field(doc, meta, "custom_operator_efficiency_pct", None)
 		return
 
-	setup_mins, loss_mins = _get_loss_times_for_entry(doc)
-	production_time_mins = max(duration_mins - setup_mins - loss_mins, 0)
+	deducted_loss_mins = _get_deducted_loss_minutes_for_entry(doc, actual_start, actual_end)
+	production_time_mins = max(duration_mins - deducted_loss_mins, 0)
 	total_strokes = max(flt(doc.get("fg_completed_qty") or 0), 0)
 	actual_spm = (
 		(total_strokes / production_time_mins) if production_time_mins > 0 and total_strokes > 0 else 0
@@ -505,28 +523,92 @@ def _set_entry_metrics(doc) -> None:
 	operator_efficiency = ((actual_spm / standard_spm) * 100) if standard_spm > 0 else 0
 
 	_set_if_field(doc, meta, "custom_actual_duration_mins", flt(duration_mins, 3))
+	_set_if_field(doc, meta, "custom_production_time_mins", flt(production_time_mins, 3))
 	_set_if_field(doc, meta, "custom_actual_spm", flt(actual_spm, 3))
 	_set_if_field(doc, meta, "custom_cycle_time_sec", flt(cycle_time_sec, 3))
 	_set_if_field(doc, meta, "custom_operator_efficiency_pct", flt(operator_efficiency, 2))
 
 
-def _get_loss_times_for_entry(doc) -> tuple[float, float]:
-	"""Return setup and non-setup loss durations in minutes from unplanned losses."""
-	setup_mins = 0.0
-	loss_mins = 0.0
+def _get_deducted_loss_minutes_for_entry(
+	doc,
+	actual_start: datetime.datetime,
+	actual_end: datetime.datetime,
+) -> float:
+	"""Return total deduplicated loss minutes that overlap the actual entry window."""
+	overlap_intervals: list[tuple[datetime.datetime, datetime.datetime]] = []
+
 	for row in doc.get("custom_unplanned_losses") or []:
-		start_value = row.get("start_time")
-		end_value = row.get("end_time")
-		if not start_value or not end_value:
+		interval = resolve_time_interval_in_window(
+			row.get("start_time"),
+			row.get("end_time"),
+			actual_start,
+			actual_end,
+		)
+		if not interval:
 			continue
-		duration_mins = get_loss_duration_minutes(start_value, end_value)
-		if duration_mins <= 0:
-			continue
-		if row.get("downtime_reason") == SETUP_TIME_REASON:
-			setup_mins += duration_mins
-		else:
-			loss_mins += duration_mins
-	return flt(setup_mins, 3), flt(loss_mins, 3)
+		overlap = get_interval_overlap(interval[0], interval[1], actual_start, actual_end)
+		if overlap:
+			overlap_intervals.append(overlap)
+
+	planned_rows, shift_start, shift_end = _get_shift_planned_losses_for_metrics(doc)
+	if planned_rows and shift_start and shift_end:
+		for row in planned_rows:
+			interval = resolve_time_interval_in_window(
+				row.get("start_time"),
+				row.get("end_time"),
+				shift_start,
+				shift_end,
+			)
+			if not interval:
+				continue
+			overlap = get_interval_overlap(interval[0], interval[1], actual_start, actual_end)
+			if overlap:
+				overlap_intervals.append(overlap)
+
+	if not overlap_intervals:
+		return 0.0
+
+	merged_intervals = merge_intervals(overlap_intervals)
+	total_mins = sum(get_interval_minutes(start_dt, end_dt) for start_dt, end_dt in merged_intervals)
+	return flt(total_mins, 3)
+
+
+def _get_shift_planned_losses_for_metrics(
+	doc,
+) -> tuple[list[dict], datetime.datetime | None, datetime.datetime | None]:
+	shift_name = doc.get("custom_shift")
+	if not shift_name:
+		return [], None, None
+	shift = frappe.db.get_value(
+		"Shift",
+		shift_name,
+		["shift_date", "planned_start_time", "shift_end_date", "planned_end_time"],
+		as_dict=True,
+	)
+	if not shift:
+		return [], None, None
+	shift_date = shift.get("shift_date")
+	planned_start_time = shift.get("planned_start_time")
+	if not shift_date or not planned_start_time:
+		return [], None, None
+	shift_start = combine_date_time(shift_date, planned_start_time)
+	shift_end = get_shift_planned_end_datetime(
+		shift_date=shift_date,
+		planned_start_time=planned_start_time,
+		planned_end_time=shift.get("planned_end_time"),
+		shift_end_date=shift.get("shift_end_date"),
+		shift_duration=None,
+	)
+	if not shift_end or shift_end <= shift_start:
+		return [], None, None
+
+	planned_rows = frappe.get_all(
+		"Loss Entry",
+		filters={"parenttype": "Shift", "parent": shift_name},
+		fields=["downtime_reason", "start_time", "end_time"],
+		order_by="idx asc",
+	)
+	return planned_rows, shift_start, shift_end
 
 
 def _get_ok_units_for_metrics(doc) -> float:

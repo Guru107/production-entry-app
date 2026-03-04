@@ -219,6 +219,7 @@ def _get_stock_entry_groups(filters: dict) -> dict[tuple[str, str], dict]:
 			"custom_rework_qty",
 			"custom_standard_spm",
 			"custom_actual_duration_mins",
+			"custom_production_time_mins",
 			"custom_actual_start_date",
 			"custom_actual_end_date",
 		],
@@ -283,7 +284,11 @@ def _get_shift_label_map(entries: list[frappe._dict]) -> dict[str, str]:
 
 
 def _get_duration_hours_for_entry(entry: frappe._dict) -> float:
-	duration_mins = flt(entry.get("custom_actual_duration_mins") or 0, 3)
+	production_time_value = entry.get("custom_production_time_mins")
+	if production_time_value is not None:
+		duration_mins = flt(max(production_time_value, 0), 3)
+	else:
+		duration_mins = flt(entry.get("custom_actual_duration_mins") or 0, 3)
 	if duration_mins <= 0:
 		start = entry.get("custom_actual_start_date")
 		end = entry.get("custom_actual_end_date")

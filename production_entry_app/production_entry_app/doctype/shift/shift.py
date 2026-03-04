@@ -215,15 +215,29 @@ def get_shift_metrics(shift_name: str) -> dict:
 		return cached_metrics
 
 	stock_entry = DocType("Stock Entry")
+	has_production_time_field = frappe.get_meta("Stock Entry", cached=True).has_field(
+		"custom_production_time_mins"
+	)
+	production_time_expr = (
+		frappe.qb.terms.Case()
+		.when(stock_entry.custom_production_time_mins > 0, stock_entry.custom_production_time_mins)
+		.else_(stock_entry.custom_actual_duration_mins)
+	)
+	select_fields = [
+		Count(stock_entry.name).as_("entry_count"),
+		Sum(stock_entry.fg_completed_qty).as_("total_qty"),
+		Sum(stock_entry.custom_rejection_qty).as_("total_rejection_qty"),
+		Sum(stock_entry.custom_actual_duration_mins).as_("total_duration_mins"),
+		Avg(stock_entry.custom_operator_efficiency_pct).as_("avg_efficiency_pct"),
+	]
+	if has_production_time_field:
+		select_fields.insert(
+			3,
+			Sum(production_time_expr).as_("total_production_mins"),
+		)
 	row = (
 		frappe.qb.from_(stock_entry)
-		.select(
-			Count(stock_entry.name).as_("entry_count"),
-			Sum(stock_entry.fg_completed_qty).as_("total_qty"),
-			Sum(stock_entry.custom_rejection_qty).as_("total_rejection_qty"),
-			Sum(stock_entry.custom_actual_duration_mins).as_("total_duration_mins"),
-			Avg(stock_entry.custom_operator_efficiency_pct).as_("avg_efficiency_pct"),
-		)
+		.select(*select_fields)
 		.where(
 			(stock_entry.docstatus == 1)
 			& (stock_entry.purpose == "Manufacture")
@@ -246,7 +260,13 @@ def get_shift_metrics(shift_name: str) -> dict:
 	total_qty = flt(metrics.get("total_qty") or 0, 3)
 	total_rejection_qty = flt(metrics.get("total_rejection_qty") or 0, 3)
 	total_ok_qty = flt(total_qty - total_rejection_qty, 3)
-	total_duration_mins = flt(metrics.get("total_duration_mins") or 0, 3)
+	total_production_mins = metrics.get("total_production_mins")
+	total_duration_mins = flt(
+		total_production_mins
+		if total_production_mins is not None
+		else (metrics.get("total_duration_mins") or 0),
+		3,
+	)
 	avg_actual_spm = flt((total_ok_qty / total_duration_mins), 3) if total_duration_mins > 0 else 0
 	avg_efficiency_pct = flt(metrics.get("avg_efficiency_pct") or 0, 2)
 
@@ -273,17 +293,31 @@ def get_shift_aggregate_production_entries(shift_name: str) -> list[dict]:
 
 	stock_entry = DocType("Stock Entry")
 	bom = DocType("BOM")
+	has_production_time_field = frappe.get_meta("Stock Entry", cached=True).has_field(
+		"custom_production_time_mins"
+	)
+	production_time_expr = (
+		frappe.qb.terms.Case()
+		.when(stock_entry.custom_production_time_mins > 0, stock_entry.custom_production_time_mins)
+		.else_(stock_entry.custom_actual_duration_mins)
+	)
+	select_fields = [
+		stock_entry.bom_no.as_("bom_used"),
+		bom.item.as_("item_code"),
+		Sum(stock_entry.fg_completed_qty).as_("total_qty"),
+		Sum(stock_entry.custom_rejection_qty).as_("total_reject_qty"),
+		Sum(stock_entry.custom_actual_duration_mins).as_("total_duration_mins"),
+	]
+	if has_production_time_field:
+		select_fields.insert(
+			4,
+			Sum(production_time_expr).as_("total_production_mins"),
+		)
 	rows = (
 		frappe.qb.from_(stock_entry)
 		.inner_join(bom)
 		.on(bom.name == stock_entry.bom_no)
-		.select(
-			stock_entry.bom_no.as_("bom_used"),
-			bom.item.as_("item_code"),
-			Sum(stock_entry.fg_completed_qty).as_("total_qty"),
-			Sum(stock_entry.custom_rejection_qty).as_("total_reject_qty"),
-			Sum(stock_entry.custom_actual_duration_mins).as_("total_duration_mins"),
-		)
+		.select(*select_fields)
 		.where(
 			(stock_entry.docstatus == 1)
 			& (stock_entry.purpose == "Manufacture")
@@ -301,7 +335,13 @@ def get_shift_aggregate_production_entries(shift_name: str) -> list[dict]:
 		total_qty = flt(row.get("total_qty") or 0, 3)
 		total_reject_qty = flt(row.get("total_reject_qty") or 0, 3)
 		total_ok_qty = flt(total_qty - total_reject_qty, 3)
-		total_duration_mins = flt(row.get("total_duration_mins") or 0, 3)
+		total_production_mins = row.get("total_production_mins")
+		total_duration_mins = flt(
+			total_production_mins
+			if total_production_mins is not None
+			else (row.get("total_duration_mins") or 0),
+			3,
+		)
 		avg_spm = flt((total_ok_qty / total_duration_mins), 3) if total_duration_mins > 0 else 0
 		result.append(
 			{

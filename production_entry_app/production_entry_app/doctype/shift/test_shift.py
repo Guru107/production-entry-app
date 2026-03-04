@@ -17,6 +17,8 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	resolve_test_company,
 )
 
+_USE_DURATION = object()
+
 
 def _ensure_downtime_reasons() -> None:
 	"""Ensure planned-loss Downtime Reasons exist and are active."""
@@ -1241,9 +1243,11 @@ class TestShiftMetrics(FrappeTestCase):
 		good_qty: float,
 		rejection_qty: float,
 		duration_mins: float = 0,
+		production_time_mins: float | None | object = _USE_DURATION,
 		efficiency_pct: float = 0,
 		docstatus: int = 1,
 	) -> str:
+		production_minutes = duration_mins if production_time_mins is _USE_DURATION else production_time_mins
 		entry = frappe.get_doc(
 			{
 				"doctype": "Stock Entry",
@@ -1256,6 +1260,7 @@ class TestShiftMetrics(FrappeTestCase):
 				"fg_completed_qty": good_qty,
 				"custom_rejection_qty": rejection_qty,
 				"custom_actual_duration_mins": duration_mins,
+				"custom_production_time_mins": production_minutes,
 				"custom_operator_efficiency_pct": efficiency_pct,
 				"docstatus": docstatus,
 			}
@@ -1343,12 +1348,34 @@ class TestShiftMetrics(FrappeTestCase):
 	def test_avg_spm_is_zero_when_duration_is_zero(self) -> None:
 		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_metrics
 
-		shift = self._create_shift("2026-09-09")
+		shift = self._create_shift("2026-09-21")
 		self._create_submitted_like_entry(shift.name, good_qty=60, rejection_qty=10, duration_mins=0)
 		metrics = get_shift_metrics(shift.name)
 		self.assertEqual(float(metrics["total_ok_qty"]), 50.0)
 		self.assertEqual(float(metrics["total_duration_mins"]), 0.0)
 		self.assertEqual(float(metrics["avg_actual_spm"]), 0.0)
+
+	def test_total_duration_mins_coalesces_legacy_and_new_rows(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_metrics
+
+		shift = self._create_shift("2026-09-09")
+		self._create_submitted_like_entry(
+			shift.name,
+			good_qty=100,
+			rejection_qty=0,
+			duration_mins=40,
+			production_time_mins=0,
+		)
+		self._create_submitted_like_entry(
+			shift.name,
+			good_qty=100,
+			rejection_qty=0,
+			duration_mins=20,
+			production_time_mins=10,
+		)
+		metrics = get_shift_metrics(shift.name)
+		self.assertEqual(float(metrics["total_duration_mins"]), 50.0)
+		self.assertEqual(float(metrics["avg_actual_spm"]), 4.0)
 
 	def test_empty_shift_name_returns_empty(self) -> None:
 		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_metrics
@@ -1451,9 +1478,11 @@ class TestShiftAggregateProductionEntries(FrappeTestCase):
 		good_qty: float,
 		rejection_qty: float,
 		duration_mins: float,
+		production_time_mins: float | None | object = _USE_DURATION,
 		bom_no: str | None = None,
 		purpose: str = "Manufacture",
 	) -> str:
+		production_minutes = duration_mins if production_time_mins is _USE_DURATION else production_time_mins
 		entry = frappe.get_doc(
 			{
 				"doctype": "Stock Entry",
@@ -1467,6 +1496,7 @@ class TestShiftAggregateProductionEntries(FrappeTestCase):
 				"fg_completed_qty": good_qty,
 				"custom_rejection_qty": rejection_qty,
 				"custom_actual_duration_mins": duration_mins,
+				"custom_production_time_mins": production_minutes,
 				"docstatus": 1,
 			}
 		)
@@ -1545,6 +1575,32 @@ class TestShiftAggregateProductionEntries(FrappeTestCase):
 		rows = get_shift_aggregate_production_entries(shift.name)
 		self.assertEqual(len(rows), 1)
 		self.assertEqual(float(rows[0]["avg_spm"]), 0.0)
+
+	def test_avg_spm_coalesces_legacy_and_new_rows(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import (
+			get_shift_aggregate_production_entries,
+		)
+
+		shift = self._create_shift("2026-10-04")
+		self._create_submitted_like_entry(
+			shift.name,
+			good_qty=100,
+			rejection_qty=0,
+			duration_mins=60,
+			production_time_mins=0,
+			bom_no=self.bom,
+		)
+		self._create_submitted_like_entry(
+			shift.name,
+			good_qty=50,
+			rejection_qty=0,
+			duration_mins=30,
+			production_time_mins=10,
+			bom_no=self.bom,
+		)
+		rows = get_shift_aggregate_production_entries(shift.name)
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(float(rows[0]["avg_spm"]), float(frappe.utils.flt(150 / 70, 3)))
 
 	def test_ignores_non_manufacture_and_missing_bom_rows(self) -> None:
 		from production_entry_app.production_entry_app.doctype.shift.shift import (

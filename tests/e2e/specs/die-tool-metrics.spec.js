@@ -38,9 +38,29 @@ test.describe("Die tool metrics and counter", () => {
 
 		expect(stockEntry.docstatus).toBe(1);
 		expect(Number(stockEntry.custom_actual_duration_mins || 0)).toBeGreaterThan(0);
+		expect(Number(stockEntry.custom_production_time_mins || 0)).toBeGreaterThan(0);
 		expect(Number(stockEntry.custom_actual_spm || 0)).toBeGreaterThan(0);
 		expect(Number(stockEntry.custom_cycle_time_sec || 0)).toBeGreaterThan(0);
 		expect(Number(stockEntry.custom_operator_efficiency_pct || 0)).toBeGreaterThan(0);
+	});
+
+	test("@regression planned break overlap reduces net production time", async ({ page }) => {
+		await page.goto("/app/home");
+		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
+
+		const stockEntryPage = await createManufactureEntry(page, ctx, {
+			fgQty: 30,
+			rejectionQty: 0,
+			actualStart: `${ctx.shift_date} 08:50:00`,
+			actualEnd: `${ctx.shift_date} 09:20:00`,
+		});
+		await stockEntryPage.saveDraft();
+
+		const stockEntryName = await page.evaluate(() => window.cur_frm?.doc?.name);
+		const stockEntry = await getDoc(page, "Stock Entry", stockEntryName);
+		expect(Number(stockEntry.custom_actual_duration_mins || 0)).toBe(30);
+		// Shift planned Tea Break is 09:00-09:10; overlap should be deducted.
+		expect(Number(stockEntry.custom_production_time_mins || 0)).toBe(20);
 	});
 
 	test("@regression missing actual end keeps metrics empty", async ({ page }) => {
@@ -58,6 +78,7 @@ test.describe("Die tool metrics and counter", () => {
 		const stockEntryName = await page.evaluate(() => window.cur_frm?.doc?.name);
 		const stockEntry = await getDoc(page, "Stock Entry", stockEntryName);
 		expect(stockEntry.custom_actual_duration_mins).toBeFalsy();
+		expect(stockEntry.custom_production_time_mins).toBeFalsy();
 		expect(stockEntry.custom_actual_spm).toBeFalsy();
 		expect(stockEntry.custom_cycle_time_sec).toBeFalsy();
 		expect(stockEntry.custom_operator_efficiency_pct).toBeFalsy();
@@ -78,6 +99,7 @@ test.describe("Die tool metrics and counter", () => {
 		const stockEntryName = await page.evaluate(() => window.cur_frm?.doc?.name);
 		const stockEntry = await getDoc(page, "Stock Entry", stockEntryName);
 		expect(stockEntry.custom_actual_duration_mins).toBeFalsy();
+		expect(stockEntry.custom_production_time_mins).toBeFalsy();
 		expect(stockEntry.custom_actual_spm).toBeFalsy();
 		expect(stockEntry.custom_cycle_time_sec).toBeFalsy();
 		expect(stockEntry.custom_operator_efficiency_pct).toBeFalsy();
