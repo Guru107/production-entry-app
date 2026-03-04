@@ -26,7 +26,6 @@ def resolve_time_interval_in_window(
 	window_start: datetime.datetime,
 	window_end: datetime.datetime,
 ) -> tuple[datetime.datetime, datetime.datetime] | None:
-) -> tuple[datetime.datetime, datetime.datetime] | None:
 	"""Resolve a time-only interval onto the date that overlaps the given window."""
 	if not start_value or not end_value:
 		return None
