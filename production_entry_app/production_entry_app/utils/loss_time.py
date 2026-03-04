@@ -50,7 +50,7 @@ def resolve_time_interval_in_window(
 		seen_dates.add(date_value)
 		start_dt = datetime.datetime.combine(date_value, start_time)
 		end_dt = datetime.datetime.combine(date_value, end_time)
-		if end_dt <= start_dt:
+		if end_dt < start_dt:
 			end_dt += datetime.timedelta(days=1)
 		overlap = get_interval_overlap(start_dt, end_dt, window_start, window_end)
 		if not overlap:
