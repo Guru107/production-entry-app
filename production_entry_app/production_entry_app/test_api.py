@@ -145,6 +145,10 @@ class TestE2EApi(FrappeTestCase):
 		cleanup.assert_not_called()
 		delete_doc.assert_called_once_with("Stock Entry", "MAT-STE-2026-00001")
 
+	def test_delete_wrapper_http_methods_match_frappe_client_delete(self) -> None:
+		allowed_methods = frappe.allowed_http_methods_for_whitelisted_func.get(delete, [])
+		self.assertEqual(set(allowed_methods), {"DELETE", "POST"})
+
 	def test_e2e_base_date_is_deterministic(self) -> None:
 		date_a = _e2e_base_date("StablePrefix")
 		date_b = _e2e_base_date("StablePrefix")

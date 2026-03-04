@@ -60,7 +60,7 @@ def _cleanup_orphan_stock_entry_loss_links(shift_name: str) -> None:
 		frappe.db.delete("Loss Entry", {"name": ("in", orphan_row_names)})
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["DELETE", "POST"])
 def delete(doctype: str, name: str) -> None:
 	"""Delete wrapper that cleans orphan Shift loss links before link validation."""
 	if doctype == "Shift":

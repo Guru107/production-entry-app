@@ -218,6 +218,11 @@ def get_shift_metrics(shift_name: str) -> dict:
 	has_production_time_field = frappe.get_meta("Stock Entry", cached=True).has_field(
 		"custom_production_time_mins"
 	)
+	production_time_expr = (
+		frappe.qb.terms.Case()
+		.when(stock_entry.custom_production_time_mins > 0, stock_entry.custom_production_time_mins)
+		.else_(stock_entry.custom_actual_duration_mins)
+	)
 	select_fields = [
 		Count(stock_entry.name).as_("entry_count"),
 		Sum(stock_entry.fg_completed_qty).as_("total_qty"),
@@ -226,7 +231,10 @@ def get_shift_metrics(shift_name: str) -> dict:
 		Avg(stock_entry.custom_operator_efficiency_pct).as_("avg_efficiency_pct"),
 	]
 	if has_production_time_field:
-		select_fields.insert(3, Sum(stock_entry.custom_production_time_mins).as_("total_production_mins"))
+		select_fields.insert(
+			3,
+			Sum(production_time_expr).as_("total_production_mins"),
+		)
 	row = (
 		frappe.qb.from_(stock_entry)
 		.select(*select_fields)
@@ -288,6 +296,11 @@ def get_shift_aggregate_production_entries(shift_name: str) -> list[dict]:
 	has_production_time_field = frappe.get_meta("Stock Entry", cached=True).has_field(
 		"custom_production_time_mins"
 	)
+	production_time_expr = (
+		frappe.qb.terms.Case()
+		.when(stock_entry.custom_production_time_mins > 0, stock_entry.custom_production_time_mins)
+		.else_(stock_entry.custom_actual_duration_mins)
+	)
 	select_fields = [
 		stock_entry.bom_no.as_("bom_used"),
 		bom.item.as_("item_code"),
@@ -296,7 +309,10 @@ def get_shift_aggregate_production_entries(shift_name: str) -> list[dict]:
 		Sum(stock_entry.custom_actual_duration_mins).as_("total_duration_mins"),
 	]
 	if has_production_time_field:
-		select_fields.insert(4, Sum(stock_entry.custom_production_time_mins).as_("total_production_mins"))
+		select_fields.insert(
+			4,
+			Sum(production_time_expr).as_("total_production_mins"),
+		)
 	rows = (
 		frappe.qb.from_(stock_entry)
 		.inner_join(bom)
