@@ -223,13 +223,19 @@ def get_entry_production_minutes(
 	if production_time_value is not None:
 		return flt(max(production_time_value, 0), 3)
 
-	duration_mins = flt(entry.get("custom_actual_duration_mins") or 0, 3)
-	if duration_mins <= 0:
-		duration_mins = get_duration_minutes(
-			entry.get("custom_actual_start_date"),
-			entry.get("custom_actual_end_date"),
-		)
+	duration_mins = get_entry_raw_duration_minutes(entry)
 	return flt(max(duration_mins - flt(setup_mins, 3) - flt(loss_mins, 3), 0), 3)
+
+
+def get_entry_raw_duration_minutes(entry: dict) -> float:
+	"""Return wall-clock duration minutes from stored field or start/end fallback."""
+	duration_mins = flt(entry.get("custom_actual_duration_mins") or 0, 3)
+	if duration_mins > 0:
+		return duration_mins
+	return get_duration_minutes(
+		entry.get("custom_actual_start_date"),
+		entry.get("custom_actual_end_date"),
+	)
 
 
 def aggregate_efficiency_by_field(

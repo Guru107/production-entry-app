@@ -10,6 +10,7 @@ from production_entry_app.production_entry_app.report.report_utils import (
 	build_stock_entry_filters,
 	get_entry_production_minutes,
 	get_entry_qty_maps,
+	get_entry_raw_duration_minutes,
 	get_entry_total_strokes,
 	get_loss_time_maps,
 	get_rework_qty_map,
@@ -86,7 +87,7 @@ def _get_rows(filters: dict) -> list[dict]:
 			setup_mins=flt(setup_time_map.get(entry.get("name"), 0), 3),
 			loss_mins=flt(loss_time_map.get(entry.get("name"), 0), 3),
 		)
-		raw_duration_mins = flt(entry.get("custom_actual_duration_mins") or 0, 3)
+		raw_duration_mins = get_entry_raw_duration_minutes(entry)
 		entry["_good_qty"] = good_qty
 		entry["_rejection_qty"] = rejection_qty
 		entry["_rework_qty"] = rework_qty

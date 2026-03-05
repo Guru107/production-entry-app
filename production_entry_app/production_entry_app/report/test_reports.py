@@ -778,6 +778,18 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(len(rows), 1)
 		self.assertAlmostEqual(float(rows[0]["actual_spm"]), 2.0, places=3)
 
+	def test_get_entry_raw_duration_minutes_falls_back_to_datetime_delta(self) -> None:
+		from production_entry_app.production_entry_app.report.report_utils import (
+			get_entry_raw_duration_minutes,
+		)
+
+		entry = {
+			"custom_actual_duration_mins": 0,
+			"custom_actual_start_date": "2026-08-20 08:00:00",
+			"custom_actual_end_date": "2026-08-20 08:45:00",
+		}
+		self.assertEqual(float(get_entry_raw_duration_minutes(entry)), 45.0)
+
 	def test_efficiency_oee_and_daily_reports_include_rework_values(self) -> None:
 		from production_entry_app.production_entry_app.report.daily_strokes_spm_monitor.daily_strokes_spm_monitor import (
 			execute as daily_execute,
