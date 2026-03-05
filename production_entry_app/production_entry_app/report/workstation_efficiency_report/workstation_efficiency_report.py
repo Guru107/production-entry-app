@@ -81,16 +81,17 @@ def _get_rows(filters: dict) -> list[dict]:
 		rework_qty = flt(entry.get("custom_rework_qty") or 0, 3)
 		if rework_qty <= 0:
 			rework_qty = rework_qty_map.get(entry.get("name"), 0)
-		duration_mins = get_entry_production_minutes(
+		production_time_mins = get_entry_production_minutes(
 			entry,
 			setup_mins=flt(setup_time_map.get(entry.get("name"), 0), 3),
 			loss_mins=flt(loss_time_map.get(entry.get("name"), 0), 3),
 		)
+		raw_duration_mins = flt(entry.get("custom_actual_duration_mins") or 0, 3)
 		entry["_good_qty"] = good_qty
 		entry["_rejection_qty"] = rejection_qty
 		entry["_rework_qty"] = rework_qty
-		entry["_duration_mins"] = duration_mins
-		entry["_production_time_mins"] = duration_mins
+		entry["_duration_mins"] = raw_duration_mins
+		entry["_production_time_mins"] = production_time_mins
 
 	aggregates = aggregate_efficiency_by_field(entries, "custom_workstation")
 	return build_efficiency_rows(

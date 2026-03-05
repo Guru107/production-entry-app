@@ -47,7 +47,8 @@ Production OEE Report uses:
 - `OEE = (A + P + Q) / 3`
 - `OEE Mult % = (A * P * Q) / 10000`
 
-Planned losses are applied as a day-level global pool:
+Planned losses are applied at report-row scope (linked shifts for that row):
 
 - `avl_time_hrs = max(sum(shift_duration for linked Running/Completed shifts in row scope) - linked_shift_planned_loss_hours, 0)`
+- Shifts with no linked Stock Entries for that row do not contribute availability.
 - Planned losses are **not** included in workstation loss bucket columns; those columns are unplanned-loss buckets only.
