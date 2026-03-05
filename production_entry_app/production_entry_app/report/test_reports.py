@@ -379,6 +379,30 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(float(rows[0]["running_time"]), 14.0)
 		self.assertEqual(float(rows[0]["availability_pct"]), 87.5)
 
+	def test_production_oee_report_deducts_shift_planned_losses_from_availability(self) -> None:
+		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
+			execute,
+		)
+
+		shift = self._create_shift_for_label("2026-06-12", "1")
+		self._create_mock_submitted_entry(
+			posting_date="2026-06-12",
+			planned_start="2026-06-12 08:00:00",
+			planned_end="2026-06-12 09:00:00",
+			actual_start="2026-06-12 08:00:00",
+			actual_end="2026-06-12 09:00:00",
+			fg_qty=120,
+			rejection_qty=0,
+			shift_name=shift.name,
+		)
+
+		_, rows = execute({"from_date": "2026-06-12", "to_date": "2026-06-12"})
+		self.assertEqual(len(rows), 1)
+		# 8-hour shift with default planned losses totaling 30 minutes.
+		self.assertAlmostEqual(float(rows[0]["avl_time_hrs"]), 7.5, places=2)
+		self.assertAlmostEqual(float(rows[0]["running_time"]), 7.5, places=2)
+		self.assertAlmostEqual(float(rows[0]["availability_pct"]), 100.0, places=2)
+
 	def test_production_oee_report_availability_ignores_draft_shifts(self) -> None:
 		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
 			execute,

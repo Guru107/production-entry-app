@@ -1,13 +1,15 @@
 from __future__ import annotations
 
-import datetime
-
 import frappe
 from frappe import _
-from frappe.utils import flt, get_datetime, get_time
+from frappe.utils import flt, get_time
 
 from production_entry_app.production_entry_app.report.report_utils import (
+	get_available_hours_by_day,
+	get_entry_production_minutes,
 	get_entry_qty_maps,
+	get_entry_total_strokes,
+	get_planned_loss_hours_by_day,
 )
 
 LOSS_BUCKETS: tuple[tuple[str, str], ...] = (
@@ -134,13 +136,18 @@ def _get_rows(filters: dict) -> list[dict]:
 	if not groups:
 		return []
 
-	available_hours_by_day = _get_available_hours_by_day([group["day"] for group in groups.values()])
+	days = [group["day"] for group in groups.values()]
+	available_hours_by_day = get_available_hours_by_day(days)
+	planned_loss_hours_by_day = get_planned_loss_hours_by_day(days)
 
 	_get_loss_buckets_from_stock_entry_losses(filters, groups)
 
 	rows = []
 	for group in sorted(groups.values(), key=lambda row: (str(row["day"]), str(row["workstation"]))):
-		avl_time_hrs = flt(available_hours_by_day.get(group["day"]) or 0, 3)
+		day = group["day"]
+		total_day_hours = flt(available_hours_by_day.get(day) or 0, 3)
+		planned_loss_hrs = flt(planned_loss_hours_by_day.get(day) or 0, 3)
+		avl_time_hrs = flt(max(total_day_hours - planned_loss_hrs, 0), 3)
 		total_loss_time = 0.0
 		for key, _label in LOSS_BUCKETS:
 			total_loss_time += flt(group[f"{key}_1st"], 3)
@@ -239,13 +246,11 @@ def _get_stock_entry_groups(filters: dict) -> dict[tuple[str, str], dict]:
 			groups[group_key] = _new_group(day, workstation)
 		group = groups[group_key]
 
-		good_qty = flt(entry.get("fg_completed_qty") or 0, 3)
-		if good_qty <= 0:
-			good_qty = flt(good_qty_map.get(entry.get("name")) or 0, 3)
-		rejection_qty = flt(entry.get("custom_rejection_qty") or 0, 3)
-		if rejection_qty <= 0:
-			rejection_qty = flt(rejection_qty_map.get(entry.get("name")) or 0, 3)
-		total_strokes = flt(good_qty + rejection_qty, 3)
+		total_strokes, rejection_qty = get_entry_total_strokes(
+			entry,
+			good_qty_map=good_qty_map,
+			rejection_qty_map=rejection_qty_map,
+		)
 		group["total_strokes"] += total_strokes
 		group["rejection"] += rejection_qty
 
@@ -255,7 +260,7 @@ def _get_stock_entry_groups(filters: dict) -> dict[tuple[str, str], dict]:
 		elif shift_label == "2":
 			group["second_shift_strokes"] += total_strokes
 
-		duration_hours = _get_duration_hours_for_entry(entry)
+		duration_hours = flt(get_entry_production_minutes(entry) / 60, 3)
 		standard_spm = flt(entry.get("custom_standard_spm") or 0, 3)
 		if duration_hours > 0:
 			group["duration_hours_sum"] += duration_hours
@@ -276,25 +281,6 @@ def _get_shift_label_map(entries: list[frappe._dict]) -> dict[str, str]:
 		fields=["name", "shift_label"],
 	)
 	return {row.get("name"): str(row.get("shift_label") or "") for row in rows if row.get("name")}
-
-
-def _get_duration_hours_for_entry(entry: frappe._dict) -> float:
-	production_time_value = entry.get("custom_production_time_mins")
-	if production_time_value is not None:
-		duration_mins = flt(max(production_time_value, 0), 3)
-	else:
-		duration_mins = flt(entry.get("custom_actual_duration_mins") or 0, 3)
-	if duration_mins <= 0:
-		start = entry.get("custom_actual_start_date")
-		end = entry.get("custom_actual_end_date")
-		if start and end:
-			start_dt = get_datetime(start)
-			end_dt = get_datetime(end)
-			if isinstance(start_dt, datetime.datetime) and isinstance(end_dt, datetime.datetime):
-				duration_mins = max((end_dt - start_dt).total_seconds() / 60, 0)
-	return flt(duration_mins / 60, 3) if duration_mins > 0 else 0
-
-
 def _new_group(day: str, workstation: str) -> dict:
 	group = {
 		"day": day,
@@ -312,43 +298,12 @@ def _new_group(day: str, workstation: str) -> dict:
 		group[f"{key}_1st"] = 0.0
 		group[f"{key}_2nd"] = 0.0
 	return group
-
-
-def _get_available_hours_by_day(days: list[str]) -> dict[str, float]:
-	"""Return plant-wide available hours per day.
-
-	Availability is intentionally aggregated at the day level by summing
-	Running/Completed Shift durations for that date, then applied to each
-	workstation row for the same day in this report.
-	"""
-	day_set = sorted({day for day in days if day})
-	if not day_set:
-		return {}
-	shift_rows = frappe.get_all(
-		"Shift",
-		filters={
-			"shift_date": ["in", day_set],
-			"status": ["in", ["Running", "Completed"]],
-		},
-		fields=["shift_date", "shift_duration"],
-	)
-	available_hours: dict[str, float] = {day: 0.0 for day in day_set}
-	for row in shift_rows:
-		day = str(row.get("shift_date") or "")
-		if not day:
-			continue
-		duration = flt(row.get("shift_duration") or 0, 3)
-		if duration <= 0:
-			continue
-		available_hours[day] = flt(available_hours.get(day, 0) + duration, 3)
-	return available_hours
-
-
 def _get_loss_buckets_from_stock_entry_losses(filters: dict, groups: dict[tuple[str, str], dict]) -> None:
 	"""Populate OEE loss buckets from Stock Entry child table rows only.
 
-	Shift.planned_losses are shift-level and not workstation-specific, so they are
-	intentionally excluded from this workstation/day report.
+	Shift.planned_losses are shift-level and not workstation-specific. They are
+	deducted once at the day availability level (global pool), so bucket columns
+	here remain unplanned-loss buckets only.
 	"""
 	if not groups:
 		return
