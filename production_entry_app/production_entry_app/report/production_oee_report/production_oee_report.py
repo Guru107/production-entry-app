@@ -5,11 +5,10 @@ from frappe import _
 from frappe.utils import flt, get_time
 
 from production_entry_app.production_entry_app.report.report_utils import (
-	get_available_hours_by_day,
 	get_entry_production_minutes,
 	get_entry_qty_maps,
 	get_entry_total_strokes,
-	get_planned_loss_hours_by_day,
+	get_loss_duration_minutes,
 )
 
 LOSS_BUCKETS: tuple[tuple[str, str], ...] = (
@@ -136,18 +135,13 @@ def _get_rows(filters: dict) -> list[dict]:
 	if not groups:
 		return []
 
-	days = [group["day"] for group in groups.values()]
-	available_hours_by_day = get_available_hours_by_day(days)
-	planned_loss_hours_by_day = get_planned_loss_hours_by_day(days)
+	availability_hours_by_group = _get_availability_hours_by_group(groups)
 
 	_get_loss_buckets_from_stock_entry_losses(filters, groups)
 
 	rows = []
 	for group in sorted(groups.values(), key=lambda row: (str(row["day"]), str(row["workstation"]))):
-		day = group["day"]
-		total_day_hours = flt(available_hours_by_day.get(day) or 0, 3)
-		planned_loss_hrs = flt(planned_loss_hours_by_day.get(day) or 0, 3)
-		avl_time_hrs = flt(max(total_day_hours - planned_loss_hrs, 0), 3)
+		avl_time_hrs = flt(availability_hours_by_group.get((group["day"], group["workstation"])) or 0, 3)
 		total_loss_time = 0.0
 		for key, _label in LOSS_BUCKETS:
 			total_loss_time += flt(group[f"{key}_1st"], 3)
@@ -254,7 +248,10 @@ def _get_stock_entry_groups(filters: dict) -> dict[tuple[str, str], dict]:
 		group["total_strokes"] += total_strokes
 		group["rejection"] += rejection_qty
 
-		shift_label = shift_labels.get(entry.get("custom_shift"))
+		shift_name = entry.get("custom_shift")
+		if shift_name:
+			group["shift_names"].add(shift_name)
+		shift_label = shift_labels.get(shift_name)
 		if shift_label == "1":
 			group["first_shift_strokes"] += total_strokes
 		elif shift_label == "2":
@@ -271,6 +268,64 @@ def _get_stock_entry_groups(filters: dict) -> dict[tuple[str, str], dict]:
 	return groups
 
 
+def _get_availability_hours_by_group(groups: dict[tuple[str, str], dict]) -> dict[tuple[str, str], float]:
+	shift_names = sorted(
+		{
+			shift_name
+			for group in groups.values()
+			for shift_name in group.get("shift_names", set())
+			if shift_name
+		}
+	)
+	if not shift_names:
+		return {(day, workstation): 0.0 for day, workstation in groups}
+
+	shift_rows = frappe.get_all(
+		"Shift",
+		filters={
+			"name": ["in", shift_names],
+			"status": ["in", ["Running", "Completed"]],
+		},
+		fields=["name", "shift_duration"],
+	)
+	shift_duration_hours_by_name: dict[str, float] = {}
+	for row in shift_rows:
+		shift_name = row.get("name")
+		if not shift_name:
+			continue
+		shift_duration_hours_by_name[shift_name] = flt(row.get("shift_duration") or 0, 3)
+
+	loss_rows = frappe.get_all(
+		"Loss Entry",
+		filters={"parenttype": "Shift", "parent": ["in", list(shift_duration_hours_by_name.keys())]},
+		fields=["parent", "start_time", "end_time"],
+	)
+	planned_loss_hours_by_shift: dict[str, float] = {
+		shift_name: 0.0 for shift_name in shift_duration_hours_by_name
+	}
+	for row in loss_rows:
+		shift_name = row.get("parent")
+		if not shift_name:
+			continue
+		duration_mins = get_loss_duration_minutes(row.get("start_time"), row.get("end_time"))
+		if duration_mins <= 0:
+			continue
+		planned_loss_hours_by_shift[shift_name] = flt(
+			planned_loss_hours_by_shift.get(shift_name, 0) + (duration_mins / 60),
+			3,
+		)
+
+	availability_hours_by_group: dict[tuple[str, str], float] = {}
+	for key, group in groups.items():
+		total_shift_hours = 0.0
+		total_planned_loss_hours = 0.0
+		for shift_name in group.get("shift_names", set()):
+			total_shift_hours += flt(shift_duration_hours_by_name.get(shift_name) or 0, 3)
+			total_planned_loss_hours += flt(planned_loss_hours_by_shift.get(shift_name) or 0, 3)
+		availability_hours_by_group[key] = flt(max(total_shift_hours - total_planned_loss_hours, 0), 3)
+	return availability_hours_by_group
+
+
 def _get_shift_label_map(entries: list[frappe._dict]) -> dict[str, str]:
 	shift_names = sorted({entry.get("custom_shift") for entry in entries if entry.get("custom_shift")})
 	if not shift_names:
@@ -281,10 +336,13 @@ def _get_shift_label_map(entries: list[frappe._dict]) -> dict[str, str]:
 		fields=["name", "shift_label"],
 	)
 	return {row.get("name"): str(row.get("shift_label") or "") for row in rows if row.get("name")}
+
+
 def _new_group(day: str, workstation: str) -> dict:
 	group = {
 		"day": day,
 		"workstation": workstation,
+		"shift_names": set(),
 		"first_shift_strokes": 0.0,
 		"second_shift_strokes": 0.0,
 		"total_strokes": 0.0,
@@ -298,11 +356,13 @@ def _new_group(day: str, workstation: str) -> dict:
 		group[f"{key}_1st"] = 0.0
 		group[f"{key}_2nd"] = 0.0
 	return group
+
+
 def _get_loss_buckets_from_stock_entry_losses(filters: dict, groups: dict[tuple[str, str], dict]) -> None:
 	"""Populate OEE loss buckets from Stock Entry child table rows only.
 
 	Shift.planned_losses are shift-level and not workstation-specific. They are
-	deducted once at the day availability level (global pool), so bucket columns
+	deducted once at the group availability level, so bucket columns
 	here remain unplanned-loss buckets only.
 	"""
 	if not groups:

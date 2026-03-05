@@ -49,6 +49,5 @@ Production OEE Report uses:
 
 Planned losses are applied as a day-level global pool:
 
-- `avl_time_hrs = max(sum(shift_duration for Running/Completed shifts on day) - planned_loss_hours_on_day, 0)`
+- `avl_time_hrs = max(sum(shift_duration for linked Running/Completed shifts in row scope) - linked_shift_planned_loss_hours, 0)`
 - Planned losses are **not** included in workstation loss bucket columns; those columns are unplanned-loss buckets only.
-

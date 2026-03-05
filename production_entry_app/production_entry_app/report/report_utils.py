@@ -274,7 +274,9 @@ def get_planned_loss_hours_by_day(days: list[str]) -> dict[str, float]:
 	if not shift_rows:
 		return {day: 0.0 for day in day_set}
 
-	shift_day_map = {row.get("name"): str(row.get("shift_date") or "") for row in shift_rows if row.get("name")}
+	shift_day_map = {
+		row.get("name"): str(row.get("shift_date") or "") for row in shift_rows if row.get("name")
+	}
 	loss_rows = frappe.get_all(
 		"Loss Entry",
 		filters={"parenttype": "Shift", "parent": ["in", list(shift_day_map.keys())]},

@@ -375,9 +375,111 @@ class TestProductionReports(FrappeTestCase):
 
 		_, rows = execute({"from_date": "2026-06-03", "to_date": "2026-06-03"})
 		self.assertEqual(len(rows), 1)
+		self.assertEqual(float(rows[0]["avl_time_hrs"]), 8.0)
+		self.assertEqual(float(rows[0]["running_time"]), 6.0)
+		self.assertEqual(float(rows[0]["availability_pct"]), 75.0)
+
+	def test_production_oee_report_availability_includes_all_linked_shifts_for_a_workstation(self) -> None:
+		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
+			execute,
+		)
+
+		shift_1 = self._create_shift_for_label("2026-08-10", "1", clear_planned_losses=True)
+		shift_2 = self._create_shift_for_label("2026-08-10", "2", clear_planned_losses=True)
+		self._create_mock_submitted_entry(
+			posting_date="2026-08-10",
+			planned_start="2026-08-10 08:00:00",
+			planned_end="2026-08-10 09:00:00",
+			actual_start="2026-08-10 08:00:00",
+			actual_end="2026-08-10 09:00:00",
+			fg_qty=120,
+			rejection_qty=0,
+			shift_name=shift_1.name,
+		)
+		self._create_mock_submitted_entry(
+			posting_date="2026-08-10",
+			planned_start="2026-08-10 16:00:00",
+			planned_end="2026-08-10 17:00:00",
+			actual_start="2026-08-10 16:00:00",
+			actual_end="2026-08-10 17:00:00",
+			fg_qty=100,
+			rejection_qty=0,
+			shift_name=shift_2.name,
+		)
+
+		_, rows = execute({"from_date": "2026-08-10", "to_date": "2026-08-10"})
+		self.assertEqual(len(rows), 1)
 		self.assertEqual(float(rows[0]["avl_time_hrs"]), 16.0)
-		self.assertEqual(float(rows[0]["running_time"]), 14.0)
-		self.assertEqual(float(rows[0]["availability_pct"]), 87.5)
+
+	def test_production_oee_report_availability_scopes_to_workstation_linked_shifts(self) -> None:
+		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
+			execute,
+		)
+
+		other_workstation = "Report Workstation OEE Alt"
+		if not frappe.db.exists("Workstation", other_workstation):
+			frappe.get_doc(
+				{
+					"doctype": "Workstation",
+					"workstation_name": other_workstation,
+					"production_capacity": 1,
+					"hour_rate": 100,
+					"custom_standard_spm": 2,
+				}
+			).insert(ignore_permissions=True)
+
+		shift_1 = self._create_shift_for_label("2026-08-11", "1", clear_planned_losses=True)
+		shift_2 = self._create_shift_for_label("2026-08-11", "2", clear_planned_losses=True)
+		self._create_mock_submitted_entry(
+			posting_date="2026-08-11",
+			planned_start="2026-08-11 08:00:00",
+			planned_end="2026-08-11 09:00:00",
+			actual_start="2026-08-11 08:00:00",
+			actual_end="2026-08-11 09:00:00",
+			fg_qty=120,
+			rejection_qty=0,
+			shift_name=shift_1.name,
+			workstation="Report Workstation",
+		)
+		self._create_mock_submitted_entry(
+			posting_date="2026-08-11",
+			planned_start="2026-08-11 16:00:00",
+			planned_end="2026-08-11 17:00:00",
+			actual_start="2026-08-11 16:00:00",
+			actual_end="2026-08-11 17:00:00",
+			fg_qty=120,
+			rejection_qty=0,
+			shift_name=shift_2.name,
+			workstation=other_workstation,
+		)
+
+		_, rows = execute({"from_date": "2026-08-11", "to_date": "2026-08-11"})
+		self.assertEqual(len(rows), 2)
+		by_workstation = {row["workstation"]: row for row in rows}
+		self.assertEqual(float(by_workstation["Report Workstation"]["avl_time_hrs"]), 8.0)
+		self.assertEqual(float(by_workstation[other_workstation]["avl_time_hrs"]), 8.0)
+
+	def test_production_oee_report_planned_loss_does_not_leak_from_unlinked_shift(self) -> None:
+		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
+			execute,
+		)
+
+		shift_1 = self._create_shift_for_label("2026-08-12", "1", clear_planned_losses=True)
+		self._create_shift_for_label("2026-08-12", "2")
+		self._create_mock_submitted_entry(
+			posting_date="2026-08-12",
+			planned_start="2026-08-12 08:00:00",
+			planned_end="2026-08-12 09:00:00",
+			actual_start="2026-08-12 08:00:00",
+			actual_end="2026-08-12 09:00:00",
+			fg_qty=120,
+			rejection_qty=0,
+			shift_name=shift_1.name,
+		)
+
+		_, rows = execute({"from_date": "2026-08-12", "to_date": "2026-08-12"})
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(float(rows[0]["avl_time_hrs"]), 8.0)
 
 	def test_production_oee_report_deducts_shift_planned_losses_from_availability(self) -> None:
 		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (

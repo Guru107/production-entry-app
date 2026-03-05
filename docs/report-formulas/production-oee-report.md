@@ -11,7 +11,7 @@ Source: `production_oee_report/production_oee_report.py`
 - `std_spm`: weighted average by production hours:
   - `std_spm = standard_spm_weighted_sum / duration_hours_sum`
   - `standard_spm_weighted_sum += custom_standard_spm * entry_production_hours`
-- `avl_time_hrs`: `max(day_shift_hours - day_planned_loss_hours, 0)`.
+- `avl_time_hrs`: `max(linked_shift_hours - linked_shift_planned_loss_hours, 0)`, where linked shifts are the `custom_shift` values of Stock Entries inside the same `(day, workstation)` row.
 - `total_loss_time`: sum of all loss bucket hour columns (`*_1st` + `*_2nd`).
 - `running_time`: `max(avl_time_hrs - total_loss_time, 0)`.
 - `stroke_required`: `running_time * std_spm * 60`.
@@ -29,4 +29,3 @@ Loss bucket columns (`setup_1st`, `setup_2nd`, `trial_1st`, ...):
   - label `"1"` => `_1st`
   - label `"2"` => `_2nd`
 - Duration hours per row = normalized time interval duration in hours.
-
