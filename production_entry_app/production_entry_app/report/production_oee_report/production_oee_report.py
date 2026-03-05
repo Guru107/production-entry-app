@@ -8,21 +8,20 @@ from frappe.utils import flt, get_datetime, get_time
 
 from production_entry_app.production_entry_app.report.report_utils import (
 	get_entry_qty_maps,
-	get_rework_qty_map,
 )
 
 LOSS_BUCKETS: tuple[tuple[str, str], ...] = (
 	("setup", "Setup Time"),
-	("trial", "Trial"),
-	("mtrl_handl", "Mtrl Handl"),
-	("no_operator", "No Operator"),
-	("no_mtrl", "No Mtrl"),
-	("maint", "Maint"),
-	("p_maint", "P. Maint"),
-	("tool_break", "Tool Break"),
-	("other", "Other"),
-	("no_helper", "No Helper"),
-	("power_off", "Power Off"),
+	("trial", "Trial Time"),
+	("mtrl_handl", "Material Handling Time"),
+	("no_operator", "No Operator Time"),
+	("no_mtrl", "No Material Time"),
+	("maint", "Maintenance Time"),
+	("p_maint", "P. Maintenance Time"),
+	("tool_break", "Tool Break Time"),
+	("other", "Other Time"),
+	("no_helper", "No Helper Time"),
+	("power_off", "Power Off Time"),
 )
 
 LOSS_REASON_TO_BUCKET: dict[str, str] = {
@@ -58,7 +57,7 @@ def _get_columns() -> list[dict]:
 			"width": 140,
 		},
 		{
-			"label": _("Stroke Required"),
+			"label": _("Strokes Required"),
 			"fieldname": "stroke_required",
 			"fieldtype": "Float",
 			"width": 125,
@@ -77,51 +76,55 @@ def _get_columns() -> list[dict]:
 		},
 		{"label": _("Total Strokes"), "fieldname": "total_strokes", "fieldtype": "Float", "width": 110},
 		{"label": _("Rejection"), "fieldname": "rejection", "fieldtype": "Float", "width": 95},
-		{"label": _("Rework"), "fieldname": "rework", "fieldtype": "Float", "width": 95},
-		{"label": _("Std SPM"), "fieldname": "std_spm", "fieldtype": "Float", "width": 95},
+		{"label": _("STD SPM"), "fieldname": "std_spm", "fieldtype": "Float", "width": 95},
 		{"label": _("Act SPM"), "fieldname": "act_spm", "fieldtype": "Float", "width": 95},
 		{
-			"label": _("Productivity % (P)"),
+			"label": _("Productivity (P)"),
 			"fieldname": "productivity_pct",
 			"fieldtype": "Percent",
 			"width": 130,
 		},
-		{"label": _("Quality % (Q)"), "fieldname": "quality_pct", "fieldtype": "Percent", "width": 110},
+		{"label": _("Quality (Q)"), "fieldname": "quality_pct", "fieldtype": "Percent", "width": 110},
 		{
-			"label": _("Availability % (A)"),
+			"label": _("Availability (A)"),
 			"fieldname": "availability_pct",
 			"fieldtype": "Percent",
 			"width": 130,
 		},
-		{"label": _("OEE Avg %"), "fieldname": "oee_avg_pct", "fieldtype": "Percent", "width": 100},
+		{"label": _("OEE"), "fieldname": "oee", "fieldtype": "Percent", "width": 90},
 		{"label": _("OEE Mult %"), "fieldname": "oee_mult_pct", "fieldtype": "Percent", "width": 100},
-		{"label": _("Avl Hrs"), "fieldname": "avl_hrs", "fieldtype": "Float", "width": 90},
-		{
-			"label": _("Total Loss Time"),
-			"fieldname": "total_loss_time",
-			"fieldtype": "Float",
-			"width": 120,
-		},
-		{"label": _("Running Time"), "fieldname": "running_time", "fieldtype": "Float", "width": 105},
+		{"label": _("Avl. time (hrs)"), "fieldname": "avl_time_hrs", "fieldtype": "Float", "width": 110},
 	]
 
 	for key, label in LOSS_BUCKETS:
 		columns.append(
 			{
-				"label": _("{0} 1st").format(label),
+				"label": _("1st Shift {0}").format(label),
 				"fieldname": f"{key}_1st",
 				"fieldtype": "Float",
-				"width": 110,
+				"width": 145,
 			}
 		)
 		columns.append(
 			{
-				"label": _("{0} 2nd").format(label),
+				"label": _("2nd Shift {0}").format(label),
 				"fieldname": f"{key}_2nd",
 				"fieldtype": "Float",
-				"width": 110,
+				"width": 145,
 			}
 		)
+
+	columns.extend(
+		[
+			{
+				"label": _("Total Loss Time"),
+				"fieldname": "total_loss_time",
+				"fieldtype": "Float",
+				"width": 120,
+			},
+			{"label": _("Running Time"), "fieldname": "running_time", "fieldtype": "Float", "width": 105},
+		]
+	)
 
 	return columns
 
@@ -131,21 +134,20 @@ def _get_rows(filters: dict) -> list[dict]:
 	if not groups:
 		return []
 
-	avl_hours_per_day = flt(filters.get("avl_hours_per_day") or 24, 3)
-	if avl_hours_per_day < 0:
-		avl_hours_per_day = 0
+	available_hours_by_day = _get_available_hours_by_day([group["day"] for group in groups.values()])
 
 	_get_loss_buckets_from_stock_entry_losses(filters, groups)
 
 	rows = []
 	for group in sorted(groups.values(), key=lambda row: (str(row["day"]), str(row["workstation"]))):
+		avl_time_hrs = flt(available_hours_by_day.get(group["day"]) or 0, 3)
 		total_loss_time = 0.0
 		for key, _label in LOSS_BUCKETS:
 			total_loss_time += flt(group[f"{key}_1st"], 3)
 			total_loss_time += flt(group[f"{key}_2nd"], 3)
 		total_loss_time = flt(total_loss_time, 3)
 
-		running_time = flt(max(avl_hours_per_day - total_loss_time, 0), 3)
+		running_time = flt(max(avl_time_hrs - total_loss_time, 0), 3)
 		std_spm = (
 			flt(group["standard_spm_weighted_sum"] / group["duration_hours_sum"], 3)
 			if group["duration_hours_sum"] > 0
@@ -157,7 +159,7 @@ def _get_rows(filters: dict) -> list[dict]:
 		act_spm = flt((total_strokes / (running_time * 60)), 3) if running_time > 0 else 0
 		productivity_pct = flt((act_spm / std_spm) * 100, 2) if std_spm > 0 else 0
 		quality_pct = flt(((total_strokes - rejection) / total_strokes) * 100, 2) if total_strokes > 0 else 0
-		availability_pct = flt((running_time / avl_hours_per_day) * 100, 2) if avl_hours_per_day > 0 else 0
+		availability_pct = flt((running_time / avl_time_hrs) * 100, 2) if avl_time_hrs > 0 else 0
 		oee_avg_pct = flt((availability_pct + quality_pct + productivity_pct) / 3, 2)
 		oee_mult_pct = flt((availability_pct * quality_pct * productivity_pct) / 10000, 2)
 
@@ -169,15 +171,14 @@ def _get_rows(filters: dict) -> list[dict]:
 			"second_shift_strokes": flt(group["second_shift_strokes"], 3),
 			"total_strokes": total_strokes,
 			"rejection": rejection,
-			"rework": flt(group["rework"], 3),
 			"std_spm": std_spm,
 			"act_spm": act_spm,
 			"productivity_pct": productivity_pct,
 			"quality_pct": quality_pct,
 			"availability_pct": availability_pct,
-			"oee_avg_pct": oee_avg_pct,
+			"oee": oee_avg_pct,
 			"oee_mult_pct": oee_mult_pct,
-			"avl_hrs": avl_hours_per_day,
+			"avl_time_hrs": avl_time_hrs,
 			"total_loss_time": total_loss_time,
 			"running_time": running_time,
 		}
@@ -216,7 +217,6 @@ def _get_stock_entry_groups(filters: dict) -> dict[tuple[str, str], dict]:
 			"custom_workstation",
 			"fg_completed_qty",
 			"custom_rejection_qty",
-			"custom_rework_qty",
 			"custom_standard_spm",
 			"custom_actual_duration_mins",
 			"custom_production_time_mins",
@@ -229,7 +229,6 @@ def _get_stock_entry_groups(filters: dict) -> dict[tuple[str, str], dict]:
 
 	entry_names = [entry.get("name") for entry in entries if entry.get("name")]
 	good_qty_map, rejection_qty_map, _fg_map = get_entry_qty_maps(entry_names, include_fg_item=False)
-	rework_qty_map = get_rework_qty_map(entry_names)
 	shift_labels = _get_shift_label_map(entries)
 	groups: dict[tuple[str, str], dict] = {}
 	for entry in entries:
@@ -246,13 +245,9 @@ def _get_stock_entry_groups(filters: dict) -> dict[tuple[str, str], dict]:
 		rejection_qty = flt(entry.get("custom_rejection_qty") or 0, 3)
 		if rejection_qty <= 0:
 			rejection_qty = flt(rejection_qty_map.get(entry.get("name")) or 0, 3)
-		rework_qty = flt(entry.get("custom_rework_qty") or 0, 3)
-		if rework_qty <= 0:
-			rework_qty = flt(rework_qty_map.get(entry.get("name")) or 0, 3)
 		total_strokes = flt(good_qty + rejection_qty, 3)
 		group["total_strokes"] += total_strokes
 		group["rejection"] += rejection_qty
-		group["rework"] += rework_qty
 
 		shift_label = shift_labels.get(entry.get("custom_shift"))
 		if shift_label == "1":
@@ -308,7 +303,6 @@ def _new_group(day: str, workstation: str) -> dict:
 		"second_shift_strokes": 0.0,
 		"total_strokes": 0.0,
 		"rejection": 0.0,
-		"rework": 0.0,
 		"duration_hours_sum": 0.0,
 		"standard_spm_weighted_sum": 0.0,
 		"standard_spm_sum": 0.0,
@@ -318,6 +312,30 @@ def _new_group(day: str, workstation: str) -> dict:
 		group[f"{key}_1st"] = 0.0
 		group[f"{key}_2nd"] = 0.0
 	return group
+
+
+def _get_available_hours_by_day(days: list[str]) -> dict[str, float]:
+	day_set = sorted({day for day in days if day})
+	if not day_set:
+		return {}
+	shift_rows = frappe.get_all(
+		"Shift",
+		filters={
+			"shift_date": ["in", day_set],
+			"status": ["in", ["Running", "Completed"]],
+		},
+		fields=["shift_date", "shift_duration"],
+	)
+	available_hours: dict[str, float] = {day: 0.0 for day in day_set}
+	for row in shift_rows:
+		day = str(row.get("shift_date") or "")
+		if not day:
+			continue
+		duration = flt(row.get("shift_duration") or 0, 3)
+		if duration <= 0:
+			continue
+		available_hours[day] = flt(available_hours.get(day) + duration, 3)
+	return available_hours
 
 
 def _get_loss_buckets_from_stock_entry_losses(filters: dict, groups: dict[tuple[str, str], dict]) -> None:

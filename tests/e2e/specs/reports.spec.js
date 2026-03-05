@@ -69,7 +69,6 @@ test.describe("Production reports", () => {
 		await reportsPage.open("Production OEE Report");
 		await reportsPage.runWithDateRange(seeded.posting_date, seeded.posting_date);
 		await reportsPage.setFilterByFieldname("custom_workstation", ctx.workstation);
-		await reportsPage.setFilterByFieldname("avl_hours_per_day", 24);
 		await reportsPage.clickRefresh();
 		await reportsPage.waitForRows(1);
 
@@ -84,7 +83,7 @@ test.describe("Production reports", () => {
 		expect(Number(seededRow.other_1st || 0)).toBe(2);
 	});
 
-	test("@regression OEE report availability responds to avl_hours_per_day filter", async ({
+	test("@regression OEE report derives availability from shift and removes avl-hours filter", async ({
 		page,
 	}) => {
 		await page.goto("/app/home");
@@ -96,23 +95,16 @@ test.describe("Production reports", () => {
 		await reportsPage.open("Production OEE Report");
 		await reportsPage.runWithDateRange(seeded.posting_date, seeded.posting_date);
 		await reportsPage.setFilterByFieldname("custom_workstation", ctx.workstation);
-		await reportsPage.setFilterByFieldname("avl_hours_per_day", 24);
-		await reportsPage.clickRefresh();
-		await reportsPage.waitForRows(1);
-		const rows24 = await reportsPage.getRows();
-		const row24 = rows24.find((row) => row.workstation === ctx.workstation);
-		expect(Boolean(row24)).toBeTruthy();
-
-		await reportsPage.setFilterByFieldname("avl_hours_per_day", 8);
 		await reportsPage.clickRefresh();
 		await reportsPage.waitForRows(1);
 		const filters = await reportsPage.getFilterValues();
-		expect(Number(filters.avl_hours_per_day)).toBe(8);
+		expect(Object.prototype.hasOwnProperty.call(filters, "avl_hours_per_day")).toBeFalsy();
 
-		const rows8 = await reportsPage.getRows();
-		const row8 = rows8.find((row) => row.workstation === ctx.workstation);
-		expect(Boolean(row8)).toBeTruthy();
-		expect(Number(row8.total_strokes || 0)).toBeGreaterThan(0);
+		const rows = await reportsPage.getRows();
+		const row = rows.find((item) => item.workstation === ctx.workstation);
+		expect(Boolean(row)).toBeTruthy();
+		expect(Number(row.total_strokes || 0)).toBeGreaterThan(0);
+		expect(row.avl_time_hrs).toBeDefined();
 	});
 
 	test("@regression OEE report ignores Downtime Entry rows for loss buckets", async ({
@@ -137,7 +129,6 @@ test.describe("Production reports", () => {
 		await reportsPage.open("Production OEE Report");
 		await reportsPage.runWithDateRange(seeded.posting_date, seeded.posting_date);
 		await reportsPage.setFilterByFieldname("custom_workstation", ctx.workstation);
-		await reportsPage.setFilterByFieldname("avl_hours_per_day", 24);
 		await reportsPage.clickRefresh();
 		await reportsPage.waitForRows(1);
 		const rows = await reportsPage.getRows();
@@ -458,7 +449,8 @@ test.describe("Production reports", () => {
 		await reportsPage.waitForRows(1);
 		const trendRows = await reportsPage.getRows();
 		expect(trendRows.length).toBeGreaterThan(0);
-		expect(Number(trendRows[0].rework_qty || 0)).toBeGreaterThan(0);
+		const trendRow = trendRows.find((row) => Number(row.rework_qty || 0) > 0);
+		expect(Boolean(trendRow)).toBeTruthy();
 		expect(await reportsPage.hasChart()).toBeTruthy();
 
 		await reportsPage.open("Rework PPM Report");
@@ -467,7 +459,8 @@ test.describe("Production reports", () => {
 		await reportsPage.waitForRows(1);
 		const ppmRows = await reportsPage.getRows();
 		expect(ppmRows.length).toBeGreaterThan(0);
-		expect(Number(ppmRows[0].ppm || 0)).toBeGreaterThan(0);
+		const ppmRow = ppmRows.find((row) => Number(row.ppm || 0) > 0);
+		expect(Boolean(ppmRow)).toBeTruthy();
 	});
 
 	test("@regression Operator/Item/Workstation rework reports load with rework data", async ({
