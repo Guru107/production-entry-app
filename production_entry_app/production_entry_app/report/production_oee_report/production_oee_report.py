@@ -160,7 +160,7 @@ def _get_rows(filters: dict) -> list[dict]:
 		productivity_pct = flt((act_spm / std_spm) * 100, 2) if std_spm > 0 else 0
 		quality_pct = flt(((total_strokes - rejection) / total_strokes) * 100, 2) if total_strokes > 0 else 0
 		availability_pct = flt((running_time / avl_time_hrs) * 100, 2) if avl_time_hrs > 0 else 0
-		oee_avg_pct = flt((availability_pct + quality_pct + productivity_pct) / 3, 2)
+		oee = flt((availability_pct + quality_pct + productivity_pct) / 3, 2)
 		oee_mult_pct = flt((availability_pct * quality_pct * productivity_pct) / 10000, 2)
 
 		row = {
@@ -176,7 +176,7 @@ def _get_rows(filters: dict) -> list[dict]:
 			"productivity_pct": productivity_pct,
 			"quality_pct": quality_pct,
 			"availability_pct": availability_pct,
-			"oee": oee_avg_pct,
+			"oee": oee,
 			"oee_mult_pct": oee_mult_pct,
 			"avl_time_hrs": avl_time_hrs,
 			"total_loss_time": total_loss_time,
@@ -315,6 +315,12 @@ def _new_group(day: str, workstation: str) -> dict:
 
 
 def _get_available_hours_by_day(days: list[str]) -> dict[str, float]:
+	"""Return plant-wide available hours per day.
+
+	Availability is intentionally aggregated at the day level by summing
+	Running/Completed Shift durations for that date, then applied to each
+	workstation row for the same day in this report.
+	"""
 	day_set = sorted({day for day in days if day})
 	if not day_set:
 		return {}
@@ -334,7 +340,7 @@ def _get_available_hours_by_day(days: list[str]) -> dict[str, float]:
 		duration = flt(row.get("shift_duration") or 0, 3)
 		if duration <= 0:
 			continue
-		available_hours[day] = flt(available_hours.get(day) + duration, 3)
+		available_hours[day] = flt(available_hours.get(day, 0) + duration, 3)
 	return available_hours
 
 
