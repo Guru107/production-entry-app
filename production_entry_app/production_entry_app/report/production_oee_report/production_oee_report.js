@@ -30,12 +30,5 @@ frappe.query_reports["Production OEE Report"] = {
 			fieldtype: "Link",
 			options: "Workstation",
 		},
-		{
-			fieldname: "avl_hours_per_day",
-			label: __("Avl Hrs"),
-			fieldtype: "Float",
-			default: 24,
-			reqd: 1,
-		},
 	],
 };

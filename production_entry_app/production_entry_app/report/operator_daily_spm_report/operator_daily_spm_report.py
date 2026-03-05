@@ -6,8 +6,9 @@ from frappe.utils import flt
 
 from production_entry_app.production_entry_app.report.report_utils import (
 	build_stock_entry_filters,
-	get_duration_minutes,
+	get_entry_production_minutes,
 	get_entry_qty_maps,
+	get_entry_total_strokes,
 	get_loss_time_maps,
 )
 
@@ -129,27 +130,18 @@ def _get_rows(filters: dict) -> list[dict]:
 			agg["setting_time_hrs"] += flt((setup_time_map.get(entry_name) or 0) / 60, 3)
 			agg["loss_time_hrs"] += flt((loss_time_map.get(entry_name) or 0) / 60, 3)
 
-		rejection_qty = flt(entry.get("custom_rejection_qty") or 0, 3)
-		if rejection_qty <= 0 and entry_name:
-			rejection_qty = flt(rejection_qty_map.get(entry_name) or 0, 3)
-
-		fg_completed_qty = flt(entry.get("fg_completed_qty") or 0, 3)
-		total_strokes = fg_completed_qty
-		if total_strokes <= 0 and entry_name:
-			total_strokes = flt(good_qty_map.get(entry_name) or 0, 3) + rejection_qty
+		total_strokes, _rejection_qty = get_entry_total_strokes(
+			entry,
+			good_qty_map=good_qty_map,
+			rejection_qty_map=rejection_qty_map,
+		)
 		agg["total_strokes"] += flt(total_strokes, 3)
 
-		production_time_value = entry.get("custom_production_time_mins")
-		if production_time_value is not None:
-			agg["production_mins"] += flt(max(production_time_value, 0), 3)
-		else:
-			duration_mins = get_duration_minutes(
-				entry.get("custom_actual_start_date"),
-				entry.get("custom_actual_end_date"),
-			)
-			setup_mins = flt(setup_time_map.get(entry_name) or 0, 3) if entry_name else 0
-			loss_mins = flt(loss_time_map.get(entry_name) or 0, 3) if entry_name else 0
-			agg["production_mins"] += flt(max(duration_mins - setup_mins - loss_mins, 0), 3)
+		agg["production_mins"] += get_entry_production_minutes(
+			entry,
+			setup_mins=flt(setup_time_map.get(entry_name) or 0, 3) if entry_name else 0,
+			loss_mins=flt(loss_time_map.get(entry_name) or 0, 3) if entry_name else 0,
+		)
 
 	rows: list[dict] = []
 	for key in sorted(aggregates.keys()):

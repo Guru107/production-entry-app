@@ -194,6 +194,107 @@ def get_duration_minutes(start_value, end_value) -> float:
 	return flt(duration if duration > 0 else 0, 3)
 
 
+def get_entry_total_strokes(
+	entry: dict,
+	good_qty_map: dict[str, float] | None = None,
+	rejection_qty_map: dict[str, float] | None = None,
+) -> tuple[float, float]:
+	"""Return (total_strokes, rejection_qty) for one stock entry row."""
+	entry_name = entry.get("name")
+	rejection_qty = flt(entry.get("custom_rejection_qty") or 0, 3)
+	if rejection_qty <= 0 and entry_name and rejection_qty_map is not None:
+		rejection_qty = flt(rejection_qty_map.get(entry_name) or 0, 3)
+
+	fg_completed_qty = flt(entry.get("fg_completed_qty") or 0, 3)
+	if fg_completed_qty > 0:
+		return fg_completed_qty, rejection_qty
+	if entry_name and good_qty_map is not None:
+		return flt(good_qty_map.get(entry_name) or 0, 3) + rejection_qty, rejection_qty
+	return rejection_qty, rejection_qty
+
+
+def get_entry_production_minutes(
+	entry: dict,
+	setup_mins: float = 0.0,
+	loss_mins: float = 0.0,
+) -> float:
+	"""Return production minutes using custom_production_time_mins when present."""
+	production_time_value = entry.get("custom_production_time_mins")
+	if production_time_value is not None:
+		return flt(max(production_time_value, 0), 3)
+
+	duration_mins = flt(entry.get("custom_actual_duration_mins") or 0, 3)
+	if duration_mins <= 0:
+		duration_mins = get_duration_minutes(
+			entry.get("custom_actual_start_date"),
+			entry.get("custom_actual_end_date"),
+		)
+	return flt(max(duration_mins - flt(setup_mins, 3) - flt(loss_mins, 3), 0), 3)
+
+
+def get_available_hours_by_day(days: list[str]) -> dict[str, float]:
+	"""Return plant-wide available hours by day from Running/Completed shifts."""
+	day_set = sorted({day for day in days if day})
+	if not day_set:
+		return {}
+	shift_rows = frappe.get_all(
+		"Shift",
+		filters={
+			"shift_date": ["in", day_set],
+			"status": ["in", ["Running", "Completed"]],
+		},
+		fields=["shift_date", "shift_duration"],
+	)
+	available_hours: dict[str, float] = {day: 0.0 for day in day_set}
+	for row in shift_rows:
+		day = str(row.get("shift_date") or "")
+		if not day:
+			continue
+		duration = flt(row.get("shift_duration") or 0, 3)
+		if duration <= 0:
+			continue
+		available_hours[day] = flt(available_hours.get(day, 0) + duration, 3)
+	return available_hours
+
+
+def get_planned_loss_hours_by_day(days: list[str]) -> dict[str, float]:
+	"""Return total Shift planned-loss hours by day."""
+	day_set = sorted({day for day in days if day})
+	if not day_set:
+		return {}
+
+	shift_rows = frappe.get_all(
+		"Shift",
+		filters={
+			"shift_date": ["in", day_set],
+			"status": ["in", ["Running", "Completed"]],
+		},
+		fields=["name", "shift_date"],
+	)
+	if not shift_rows:
+		return {day: 0.0 for day in day_set}
+
+	shift_day_map = {
+		row.get("name"): str(row.get("shift_date") or "") for row in shift_rows if row.get("name")
+	}
+	loss_rows = frappe.get_all(
+		"Loss Entry",
+		filters={"parenttype": "Shift", "parent": ["in", list(shift_day_map.keys())]},
+		fields=["parent", "start_time", "end_time"],
+	)
+	planned_loss_hours: dict[str, float] = {day: 0.0 for day in day_set}
+	for row in loss_rows:
+		shift_name = row.get("parent")
+		day = shift_day_map.get(shift_name or "")
+		if not day:
+			continue
+		duration_mins = get_loss_duration_minutes(row.get("start_time"), row.get("end_time"))
+		if duration_mins <= 0:
+			continue
+		planned_loss_hours[day] = flt(planned_loss_hours.get(day, 0) + (duration_mins / 60), 3)
+	return planned_loss_hours
+
+
 def aggregate_efficiency_by_field(
 	entries: list[dict],
 	group_field: str,

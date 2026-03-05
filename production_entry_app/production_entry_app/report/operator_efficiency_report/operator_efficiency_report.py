@@ -8,8 +8,9 @@ from production_entry_app.production_entry_app.report.report_utils import (
 	aggregate_efficiency_by_field,
 	build_efficiency_rows,
 	build_stock_entry_filters,
-	get_duration_minutes,
+	get_entry_production_minutes,
 	get_entry_qty_maps,
+	get_entry_total_strokes,
 	get_loss_time_maps,
 	get_rework_qty_map,
 )
@@ -71,32 +72,25 @@ def _get_rows(filters: dict) -> list[dict]:
 	setup_time_map, loss_time_map = get_loss_time_maps(entry_names)
 
 	for entry in entries:
-		good_qty = flt(entry.get("fg_completed_qty") or 0, 3)
-		if good_qty <= 0:
-			good_qty = good_qty_map.get(entry.get("name"), 0)
-		rejection_qty = flt(entry.get("custom_rejection_qty") or 0, 3)
-		if rejection_qty <= 0:
-			rejection_qty = rejection_qty_map.get(entry.get("name"), 0)
+		total_strokes, rejection_qty = get_entry_total_strokes(
+			entry,
+			good_qty_map=good_qty_map,
+			rejection_qty_map=rejection_qty_map,
+		)
+		good_qty = flt(max(total_strokes - rejection_qty, 0), 3)
 		rework_qty = flt(entry.get("custom_rework_qty") or 0, 3)
 		if rework_qty <= 0:
 			rework_qty = rework_qty_map.get(entry.get("name"), 0)
-		duration_mins = flt(entry.get("custom_actual_duration_mins") or 0, 3)
-		if duration_mins <= 0:
-			duration_mins = get_duration_minutes(
-				entry.get("custom_actual_start_date"), entry.get("custom_actual_end_date")
-			)
-		production_time_value = entry.get("custom_production_time_mins")
-		if production_time_value is not None:
-			production_time_mins = flt(max(production_time_value, 0), 3)
-		else:
-			setup_mins = flt(setup_time_map.get(entry.get("name"), 0), 3)
-			loss_mins = flt(loss_time_map.get(entry.get("name"), 0), 3)
-			production_time_mins = flt(max(duration_mins - setup_mins - loss_mins, 0), 3)
+		duration_mins = get_entry_production_minutes(
+			entry,
+			setup_mins=flt(setup_time_map.get(entry.get("name"), 0), 3),
+			loss_mins=flt(loss_time_map.get(entry.get("name"), 0), 3),
+		)
 		entry["_good_qty"] = good_qty
 		entry["_rejection_qty"] = rejection_qty
 		entry["_rework_qty"] = rework_qty
 		entry["_duration_mins"] = duration_mins
-		entry["_production_time_mins"] = production_time_mins
+		entry["_production_time_mins"] = duration_mins
 
 	aggregates = aggregate_efficiency_by_field(entries, "custom_operator")
 	return build_efficiency_rows(

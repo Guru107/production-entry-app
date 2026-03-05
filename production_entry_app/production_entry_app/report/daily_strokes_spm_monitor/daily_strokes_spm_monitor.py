@@ -8,7 +8,9 @@ from frappe.utils import flt, getdate
 
 from production_entry_app.production_entry_app.report.report_utils import (
 	build_stock_entry_filters,
+	get_entry_production_minutes,
 	get_entry_qty_maps,
+	get_entry_total_strokes,
 	get_loss_time_maps,
 	get_rework_qty_map,
 )
@@ -196,27 +198,19 @@ def _get_rows(filters: dict) -> list[dict]:
 		setup_hrs = flt(setup_mins / 60, 3)
 		loss_hrs = flt(loss_mins / 60, 3)
 		rejection_qty = flt(entry.get("custom_rejection_qty") or 0, 3)
-		if rejection_qty <= 0 and entry_name:
-			rejection_qty = flt(rejection_qty_map.get(entry_name) or 0, 3)
 		rework_qty = flt(entry.get("custom_rework_qty") or 0, 3)
 		if rework_qty <= 0 and entry_name:
 			rework_qty = flt(rework_qty_map.get(entry_name) or 0, 3)
-		# fg_completed_qty is the total production quantity (good + rejection).
-		# When available, it IS total_strokes directly. When zero (from_bom not
-		# set), fall back to good_qty_map (good only) + rejection.
-		fg_completed = flt(entry.get("fg_completed_qty") or 0, 3)
-		if fg_completed > 0:
-			total_strokes = fg_completed
-		elif entry_name:
-			total_strokes = flt(good_qty_map.get(entry_name, 0) + rejection_qty, 3)
-		else:
-			total_strokes = rejection_qty
-		duration_mins = flt(entry.get("custom_actual_duration_mins") or 0, 3)
-		production_time_value = entry.get("custom_production_time_mins")
-		if production_time_value is not None:
-			production_time_mins = flt(max(production_time_value, 0), 3)
-		else:
-			production_time_mins = flt(max(duration_mins - setup_mins - loss_mins, 0), 3)
+		total_strokes, rejection_qty = get_entry_total_strokes(
+			entry,
+			good_qty_map=good_qty_map,
+			rejection_qty_map=rejection_qty_map,
+		)
+		production_time_mins = get_entry_production_minutes(
+			entry,
+			setup_mins=setup_mins,
+			loss_mins=loss_mins,
+		)
 		production_time_hrs = flt(production_time_mins / 60, 3) if production_time_mins > 0 else 0.0
 
 		agg["setup_time_hrs"] += setup_hrs
