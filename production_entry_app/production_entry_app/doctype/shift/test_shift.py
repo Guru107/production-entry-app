@@ -1169,6 +1169,32 @@ class TestShiftLayout(FrappeTestCase):
 		self.assertTrue(field)
 		self.assertEqual(int(field.reqd or 0), 1)
 
+	def test_planned_start_helper_field_is_present_and_canonical_is_hidden(self) -> None:
+		meta = frappe.get_meta("Shift")
+		helper = meta.get_field("planned_start_time_input")
+		canonical = meta.get_field("planned_start_time")
+		self.assertTrue(helper)
+		self.assertEqual(helper.fieldtype, "Data")
+		self.assertEqual(int(helper.no_copy or 0), 1)
+		self.assertEqual(int(helper.print_hide or 0), 1)
+		self.assertEqual(int(helper.search_index or 0), 0)
+		self.assertTrue(canonical)
+		self.assertEqual(int(canonical.hidden or 0), 1)
+
+	def test_planned_start_helper_field_follows_shift_date(self) -> None:
+		meta = frappe.get_meta("Shift")
+		self.assertEqual(
+			self._field_index(meta, "planned_start_time_input"),
+			self._field_index(meta, "shift_date") + 1,
+		)
+
+	def test_shift_end_date_is_in_times_column(self) -> None:
+		meta = frappe.get_meta("Shift")
+		self.assertGreater(
+			self._field_index(meta, "shift_end_date"),
+			self._field_index(meta, "col_break_times"),
+		)
+
 	def test_search_indexes_enabled_for_key_shift_fields(self) -> None:
 		meta = frappe.get_meta("Shift")
 		for fieldname in ("shift_date", "status", "supervisor"):
@@ -1207,6 +1233,35 @@ class TestShiftLayout(FrappeTestCase):
 		aggregate_idx = self._field_index(meta, "aggregate_production_entries")
 		self.assertGreater(aggregate_idx, self._field_index(meta, "tab_metrics"))
 		self.assertGreater(aggregate_idx, self._field_index(meta, "shift_metrics"))
+
+	def test_loss_entry_helper_fields_are_present_and_canonical_time_fields_are_hidden(self) -> None:
+		meta = frappe.get_meta("Loss Entry")
+		for fieldname in ("start_time_input", "duration_mins_input", "end_time_input"):
+			field = meta.get_field(fieldname)
+			self.assertTrue(field, f"Expected Loss Entry field {fieldname} to exist")
+			self.assertEqual(int(field.no_copy or 0), 1)
+			self.assertEqual(int(field.print_hide or 0), 1)
+			self.assertEqual(int(field.search_index or 0), 0)
+
+		for fieldname in ("start_time", "end_time"):
+			field = meta.get_field(fieldname)
+			self.assertTrue(field)
+			self.assertEqual(int(field.hidden or 0), 1)
+
+	def test_loss_entry_helper_fields_are_ordered_before_hidden_time_fields(self) -> None:
+		meta = frappe.get_meta("Loss Entry")
+		self.assertLess(
+			self._field_index(meta, "start_time_input"),
+			self._field_index(meta, "start_time"),
+		)
+		self.assertLess(
+			self._field_index(meta, "duration_mins_input"),
+			self._field_index(meta, "end_time"),
+		)
+		self.assertLess(
+			self._field_index(meta, "end_time_input"),
+			self._field_index(meta, "end_time"),
+		)
 
 
 class TestShiftMetrics(FrappeTestCase):

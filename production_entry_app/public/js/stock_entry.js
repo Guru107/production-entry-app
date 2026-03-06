@@ -13,7 +13,11 @@ const MANUFACTURE_FIELDS = [
 	"custom_shift",
 	"custom_planned_start_date",
 	"custom_planned_end_date",
+	"custom_actual_start_date_input",
+	"custom_actual_start_time_input",
 	"custom_actual_start_date",
+	"custom_actual_end_date_input",
+	"custom_actual_end_time_input",
 	"custom_actual_end_date",
 	"custom_workstation",
 	"custom_standard_spm",
@@ -86,15 +90,21 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 			_apply_manufacture_visibility(frm);
 			_hide_standard_get_items(frm);
 			_set_prev_purpose(frm);
+			_sync_stock_entry_helper_fields(frm);
+			_setup_stock_entry_quick_entry(frm);
 		},
 		stock_entry_type(frm) {
 			// custom_stock_entry_purpose is fetched via fetch_from and will re-trigger visibility.
 			_apply_manufacture_visibility(frm);
+			_sync_stock_entry_helper_fields(frm);
+			_setup_stock_entry_quick_entry(frm);
 		},
 		custom_stock_entry_purpose(frm) {
 			_clear_manufacture_data_on_leave(frm);
 			_apply_manufacture_visibility(frm);
 			_set_prev_purpose(frm);
+			_sync_stock_entry_helper_fields(frm);
+			_setup_stock_entry_quick_entry(frm);
 		},
 		from_bom(frm) {
 			_ensure_use_multi_level_bom_unchecked(frm);
@@ -104,6 +114,20 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 		bom_no(frm) {
 			_hide_standard_get_items(frm);
 			_apply_manufacture_visibility(frm);
+		},
+		custom_actual_start_date_input(frm) {
+			_combine_actual_datetime(frm, {
+				date_fieldname: "custom_actual_start_date_input",
+				time_fieldname: "custom_actual_start_time_input",
+				canonical_fieldname: "custom_actual_start_date",
+			});
+		},
+		custom_actual_end_date_input(frm) {
+			_combine_actual_datetime(frm, {
+				date_fieldname: "custom_actual_end_date_input",
+				time_fieldname: "custom_actual_end_time_input",
+				canonical_fieldname: "custom_actual_end_date",
+			});
 		},
 		custom_rejection_qty(frm) {
 			_toggle_rejection_breakup(frm);
@@ -154,41 +178,60 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 						}
 						if (r.message) {
 							const data = r.message;
+							const updates = [];
 							if (data.branch) {
-								frm.set_value("branch", data.branch);
+								updates.push(frm.set_value("branch", data.branch));
 							}
 							if (data.custom_planned_start_date) {
-								frm.set_value(
-									"custom_planned_start_date",
-									data.custom_planned_start_date
+								updates.push(
+									frm.set_value(
+										"custom_planned_start_date",
+										data.custom_planned_start_date
+									)
 								);
 							}
 							if (data.custom_planned_end_date) {
-								frm.set_value(
-									"custom_planned_end_date",
-									data.custom_planned_end_date
+								updates.push(
+									frm.set_value(
+										"custom_planned_end_date",
+										data.custom_planned_end_date
+									)
 								);
 							}
 							if (data.from_warehouse) {
-								frm.set_value("from_warehouse", data.from_warehouse);
+								updates.push(frm.set_value("from_warehouse", data.from_warehouse));
 							}
 							if (data.to_warehouse) {
-								frm.set_value("to_warehouse", data.to_warehouse);
+								updates.push(frm.set_value("to_warehouse", data.to_warehouse));
 							}
+							Promise.all(updates).finally(() => {
+								_sync_stock_entry_helper_fields(frm);
+								_setup_stock_entry_quick_entry(frm);
+							});
+							return;
 						}
+						_sync_stock_entry_helper_fields(frm);
+						_setup_stock_entry_quick_entry(frm);
 					},
 					error(error) {
 						if (reqId !== _shiftDetailsRequestId) return;
 						console.warn("Failed to fetch shift details for stock entry.", error);
+						_sync_stock_entry_helper_fields(frm);
+						_setup_stock_entry_quick_entry(frm);
 					},
 				});
 			} else {
 				_shiftDetailsRequestId++;
-				frm.set_value("branch", "");
-				frm.set_value("custom_planned_start_date", "");
-				frm.set_value("custom_planned_end_date", "");
-				frm.set_value("from_warehouse", "");
-				frm.set_value("to_warehouse", "");
+				Promise.all([
+					frm.set_value("branch", ""),
+					frm.set_value("custom_planned_start_date", ""),
+					frm.set_value("custom_planned_end_date", ""),
+					frm.set_value("from_warehouse", ""),
+					frm.set_value("to_warehouse", ""),
+				]).finally(() => {
+					_sync_stock_entry_helper_fields(frm);
+					_setup_stock_entry_quick_entry(frm);
+				});
 			}
 		},
 	});
@@ -295,6 +338,131 @@ function _expand_sections(frm, sectionFieldnames) {
 
 function _is_manufacture_doc(doc) {
 	return _normalize_purpose(doc?.custom_stock_entry_purpose) === "Manufacture";
+}
+
+function _get_time_entry_api() {
+	return window.production_entry_app?.time_entry || null;
+}
+
+function _sync_stock_entry_helper_fields(frm) {
+	const timeEntry = _get_time_entry_api();
+	if (!timeEntry || !_is_manufacture_doc(frm.doc)) {
+		return;
+	}
+	const plannedStartDate = timeEntry.format_datetime_display(
+		frm.doc?.custom_planned_start_date || ""
+	).date;
+	_sync_actual_datetime_helper_fields(frm, {
+		date_fieldname: "custom_actual_start_date_input",
+		time_fieldname: "custom_actual_start_time_input",
+		canonical_fieldname: "custom_actual_start_date",
+		default_date: plannedStartDate,
+	});
+	_sync_actual_datetime_helper_fields(frm, {
+		date_fieldname: "custom_actual_end_date_input",
+		time_fieldname: "custom_actual_end_time_input",
+		canonical_fieldname: "custom_actual_end_date",
+		default_date: plannedStartDate,
+	});
+	timeEntry.sync_loss_entry_rows(frm, "custom_unplanned_losses");
+}
+
+function _sync_actual_datetime_helper_fields(
+	frm,
+	{ date_fieldname, time_fieldname, canonical_fieldname, default_date }
+) {
+	const timeEntry = _get_time_entry_api();
+	if (!timeEntry) {
+		return;
+	}
+	if (frm.doc?.[canonical_fieldname]) {
+		timeEntry.sync_datetime_display_from_doc(
+			frm,
+			date_fieldname,
+			time_fieldname,
+			canonical_fieldname
+		);
+		return;
+	}
+
+	let changed = false;
+	if (default_date && !frm.doc?.[date_fieldname]) {
+		frm.doc[date_fieldname] = default_date;
+		changed = true;
+	}
+	if (changed) {
+		frm.refresh_fields([date_fieldname, time_fieldname]);
+	}
+}
+
+function _setup_stock_entry_quick_entry(frm) {
+	const timeEntry = _get_time_entry_api();
+	if (!timeEntry) {
+		return;
+	}
+	const isManufacture = _is_manufacture_doc(frm.doc);
+	timeEntry.attach_datetime_split_chips(
+		frm,
+		"custom_actual_start_date_input",
+		"custom_actual_start_time_input",
+		"custom_actual_start_date",
+		{ get_shift_ctx: () => _get_shift_ctx(frm), enabled: isManufacture }
+	);
+	timeEntry.attach_datetime_split_chips(
+		frm,
+		"custom_actual_end_date_input",
+		"custom_actual_end_time_input",
+		"custom_actual_end_date",
+		{ get_shift_ctx: () => _get_shift_ctx(frm), enabled: isManufacture }
+	);
+	if (!isManufacture) {
+		return;
+	}
+	timeEntry.bind_committed_time_input(frm, "custom_actual_start_time_input", () =>
+		_combine_actual_datetime(frm, {
+			date_fieldname: "custom_actual_start_date_input",
+			time_fieldname: "custom_actual_start_time_input",
+			canonical_fieldname: "custom_actual_start_date",
+		})
+	);
+	timeEntry.bind_committed_time_input(frm, "custom_actual_end_time_input", () =>
+		_combine_actual_datetime(frm, {
+			date_fieldname: "custom_actual_end_date_input",
+			time_fieldname: "custom_actual_end_time_input",
+			canonical_fieldname: "custom_actual_end_date",
+		})
+	);
+}
+
+function _combine_actual_datetime(frm, { date_fieldname, time_fieldname, canonical_fieldname }) {
+	const timeEntry = _get_time_entry_api();
+	if (!timeEntry) {
+		return;
+	}
+	const dateValue = String(frm.doc?.[date_fieldname] || "").trim();
+	const timeValue = String(frm.doc?.[time_fieldname] || "").trim();
+	if (!dateValue && !timeValue) {
+		timeEntry.set_field_invalid(frm, time_fieldname, "");
+		frm.set_value(canonical_fieldname, "");
+		return;
+	}
+	if (!dateValue || !timeValue) {
+		return;
+	}
+	const parsed = timeEntry.parse_time(timeValue);
+	if (parsed.error) {
+		timeEntry.set_field_invalid(frm, time_fieldname, parsed.error);
+		return;
+	}
+	timeEntry.set_field_invalid(frm, time_fieldname, "");
+	frm.set_value(time_fieldname, timeEntry.format_time_display(parsed.frappe_time));
+	frm.set_value(canonical_fieldname, `${dateValue} ${parsed.frappe_time}`);
+}
+
+function _get_shift_ctx(frm) {
+	const start = frm.doc?.custom_planned_start_date || "";
+	const end = frm.doc?.custom_planned_end_date || "";
+	return { start, end };
 }
 
 function _normalize_purpose(purpose) {

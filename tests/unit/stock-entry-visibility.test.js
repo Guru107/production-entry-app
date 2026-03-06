@@ -36,6 +36,10 @@ test("manufacture decision uses custom_stock_entry_purpose only", () => {
 test("manufacture visibility targets include key fields and sections", () => {
 	assert.ok(MANUFACTURE_FIELDS.includes("custom_fetch_items"));
 	assert.ok(MANUFACTURE_FIELDS.includes("custom_shift"));
+	assert.ok(MANUFACTURE_FIELDS.includes("custom_actual_start_date_input"));
+	assert.ok(MANUFACTURE_FIELDS.includes("custom_actual_start_time_input"));
+	assert.ok(MANUFACTURE_FIELDS.includes("custom_actual_end_date_input"));
+	assert.ok(MANUFACTURE_FIELDS.includes("custom_actual_end_time_input"));
 	assert.ok(MANUFACTURE_FIELDS.includes("custom_workstation"));
 	assert.ok(MANUFACTURE_SECTIONS.includes("bom_info_section"));
 	assert.ok(!MANUFACTURE_SECTIONS.includes("section_break_7qsm"));

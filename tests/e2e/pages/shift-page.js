@@ -64,6 +64,73 @@ class ShiftPage {
 		}
 	}
 
+	async fillHelperField(fieldname, value) {
+		const input = this.page.locator(`[data-fieldname="${fieldname}"] input`).first();
+		await input.waitFor({ state: "visible" });
+		await input.fill(value);
+		await input.blur();
+	}
+
+	async clickFieldChip(fieldname, label) {
+		const button = this.page
+			.locator(`[data-fieldname="${fieldname}"] .pea-chip-row .pea-chip`)
+			.filter({ hasText: label })
+			.first();
+		await button.click();
+	}
+
+	async getFieldValue(fieldname) {
+		return await this.page.evaluate((name) => window.cur_frm?.doc?.[name] || "", fieldname);
+	}
+
+	async getHelperFieldValue(fieldname) {
+		const input = this.page.locator(`[data-fieldname="${fieldname}"] input`).first();
+		return await input.inputValue();
+	}
+
+	async setPlannedLossHelperRow(rowIndex, values) {
+		await this.page.evaluate(
+			async ({ index, updates }) => {
+				const frm = window.cur_frm;
+				const row = frm?.doc?.planned_losses?.[index];
+				if (!frm || !row) {
+					throw new Error("Planned loss row not found.");
+				}
+				for (const [fieldname, value] of Object.entries(updates)) {
+					await frappe.model.set_value(row.doctype, row.name, fieldname, value);
+				}
+				frm.refresh_field("planned_losses");
+			},
+			{ index: rowIndex, updates: values }
+		);
+	}
+
+	async openPlannedLossRowDialog(rowIndex) {
+		await this.page.evaluate((index) => {
+			const gridRow = window.cur_frm?.fields_dict?.planned_losses?.grid?.grid_rows?.[index];
+			if (!gridRow) {
+				throw new Error("Grid row not found.");
+			}
+			gridRow.toggle_view(true);
+		}, rowIndex);
+		await this.page
+			.locator(".grid-row-open .form-in-grid")
+			.first()
+			.waitFor({ state: "visible" });
+	}
+
+	async closeRowDialog() {
+		await this.page.evaluate(() => {
+			window.cur_frm?.fields_dict?.planned_losses?.grid?.open_grid_row?.toggle_view(false);
+		});
+		await this.page.waitForFunction(
+			() =>
+				window.cur_frm?.fields_dict?.planned_losses?.grid?.open_grid_row?.grid_form?.wrapper?.css(
+					"display"
+				) === "none"
+		);
+	}
+
 	async saveDraft() {
 		await saveForm(this.page, "Save");
 	}

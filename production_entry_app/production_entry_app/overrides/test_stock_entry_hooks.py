@@ -2609,6 +2609,57 @@ class TestGetItemsWithRejection(FrappeTestCase):
 		depends_on = frappe.db.get_value("Custom Field", "Stock Entry-custom_rejection_qty", "depends_on")
 		self.assertEqual(depends_on, "eval:doc.from_bom")
 
+	def test_actual_datetime_helper_fields_exist(self) -> None:
+		meta = frappe.get_meta("Stock Entry")
+		for fieldname, fieldtype in (
+			("custom_actual_start_date_input", "Date"),
+			("custom_actual_start_time_input", "Data"),
+			("custom_actual_end_date_input", "Date"),
+			("custom_actual_end_time_input", "Data"),
+		):
+			field = meta.get_field(fieldname)
+			self.assertTrue(field, f"Expected Stock Entry field {fieldname} to exist")
+			self.assertEqual(field.fieldtype, fieldtype)
+			self.assertEqual(int(field.no_copy or 0), 1)
+			self.assertEqual(int(field.print_hide or 0), 1)
+			self.assertEqual(int(field.search_index or 0), 0)
+
+	def test_actual_datetime_helper_fields_stay_in_operation_details_column(self) -> None:
+		meta = frappe.get_meta("Stock Entry")
+		self.assertEqual(
+			meta.get_field("custom_operation_details_col_break").insert_after,
+			"custom_actual_end_date",
+		)
+		self.assertEqual(
+			meta.get_field("custom_actual_start_date_input").insert_after,
+			"custom_operation_details_col_break",
+		)
+		self.assertEqual(
+			meta.get_field("custom_actual_start_time_input").insert_after,
+			"custom_actual_start_date_input",
+		)
+		self.assertEqual(
+			meta.get_field("custom_actual_end_date_input").insert_after,
+			"custom_actual_start_time_input",
+		)
+		self.assertEqual(
+			meta.get_field("custom_actual_end_time_input").insert_after,
+			"custom_actual_end_date_input",
+		)
+
+	def test_canonical_actual_datetime_fields_are_visible_below_planned_end_date(self) -> None:
+		meta = frappe.get_meta("Stock Entry")
+		start_field = meta.get_field("custom_actual_start_date")
+		end_field = meta.get_field("custom_actual_end_date")
+		self.assertTrue(start_field)
+		self.assertTrue(end_field)
+		self.assertEqual(int(start_field.hidden or 0), 0)
+		self.assertEqual(int(end_field.hidden or 0), 0)
+		self.assertEqual(int(start_field.read_only or 0), 1)
+		self.assertEqual(int(end_field.read_only or 0), 1)
+		self.assertEqual(start_field.insert_after, "custom_planned_end_date")
+		self.assertEqual(end_field.insert_after, "custom_actual_start_date")
+
 	@classmethod
 	def tearDownClass(cls) -> None:
 		# Clean up any Running shifts used in this class

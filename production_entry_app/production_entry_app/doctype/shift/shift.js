@@ -2,6 +2,7 @@
 // For license information, please see license.txt
 
 const PLANNED_BREAKS_DEBOUNCE_MS = 300;
+const SHIFT_TIME_PRESETS = ["06:00", "08:00", "14:00", "18:00", "20:00", "22:00", "00:00"];
 const WAREHOUSE_FIELDS = [
 	"raw_material_warehouse",
 	"work_in_progress_warehouse",
@@ -107,6 +108,8 @@ frappe.ui.form.on("Shift", {
 		_render_linked_downtime_entries(frm);
 		_render_shift_metrics(frm);
 		_render_aggregate_production_entries(frm);
+		_sync_shift_helper_fields(frm);
+		_setup_shift_quick_entry(frm);
 	},
 });
 
@@ -164,6 +167,7 @@ function _populate_default_breaks_if_draft(frm) {
 				frm.clear_table("planned_losses");
 				(r.message || []).forEach((row) => frm.add_child("planned_losses", row));
 				frm.refresh_field("planned_losses");
+				_sync_shift_helper_fields(frm);
 			},
 			error() {
 				frappe.msgprint(__("Failed to load planned breaks. Please retry."));
@@ -174,6 +178,53 @@ function _populate_default_breaks_if_draft(frm) {
 
 function _is_draft_or_new(frm) {
 	return Boolean(frm.doc.__islocal || !frm.doc.status || frm.doc.status === "Draft");
+}
+
+function _get_time_entry_api() {
+	return window.production_entry_app?.time_entry || null;
+}
+
+function _sync_shift_helper_fields(frm) {
+	const timeEntry = _get_time_entry_api();
+	if (!timeEntry) {
+		return;
+	}
+	timeEntry.sync_time_display_from_doc(frm, "planned_start_time_input", "planned_start_time");
+	timeEntry.sync_loss_entry_rows(frm, "planned_losses");
+}
+
+function _setup_shift_quick_entry(frm) {
+	const timeEntry = _get_time_entry_api();
+	if (!timeEntry) {
+		return;
+	}
+
+	timeEntry.attach_today_button(frm, "shift_date");
+	const onCommit = (input) => {
+		if (!input) {
+			timeEntry.set_field_invalid(frm, "planned_start_time_input", "");
+			frm.set_value("planned_start_time", "");
+			return;
+		}
+		const parsed = timeEntry.parse_time(input);
+		if (parsed.error) {
+			timeEntry.set_field_invalid(frm, "planned_start_time_input", parsed.error);
+			return;
+		}
+		timeEntry.set_field_invalid(frm, "planned_start_time_input", "");
+		frm.set_value(
+			"planned_start_time_input",
+			timeEntry.format_time_display(parsed.frappe_time)
+		);
+		frm.set_value("planned_start_time", parsed.frappe_time);
+	};
+
+	timeEntry.attach_time_chips(frm, "planned_start_time_input", {
+		presets: SHIFT_TIME_PRESETS,
+		show_now: true,
+		on_commit: onCommit,
+	});
+	timeEntry.bind_committed_time_input(frm, "planned_start_time_input", onCommit);
 }
 
 function _render_linked_downtime_entries(frm) {
