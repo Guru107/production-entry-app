@@ -7,6 +7,9 @@
  "field_order": [
   "shift",
   "downtime_reason",
+  "start_time_input",
+  "duration_mins_input",
+  "end_time_input",
   "start_time",
   "end_time",
   "remark"
@@ -29,18 +32,49 @@
    "reqd": 1
   },
   {
+   "fieldname": "start_time_input",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Start",
+   "placeholder": "HH:MM e.g. 0630",
+   "no_copy": 1,
+   "print_hide": 1,
+   "search_index": 0
+  },
+  {
+   "fieldname": "duration_mins_input",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Mins",
+   "no_copy": 1,
+   "print_hide": 1,
+   "search_index": 0
+  },
+  {
+   "fieldname": "end_time_input",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "End",
+   "placeholder": "HH:MM e.g. 0630",
+   "no_copy": 1,
+   "print_hide": 1,
+   "search_index": 0
+  },
+  {
    "fieldname": "start_time",
    "fieldtype": "Time",
-   "in_list_view": 1,
+   "in_list_view": 0,
    "label": "Start Time",
-   "reqd": 1
+   "reqd": 1,
+   "hidden": 1
   },
   {
    "fieldname": "end_time",
    "fieldtype": "Time",
-   "in_list_view": 1,
+   "in_list_view": 0,
    "label": "End Time",
-   "reqd": 1
+   "reqd": 1,
+   "hidden": 1
   },
   {
    "fieldname": "remark",

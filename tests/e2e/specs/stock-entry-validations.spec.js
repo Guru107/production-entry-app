@@ -116,8 +116,55 @@ test.describe("Stock Entry validation matrix", () => {
 			false
 		);
 		expect(await stockEntryPage.isFieldVisible("custom_shift")).toBe(false);
+		expect(await stockEntryPage.isFieldVisible("custom_actual_start_date_input")).toBe(false);
+		expect(await stockEntryPage.isFieldVisible("custom_actual_start_time_input")).toBe(false);
+		expect(await stockEntryPage.isFieldVisible("custom_actual_end_date_input")).toBe(false);
+		expect(await stockEntryPage.isFieldVisible("custom_actual_end_time_input")).toBe(false);
 		expect(await stockEntryPage.isFieldVisible("custom_workstation")).toBe(false);
 		expect(await stockEntryPage.isFieldVisible("custom_fetch_items")).toBe(false);
+	});
+
+	test("@regression helper chips populate actual start and end datetimes", async ({ page }) => {
+		await page.goto("/app/home");
+		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
+
+		const stockEntryPage = await openManufactureEntry(page, ctx, {
+			fgQty: 100,
+			rejectionQty: 0,
+			actualStart: null,
+			actualEnd: null,
+		});
+		await stockEntryPage.waitForShiftAutoFill({
+			plannedStartIncludes: "08:00:00",
+			plannedEndIncludes: "16:00:00",
+		});
+
+		await stockEntryPage.clickFieldChip("custom_actual_start_time_input", "Shift Start");
+		await stockEntryPage.clickFieldChip("custom_actual_end_time_input", "Shift End");
+		await page.waitForFunction(() => {
+			const doc = window.cur_frm?.doc || {};
+			return (
+				doc.custom_actual_start_date === doc.custom_planned_start_date &&
+				doc.custom_actual_end_date === doc.custom_planned_end_date
+			);
+		});
+
+		const values = await stockEntryPage.getFieldValues([
+			"custom_actual_start_date_input",
+			"custom_actual_start_time_input",
+			"custom_actual_end_date_input",
+			"custom_actual_end_time_input",
+			"custom_actual_start_date",
+			"custom_actual_end_date",
+			"custom_planned_start_date",
+			"custom_planned_end_date",
+		]);
+		expect(values.custom_actual_start_date_input).toBe(ctx.shift_date);
+		expect(values.custom_actual_end_date_input).toBe(ctx.shift_date);
+		expect(values.custom_actual_start_time_input).toBe("08:00");
+		expect(values.custom_actual_end_time_input).toBe("16:00");
+		expect(values.custom_actual_start_date).toBe(values.custom_planned_start_date);
+		expect(values.custom_actual_end_date).toBe(values.custom_planned_end_date);
 	});
 
 	test("@regression purpose switch from manufacture clears manufacture fields and tables", async ({
@@ -297,8 +344,10 @@ test.describe("Stock Entry validation matrix", () => {
 		await stockEntryPage.fetchItems();
 		await stockEntryPage.addUnplannedLossRow({
 			downtime_reason: "Tea Break",
-			start_time: "10:00:00",
-			end_time: "10:15:00",
+		});
+		await stockEntryPage.setUnplannedLossHelperRow(0, {
+			start_time_input: "1000",
+			end_time_input: "1015",
 		});
 
 		await stockEntryPage.saveDraft();
@@ -307,6 +356,8 @@ test.describe("Stock Entry validation matrix", () => {
 
 		expect(savedStockEntry.custom_unplanned_losses || []).toHaveLength(1);
 		expect(savedStockEntry.custom_unplanned_losses[0].downtime_reason).toBe("Tea Break");
+		expect(savedStockEntry.custom_unplanned_losses[0].start_time).toBe("10:00:00");
+		expect(savedStockEntry.custom_unplanned_losses[0].end_time).toBe("10:15:00");
 	});
 
 	test("@regression re-save remains idempotent for rejection row and finished good qty", async ({

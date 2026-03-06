@@ -29,7 +29,9 @@ app_license = "mit"
 app_include_js = [
 	"/assets/production_entry_app/js/report_filter_utils.js",
 	"/assets/production_entry_app/js/timeline_renderer.js",
+	"/assets/production_entry_app/js/time_entry_fields.js",
 ]
+app_include_css = ["/assets/production_entry_app/css/time_entry_fields.css"]
 
 # include js, css files in header of web template
 # web_include_css = "/assets/production_entry_app/css/production_entry_app.css"

@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { bootstrapE2E } = require("../fixtures/test-data");
+const { bootstrapE2E, cleanupE2E } = require("../fixtures/test-data");
 const { getDoc, callFrappeMethod } = require("../fixtures/frappe");
 const { expectValidationError } = require("../fixtures/assertions");
 const { ShiftPage } = require("../pages/shift-page");
@@ -9,6 +9,38 @@ function plusOneDay(dateString) {
 	const nextDate = new Date(dateString);
 	nextDate.setDate(nextDate.getDate() + 1);
 	return nextDate.toISOString().slice(0, 10);
+}
+
+function uniqueFutureDate() {
+	const uniqueDay = String((Date.now() % 20) + 10).padStart(2, "0");
+	return `2099-12-${uniqueDay}`;
+}
+
+async function setupFreshContext(page, prefix) {
+	await cleanupE2E(page, prefix);
+	return await bootstrapE2E(page, prefix);
+}
+
+async function deleteShiftIfExists(page, name) {
+	try {
+		await callFrappeMethod(page, "frappe.client.get", {
+			doctype: "Shift",
+			name,
+		});
+		await callFrappeMethod(page, "frappe.client.delete", {
+			doctype: "Shift",
+			name,
+		});
+	} catch (error) {
+		const message = String(error?.message || "");
+		if (
+			!message.includes("DoesNotExistError") &&
+			!message.includes("Resource is not available") &&
+			!message.includes("not found")
+		) {
+			throw error;
+		}
+	}
 }
 
 test.describe("Shift validations", () => {
@@ -87,7 +119,7 @@ test.describe("Shift validations", () => {
 		page,
 	}) => {
 		await page.goto("/app/home");
-		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 		const shiftPage = new ShiftPage(page);
 
 		await shiftPage.openNew();
@@ -120,6 +152,52 @@ test.describe("Shift validations", () => {
 		expect(planned12h).toHaveLength(5);
 		expect(planned12h[4].downtime_reason).toBe("Tea Break");
 		expect(planned12h[4].start_time).toBe("17:00:00");
+	});
+
+	test("@regression planned start helper shorthand commits to canonical time and planned losses", async ({
+		page,
+	}) => {
+		await page.goto("/app/home");
+		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
+		const shiftPage = new ShiftPage(page);
+
+		await shiftPage.openNew();
+		await shiftPage.setDraftFields({
+			date: plusOneDay(ctx.shift_date),
+			label: "2",
+			duration: "8",
+		});
+		await shiftPage.fillHelperField("planned_start_time_input", "630");
+		await shiftPage.waitForPlannedLossRows(3);
+
+		expect(await shiftPage.getHelperFieldValue("planned_start_time_input")).toBe("06:30");
+		expect(await shiftPage.getFieldValue("planned_start_time")).toBe("06:30:00");
+
+		const planned = await shiftPage.getPlannedLosses();
+		expect(planned[0].start_time).toBe("06:30:00");
+	});
+
+	test("@regression planned start chips and today button update helper-backed fields", async ({
+		page,
+	}) => {
+		await page.goto("/app/home");
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const shiftPage = new ShiftPage(page);
+		const targetDate = plusOneDay(ctx.shift_date);
+
+		await shiftPage.openNew();
+		await shiftPage.setDraftFields({
+			date: targetDate,
+			label: "2",
+			duration: "8",
+		});
+		await shiftPage.clickFieldChip("planned_start_time_input", "14:00");
+		await page.waitForFunction(() => window.cur_frm?.doc?.planned_start_time === "14:00:00");
+		expect(await shiftPage.getFieldValue("planned_start_time")).toBe("14:00:00");
+
+		await shiftPage.clickFieldChip("shift_date", "Today");
+		const today = await page.evaluate(() => frappe.datetime.get_today());
+		expect(await shiftPage.getFieldValue("shift_date")).toBe(today);
 	});
 
 	test("@regression planned losses auto-populate on new doc even when status is temporarily blank", async ({
@@ -161,6 +239,34 @@ test.describe("Shift validations", () => {
 
 		await shiftPage.open(ctx.shift_name);
 		expect(await shiftPage.isPlannedLossesReadOnly()).toBe(true);
+	});
+
+	test("@regression planned losses helper fields drive inline row calculations", async ({
+		page,
+	}) => {
+		await page.goto("/app/home");
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const shiftPage = new ShiftPage(page);
+		const editDate = uniqueFutureDate();
+		const draftName = `SHIFT-${editDate}.Shift-2`;
+		await deleteShiftIfExists(page, draftName);
+
+		const draft = await shiftPage.createDraftViaApi({
+			date: editDate,
+			label: "2",
+			startTime: "08:00:00",
+		});
+		await shiftPage.open(draft.name);
+		await shiftPage.waitForPlannedLossRows(3);
+		await shiftPage.setPlannedLossHelperRow(0, {
+			start_time_input: "2350",
+			duration_mins_input: 20,
+		});
+		await shiftPage.saveDraft();
+
+		const savedShift = await getDoc(page, "Shift", draft.name);
+		expect(savedShift.planned_losses[0].start_time).toBe("23:50:00");
+		expect(String(savedShift.planned_losses[0].end_time)).toMatch(/^(00|0):10:00$/);
 	});
 
 	test("@regression linked downtime section renders overlapping downtime entries", async ({

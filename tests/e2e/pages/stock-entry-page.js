@@ -141,6 +141,21 @@ class StockEntryPage {
 		}, fieldnames);
 	}
 
+	async fillHelperField(fieldname, value) {
+		const input = this.page.locator(`[data-fieldname="${fieldname}"] input`).first();
+		await input.waitFor({ state: "visible" });
+		await input.fill(value);
+		await input.blur();
+	}
+
+	async clickFieldChip(fieldname, label) {
+		const button = this.page
+			.locator(`[data-fieldname="${fieldname}"] .pea-chip-row .pea-chip`)
+			.filter({ hasText: label })
+			.first();
+		await button.click();
+	}
+
 	async waitForFieldValue(fieldname, expectedValue) {
 		await this.page.waitForFunction(
 			({ name, value }) => {
@@ -166,6 +181,23 @@ class StockEntryPage {
 			cur_frm.add_child("custom_unplanned_losses", data);
 			cur_frm.refresh_field("custom_unplanned_losses");
 		}, row);
+	}
+
+	async setUnplannedLossHelperRow(rowIndex, values) {
+		await this.page.evaluate(
+			async ({ index, updates }) => {
+				const frm = window.cur_frm;
+				const row = frm?.doc?.custom_unplanned_losses?.[index];
+				if (!frm || !row) {
+					throw new Error("Unplanned loss row not found.");
+				}
+				for (const [fieldname, value] of Object.entries(updates)) {
+					await frappe.model.set_value(row.doctype, row.name, fieldname, value);
+				}
+				frm.refresh_field("custom_unplanned_losses");
+			},
+			{ index: rowIndex, updates: values }
+		);
 	}
 
 	async saveDraft() {
