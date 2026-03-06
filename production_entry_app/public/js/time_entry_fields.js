@@ -90,7 +90,12 @@ function sync_time_display_from_doc(frm, helperFieldname, canonicalFieldname) {
 	}
 }
 
-function sync_datetime_display_from_doc(frm, dateHelperFieldname, timeHelperFieldname, canonicalFieldname) {
+function sync_datetime_display_from_doc(
+	frm,
+	dateHelperFieldname,
+	timeHelperFieldname,
+	canonicalFieldname
+) {
 	if (!frm?.doc) return;
 	const display = format_datetime_display(frm.doc[canonicalFieldname] || "");
 	let changed = false;
@@ -161,7 +166,9 @@ function attach_time_chips(frm, helperFieldname, opts = {}) {
 
 	const row = $(`<div class="pea-chip-row" data-fieldname="${helperFieldname}"></div>`);
 	for (const preset of opts.presets || []) {
-		const button = $(`<button type="button" class="pea-chip btn btn-default btn-xs"></button>`);
+		const button = $(
+			`<button type="button" class="pea-chip btn btn-default btn-xs"></button>`
+		);
 		button.text(preset);
 		button.on("click", () => {
 			frm.set_value(helperFieldname, preset);
@@ -225,7 +232,9 @@ function attach_datetime_split_chips(
 	const row = $(`<div class="pea-chip-row pea-datetime-row"></div>`);
 	const shiftCtx = opts.get_shift_ctx?.() || null;
 	for (const chip of _get_shift_chip_values(canonicalFieldname, shiftCtx)) {
-		const button = $(`<button type="button" class="pea-chip btn btn-default btn-xs"></button>`);
+		const button = $(
+			`<button type="button" class="pea-chip btn btn-default btn-xs"></button>`
+		);
 		button.text(chip.label);
 		button.on("click", () => {
 			const display = format_datetime_display(chip.value);
@@ -271,7 +280,7 @@ function _add_minutes_to_time(startTime, durationMins) {
 	const parsed = parse_time(startTime);
 	if (parsed.error || !parsed.frappe_time) return "";
 	const totalMinutes = Number(parsed.hh) * 60 + Number(parsed.mm) + Number(durationMins || 0);
-	const hours = Math.floor(((totalMinutes % (24 * 60)) + 24 * 60) % (24 * 60) / 60);
+	const hours = Math.floor((((totalMinutes % (24 * 60)) + 24 * 60) % (24 * 60)) / 60);
 	const minutes = ((totalMinutes % 60) + 60) % 60;
 	return _to_time_string(hours, minutes);
 }
@@ -304,7 +313,12 @@ function _handle_loss_entry_start(frm, cdt, cdn) {
 		_set_child_value(cdt, cdn, "end_time", endTime);
 		_set_child_value(cdt, cdn, "end_time_input", format_time_display(endTime));
 	} else if (row.end_time) {
-		_set_child_value(cdt, cdn, "duration_mins_input", _diff_minutes(row.start_time, row.end_time));
+		_set_child_value(
+			cdt,
+			cdn,
+			"duration_mins_input",
+			_diff_minutes(row.start_time, row.end_time)
+		);
 	}
 	refresh_field(frm.fields_dict?.[row.parentfield]?.grid?.df?.fieldname || row.parentfield);
 }
@@ -328,7 +342,12 @@ function _handle_loss_entry_end(frm, cdt, cdn) {
 	_set_child_value(cdt, cdn, "end_time", parsed.frappe_time);
 	_set_child_value(cdt, cdn, "end_time_input", format_time_display(parsed.frappe_time));
 	if (row.start_time) {
-		_set_child_value(cdt, cdn, "duration_mins_input", _diff_minutes(row.start_time, row.end_time));
+		_set_child_value(
+			cdt,
+			cdn,
+			"duration_mins_input",
+			_diff_minutes(row.start_time, row.end_time)
+		);
 	}
 	refresh_field(frm.fields_dict?.[row.parentfield]?.grid?.df?.fieldname || row.parentfield);
 }
