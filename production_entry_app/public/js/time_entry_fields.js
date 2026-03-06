@@ -266,12 +266,6 @@ function _set_field_invalid(frm, fieldname, message) {
 	field.set_description(message || "");
 }
 
-function _refresh_child_table(doc, cdt, cdn) {
-	if (typeof frappe === "undefined") return;
-	const grid = frappe.get_meta?.(cdt)?.istable ? frappe.model.get_doc(cdt, cdn) : null;
-	if (!grid) return;
-}
-
 function _to_time_string(hours, minutes) {
 	return `${_pad2(hours)}:${_pad2(minutes)}:00`;
 }
