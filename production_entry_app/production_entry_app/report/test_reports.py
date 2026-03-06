@@ -321,8 +321,10 @@ class TestProductionReports(FrappeTestCase):
 		_, rows = execute({"from_date": "2026-06-07", "to_date": "2026-06-07"})
 		self.assertEqual(len(rows), 1)
 		row = rows[0]
+		self.assertEqual(float(row["setup_1st"]), 0.0)
 		self.assertEqual(float(row["trial_1st"]), 0.0)
 		self.assertEqual(float(row["other_1st"]), 0.0)
+		self.assertEqual(float(row["total_loss_time"]), 0.0)
 
 	def test_production_oee_report_does_not_use_downtime_entry_for_losses(self) -> None:
 		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
@@ -361,6 +363,8 @@ class TestProductionReports(FrappeTestCase):
 
 		shift = self._create_shift_for_label("2026-06-03", "1", clear_planned_losses=True)
 		self._create_shift_for_label("2026-06-03", "2", clear_planned_losses=True)
+		# Shift-2 is intentionally left without linked stock entries for this workstation group,
+		# so availability must include only linked shift hours (Shift-1 => 8h).
 		self._create_mock_submitted_entry(
 			posting_date="2026-06-03",
 			planned_start="2026-06-03 08:00:00",
@@ -773,6 +777,18 @@ class TestProductionReports(FrappeTestCase):
 		rows = build_efficiency_rows(aggregates, "operator", "operator_efficiency_pct")
 		self.assertEqual(len(rows), 1)
 		self.assertAlmostEqual(float(rows[0]["actual_spm"]), 2.0, places=3)
+
+	def test_get_entry_raw_duration_minutes_falls_back_to_datetime_delta(self) -> None:
+		from production_entry_app.production_entry_app.report.report_utils import (
+			get_entry_raw_duration_minutes,
+		)
+
+		entry = {
+			"custom_actual_duration_mins": 0,
+			"custom_actual_start_date": "2026-08-20 08:00:00",
+			"custom_actual_end_date": "2026-08-20 08:45:00",
+		}
+		self.assertEqual(float(get_entry_raw_duration_minutes(entry)), 45.0)
 
 	def test_efficiency_oee_and_daily_reports_include_rework_values(self) -> None:
 		from production_entry_app.production_entry_app.report.daily_strokes_spm_monitor.daily_strokes_spm_monitor import (
@@ -2137,15 +2153,7 @@ class TestProductionReports(FrappeTestCase):
 				},
 			)
 
-		for attempt in range(5):
-			try:
-				stock_entry.save()
-				break
-			except frappe.QueryDeadlockError:
-				if attempt == 4:
-					raise
-				frappe.db.rollback()
-				time.sleep(0.1)
+		self._save_with_deadlock_retry(stock_entry)
 		frappe.db.set_value(
 			"Stock Entry", stock_entry.name, "posting_date", posting_date, update_modified=False
 		)
@@ -2192,15 +2200,7 @@ class TestProductionReports(FrappeTestCase):
 		stock_entry.posting_date = posting_date
 		stock_entry.posting_time = "09:00:00"
 		_append_rejection_breakup_rows(stock_entry, breakup_rows)
-		for attempt in range(5):
-			try:
-				stock_entry.save()
-				break
-			except frappe.QueryDeadlockError:
-				if attempt == 4:
-					raise
-				frappe.db.rollback()
-				time.sleep(0.1)
+		self._save_with_deadlock_retry(stock_entry)
 		frappe.db.set_value(
 			"Stock Entry", stock_entry.name, "posting_date", posting_date, update_modified=False
 		)
@@ -2209,6 +2209,18 @@ class TestProductionReports(FrappeTestCase):
 		frappe.db.set_value("Stock Entry", stock_entry.name, "docstatus", 1, update_modified=False)
 		stock_entry.reload()
 		return stock_entry
+
+	def _save_with_deadlock_retry(self, stock_entry: frappe.Document) -> None:
+		for attempt in range(5):
+			try:
+				stock_entry.save()
+				return
+			except frappe.QueryDeadlockError:
+				if attempt == 4:
+					raise
+				frappe.db.rollback()
+				# Deadlock retries need a tiny backoff to avoid immediate lock contention.
+				time.sleep(0.1)
 
 	def _create_shift_for_label(
 		self, shift_date: str, shift_label: str, clear_planned_losses: bool = False
