@@ -41,6 +41,7 @@ def validate_stock_entry(doc, method: str | None = None) -> None:
 	_sync_unplanned_loss_shift_links(doc)
 
 	_validate_actual_times(doc)
+	_validate_unplanned_losses_within_actual_window(doc)
 	_validate_workstation_overlap(doc)
 	_validate_operator_overlap(doc)
 	_validate_workstation_downtime_overlap(doc)
@@ -190,6 +191,38 @@ def _get_shift_buffer_minutes(fieldname: str, default_value: int) -> int:
 	if default_value > _MAX_BUFFER_MINS:
 		return _MAX_BUFFER_MINS
 	return default_value
+
+
+def _validate_unplanned_losses_within_actual_window(doc) -> None:
+	actual_start = _as_datetime(doc.get("custom_actual_start_date"))
+	actual_end = _as_datetime(doc.get("custom_actual_end_date"))
+	if not actual_start or not actual_end:
+		return
+
+	for row in doc.get("custom_unplanned_losses") or []:
+		if not row.get("start_time") or not row.get("end_time"):
+			continue
+		interval = resolve_time_interval_in_window(
+			row.get("start_time"),
+			row.get("end_time"),
+			actual_start,
+			actual_end,
+		)
+		if not interval or interval[0] < actual_start or interval[1] > actual_end:
+			frappe.throw(_build_unplanned_loss_window_error(row, actual_start, actual_end))
+
+
+def _build_unplanned_loss_window_error(
+	row, actual_start: datetime.datetime, actual_end: datetime.datetime
+) -> str:
+	return _(
+		"Unplanned Loss row {0} ({1}) must be within Actual Start Date and Actual End Date: {2} to {3}."
+	).format(
+		row.get("idx") or "?",
+		row.get("downtime_reason") or _("Unplanned Loss"),
+		format_datetime(actual_start),
+		format_datetime(actual_end),
+	)
 
 
 def _as_datetime(value) -> datetime.datetime | None:

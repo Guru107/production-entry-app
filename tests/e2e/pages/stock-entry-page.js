@@ -249,6 +249,10 @@ class StockEntryPage {
 		}, sectionFieldname);
 	}
 
+	async isNew() {
+		return await this.page.evaluate(() => Boolean(window.cur_frm?.is_new?.()));
+	}
+
 	async waitForSectionVisible(sectionFieldname) {
 		await this.page.waitForFunction((fieldname) => {
 			const section = (window.cur_frm?.layout?.sections || []).find((entry) => {

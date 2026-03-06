@@ -88,6 +88,8 @@ test.describe("Stock Entry validation matrix", () => {
 		const stockEntryPage = await openManufactureEntry(page, ctx, {
 			fgQty: 100,
 			rejectionQty: 0,
+			actualStart: `${ctx.shift_date} 09:30:00`,
+			actualEnd: `${ctx.shift_date} 10:30:00`,
 		});
 		await stockEntryPage.waitForSectionVisible("bom_info_section");
 		expect(await stockEntryPage.isSectionVisible("bom_info_section")).toBe(true);
@@ -227,6 +229,8 @@ test.describe("Stock Entry validation matrix", () => {
 		const stockEntryPage = await openManufactureEntry(page, ctx, {
 			fgQty: 100,
 			rejectionQty: 0,
+			actualStart: `${ctx.shift_date} 09:30:00`,
+			actualEnd: `${ctx.shift_date} 10:30:00`,
 		});
 		await stockEntryPage.fetchItems();
 		await stockEntryPage.waitForSectionVisible("bom_info_section");
@@ -346,8 +350,8 @@ test.describe("Stock Entry validation matrix", () => {
 			downtime_reason: "Tea Break",
 		});
 		await stockEntryPage.setUnplannedLossHelperRow(0, {
-			start_time_input: "1000",
-			end_time_input: "1015",
+			start_time_input: "0810",
+			end_time_input: "0825",
 		});
 
 		await stockEntryPage.saveDraft();
@@ -356,8 +360,8 @@ test.describe("Stock Entry validation matrix", () => {
 
 		expect(savedStockEntry.custom_unplanned_losses || []).toHaveLength(1);
 		expect(savedStockEntry.custom_unplanned_losses[0].downtime_reason).toBe("Tea Break");
-		expect(savedStockEntry.custom_unplanned_losses[0].start_time).toBe("10:00:00");
-		expect(savedStockEntry.custom_unplanned_losses[0].end_time).toBe("10:15:00");
+		expect(savedStockEntry.custom_unplanned_losses[0].start_time).toBe("8:10:00");
+		expect(savedStockEntry.custom_unplanned_losses[0].end_time).toBe("8:25:00");
 	});
 
 	test("@regression re-save remains idempotent for rejection row and finished good qty", async ({

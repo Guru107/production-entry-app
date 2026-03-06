@@ -447,6 +447,8 @@ function _combine_actual_datetime(frm, { date_fieldname, time_fieldname, canonic
 		return;
 	}
 	if (!dateValue || !timeValue) {
+		timeEntry.set_field_invalid(frm, time_fieldname, "");
+		frm.set_value(canonical_fieldname, "");
 		return;
 	}
 	const parsed = timeEntry.parse_time(timeValue);
@@ -563,6 +565,7 @@ if (typeof module !== "undefined" && module.exports) {
 		_normalize_purpose,
 		_is_manufacture_doc,
 		_did_leave_manufacture,
+		_combine_actual_datetime,
 		MANUFACTURE_FIELDS,
 		MANUFACTURE_SECTIONS,
 		ALWAYS_HIDDEN_FIELDS,

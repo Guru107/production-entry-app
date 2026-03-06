@@ -836,6 +836,96 @@ class TestStockEntryHooks(FrappeTestCase):
 		with self.assertRaises(ValidationError):
 			se.save()
 
+	def test_unplanned_loss_within_actual_window_passes(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-04-15",
+			wip_warehouse=self.wip_warehouse,
+		)
+
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			custom_shift=shift.name,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		se.custom_actual_start_date = "2026-04-15 10:30:00"
+		se.custom_actual_end_date = "2026-04-15 11:00:00"
+		se.append(
+			"custom_unplanned_losses",
+			{
+				"downtime_reason": "Setup Time",
+				"start_time": "10:40:00",
+				"end_time": "10:55:00",
+				"shift": shift.name,
+			},
+		)
+
+		se.save()
+		self.assertEqual(len(se.custom_unplanned_losses), 1)
+
+	def test_unplanned_loss_before_actual_window_throws(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-04-15",
+			shift_label="2",
+			wip_warehouse=self.wip_warehouse,
+		)
+
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			custom_shift=shift.name,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		se.custom_actual_start_date = "2026-04-15 10:30:00"
+		se.custom_actual_end_date = "2026-04-15 11:00:00"
+		se.append(
+			"custom_unplanned_losses",
+			{
+				"downtime_reason": "Setup Time",
+				"start_time": "08:40:00",
+				"end_time": "08:55:00",
+				"shift": shift.name,
+			},
+		)
+
+		with self.assertRaisesRegex(ValidationError, "must be within Actual Start Date"):
+			se.save()
+
+	def test_cross_midnight_unplanned_loss_within_actual_window_passes(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-04-20",
+			shift_label="2",
+			planned_start_time="22:00:00",
+			wip_warehouse=self.wip_warehouse,
+		)
+
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			custom_shift=shift.name,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		se.custom_actual_start_date = "2026-04-20 23:40:00"
+		se.custom_actual_end_date = "2026-04-21 00:30:00"
+		se.append(
+			"custom_unplanned_losses",
+			{
+				"downtime_reason": "Maint",
+				"start_time": "23:50:00",
+				"end_time": "00:10:00",
+				"shift": shift.name,
+			},
+		)
+
+		se.save()
+		self.assertEqual(len(se.custom_unplanned_losses), 1)
+
 	def test_shift_start_buffer_clamps_negative_to_zero(self) -> None:
 		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
 			_get_shift_buffer_minutes,
