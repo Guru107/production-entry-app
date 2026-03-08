@@ -14,10 +14,7 @@ class TestPerformanceIndexes(FrappeTestCase):
 		) as add_index:
 			performance_indexes.ensure_performance_indexes()
 
-		actual = [
-			(tuple(call.args[0:2]), call.args[2])
-			for call in add_index.call_args_list
-		]
+		actual = [(tuple(call.args[0:2]), call.args[2]) for call in add_index.call_args_list]
 		expected = [
 			(
 				(

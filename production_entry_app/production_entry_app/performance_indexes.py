@@ -5,6 +5,8 @@ import frappe
 
 def ensure_performance_indexes() -> None:
 	"""Create targeted composite indexes for high-volume Stock Entry flows."""
+	# Stock Entry overlap-index redesign is deferred until production-like benchmarks
+	# show planner selection and net write-path gain over the current index set.
 	index_specs: tuple[tuple[str, list[str], str], ...] = (
 		(
 			"Stock Entry",
@@ -52,4 +54,3 @@ def ensure_performance_indexes() -> None:
 
 	for doctype, fields, index_name in index_specs:
 		frappe.db.add_index(doctype, fields, index_name)
-
