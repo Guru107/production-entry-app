@@ -9,7 +9,7 @@ import frappe
 from frappe import _
 from frappe.query_builder import Case, DocType
 from frappe.query_builder.functions import Sum
-from frappe.utils import flt, get_datetime
+from frappe.utils import cint, flt, get_datetime
 
 from production_entry_app.production_entry_app.utils.loss_time import (
 	SETUP_TIME_REASON,
@@ -51,6 +51,9 @@ def new_interactive_report_timeout_guard(
 	report_label: str,
 	timeout_sec: float = _DEFAULT_INTERACTIVE_REPORT_TIMEOUT_SEC,
 ):
+	if not _should_enforce_interactive_report_timeout():
+		return lambda: None
+
 	effective_timeout_sec = max(float(timeout_sec or 0), 0)
 	start = time.perf_counter()
 
@@ -67,6 +70,12 @@ def new_interactive_report_timeout_guard(
 		)
 
 	return guard
+
+
+def _should_enforce_interactive_report_timeout() -> bool:
+	if not getattr(frappe.local, "request", None):
+		return False
+	return bool(cint(frappe.form_dict.get("ignore_prepared_report")))
 
 
 def get_stock_entries_for_fg_item(item_code: str) -> list[str]:

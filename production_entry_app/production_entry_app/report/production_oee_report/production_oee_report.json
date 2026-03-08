@@ -12,7 +12,7 @@
  "module": "Production Entry App",
  "name": "Production OEE Report",
  "owner": "Administrator",
- "prepared_report": 0,
+ "prepared_report": 1,
  "ref_doctype": "Stock Entry",
  "report_name": "Production OEE Report",
  "report_type": "Script Report",

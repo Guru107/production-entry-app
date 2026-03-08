@@ -5,9 +5,12 @@ class ReportsPage {
 		this.page = page;
 	}
 
-	async open(reportName) {
+	async open(reportName, options = {}) {
 		const encodedName = encodeURIComponent(reportName);
-		await this.page.goto(`/app/query-report/${encodedName}`);
+		const ignorePreparedReport =
+			options.ignorePreparedReport === undefined ? true : options.ignorePreparedReport;
+		const queryString = ignorePreparedReport ? "?ignore_prepared_report=1" : "";
+		await this.page.goto(`/app/query-report/${encodedName}${queryString}`);
 		await expect(this.page).toHaveURL(new RegExp(`/app/query-report/${encodedName}`));
 		await this.page.waitForFunction(
 			(name) =>
@@ -117,6 +120,12 @@ class ReportsPage {
 				return {};
 			}
 			return report.get_filter_values() || {};
+		});
+	}
+
+	async getPrimaryActionLabel() {
+		return await this.page.evaluate(() => {
+			return window.frappe?.query_report?.primary_button?.text()?.trim() || "";
 		});
 	}
 

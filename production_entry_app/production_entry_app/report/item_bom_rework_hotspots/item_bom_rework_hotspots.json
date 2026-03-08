@@ -12,7 +12,7 @@
  "module": "Production Entry App",
  "name": "Item BOM Rework Hotspots",
  "owner": "Administrator",
- "prepared_report": 0,
+ "prepared_report": 1,
  "ref_doctype": "Stock Entry",
  "report_name": "Item BOM Rework Hotspots",
  "report_type": "Script Report",

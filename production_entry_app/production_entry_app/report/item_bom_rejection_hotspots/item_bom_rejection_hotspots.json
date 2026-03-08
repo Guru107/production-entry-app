@@ -12,7 +12,7 @@
  "module": "Production Entry App",
  "name": "Item BOM Rejection Hotspots",
  "owner": "Administrator",
- "prepared_report": 0,
+ "prepared_report": 1,
  "ref_doctype": "Stock Entry",
  "report_name": "Item BOM Rejection Hotspots",
  "report_type": "Script Report",
