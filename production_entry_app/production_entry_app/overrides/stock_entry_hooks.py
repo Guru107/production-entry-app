@@ -14,6 +14,7 @@ from production_entry_app.production_entry_app.utils.die_tool_counter import (
 	update_counter_for_stock_entry,
 )
 from production_entry_app.production_entry_app.utils.loss_time import (
+	build_interval_overlap_criterion,
 	get_interval_minutes,
 	get_interval_overlap,
 	merge_intervals,
@@ -308,8 +309,14 @@ def _find_overlapping_stock_entry(doc, fieldname: str, fieldvalue: str | None) -
 		.where(stock_entry.purpose == "Manufacture")
 		.where(stock_entry.custom_shift.isnotnull())
 		.where(stock_entry[fieldname] == fieldvalue)
-		.where(stock_entry.custom_actual_start_date < end)
-		.where(stock_entry.custom_actual_end_date > start)
+		.where(
+			build_interval_overlap_criterion(
+				stock_entry.custom_actual_start_date,
+				stock_entry.custom_actual_end_date,
+				start,
+				end,
+			)
+		)
 	)
 	if doc.name:
 		query = query.where(stock_entry.name != doc.name)
@@ -331,8 +338,7 @@ def _find_overlapping_downtime_entry(
 		frappe.qb.from_(downtime_entry)
 		.select(downtime_entry.name, downtime_entry.from_time, downtime_entry.to_time)
 		.where(downtime_entry.workstation == workstation)
-		.where(downtime_entry.from_time < end)
-		.where(downtime_entry.to_time > start)
+		.where(build_interval_overlap_criterion(downtime_entry.from_time, downtime_entry.to_time, start, end))
 	)
 	if frappe.get_meta("Downtime Entry", cached=True).is_submittable:
 		query = query.where(downtime_entry.docstatus != 2)

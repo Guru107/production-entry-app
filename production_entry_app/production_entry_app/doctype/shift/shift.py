@@ -10,6 +10,10 @@ from frappe.query_builder.functions import Avg, Count, CustomFunction, Sum
 from frappe.utils import add_to_date, flt
 
 from production_entry_app.production_entry_app.utils.shift_time import combine_date_time
+from production_entry_app.production_entry_app.utils.loss_time import (
+	build_interval_overlap_criterion,
+	build_interval_overlap_filters,
+)
 
 METRICS_CACHE_TTL_SEC: int = 30
 WARNING_THRESHOLD_PCT_DEFAULT: float = 90.0
@@ -143,10 +147,7 @@ def get_linked_downtime_entries(shift_name: str) -> list[dict]:
 
 	entries = frappe.get_all(
 		"Downtime Entry",
-		filters=[
-			["from_time", "<", end_dt],
-			["to_time", ">", start_dt],
-		],
+		filters=build_interval_overlap_filters("from_time", "to_time", start_dt, end_dt),
 		fields=["name", "workstation", "operator", "from_time", "to_time", "downtime", "stop_reason"],
 		order_by="from_time asc",
 	)
@@ -501,8 +502,14 @@ class Shift(Document):
 			.where(shift.status != "Cancelled")
 			.where(shift.shift_date >= add_to_date(self.shift_date, days=-1, as_string=True))
 			.where(shift.shift_date <= add_to_date(self.shift_date, days=1, as_string=True))
-			.where(timestamp(shift.shift_date, shift.planned_start_time) < my_end)
-			.where(timestamp(shift.shift_end_date, shift.planned_end_time) > my_start)
+			.where(
+				build_interval_overlap_criterion(
+					timestamp(shift.shift_date, shift.planned_start_time),
+					timestamp(shift.shift_end_date, shift.planned_end_time),
+					my_start,
+					my_end,
+				)
+			)
 		)
 		if self.name:
 			query = query.where(shift.name != self.name)
