@@ -42,12 +42,8 @@ class TestTestSetup(FrappeTestCase):
 			patch(
 				"production_entry_app.production_entry_app.utils.test_setup.make_test_records"
 			) as make_test_records,
-			patch(
-				"production_entry_app.production_entry_app.utils.test_setup._ensure_company_defaults"
-			),
-			patch(
-				"production_entry_app.production_entry_app.utils.test_setup._ensure_gender_records"
-			),
+			patch("production_entry_app.production_entry_app.utils.test_setup._ensure_company_defaults"),
+			patch("production_entry_app.production_entry_app.utils.test_setup._ensure_gender_records"),
 		):
 			test_setup.before_tests()
 
@@ -62,12 +58,8 @@ class TestTestSetup(FrappeTestCase):
 			patch(
 				"production_entry_app.production_entry_app.utils.test_setup.make_test_records"
 			) as make_test_records,
-			patch(
-				"production_entry_app.production_entry_app.utils.test_setup._ensure_company_defaults"
-			),
-			patch(
-				"production_entry_app.production_entry_app.utils.test_setup._ensure_gender_records"
-			),
+			patch("production_entry_app.production_entry_app.utils.test_setup._ensure_company_defaults"),
+			patch("production_entry_app.production_entry_app.utils.test_setup._ensure_gender_records"),
 		):
 			test_setup.before_tests()
 
