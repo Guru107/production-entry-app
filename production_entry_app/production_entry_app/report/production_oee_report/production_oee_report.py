@@ -10,6 +10,7 @@ from production_entry_app.production_entry_app.report.report_utils import (
 	get_loss_duration_minutes,
 	get_parent_quantity_metrics,
 	iter_stock_entries_in_chunks,
+	new_interactive_report_timeout_guard,
 )
 
 LOSS_BUCKETS: tuple[tuple[str, str], ...] = (
@@ -45,7 +46,8 @@ LOSS_REASON_TO_BUCKET: dict[str, str] = {
 def execute(filters: dict | None = None):
 	filters = filters or {}
 	columns = _get_columns()
-	rows = _get_rows(filters)
+	timeout_guard = new_interactive_report_timeout_guard(_("Production OEE Report"))
+	rows = _get_rows(filters, timeout_guard)
 	return columns, rows
 
 
@@ -131,13 +133,14 @@ def _get_columns() -> list[dict]:
 	return columns
 
 
-def _get_rows(filters: dict) -> list[dict]:
+def _get_rows(filters: dict, timeout_guard) -> list[dict]:
 	shift_label_cache: dict[str, str] = {}
-	groups = _get_stock_entry_groups(filters, shift_label_cache)
+	groups = _get_stock_entry_groups(filters, shift_label_cache, timeout_guard)
 	if not groups:
 		return []
 
-	availability_hours_by_group = _get_availability_hours_by_group(groups)
+	timeout_guard()
+	availability_hours_by_group = _get_availability_hours_by_group(groups, timeout_guard)
 
 	rows = []
 	for group in sorted(groups.values(), key=lambda row: (str(row["day"]), str(row["workstation"]))):
@@ -196,6 +199,7 @@ def _get_rows(filters: dict) -> list[dict]:
 def _get_stock_entry_groups(
 	filters: dict,
 	shift_label_cache: dict[str, str],
+	timeout_guard,
 ) -> dict[tuple[str, str], dict]:
 	stock_entry_filters: dict = {"docstatus": 1, "purpose": "Manufacture"}
 
@@ -227,6 +231,7 @@ def _get_stock_entry_groups(
 	groups: dict[tuple[str, str], dict] = {}
 	has_rows = False
 	for chunk in iter_stock_entries_in_chunks(stock_entry_filters, entry_fields):
+		timeout_guard()
 		has_rows = True
 		entry_names = [entry.get("name") for entry in chunk if entry.get("name")]
 		parent_quantity_metrics = get_parent_quantity_metrics(entry_names)
@@ -297,7 +302,11 @@ def _get_stock_entry_groups(
 	return groups
 
 
-def _get_availability_hours_by_group(groups: dict[tuple[str, str], dict]) -> dict[tuple[str, str], float]:
+def _get_availability_hours_by_group(
+	groups: dict[tuple[str, str], dict],
+	timeout_guard,
+) -> dict[tuple[str, str], float]:
+	timeout_guard()
 	shift_names = sorted(
 		{
 			shift_name
@@ -309,6 +318,7 @@ def _get_availability_hours_by_group(groups: dict[tuple[str, str], dict]) -> dic
 	if not shift_names:
 		return {(day, workstation): 0.0 for day, workstation in groups}
 
+	timeout_guard()
 	shift_rows = frappe.get_all(
 		"Shift",
 		filters={
@@ -324,6 +334,7 @@ def _get_availability_hours_by_group(groups: dict[tuple[str, str], dict]) -> dic
 			continue
 		shift_duration_hours_by_name[shift_name] = flt(row.get("shift_duration") or 0, 3)
 
+	timeout_guard()
 	loss_rows = frappe.get_all(
 		"Loss Entry",
 		filters={"parenttype": "Shift", "parent": ["in", list(shift_duration_hours_by_name.keys())]},
@@ -346,6 +357,7 @@ def _get_availability_hours_by_group(groups: dict[tuple[str, str], dict]) -> dic
 
 	availability_hours_by_group: dict[tuple[str, str], float] = {}
 	for key, group in groups.items():
+		timeout_guard()
 		total_shift_hours = 0.0
 		total_planned_loss_hours = 0.0
 		for shift_name in group.get("shift_names", set()):

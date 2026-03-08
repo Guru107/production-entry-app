@@ -10,13 +10,17 @@ from production_entry_app.production_entry_app.report.report_utils import (
 	get_parent_breakup_reason_rows,
 	get_parent_quantity_metrics,
 	iter_stock_entries_in_chunks,
+	new_interactive_report_timeout_guard,
 )
 
 
 def execute(filters: dict | None = None):
 	filters = filters or {}
 	columns = _get_columns()
-	rows = _get_rows(filters)
+	rows = _get_rows(
+		filters,
+		timeout_guard=new_interactive_report_timeout_guard(_("Item BOM Rework Hotspots Report")),
+	)
 	return columns, rows
 
 
@@ -54,13 +58,14 @@ def _group_key(item_code: str | None, bom_no: str | None) -> tuple[str, str]:
 	return (item_code or "Unknown", bom_no or "")
 
 
-def _get_rows(filters: dict) -> list[dict]:
+def _get_rows(filters: dict, timeout_guard) -> list[dict]:
 	agg: dict[tuple[str, str], dict] = {}
 	has_entries = False
 	for entries in iter_stock_entries_in_chunks(
 		_build_filters(filters),
 		["name", "fg_completed_qty", "custom_rejection_qty", "custom_rework_qty", "bom_no"],
 	):
+		timeout_guard()
 		has_entries = True
 		entry_names = [entry.get("name") for entry in entries if entry.get("name")]
 		if not entry_names:

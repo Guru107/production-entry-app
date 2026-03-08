@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+import time
 from collections import defaultdict
 from collections.abc import Iterator
 
@@ -18,6 +19,7 @@ from production_entry_app.production_entry_app.utils.loss_time import (
 _MAX_FG_ITEM_PARENT_MATCHES = 5000
 _DEFAULT_REPORT_CHUNK_SIZE = 1000
 _DEFAULT_MAX_STOCK_ENTRY_ROWS = 100000
+_DEFAULT_INTERACTIVE_REPORT_TIMEOUT_SEC = 5.0
 _SUPPORTED_STOCK_ENTRY_ORDER_BY = frozenset({"name asc", "posting_date asc, name asc"})
 
 
@@ -43,6 +45,28 @@ def build_stock_entry_filters(filters: dict, filter_keys: tuple[str, ...]) -> di
 		db_filters["name"] = ["in", parent_names or [""]]
 
 	return db_filters
+
+
+def new_interactive_report_timeout_guard(
+	report_label: str,
+	timeout_sec: float = _DEFAULT_INTERACTIVE_REPORT_TIMEOUT_SEC,
+):
+	effective_timeout_sec = max(float(timeout_sec or 0), 0)
+	start = time.perf_counter()
+
+	def guard() -> None:
+		if effective_timeout_sec <= 0:
+			return
+		elapsed_sec = time.perf_counter() - start
+		if elapsed_sec <= effective_timeout_sec:
+			return
+		frappe.throw(
+			_(
+				"{0} exceeded the interactive execution budget of {1} seconds. Narrow filters by date, shift, workstation, operator, or BOM and retry."
+			).format(report_label, f"{effective_timeout_sec:.1f}")
+		)
+
+	return guard
 
 
 def get_stock_entries_for_fg_item(item_code: str) -> list[str]:

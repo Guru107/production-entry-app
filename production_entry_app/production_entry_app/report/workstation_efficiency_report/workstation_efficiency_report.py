@@ -15,13 +15,17 @@ from production_entry_app.production_entry_app.report.report_utils import (
 	get_parent_quantity_metrics,
 	iter_stock_entries_in_chunks,
 	new_efficiency_aggregates,
+	new_interactive_report_timeout_guard,
 )
 
 
 def execute(filters: dict | None = None):
 	filters = filters or {}
 	columns = _get_columns()
-	rows = _get_rows(filters)
+	rows = _get_rows(
+		filters,
+		timeout_guard=new_interactive_report_timeout_guard(_("Workstation Efficiency Report")),
+	)
 	return columns, rows
 
 
@@ -50,7 +54,7 @@ def _get_columns() -> list[dict]:
 	]
 
 
-def _get_rows(filters: dict) -> list[dict]:
+def _get_rows(filters: dict, timeout_guard) -> list[dict]:
 	stock_entry_filters = _build_filters(filters)
 	entry_fields = [
 		"name",
@@ -67,6 +71,7 @@ def _get_rows(filters: dict) -> list[dict]:
 	]
 	aggregates = new_efficiency_aggregates()
 	for chunk in iter_stock_entries_in_chunks(stock_entry_filters, entry_fields):
+		timeout_guard()
 		entry_names = [entry.get("name") for entry in chunk if entry.get("name")]
 		parent_quantity_metrics = get_parent_quantity_metrics(entry_names, include_rework=True)
 		parent_loss_metrics = get_parent_loss_metrics(entry_names)

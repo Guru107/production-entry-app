@@ -104,3 +104,26 @@ class TestReportUtilsPerformance(FrappeTestCase):
 						max_rows=2,
 					)
 				)
+
+	def test_new_interactive_report_timeout_guard_throws_after_budget(self) -> None:
+		with patch(
+			"production_entry_app.production_entry_app.report.report_utils.time.perf_counter",
+			side_effect=[0.0, 6.1],
+		):
+			timeout_guard = report_utils.new_interactive_report_timeout_guard(
+				"Operator Efficiency Report",
+				timeout_sec=5.0,
+			)
+			with self.assertRaisesRegex(frappe.ValidationError, "Operator Efficiency Report"):
+				timeout_guard()
+
+	def test_new_interactive_report_timeout_guard_allows_zero_budget_override(self) -> None:
+		with patch(
+			"production_entry_app.production_entry_app.report.report_utils.time.perf_counter",
+			side_effect=[0.0, 100.0],
+		):
+			timeout_guard = report_utils.new_interactive_report_timeout_guard(
+				"Production OEE Report",
+				timeout_sec=0,
+			)
+			timeout_guard()
