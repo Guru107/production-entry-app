@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import datetime
 
-from frappe.tests.utils import FrappeTestCase
 from frappe.query_builder import DocType
+from frappe.tests.utils import FrappeTestCase
 
 from production_entry_app.production_entry_app.utils.loss_time import (
 	build_interval_overlap_criterion,

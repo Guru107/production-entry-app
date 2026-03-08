@@ -9,11 +9,11 @@ from frappe.query_builder import DocType
 from frappe.query_builder.functions import Avg, Count, CustomFunction, Sum
 from frappe.utils import add_to_date, flt
 
-from production_entry_app.production_entry_app.utils.shift_time import combine_date_time
 from production_entry_app.production_entry_app.utils.loss_time import (
 	build_interval_overlap_criterion,
 	build_interval_overlap_filters,
 )
+from production_entry_app.production_entry_app.utils.shift_time import combine_date_time
 
 METRICS_CACHE_TTL_SEC: int = 30
 WARNING_THRESHOLD_PCT_DEFAULT: float = 90.0

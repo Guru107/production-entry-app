@@ -1,7 +1,9 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { validate_report_date_range } = require("../../production_entry_app/public/js/report_filter_utils.js");
+const {
+	validate_report_date_range,
+} = require("../../production_entry_app/public/js/report_filter_utils.js");
 
 test("validate_report_date_range normalizes inverted date ranges", () => {
 	let updatedFromDate = null;
