@@ -33,6 +33,8 @@ def _ensure_gender_records() -> None:
 def before_tests() -> None:
 	"""Bootstrap critical ERPNext test records for deterministic local/CI runs."""
 	for doctype in ("Company", "Cost Center"):
-		make_test_records(doctype, force=True, commit=True)
+		if frappe.db.exists(doctype, None):
+			continue
+		make_test_records(doctype, commit=True)
 	_ensure_company_defaults()
 	_ensure_gender_records()
