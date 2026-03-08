@@ -5,16 +5,16 @@ from frappe import _
 from frappe.utils import flt
 
 from production_entry_app.production_entry_app.report.report_utils import (
-	aggregate_efficiency_by_field,
+	accumulate_efficiency_aggregate,
 	build_efficiency_rows,
 	build_stock_entry_filters,
 	get_entry_production_minutes,
-	get_entry_qty_maps,
 	get_entry_raw_duration_minutes,
 	get_entry_total_strokes,
-	get_loss_time_maps,
-	get_rework_qty_map,
+	get_parent_loss_metrics,
+	get_parent_quantity_metrics,
 	iter_stock_entries_in_chunks,
+	new_efficiency_aggregates,
 )
 
 
@@ -65,27 +65,34 @@ def _get_rows(filters: dict) -> list[dict]:
 		"custom_actual_end_date",
 		"custom_standard_spm",
 	]
-	entries: list[dict] = []
+	aggregates = new_efficiency_aggregates()
 	for chunk in iter_stock_entries_in_chunks(stock_entry_filters, entry_fields):
 		entry_names = [entry.get("name") for entry in chunk if entry.get("name")]
-		good_qty_map, rejection_qty_map, _ = get_entry_qty_maps(entry_names)
-		rework_qty_map = get_rework_qty_map(entry_names)
-		setup_time_map, loss_time_map = get_loss_time_maps(entry_names)
+		parent_quantity_metrics = get_parent_quantity_metrics(entry_names, include_rework=True)
+		parent_loss_metrics = get_parent_loss_metrics(entry_names)
+		good_qty_map = {
+			parent: flt(metrics.get("good_qty") or 0, 3)
+			for parent, metrics in parent_quantity_metrics.items()
+		}
+		rejection_qty_map = {
+			parent: flt(metrics.get("rejection_qty") or 0, 3)
+			for parent, metrics in parent_quantity_metrics.items()
+		}
 
 		for entry in chunk:
+			entry_metrics = parent_quantity_metrics.get(entry.get("name") or "", {})
+			loss_metrics = parent_loss_metrics.get(entry.get("name") or "", {})
 			total_strokes, rejection_qty = get_entry_total_strokes(
 				entry,
 				good_qty_map=good_qty_map,
 				rejection_qty_map=rejection_qty_map,
 			)
 			good_qty = flt(max(total_strokes - rejection_qty, 0), 3)
-			rework_qty = flt(entry.get("custom_rework_qty") or 0, 3)
-			if rework_qty <= 0:
-				rework_qty = rework_qty_map.get(entry.get("name"), 0)
+			rework_qty = flt(entry.get("custom_rework_qty") or entry_metrics.get("rework_qty") or 0, 3)
 			production_time_mins = get_entry_production_minutes(
 				entry,
-				setup_mins=flt(setup_time_map.get(entry.get("name"), 0), 3),
-				loss_mins=flt(loss_time_map.get(entry.get("name"), 0), 3),
+				setup_mins=flt(loss_metrics.get("setup_mins") or 0, 3),
+				loss_mins=flt(loss_metrics.get("loss_mins") or 0, 3),
 			)
 			raw_duration_mins = get_entry_raw_duration_minutes(entry)
 			entry["_good_qty"] = good_qty
@@ -93,9 +100,8 @@ def _get_rows(filters: dict) -> list[dict]:
 			entry["_rework_qty"] = rework_qty
 			entry["_duration_mins"] = raw_duration_mins
 			entry["_production_time_mins"] = production_time_mins
-			entries.append(entry)
+			accumulate_efficiency_aggregate(aggregates, entry, "custom_workstation")
 
-	aggregates = aggregate_efficiency_by_field(entries, "custom_workstation")
 	return build_efficiency_rows(
 		aggregates=aggregates,
 		group_result_field="workstation",

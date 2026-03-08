@@ -7,9 +7,10 @@ from frappe.utils import flt
 from production_entry_app.production_entry_app.report.report_utils import (
 	build_stock_entry_filters,
 	get_entry_production_minutes,
-	get_entry_qty_maps,
 	get_entry_total_strokes,
-	get_loss_time_maps,
+	get_parent_loss_metrics,
+	get_parent_quantity_metrics,
+	iter_stock_entries_in_chunks,
 )
 
 
@@ -73,10 +74,12 @@ def _get_shift_duration_map(shift_names: set[str]) -> dict[str, float]:
 
 
 def _get_rows(filters: dict) -> list[dict]:
-	entries = frappe.get_all(
-		"Stock Entry",
-		filters=_build_filters(filters),
-		fields=[
+	aggregates: dict[tuple[str, str, str], dict] = {}
+	shift_names: set[str] = set()
+	has_entries = False
+	for entries in iter_stock_entries_in_chunks(
+		_build_filters(filters),
+		[
 			"name",
 			"posting_date",
 			"custom_operator",
@@ -88,60 +91,68 @@ def _get_rows(filters: dict) -> list[dict]:
 			"custom_actual_end_date",
 			"custom_production_time_mins",
 		],
-		order_by="posting_date asc, custom_operator asc, custom_workstation asc",
-	)
-	if not entries:
+		order_by="posting_date asc, name asc",
+	):
+		has_entries = True
+		entry_names = [entry.get("name") for entry in entries if entry.get("name")]
+		parent_quantity_metrics = get_parent_quantity_metrics(entry_names)
+		parent_loss_metrics = get_parent_loss_metrics(entry_names)
+		good_qty_map = {
+			parent: flt(metrics.get("good_qty") or 0, 3)
+			for parent, metrics in parent_quantity_metrics.items()
+		}
+		rejection_qty_map = {
+			parent: flt(metrics.get("rejection_qty") or 0, 3)
+			for parent, metrics in parent_quantity_metrics.items()
+		}
+
+		for entry in entries:
+			entry_name = entry.get("name")
+			loss_metrics = parent_loss_metrics.get(entry_name or "", {})
+			posting_date = str(entry.get("posting_date") or "")
+			operator = entry.get("custom_operator") or "Unassigned"
+			workstation = entry.get("custom_workstation") or "Unassigned"
+			group_key = (posting_date, operator, workstation)
+			agg = aggregates.setdefault(
+				group_key,
+				{
+					"date": posting_date,
+					"operator": operator,
+					"workstation": workstation,
+					"shift_names": set(),
+					"setting_time_hrs": 0.0,
+					"loss_time_hrs": 0.0,
+					"total_strokes": 0.0,
+					"production_mins": 0.0,
+				},
+			)
+
+			shift_name = entry.get("custom_shift")
+			if shift_name:
+				agg["shift_names"].add(shift_name)
+				shift_names.add(shift_name)
+
+			if entry_name:
+				agg["setting_time_hrs"] += flt((loss_metrics.get("setup_mins") or 0) / 60, 3)
+				agg["loss_time_hrs"] += flt((loss_metrics.get("loss_mins") or 0) / 60, 3)
+
+			total_strokes, _rejection_qty = get_entry_total_strokes(
+				entry,
+				good_qty_map=good_qty_map,
+				rejection_qty_map=rejection_qty_map,
+			)
+			agg["total_strokes"] += flt(total_strokes, 3)
+
+			agg["production_mins"] += get_entry_production_minutes(
+				entry,
+				setup_mins=flt(loss_metrics.get("setup_mins") or 0, 3),
+				loss_mins=flt(loss_metrics.get("loss_mins") or 0, 3),
+			)
+
+	if not has_entries:
 		return []
 
-	entry_names = [entry.get("name") for entry in entries if entry.get("name")]
-	good_qty_map, rejection_qty_map, _ = get_entry_qty_maps(entry_names)
-	setup_time_map, loss_time_map = get_loss_time_maps(entry_names)
-
-	shift_duration_map = _get_shift_duration_map(
-		{entry.get("custom_shift") for entry in entries if entry.get("custom_shift")}
-	)
-
-	aggregates: dict[tuple[str, str, str], dict] = {}
-	for entry in entries:
-		entry_name = entry.get("name")
-		posting_date = str(entry.get("posting_date") or "")
-		operator = entry.get("custom_operator") or "Unassigned"
-		workstation = entry.get("custom_workstation") or "Unassigned"
-		group_key = (posting_date, operator, workstation)
-		agg = aggregates.setdefault(
-			group_key,
-			{
-				"date": posting_date,
-				"operator": operator,
-				"workstation": workstation,
-				"shift_names": set(),
-				"setting_time_hrs": 0.0,
-				"loss_time_hrs": 0.0,
-				"total_strokes": 0.0,
-				"production_mins": 0.0,
-			},
-		)
-
-		shift_name = entry.get("custom_shift")
-		if shift_name:
-			agg["shift_names"].add(shift_name)
-
-		if entry_name:
-			agg["setting_time_hrs"] += flt((setup_time_map.get(entry_name) or 0) / 60, 3)
-			agg["loss_time_hrs"] += flt((loss_time_map.get(entry_name) or 0) / 60, 3)
-
-		total_strokes, _rejection_qty = get_entry_total_strokes(
-			entry,
-			good_qty_map=good_qty_map,
-			rejection_qty_map=rejection_qty_map,
-		)
-		agg["total_strokes"] += flt(total_strokes, 3)
-
-		agg["production_mins"] += get_entry_production_minutes(
-			entry,
-			setup_mins=flt(setup_time_map.get(entry_name) or 0, 3) if entry_name else 0,
-			loss_mins=flt(loss_time_map.get(entry_name) or 0, 3) if entry_name else 0,
-		)
+	shift_duration_map = _get_shift_duration_map(shift_names)
 
 	rows: list[dict] = []
 	for key in sorted(aggregates.keys()):

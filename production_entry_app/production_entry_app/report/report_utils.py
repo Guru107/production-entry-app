@@ -6,7 +6,7 @@ from collections.abc import Iterator
 
 import frappe
 from frappe import _
-from frappe.query_builder import DocType
+from frappe.query_builder import Case, DocType
 from frappe.query_builder.functions import Sum
 from frappe.utils import flt, get_datetime
 
@@ -17,6 +17,8 @@ from production_entry_app.production_entry_app.utils.loss_time import (
 
 _MAX_FG_ITEM_PARENT_MATCHES = 5000
 _DEFAULT_REPORT_CHUNK_SIZE = 1000
+_DEFAULT_MAX_STOCK_ENTRY_ROWS = 100000
+_SUPPORTED_STOCK_ENTRY_ORDER_BY = frozenset({"name asc", "posting_date asc, name asc"})
 
 
 def build_stock_entry_filters(filters: dict, filter_keys: tuple[str, ...]) -> dict:
@@ -80,25 +82,94 @@ def iter_stock_entries_in_chunks(
 	fields: list[str],
 	order_by: str = "name asc",
 	chunk_size: int = _DEFAULT_REPORT_CHUNK_SIZE,
+	max_rows: int = _DEFAULT_MAX_STOCK_ENTRY_ROWS,
 ) -> Iterator[list[dict]]:
 	"""Yield Stock Entry rows in deterministic chunks to avoid blanket reads."""
-	start = 0
+	normalized_order_by = _normalize_stock_entry_order_by(order_by)
+	_validate_stock_entry_chunk_fields(fields, normalized_order_by)
 	effective_chunk_size = max(int(chunk_size or _DEFAULT_REPORT_CHUNK_SIZE), 1)
+	processed_rows = 0
+	last_row: dict | None = None
 	while True:
-		rows = frappe.get_all(
-			"Stock Entry",
+		rows = _fetch_stock_entry_chunk(
 			filters=filters,
 			fields=fields,
-			order_by=order_by,
-			limit_start=start,
-			limit_page_length=effective_chunk_size,
+			order_by=normalized_order_by,
+			chunk_size=effective_chunk_size,
+			last_row=last_row,
 		)
 		if not rows:
 			break
+		processed_rows += len(rows)
+		if max_rows > 0 and processed_rows > max_rows:
+			frappe.throw(
+				_(
+					"Report scope exceeds {0} Stock Entries. Narrow filters by date, shift, workstation, operator, or BOM."
+				).format(max_rows)
+			)
 		yield rows
 		if len(rows) < effective_chunk_size:
 			break
-		start += effective_chunk_size
+		last_row = rows[-1]
+
+
+def _normalize_stock_entry_order_by(order_by: str) -> str:
+	normalized_order_by = ", ".join(
+		part.strip().lower() for part in str(order_by or "name asc").split(",") if part.strip()
+	)
+	if normalized_order_by not in _SUPPORTED_STOCK_ENTRY_ORDER_BY:
+		frappe.throw(_("Unsupported Stock Entry report ordering: {0}").format(order_by or "name asc"))
+	return normalized_order_by
+
+
+def _validate_stock_entry_chunk_fields(fields: list[str], order_by: str) -> None:
+	required_fields = ("name",) if order_by == "name asc" else ("posting_date", "name")
+	missing_fields = [field for field in required_fields if field not in fields]
+	if missing_fields:
+		frappe.throw(
+			_("Stock Entry chunking requires order fields in selected columns: {0}").format(
+				", ".join(missing_fields)
+			)
+		)
+
+
+def _fetch_stock_entry_chunk(
+	filters: dict,
+	fields: list[str],
+	order_by: str,
+	chunk_size: int,
+	last_row: dict | None = None,
+) -> list[dict]:
+	stock_entry = DocType("Stock Entry")
+	query = frappe.qb.get_query(
+		"Stock Entry",
+		fields=[stock_entry[fieldname] for fieldname in fields],
+		filters=filters,
+		order_by=None,
+		limit=chunk_size,
+	)
+
+	if order_by == "name asc":
+		if last_row:
+			last_name = last_row.get("name")
+			if not last_name:
+				frappe.throw(_("Missing Stock Entry name for keyset pagination."))
+			query = query.where(stock_entry.name > last_name)
+		query = query.orderby(stock_entry.name)
+		return query.run(as_dict=True)
+
+	if last_row:
+		last_posting_date = last_row.get("posting_date")
+		last_name = last_row.get("name")
+		if last_posting_date is None or not last_name:
+			frappe.throw(_("Missing Stock Entry posting date or name for keyset pagination."))
+		query = query.where(
+			(stock_entry.posting_date > last_posting_date)
+			| ((stock_entry.posting_date == last_posting_date) & (stock_entry.name > last_name))
+		)
+
+	query = query.orderby(stock_entry.posting_date).orderby(stock_entry.name)
+	return query.run(as_dict=True)
 
 
 def get_entry_qty_maps(
@@ -108,95 +179,123 @@ def get_entry_qty_maps(
 	if not stock_entry_names:
 		return {}, {}, {}
 
-	stock_entry_detail = DocType("Stock Entry Detail")
-	good_query = frappe.qb.from_(stock_entry_detail).where(
-		(stock_entry_detail.parent.isin(stock_entry_names))
-		& (stock_entry_detail.is_finished_item == 1)
-		& (
-			stock_entry_detail.custom_is_rejection_item.isnull()
-			| (stock_entry_detail.custom_is_rejection_item == 0)
-		)
-	)
-	if include_fg_item:
-		good_rows = (
-			good_query.select(
-				stock_entry_detail.parent,
-				stock_entry_detail.item_code,
-				Sum(stock_entry_detail.qty).as_("qty"),
-			).groupby(stock_entry_detail.parent, stock_entry_detail.item_code)
-		).run(as_dict=True)
-	else:
-		good_rows = (
-			good_query.select(stock_entry_detail.parent, Sum(stock_entry_detail.qty).as_("qty")).groupby(
-				stock_entry_detail.parent
-			)
-		).run(as_dict=True)
-	rejection_rows = (
-		frappe.qb.from_(stock_entry_detail)
-		.select(stock_entry_detail.parent, Sum(stock_entry_detail.qty).as_("qty"))
-		.where(
-			(stock_entry_detail.parent.isin(stock_entry_names))
-			& (stock_entry_detail.custom_is_rejection_item == 1)
-		)
-		.groupby(stock_entry_detail.parent)
-	).run(as_dict=True)
+	parent_metrics = get_parent_quantity_metrics(stock_entry_names)
 
 	good_qty_map: dict[str, float] = {}
 	fg_item_map: dict[str, str] = {}
-	for row in good_rows:
-		parent = row.get("parent")
-		if not parent:
-			continue
-		good_qty_map[parent] = flt(good_qty_map.get(parent) or 0, 3) + flt(row.get("qty") or 0, 3)
-		if include_fg_item and row.get("item_code"):
-			fg_item_map[parent] = row.get("item_code")
+	for parent, metrics in parent_metrics.items():
+		good_qty_map[parent] = flt(metrics.get("good_qty") or 0, 3)
+
+	if include_fg_item:
+		stock_entry_detail = DocType("Stock Entry Detail")
+		good_rows = (
+			frappe.qb.from_(stock_entry_detail)
+			.select(
+				stock_entry_detail.parent,
+				stock_entry_detail.item_code,
+				Sum(stock_entry_detail.qty).as_("qty"),
+			)
+			.where(stock_entry_detail.parent.isin(stock_entry_names))
+			.where(stock_entry_detail.is_finished_item == 1)
+			.where(
+				stock_entry_detail.custom_is_rejection_item.isnull()
+				| (stock_entry_detail.custom_is_rejection_item == 0)
+			)
+			.groupby(stock_entry_detail.parent, stock_entry_detail.item_code)
+		).run(as_dict=True)
+		for row in good_rows:
+			parent = row.get("parent")
+			if not parent:
+				continue
+			if row.get("item_code"):
+				fg_item_map[parent] = row.get("item_code")
 
 	rejection_qty_map: dict[str, float] = {}
-	for row in rejection_rows:
-		parent = row.get("parent")
-		if not parent:
-			continue
-		rejection_qty_map[parent] = flt(row.get("qty") or 0, 3)
+	for parent, metrics in parent_metrics.items():
+		rejection_qty_map[parent] = flt(metrics.get("rejection_qty") or 0, 3)
 
 	return good_qty_map, rejection_qty_map, fg_item_map
 
 
-def get_rework_qty_map(stock_entry_names: list[str]) -> dict[str, float]:
-	"""Return {entry_name: rework_qty} from Rejection Breakup rows where is_rework=1."""
+def get_parent_quantity_metrics(
+	stock_entry_names: list[str],
+	*,
+	include_rework: bool = False,
+) -> dict[str, dict[str, float]]:
 	if not stock_entry_names:
 		return {}
 
-	rejection_breakup = DocType("Rejection Breakup")
-	rows = (
-		frappe.qb.from_(rejection_breakup)
-		.select(rejection_breakup.parent, Sum(rejection_breakup.qty).as_("qty"))
-		.where(rejection_breakup.parenttype == "Stock Entry")
-		.where(rejection_breakup.parent.isin(stock_entry_names))
-		.where(rejection_breakup.is_rework == 1)
-		.groupby(rejection_breakup.parent)
+	stock_entry_detail = DocType("Stock Entry Detail")
+	good_qty_case = (
+		Case()
+		.when(
+			(stock_entry_detail.is_finished_item == 1)
+			& (
+				stock_entry_detail.custom_is_rejection_item.isnull()
+				| (stock_entry_detail.custom_is_rejection_item == 0)
+			),
+			stock_entry_detail.qty,
+		)
+		.else_(0)
+	)
+	rejection_qty_case = (
+		Case().when(stock_entry_detail.custom_is_rejection_item == 1, stock_entry_detail.qty).else_(0)
+	)
+	qty_rows = (
+		frappe.qb.from_(stock_entry_detail)
+		.select(
+			stock_entry_detail.parent,
+			Sum(good_qty_case).as_("good_qty"),
+			Sum(rejection_qty_case).as_("rejection_qty"),
+		)
+		.where(stock_entry_detail.parent.isin(stock_entry_names))
+		.groupby(stock_entry_detail.parent)
 	).run(as_dict=True)
 
-	rework_qty_map: dict[str, float] = {}
-	for row in rows:
+	parent_metrics: dict[str, dict[str, float]] = {
+		name: {"good_qty": 0.0, "rejection_qty": 0.0, "rework_qty": 0.0} for name in stock_entry_names
+	}
+	for row in qty_rows:
 		parent = row.get("parent")
 		if not parent:
 			continue
-		rework_qty_map[parent] = flt(row.get("qty") or 0, 3)
-	return rework_qty_map
+		parent_metrics.setdefault(parent, {"good_qty": 0.0, "rejection_qty": 0.0, "rework_qty": 0.0})
+		parent_metrics[parent]["good_qty"] = flt(row.get("good_qty") or 0, 3)
+		parent_metrics[parent]["rejection_qty"] = flt(row.get("rejection_qty") or 0, 3)
+
+	if include_rework:
+		rejection_breakup = DocType("Rejection Breakup")
+		rework_rows = (
+			frappe.qb.from_(rejection_breakup)
+			.select(rejection_breakup.parent, Sum(rejection_breakup.qty).as_("qty"))
+			.where(rejection_breakup.parenttype == "Stock Entry")
+			.where(rejection_breakup.parent.isin(stock_entry_names))
+			.where(rejection_breakup.is_rework == 1)
+			.groupby(rejection_breakup.parent)
+		).run(as_dict=True)
+		for row in rework_rows:
+			parent = row.get("parent")
+			if not parent:
+				continue
+			parent_metrics.setdefault(parent, {"good_qty": 0.0, "rejection_qty": 0.0, "rework_qty": 0.0})
+			parent_metrics[parent]["rework_qty"] = flt(row.get("qty") or 0, 3)
+
+	return parent_metrics
 
 
-def get_loss_time_maps(entry_names: list[str]) -> tuple[dict[str, float], dict[str, float]]:
+def get_parent_loss_metrics(stock_entry_names: list[str]) -> dict[str, dict[str, float]]:
 	"""Return setup and non-setup loss minutes keyed by Stock Entry name."""
-	if not entry_names:
-		return {}, {}
+	if not stock_entry_names:
+		return {}
 
+	parent_metrics: dict[str, dict[str, float]] = {
+		name: {"setup_mins": 0.0, "loss_mins": 0.0} for name in stock_entry_names
+	}
 	loss_rows = frappe.get_all(
 		"Loss Entry",
-		filters={"parenttype": "Stock Entry", "parent": ["in", entry_names]},
+		filters={"parenttype": "Stock Entry", "parent": ["in", stock_entry_names]},
 		fields=["parent", "downtime_reason", "start_time", "end_time"],
 	)
-	setup_time_map: dict[str, float] = {}
-	loss_time_map: dict[str, float] = {}
 	for row in loss_rows:
 		parent = row.get("parent")
 		if not parent:
@@ -204,11 +303,31 @@ def get_loss_time_maps(entry_names: list[str]) -> tuple[dict[str, float], dict[s
 		duration_mins = get_loss_duration_minutes(row.get("start_time"), row.get("end_time"))
 		if duration_mins <= 0:
 			continue
+		parent_metrics.setdefault(parent, {"setup_mins": 0.0, "loss_mins": 0.0})
 		if row.get("downtime_reason") == SETUP_TIME_REASON:
-			setup_time_map[parent] = flt(setup_time_map.get(parent, 0) + duration_mins, 3)
+			parent_metrics[parent]["setup_mins"] = flt(
+				parent_metrics[parent]["setup_mins"] + duration_mins, 3
+			)
 		else:
-			loss_time_map[parent] = flt(loss_time_map.get(parent, 0) + duration_mins, 3)
-	return setup_time_map, loss_time_map
+			parent_metrics[parent]["loss_mins"] = flt(parent_metrics[parent]["loss_mins"] + duration_mins, 3)
+	return parent_metrics
+
+
+def get_rework_qty_map(stock_entry_names: list[str]) -> dict[str, float]:
+	"""Return {entry_name: rework_qty} from Rejection Breakup rows where is_rework=1."""
+	return {
+		parent: flt(metrics.get("rework_qty") or 0, 3)
+		for parent, metrics in get_parent_quantity_metrics(stock_entry_names, include_rework=True).items()
+	}
+
+
+def get_loss_time_maps(entry_names: list[str]) -> tuple[dict[str, float], dict[str, float]]:
+	"""Return setup and non-setup loss minutes keyed by Stock Entry name."""
+	parent_loss_metrics = get_parent_loss_metrics(entry_names)
+	return (
+		{parent: flt(metrics.get("setup_mins") or 0, 3) for parent, metrics in parent_loss_metrics.items()},
+		{parent: flt(metrics.get("loss_mins") or 0, 3) for parent, metrics in parent_loss_metrics.items()},
+	)
 
 
 def get_duration_minutes(start_value, end_value) -> float:
@@ -266,12 +385,8 @@ def get_entry_raw_duration_minutes(entry: dict) -> float:
 	)
 
 
-def aggregate_efficiency_by_field(
-	entries: list[dict],
-	group_field: str,
-	group_label_default: str = "Unassigned",
-) -> dict[str, dict]:
-	aggregates = defaultdict(
+def new_efficiency_aggregates() -> defaultdict:
+	return defaultdict(
 		lambda: {
 			"entries": 0,
 			"good_qty": 0.0,
@@ -285,30 +400,45 @@ def aggregate_efficiency_by_field(
 		}
 	)
 
+
+def accumulate_efficiency_aggregate(
+	aggregates: defaultdict,
+	entry: dict,
+	group_field: str,
+	group_label_default: str = "Unassigned",
+) -> None:
+	group_value = entry.get(group_field) or group_label_default
+	good_qty = flt(entry.get("_good_qty") or 0, 3)
+	rejection_qty = flt(entry.get("_rejection_qty") or 0, 3)
+	rework_qty = flt(entry.get("_rework_qty") or 0, 3)
+	total_units = flt(good_qty + rejection_qty, 3)
+	production_time_mins = entry.get("_production_time_mins")
+	duration_mins = flt(
+		production_time_mins if production_time_mins is not None else (entry.get("_duration_mins") or 0),
+		3,
+	)
+	standard_spm = flt(entry.get("custom_standard_spm") or 0, 3)
+
+	agg = aggregates[group_value]
+	agg["entries"] += 1
+	agg["good_qty"] += good_qty
+	agg["rejection_qty"] += rejection_qty
+	agg["rework_qty"] += rework_qty
+	agg["total_units"] += total_units
+	agg["duration_mins"] += duration_mins
+	agg["standard_units"] += standard_spm * duration_mins
+	agg["actual_spm_sum"] += flt(entry.get("custom_actual_spm") or 0, 3)
+	agg["standard_spm_sum"] += standard_spm
+
+
+def aggregate_efficiency_by_field(
+	entries: list[dict],
+	group_field: str,
+	group_label_default: str = "Unassigned",
+) -> dict[str, dict]:
+	aggregates = new_efficiency_aggregates()
 	for entry in entries:
-		group_value = entry.get(group_field) or group_label_default
-		good_qty = flt(entry.get("_good_qty") or 0, 3)
-		rejection_qty = flt(entry.get("_rejection_qty") or 0, 3)
-		rework_qty = flt(entry.get("_rework_qty") or 0, 3)
-		total_units = flt(good_qty + rejection_qty, 3)
-		production_time_mins = entry.get("_production_time_mins")
-		duration_mins = flt(
-			production_time_mins if production_time_mins is not None else (entry.get("_duration_mins") or 0),
-			3,
-		)
-		standard_spm = flt(entry.get("custom_standard_spm") or 0, 3)
-
-		agg = aggregates[group_value]
-		agg["entries"] += 1
-		agg["good_qty"] += good_qty
-		agg["rejection_qty"] += rejection_qty
-		agg["rework_qty"] += rework_qty
-		agg["total_units"] += total_units
-		agg["duration_mins"] += duration_mins
-		agg["standard_units"] += standard_spm * duration_mins
-		agg["actual_spm_sum"] += flt(entry.get("custom_actual_spm") or 0, 3)
-		agg["standard_spm_sum"] += standard_spm
-
+		accumulate_efficiency_aggregate(aggregates, entry, group_field, group_label_default)
 	return aggregates
 
 

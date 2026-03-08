@@ -8,7 +8,8 @@ from frappe.utils import flt, getdate
 
 from production_entry_app.production_entry_app.report.report_utils import (
 	build_stock_entry_filters,
-	get_entry_qty_maps,
+	get_parent_quantity_metrics,
+	iter_stock_entries_in_chunks,
 )
 
 _TIME_GRAINS: frozenset[str] = frozenset({"Daily", "Weekly", "Monthly"})
@@ -65,37 +66,40 @@ def _period_key(posting_date: datetime.date, time_grain: str) -> tuple[datetime.
 
 def _get_rows(filters: dict) -> list[dict]:
 	time_grain = _normalize_time_grain(filters.get("time_grain"))
-	entries = frappe.get_all(
-		"Stock Entry",
-		filters=_build_filters(filters),
-		fields=["name", "posting_date", "fg_completed_qty", "custom_rejection_qty"],
-		order_by="posting_date asc",
-	)
-	if not entries:
-		return []
-	entry_names = [entry.get("name") for entry in entries if entry.get("name")]
-	good_qty_map, rejection_qty_map, _ = get_entry_qty_maps(entry_names)
 
 	aggregates: dict[datetime.date, dict] = {}
-	for entry in entries:
-		posting_date = getdate(entry.get("posting_date"))
-		if not posting_date:
-			continue
-		entry_name = entry.get("name")
-		rejection_qty = flt(entry.get("custom_rejection_qty") or 0, 3)
-		if rejection_qty <= 0 and entry_name:
-			rejection_qty = flt(rejection_qty_map.get(entry_name) or 0, 3)
-		total_qty = flt(entry.get("fg_completed_qty") or 0, 3)
-		if total_qty <= 0 and entry_name:
-			total_qty = flt(good_qty_map.get(entry_name) or 0, 3) + rejection_qty
-		key_date, period_label = _period_key(posting_date, time_grain)
-		aggregate = aggregates.setdefault(
-			key_date,
-			{"period": period_label, "entries": 0, "total_qty": 0.0, "rejection_qty": 0.0},
-		)
-		aggregate["entries"] += 1
-		aggregate["total_qty"] += total_qty
-		aggregate["rejection_qty"] += rejection_qty
+	has_entries = False
+	for entries in iter_stock_entries_in_chunks(
+		_build_filters(filters),
+		["name", "posting_date", "fg_completed_qty", "custom_rejection_qty"],
+		order_by="posting_date asc, name asc",
+	):
+		has_entries = True
+		entry_names = [entry.get("name") for entry in entries if entry.get("name")]
+		parent_quantity_metrics = get_parent_quantity_metrics(entry_names)
+		for entry in entries:
+			posting_date = getdate(entry.get("posting_date"))
+			if not posting_date:
+				continue
+			entry_name = entry.get("name")
+			entry_metrics = parent_quantity_metrics.get(entry_name or "", {})
+			rejection_qty = flt(entry.get("custom_rejection_qty") or 0, 3)
+			if rejection_qty <= 0 and entry_name:
+				rejection_qty = flt(entry_metrics.get("rejection_qty") or 0, 3)
+			total_qty = flt(entry.get("fg_completed_qty") or 0, 3)
+			if total_qty <= 0 and entry_name:
+				total_qty = flt(entry_metrics.get("good_qty") or 0, 3) + rejection_qty
+			key_date, period_label = _period_key(posting_date, time_grain)
+			aggregate = aggregates.setdefault(
+				key_date,
+				{"period": period_label, "entries": 0, "total_qty": 0.0, "rejection_qty": 0.0},
+			)
+			aggregate["entries"] += 1
+			aggregate["total_qty"] += total_qty
+			aggregate["rejection_qty"] += rejection_qty
+
+	if not has_entries:
+		return []
 
 	rows = []
 	for key_date in sorted(aggregates):
