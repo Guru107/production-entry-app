@@ -14,6 +14,7 @@ from production_entry_app.production_entry_app.report.report_utils import (
 	get_entry_total_strokes,
 	get_loss_time_maps,
 	get_rework_qty_map,
+	iter_stock_entries_in_chunks,
 )
 
 
@@ -50,49 +51,49 @@ def _get_columns() -> list[dict]:
 
 
 def _get_rows(filters: dict) -> list[dict]:
-	entries = frappe.get_all(
-		"Stock Entry",
-		filters=_build_filters(filters),
-		fields=[
-			"name",
-			"custom_workstation",
-			"fg_completed_qty",
-			"custom_rejection_qty",
-			"custom_rework_qty",
-			"custom_actual_spm",
-			"custom_actual_duration_mins",
-			"custom_production_time_mins",
-			"custom_actual_start_date",
-			"custom_actual_end_date",
-			"custom_standard_spm",
-		],
-	)
-	entry_names = [entry.get("name") for entry in entries if entry.get("name")]
-	good_qty_map, rejection_qty_map, _ = get_entry_qty_maps(entry_names)
-	rework_qty_map = get_rework_qty_map(entry_names)
-	setup_time_map, loss_time_map = get_loss_time_maps(entry_names)
+	stock_entry_filters = _build_filters(filters)
+	entry_fields = [
+		"name",
+		"custom_workstation",
+		"fg_completed_qty",
+		"custom_rejection_qty",
+		"custom_rework_qty",
+		"custom_actual_spm",
+		"custom_actual_duration_mins",
+		"custom_production_time_mins",
+		"custom_actual_start_date",
+		"custom_actual_end_date",
+		"custom_standard_spm",
+	]
+	entries: list[dict] = []
+	for chunk in iter_stock_entries_in_chunks(stock_entry_filters, entry_fields):
+		entry_names = [entry.get("name") for entry in chunk if entry.get("name")]
+		good_qty_map, rejection_qty_map, _ = get_entry_qty_maps(entry_names)
+		rework_qty_map = get_rework_qty_map(entry_names)
+		setup_time_map, loss_time_map = get_loss_time_maps(entry_names)
 
-	for entry in entries:
-		total_strokes, rejection_qty = get_entry_total_strokes(
-			entry,
-			good_qty_map=good_qty_map,
-			rejection_qty_map=rejection_qty_map,
-		)
-		good_qty = flt(max(total_strokes - rejection_qty, 0), 3)
-		rework_qty = flt(entry.get("custom_rework_qty") or 0, 3)
-		if rework_qty <= 0:
-			rework_qty = rework_qty_map.get(entry.get("name"), 0)
-		production_time_mins = get_entry_production_minutes(
-			entry,
-			setup_mins=flt(setup_time_map.get(entry.get("name"), 0), 3),
-			loss_mins=flt(loss_time_map.get(entry.get("name"), 0), 3),
-		)
-		raw_duration_mins = get_entry_raw_duration_minutes(entry)
-		entry["_good_qty"] = good_qty
-		entry["_rejection_qty"] = rejection_qty
-		entry["_rework_qty"] = rework_qty
-		entry["_duration_mins"] = raw_duration_mins
-		entry["_production_time_mins"] = production_time_mins
+		for entry in chunk:
+			total_strokes, rejection_qty = get_entry_total_strokes(
+				entry,
+				good_qty_map=good_qty_map,
+				rejection_qty_map=rejection_qty_map,
+			)
+			good_qty = flt(max(total_strokes - rejection_qty, 0), 3)
+			rework_qty = flt(entry.get("custom_rework_qty") or 0, 3)
+			if rework_qty <= 0:
+				rework_qty = rework_qty_map.get(entry.get("name"), 0)
+			production_time_mins = get_entry_production_minutes(
+				entry,
+				setup_mins=flt(setup_time_map.get(entry.get("name"), 0), 3),
+				loss_mins=flt(loss_time_map.get(entry.get("name"), 0), 3),
+			)
+			raw_duration_mins = get_entry_raw_duration_minutes(entry)
+			entry["_good_qty"] = good_qty
+			entry["_rejection_qty"] = rejection_qty
+			entry["_rework_qty"] = rework_qty
+			entry["_duration_mins"] = raw_duration_mins
+			entry["_production_time_mins"] = production_time_mins
+			entries.append(entry)
 
 	aggregates = aggregate_efficiency_by_field(entries, "custom_workstation")
 	return build_efficiency_rows(

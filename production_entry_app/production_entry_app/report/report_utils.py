@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime
 from collections import defaultdict
+from collections.abc import Iterator
 
 import frappe
 from frappe import _
@@ -15,6 +16,7 @@ from production_entry_app.production_entry_app.utils.loss_time import (
 )
 
 _MAX_FG_ITEM_PARENT_MATCHES = 5000
+_DEFAULT_REPORT_CHUNK_SIZE = 1000
 
 
 def build_stock_entry_filters(filters: dict, filter_keys: tuple[str, ...]) -> dict:
@@ -71,6 +73,32 @@ def get_stock_entries_for_fg_item(item_code: str) -> list[str]:
 			).format(_MAX_FG_ITEM_PARENT_MATCHES)
 		)
 	return [row.get("parent") for row in rows if row.get("parent")]
+
+
+def iter_stock_entries_in_chunks(
+	filters: dict,
+	fields: list[str],
+	order_by: str = "name asc",
+	chunk_size: int = _DEFAULT_REPORT_CHUNK_SIZE,
+) -> Iterator[list[dict]]:
+	"""Yield Stock Entry rows in deterministic chunks to avoid blanket reads."""
+	start = 0
+	effective_chunk_size = max(int(chunk_size or _DEFAULT_REPORT_CHUNK_SIZE), 1)
+	while True:
+		rows = frappe.get_all(
+			"Stock Entry",
+			filters=filters,
+			fields=fields,
+			order_by=order_by,
+			limit_start=start,
+			limit_page_length=effective_chunk_size,
+		)
+		if not rows:
+			break
+		yield rows
+		if len(rows) < effective_chunk_size:
+			break
+		start += effective_chunk_size
 
 
 def get_entry_qty_maps(

@@ -9,6 +9,7 @@ from production_entry_app.production_entry_app.report.report_utils import (
 	get_entry_qty_maps,
 	get_entry_total_strokes,
 	get_loss_duration_minutes,
+	iter_stock_entries_in_chunks,
 )
 
 LOSS_BUCKETS: tuple[tuple[str, str], ...] = (
@@ -208,62 +209,62 @@ def _get_stock_entry_groups(filters: dict) -> dict[tuple[str, str], dict]:
 	if filters.get("custom_workstation"):
 		stock_entry_filters["custom_workstation"] = filters.get("custom_workstation")
 
-	entries = frappe.get_all(
-		"Stock Entry",
-		filters=stock_entry_filters,
-		fields=[
-			"name",
-			"posting_date",
-			"custom_shift",
-			"custom_workstation",
-			"fg_completed_qty",
-			"custom_rejection_qty",
-			"custom_standard_spm",
-			"custom_actual_duration_mins",
-			"custom_production_time_mins",
-			"custom_actual_start_date",
-			"custom_actual_end_date",
-		],
-	)
-	if not entries:
-		return {}
-
-	entry_names = [entry.get("name") for entry in entries if entry.get("name")]
-	good_qty_map, rejection_qty_map, _fg_map = get_entry_qty_maps(entry_names, include_fg_item=False)
-	shift_labels = _get_shift_label_map(entries)
+	entry_fields = [
+		"name",
+		"posting_date",
+		"custom_shift",
+		"custom_workstation",
+		"fg_completed_qty",
+		"custom_rejection_qty",
+		"custom_standard_spm",
+		"custom_actual_duration_mins",
+		"custom_production_time_mins",
+		"custom_actual_start_date",
+		"custom_actual_end_date",
+	]
 	groups: dict[tuple[str, str], dict] = {}
-	for entry in entries:
-		day = str(entry.get("posting_date") or "")
-		workstation = entry.get("custom_workstation") or "Unassigned"
-		group_key = (day, workstation)
-		if group_key not in groups:
-			groups[group_key] = _new_group(day, workstation)
-		group = groups[group_key]
+	has_rows = False
+	for chunk in iter_stock_entries_in_chunks(stock_entry_filters, entry_fields):
+		has_rows = True
+		entry_names = [entry.get("name") for entry in chunk if entry.get("name")]
+		good_qty_map, rejection_qty_map, _fg_map = get_entry_qty_maps(entry_names, include_fg_item=False)
+		shift_labels = _get_shift_label_map(chunk)
 
-		total_strokes, rejection_qty = get_entry_total_strokes(
-			entry,
-			good_qty_map=good_qty_map,
-			rejection_qty_map=rejection_qty_map,
-		)
-		group["total_strokes"] += total_strokes
-		group["rejection"] += rejection_qty
+		for entry in chunk:
+			day = str(entry.get("posting_date") or "")
+			workstation = entry.get("custom_workstation") or "Unassigned"
+			group_key = (day, workstation)
+			if group_key not in groups:
+				groups[group_key] = _new_group(day, workstation)
+			group = groups[group_key]
 
-		shift_name = entry.get("custom_shift")
-		if shift_name:
-			group["shift_names"].add(shift_name)
-		shift_label = shift_labels.get(shift_name)
-		if shift_label == "1":
-			group["first_shift_strokes"] += total_strokes
-		elif shift_label == "2":
-			group["second_shift_strokes"] += total_strokes
+			total_strokes, rejection_qty = get_entry_total_strokes(
+				entry,
+				good_qty_map=good_qty_map,
+				rejection_qty_map=rejection_qty_map,
+			)
+			group["total_strokes"] += total_strokes
+			group["rejection"] += rejection_qty
 
-		duration_hours = flt(get_entry_production_minutes(entry) / 60, 3)
-		standard_spm = flt(entry.get("custom_standard_spm") or 0, 3)
-		if duration_hours > 0:
-			group["duration_hours_sum"] += duration_hours
-			group["standard_spm_weighted_sum"] += standard_spm * duration_hours
-		group["standard_spm_sum"] += standard_spm
-		group["entry_count"] += 1
+			shift_name = entry.get("custom_shift")
+			if shift_name:
+				group["shift_names"].add(shift_name)
+			shift_label = shift_labels.get(shift_name)
+			if shift_label == "1":
+				group["first_shift_strokes"] += total_strokes
+			elif shift_label == "2":
+				group["second_shift_strokes"] += total_strokes
+
+			duration_hours = flt(get_entry_production_minutes(entry) / 60, 3)
+			standard_spm = flt(entry.get("custom_standard_spm") or 0, 3)
+			if duration_hours > 0:
+				group["duration_hours_sum"] += duration_hours
+				group["standard_spm_weighted_sum"] += standard_spm * duration_hours
+			group["standard_spm_sum"] += standard_spm
+			group["entry_count"] += 1
+
+	if not has_rows:
+		return {}
 
 	return groups
 
@@ -382,84 +383,80 @@ def _get_loss_buckets_from_stock_entry_losses(filters: dict, groups: dict[tuple[
 	if filters.get("custom_workstation"):
 		stock_entry_filters["custom_workstation"] = filters.get("custom_workstation")
 
-	entries = frappe.get_all(
-		"Stock Entry",
-		filters=stock_entry_filters,
-		fields=["name", "posting_date", "custom_workstation", "custom_shift"],
-	)
-	if not entries:
-		return
+	for entry_chunk in iter_stock_entries_in_chunks(
+		stock_entry_filters,
+		["name", "posting_date", "custom_workstation", "custom_shift"],
+	):
+		entry_meta_by_name: dict[str, dict[str, str]] = {}
+		for entry_row in entry_chunk:
+			name = entry_row.get("name")
+			if not name:
+				continue
+			entry_meta_by_name[name] = {
+				"day": str(entry_row.get("posting_date") or ""),
+				"workstation": entry_row.get("custom_workstation") or "Unassigned",
+				"shift": entry_row.get("custom_shift") or "",
+			}
 
-	entry_meta_by_name: dict[str, dict[str, str]] = {}
-	for row in entries:
-		name = row.get("name")
-		if not name:
-			continue
-		entry_meta_by_name[name] = {
-			"day": str(row.get("posting_date") or ""),
-			"workstation": row.get("custom_workstation") or "Unassigned",
-			"shift": row.get("custom_shift") or "",
-		}
-
-	if not entry_meta_by_name:
-		return
-
-	loss_rows = frappe.get_all(
-		"Loss Entry",
-		filters={"parenttype": "Stock Entry", "parent": ["in", list(entry_meta_by_name.keys())]},
-		fields=["parent", "downtime_reason", "shift", "start_time", "end_time"],
-	)
-	if not loss_rows:
-		return
-
-	shift_label_by_name: dict[str, str] = {}
-	shift_names = sorted(
-		{row.get("shift") for row in loss_rows if row.get("shift")}
-		| {meta.get("shift") for meta in entry_meta_by_name.values() if meta.get("shift")}
-	)
-	if shift_names:
-		for row in frappe.get_all(
-			"Shift",
-			filters={"name": ["in", shift_names]},
-			fields=["name", "shift_label"],
-		):
-			shift_label_by_name[row.get("name")] = str(row.get("shift_label") or "")
-
-	for row in loss_rows:
-		bucket = LOSS_REASON_TO_BUCKET.get(row.get("downtime_reason") or "")
-		if not bucket:
+		if not entry_meta_by_name:
 			continue
 
-		entry_meta = entry_meta_by_name.get(row.get("parent") or "")
-		if not entry_meta:
-			continue
-
-		shift_label = shift_label_by_name.get(row.get("shift") or "") or shift_label_by_name.get(
-			entry_meta.get("shift") or ""
+		loss_rows = frappe.get_all(
+			"Loss Entry",
+			filters={"parenttype": "Stock Entry", "parent": ["in", list(entry_meta_by_name.keys())]},
+			fields=["parent", "downtime_reason", "shift", "start_time", "end_time"],
 		)
-		if shift_label not in ("1", "2"):
+		if not loss_rows:
 			continue
 
-		start_time = row.get("start_time")
-		end_time = row.get("end_time")
-		if not start_time or not end_time:
-			continue
-		start = get_time(start_time)
-		end = get_time(end_time)
-		start_mins = (start.hour * 60) + start.minute + (start.second / 60)
-		end_mins = (end.hour * 60) + end.minute + (end.second / 60)
-		duration_mins = end_mins - start_mins
-		if duration_mins < 0:
-			# Overnight loss interval (e.g. 23:30 -> 00:30).
-			duration_mins += 24 * 60
-		if duration_mins <= 0:
-			continue
-		hours = flt(duration_mins / 60, 3)
-		if hours <= 0:
-			continue
+		shift_label_by_name: dict[str, str] = {}
+		shift_names = sorted(
+			{row.get("shift") for row in loss_rows if row.get("shift")}
+			| {meta.get("shift") for meta in entry_meta_by_name.values() if meta.get("shift")}
+		)
+		if shift_names:
+			for row in frappe.get_all(
+				"Shift",
+				filters={"name": ["in", shift_names]},
+				fields=["name", "shift_label"],
+			):
+				shift_label_by_name[row.get("name")] = str(row.get("shift_label") or "")
 
-		group = groups.get((entry_meta["day"], entry_meta["workstation"]))
-		if not group:
-			continue
-		fieldname = f"{bucket}_1st" if shift_label == "1" else f"{bucket}_2nd"
-		group[fieldname] += hours
+		for row in loss_rows:
+			bucket = LOSS_REASON_TO_BUCKET.get(row.get("downtime_reason") or "")
+			if not bucket:
+				continue
+
+			entry_meta = entry_meta_by_name.get(row.get("parent") or "")
+			if not entry_meta:
+				continue
+
+			shift_label = shift_label_by_name.get(row.get("shift") or "") or shift_label_by_name.get(
+				entry_meta.get("shift") or ""
+			)
+			if shift_label not in ("1", "2"):
+				continue
+
+			start_time = row.get("start_time")
+			end_time = row.get("end_time")
+			if not start_time or not end_time:
+				continue
+			start = get_time(start_time)
+			end = get_time(end_time)
+			start_mins = (start.hour * 60) + start.minute + (start.second / 60)
+			end_mins = (end.hour * 60) + end.minute + (end.second / 60)
+			duration_mins = end_mins - start_mins
+			if duration_mins < 0:
+				# Overnight loss interval (e.g. 23:30 -> 00:30).
+				duration_mins += 24 * 60
+			if duration_mins <= 0:
+				continue
+			hours = flt(duration_mins / 60, 3)
+			if hours <= 0:
+				continue
+
+			group = groups.get((entry_meta["day"], entry_meta["workstation"]))
+			if not group:
+				continue
+			fieldname = f"{bucket}_1st" if shift_label == "1" else f"{bucket}_2nd"
+			group[fieldname] += hours
