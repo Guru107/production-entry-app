@@ -325,18 +325,43 @@ def _create_mock_submitted_entry(
 
 
 def _benchmark_reports(date_range: dict[str, str]) -> dict[str, dict[str, float | int]]:
+	default_filters = {"from_date": date_range["from_date"], "to_date": date_range["to_date"]}
 	report_specs = {
 		"operator_efficiency": (
 			"production_entry_app.production_entry_app.report.operator_efficiency_report.operator_efficiency_report",
-			{"from_date": date_range["from_date"], "to_date": date_range["to_date"]},
+			default_filters,
 		),
 		"workstation_efficiency": (
 			"production_entry_app.production_entry_app.report.workstation_efficiency_report.workstation_efficiency_report",
-			{"from_date": date_range["from_date"], "to_date": date_range["to_date"]},
+			default_filters,
 		),
 		"production_oee": (
 			"production_entry_app.production_entry_app.report.production_oee_report.production_oee_report",
-			{"from_date": date_range["from_date"], "to_date": date_range["to_date"]},
+			default_filters,
+		),
+		"rejection_pareto": (
+			"production_entry_app.production_entry_app.report.rejection_pareto_report.rejection_pareto_report",
+			default_filters,
+		),
+		"rework_pareto": (
+			"production_entry_app.production_entry_app.report.rework_pareto_report.rework_pareto_report",
+			default_filters,
+		),
+		"workstation_rejection_matrix": (
+			"production_entry_app.production_entry_app.report.workstation_rejection_reason_matrix.workstation_rejection_reason_matrix",
+			{**default_filters, "top_n_reasons": 5},
+		),
+		"workstation_rework_matrix": (
+			"production_entry_app.production_entry_app.report.workstation_rework_reason_matrix.workstation_rework_reason_matrix",
+			{**default_filters, "top_n_reasons": 5},
+		),
+		"item_bom_rejection_hotspots": (
+			"production_entry_app.production_entry_app.report.item_bom_rejection_hotspots.item_bom_rejection_hotspots",
+			default_filters,
+		),
+		"item_bom_rework_hotspots": (
+			"production_entry_app.production_entry_app.report.item_bom_rework_hotspots.item_bom_rework_hotspots",
+			default_filters,
 		),
 	}
 	results: dict[str, dict[str, float | int]] = {}
@@ -380,11 +405,11 @@ def _benchmark_reports(date_range: dict[str, str]) -> dict[str, dict[str, float 
 			if hasattr(report_utils, "_fetch_stock_entry_chunk"):
 				original_fetch_chunk = report_utils._fetch_stock_entry_chunk
 				with patch.object(report_utils, "_fetch_stock_entry_chunk", side_effect=counted_fetch_chunk):
-					columns, rows = report_module.execute(filters)
+					columns, rows = _extract_columns_rows(report_module.execute(filters))
 			else:
 				with patch.object(frappe, "get_all", side_effect=counted_get_all):
 					with patch.object(frappe.db, "get_all", side_effect=counted_db_get_all):
-						columns, rows = report_module.execute(filters)
+						columns, rows = _extract_columns_rows(report_module.execute(filters))
 		elapsed_ms = round((time.perf_counter() - start) * 1000, 2)
 		_current, peak = tracemalloc.get_traced_memory()
 		tracemalloc.stop()
@@ -397,3 +422,9 @@ def _benchmark_reports(date_range: dict[str, str]) -> dict[str, dict[str, float 
 			"stock_entry_chunk_fetches": chunk_fetch_count,
 		}
 	return results
+
+
+def _extract_columns_rows(execute_result: tuple) -> tuple[list[dict], list[dict]]:
+	if not execute_result:
+		return [], []
+	return execute_result[0], execute_result[1]

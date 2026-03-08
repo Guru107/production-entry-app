@@ -575,6 +575,33 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(float(rows[0]["std_spm"]), 0.0)
 		self.assertEqual(float(rows[0]["productivity_pct"]), 0.0)
 
+	def test_production_oee_shift_label_cache_reuses_loaded_shift_labels(self) -> None:
+		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
+			_get_shift_labels,
+		)
+
+		shift_label_cache = {"SHIFT-1": "1"}
+		with patch(
+			"production_entry_app.production_entry_app.report.production_oee_report.production_oee_report.frappe.get_all",
+			return_value=[{"name": "SHIFT-2", "shift_label": "2"}],
+		) as get_all:
+			labels = _get_shift_labels(["SHIFT-1", "SHIFT-2"], shift_label_cache)
+
+		self.assertEqual(labels, {"SHIFT-1": "1", "SHIFT-2": "2"})
+		get_all.assert_called_once_with(
+			"Shift",
+			filters={"name": ["in", ["SHIFT-2"]]},
+			fields=["name", "shift_label"],
+		)
+
+		with patch(
+			"production_entry_app.production_entry_app.report.production_oee_report.production_oee_report.frappe.get_all",
+		) as get_all:
+			labels = _get_shift_labels(["SHIFT-1", "SHIFT-2"], shift_label_cache)
+
+		self.assertEqual(labels, {"SHIFT-1": "1", "SHIFT-2": "2"})
+		get_all.assert_not_called()
+
 	def test_operator_efficiency_report_groups_by_operator(self) -> None:
 		from production_entry_app.production_entry_app.report.operator_efficiency_report.operator_efficiency_report import (
 			execute,
@@ -1073,6 +1100,32 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(len(rows), 1)
 		self.assertEqual(rows[0]["rejection_reason"], "Crack")
 		self.assertEqual(float(rows[0]["rejection_qty"]), 5.0)
+
+	def test_rejection_pareto_report_merges_duplicate_reason_rows_per_entry(self) -> None:
+		from production_entry_app.production_entry_app.report.rejection_pareto_report.rejection_pareto_report import (
+			execute,
+		)
+
+		shift = self._create_shift_for_label("2026-06-11", "1")
+		self._create_mock_submitted_entry_with_breakup(
+			posting_date="2026-06-11",
+			planned_start="2026-06-11 12:00:00",
+			planned_end="2026-06-11 13:00:00",
+			actual_start="2026-06-11 12:00:00",
+			actual_end="2026-06-11 13:00:00",
+			fg_qty=90,
+			shift_name=shift.name,
+			breakup_rows=[
+				{"rejection_reason": "Crack", "qty": 2},
+				{"rejection_reason": "Crack", "qty": 3},
+				{"rejection_reason": "Burr", "qty": 1},
+			],
+		)
+
+		_, rows, _, _chart = execute({"from_date": "2026-06-11", "to_date": "2026-06-11"})
+		self.assertEqual([row["rejection_reason"] for row in rows], ["Crack", "Burr"])
+		self.assertEqual(float(rows[0]["rejection_qty"]), 5.0)
+		self.assertEqual(int(rows[0]["entries"]), 1)
 
 	def test_rejection_trend_report_daily_aggregation(self) -> None:
 		from production_entry_app.production_entry_app.report.rejection_trend_report.rejection_trend_report import (

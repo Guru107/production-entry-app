@@ -6,7 +6,11 @@ import frappe
 from frappe import _
 from frappe.utils import flt
 
-from production_entry_app.production_entry_app.report.report_utils import build_stock_entry_filters
+from production_entry_app.production_entry_app.report.report_utils import (
+	build_stock_entry_filters,
+	get_parent_breakup_reason_rows,
+	iter_stock_entries_in_chunks,
+)
 
 _DEFAULT_TOP_N = 10
 
@@ -70,45 +74,34 @@ def _get_columns(reason_order: list[str]) -> list[dict]:
 
 
 def _get_rows(filters: dict, top_n: int) -> tuple[list[dict], list[str]]:
-	entry_rows = frappe.get_all(
-		"Stock Entry",
-		filters=_build_filters(filters),
-		fields=["name", "custom_workstation"],
-	)
-	entry_names = [row.get("name") for row in entry_rows if row.get("name")]
-	if not entry_names:
-		return [], []
-
-	workstation_by_entry = {
-		row.get("name"): (row.get("custom_workstation") or "Unassigned")
-		for row in entry_rows
-		if row.get("name")
-	}
-	breakup_rows = frappe.get_all(
-		"Rejection Breakup",
-		filters={"parenttype": "Stock Entry", "parent": ["in", entry_names], "is_rework": 1},
-		fields=["parent", "rejection_reason", "qty"],
-	)
-	if not breakup_rows:
-		return [], []
-
 	reason_totals: dict[str, float] = {}
 	matrix: dict[str, dict[str, float]] = {}
 	entry_sets: dict[str, set[str]] = {}
-
-	for row in breakup_rows:
-		parent = row.get("parent")
-		reason = row.get("rejection_reason")
-		qty = flt(row.get("qty") or 0, 3)
-		if not parent or not reason or qty <= 0:
+	has_entries = False
+	for entry_rows in iter_stock_entries_in_chunks(_build_filters(filters), ["name", "custom_workstation"]):
+		has_entries = True
+		entry_names = [row.get("name") for row in entry_rows if row.get("name")]
+		if not entry_names:
 			continue
-		workstation = workstation_by_entry.get(parent, "Unassigned")
-		reason_totals[reason] = flt(reason_totals.get(reason) or 0, 3) + qty
-		matrix.setdefault(workstation, {})
-		matrix[workstation][reason] = flt(matrix[workstation].get(reason) or 0, 3) + qty
-		entry_sets.setdefault(workstation, set()).add(parent)
+		workstation_by_entry = {
+			row.get("name"): (row.get("custom_workstation") or "Unassigned")
+			for row in entry_rows
+			if row.get("name")
+		}
+		breakup_rows = get_parent_breakup_reason_rows(entry_names, is_rework=True)
+		for row in breakup_rows:
+			parent = row.get("parent")
+			reason = row.get("rejection_reason")
+			qty = flt(row.get("qty") or 0, 3)
+			if not parent or not reason or qty <= 0:
+				continue
+			workstation = workstation_by_entry.get(parent, "Unassigned")
+			reason_totals[reason] = flt(reason_totals.get(reason) or 0, 3) + qty
+			matrix.setdefault(workstation, {})
+			matrix[workstation][reason] = flt(matrix[workstation].get(reason) or 0, 3) + qty
+			entry_sets.setdefault(workstation, set()).add(parent)
 
-	if not reason_totals:
+	if not has_entries or not reason_totals:
 		return [], []
 
 	reason_order = [

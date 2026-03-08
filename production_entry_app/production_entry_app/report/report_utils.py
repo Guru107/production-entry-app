@@ -283,6 +283,53 @@ def get_parent_quantity_metrics(
 	return parent_metrics
 
 
+def get_parent_breakup_reason_rows(
+	stock_entry_names: list[str],
+	*,
+	is_rework: bool | None = None,
+) -> list[dict]:
+	if not stock_entry_names:
+		return []
+
+	rejection_breakup = DocType("Rejection Breakup")
+	query = (
+		frappe.qb.from_(rejection_breakup)
+		.select(
+			rejection_breakup.parent,
+			rejection_breakup.rejection_reason,
+			Sum(rejection_breakup.qty).as_("qty"),
+		)
+		.where(rejection_breakup.parenttype == "Stock Entry")
+		.where(rejection_breakup.parent.isin(stock_entry_names))
+		.groupby(rejection_breakup.parent, rejection_breakup.rejection_reason)
+	)
+	if is_rework is True:
+		query = query.where(rejection_breakup.is_rework == 1)
+	elif is_rework is False:
+		query = query.where(rejection_breakup.is_rework.isnull() | (rejection_breakup.is_rework == 0))
+	return query.run(as_dict=True)
+
+
+def get_finished_item_map(stock_entry_names: list[str]) -> dict[str, str]:
+	if not stock_entry_names:
+		return {}
+
+	stock_entry_detail = DocType("Stock Entry Detail")
+	rows = (
+		frappe.qb.from_(stock_entry_detail)
+		.select(stock_entry_detail.parent, stock_entry_detail.item_code)
+		.where(stock_entry_detail.parent.isin(stock_entry_names))
+		.where(stock_entry_detail.is_finished_item == 1)
+		.where(
+			stock_entry_detail.custom_is_rejection_item.isnull()
+			| (stock_entry_detail.custom_is_rejection_item == 0)
+		)
+	).run(as_dict=True)
+	return {
+		row.get("parent"): row.get("item_code") for row in rows if row.get("parent") and row.get("item_code")
+	}
+
+
 def get_parent_loss_metrics(stock_entry_names: list[str]) -> dict[str, dict[str, float]]:
 	"""Return setup and non-setup loss minutes keyed by Stock Entry name."""
 	if not stock_entry_names:

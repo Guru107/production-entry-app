@@ -6,8 +6,10 @@ from frappe.utils import flt
 
 from production_entry_app.production_entry_app.report.report_utils import (
 	build_stock_entry_filters,
-	get_entry_qty_maps,
-	get_rework_qty_map,
+	get_finished_item_map,
+	get_parent_breakup_reason_rows,
+	get_parent_quantity_metrics,
+	iter_stock_entries_in_chunks,
 )
 
 
@@ -53,79 +55,62 @@ def _group_key(item_code: str | None, bom_no: str | None) -> tuple[str, str]:
 
 
 def _get_rows(filters: dict) -> list[dict]:
-	entries = frappe.get_all(
-		"Stock Entry",
-		filters=_build_filters(filters),
-		fields=["name", "fg_completed_qty", "custom_rejection_qty", "custom_rework_qty", "bom_no"],
-	)
-	entry_names = [entry.get("name") for entry in entries if entry.get("name")]
-	if not entry_names:
-		return []
-	entry_by_name = {entry.get("name"): entry for entry in entries if entry.get("name")}
-	good_qty_map, rejection_qty_map, _ = get_entry_qty_maps(entry_names)
-	rework_qty_map = get_rework_qty_map(entry_names)
-
-	fg_rows = frappe.get_all(
-		"Stock Entry Detail",
-		filters={
-			"parent": ["in", entry_names],
-			"is_finished_item": 1,
-			"custom_is_rejection_item": ["in", [0, None]],
-		},
-		fields=["parent", "item_code"],
-	)
-	item_by_entry = {}
-	for row in fg_rows:
-		parent = row.get("parent")
-		item_code = row.get("item_code")
-		if parent and item_code and parent not in item_by_entry:
-			item_by_entry[parent] = item_code
-
-	breakup_rows = frappe.get_all(
-		"Rejection Breakup",
-		filters={"parenttype": "Stock Entry", "parent": ["in", entry_names], "is_rework": 1},
-		fields=["parent", "rejection_reason", "qty"],
-	)
-
 	agg: dict[tuple[str, str], dict] = {}
-	for entry in entries:
-		entry_name = entry.get("name")
-		if not entry_name:
+	has_entries = False
+	for entries in iter_stock_entries_in_chunks(
+		_build_filters(filters),
+		["name", "fg_completed_qty", "custom_rejection_qty", "custom_rework_qty", "bom_no"],
+	):
+		has_entries = True
+		entry_names = [entry.get("name") for entry in entries if entry.get("name")]
+		if not entry_names:
 			continue
-		item_code = item_by_entry.get(entry_name)
-		group = _group_key(item_code, entry.get("bom_no"))
-		rejection_qty = flt(entry.get("custom_rejection_qty") or 0, 3)
-		if rejection_qty <= 0:
-			rejection_qty = flt(rejection_qty_map.get(entry_name) or 0, 3)
-		total_qty = flt(entry.get("fg_completed_qty") or 0, 3)
-		if total_qty <= 0:
-			total_qty = flt(good_qty_map.get(entry_name) or 0, 3) + rejection_qty
-		rework_qty = flt(entry.get("custom_rework_qty") or 0, 3)
-		if rework_qty <= 0:
-			rework_qty = flt(rework_qty_map.get(entry_name) or 0, 3)
-		row = agg.setdefault(
-			group,
-			{"entries": set(), "total_qty": 0.0, "rework_qty": 0.0, "reason_totals": {}},
-		)
-		row["entries"].add(entry_name)
-		row["total_qty"] += total_qty
-		row["rework_qty"] += rework_qty
+		entry_by_name = {entry.get("name"): entry for entry in entries if entry.get("name")}
+		parent_metrics = get_parent_quantity_metrics(entry_names, include_rework=True)
+		item_by_entry = get_finished_item_map(entry_names)
+		breakup_rows = get_parent_breakup_reason_rows(entry_names, is_rework=True)
 
-	for breakup in breakup_rows:
-		parent = breakup.get("parent")
-		reason = breakup.get("rejection_reason")
-		qty = flt(breakup.get("qty") or 0, 3)
-		if not parent or not reason or qty <= 0:
-			continue
-		entry = entry_by_name.get(parent)
-		if not entry:
-			continue
-		group = _group_key(item_by_entry.get(parent), entry.get("bom_no"))
-		reasons = agg.setdefault(
-			group,
-			{"entries": set(), "total_qty": 0.0, "rework_qty": 0.0, "reason_totals": {}},
-		)["reason_totals"]
-		reasons[reason] = flt(reasons.get(reason) or 0, 3) + qty
+		for entry in entries:
+			entry_name = entry.get("name")
+			if not entry_name:
+				continue
+			item_code = item_by_entry.get(entry_name)
+			group = _group_key(item_code, entry.get("bom_no"))
+			rejection_qty = flt(entry.get("custom_rejection_qty") or 0, 3)
+			if rejection_qty <= 0:
+				rejection_qty = flt(parent_metrics.get(entry_name, {}).get("rejection_qty") or 0, 3)
+			total_qty = flt(entry.get("fg_completed_qty") or 0, 3)
+			if total_qty <= 0:
+				total_qty = flt(parent_metrics.get(entry_name, {}).get("good_qty") or 0, 3) + rejection_qty
+			rework_qty = flt(entry.get("custom_rework_qty") or 0, 3)
+			if rework_qty <= 0:
+				rework_qty = flt(parent_metrics.get(entry_name, {}).get("rework_qty") or 0, 3)
+			row = agg.setdefault(
+				group,
+				{"entries": set(), "total_qty": 0.0, "rework_qty": 0.0, "reason_totals": {}},
+			)
+			row["entries"].add(entry_name)
+			row["total_qty"] += total_qty
+			row["rework_qty"] += rework_qty
+
+		for breakup in breakup_rows:
+			parent = breakup.get("parent")
+			reason = breakup.get("rejection_reason")
+			qty = flt(breakup.get("qty") or 0, 3)
+			if not parent or not reason or qty <= 0:
+				continue
+			entry = entry_by_name.get(parent)
+			if not entry:
+				continue
+			group = _group_key(item_by_entry.get(parent), entry.get("bom_no"))
+			reasons = agg.setdefault(
+				group,
+				{"entries": set(), "total_qty": 0.0, "rework_qty": 0.0, "reason_totals": {}},
+			)["reason_totals"]
+			reasons[reason] = flt(reasons.get(reason) or 0, 3) + qty
+
+	if not has_entries:
+		return []
 
 	rows: list[dict] = []
 	for (item_code, bom_no), values in agg.items():
