@@ -5,8 +5,10 @@ import frappe
 
 def ensure_performance_indexes() -> None:
 	"""Create targeted composite indexes for high-volume Stock Entry flows."""
-	# Stock Entry overlap-index redesign is deferred until production-like benchmarks
-	# show planner selection and net write-path gain over the current index set.
+	# Current overlap-index order is retained because EXPLAIN on the seeded benchmark
+	# dataset selects these indexes for workstation/operator overlap queries. Further
+	# redesign is deferred until production-like write-regression measurements show a
+	# net gain over this index set.
 	index_specs: tuple[tuple[str, list[str], str], ...] = (
 		(
 			"Stock Entry",
