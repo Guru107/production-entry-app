@@ -1584,7 +1584,7 @@ class TestProductionReports(FrappeTestCase):
 			shift_name=shift.name,
 		)
 
-		_, rows, _, chart = execute({"from_date": "2026-07-03", "to_date": "2026-07-03"})
+		_, _, _, chart = execute({"from_date": "2026-07-03", "to_date": "2026-07-03"})
 		self.assertIsNotNone(chart)
 		self.assertEqual(chart.get("type"), "bar")
 		self.assertEqual(chart.get("height"), 280)

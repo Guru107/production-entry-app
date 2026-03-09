@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 
-import frappe
 from frappe import _
 from frappe.utils import flt
 
