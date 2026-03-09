@@ -91,11 +91,11 @@ Because the app is still under development and not deployed:
 
 The code intentionally does not include a permanent report-sync hook for this development-stage requirement.
 
-## Known test limitation
+## Checklist status
 
-Some full `bench run-tests` module invocations still hit an unrelated Frappe `Email Domain` bootstrap `TimestampMismatchError` during `before_tests`.
-
-This is treated as an environment/bootstrap issue, not as a regression from the performance work.
+- The earlier `async fallback` checklist item was intentionally superseded by making all reports prepared reports by default.
+- The earlier Frappe test bootstrap timestamp issue was fixed by making test setup idempotent in [test_setup.py](/Users/gurudattkulkarni/Workspace/production-entry-app/apps/production_entry_app/production_entry_app/production_entry_app/utils/test_setup.py).
+- There are no known open checklist items from the performance plan on the current branch.
 
 ## Useful commands
 
