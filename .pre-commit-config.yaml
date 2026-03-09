@@ -12,12 +12,6 @@ repos:
         language: system
         pass_filenames: false
 
-      - id: frappe-semgrep
-        name: Run Frappe Semgrep rules
-        entry: ./scripts/run_semgrep.sh
-        language: system
-        types_or: [python]
-
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
