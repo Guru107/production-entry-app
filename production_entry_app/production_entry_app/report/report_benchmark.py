@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from unittest.mock import patch
 
 import frappe
+from frappe import _
 
 from production_entry_app.production_entry_app.overrides.test_stock_entry_hooks import (
 	_append_rejection_breakup_rows,
@@ -50,9 +51,9 @@ def run_report_benchmark(
 ) -> dict[str, object]:
 	"""Seed benchmark Stock Entries and measure report execution time and peak memory."""
 	if entry_count <= 0:
-		frappe.throw("entry_count must be positive")
+		frappe.throw(_("entry_count must be positive"))
 	if day_span <= 0:
-		frappe.throw("day_span must be positive")
+		frappe.throw(_("day_span must be positive"))
 
 	context = _prepare_benchmark_context(dataset_key)
 	date_range = _seed_benchmark_entries(context, entry_count=entry_count, day_span=day_span)
@@ -94,7 +95,7 @@ def cleanup_report_benchmark(dataset_key: str = "PHASE2") -> dict[str, int | str
 		frappe.db.delete("Loss Entry", {"parenttype": "Shift", "parent": ["in", shift_names]})
 		frappe.db.delete("Shift", {"name": ["in", shift_names]})
 
-	frappe.db.commit()
+	frappe.db.commit()  # nosemgrep: benchmark cleanup must commit deletes before reseeding/measuring
 	return {
 		"dataset_key": dataset_key,
 		"deleted_stock_entries": len(entry_names),

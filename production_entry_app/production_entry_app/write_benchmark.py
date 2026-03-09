@@ -7,6 +7,7 @@ from statistics import mean
 from unittest.mock import patch
 
 import frappe
+from frappe import _
 
 from production_entry_app.production_entry_app import performance_indexes
 from production_entry_app.production_entry_app.overrides.test_stock_entry_hooks import (
@@ -25,13 +26,13 @@ def run_stock_entry_write_benchmark(
 ) -> dict[str, object]:
 	"""Benchmark Stock Entry save latency with and without overlap indexes."""
 	if iterations <= 0:
-		frappe.throw("iterations must be positive")
+		frappe.throw(_("iterations must be positive"))
 	if warmup_iterations < 0:
-		frappe.throw("warmup_iterations cannot be negative")
+		frappe.throw(_("warmup_iterations cannot be negative"))
 	if seed_entries <= 0:
-		frappe.throw("seed_entries must be positive")
+		frappe.throw(_("seed_entries must be positive"))
 	if day_span <= 0:
-		frappe.throw("day_span must be positive")
+		frappe.throw(_("day_span must be positive"))
 
 	context, last_seed_date = _get_existing_benchmark_context(source_dataset_key)
 	if context and last_seed_date:
@@ -68,7 +69,7 @@ def run_stock_entry_write_benchmark(
 		)
 	finally:
 		performance_indexes.ensure_overlap_indexes()
-		frappe.db.commit()
+		frappe.db.commit()  # nosemgrep: benchmark must restore index state before returning
 
 	with_indexes = results["with_overlap_indexes"]
 	without_indexes = results["without_overlap_indexes"]
@@ -111,7 +112,7 @@ def _run_write_case(
 		performance_indexes.ensure_overlap_indexes()
 	else:
 		performance_indexes.drop_overlap_indexes_if_exists()
-	frappe.db.commit()
+	frappe.db.commit()  # nosemgrep: benchmark case must flush index DDL before timing saves
 
 	elapsed_samples: list[float] = []
 	sql_samples: list[int] = []
@@ -135,7 +136,7 @@ def _run_write_case(
 				start_time=benchmark_shift["start_time"],
 				end_time=benchmark_shift["end_time"],
 			)
-			frappe.db.commit()
+			frappe.db.commit()  # nosemgrep: each measured save must commit to reflect write-path latency
 			elapsed_ms = round((time.perf_counter() - start) * 1000, 2)
 			if index >= warmup_iterations:
 				elapsed_samples.append(elapsed_ms)
@@ -144,7 +145,7 @@ def _run_write_case(
 
 	for name in created_names:
 		frappe.delete_doc("Stock Entry", name, force=True, ignore_permissions=True)
-	frappe.db.commit()
+	frappe.db.commit()  # nosemgrep: benchmark teardown must commit deletions between cases
 
 	return {
 		"case": case_name,

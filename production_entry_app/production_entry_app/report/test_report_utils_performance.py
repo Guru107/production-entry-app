@@ -107,7 +107,7 @@ class TestReportUtilsPerformance(FrappeTestCase):
 
 	def test_new_interactive_report_timeout_guard_throws_after_budget(self) -> None:
 		frappe.local.request = object()
-		frappe.form_dict = frappe._dict(ignore_prepared_report=1)
+		frappe.local.form_dict = frappe._dict(ignore_prepared_report=1)
 		with patch(
 			"production_entry_app.production_entry_app.report.report_utils.time.perf_counter",
 			side_effect=[0.0, 6.1],
@@ -119,11 +119,11 @@ class TestReportUtilsPerformance(FrappeTestCase):
 			with self.assertRaisesRegex(frappe.ValidationError, "Operator Efficiency Report"):
 				timeout_guard()
 		frappe.local.request = None
-		frappe.form_dict = frappe._dict()
+		frappe.local.form_dict = frappe._dict()
 
 	def test_new_interactive_report_timeout_guard_allows_zero_budget_override(self) -> None:
 		frappe.local.request = object()
-		frappe.form_dict = frappe._dict(ignore_prepared_report=1)
+		frappe.local.form_dict = frappe._dict(ignore_prepared_report=1)
 		with patch(
 			"production_entry_app.production_entry_app.report.report_utils.time.perf_counter",
 			side_effect=[0.0, 100.0],
@@ -134,11 +134,11 @@ class TestReportUtilsPerformance(FrappeTestCase):
 			)
 			timeout_guard()
 		frappe.local.request = None
-		frappe.form_dict = frappe._dict()
+		frappe.local.form_dict = frappe._dict()
 
 	def test_new_interactive_report_timeout_guard_is_noop_for_prepared_reports(self) -> None:
 		frappe.local.request = None
-		frappe.form_dict = frappe._dict()
+		frappe.local.form_dict = frappe._dict()
 		with patch(
 			"production_entry_app.production_entry_app.report.report_utils.time.perf_counter",
 			side_effect=[0.0, 100.0],
