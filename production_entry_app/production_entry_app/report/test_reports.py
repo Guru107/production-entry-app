@@ -179,9 +179,9 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(len(rows), 1)
 		self.assertEqual(str(rows[0]["day"]), "2026-06-01")
 		self.assertEqual(float(rows[0]["availability_pct"]), 100.0)
-		self.assertAlmostEqual(float(rows[0]["productivity_pct"]), 12.5, delta=0.05)
+		self.assertEqual(float(rows[0]["productivity_pct"]), 12.0)
 		self.assertEqual(float(rows[0]["quality_pct"]), 100.0)
-		self.assertAlmostEqual(float(rows[0]["oee_mult_pct"]), 12.5, delta=0.05)
+		self.assertEqual(float(rows[0]["oee_mult_pct"]), 12.0)
 		self.assertEqual(float(rows[0]["first_shift_strokes"]), 120.0)
 		self.assertEqual(float(rows[0]["second_shift_strokes"]), 0.0)
 		self.assertEqual(float(rows[0]["running_time"]), 8.0)
@@ -554,7 +554,7 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(float(rows[0]["availability_pct"]), 0.0)
 		self.assertEqual(float(rows[0]["running_time"]), 0.0)
 
-	def test_production_oee_report_zero_duration_has_zero_std_and_productivity(self) -> None:
+	def test_production_oee_report_zero_duration_still_uses_fixed_standard_spm(self) -> None:
 		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
 			execute,
 		)
@@ -572,8 +572,41 @@ class TestProductionReports(FrappeTestCase):
 		)
 		_, rows = execute({"from_date": "2026-06-04", "to_date": "2026-06-04"})
 		self.assertEqual(len(rows), 1)
-		self.assertEqual(float(rows[0]["std_spm"]), 0.0)
-		self.assertEqual(float(rows[0]["productivity_pct"]), 0.0)
+		self.assertEqual(float(rows[0]["std_spm"]), 2.0)
+		self.assertEqual(float(rows[0]["productivity_pct"]), 12.0)
+
+	def test_production_oee_report_uses_single_group_standard_spm(self) -> None:
+		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
+			execute,
+		)
+
+		shift = self._create_shift_for_label("2026-06-12", "1", clear_planned_losses=True)
+		self._create_mock_submitted_entry(
+			posting_date="2026-06-12",
+			planned_start="2026-06-12 08:00:00",
+			planned_end="2026-06-12 08:30:00",
+			actual_start="2026-06-12 08:00:00",
+			actual_end="2026-06-12 08:30:00",
+			fg_qty=60,
+			rejection_qty=0,
+			standard_spm=2,
+			shift_name=shift.name,
+		)
+		self._create_mock_submitted_entry(
+			posting_date="2026-06-12",
+			planned_start="2026-06-12 09:00:00",
+			planned_end="2026-06-12 09:30:00",
+			actual_start="2026-06-12 09:00:00",
+			actual_end="2026-06-12 09:30:00",
+			fg_qty=60,
+			rejection_qty=0,
+			standard_spm=9,
+			shift_name=shift.name,
+		)
+
+		_, rows = execute({"from_date": "2026-06-12", "to_date": "2026-06-12"})
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(float(rows[0]["std_spm"]), 2.0)
 
 	def test_production_oee_shift_label_cache_reuses_loaded_shift_labels(self) -> None:
 		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (

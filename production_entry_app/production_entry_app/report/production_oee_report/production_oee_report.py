@@ -86,17 +86,31 @@ def _get_columns() -> list[dict]:
 			"label": _("Productivity (P)"),
 			"fieldname": "productivity_pct",
 			"fieldtype": "Percent",
+			"precision": 0,
 			"width": 130,
 		},
-		{"label": _("Quality (Q)"), "fieldname": "quality_pct", "fieldtype": "Percent", "width": 110},
+		{
+			"label": _("Quality (Q)"),
+			"fieldname": "quality_pct",
+			"fieldtype": "Percent",
+			"precision": 0,
+			"width": 110,
+		},
 		{
 			"label": _("Availability (A)"),
 			"fieldname": "availability_pct",
 			"fieldtype": "Percent",
+			"precision": 0,
 			"width": 130,
 		},
-		{"label": _("OEE"), "fieldname": "oee", "fieldtype": "Percent", "width": 90},
-		{"label": _("OEE Mult %"), "fieldname": "oee_mult_pct", "fieldtype": "Percent", "width": 100},
+		{"label": _("OEE"), "fieldname": "oee", "fieldtype": "Percent", "precision": 0, "width": 90},
+		{
+			"label": _("OEE Mult %"),
+			"fieldname": "oee_mult_pct",
+			"fieldtype": "Percent",
+			"precision": 0,
+			"width": 100,
+		},
 		{"label": _("Avl. time (hrs)"), "fieldname": "avl_time_hrs", "fieldtype": "Float", "width": 110},
 	]
 
@@ -151,21 +165,18 @@ def _get_rows(filters: dict, timeout_guard) -> list[dict]:
 			total_loss_time += flt(group[f"{key}_2nd"], 3)
 		total_loss_time = flt(total_loss_time, 3)
 
-		running_time = flt(max(avl_time_hrs - total_loss_time, 0), 3)
-		std_spm = (
-			flt(group["standard_spm_weighted_sum"] / group["duration_hours_sum"], 3)
-			if group["duration_hours_sum"] > 0
-			else 0
-		)
-		stroke_required = flt(running_time * std_spm * 60, 3)
+		raw_running_time = flt(max(avl_time_hrs - total_loss_time, 0), 3)
+		running_time = flt(raw_running_time, 1)
+		std_spm = flt(group["standard_spm"], 3)
+		stroke_required = flt(raw_running_time * std_spm * 60, 3)
 		total_strokes = flt(group["total_strokes"], 3)
 		rejection = flt(group["rejection"], 3)
-		act_spm = flt((total_strokes / (running_time * 60)), 3) if running_time > 0 else 0
-		productivity_pct = flt((act_spm / std_spm) * 100, 2) if std_spm > 0 else 0
-		quality_pct = flt(((total_strokes - rejection) / total_strokes) * 100, 2) if total_strokes > 0 else 0
-		availability_pct = flt((running_time / avl_time_hrs) * 100, 2) if avl_time_hrs > 0 else 0
-		oee = flt((availability_pct + quality_pct + productivity_pct) / 3, 2)
-		oee_mult_pct = flt((availability_pct * quality_pct * productivity_pct) / 10000, 2)
+		act_spm = flt((total_strokes / (raw_running_time * 60)), 3) if raw_running_time > 0 else 0
+		productivity_pct = flt((act_spm / std_spm) * 100, 0) if std_spm > 0 else 0
+		quality_pct = flt(((total_strokes - rejection) / total_strokes) * 100, 0) if total_strokes > 0 else 0
+		availability_pct = flt((raw_running_time / avl_time_hrs) * 100, 0) if avl_time_hrs > 0 else 0
+		oee = flt((availability_pct + quality_pct + productivity_pct) / 3, 0)
+		oee_mult_pct = flt((availability_pct * quality_pct * productivity_pct) / 10000, 0)
 
 		row = {
 			"day": group["day"],
@@ -286,13 +297,9 @@ def _get_stock_entry_groups(
 			elif shift_label == "2":
 				group["second_shift_strokes"] += total_strokes
 
-			duration_hours = flt(get_entry_production_minutes(entry) / 60, 3)
 			standard_spm = flt(entry.get("custom_standard_spm") or 0, 3)
-			if duration_hours > 0:
-				group["duration_hours_sum"] += duration_hours
-				group["standard_spm_weighted_sum"] += standard_spm * duration_hours
-			group["standard_spm_sum"] += standard_spm
-			group["entry_count"] += 1
+			if standard_spm > 0 and group["standard_spm"] <= 0:
+				group["standard_spm"] = standard_spm
 
 		_apply_loss_buckets_for_chunk(groups, entry_meta_by_name, loss_rows, shift_labels)
 
@@ -410,10 +417,7 @@ def _new_group(day: str, workstation: str) -> dict:
 		"second_shift_strokes": 0.0,
 		"total_strokes": 0.0,
 		"rejection": 0.0,
-		"duration_hours_sum": 0.0,
-		"standard_spm_weighted_sum": 0.0,
-		"standard_spm_sum": 0.0,
-		"entry_count": 0,
+		"standard_spm": 0.0,
 	}
 	for key, _label in LOSS_BUCKETS:
 		group[f"{key}_1st"] = 0.0
