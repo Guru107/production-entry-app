@@ -2099,6 +2099,44 @@ class TestOverlapValidation(FrappeTestCase):
 		se.save()
 		self.assertTrue(bool(se.name))
 
+	def test_workstation_overlap_skips_query_when_overlap_inputs_are_unchanged(self) -> None:
+		shift = _create_test_shift(shift_date="2026-05-05", wip_warehouse=self.wip_warehouse)
+		se = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-05 10:00:00",
+			end="2026-05-05 11:00:00",
+			workstation=self.workstation_1,
+		)
+		se.save()
+		se.posting_time = "10:30:00"
+
+		with patch(
+			"production_entry_app.production_entry_app.overrides.stock_entry_hooks._find_overlapping_stock_entry",
+			return_value=None,
+		) as find_overlap:
+			se.save()
+
+		find_overlap.assert_not_called()
+
+	def test_workstation_overlap_runs_query_when_actual_window_changes(self) -> None:
+		shift = _create_test_shift(shift_date="2026-05-05", wip_warehouse=self.wip_warehouse)
+		se = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-05 12:00:00",
+			end="2026-05-05 13:00:00",
+			workstation=self.workstation_1,
+		)
+		se.save()
+		se.custom_actual_end_date = "2026-05-05 13:15:00"
+
+		with patch(
+			"production_entry_app.production_entry_app.overrides.stock_entry_hooks._find_overlapping_stock_entry",
+			return_value=None,
+		) as find_overlap:
+			se.save()
+
+		find_overlap.assert_called_once_with(se, "custom_workstation", self.workstation_1)
+
 	def test_workstation_overlap_skipped_without_actual_times(self) -> None:
 		shift = _create_test_shift(shift_date="2026-05-06", wip_warehouse=self.wip_warehouse)
 		first = self._create_entry(
@@ -2249,6 +2287,44 @@ class TestOverlapValidation(FrappeTestCase):
 		se.save()
 		self.assertTrue(bool(se.name))
 
+	def test_operator_overlap_skips_query_when_overlap_inputs_are_unchanged(self) -> None:
+		shift = _create_test_shift(shift_date="2026-05-12", wip_warehouse=self.wip_warehouse)
+		se = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-12 10:00:00",
+			end="2026-05-12 11:00:00",
+			operator=self.operator_1,
+		)
+		se.save()
+		se.posting_time = "10:30:00"
+
+		with patch(
+			"production_entry_app.production_entry_app.overrides.stock_entry_hooks._find_overlapping_stock_entry",
+			return_value=None,
+		) as find_overlap:
+			se.save()
+
+		find_overlap.assert_not_called()
+
+	def test_operator_overlap_runs_query_when_operator_changes(self) -> None:
+		shift = _create_test_shift(shift_date="2026-05-12", wip_warehouse=self.wip_warehouse)
+		se = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-12 12:00:00",
+			end="2026-05-12 13:00:00",
+			operator=self.operator_1,
+		)
+		se.save()
+		se.custom_operator = self.operator_2
+
+		with patch(
+			"production_entry_app.production_entry_app.overrides.stock_entry_hooks._find_overlapping_stock_entry",
+			return_value=None,
+		) as find_overlap:
+			se.save()
+
+		find_overlap.assert_called_once_with(se, "custom_operator", self.operator_2)
+
 	def test_operator_overlap_skipped_without_operator(self) -> None:
 		shift = _create_test_shift(
 			shift_date="2026-05-01",
@@ -2363,6 +2439,58 @@ class TestOverlapValidation(FrappeTestCase):
 		)
 		with self.assertRaisesRegex(ValidationError, "downtime"):
 			se.save()
+
+	def test_downtime_overlap_skips_query_when_overlap_inputs_are_unchanged(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-05-05",
+			shift_label="2",
+			planned_start_time="16:00:00",
+			wip_warehouse=self.wip_warehouse,
+		)
+		se = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-05 18:30:00",
+			end="2026-05-05 19:30:00",
+			workstation=self.workstation_1,
+		)
+		se.save()
+		se.posting_time = "18:45:00"
+
+		with patch(
+			"production_entry_app.production_entry_app.overrides.stock_entry_hooks._find_overlapping_downtime_entry",
+			return_value=None,
+		) as find_downtime:
+			se.save()
+
+		find_downtime.assert_not_called()
+
+	def test_downtime_overlap_runs_query_when_workstation_changes(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-05-05",
+			shift_label="2",
+			planned_start_time="16:00:00",
+			wip_warehouse=self.wip_warehouse,
+		)
+		se = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-05 20:00:00",
+			end="2026-05-05 21:00:00",
+			workstation=self.workstation_1,
+		)
+		se.save()
+		se.custom_workstation = self.workstation_2
+
+		with patch(
+			"production_entry_app.production_entry_app.overrides.stock_entry_hooks._find_overlapping_downtime_entry",
+			return_value=None,
+		) as find_downtime:
+			se.save()
+
+		find_downtime.assert_called_once()
+		args = find_downtime.call_args.args
+		self.assertEqual(args[0], self.workstation_2)
+		self.assertEqual(str(args[1]), "2026-05-05 20:00:00")
+		self.assertEqual(str(args[2]), "2026-05-05 21:00:00")
 
 	def test_no_overlap_validation_for_non_manufacture(self) -> None:
 		shift = _create_test_shift(

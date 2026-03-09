@@ -14,6 +14,7 @@ from production_entry_app.production_entry_app.utils.die_tool_counter import (
 	update_counter_for_stock_entry,
 )
 from production_entry_app.production_entry_app.utils.loss_time import (
+	build_interval_overlap_criterion,
 	get_interval_minutes,
 	get_interval_overlap,
 	merge_intervals,
@@ -27,6 +28,13 @@ from production_entry_app.production_entry_app.utils.shift_time import (
 _DEFAULT_START_BUFFER_MINS: int = 60
 _DEFAULT_END_BUFFER_MINS: int = 60
 _MAX_BUFFER_MINS: int = 480
+_COMMON_OVERLAP_FIELDS: tuple[str, ...] = (
+	"purpose",
+	"custom_shift",
+	"custom_actual_start_date",
+	"custom_actual_end_date",
+)
+_OVERLAP_DATETIME_FIELDS: frozenset[str] = frozenset({"custom_actual_start_date", "custom_actual_end_date"})
 
 
 def validate_stock_entry(doc, method: str | None = None) -> None:
@@ -207,8 +215,31 @@ def _should_check_overlap(doc) -> bool:
 	)
 
 
+def _did_overlap_inputs_change(doc, fieldnames: tuple[str, ...]) -> bool:
+	if doc.is_new():
+		return True
+
+	previous_doc = doc.get_doc_before_save()
+	if not previous_doc:
+		return True
+
+	for fieldname in fieldnames:
+		current_value = doc.get(fieldname)
+		previous_value = previous_doc.get(fieldname)
+		if fieldname in _OVERLAP_DATETIME_FIELDS:
+			current_value = _as_datetime(current_value)
+			previous_value = _as_datetime(previous_value)
+		if current_value != previous_value:
+			return True
+	return False
+
+
 def _validate_workstation_overlap(doc) -> None:
 	workstation = doc.get("custom_workstation")
+	if not workstation:
+		return
+	if not _did_overlap_inputs_change(doc, (*_COMMON_OVERLAP_FIELDS, "custom_workstation")):
+		return
 	conflict = _find_overlapping_stock_entry(doc, "custom_workstation", workstation)
 	if not conflict:
 		return
@@ -222,6 +253,10 @@ def _validate_workstation_overlap(doc) -> None:
 
 def _validate_operator_overlap(doc) -> None:
 	operator = doc.get("custom_operator")
+	if not operator:
+		return
+	if not _did_overlap_inputs_change(doc, (*_COMMON_OVERLAP_FIELDS, "custom_operator")):
+		return
 	conflict = _find_overlapping_stock_entry(doc, "custom_operator", operator)
 	if not conflict:
 		return
@@ -239,34 +274,23 @@ def _validate_workstation_downtime_overlap(doc) -> None:
 	workstation = doc.get("custom_workstation")
 	if not workstation:
 		return
+	if not _did_overlap_inputs_change(doc, (*_COMMON_OVERLAP_FIELDS, "custom_workstation")):
+		return
 
 	start = _as_datetime(doc.get("custom_actual_start_date"))
 	end = _as_datetime(doc.get("custom_actual_end_date"))
-
-	downtime_entry = DocType("Downtime Entry")
-	query = (
-		frappe.qb.from_(downtime_entry)
-		.select(downtime_entry.name, downtime_entry.from_time, downtime_entry.to_time)
-		.where(downtime_entry.workstation == workstation)
-		.where(downtime_entry.from_time < end)
-		.where(downtime_entry.to_time > start)
-	)
-	if frappe.get_meta("Downtime Entry", cached=True).is_submittable:
-		query = query.where(downtime_entry.docstatus != 2)
-
-	conflict = query.limit(1).run(as_dict=True)
+	conflict = _find_overlapping_downtime_entry(workstation, start, end)
 	if not conflict:
 		return
 
-	row = conflict[0]
 	frappe.throw(
 		_(
 			"Workstation {0} has a downtime entry ({1}) from {2} to {3} that overlaps with this production entry."
 		).format(
 			frappe.bold(workstation),
-			frappe.bold(row["name"]),
-			format_datetime(row["from_time"]),
-			format_datetime(row["to_time"]),
+			frappe.bold(conflict["name"]),
+			format_datetime(conflict["from_time"]),
+			format_datetime(conflict["to_time"]),
 		)
 	)
 
@@ -285,11 +309,39 @@ def _find_overlapping_stock_entry(doc, fieldname: str, fieldvalue: str | None) -
 		.where(stock_entry.purpose == "Manufacture")
 		.where(stock_entry.custom_shift.isnotnull())
 		.where(stock_entry[fieldname] == fieldvalue)
-		.where(stock_entry.custom_actual_start_date < end)
-		.where(stock_entry.custom_actual_end_date > start)
+		.where(
+			build_interval_overlap_criterion(
+				stock_entry.custom_actual_start_date,
+				stock_entry.custom_actual_end_date,
+				start,
+				end,
+			)
+		)
 	)
 	if doc.name:
 		query = query.where(stock_entry.name != doc.name)
+
+	conflict = query.limit(1).run(as_dict=True)
+	return conflict[0] if conflict else None
+
+
+def _find_overlapping_downtime_entry(
+	workstation: str,
+	start: datetime.datetime | None,
+	end: datetime.datetime | None,
+) -> dict | None:
+	if not workstation or not start or not end:
+		return None
+
+	downtime_entry = DocType("Downtime Entry")
+	query = (
+		frappe.qb.from_(downtime_entry)
+		.select(downtime_entry.name, downtime_entry.from_time, downtime_entry.to_time)
+		.where(downtime_entry.workstation == workstation)
+		.where(build_interval_overlap_criterion(downtime_entry.from_time, downtime_entry.to_time, start, end))
+	)
+	if frappe.get_meta("Downtime Entry", cached=True).is_submittable:
+		query = query.where(downtime_entry.docstatus != 2)
 
 	conflict = query.limit(1).run(as_dict=True)
 	return conflict[0] if conflict else None

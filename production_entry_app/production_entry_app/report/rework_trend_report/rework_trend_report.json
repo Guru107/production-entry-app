@@ -12,7 +12,7 @@
  "module": "Production Entry App",
  "name": "Rework Trend Report",
  "owner": "Administrator",
- "prepared_report": 0,
+ "prepared_report": 1,
  "ref_doctype": "Stock Entry",
  "report_name": "Rework Trend Report",
  "report_type": "Script Report",

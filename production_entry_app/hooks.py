@@ -53,6 +53,9 @@ doctype_js = {
 	"Workstation": "public/js/workstation.js",
 	"Operator": "public/js/operator.js",
 }
+
+after_migrate = "production_entry_app.production_entry_app.performance_indexes.ensure_performance_indexes"
+
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}

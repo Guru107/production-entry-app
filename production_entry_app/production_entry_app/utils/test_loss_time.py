@@ -2,9 +2,14 @@ from __future__ import annotations
 
 import datetime
 
+from frappe.query_builder import DocType
 from frappe.tests.utils import FrappeTestCase
 
-from production_entry_app.production_entry_app.utils.loss_time import resolve_time_interval_in_window
+from production_entry_app.production_entry_app.utils.loss_time import (
+	build_interval_overlap_criterion,
+	build_interval_overlap_filters,
+	resolve_time_interval_in_window,
+)
 
 
 class TestLossTime(FrappeTestCase):
@@ -26,3 +31,33 @@ class TestLossTime(FrappeTestCase):
 		start_dt, end_dt = interval
 		self.assertEqual(start_dt, datetime.datetime(2026, 3, 3, 23, 45, 0))
 		self.assertEqual(end_dt, datetime.datetime(2026, 3, 4, 0, 15, 0))
+
+	def test_build_interval_overlap_filters_uses_half_open_window(self) -> None:
+		window_start = datetime.datetime(2026, 3, 3, 8, 0, 0)
+		window_end = datetime.datetime(2026, 3, 3, 12, 0, 0)
+
+		self.assertEqual(
+			build_interval_overlap_filters("from_time", "to_time", window_start, window_end),
+			[
+				["from_time", "<", window_end],
+				["to_time", ">", window_start],
+			],
+		)
+
+	def test_build_interval_overlap_criterion_uses_half_open_window(self) -> None:
+		downtime_entry = DocType("Downtime Entry")
+		window_start = datetime.datetime(2026, 3, 3, 8, 0, 0)
+		window_end = datetime.datetime(2026, 3, 3, 12, 0, 0)
+
+		criterion = build_interval_overlap_criterion(
+			downtime_entry.from_time,
+			downtime_entry.to_time,
+			window_start,
+			window_end,
+		)
+
+		criterion_sql = str(criterion)
+		self.assertIn("from_time", criterion_sql)
+		self.assertIn("to_time", criterion_sql)
+		self.assertIn("<", criterion_sql)
+		self.assertIn(">", criterion_sql)

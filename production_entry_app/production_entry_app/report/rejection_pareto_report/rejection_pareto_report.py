@@ -1,10 +1,13 @@
 from __future__ import annotations
 
-import frappe
 from frappe import _
 from frappe.utils import flt
 
-from production_entry_app.production_entry_app.report.report_utils import build_stock_entry_filters
+from production_entry_app.production_entry_app.report.report_utils import (
+	build_stock_entry_filters,
+	get_parent_breakup_reason_rows,
+	iter_stock_entries_in_chunks,
+)
 
 
 def execute(filters: dict | None = None):
@@ -41,43 +44,33 @@ def _build_filters(filters: dict) -> dict:
 
 
 def _get_rows(filters: dict) -> list[dict]:
-	entry_rows = frappe.get_all(
-		"Stock Entry",
-		filters=_build_filters(filters),
-		fields=["name", "custom_shift"],
-	)
-	entry_names = [row.get("name") for row in entry_rows if row.get("name")]
-	if not entry_names:
-		return []
-
-	shift_by_entry = {row.get("name"): row.get("custom_shift") for row in entry_rows if row.get("name")}
-	breakup_rows = frappe.get_all(
-		"Rejection Breakup",
-		filters={"parenttype": "Stock Entry", "parent": ["in", entry_names]},
-		fields=["parent", "rejection_reason", "qty"],
-	)
-	if not breakup_rows:
-		return []
-
+	has_entries = False
 	reason_totals: dict[str, float] = {}
 	entry_sets: dict[str, set[str]] = {}
 	shift_sets: dict[str, set[str]] = {}
 	total_rejection_qty = 0.0
 
-	for row in breakup_rows:
-		reason = row.get("rejection_reason")
-		qty = flt(row.get("qty") or 0, 3)
-		parent = row.get("parent")
-		if not reason or qty <= 0 or not parent:
+	for entry_rows in iter_stock_entries_in_chunks(_build_filters(filters), ["name", "custom_shift"]):
+		has_entries = True
+		entry_names = [row.get("name") for row in entry_rows if row.get("name")]
+		if not entry_names:
 			continue
-		total_rejection_qty += qty
-		reason_totals[reason] = flt(reason_totals.get(reason) or 0, 3) + qty
-		entry_sets.setdefault(reason, set()).add(parent)
-		shift_name = shift_by_entry.get(parent)
-		if shift_name:
-			shift_sets.setdefault(reason, set()).add(shift_name)
+		shift_by_entry = {row.get("name"): row.get("custom_shift") for row in entry_rows if row.get("name")}
+		breakup_rows = get_parent_breakup_reason_rows(entry_names, is_rework=False)
+		for row in breakup_rows:
+			reason = row.get("rejection_reason")
+			qty = flt(row.get("qty") or 0, 3)
+			parent = row.get("parent")
+			if not reason or qty <= 0 or not parent:
+				continue
+			total_rejection_qty += qty
+			reason_totals[reason] = flt(reason_totals.get(reason) or 0, 3) + qty
+			entry_sets.setdefault(reason, set()).add(parent)
+			shift_name = shift_by_entry.get(parent)
+			if shift_name:
+				shift_sets.setdefault(reason, set()).add(shift_name)
 
-	if total_rejection_qty <= 0:
+	if not has_entries or total_rejection_qty <= 0:
 		return []
 
 	sorted_reasons = sorted(reason_totals.items(), key=lambda row: (-flt(row[1], 3), row[0]))

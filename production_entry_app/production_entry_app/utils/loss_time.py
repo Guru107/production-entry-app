@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+from typing import Any
 
 from frappe.utils import flt, get_time
 
@@ -76,6 +77,27 @@ def get_interval_overlap(
 	if overlap_end <= overlap_start:
 		return None
 	return overlap_start, overlap_end
+
+
+def build_interval_overlap_filters(
+	start_fieldname: str,
+	end_fieldname: str,
+	window_start: datetime.datetime,
+	window_end: datetime.datetime,
+) -> list[list]:
+	return [
+		[start_fieldname, "<", window_end],
+		[end_fieldname, ">", window_start],
+	]
+
+
+def build_interval_overlap_criterion(
+	start_expression: Any,
+	end_expression: Any,
+	window_start: datetime.datetime,
+	window_end: datetime.datetime,
+):
+	return (start_expression < window_end) & (end_expression > window_start)
 
 
 def merge_intervals(

@@ -83,6 +83,17 @@ test.describe("Production reports", () => {
 		expect(Number(seededRow.other_1st || 0)).toBe(2);
 	});
 
+	test("@regression OEE report defaults to prepared report mode", async ({ page }) => {
+		await page.goto("/app/home");
+		const prefix = lifecycle.getPrefix();
+		await setupFreshContext(page, prefix);
+
+		const reportsPage = new ReportsPage(page);
+		await reportsPage.open("Production OEE Report", { ignorePreparedReport: false });
+		await reportsPage.clickRefresh();
+		expect(await reportsPage.getPrimaryActionLabel()).toBe("Generate New Report");
+	});
+
 	test("@regression OEE report derives availability from shift and removes avl-hours filter", async ({
 		page,
 	}) => {

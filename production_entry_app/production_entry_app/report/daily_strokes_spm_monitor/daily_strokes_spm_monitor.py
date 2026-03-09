@@ -9,10 +9,10 @@ from frappe.utils import flt, getdate
 from production_entry_app.production_entry_app.report.report_utils import (
 	build_stock_entry_filters,
 	get_entry_production_minutes,
-	get_entry_qty_maps,
 	get_entry_total_strokes,
-	get_loss_time_maps,
-	get_rework_qty_map,
+	get_parent_loss_metrics,
+	get_parent_quantity_metrics,
+	iter_stock_entries_in_chunks,
 )
 
 MONTH_OPTIONS: tuple[str, ...] = (
@@ -144,10 +144,14 @@ def _get_rows(filters: dict) -> list[dict]:
 	filters["to_date"] = to_date
 
 	db_filters = build_stock_entry_filters(filters, filter_keys=("custom_operator",))
-	entries = frappe.get_all(
-		"Stock Entry",
-		filters=db_filters,
-		fields=[
+	group_by_operator = not filters.get("custom_operator")
+
+	# Aggregate by group key
+	aggregates: dict[tuple, dict] = {}
+	has_entries = False
+	for entries in iter_stock_entries_in_chunks(
+		db_filters,
+		[
 			"name",
 			"posting_date",
 			"custom_operator",
@@ -157,68 +161,75 @@ def _get_rows(filters: dict) -> list[dict]:
 			"custom_actual_duration_mins",
 			"custom_production_time_mins",
 		],
-		order_by="posting_date asc",
-	)
-	if not entries:
+		order_by="posting_date asc, name asc",
+	):
+		has_entries = True
+		entry_names = [e.get("name") for e in entries if e.get("name")]
+		parent_quantity_metrics = get_parent_quantity_metrics(entry_names, include_rework=True)
+		parent_loss_metrics = get_parent_loss_metrics(entry_names)
+		good_qty_map = {
+			parent: flt(metrics.get("good_qty") or 0, 3)
+			for parent, metrics in parent_quantity_metrics.items()
+		}
+		rejection_qty_map = {
+			parent: flt(metrics.get("rejection_qty") or 0, 3)
+			for parent, metrics in parent_quantity_metrics.items()
+		}
+		total_rejected_qty_map = {
+			parent: flt(metrics.get("total_rejected_qty") or 0, 3)
+			for parent, metrics in parent_quantity_metrics.items()
+		}
+
+		for entry in entries:
+			posting_date = str(entry.get("posting_date") or "")
+			operator = entry.get("custom_operator") or "Unassigned"
+			group_key = (posting_date, operator) if group_by_operator else (posting_date,)
+
+			if group_key not in aggregates:
+				agg: dict = {
+					"date": posting_date,
+					"setup_time_hrs": 0.0,
+					"loss_time_hrs": 0.0,
+					"prod_time_hrs": 0.0,
+					"total_strokes": 0.0,
+					"rejection": 0.0,
+					"rework": 0.0,
+				}
+				if group_by_operator:
+					agg["operator"] = operator
+				aggregates[group_key] = agg
+
+			agg = aggregates[group_key]
+			entry_name = entry.get("name")
+			entry_metrics = parent_quantity_metrics.get(entry_name or "", {})
+			loss_metrics = parent_loss_metrics.get(entry_name or "", {})
+			setup_mins = flt(loss_metrics.get("setup_mins") or 0, 3)
+			loss_mins = flt(loss_metrics.get("loss_mins") or 0, 3)
+			setup_hrs = flt(setup_mins / 60, 3)
+			loss_hrs = flt(loss_mins / 60, 3)
+			rework_qty = flt(entry.get("custom_rework_qty") or entry_metrics.get("rework_qty") or 0, 3)
+			total_strokes, rejection_qty = get_entry_total_strokes(
+				entry,
+				good_qty_map=good_qty_map,
+				rejection_qty_map=rejection_qty_map,
+				total_rejected_qty_map=total_rejected_qty_map,
+			)
+			production_time_mins = get_entry_production_minutes(
+				entry,
+				setup_mins=setup_mins,
+				loss_mins=loss_mins,
+			)
+			production_time_hrs = flt(production_time_mins / 60, 3) if production_time_mins > 0 else 0.0
+
+			agg["setup_time_hrs"] += setup_hrs
+			agg["loss_time_hrs"] += loss_hrs
+			agg["prod_time_hrs"] += production_time_hrs
+			agg["total_strokes"] += total_strokes
+			agg["rejection"] += rejection_qty
+			agg["rework"] += rework_qty
+
+	if not has_entries:
 		return []
-
-	entry_names = [e.get("name") for e in entries if e.get("name")]
-	group_by_operator = not filters.get("custom_operator")
-
-	# Fallback qty maps for entries without fg_completed_qty / custom_rejection_qty
-	good_qty_map, rejection_qty_map, _ = get_entry_qty_maps(entry_names)
-	rework_qty_map = get_rework_qty_map(entry_names)
-	setup_time_map, loss_time_map = get_loss_time_maps(entry_names)
-
-	# Aggregate by group key
-	aggregates: dict[tuple, dict] = {}
-	for entry in entries:
-		posting_date = str(entry.get("posting_date") or "")
-		operator = entry.get("custom_operator") or "Unassigned"
-		group_key = (posting_date, operator) if group_by_operator else (posting_date,)
-
-		if group_key not in aggregates:
-			agg: dict = {
-				"date": posting_date,
-				"setup_time_hrs": 0.0,
-				"loss_time_hrs": 0.0,
-				"prod_time_hrs": 0.0,
-				"total_strokes": 0.0,
-				"rejection": 0.0,
-				"rework": 0.0,
-			}
-			if group_by_operator:
-				agg["operator"] = operator
-			aggregates[group_key] = agg
-
-		agg = aggregates[group_key]
-		entry_name = entry.get("name")
-		setup_mins = flt(setup_time_map.get(entry_name, 0), 3)
-		loss_mins = flt(loss_time_map.get(entry_name, 0), 3)
-		setup_hrs = flt(setup_mins / 60, 3)
-		loss_hrs = flt(loss_mins / 60, 3)
-		rejection_qty = flt(entry.get("custom_rejection_qty") or 0, 3)
-		rework_qty = flt(entry.get("custom_rework_qty") or 0, 3)
-		if rework_qty <= 0 and entry_name:
-			rework_qty = flt(rework_qty_map.get(entry_name) or 0, 3)
-		total_strokes, rejection_qty = get_entry_total_strokes(
-			entry,
-			good_qty_map=good_qty_map,
-			rejection_qty_map=rejection_qty_map,
-		)
-		production_time_mins = get_entry_production_minutes(
-			entry,
-			setup_mins=setup_mins,
-			loss_mins=loss_mins,
-		)
-		production_time_hrs = flt(production_time_mins / 60, 3) if production_time_mins > 0 else 0.0
-
-		agg["setup_time_hrs"] += setup_hrs
-		agg["loss_time_hrs"] += loss_hrs
-		agg["prod_time_hrs"] += production_time_hrs
-		agg["total_strokes"] += total_strokes
-		agg["rejection"] += rejection_qty
-		agg["rework"] += rework_qty
 
 	# Build sorted rows
 	rows: list[dict] = []

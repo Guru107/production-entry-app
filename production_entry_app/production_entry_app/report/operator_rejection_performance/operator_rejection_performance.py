@@ -6,7 +6,9 @@ from frappe.utils import flt
 
 from production_entry_app.production_entry_app.report.report_utils import (
 	build_stock_entry_filters,
-	get_entry_qty_maps,
+	get_parent_breakup_reason_rows,
+	get_parent_quantity_metrics,
+	iter_stock_entries_in_chunks,
 )
 
 
@@ -42,75 +44,75 @@ def _build_filters(filters: dict) -> dict:
 
 
 def _get_rows(filters: dict) -> list[dict]:
-	entries = frappe.get_all(
-		"Stock Entry",
-		filters=_build_filters(filters),
-		fields=["name", "custom_operator", "fg_completed_qty", "custom_rejection_qty", "custom_actual_spm"],
-	)
-	entry_names = [entry.get("name") for entry in entries if entry.get("name")]
-	if not entry_names:
-		return []
-
-	good_qty_map, rejection_qty_map, _ = get_entry_qty_maps(entry_names)
-	breakup_rows = frappe.get_all(
-		"Rejection Breakup",
-		filters={"parenttype": "Stock Entry", "parent": ["in", entry_names]},
-		fields=["parent", "rejection_reason", "qty"],
-	)
-
 	agg_by_operator: dict[str, dict] = {}
-	for entry in entries:
-		entry_name = entry.get("name")
-		operator = entry.get("custom_operator") or "Unassigned"
-		rejection_qty = flt(entry.get("custom_rejection_qty") or 0, 3)
-		if rejection_qty <= 0 and entry_name:
-			rejection_qty = flt(rejection_qty_map.get(entry_name) or 0, 3)
-		total_qty = flt(entry.get("fg_completed_qty") or 0, 3)
-		if total_qty <= 0 and entry_name:
-			total_qty = flt(good_qty_map.get(entry_name) or 0, 3) + rejection_qty
-		agg = agg_by_operator.setdefault(
-			operator,
-			{
-				"entries": 0,
-				"total_qty": 0.0,
-				"rejection_qty": 0.0,
-				"actual_spm_sum": 0.0,
-				"actual_spm_count": 0,
-				"reason_totals": {},
-			},
-		)
-		agg["entries"] += 1
-		agg["total_qty"] += total_qty
-		agg["rejection_qty"] += rejection_qty
-		actual_spm = flt(entry.get("custom_actual_spm") or 0, 3)
-		if actual_spm > 0:
-			agg["actual_spm_sum"] += actual_spm
-			agg["actual_spm_count"] += 1
-
-	operator_by_entry = {
-		entry.get("name"): (entry.get("custom_operator") or "Unassigned")
-		for entry in entries
-		if entry.get("name")
-	}
-	for row in breakup_rows:
-		parent = row.get("parent")
-		reason = row.get("rejection_reason")
-		qty = flt(row.get("qty") or 0, 3)
-		if not parent or not reason or qty <= 0:
+	has_entries = False
+	for entries in iter_stock_entries_in_chunks(
+		_build_filters(filters),
+		["name", "custom_operator", "fg_completed_qty", "custom_rejection_qty", "custom_actual_spm"],
+	):
+		has_entries = True
+		entry_names = [entry.get("name") for entry in entries if entry.get("name")]
+		if not entry_names:
 			continue
-		operator = operator_by_entry.get(parent, "Unassigned")
-		reason_totals = agg_by_operator.setdefault(
-			operator,
-			{
-				"entries": 0,
-				"total_qty": 0.0,
-				"rejection_qty": 0.0,
-				"actual_spm_sum": 0.0,
-				"actual_spm_count": 0,
-				"reason_totals": {},
-			},
-		)["reason_totals"]
-		reason_totals[reason] = flt(reason_totals.get(reason) or 0, 3) + qty
+		parent_quantity_metrics = get_parent_quantity_metrics(entry_names)
+		breakup_rows = get_parent_breakup_reason_rows(entry_names, is_rework=False)
+		for entry in entries:
+			entry_name = entry.get("name")
+			entry_metrics = parent_quantity_metrics.get(entry_name or "", {})
+			operator = entry.get("custom_operator") or "Unassigned"
+			rejection_qty = flt(entry_metrics.get("rejection_qty") or 0, 3)
+			total_qty = flt(entry.get("fg_completed_qty") or 0, 3)
+			if total_qty <= 0 and entry_name:
+				total_qty = flt(entry_metrics.get("good_qty") or 0, 3) + flt(
+					entry_metrics.get("total_rejected_qty") or 0,
+					3,
+				)
+			agg = agg_by_operator.setdefault(
+				operator,
+				{
+					"entries": 0,
+					"total_qty": 0.0,
+					"rejection_qty": 0.0,
+					"actual_spm_sum": 0.0,
+					"actual_spm_count": 0,
+					"reason_totals": {},
+				},
+			)
+			agg["entries"] += 1
+			agg["total_qty"] += total_qty
+			agg["rejection_qty"] += rejection_qty
+			actual_spm = flt(entry.get("custom_actual_spm") or 0, 3)
+			if actual_spm > 0:
+				agg["actual_spm_sum"] += actual_spm
+				agg["actual_spm_count"] += 1
+
+		operator_by_entry = {
+			entry.get("name"): (entry.get("custom_operator") or "Unassigned")
+			for entry in entries
+			if entry.get("name")
+		}
+		for row in breakup_rows:
+			parent = row.get("parent")
+			reason = row.get("rejection_reason")
+			qty = flt(row.get("qty") or 0, 3)
+			if not parent or not reason or qty <= 0:
+				continue
+			operator = operator_by_entry.get(parent, "Unassigned")
+			reason_totals = agg_by_operator.setdefault(
+				operator,
+				{
+					"entries": 0,
+					"total_qty": 0.0,
+					"rejection_qty": 0.0,
+					"actual_spm_sum": 0.0,
+					"actual_spm_count": 0,
+					"reason_totals": {},
+				},
+			)["reason_totals"]
+			reason_totals[reason] = flt(reason_totals.get(reason) or 0, 3) + qty
+
+	if not has_entries:
+		return []
 
 	rows = []
 	for operator in sorted(agg_by_operator.keys()):

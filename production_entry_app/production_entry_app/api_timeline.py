@@ -6,6 +6,7 @@ from frappe.query_builder import DocType
 from frappe.query_builder.functions import Sum
 from frappe.utils import flt
 
+from production_entry_app.production_entry_app.utils.loss_time import build_interval_overlap_criterion
 from production_entry_app.production_entry_app.utils.shift_time import combine_date_time
 
 
@@ -141,8 +142,12 @@ def get_shift_timeline_data(doctype: str, docname: str) -> dict:
 				(downtime_entry.workstation == docname)
 				& downtime_entry.from_time.isnotnull()
 				& downtime_entry.to_time.isnotnull()
-				& (downtime_entry.from_time < shift_end)
-				& (downtime_entry.to_time > shift_start)
+				& build_interval_overlap_criterion(
+					downtime_entry.from_time,
+					downtime_entry.to_time,
+					shift_start,
+					shift_end,
+				)
 			)
 			.orderby(downtime_entry.from_time)
 		)
