@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from production_entry_app.production_entry_app import performance_indexes
@@ -131,3 +132,32 @@ class TestPerformanceIndexes(FrappeTestCase):
 				("tabDowntime Entry", "idx_pea_dte_workstation_window"),
 			],
 		)
+
+	def test_ensure_performance_indexes_skips_missing_column_failures(self) -> None:
+		missing_column_error = frappe.db.ProgrammingError(
+			1054, "Unknown column 'custom_operator' in 'field list'"
+		)
+
+		with (
+			patch(
+				"production_entry_app.production_entry_app.performance_indexes.frappe.db.add_index",
+				side_effect=[missing_column_error, None, None, None, None, None],
+			) as add_index,
+			patch(
+				"production_entry_app.production_entry_app.performance_indexes.frappe.log_error"
+			) as log_error,
+		):
+			performance_indexes.ensure_performance_indexes()
+
+		self.assertEqual(add_index.call_count, 6)
+		log_error.assert_called_once()
+
+	def test_ensure_performance_indexes_reraises_non_missing_column_db_errors(self) -> None:
+		other_error = frappe.db.ProgrammingError(1064, "You have an error in your SQL syntax")
+
+		with patch(
+			"production_entry_app.production_entry_app.performance_indexes.frappe.db.add_index",
+			side_effect=other_error,
+		):
+			with self.assertRaises(frappe.db.ProgrammingError):
+				performance_indexes.ensure_performance_indexes()
