@@ -95,7 +95,9 @@ def cleanup_report_benchmark(dataset_key: str = "PHASE2") -> dict[str, int | str
 		frappe.db.delete("Loss Entry", {"parenttype": "Shift", "parent": ["in", shift_names]})
 		frappe.db.delete("Shift", {"name": ["in", shift_names]})
 
-	frappe.db.commit()  # nosemgrep: benchmark cleanup must commit deletes before reseeding/measuring
+	# nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
+	# Benchmark cleanup must commit deletes before reseeding/measuring.
+	frappe.db.commit()
 	return {
 		"dataset_key": dataset_key,
 		"deleted_stock_entries": len(entry_names),

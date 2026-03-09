@@ -69,7 +69,9 @@ def run_stock_entry_write_benchmark(
 		)
 	finally:
 		performance_indexes.ensure_overlap_indexes()
-		frappe.db.commit()  # nosemgrep: benchmark must restore index state before returning
+		# nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
+		# Benchmark teardown must restore overlap indexes before returning.
+		frappe.db.commit()
 
 	with_indexes = results["with_overlap_indexes"]
 	without_indexes = results["without_overlap_indexes"]
@@ -112,7 +114,9 @@ def _run_write_case(
 		performance_indexes.ensure_overlap_indexes()
 	else:
 		performance_indexes.drop_overlap_indexes_if_exists()
-	frappe.db.commit()  # nosemgrep: benchmark case must flush index DDL before timing saves
+	# nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
+	# Benchmark case must flush index DDL before timing committed saves.
+	frappe.db.commit()
 
 	elapsed_samples: list[float] = []
 	sql_samples: list[int] = []
@@ -136,7 +140,9 @@ def _run_write_case(
 				start_time=benchmark_shift["start_time"],
 				end_time=benchmark_shift["end_time"],
 			)
-			frappe.db.commit()  # nosemgrep: each measured save must commit to reflect write-path latency
+			# nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
+			# Each measured save must include commit latency for write-path benchmarking.
+			frappe.db.commit()
 			elapsed_ms = round((time.perf_counter() - start) * 1000, 2)
 			if index >= warmup_iterations:
 				elapsed_samples.append(elapsed_ms)
@@ -145,7 +151,9 @@ def _run_write_case(
 
 	for name in created_names:
 		frappe.delete_doc("Stock Entry", name, force=True, ignore_permissions=True)
-	frappe.db.commit()  # nosemgrep: benchmark teardown must commit deletions between cases
+	# nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
+	# Benchmark teardown must commit deletions before the next case begins.
+	frappe.db.commit()
 
 	return {
 		"case": case_name,
