@@ -6,6 +6,7 @@ from frappe.utils import flt
 
 from production_entry_app.production_entry_app.report.report_utils import (
 	build_stock_entry_filters,
+	get_parent_breakup_reason_rows,
 	get_parent_quantity_metrics,
 	iter_stock_entries_in_chunks,
 )
@@ -54,21 +55,18 @@ def _get_rows(filters: dict) -> list[dict]:
 		if not entry_names:
 			continue
 		parent_quantity_metrics = get_parent_quantity_metrics(entry_names)
-		breakup_rows = frappe.get_all(
-			"Rejection Breakup",
-			filters={"parenttype": "Stock Entry", "parent": ["in", entry_names]},
-			fields=["parent", "rejection_reason", "qty"],
-		)
+		breakup_rows = get_parent_breakup_reason_rows(entry_names, is_rework=False)
 		for entry in entries:
 			entry_name = entry.get("name")
 			entry_metrics = parent_quantity_metrics.get(entry_name or "", {})
 			operator = entry.get("custom_operator") or "Unassigned"
-			rejection_qty = flt(entry.get("custom_rejection_qty") or 0, 3)
-			if rejection_qty <= 0 and entry_name:
-				rejection_qty = flt(entry_metrics.get("rejection_qty") or 0, 3)
+			rejection_qty = flt(entry_metrics.get("rejection_qty") or 0, 3)
 			total_qty = flt(entry.get("fg_completed_qty") or 0, 3)
 			if total_qty <= 0 and entry_name:
-				total_qty = flt(entry_metrics.get("good_qty") or 0, 3) + rejection_qty
+				total_qty = flt(entry_metrics.get("good_qty") or 0, 3) + flt(
+					entry_metrics.get("total_rejected_qty") or 0,
+					3,
+				)
 			agg = agg_by_operator.setdefault(
 				operator,
 				{

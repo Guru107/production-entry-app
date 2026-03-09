@@ -72,7 +72,7 @@ def _get_rows(filters: dict, timeout_guard) -> list[dict]:
 		entry_by_name = {entry.get("name"): entry for entry in entries if entry.get("name")}
 		parent_metrics = get_parent_quantity_metrics(entry_names)
 		item_by_entry = get_finished_item_map(entry_names)
-		breakup_rows = get_parent_breakup_reason_rows(entry_names)
+		breakup_rows = get_parent_breakup_reason_rows(entry_names, is_rework=False)
 
 		for entry in entries:
 			entry_name = entry.get("name")
@@ -80,12 +80,13 @@ def _get_rows(filters: dict, timeout_guard) -> list[dict]:
 				continue
 			item_code = item_by_entry.get(entry_name)
 			group = _group_key(item_code, entry.get("bom_no"))
-			rejection_qty = flt(entry.get("custom_rejection_qty") or 0, 3)
-			if rejection_qty <= 0:
-				rejection_qty = flt(parent_metrics.get(entry_name, {}).get("rejection_qty") or 0, 3)
+			rejection_qty = flt(parent_metrics.get(entry_name, {}).get("rejection_qty") or 0, 3)
 			total_qty = flt(entry.get("fg_completed_qty") or 0, 3)
 			if total_qty <= 0:
-				total_qty = flt(parent_metrics.get(entry_name, {}).get("good_qty") or 0, 3) + rejection_qty
+				total_qty = flt(parent_metrics.get(entry_name, {}).get("good_qty") or 0, 3) + flt(
+					parent_metrics.get(entry_name, {}).get("total_rejected_qty") or 0,
+					3,
+				)
 			row = agg.setdefault(
 				group,
 				{"entries": set(), "total_qty": 0.0, "rejection_qty": 0.0, "reason_totals": {}},

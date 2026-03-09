@@ -56,7 +56,7 @@ def _get_rows(filters: dict) -> list[dict]:
 		if not entry_names:
 			continue
 		shift_by_entry = {row.get("name"): row.get("custom_shift") for row in entry_rows if row.get("name")}
-		breakup_rows = get_parent_breakup_reason_rows(entry_names)
+		breakup_rows = get_parent_breakup_reason_rows(entry_names, is_rework=False)
 		for row in breakup_rows:
 			reason = row.get("rejection_reason")
 			qty = flt(row.get("qty") or 0, 3)

@@ -87,7 +87,7 @@ def _get_rows(filters: dict, top_n: int) -> tuple[list[dict], list[str]]:
 			for row in entry_rows
 			if row.get("name")
 		}
-		breakup_rows = get_parent_breakup_reason_rows(entry_names)
+		breakup_rows = get_parent_breakup_reason_rows(entry_names, is_rework=False)
 		for row in breakup_rows:
 			parent = row.get("parent")
 			reason = row.get("rejection_reason")

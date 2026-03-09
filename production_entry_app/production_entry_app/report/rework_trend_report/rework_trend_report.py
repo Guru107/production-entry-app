@@ -87,14 +87,14 @@ def _get_rows(filters: dict) -> list[dict]:
 				continue
 			entry_name = entry.get("name")
 			entry_metrics = parent_quantity_metrics.get(entry_name or "", {})
-			rejection_qty = flt(entry.get("custom_rejection_qty") or 0, 3)
-			if rejection_qty <= 0 and entry_name:
-				rejection_qty = flt(entry_metrics.get("rejection_qty") or 0, 3)
 			rework_qty = flt(entry.get("custom_rework_qty") or entry_metrics.get("rework_qty") or 0, 3)
-			non_rework_rejection_qty = flt(max(rejection_qty - rework_qty, 0), 3)
+			non_rework_rejection_qty = flt(entry_metrics.get("rejection_qty") or 0, 3)
 			total_qty = flt(entry.get("fg_completed_qty") or 0, 3)
 			if total_qty <= 0 and entry_name:
-				total_qty = flt(entry_metrics.get("good_qty") or 0, 3) + rejection_qty
+				total_qty = flt(entry_metrics.get("good_qty") or 0, 3) + flt(
+					entry_metrics.get("total_rejected_qty") or 0,
+					3,
+				)
 
 			key_date, period_label = _period_key(posting_date, time_grain)
 			aggregate = aggregates.setdefault(

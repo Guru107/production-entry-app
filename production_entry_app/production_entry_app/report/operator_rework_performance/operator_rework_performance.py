@@ -81,12 +81,12 @@ def _get_rows(filters: dict) -> list[dict]:
 			entry_name = entry.get("name")
 			entry_metrics = parent_quantity_metrics.get(entry_name or "", {})
 			operator = entry.get("custom_operator") or "Unassigned"
-			rejection_qty = flt(entry.get("custom_rejection_qty") or 0, 3)
-			if rejection_qty <= 0 and entry_name:
-				rejection_qty = flt(entry_metrics.get("rejection_qty") or 0, 3)
 			total_qty = flt(entry.get("fg_completed_qty") or 0, 3)
 			if total_qty <= 0 and entry_name:
-				total_qty = flt(entry_metrics.get("good_qty") or 0, 3) + rejection_qty
+				total_qty = flt(entry_metrics.get("good_qty") or 0, 3) + flt(
+					entry_metrics.get("total_rejected_qty") or 0,
+					3,
+				)
 			rework_qty = flt(entry.get("custom_rework_qty") or entry_metrics.get("rework_qty") or 0, 3)
 			agg = agg_by_operator.setdefault(operator, _empty_agg())
 			agg["entries"] += 1

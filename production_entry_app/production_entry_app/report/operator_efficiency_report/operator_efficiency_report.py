@@ -83,6 +83,10 @@ def _get_rows(filters: dict, timeout_guard) -> list[dict]:
 			parent: flt(metrics.get("rejection_qty") or 0, 3)
 			for parent, metrics in parent_quantity_metrics.items()
 		}
+		total_rejected_qty_map = {
+			parent: flt(metrics.get("total_rejected_qty") or 0, 3)
+			for parent, metrics in parent_quantity_metrics.items()
+		}
 
 		for entry in entries:
 			entry_metrics = parent_quantity_metrics.get(entry.get("name") or "", {})
@@ -91,6 +95,7 @@ def _get_rows(filters: dict, timeout_guard) -> list[dict]:
 				entry,
 				good_qty_map=good_qty_map,
 				rejection_qty_map=rejection_qty_map,
+				total_rejected_qty_map=total_rejected_qty_map,
 			)
 			good_qty = flt(max(total_strokes - rejection_qty, 0), 3)
 			rework_qty = flt(entry.get("custom_rework_qty") or entry_metrics.get("rework_qty") or 0, 3)

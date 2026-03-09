@@ -666,7 +666,7 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(float(rows[0]["total_units"]), 240.0)
 		self.assertEqual(float(rows[0]["operator_efficiency_pct"]), 100.0)
 
-	def test_operator_efficiency_report_uses_duration_weighted_spm(self) -> None:
+	def test_operator_efficiency_report_uses_fixed_group_standard_spm(self) -> None:
 		from production_entry_app.production_entry_app.report.operator_efficiency_report.operator_efficiency_report import (
 			execute,
 		)
@@ -802,6 +802,39 @@ class TestProductionReports(FrappeTestCase):
 		self.assertAlmostEqual(float(rows[0]["standard_spm"]), 3.0, places=3)
 		self.assertAlmostEqual(float(rows[0]["workstation_efficiency_pct"]), 100.0, places=2)
 
+	def test_workstation_efficiency_report_uses_fixed_group_standard_spm(self) -> None:
+		from production_entry_app.production_entry_app.report.workstation_efficiency_report.workstation_efficiency_report import (
+			execute,
+		)
+
+		frappe.db.set_value("Workstation", "Report Workstation", "custom_standard_spm", 4)
+		self._create_mock_submitted_entry(
+			posting_date="2026-06-15",
+			planned_start="2026-06-15 08:00:00",
+			planned_end="2026-06-15 08:10:00",
+			actual_start="2026-06-15 08:00:00",
+			actual_end="2026-06-15 08:10:00",
+			fg_qty=100,
+			rejection_qty=0,
+			standard_spm=4,
+		)
+		self._create_mock_submitted_entry(
+			posting_date="2026-06-15",
+			planned_start="2026-06-15 09:00:00",
+			planned_end="2026-06-15 09:50:00",
+			actual_start="2026-06-15 09:00:00",
+			actual_end="2026-06-15 09:50:00",
+			fg_qty=100,
+			rejection_qty=0,
+			standard_spm=4,
+		)
+
+		_, rows = execute({"from_date": "2026-06-15", "to_date": "2026-06-15"})
+		self.assertEqual(len(rows), 1)
+		self.assertAlmostEqual(float(rows[0]["actual_spm"]), 3.333, places=3)
+		self.assertEqual(float(rows[0]["standard_spm"]), 4.0)
+		self.assertAlmostEqual(float(rows[0]["workstation_efficiency_pct"]), 83.33, delta=0.02)
+
 	def test_aggregate_efficiency_ignores_raw_duration_when_production_time_is_zero(self) -> None:
 		from production_entry_app.production_entry_app.report.report_utils import (
 			aggregate_efficiency_by_field,
@@ -837,6 +870,66 @@ class TestProductionReports(FrappeTestCase):
 		rows = build_efficiency_rows(aggregates, "operator", "operator_efficiency_pct")
 		self.assertEqual(len(rows), 1)
 		self.assertAlmostEqual(float(rows[0]["actual_spm"]), 2.0, places=3)
+		self.assertAlmostEqual(float(rows[0]["standard_spm"]), 2.0, places=3)
+
+	def test_aggregate_efficiency_uses_first_positive_standard_spm(self) -> None:
+		from production_entry_app.production_entry_app.report.report_utils import (
+			aggregate_efficiency_by_field,
+			build_efficiency_rows,
+		)
+
+		entries = [
+			{
+				"custom_operator": "Report Operator",
+				"_good_qty": 40,
+				"_rejection_qty": 0,
+				"_rework_qty": 0,
+				"_production_time_mins": 10,
+				"_duration_mins": 10,
+				"custom_standard_spm": 4,
+				"custom_actual_spm": 4,
+			},
+			{
+				"custom_operator": "Report Operator",
+				"_good_qty": 200,
+				"_rejection_qty": 0,
+				"_rework_qty": 0,
+				"_production_time_mins": 50,
+				"_duration_mins": 50,
+				"custom_standard_spm": 9,
+				"custom_actual_spm": 4,
+			},
+		]
+
+		aggregates = aggregate_efficiency_by_field(entries, "custom_operator")
+		rows = build_efficiency_rows(aggregates, "operator", "operator_efficiency_pct")
+		self.assertEqual(len(rows), 1)
+		self.assertAlmostEqual(float(rows[0]["standard_spm"]), 4.0, places=3)
+		self.assertAlmostEqual(float(rows[0]["operator_efficiency_pct"]), 100.0, places=2)
+
+	def test_parent_quantity_metrics_split_rejection_and_rework(self) -> None:
+		from production_entry_app.production_entry_app.report.report_utils import get_parent_quantity_metrics
+
+		shift = self._create_shift_for_label("2094-06-06", "1")
+		entry = self._create_mock_submitted_entry_with_breakup(
+			posting_date="2094-06-06",
+			planned_start="2094-06-06 08:00:00",
+			planned_end="2094-06-06 09:00:00",
+			actual_start="2094-06-06 08:00:00",
+			actual_end="2094-06-06 09:00:00",
+			fg_qty=100,
+			shift_name=shift.name,
+			breakup_rows=[
+				{"rejection_reason": "Burr", "qty": 3, "is_rework": 1},
+				{"rejection_reason": "Crack", "qty": 2, "is_rework": 0},
+			],
+		)
+
+		metrics = get_parent_quantity_metrics([entry.name], include_rework=True)[entry.name]
+		self.assertEqual(float(metrics["good_qty"]), 95.0)
+		self.assertEqual(float(metrics["rejection_qty"]), 2.0)
+		self.assertEqual(float(metrics["rework_qty"]), 3.0)
+		self.assertEqual(float(metrics["total_rejected_qty"]), 5.0)
 
 	def test_get_entry_raw_duration_minutes_falls_back_to_datetime_delta(self) -> None:
 		from production_entry_app.production_entry_app.report.report_utils import (
@@ -894,9 +987,12 @@ class TestProductionReports(FrappeTestCase):
 		self.assertIn("rework_qty", [c.get("fieldname") for c in operator_columns])
 		self.assertIn("rework_qty", [c.get("fieldname") for c in workstation_columns])
 		self.assertIn("rework", [c.get("fieldname") for c in daily_columns])
+		self.assertEqual(float(operator_rows[0]["rejection_qty"]), 2.0)
 		self.assertEqual(float(operator_rows[0]["rework_qty"]), 3.0)
+		self.assertEqual(float(workstation_rows[0]["rejection_qty"]), 2.0)
 		self.assertEqual(float(workstation_rows[0]["rework_qty"]), 3.0)
-		self.assertEqual(float(oee_rows[0]["rejection"]), 5.0)
+		self.assertEqual(float(oee_rows[0]["rejection"]), 2.0)
+		self.assertEqual(float(daily_rows[0]["rejection"]), 2.0)
 		self.assertEqual(float(daily_rows[0]["rework"]), 3.0)
 
 	def test_die_tool_stroke_report_uses_counter_and_maintenance(self) -> None:
@@ -1159,6 +1255,66 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual([row["rejection_reason"] for row in rows], ["Crack", "Burr"])
 		self.assertEqual(float(rows[0]["rejection_qty"]), 5.0)
 		self.assertEqual(int(rows[0]["entries"]), 1)
+
+	def test_rejection_reports_exclude_rework_rows(self) -> None:
+		from production_entry_app.production_entry_app.report.item_bom_rejection_hotspots.item_bom_rejection_hotspots import (
+			execute as rejection_hotspots_execute,
+		)
+		from production_entry_app.production_entry_app.report.operator_rejection_performance.operator_rejection_performance import (
+			execute as operator_rejection_execute,
+		)
+		from production_entry_app.production_entry_app.report.rejection_pareto_report.rejection_pareto_report import (
+			execute as rejection_pareto_execute,
+		)
+		from production_entry_app.production_entry_app.report.rejection_ppm_report.rejection_ppm_report import (
+			execute as rejection_ppm_execute,
+		)
+		from production_entry_app.production_entry_app.report.rejection_trend_report.rejection_trend_report import (
+			execute as rejection_trend_execute,
+		)
+		from production_entry_app.production_entry_app.report.workstation_rejection_reason_matrix.workstation_rejection_reason_matrix import (
+			execute as rejection_matrix_execute,
+		)
+
+		shift = self._create_shift_for_label("2026-07-10", "1")
+		self._create_mock_submitted_entry_with_breakup(
+			posting_date="2026-07-10",
+			planned_start="2026-07-10 08:00:00",
+			planned_end="2026-07-10 09:00:00",
+			actual_start="2026-07-10 08:00:00",
+			actual_end="2026-07-10 09:00:00",
+			fg_qty=100,
+			operator="Report Operator",
+			workstation="Report Workstation",
+			fg_item=self.fg_item,
+			shift_name=shift.name,
+			breakup_rows=[
+				{"rejection_reason": "Crack", "qty": 4, "is_rework": 0},
+				{"rejection_reason": "Burr", "qty": 6, "is_rework": 1},
+			],
+		)
+
+		_, pareto_rows, _, _ = rejection_pareto_execute({"from_date": "2026-07-10", "to_date": "2026-07-10"})
+		_, trend_rows, _, _ = rejection_trend_execute({"from_date": "2026-07-10", "to_date": "2026-07-10"})
+		_, ppm_rows, _, _ = rejection_ppm_execute({"from_date": "2026-07-10", "to_date": "2026-07-10"})
+		_, operator_rows = operator_rejection_execute({"from_date": "2026-07-10", "to_date": "2026-07-10"})
+		_, hotspot_rows = rejection_hotspots_execute({"from_date": "2026-07-10", "to_date": "2026-07-10"})
+		_, matrix_rows = rejection_matrix_execute({"from_date": "2026-07-10", "to_date": "2026-07-10"})
+
+		self.assertEqual(len(pareto_rows), 1)
+		self.assertEqual(pareto_rows[0]["rejection_reason"], "Crack")
+		self.assertEqual(float(pareto_rows[0]["rejection_qty"]), 4.0)
+		self.assertEqual(float(trend_rows[0]["rejection_qty"]), 4.0)
+		self.assertEqual(float(trend_rows[0]["ok_qty"]), 96.0)
+		self.assertEqual(float(ppm_rows[0]["rejection_qty"]), 4.0)
+		self.assertEqual(float(ppm_rows[0]["ppm"]), 40_000.0)
+		self.assertEqual(float(operator_rows[0]["rejection_qty"]), 4.0)
+		self.assertIn("Crack (4.0)", operator_rows[0]["top_3_reasons"])
+		self.assertNotIn("Burr", operator_rows[0]["top_3_reasons"])
+		self.assertEqual(float(hotspot_rows[0]["rejection_qty"]), 4.0)
+		self.assertIn("Crack (4.0)", hotspot_rows[0]["dominant_reason"])
+		self.assertEqual(float(matrix_rows[0]["total_rejection_qty"]), 4.0)
+		self.assertEqual(float(matrix_rows[0]["reason_crack"]), 4.0)
 
 	def test_rejection_trend_report_daily_aggregation(self) -> None:
 		from production_entry_app.production_entry_app.report.rejection_trend_report.rejection_trend_report import (

@@ -80,12 +80,12 @@ def _get_rows(filters: dict, timeout_guard) -> list[dict]:
 				continue
 			item_code = item_by_entry.get(entry_name)
 			group = _group_key(item_code, entry.get("bom_no"))
-			rejection_qty = flt(entry.get("custom_rejection_qty") or 0, 3)
-			if rejection_qty <= 0:
-				rejection_qty = flt(parent_metrics.get(entry_name, {}).get("rejection_qty") or 0, 3)
 			total_qty = flt(entry.get("fg_completed_qty") or 0, 3)
 			if total_qty <= 0:
-				total_qty = flt(parent_metrics.get(entry_name, {}).get("good_qty") or 0, 3) + rejection_qty
+				total_qty = flt(parent_metrics.get(entry_name, {}).get("good_qty") or 0, 3) + flt(
+					parent_metrics.get(entry_name, {}).get("total_rejected_qty") or 0,
+					3,
+				)
 			rework_qty = flt(entry.get("custom_rework_qty") or 0, 3)
 			if rework_qty <= 0:
 				rework_qty = flt(parent_metrics.get(entry_name, {}).get("rework_qty") or 0, 3)

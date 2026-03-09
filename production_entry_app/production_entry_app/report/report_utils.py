@@ -271,47 +271,71 @@ def get_parent_quantity_metrics(
 		)
 		.else_(0)
 	)
-	rejection_qty_case = (
-		Case().when(stock_entry_detail.custom_is_rejection_item == 1, stock_entry_detail.qty).else_(0)
-	)
 	qty_rows = (
 		frappe.qb.from_(stock_entry_detail)
 		.select(
 			stock_entry_detail.parent,
 			Sum(good_qty_case).as_("good_qty"),
-			Sum(rejection_qty_case).as_("rejection_qty"),
 		)
 		.where(stock_entry_detail.parent.isin(stock_entry_names))
 		.groupby(stock_entry_detail.parent)
 	).run(as_dict=True)
 
 	parent_metrics: dict[str, dict[str, float]] = {
-		name: {"good_qty": 0.0, "rejection_qty": 0.0, "rework_qty": 0.0} for name in stock_entry_names
+		name: {
+			"good_qty": 0.0,
+			"rejection_qty": 0.0,
+			"rework_qty": 0.0,
+			"total_rejected_qty": 0.0,
+		}
+		for name in stock_entry_names
 	}
 	for row in qty_rows:
 		parent = row.get("parent")
 		if not parent:
 			continue
-		parent_metrics.setdefault(parent, {"good_qty": 0.0, "rejection_qty": 0.0, "rework_qty": 0.0})
+		parent_metrics.setdefault(
+			parent,
+			{"good_qty": 0.0, "rejection_qty": 0.0, "rework_qty": 0.0, "total_rejected_qty": 0.0},
+		)
 		parent_metrics[parent]["good_qty"] = flt(row.get("good_qty") or 0, 3)
-		parent_metrics[parent]["rejection_qty"] = flt(row.get("rejection_qty") or 0, 3)
 
-	if include_rework:
-		rejection_breakup = DocType("Rejection Breakup")
-		rework_rows = (
-			frappe.qb.from_(rejection_breakup)
-			.select(rejection_breakup.parent, Sum(rejection_breakup.qty).as_("qty"))
-			.where(rejection_breakup.parenttype == "Stock Entry")
-			.where(rejection_breakup.parent.isin(stock_entry_names))
-			.where(rejection_breakup.is_rework == 1)
-			.groupby(rejection_breakup.parent)
-		).run(as_dict=True)
-		for row in rework_rows:
-			parent = row.get("parent")
-			if not parent:
-				continue
-			parent_metrics.setdefault(parent, {"good_qty": 0.0, "rejection_qty": 0.0, "rework_qty": 0.0})
-			parent_metrics[parent]["rework_qty"] = flt(row.get("qty") or 0, 3)
+	rejection_breakup = DocType("Rejection Breakup")
+	rejection_rows = (
+		frappe.qb.from_(rejection_breakup)
+		.select(
+			rejection_breakup.parent,
+			rejection_breakup.is_rework,
+			Sum(rejection_breakup.qty).as_("qty"),
+		)
+		.where(rejection_breakup.parenttype == "Stock Entry")
+		.where(rejection_breakup.parent.isin(stock_entry_names))
+		.groupby(rejection_breakup.parent, rejection_breakup.is_rework)
+	).run(as_dict=True)
+	for row in rejection_rows:
+		parent = row.get("parent")
+		if not parent:
+			continue
+		parent_metrics.setdefault(
+			parent,
+			{"good_qty": 0.0, "rejection_qty": 0.0, "rework_qty": 0.0, "total_rejected_qty": 0.0},
+		)
+		qty = flt(row.get("qty") or 0, 3)
+		parent_metrics[parent]["total_rejected_qty"] = (
+			flt(
+				parent_metrics[parent].get("total_rejected_qty") or 0,
+				3,
+			)
+			+ qty
+		)
+		if row.get("is_rework"):
+			parent_metrics[parent]["rework_qty"] = qty
+		else:
+			parent_metrics[parent]["rejection_qty"] = qty
+
+	if not include_rework:
+		for metrics in parent_metrics.values():
+			metrics["rework_qty"] = 0.0
 
 	return parent_metrics
 
@@ -425,18 +449,22 @@ def get_entry_total_strokes(
 	entry: dict,
 	good_qty_map: dict[str, float] | None = None,
 	rejection_qty_map: dict[str, float] | None = None,
+	total_rejected_qty_map: dict[str, float] | None = None,
 ) -> tuple[float, float]:
 	"""Return (total_strokes, rejection_qty) for one stock entry row."""
 	entry_name = entry.get("name")
-	rejection_qty = flt(entry.get("custom_rejection_qty") or 0, 3)
-	if rejection_qty <= 0 and entry_name and rejection_qty_map is not None:
+	rejection_qty = 0.0
+	if entry_name and rejection_qty_map is not None:
 		rejection_qty = flt(rejection_qty_map.get(entry_name) or 0, 3)
+	total_rejected_qty = flt(entry.get("custom_rejection_qty") or 0, 3)
+	if entry_name and total_rejected_qty_map is not None:
+		total_rejected_qty = flt(total_rejected_qty_map.get(entry_name) or 0, 3)
 
 	fg_completed_qty = flt(entry.get("fg_completed_qty") or 0, 3)
 	if fg_completed_qty > 0:
 		return fg_completed_qty, rejection_qty
 	if entry_name and good_qty_map is not None:
-		return flt(good_qty_map.get(entry_name) or 0, 3) + rejection_qty, rejection_qty
+		return flt(good_qty_map.get(entry_name) or 0, 3) + total_rejected_qty, rejection_qty
 	return rejection_qty, rejection_qty
 
 
@@ -474,9 +502,8 @@ def new_efficiency_aggregates() -> defaultdict:
 			"rework_qty": 0.0,
 			"total_units": 0.0,
 			"duration_mins": 0.0,
-			"standard_units": 0.0,
+			"standard_spm": 0.0,
 			"actual_spm_sum": 0.0,
-			"standard_spm_sum": 0.0,
 		}
 	)
 
@@ -506,9 +533,9 @@ def accumulate_efficiency_aggregate(
 	agg["rework_qty"] += rework_qty
 	agg["total_units"] += total_units
 	agg["duration_mins"] += duration_mins
-	agg["standard_units"] += standard_spm * duration_mins
 	agg["actual_spm_sum"] += flt(entry.get("custom_actual_spm") or 0, 3)
-	agg["standard_spm_sum"] += standard_spm
+	if standard_spm > 0 and agg["standard_spm"] <= 0:
+		agg["standard_spm"] = standard_spm
 
 
 def aggregate_efficiency_by_field(
@@ -532,10 +559,9 @@ def build_efficiency_rows(
 		entry_count = int(agg["entries"])
 		duration_mins = flt(agg["duration_mins"], 3)
 		actual_spm = flt((agg["total_units"] / duration_mins), 3) if duration_mins > 0 else 0
-		standard_spm = flt((agg["standard_units"] / duration_mins), 3) if duration_mins > 0 else 0
+		standard_spm = flt(agg["standard_spm"], 3)
 		if duration_mins <= 0 and entry_count:
 			actual_spm = flt((agg["actual_spm_sum"] / entry_count), 3)
-			standard_spm = flt((agg["standard_spm_sum"] / entry_count), 3)
 		efficiency_pct = flt((actual_spm / standard_spm) * 100, 2) if standard_spm > 0 else 0
 		rows.append(
 			{

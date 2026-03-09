@@ -105,6 +105,10 @@ def _get_rows(filters: dict) -> list[dict]:
 			parent: flt(metrics.get("rejection_qty") or 0, 3)
 			for parent, metrics in parent_quantity_metrics.items()
 		}
+		total_rejected_qty_map = {
+			parent: flt(metrics.get("total_rejected_qty") or 0, 3)
+			for parent, metrics in parent_quantity_metrics.items()
+		}
 
 		for entry in entries:
 			entry_name = entry.get("name")
@@ -140,6 +144,7 @@ def _get_rows(filters: dict) -> list[dict]:
 				entry,
 				good_qty_map=good_qty_map,
 				rejection_qty_map=rejection_qty_map,
+				total_rejected_qty_map=total_rejected_qty_map,
 			)
 			agg["total_strokes"] += flt(total_strokes, 3)
 

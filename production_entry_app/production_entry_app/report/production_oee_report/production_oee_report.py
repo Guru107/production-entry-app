@@ -254,6 +254,10 @@ def _get_stock_entry_groups(
 			parent: flt(metrics.get("rejection_qty") or 0, 3)
 			for parent, metrics in parent_quantity_metrics.items()
 		}
+		total_rejected_qty_map = {
+			parent: flt(metrics.get("total_rejected_qty") or 0, 3)
+			for parent, metrics in parent_quantity_metrics.items()
+		}
 		loss_rows = frappe.get_all(
 			"Loss Entry",
 			filters={"parenttype": "Stock Entry", "parent": ["in", entry_names]},
@@ -284,6 +288,7 @@ def _get_stock_entry_groups(
 				entry,
 				good_qty_map=good_qty_map,
 				rejection_qty_map=rejection_qty_map,
+				total_rejected_qty_map=total_rejected_qty_map,
 			)
 			group["total_strokes"] += total_strokes
 			group["rejection"] += rejection_qty
