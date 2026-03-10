@@ -114,7 +114,12 @@ def cleanup_report_benchmark(dataset_key: str = "PHASE2") -> dict[str, int | str
 			doc.cancel()
 		frappe.delete_doc("BOM", bom_name, ignore_permissions=True, force=True)
 
-	for doctype, name in (("Workstation", workstation), ("Operator", operator), ("Item", fg_item), ("Item", rm_item)):
+	for doctype, name in (
+		("Workstation", workstation),
+		("Operator", operator),
+		("Item", fg_item),
+		("Item", rm_item),
+	):
 		if frappe.db.exists(doctype, name):
 			frappe.delete_doc(doctype, name, ignore_permissions=True, force=True)
 

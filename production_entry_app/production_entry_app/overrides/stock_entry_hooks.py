@@ -423,6 +423,9 @@ def _apply_rejection_entries(doc) -> None:
 	# Copy rate and accounting fields from FG row
 	rejection_row.basic_rate = fg_row.basic_rate
 	rejection_row.basic_amount = (fg_row.basic_rate or 0) * rejection_qty
+	rejection_row.valuation_rate = fg_row.valuation_rate or fg_row.basic_rate
+	rejection_row.amount = (rejection_row.valuation_rate or 0) * rejection_qty
+	rejection_row.additional_cost = (rejection_row.amount or 0) - (rejection_row.basic_amount or 0)
 	rejection_row.expense_account = fg_row.expense_account
 	if hasattr(fg_row, "cost_center") and fg_row.cost_center:
 		rejection_row.cost_center = fg_row.cost_center

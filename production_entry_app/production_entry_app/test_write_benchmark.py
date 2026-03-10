@@ -55,8 +55,18 @@ class TestWriteBenchmark(FrappeTestCase):
 			patch(
 				"production_entry_app.production_entry_app.write_benchmark._run_write_case",
 				side_effect=[
-					{"avg_elapsed_ms": 10.0, "p95_elapsed_ms": 10.0, "avg_sql_count": 10, "max_sql_count": 10},
-					{"avg_elapsed_ms": 20.0, "p95_elapsed_ms": 20.0, "avg_sql_count": 20, "max_sql_count": 20},
+					{
+						"avg_elapsed_ms": 10.0,
+						"p95_elapsed_ms": 10.0,
+						"avg_sql_count": 10,
+						"max_sql_count": 10,
+					},
+					{
+						"avg_elapsed_ms": 20.0,
+						"p95_elapsed_ms": 20.0,
+						"avg_sql_count": 20,
+						"max_sql_count": 20,
+					},
 				],
 			),
 			patch(
@@ -65,7 +75,9 @@ class TestWriteBenchmark(FrappeTestCase):
 			patch(
 				"production_entry_app.production_entry_app.write_benchmark.report_benchmark.cleanup_report_benchmark"
 			) as cleanup_report_benchmark,
-			patch("production_entry_app.production_entry_app.write_benchmark.performance_indexes.ensure_overlap_indexes"),
+			patch(
+				"production_entry_app.production_entry_app.write_benchmark.performance_indexes.ensure_overlap_indexes"
+			),
 			patch("production_entry_app.production_entry_app.write_benchmark.frappe.db.commit"),
 		):
 			write_benchmark.run_stock_entry_write_benchmark(iterations=1, warmup_iterations=0)
@@ -96,15 +108,21 @@ class TestWriteBenchmark(FrappeTestCase):
 						"_ensure_write_benchmark_shifts",
 						return_value=[{"shift_name": "SHIFT-2198-01-21.Shift-1"}],
 					):
-						with patch.object(write_benchmark, "_run_write_case", side_effect=[case_result, case_result]):
-							with patch.object(write_benchmark, "_cleanup_write_benchmark_shifts") as cleanup_shifts:
+						with patch.object(
+							write_benchmark, "_run_write_case", side_effect=[case_result, case_result]
+						):
+							with patch.object(
+								write_benchmark, "_cleanup_write_benchmark_shifts"
+							) as cleanup_shifts:
 								with patch.object(
 									write_benchmark.report_benchmark, "cleanup_report_benchmark"
 								) as cleanup_benchmark:
 									with patch.object(
 										write_benchmark.performance_indexes, "ensure_overlap_indexes"
 									):
-										with patch("production_entry_app.production_entry_app.write_benchmark.frappe.db.commit"):
+										with patch(
+											"production_entry_app.production_entry_app.write_benchmark.frappe.db.commit"
+										):
 											write_benchmark.run_stock_entry_write_benchmark()
 
 		cleanup_shifts.assert_called_once_with([{"shift_name": "SHIFT-2198-01-21.Shift-1"}])
@@ -134,7 +152,9 @@ class TestWriteBenchmark(FrappeTestCase):
 						"_ensure_write_benchmark_shifts",
 						return_value=[{"shift_name": "SHIFT-2198-01-21.Shift-1"}],
 					):
-						with patch.object(write_benchmark, "_run_write_case", side_effect=[case_result, case_result]):
+						with patch.object(
+							write_benchmark, "_run_write_case", side_effect=[case_result, case_result]
+						):
 							with patch.object(write_benchmark, "_cleanup_write_benchmark_shifts"):
 								with patch.object(
 									write_benchmark.report_benchmark, "cleanup_report_benchmark"
@@ -142,7 +162,9 @@ class TestWriteBenchmark(FrappeTestCase):
 									with patch.object(
 										write_benchmark.performance_indexes, "ensure_overlap_indexes"
 									):
-										with patch("production_entry_app.production_entry_app.write_benchmark.frappe.db.commit"):
+										with patch(
+											"production_entry_app.production_entry_app.write_benchmark.frappe.db.commit"
+										):
 											write_benchmark.run_stock_entry_write_benchmark(keep_data=1)
 
 		cleanup_benchmark.assert_not_called()

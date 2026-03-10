@@ -97,6 +97,22 @@ def _send_shift_notification(
 VALID_STATUSES: tuple[str, ...] = ("Draft", "Running", "Completed", "Cancelled")
 
 
+def _resolve_shift_company(
+	current_company: str | None,
+	default_company: str | None,
+	default_exists: bool,
+	company_count: int,
+	sole_company: str | None,
+) -> str | None:
+	if current_company:
+		return current_company
+	if default_company and default_exists:
+		return default_company
+	if company_count == 1 and sole_company:
+		return sole_company
+	return None
+
+
 @frappe.whitelist()
 def get_planned_losses_for_duration(
 	shift_duration: str, planned_start_time: str, shift_date: str
@@ -364,6 +380,7 @@ class Shift(Document):
 		self._set_warehouse_defaults_from_manufacturing_settings()
 
 	def validate(self) -> None:
+		self._ensure_company()
 		self._validate_status()
 		self._validate_field_locking()
 		self._calculate_planned_end_time_and_dates()
@@ -430,6 +447,28 @@ class Shift(Document):
 
 		if not self.status:
 			self.status = "Draft"
+
+	def _ensure_company(self) -> None:
+		if getattr(self, "company", None):
+			return
+
+		default_company = frappe.db.get_single_value("Global Defaults", "default_company")
+		company_count = frappe.db.count("Company")
+		sole_company = None
+		if company_count == 1:
+			sole_company = frappe.db.get_value("Company", {}, "name", order_by="creation asc")
+
+		self.company = _resolve_shift_company(
+			current_company=getattr(self, "company", None),
+			default_company=default_company,
+			default_exists=bool(default_company and frappe.db.exists("Company", default_company)),
+			company_count=company_count,
+			sole_company=sole_company,
+		)
+		if self.company:
+			return
+
+		frappe.throw(_("Company is required to create a Shift."))
 
 	def _validate_status(self) -> None:
 		if not self.status:

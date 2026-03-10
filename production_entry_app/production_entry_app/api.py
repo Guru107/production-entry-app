@@ -587,7 +587,8 @@ def _cleanup_e2e_context(prefix: str = "E2E") -> dict:
 		if not _stock_entry_matches_cleanup_target(
 			se, target_operator=target_operator, target_fg_item=target_fg_item
 		) and not any(
-			row_item.get("item_code") in {target_fg_item, target_rm_item} for row_item in (se.get("items") or [])
+			row_item.get("item_code") in {target_fg_item, target_rm_item}
+			for row_item in (se.get("items") or [])
 		):
 			continue
 		if se.docstatus == 1:

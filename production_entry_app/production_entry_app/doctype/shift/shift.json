@@ -18,6 +18,7 @@
   "planned_end_time",
   "supervisor",
   "branch",
+  "company",
   "tab_warehouses",
   "raw_material_warehouse",
   "work_in_progress_warehouse",
@@ -122,6 +123,13 @@
    "fieldtype": "Link",
    "label": "Branch",
    "options": "Branch"
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Company",
+   "options": "Company"
   },
   {
    "fieldname": "tab_warehouses",

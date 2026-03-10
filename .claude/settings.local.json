@@ -6,7 +6,9 @@
       "Bash(gh pr diff:*)",
       "Bash(gh api:*)",
       "Bash(xargs:*)",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Read(//Users/gurudattkulkarni/Workspace/production-entry-app/**)",
+      "Bash(python3 -c \":*)"
     ]
   }
 }

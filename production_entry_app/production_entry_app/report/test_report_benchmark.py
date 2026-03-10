@@ -25,7 +25,9 @@ class TestReportBenchmark(FrappeTestCase):
 				"_seed_benchmark_entries",
 				return_value={"from_date": "2198-01-01", "to_date": "2198-01-20"},
 			):
-				with patch.object(report_benchmark, "_benchmark_reports", return_value={"operator_efficiency": {}}):
+				with patch.object(
+					report_benchmark, "_benchmark_reports", return_value={"operator_efficiency": {}}
+				):
 					with patch.object(report_benchmark, "cleanup_report_benchmark") as cleanup:
 						report_benchmark.run_report_benchmark()
 
@@ -48,7 +50,9 @@ class TestReportBenchmark(FrappeTestCase):
 				"_seed_benchmark_entries",
 				return_value={"from_date": "2198-01-01", "to_date": "2198-01-20"},
 			):
-				with patch.object(report_benchmark, "_benchmark_reports", return_value={"operator_efficiency": {}}):
+				with patch.object(
+					report_benchmark, "_benchmark_reports", return_value={"operator_efficiency": {}}
+				):
 					with patch.object(report_benchmark, "cleanup_report_benchmark") as cleanup:
 						report_benchmark.run_report_benchmark(keep_data=1)
 

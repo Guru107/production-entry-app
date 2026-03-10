@@ -40,7 +40,9 @@ class TestTestCleanup(FrappeTestCase):
 				"production_entry_app.production_entry_app.utils.test_cleanup.cleanup_reserved_test_data",
 				side_effect=[Exception("boom"), Exception("boom")],
 			),
-			patch("production_entry_app.production_entry_app.utils.test_cleanup.frappe.log_error") as log_error,
+			patch(
+				"production_entry_app.production_entry_app.utils.test_cleanup.frappe.log_error"
+			) as log_error,
 		):
 			test_cleanup.cleanup_after_python_test({"shift_wip_warehouse": "WIP"})
 
