@@ -59,12 +59,18 @@ def ensure_performance_indexes() -> None:
 	# redesign is deferred until production-like write-regression measurements show a
 	# net gain over this index set.
 	for doctype, fields, index_name in OVERLAP_INDEX_SPECS + REPORT_INDEX_SPECS:
+		frappe.db.add_index(doctype, fields, index_name)
+
+
+def ensure_performance_indexes_with_recovery() -> None:
+	"""Create app indexes during lifecycle sync while tolerating missing legacy columns."""
+	for doctype, fields, index_name in OVERLAP_INDEX_SPECS + REPORT_INDEX_SPECS:
 		_add_index_with_recoverable_handling(doctype, fields, index_name)
 
 
 def ensure_overlap_indexes() -> None:
 	for doctype, fields, index_name in OVERLAP_INDEX_SPECS:
-		_add_index_with_recoverable_handling(doctype, fields, index_name)
+		frappe.db.add_index(doctype, fields, index_name)
 
 
 def drop_performance_indexes_if_exists() -> None:
@@ -93,7 +99,5 @@ def _add_index_with_recoverable_handling(
 
 
 def _is_missing_column_index_error(exc: Exception) -> bool:
-	# frappe.db add_index errors do not expose a structured missing-column code here, so
-	# cleanup falls back to MariaDB/MySQL message text matching for known DDL failures.
-	message = str(exc)
-	return "Unknown column" in message or "Key column" in message
+	error_code = exc.args[0] if getattr(exc, "args", None) else None
+	return error_code in {1054, 1072}

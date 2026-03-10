@@ -10,7 +10,7 @@ from production_entry_app.production_entry_app import lifecycle
 class TestLifecycle(FrappeTestCase):
 	def test_after_sync_runs_idempotent_setup(self) -> None:
 		with patch(
-			"production_entry_app.production_entry_app.lifecycle.performance_indexes.ensure_performance_indexes"
+			"production_entry_app.production_entry_app.lifecycle.performance_indexes.ensure_performance_indexes_with_recovery"
 		) as ensure_indexes:
 			lifecycle.after_sync()
 
@@ -18,7 +18,7 @@ class TestLifecycle(FrappeTestCase):
 
 	def test_after_migrate_runs_idempotent_setup(self) -> None:
 		with patch(
-			"production_entry_app.production_entry_app.lifecycle.performance_indexes.ensure_performance_indexes"
+			"production_entry_app.production_entry_app.lifecycle.performance_indexes.ensure_performance_indexes_with_recovery"
 		) as ensure_indexes:
 			lifecycle.after_migrate()
 

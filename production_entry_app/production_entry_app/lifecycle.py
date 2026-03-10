@@ -22,7 +22,7 @@ def before_uninstall() -> None:
 
 
 def _setup_app() -> None:
-	performance_indexes.ensure_performance_indexes()
+	performance_indexes.ensure_performance_indexes_with_recovery()
 
 
 def _delete_customizations(doctype: str) -> None:
