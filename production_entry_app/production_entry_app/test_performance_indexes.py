@@ -195,6 +195,21 @@ class TestPerformanceIndexes(FrappeTestCase):
 				("tabStock Entry", "idx_pea_ste_workstation_actual_window"),
 				("tabStock Entry", "idx_pea_ste_operator_actual_window"),
 				("tabDowntime Entry", "idx_pea_dte_workstation_window"),
+			],
+		)
+
+	def test_drop_performance_indexes_if_exists_drops_expected_indexes(self) -> None:
+		with patch(
+			"production_entry_app.production_entry_app.performance_indexes.drop_index_if_exists"
+		) as drop_index:
+			performance_indexes.drop_performance_indexes_if_exists()
+
+		self.assertEqual(
+			[call.args for call in drop_index.call_args_list],
+			[
+				("tabStock Entry", "idx_pea_ste_workstation_actual_window"),
+				("tabStock Entry", "idx_pea_ste_operator_actual_window"),
+				("tabDowntime Entry", "idx_pea_dte_workstation_window"),
 				("tabLoss Entry", "idx_pea_loss_parent_sort"),
 				("tabLoss Entry", "idx_pea_loss_parent_reason"),
 				("tabRejection Breakup", "idx_pea_rej_parent_rework"),
@@ -232,6 +247,18 @@ class TestPerformanceIndexes(FrappeTestCase):
 		):
 			with self.assertRaises(frappe.db.ProgrammingError):
 				performance_indexes.ensure_performance_indexes()
+
+	def test_ensure_performance_indexes_with_recovery_reraises_non_missing_column_db_errors(
+		self,
+	) -> None:
+		other_error = frappe.db.ProgrammingError(1064, "You have an error in your SQL syntax")
+
+		with patch(
+			"production_entry_app.production_entry_app.performance_indexes.frappe.db.add_index",
+			side_effect=other_error,
+		):
+			with self.assertRaises(frappe.db.ProgrammingError):
+				performance_indexes.ensure_performance_indexes_with_recovery()
 
 	def test_ensure_overlap_indexes_reraises_missing_column_failures(self) -> None:
 		missing_column_error = frappe.db.ProgrammingError(

@@ -27,4 +27,6 @@ def _setup_app() -> None:
 
 def _delete_customizations(doctype: str) -> None:
 	for name in frappe.get_all(doctype, filters={"module": APP_MODULE}, pluck="name"):
+		# Uninstall must remove app-owned customizations from ERPNext doctypes even if they
+		# still reference app doctypes being dropped in the same uninstall transaction.
 		frappe.delete_doc(doctype, name, ignore_permissions=True, force=True)
