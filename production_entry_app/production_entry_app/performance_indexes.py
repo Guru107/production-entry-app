@@ -62,11 +62,43 @@ def ensure_performance_indexes() -> None:
 		frappe.db.add_index(doctype, fields, index_name)
 
 
+def ensure_performance_indexes_with_recovery() -> None:
+	"""Create app indexes during lifecycle sync while tolerating missing legacy columns."""
+	for doctype, fields, index_name in OVERLAP_INDEX_SPECS + REPORT_INDEX_SPECS:
+		_add_index_with_recoverable_handling(doctype, fields, index_name)
+
+
 def ensure_overlap_indexes() -> None:
 	for doctype, fields, index_name in OVERLAP_INDEX_SPECS:
 		frappe.db.add_index(doctype, fields, index_name)
 
 
+def drop_performance_indexes_if_exists() -> None:
+	for doctype, _fields, index_name in OVERLAP_INDEX_SPECS + REPORT_INDEX_SPECS:
+		drop_index_if_exists(f"tab{doctype}", index_name)
+
+
 def drop_overlap_indexes_if_exists() -> None:
 	for doctype, _fields, index_name in OVERLAP_INDEX_SPECS:
 		drop_index_if_exists(f"tab{doctype}", index_name)
+
+
+def _add_index_with_recoverable_handling(
+	doctype: str,
+	fields: list[str],
+	index_name: str,
+) -> None:
+	try:
+		frappe.db.add_index(doctype, fields, index_name)
+	except (frappe.db.ProgrammingError, frappe.db.InternalError) as exc:
+		if not _is_missing_column_index_error(exc):
+			raise
+		frappe.log_error(
+			title=f"Skipped index creation for {index_name}",
+			message=frappe.get_traceback(),
+		)
+
+
+def _is_missing_column_index_error(exc: Exception) -> bool:
+	error_code = exc.args[0] if getattr(exc, "args", None) else None
+	return error_code in {1054, 1072}
