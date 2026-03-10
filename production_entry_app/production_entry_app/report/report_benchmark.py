@@ -20,6 +20,7 @@ from production_entry_app.production_entry_app.overrides.test_stock_entry_hooks 
 	_ensure_stock_entry_metric_fields,
 	_set_shift_buffers,
 )
+from production_entry_app.production_entry_app.utils import test_cleanup
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	bootstrap_manufacturing_test_context,
 	ensure_downtime_reason,
@@ -48,6 +49,7 @@ def run_report_benchmark(
 	entry_count: int = 3000,
 	day_span: int = 30,
 	dataset_key: str = "PHASE2",
+	keep_data: int | bool = 0,
 ) -> dict[str, object]:
 	"""Seed benchmark Stock Entries and measure report execution time and peak memory."""
 	if entry_count <= 0:
@@ -55,23 +57,33 @@ def run_report_benchmark(
 	if day_span <= 0:
 		frappe.throw(_("day_span must be positive"))
 
+	retain_data = bool(keep_data)
+	settings_snapshot = test_cleanup.capture_manufacturing_settings_snapshot()
 	context = _prepare_benchmark_context(dataset_key)
 	date_range = _seed_benchmark_entries(context, entry_count=entry_count, day_span=day_span)
 
-	return {
-		"dataset_key": dataset_key,
-		"entry_count": entry_count,
-		"day_span": day_span,
-		"from_date": date_range["from_date"],
-		"to_date": date_range["to_date"],
-		"reports": _benchmark_reports(date_range),
-	}
+	try:
+		return {
+			"dataset_key": dataset_key,
+			"entry_count": entry_count,
+			"day_span": day_span,
+			"from_date": date_range["from_date"],
+			"to_date": date_range["to_date"],
+			"reports": _benchmark_reports(date_range),
+		}
+	finally:
+		test_cleanup.restore_manufacturing_settings_snapshot(settings_snapshot)
+		if not retain_data:
+			cleanup_report_benchmark(dataset_key)
 
 
 def cleanup_report_benchmark(dataset_key: str = "PHASE2") -> dict[str, int | str]:
 	"""Remove benchmark Stock Entries and linked child rows for one dataset key."""
 	operator = f"Benchmark Operator {dataset_key}"
 	workstation = f"Benchmark Workstation {dataset_key}"
+	fg_item = f"_Benchmark FG Item {dataset_key}"
+	rm_item = f"_Benchmark RM Item {dataset_key}"
+	warehouse_prefix = f"Report Benchmark {dataset_key} "
 	rows = frappe.get_all(
 		"Stock Entry",
 		filters={
@@ -83,23 +95,41 @@ def cleanup_report_benchmark(dataset_key: str = "PHASE2") -> dict[str, int | str
 	)
 	entry_names = [row.get("name") for row in rows if row.get("name")]
 	shift_names = sorted({row.get("custom_shift") for row in rows if row.get("custom_shift")})
-	if not entry_names:
-		return {"dataset_key": dataset_key, "deleted_stock_entries": 0, "deleted_shifts": 0}
+	deleted_stock_entries = len(entry_names)
+	deleted_shifts = len(shift_names)
 
-	frappe.db.delete("Loss Entry", {"parenttype": "Stock Entry", "parent": ["in", entry_names]})
-	frappe.db.delete("Rejection Breakup", {"parenttype": "Stock Entry", "parent": ["in", entry_names]})
-	frappe.db.delete("Stock Entry Detail", {"parenttype": "Stock Entry", "parent": ["in", entry_names]})
-	frappe.db.delete("Stock Entry", {"name": ["in", entry_names]})
+	if entry_names:
+		frappe.db.delete("Loss Entry", {"parenttype": "Stock Entry", "parent": ["in", entry_names]})
+		frappe.db.delete("Rejection Breakup", {"parenttype": "Stock Entry", "parent": ["in", entry_names]})
+		frappe.db.delete("Stock Entry Detail", {"parenttype": "Stock Entry", "parent": ["in", entry_names]})
+		frappe.db.delete("Stock Entry", {"name": ["in", entry_names]})
 
 	if shift_names:
 		frappe.db.delete("Loss Entry", {"parenttype": "Shift", "parent": ["in", shift_names]})
 		frappe.db.delete("Shift", {"name": ["in", shift_names]})
 
+	for bom_name in frappe.get_all("BOM", filters={"item": ["in", [fg_item, rm_item]]}, pluck="name"):
+		doc = frappe.get_doc("BOM", bom_name)
+		if doc.docstatus == 1:
+			doc.cancel()
+		frappe.delete_doc("BOM", bom_name, ignore_permissions=True, force=True)
+
+	for doctype, name in (("Workstation", workstation), ("Operator", operator), ("Item", fg_item), ("Item", rm_item)):
+		if frappe.db.exists(doctype, name):
+			frappe.delete_doc(doctype, name, ignore_permissions=True, force=True)
+
+	for warehouse_name in frappe.get_all(
+		"Warehouse",
+		filters={"name": ["like", f"{warehouse_prefix}%"]},
+		pluck="name",
+	):
+		frappe.delete_doc("Warehouse", warehouse_name, ignore_permissions=True, force=True)
+
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit - benchmark cleanup must commit before reseeding
 	return {
 		"dataset_key": dataset_key,
-		"deleted_stock_entries": len(entry_names),
-		"deleted_shifts": len(shift_names),
+		"deleted_stock_entries": deleted_stock_entries,
+		"deleted_shifts": deleted_shifts,
 	}
 
 

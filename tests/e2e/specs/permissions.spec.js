@@ -11,6 +11,14 @@ function uniqueSuffix() {
 	return `${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 }
 
+function reservedUserEmail(label, suffix) {
+	return `e2e_permissions_${label}_${suffix}@example.com`;
+}
+
+function reservedRoleName(label, suffix) {
+	return `E2E Permissions ${label.toUpperCase()} ${suffix}`;
+}
+
 function futureDate(daysAhead = 45) {
 	const date = new Date();
 	date.setDate(date.getDate() + daysAhead);
@@ -106,7 +114,7 @@ test.describe("Permissions", () => {
 	}) => {
 		await loginAsAdmin(page);
 		const suffix = uniqueSuffix();
-		const email = `e2e-mfg-user-${suffix}@example.com`;
+		const email = reservedUserEmail("mfg-user", suffix);
 		createdUsers.add(email);
 
 		await runShiftCrudAsRole(page, {
@@ -123,7 +131,7 @@ test.describe("Permissions", () => {
 	}) => {
 		await loginAsAdmin(page);
 		const suffix = uniqueSuffix();
-		const email = `e2e-mfg-manager-${suffix}@example.com`;
+		const email = reservedUserEmail("mfg-manager", suffix);
 		createdUsers.add(email);
 
 		await runShiftCrudAsRole(page, {
@@ -140,8 +148,8 @@ test.describe("Permissions", () => {
 	}) => {
 		await loginAsAdmin(page);
 		const suffix = uniqueSuffix();
-		const email = `e2e-non-mfg-${suffix}@example.com`;
-		const noManufacturingRole = `E2E No Manufacturing ${suffix}`;
+		const email = reservedUserEmail("non-mfg", suffix);
+		const noManufacturingRole = reservedRoleName("no-manufacturing", suffix);
 		createdUsers.add(email);
 		createdRoles.add(noManufacturingRole);
 
@@ -185,7 +193,7 @@ test.describe("Permissions", () => {
 	}) => {
 		await loginAsAdmin(page);
 		const suffix = uniqueSuffix();
-		const email = `e2e-downtime-user-${suffix}@example.com`;
+		const email = reservedUserEmail("downtime-user", suffix);
 		createdUsers.add(email);
 
 		await ensureUser(page, {
@@ -204,7 +212,7 @@ test.describe("Permissions", () => {
 			.poll(async () => await page.evaluate(() => window.cur_frm?.doctype || ""))
 			.toBe("Downtime Reason");
 
-		const reasonName = `E2E-DOWNTIME-${suffix}`;
+		const reasonName = `E2E-PERMISSIONS-${suffix}`;
 		await setFieldValue(page, "downtime_reason_name", reasonName);
 		await saveForm(page, "Save");
 

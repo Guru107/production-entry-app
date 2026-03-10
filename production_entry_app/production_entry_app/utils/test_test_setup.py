@@ -15,6 +15,12 @@ class TestTestSetup(FrappeTestCase):
 				side_effect=lambda doctype, name=None: doctype in {"Company", "Cost Center"},
 			),
 			patch(
+				"production_entry_app.production_entry_app.utils.test_setup.install_test_run_cleanup"
+			) as install_cleanup,
+			patch(
+				"production_entry_app.production_entry_app.utils.test_setup.cleanup_reserved_benchmark_data"
+			) as cleanup_benchmarks,
+			patch(
 				"production_entry_app.production_entry_app.utils.test_setup.make_test_records"
 			) as make_test_records,
 			patch(
@@ -27,6 +33,8 @@ class TestTestSetup(FrappeTestCase):
 			test_setup.before_tests()
 
 		make_test_records.assert_not_called()
+		install_cleanup.assert_called_once_with()
+		cleanup_benchmarks.assert_called_once_with()
 		ensure_defaults.assert_called_once_with()
 		ensure_genders.assert_called_once_with()
 
@@ -39,6 +47,8 @@ class TestTestSetup(FrappeTestCase):
 				"production_entry_app.production_entry_app.utils.test_setup.frappe.db.exists",
 				side_effect=fake_exists,
 			),
+			patch("production_entry_app.production_entry_app.utils.test_setup.install_test_run_cleanup"),
+			patch("production_entry_app.production_entry_app.utils.test_setup.cleanup_reserved_benchmark_data"),
 			patch(
 				"production_entry_app.production_entry_app.utils.test_setup.make_test_records"
 			) as make_test_records,
@@ -55,6 +65,8 @@ class TestTestSetup(FrappeTestCase):
 				"production_entry_app.production_entry_app.utils.test_setup.frappe.db.exists",
 				return_value=False,
 			),
+			patch("production_entry_app.production_entry_app.utils.test_setup.install_test_run_cleanup"),
+			patch("production_entry_app.production_entry_app.utils.test_setup.cleanup_reserved_benchmark_data"),
 			patch(
 				"production_entry_app.production_entry_app.utils.test_setup.make_test_records"
 			) as make_test_records,

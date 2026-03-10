@@ -30,6 +30,17 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	resolve_test_company,
 )
 
+_E2E_SETTINGS_FIELDS: tuple[str, ...] = (
+	"shift_wip_warehouse",
+	"shift_raw_material_warehouse",
+	"shift_rejection_warehouse",
+	"shift_start_buffer_mins",
+	"shift_end_buffer_mins",
+)
+_E2E_RESERVED_USER_EMAIL_PREFIX: str = "e2e-user-"
+_E2E_RESERVED_ROLE_PREFIX: str = "E2E ROLE "
+_E2E_RESERVED_DOWNTIME_PREFIX: str = "E2E-DOWNTIME-"
+
 
 def _cleanup_orphan_stock_entry_loss_links(shift_name: str) -> None:
 	"""Delete Loss Entry rows linked to deleted Stock Entry parents for a Shift."""
@@ -255,6 +266,39 @@ def _e2e_base_date(prefix: str) -> str:
 	return add_to_date("2099-01-01", days=7 + offset, as_string=True)
 
 
+def _get_e2e_settings_cache_key(prefix: str) -> str:
+	return f"pea:e2e:settings:{prefix or 'E2E'}"
+
+
+def _get_manufacturing_settings_snapshot() -> dict[str, str | int | None]:
+	return {
+		fieldname: frappe.db.get_single_value("Manufacturing Settings", fieldname)
+		for fieldname in _E2E_SETTINGS_FIELDS
+	}
+
+
+def _cache_e2e_settings_snapshot(prefix: str) -> None:
+	cache_key = _get_e2e_settings_cache_key(prefix)
+	if frappe.cache().get_value(cache_key):
+		return
+	frappe.cache().set_value(cache_key, _get_manufacturing_settings_snapshot())
+
+
+def _restore_manufacturing_settings(snapshot: dict[str, str | int | None] | None) -> None:
+	if not snapshot:
+		return
+	for fieldname in _E2E_SETTINGS_FIELDS:
+		frappe.db.set_single_value("Manufacturing Settings", fieldname, snapshot.get(fieldname))
+
+
+def _restore_cached_e2e_settings(prefix: str) -> None:
+	cache_key = _get_e2e_settings_cache_key(prefix)
+	snapshot = frappe.cache().get_value(cache_key)
+	if snapshot:
+		_restore_manufacturing_settings(snapshot)
+		frappe.cache().delete_value(cache_key)
+
+
 def _is_developer_mode_enabled() -> bool:
 	return bool(cint(getattr(frappe.conf, "developer_mode", 0)))
 
@@ -283,19 +327,28 @@ def _stock_entry_matches_cleanup_target(se, target_operator: str, target_fg_item
 	return bool(operator_match or fg_item_match)
 
 
-def _get_candidate_e2e_stock_entries(target_operator: str, target_workstation: str) -> list[frappe._dict]:
+def _get_candidate_e2e_stock_entries(
+	target_operator: str,
+	target_workstation: str,
+	target_fg_item: str | None = None,
+	target_rm_item: str | None = None,
+) -> list[frappe._dict]:
 	stock_entry = DocType("Stock Entry")
-	return (
+	stock_entry_detail = DocType("Stock Entry Detail")
+	query = (
 		frappe.qb.from_(stock_entry)
+		.left_join(stock_entry_detail)
+		.on(stock_entry_detail.parent == stock_entry.name)
 		.select(stock_entry.name, stock_entry.docstatus)
-		.where(stock_entry.stock_entry_type == "Manufacture")
 		.where(
 			(stock_entry.custom_operator == target_operator)
 			| (stock_entry.custom_workstation == target_workstation)
+			| (stock_entry_detail.item_code == (target_fg_item or ""))
+			| (stock_entry_detail.item_code == (target_rm_item or ""))
 		)
 		.orderby(stock_entry.creation, order=Order.desc)
-		.run(as_dict=True)
 	)
+	return query.run(as_dict=True)
 
 
 def _safe_force_delete(doctype: str, name: str, *, context: str) -> None:
@@ -305,6 +358,23 @@ def _safe_force_delete(doctype: str, name: str, *, context: str) -> None:
 		frappe.log_error(
 			title="E2E cleanup delete failed",
 			message=f"{context}: unable to delete {doctype} {name}",
+		)
+
+
+def _safe_cancel_and_delete(doctype: str, name: str, *, context: str) -> None:
+	if not frappe.db.exists(doctype, name):
+		return
+	try:
+		docstatus = frappe.db.get_value(doctype, name, "docstatus")
+		if docstatus == 1:
+			doc = frappe.get_doc(doctype, name)
+			doc.flags.ignore_permissions = True
+			doc.cancel()
+		_safe_force_delete(doctype, name, context=context)
+	except Exception:
+		frappe.log_error(
+			title="E2E cleanup delete failed",
+			message=f"{context}: unable to cancel/delete {doctype} {name}",
 		)
 
 
@@ -410,6 +480,7 @@ def bootstrap_e2e_context(prefix: str = "E2E") -> dict:
 	"""Create deterministic test masters for Playwright E2E tests."""
 	_assert_e2e_api_allowed()
 	cleanup_running_shifts()
+	_cache_e2e_settings_snapshot(prefix)
 	company = resolve_test_company()
 	abbr = frappe.db.get_value("Company", company, "abbr") or "TC"
 
@@ -477,10 +548,7 @@ def bootstrap_e2e_context(prefix: str = "E2E") -> dict:
 	}
 
 
-@frappe.whitelist()
-def cleanup_e2e_context(prefix: str = "E2E") -> dict:
-	"""Remove seeded E2E docs and end running shifts created for E2E."""
-	_assert_e2e_api_allowed()
+def _cleanup_e2e_context(prefix: str = "E2E") -> dict:
 	target_operator = f"{prefix} Operator"
 	target_workstation = f"{prefix} Workstation"
 	target_fg_item = f"_{prefix}_FG_Item"
@@ -504,7 +572,10 @@ def cleanup_e2e_context(prefix: str = "E2E") -> dict:
 			_safe_force_delete("Shift", name, context="cleanup_e2e_context")
 
 	stock_entries = _get_candidate_e2e_stock_entries(
-		target_operator=target_operator, target_workstation=target_workstation
+		target_operator=target_operator,
+		target_workstation=target_workstation,
+		target_fg_item=target_fg_item,
+		target_rm_item=target_rm_item,
 	)
 
 	seen_entries = set()
@@ -515,6 +586,8 @@ def cleanup_e2e_context(prefix: str = "E2E") -> dict:
 		se = frappe.get_doc("Stock Entry", row.name)
 		if not _stock_entry_matches_cleanup_target(
 			se, target_operator=target_operator, target_fg_item=target_fg_item
+		) and not any(
+			row_item.get("item_code") in {target_fg_item, target_rm_item} for row_item in (se.get("items") or [])
 		):
 			continue
 		if se.docstatus == 1:
@@ -553,9 +626,88 @@ def cleanup_e2e_context(prefix: str = "E2E") -> dict:
 					)
 					continue
 			_safe_force_delete("Die Tool Maintenance Log", log_name, context="cleanup_e2e_context")
+		for bom_name in frappe.get_all("BOM", filters={"item": item}, pluck="name"):
+			bom = frappe.get_doc("BOM", bom_name)
+			if bom.docstatus == 1:
+				try:
+					bom.cancel()
+				except Exception:
+					frappe.log_error(
+						title="E2E cleanup cancel failed",
+						message=f"Unable to cancel BOM {bom_name}",
+					)
+					continue
+			_safe_force_delete("BOM", bom_name, context="cleanup_e2e_context")
+		if frappe.db.exists("Item", item):
+			_safe_force_delete("Item", item, context="cleanup_e2e_context")
 
+	company = resolve_test_company()
+	abbr = frappe.db.get_value("Company", company, "abbr") or "TC"
+	for warehouse_name in (
+		f"{prefix} WIP - {abbr}",
+		f"{prefix} RM - {abbr}",
+		f"{prefix} FG - {abbr}",
+		f"{prefix} Rejection - {abbr}",
+	):
+		if frappe.db.exists("Warehouse", warehouse_name):
+			_safe_force_delete("Warehouse", warehouse_name, context="cleanup_e2e_context")
+
+	_restore_cached_e2e_settings(prefix)
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit - deterministic cleanup for test reruns
 	return {"ok": True}
+
+
+@frappe.whitelist()
+def cleanup_e2e_context(prefix: str = "E2E") -> dict:
+	"""Remove seeded E2E docs and end running shifts created for E2E."""
+	_assert_e2e_api_allowed()
+	return _cleanup_e2e_context(prefix=prefix)
+
+
+def _collect_reserved_e2e_prefixes() -> list[str]:
+	prefixes: set[str] = set()
+	for item_code in frappe.get_all("Item", filters={"item_code": ("like", "_E2E%_FG_Item")}, pluck="name"):
+		if item_code.startswith("_") and item_code.endswith("_FG_Item"):
+			prefixes.add(item_code[1:-8])
+	for workstation_name in frappe.get_all(
+		"Workstation", filters={"name": ("like", "E2E_% Workstation")}, pluck="name"
+	):
+		if workstation_name.endswith(" Workstation"):
+			prefixes.add(workstation_name[:-12])
+	return sorted(prefixes)
+
+
+def _cleanup_reserved_e2e_artifacts() -> dict[str, object]:
+	cleaned_prefixes = []
+	for prefix in _collect_reserved_e2e_prefixes():
+		_cleanup_e2e_context(prefix=prefix)
+		cleaned_prefixes.append(prefix)
+
+	for email in frappe.get_all(
+		"User",
+		filters={"name": ("like", f"{_E2E_RESERVED_USER_EMAIL_PREFIX}%@example.com")},
+		pluck="name",
+	):
+		_safe_force_delete("User", email, context="cleanup_reserved_e2e_artifacts")
+
+	for role_name in frappe.get_all(
+		"Role", filters={"name": ("like", f"{_E2E_RESERVED_ROLE_PREFIX}%")}, pluck="name"
+	):
+		_safe_force_delete("Role", role_name, context="cleanup_reserved_e2e_artifacts")
+
+	for reason_name in frappe.get_all(
+		"Downtime Reason", filters={"name": ("like", f"{_E2E_RESERVED_DOWNTIME_PREFIX}%")}, pluck="name"
+	):
+		_safe_force_delete("Downtime Reason", reason_name, context="cleanup_reserved_e2e_artifacts")
+
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit - reserved E2E sweep must be durable
+	return {"ok": True, "prefixes": cleaned_prefixes}
+
+
+@frappe.whitelist()
+def cleanup_reserved_e2e_artifacts() -> dict[str, object]:
+	_assert_e2e_api_allowed()
+	return _cleanup_reserved_e2e_artifacts()
 
 
 @frappe.whitelist()

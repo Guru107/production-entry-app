@@ -14,6 +14,7 @@ from production_entry_app.production_entry_app.overrides.test_stock_entry_hooks 
 	_create_manufacture_stock_entry,
 )
 from production_entry_app.production_entry_app.report import report_benchmark
+from production_entry_app.production_entry_app.utils import test_cleanup
 
 
 def run_stock_entry_write_benchmark(
@@ -23,6 +24,7 @@ def run_stock_entry_write_benchmark(
 	day_span: int = 20,
 	dataset_key: str = "WRITEPATH",
 	source_dataset_key: str = "PHASE2",
+	keep_data: int | bool = 0,
 ) -> dict[str, object]:
 	"""Benchmark Stock Entry save latency with and without overlap indexes."""
 	if iterations <= 0:
@@ -34,7 +36,10 @@ def run_stock_entry_write_benchmark(
 	if day_span <= 0:
 		frappe.throw(_("day_span must be positive"))
 
+	retain_data = bool(keep_data)
+	settings_snapshot = test_cleanup.capture_manufacturing_settings_snapshot()
 	context, last_seed_date = _get_existing_benchmark_context(source_dataset_key)
+	created_source_dataset = False
 	if context and last_seed_date:
 		date_range = {"from_date": "", "to_date": last_seed_date}
 	else:
@@ -44,6 +49,7 @@ def run_stock_entry_write_benchmark(
 			entry_count=seed_entries,
 			day_span=day_span,
 		)
+		created_source_dataset = True
 	total_iterations = iterations + warmup_iterations
 	benchmark_shifts = _ensure_write_benchmark_shifts(
 		context.rejection_warehouse,
@@ -68,6 +74,10 @@ def run_stock_entry_write_benchmark(
 			warmup_iterations=warmup_iterations,
 		)
 	finally:
+		test_cleanup.restore_manufacturing_settings_snapshot(settings_snapshot)
+		_cleanup_write_benchmark_shifts(benchmark_shifts)
+		if created_source_dataset and not retain_data:
+			report_benchmark.cleanup_report_benchmark(dataset_key)
 		performance_indexes.ensure_overlap_indexes()
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit - restore overlap indexes before returning
 
@@ -117,35 +127,36 @@ def _run_write_case(
 	elapsed_samples: list[float] = []
 	sql_samples: list[int] = []
 	created_names: list[str] = []
+	try:
+		for index, benchmark_shift in enumerate(benchmark_shifts):
+			sql_count = 0
+			original_sql = frappe.db.sql
 
-	for index, benchmark_shift in enumerate(benchmark_shifts):
-		sql_count = 0
-		original_sql = frappe.db.sql
+			def counted_sql(*args, **kwargs):
+				nonlocal sql_count
+				sql_count += 1
+				return original_sql(*args, **kwargs)
 
-		def counted_sql(*args, **kwargs):
-			nonlocal sql_count
-			sql_count += 1
-			return original_sql(*args, **kwargs)
-
-		with patch.object(frappe.db, "sql", side_effect=counted_sql):
-			start = time.perf_counter()
-			stock_entry_name = _save_candidate_entry(
-				context=context,
-				shift_name=benchmark_shift["shift_name"],
-				posting_date=benchmark_shift["posting_date"],
-				start_time=benchmark_shift["start_time"],
-				end_time=benchmark_shift["end_time"],
-			)
-			frappe.db.commit()  # nosemgrep: frappe-manual-commit - include commit latency in benchmark
-			elapsed_ms = round((time.perf_counter() - start) * 1000, 2)
-			if index >= warmup_iterations:
-				elapsed_samples.append(elapsed_ms)
-				sql_samples.append(sql_count)
-			created_names.append(stock_entry_name)
-
-	for name in created_names:
-		frappe.delete_doc("Stock Entry", name, force=True, ignore_permissions=True)
-	frappe.db.commit()  # nosemgrep: frappe-manual-commit - commit deletions before next case
+			with patch.object(frappe.db, "sql", side_effect=counted_sql):
+				start = time.perf_counter()
+				stock_entry_name = _save_candidate_entry(
+					context=context,
+					shift_name=benchmark_shift["shift_name"],
+					posting_date=benchmark_shift["posting_date"],
+					start_time=benchmark_shift["start_time"],
+					end_time=benchmark_shift["end_time"],
+				)
+				frappe.db.commit()  # nosemgrep: frappe-manual-commit - include commit latency in benchmark
+				elapsed_ms = round((time.perf_counter() - start) * 1000, 2)
+				if index >= warmup_iterations:
+					elapsed_samples.append(elapsed_ms)
+					sql_samples.append(sql_count)
+				created_names.append(stock_entry_name)
+	finally:
+		for name in created_names:
+			if frappe.db.exists("Stock Entry", name):
+				frappe.delete_doc("Stock Entry", name, force=True, ignore_permissions=True)
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit - commit deletions before next case
 
 	return {
 		"case": case_name,
@@ -229,6 +240,12 @@ def _ensure_write_benchmark_shifts(
 			}
 		)
 	return shifts
+
+
+def _cleanup_write_benchmark_shifts(benchmark_shifts: list[dict[str, str]]) -> None:
+	for shift_name in {row["shift_name"] for row in benchmark_shifts if row.get("shift_name")}:
+		if frappe.db.exists("Shift", shift_name):
+			frappe.delete_doc("Shift", shift_name, force=True, ignore_permissions=True)
 
 
 def _save_candidate_entry(
