@@ -67,9 +67,13 @@ def ensure_overlap_indexes() -> None:
 		_add_index_with_recoverable_handling(doctype, fields, index_name)
 
 
-def drop_overlap_indexes_if_exists() -> None:
-	for doctype, _fields, index_name in OVERLAP_INDEX_SPECS:
+def drop_performance_indexes_if_exists() -> None:
+	for doctype, _fields, index_name in OVERLAP_INDEX_SPECS + REPORT_INDEX_SPECS:
 		drop_index_if_exists(f"tab{doctype}", index_name)
+
+
+def drop_overlap_indexes_if_exists() -> None:
+	drop_performance_indexes_if_exists()
 
 
 def _add_index_with_recoverable_handling(

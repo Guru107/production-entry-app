@@ -130,6 +130,9 @@ class TestPerformanceIndexes(FrappeTestCase):
 				("tabStock Entry", "idx_pea_ste_workstation_actual_window"),
 				("tabStock Entry", "idx_pea_ste_operator_actual_window"),
 				("tabDowntime Entry", "idx_pea_dte_workstation_window"),
+				("tabLoss Entry", "idx_pea_loss_parent_sort"),
+				("tabLoss Entry", "idx_pea_loss_parent_reason"),
+				("tabRejection Breakup", "idx_pea_rej_parent_rework"),
 			],
 		)
 

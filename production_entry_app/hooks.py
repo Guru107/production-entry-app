@@ -54,7 +54,8 @@ doctype_js = {
 	"Operator": "public/js/operator.js",
 }
 
-after_migrate = ["production_entry_app.production_entry_app.performance_indexes.ensure_performance_indexes"]
+after_sync = ["production_entry_app.production_entry_app.lifecycle.after_sync"]
+after_migrate = ["production_entry_app.production_entry_app.lifecycle.after_migrate"]
 
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
@@ -100,7 +101,7 @@ after_migrate = ["production_entry_app.production_entry_app.performance_indexes.
 # Uninstallation
 # ------------
 
-# before_uninstall = "production_entry_app.uninstall.before_uninstall"
+before_uninstall = ["production_entry_app.production_entry_app.lifecycle.before_uninstall"]
 # after_uninstall = "production_entry_app.uninstall.after_uninstall"
 
 # Integration Setup
