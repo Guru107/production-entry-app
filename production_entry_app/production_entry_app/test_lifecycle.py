@@ -42,9 +42,7 @@ class TestLifecycle(FrappeTestCase):
 				"production_entry_app.production_entry_app.lifecycle.frappe.get_all",
 				side_effect=fake_get_all,
 			),
-			patch(
-				"production_entry_app.production_entry_app.lifecycle.frappe.delete_doc"
-			) as delete_doc,
+			patch("production_entry_app.production_entry_app.lifecycle.frappe.delete_doc") as delete_doc,
 		):
 			lifecycle.before_uninstall()
 
@@ -81,9 +79,7 @@ class TestLifecycle(FrappeTestCase):
 				"production_entry_app.production_entry_app.lifecycle.frappe.get_all",
 				return_value=[],
 			) as get_all,
-			patch(
-				"production_entry_app.production_entry_app.lifecycle.frappe.delete_doc"
-			) as delete_doc,
+			patch("production_entry_app.production_entry_app.lifecycle.frappe.delete_doc") as delete_doc,
 		):
 			lifecycle.before_uninstall()
 

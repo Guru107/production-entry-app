@@ -140,11 +140,14 @@ class TestPerformanceIndexes(FrappeTestCase):
 		missing_column_error = frappe.db.ProgrammingError(
 			1054, "Unknown column 'custom_operator' in 'field list'"
 		)
+		total_index_specs = len(performance_indexes.OVERLAP_INDEX_SPECS) + len(
+			performance_indexes.REPORT_INDEX_SPECS
+		)
 
 		with (
 			patch(
 				"production_entry_app.production_entry_app.performance_indexes.frappe.db.add_index",
-				side_effect=[missing_column_error, None, None, None, None, None],
+				side_effect=[missing_column_error] + ([None] * (total_index_specs - 1)),
 			) as add_index,
 			patch(
 				"production_entry_app.production_entry_app.performance_indexes.frappe.log_error"
@@ -152,7 +155,7 @@ class TestPerformanceIndexes(FrappeTestCase):
 		):
 			performance_indexes.ensure_performance_indexes()
 
-		self.assertEqual(add_index.call_count, 6)
+		self.assertEqual(add_index.call_count, total_index_specs)
 		log_error.assert_called_once()
 
 	def test_ensure_performance_indexes_reraises_non_missing_column_db_errors(self) -> None:

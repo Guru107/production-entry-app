@@ -93,5 +93,7 @@ def _add_index_with_recoverable_handling(
 
 
 def _is_missing_column_index_error(exc: Exception) -> bool:
+	# frappe.db add_index errors do not expose a structured missing-column code here, so
+	# cleanup falls back to MariaDB/MySQL message text matching for known DDL failures.
 	message = str(exc)
 	return "Unknown column" in message or "Key column" in message
