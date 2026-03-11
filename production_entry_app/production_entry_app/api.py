@@ -335,17 +335,28 @@ def _get_candidate_e2e_stock_entries(
 ) -> list[frappe._dict]:
 	stock_entry = DocType("Stock Entry")
 	stock_entry_detail = DocType("Stock Entry Detail")
+	item_code_filters = []
+	if target_fg_item:
+		item_code_filters.append(stock_entry_detail.item_code == target_fg_item)
+	if target_rm_item:
+		item_code_filters.append(stock_entry_detail.item_code == target_rm_item)
+	match_criteria = (stock_entry.custom_operator == target_operator) | (
+		stock_entry.custom_workstation == target_workstation
+	)
+	item_code_match = item_code_filters[0] if item_code_filters else None
+	for condition in item_code_filters[1:]:
+		item_code_match = item_code_match | condition
+	if item_code_match is not None:
+		match_criteria = match_criteria | item_code_match
+
 	query = (
 		frappe.qb.from_(stock_entry)
 		.left_join(stock_entry_detail)
 		.on(stock_entry_detail.parent == stock_entry.name)
+		.distinct()
 		.select(stock_entry.name, stock_entry.docstatus)
-		.where(
-			(stock_entry.custom_operator == target_operator)
-			| (stock_entry.custom_workstation == target_workstation)
-			| (stock_entry_detail.item_code == (target_fg_item or ""))
-			| (stock_entry_detail.item_code == (target_rm_item or ""))
-		)
+		.where(stock_entry.stock_entry_type == "Manufacture")
+		.where(match_criteria)
 		.orderby(stock_entry.creation, order=Order.desc)
 	)
 	return query.run(as_dict=True)

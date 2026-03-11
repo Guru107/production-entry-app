@@ -459,7 +459,7 @@ class Shift(Document):
 			sole_company = frappe.db.get_value("Company", {}, "name", order_by="creation asc")
 
 		self.company = _resolve_shift_company(
-			current_company=getattr(self, "company", None),
+			current_company=None,
 			default_company=default_company,
 			default_exists=bool(default_company and frappe.db.exists("Company", default_company)),
 			company_count=company_count,

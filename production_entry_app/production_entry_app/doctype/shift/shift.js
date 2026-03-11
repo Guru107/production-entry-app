@@ -129,14 +129,8 @@ function _set_warehouse_field_editability(frm) {
 }
 
 function _toggle_company_field_visibility(frm) {
-	if (typeof frm.__companyCount === "number") {
-		frm.toggle_display("company", frm.__companyCount > 1);
-		return;
-	}
-
 	frappe.db.count("Company").then((count) => {
-		frm.__companyCount = Number(count || 0);
-		frm.toggle_display("company", frm.__companyCount > 1);
+		frm.toggle_display("company", Number(count || 0) > 1);
 	});
 }
 

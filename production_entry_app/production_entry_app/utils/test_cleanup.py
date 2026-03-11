@@ -49,6 +49,11 @@ def cleanup_after_python_test(snapshot: dict[str, Any] | None) -> None:
 		)
 
 
+def _is_production_entry_app_test_case(test_case: Any) -> bool:
+	module_name = getattr(test_case.__class__, "__module__", "") or ""
+	return module_name.startswith("production_entry_app.")
+
+
 def install_test_run_cleanup() -> None:
 	from frappe.tests.utils import FrappeTestCase
 
@@ -59,6 +64,8 @@ def install_test_run_cleanup() -> None:
 	_ORIGINAL_FRAPPE_TEST_CASE_RUN = FrappeTestCase.run
 
 	def _run_with_cleanup(self, result=None):
+		if not _is_production_entry_app_test_case(self):
+			return _ORIGINAL_FRAPPE_TEST_CASE_RUN(self, result)
 		snapshot = capture_manufacturing_settings_snapshot()
 		try:
 			return _ORIGINAL_FRAPPE_TEST_CASE_RUN(self, result)

@@ -50,18 +50,6 @@ class TestStockEntryOverride(FrappeTestCase):
 	def setUp(self) -> None:
 		cleanup_running_shifts()
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit - ensure running shift cleanup is visible
-		_ensure_rejection_breakup_doctype()
-		_ensure_rejection_reason_doctype()
-		_ensure_rejection_reasons()
-		_ensure_rejection_breakup_custom_field()
-		context = bootstrap_manufacturing_test_context("SE Override")
-		self.company = context["company"]
-		self.wip_warehouse = context["wip_warehouse"]
-		self.rm_warehouse = context["rm_warehouse"]
-		self.rejection_warehouse = context["rejection_warehouse"]
-		self.fg_warehouse = context["fg_warehouse"]
-		self.fg_item = _get_or_create_item("_Test FG Item For Shift")
-		self.rm_item = _get_or_create_item("_Test RM Item For Shift")
 		_set_shift_warehouse_defaults(self.rm_warehouse, self.wip_warehouse, self.rejection_warehouse)
 		ensure_stock(self.rm_item, self.rm_warehouse, self.company, target_qty=200)
 

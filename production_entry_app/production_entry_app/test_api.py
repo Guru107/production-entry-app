@@ -13,6 +13,7 @@ from production_entry_app.production_entry_app.api import (
 	_cleanup_reserved_e2e_artifacts,
 	_collect_reserved_e2e_prefixes,
 	_e2e_base_date,
+	_get_candidate_e2e_stock_entries,
 	_get_or_create_e2e_shift,
 	_stock_entry_matches_cleanup_target,
 	bootstrap_e2e_context,
@@ -178,6 +179,30 @@ class TestE2EApi(FrappeTestCase):
 			target_fg_item="_E2E_FG_Item",
 			target_rm_item="_E2E_RM_Item",
 		)
+
+	def test_get_candidate_e2e_stock_entries_filters_to_manufacture_and_distinct(self) -> None:
+		results = [{"name": "MAT-STE-0001", "docstatus": 1}]
+		with patch("production_entry_app.production_entry_app.api.frappe.qb.from_") as qb_from:
+			query = qb_from.return_value
+			query.left_join.return_value = query
+			query.on.return_value = query
+			query.distinct.return_value = query
+			query.select.return_value = query
+			query.where.return_value = query
+			query.orderby.return_value = query
+			query.run.return_value = results
+
+			response = _get_candidate_e2e_stock_entries(
+				target_operator="E2E Operator",
+				target_workstation="E2E Workstation",
+				target_fg_item="_E2E_FG_Item",
+				target_rm_item="_E2E_RM_Item",
+			)
+
+		self.assertEqual(response, results)
+		query.distinct.assert_called_once_with()
+		self.assertEqual(query.where.call_count, 2)
+		self.assertIn("stock_entry_type", str(query.where.call_args_list[0].args[0]))
 
 	def test_cleanup_continues_when_one_stock_entry_delete_fails(self) -> None:
 		row1 = frappe._dict({"name": "STE-FAIL", "docstatus": 0})

@@ -47,3 +47,16 @@ class TestTestCleanup(FrappeTestCase):
 			test_cleanup.cleanup_after_python_test({"shift_wip_warehouse": "WIP"})
 
 		log_error.assert_called_once()
+
+	def test_is_production_entry_app_test_case_checks_module_prefix(self) -> None:
+		class AppCase:
+			pass
+
+		class OtherCase:
+			pass
+
+		AppCase.__module__ = "production_entry_app.production_entry_app.test_api"
+		OtherCase.__module__ = "frappe.tests.test_runner"
+
+		self.assertTrue(test_cleanup._is_production_entry_app_test_case(AppCase()))
+		self.assertFalse(test_cleanup._is_production_entry_app_test_case(OtherCase()))
