@@ -38,27 +38,27 @@ def run_stock_entry_write_benchmark(
 
 	retain_data = bool(keep_data)
 	settings_snapshot = test_cleanup.capture_manufacturing_settings_snapshot()
-	context, last_seed_date = _get_existing_benchmark_context(source_dataset_key)
-	created_source_dataset = False
-	if context and last_seed_date:
-		date_range = {"from_date": "", "to_date": last_seed_date}
-	else:
-		context = _prepare_write_benchmark_context(dataset_key)
-		date_range = report_benchmark._seed_benchmark_entries(
-			context,
-			entry_count=seed_entries,
-			day_span=day_span,
-		)
-		created_source_dataset = True
-	total_iterations = iterations + warmup_iterations
-	benchmark_shifts = _ensure_write_benchmark_shifts(
-		context.rejection_warehouse,
-		total_iterations,
-		date_range["to_date"],
-	)
-
 	results: dict[str, dict[str, float | int | str]] = {}
+	created_source_dataset = False
+	benchmark_shifts: list[dict[str, str]] = []
 	try:
+		context, last_seed_date = _get_existing_benchmark_context(source_dataset_key)
+		if context and last_seed_date:
+			date_range = {"from_date": "", "to_date": last_seed_date}
+		else:
+			context = _prepare_write_benchmark_context(dataset_key)
+			date_range = report_benchmark._seed_benchmark_entries(
+				context,
+				entry_count=seed_entries,
+				day_span=day_span,
+			)
+			created_source_dataset = True
+		total_iterations = iterations + warmup_iterations
+		benchmark_shifts = _ensure_write_benchmark_shifts(
+			context.rejection_warehouse,
+			total_iterations,
+			date_range["to_date"],
+		)
 		results["with_overlap_indexes"] = _run_write_case(
 			context=context,
 			benchmark_shifts=benchmark_shifts,

@@ -168,3 +168,48 @@ class TestWriteBenchmark(FrappeTestCase):
 											write_benchmark.run_stock_entry_write_benchmark(keep_data=1)
 
 		cleanup_benchmark.assert_not_called()
+
+	def test_run_stock_entry_write_benchmark_cleans_up_when_setup_fails(self) -> None:
+		context = write_benchmark.report_benchmark.BenchmarkContext(
+			company="_Test Company",
+			fg_item="_Benchmark FG Item WRITEPATH",
+			rm_item="_Benchmark RM Item WRITEPATH",
+			operator="Benchmark Operator WRITEPATH",
+			workstation="Benchmark Workstation WRITEPATH",
+			rm_warehouse="RM",
+			fg_warehouse="FG",
+			rejection_warehouse="REJ",
+		)
+		settings_snapshot = {"buffer": 0}
+		with (
+			patch.object(
+				write_benchmark.test_cleanup,
+				"capture_manufacturing_settings_snapshot",
+				return_value=settings_snapshot,
+			),
+			patch.object(
+				write_benchmark.test_cleanup, "restore_manufacturing_settings_snapshot"
+			) as restore_snapshot,
+			patch.object(write_benchmark, "_get_existing_benchmark_context", return_value=(None, None)),
+			patch.object(write_benchmark, "_prepare_write_benchmark_context", return_value=context),
+			patch.object(
+				write_benchmark.report_benchmark,
+				"_seed_benchmark_entries",
+				return_value={"from_date": "2198-01-01", "to_date": "2198-01-20"},
+			),
+			patch.object(
+				write_benchmark,
+				"_ensure_write_benchmark_shifts",
+				side_effect=RuntimeError("shift setup failed"),
+			),
+			patch.object(write_benchmark, "_cleanup_write_benchmark_shifts") as cleanup_shifts,
+			patch.object(write_benchmark.report_benchmark, "cleanup_report_benchmark") as cleanup_benchmark,
+			patch.object(write_benchmark.performance_indexes, "ensure_overlap_indexes"),
+			patch("production_entry_app.production_entry_app.write_benchmark.frappe.db.commit"),
+		):
+			with self.assertRaisesRegex(RuntimeError, "shift setup failed"):
+				write_benchmark.run_stock_entry_write_benchmark()
+
+		restore_snapshot.assert_called_once_with(settings_snapshot)
+		cleanup_shifts.assert_called_once_with([])
+		cleanup_benchmark.assert_called_once_with("WRITEPATH")

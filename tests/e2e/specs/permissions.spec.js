@@ -12,11 +12,11 @@ function uniqueSuffix() {
 }
 
 function reservedUserEmail(label, suffix) {
-	return `e2e_permissions_${label}_${suffix}@example.com`;
+	return `e2e-user-${label}-${suffix}@example.com`;
 }
 
 function reservedRoleName(label, suffix) {
-	return `E2E Permissions ${label.toUpperCase()} ${suffix}`;
+	return `E2E ROLE ${label.toUpperCase()} ${suffix}`;
 }
 
 function futureDate(daysAhead = 45) {
@@ -212,7 +212,7 @@ test.describe("Permissions", () => {
 			.poll(async () => await page.evaluate(() => window.cur_frm?.doctype || ""))
 			.toBe("Downtime Reason");
 
-		const reasonName = `E2E-PERMISSIONS-${suffix}`;
+		const reasonName = `E2E-DOWNTIME-${suffix}`;
 		await setFieldValue(page, "downtime_reason_name", reasonName);
 		await saveForm(page, "Save");
 

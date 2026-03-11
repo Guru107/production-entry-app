@@ -59,10 +59,9 @@ def run_report_benchmark(
 
 	retain_data = bool(keep_data)
 	settings_snapshot = test_cleanup.capture_manufacturing_settings_snapshot()
-	context = _prepare_benchmark_context(dataset_key)
-	date_range = _seed_benchmark_entries(context, entry_count=entry_count, day_span=day_span)
-
 	try:
+		context = _prepare_benchmark_context(dataset_key)
+		date_range = _seed_benchmark_entries(context, entry_count=entry_count, day_span=day_span)
 		return {
 			"dataset_key": dataset_key,
 			"entry_count": entry_count,

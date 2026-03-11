@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from frappe.tests.utils import FrappeTestCase
 
@@ -57,3 +57,28 @@ class TestReportBenchmark(FrappeTestCase):
 						report_benchmark.run_report_benchmark(keep_data=1)
 
 		cleanup.assert_not_called()
+
+	def test_run_report_benchmark_cleans_up_when_setup_fails(self) -> None:
+		settings_snapshot = {"buffer": 60}
+		restore_snapshot = Mock()
+		with patch.object(
+			report_benchmark.test_cleanup,
+			"capture_manufacturing_settings_snapshot",
+			return_value=settings_snapshot,
+		):
+			with patch.object(
+				report_benchmark.test_cleanup,
+				"restore_manufacturing_settings_snapshot",
+				restore_snapshot,
+			):
+				with patch.object(
+					report_benchmark,
+					"_prepare_benchmark_context",
+					side_effect=RuntimeError("seed failed"),
+				):
+					with patch.object(report_benchmark, "cleanup_report_benchmark") as cleanup:
+						with self.assertRaisesRegex(RuntimeError, "seed failed"):
+							report_benchmark.run_report_benchmark()
+
+		restore_snapshot.assert_called_once_with(settings_snapshot)
+		cleanup.assert_called_once_with("PHASE2")

@@ -240,9 +240,9 @@ class TestE2EApi(FrappeTestCase):
 				patch(
 					"production_entry_app.production_entry_app.api.frappe.get_all",
 					side_effect=[
-						["e2e_permissions_sample@example.com"],
-						["E2E Permissions SAMPLE"],
-						["E2E-PERMISSIONS-SAMPLE"],
+						["e2e-user-sample@example.com"],
+						["E2E ROLE SAMPLE"],
+						["E2E-DOWNTIME-SAMPLE"],
 					],
 				)
 			)
