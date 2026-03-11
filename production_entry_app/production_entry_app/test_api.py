@@ -395,7 +395,27 @@ class TestE2EApi(FrappeTestCase):
 	def test_get_or_create_e2e_shift_keeps_running_shift(self) -> None:
 		shift = MagicMock()
 		shift.status = "Running"
-		with patch("production_entry_app.production_entry_app.api.frappe.db.exists", return_value=True):
+		with patch("production_entry_app.production_entry_app.api.frappe.get_all", return_value=[]):
+			with patch("production_entry_app.production_entry_app.api.frappe.db.exists", return_value=True):
+				with patch("production_entry_app.production_entry_app.api.frappe.get_doc", return_value=shift):
+					result = _get_or_create_e2e_shift(
+						shift_name="SHIFT-TEST-2099-01-20.1",
+						base_date="2099-01-20",
+						department="E2E Department - TC",
+						wip_warehouse="WIP",
+						rm_warehouse="RM",
+						rejection_warehouse="REJ",
+					)
+		self.assertIs(result, shift)
+		shift.start_shift.assert_not_called()
+
+	def test_get_or_create_e2e_shift_reuses_legacy_named_shift_by_fields(self) -> None:
+		shift = MagicMock()
+		shift.status = "Running"
+		with patch(
+			"production_entry_app.production_entry_app.api.frappe.get_all",
+			return_value=["SHIFT-2099-01-20.Shift-1"],
+		):
 			with patch("production_entry_app.production_entry_app.api.frappe.get_doc", return_value=shift):
 				result = _get_or_create_e2e_shift(
 					shift_name="SHIFT-TEST-2099-01-20.1",
@@ -411,16 +431,17 @@ class TestE2EApi(FrappeTestCase):
 	def test_get_or_create_e2e_shift_starts_draft_shift(self) -> None:
 		shift = MagicMock()
 		shift.status = "Draft"
-		with patch("production_entry_app.production_entry_app.api.frappe.db.exists", return_value=True):
-			with patch("production_entry_app.production_entry_app.api.frappe.get_doc", return_value=shift):
-				result = _get_or_create_e2e_shift(
-					shift_name="SHIFT-TEST-2099-01-20.1",
-					base_date="2099-01-20",
-					department="E2E Department - TC",
-					wip_warehouse="WIP",
-					rm_warehouse="RM",
-					rejection_warehouse="REJ",
-				)
+		with patch("production_entry_app.production_entry_app.api.frappe.get_all", return_value=[]):
+			with patch("production_entry_app.production_entry_app.api.frappe.db.exists", return_value=True):
+				with patch("production_entry_app.production_entry_app.api.frappe.get_doc", return_value=shift):
+					result = _get_or_create_e2e_shift(
+						shift_name="SHIFT-TEST-2099-01-20.1",
+						base_date="2099-01-20",
+						department="E2E Department - TC",
+						wip_warehouse="WIP",
+						rm_warehouse="RM",
+						rejection_warehouse="REJ",
+					)
 		self.assertIs(result, shift)
 		shift.start_shift.assert_called_once()
 
@@ -432,20 +453,21 @@ class TestE2EApi(FrappeTestCase):
 		doc_builder = MagicMock()
 		doc_builder.insert.return_value = recreated
 
-		with patch("production_entry_app.production_entry_app.api.frappe.db.exists", return_value=True):
-			with patch(
-				"production_entry_app.production_entry_app.api.frappe.get_doc",
-				side_effect=[existing, doc_builder],
-			):
-				with patch("production_entry_app.production_entry_app.api.frappe.delete_doc") as delete_doc:
-					result = _get_or_create_e2e_shift(
-						shift_name="SHIFT-TEST-2099-01-20.1",
-						base_date="2099-01-20",
-						department="E2E Department - TC",
-						wip_warehouse="WIP",
-						rm_warehouse="RM",
-						rejection_warehouse="REJ",
-					)
+		with patch("production_entry_app.production_entry_app.api.frappe.get_all", return_value=[]):
+			with patch("production_entry_app.production_entry_app.api.frappe.db.exists", return_value=True):
+				with patch(
+					"production_entry_app.production_entry_app.api.frappe.get_doc",
+					side_effect=[existing, doc_builder],
+				):
+					with patch("production_entry_app.production_entry_app.api.frappe.delete_doc") as delete_doc:
+						result = _get_or_create_e2e_shift(
+							shift_name="SHIFT-TEST-2099-01-20.1",
+							base_date="2099-01-20",
+							department="E2E Department - TC",
+							wip_warehouse="WIP",
+							rm_warehouse="RM",
+							rejection_warehouse="REJ",
+						)
 
 		delete_doc.assert_called_once_with(
 			"Shift", "SHIFT-TEST-2099-01-20.1", force=True, ignore_permissions=True
@@ -530,6 +552,9 @@ class TestE2EApi(FrappeTestCase):
 					"production_entry_app.production_entry_app.api._e2e_base_date",
 					return_value="2099-01-20",
 				)
+			)
+			stack.enter_context(
+				patch("production_entry_app.production_entry_app.api._complete_other_running_e2e_shifts")
 			)
 			stack.enter_context(
 				patch(
@@ -624,6 +649,9 @@ class TestE2EApi(FrappeTestCase):
 					return_value="2099-01-20",
 				)
 			)
+			complete_other = stack.enter_context(
+				patch("production_entry_app.production_entry_app.api._complete_other_running_e2e_shifts")
+			)
 			get_or_create = stack.enter_context(
 				patch(
 					"production_entry_app.production_entry_app.api._get_or_create_e2e_shift",
@@ -634,6 +662,7 @@ class TestE2EApi(FrappeTestCase):
 
 			bootstrap_e2e_context(prefix="E2E")
 
+		complete_other.assert_called_once_with(keep_department="E2E Department - TC")
 		get_or_create.assert_called_once_with(
 			shift_name="SHIFT-E2E-Department-2099-01-20.1",
 			base_date="2099-01-20",

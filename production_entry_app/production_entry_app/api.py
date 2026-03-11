@@ -474,6 +474,24 @@ def _build_e2e_shift_name(*, department: str, shift_date: str, shift_label: str)
 	return f"SHIFT-{sanitized_dept}-{shift_date}.{shift_label}"
 
 
+def _complete_other_running_e2e_shifts(*, keep_department: str | None = None) -> None:
+	reserved_departments = frappe.get_all(
+		"Department",
+		filters={"department_name": ("like", "E2E% Department")},
+		pluck="name",
+	)
+	if keep_department:
+		reserved_departments = [name for name in reserved_departments if name != keep_department]
+	if not reserved_departments:
+		return
+	for shift_name in frappe.get_all(
+		"Shift",
+		filters={"status": "Running", "department": ["in", reserved_departments]},
+		pluck="name",
+	):
+		frappe.db.set_value("Shift", shift_name, "status", "Completed", update_modified=False)
+
+
 def _get_or_create_e2e_shift(
 	*,
 	shift_name: str,
@@ -483,7 +501,15 @@ def _get_or_create_e2e_shift(
 	rm_warehouse: str,
 	rejection_warehouse: str,
 ):
-	if not frappe.db.exists("Shift", shift_name):
+	existing_names = frappe.get_all(
+		"Shift",
+		filters={"department": department, "shift_date": base_date, "shift_label": "1"},
+		pluck="name",
+		limit=1,
+	)
+	if existing_names:
+		shift_name = existing_names[0]
+	elif not frappe.db.exists("Shift", shift_name):
 		shift = frappe.get_doc(
 			_build_e2e_shift_doc(
 				base_date=base_date,
@@ -567,6 +593,7 @@ def bootstrap_e2e_context(prefix: str = "E2E") -> dict:
 
 	dept_name = f"{prefix} Department"
 	department = ensure_department(dept_name, company)
+	_complete_other_running_e2e_shifts(keep_department=department)
 	base_date = _e2e_base_date(prefix)
 	shift_name = _build_e2e_shift_name(
 		department=department,
@@ -718,10 +745,6 @@ def _cleanup_e2e_context(prefix: str = "E2E") -> dict:
 	):
 		if frappe.db.exists("Warehouse", warehouse_name):
 			_safe_force_delete("Warehouse", warehouse_name, context="cleanup_e2e_context")
-
-	for department in departments:
-		if department and frappe.db.exists("Department", department):
-			_safe_force_delete("Department", department, context="cleanup_e2e_context")
 
 	_restore_cached_e2e_settings(prefix)
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit - deterministic cleanup for test reruns

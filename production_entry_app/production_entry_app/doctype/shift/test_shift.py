@@ -1559,10 +1559,11 @@ class TestShiftMetrics(FrappeTestCase):
 	def _create_shift(self, shift_date: str, shift_label: str = "1"):
 		dept = _ensure_test_department()
 		from production_entry_app.production_entry_app.doctype.shift.shift import (
+			_resolve_department_name_for_shift_naming,
 			_sanitize_department_for_name,
 		)
 
-		sanitized = _sanitize_department_for_name(dept)
+		sanitized = _sanitize_department_for_name(_resolve_department_name_for_shift_naming(dept))
 		name = f"SHIFT-{sanitized}-{shift_date}.{shift_label}"
 		for old_name in (name, f"SHIFT-{shift_date}.Shift-{shift_label}"):
 			if frappe.db.exists("Shift", old_name):
@@ -1808,10 +1809,11 @@ class TestShiftAggregateProductionEntries(FrappeTestCase):
 	def _create_shift(self, shift_date: str, shift_label: str = "1"):
 		dept = _ensure_test_department()
 		from production_entry_app.production_entry_app.doctype.shift.shift import (
+			_resolve_department_name_for_shift_naming,
 			_sanitize_department_for_name,
 		)
 
-		sanitized = _sanitize_department_for_name(dept)
+		sanitized = _sanitize_department_for_name(_resolve_department_name_for_shift_naming(dept))
 		name = f"SHIFT-{sanitized}-{shift_date}.{shift_label}"
 		for old_name in (name, f"SHIFT-{shift_date}.Shift-{shift_label}"):
 			if frappe.db.exists("Shift", old_name):

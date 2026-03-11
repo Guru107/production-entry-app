@@ -375,15 +375,13 @@ def get_shift_aggregate_production_entries(shift_name: str) -> list[dict]:
 
 
 def _sanitize_department_for_name(department_name: str) -> str:
-	"""Sanitize department name for use in Shift autoname (alphanumeric and hyphen only)."""
+	"""Sanitize department name for use in Shift autoname (alphanumeric, hyphen, and underscore only)."""
 	if not department_name:
 		frappe.throw(_("Department is required."))
 	allowed: list[str] = []
 	for char in str(department_name).strip():
 		if char.isalnum() or char in "-_":
 			allowed.append(char)
-		elif char.isspace():
-			allowed.append("-")
 		else:
 			allowed.append("-")
 	result = "".join(allowed).strip("-")

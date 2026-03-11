@@ -49,9 +49,11 @@ test.describe("Shift validations", () => {
 	test("@regression starting second shift while one is running is blocked", async ({ page }) => {
 		await page.goto("/app/home");
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const seededShift = await getDoc(page, "Shift", ctx.shift_name);
 		const shiftPage = new ShiftPage(page);
 
 		const draft = await shiftPage.createDraftViaApi({
+			department: seededShift.department,
 			date: plusOneDay(ctx.shift_date),
 			label: "2",
 			startTime: "16:00:00",
@@ -72,10 +74,12 @@ test.describe("Shift validations", () => {
 	test("@regression overlap validation prevents save of overlapping shift", async ({ page }) => {
 		await page.goto("/app/home");
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const seededShift = await getDoc(page, "Shift", ctx.shift_name);
 		const shiftPage = new ShiftPage(page);
 		const shiftDate = plusOneDay(ctx.shift_date);
 
 		await shiftPage.createDraftViaApi({
+			department: seededShift.department,
 			date: shiftDate,
 			label: "1",
 			startTime: "08:00:00",
@@ -83,6 +87,7 @@ test.describe("Shift validations", () => {
 
 		await shiftPage.openNew();
 		await shiftPage.setDraftFields({
+			department: seededShift.department,
 			date: shiftDate,
 			label: "2",
 			duration: "8",
@@ -95,10 +100,12 @@ test.describe("Shift validations", () => {
 	test("@regression duplicate shift label/date is blocked", async ({ page }) => {
 		await page.goto("/app/home");
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const seededShift = await getDoc(page, "Shift", ctx.shift_name);
 		const shiftPage = new ShiftPage(page);
 		const shiftDate = plusOneDay(ctx.shift_date);
 
 		await shiftPage.createDraftViaApi({
+			department: seededShift.department,
 			date: shiftDate,
 			label: "2",
 			startTime: "08:00:00",
@@ -106,6 +113,7 @@ test.describe("Shift validations", () => {
 
 		await shiftPage.openNew();
 		await shiftPage.setDraftFields({
+			department: seededShift.department,
 			date: shiftDate,
 			label: "2",
 			duration: "8",
@@ -227,9 +235,11 @@ test.describe("Shift validations", () => {
 	test("@regression planned losses grid is non-editable once shift starts", async ({ page }) => {
 		await page.goto("/app/home");
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const seededShift = await getDoc(page, "Shift", ctx.shift_name);
 		const shiftPage = new ShiftPage(page);
 
 		const draft = await shiftPage.createDraftViaApi({
+			department: seededShift.department,
 			date: plusOneDay(ctx.shift_date),
 			label: "2",
 			startTime: "16:00:00",
@@ -246,12 +256,14 @@ test.describe("Shift validations", () => {
 	}) => {
 		await page.goto("/app/home");
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const seededShift = await getDoc(page, "Shift", ctx.shift_name);
 		const shiftPage = new ShiftPage(page);
 		const editDate = uniqueFutureDate();
 		const draftName = `SHIFT-${editDate}.Shift-2`;
 		await deleteShiftIfExists(page, draftName);
 
 		const draft = await shiftPage.createDraftViaApi({
+			department: seededShift.department,
 			date: editDate,
 			label: "2",
 			startTime: "08:00:00",

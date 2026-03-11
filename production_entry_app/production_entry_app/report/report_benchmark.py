@@ -304,14 +304,6 @@ def _ensure_shift(
 	rejection_warehouse: str,
 	department: str,
 ) -> str:
-	from production_entry_app.production_entry_app.doctype.shift.shift import (
-		_resolve_department_name_for_shift_naming,
-		_sanitize_department_for_name,
-	)
-
-	department_label = _resolve_department_name_for_shift_naming(department)
-	sanitized = _sanitize_department_for_name(department_label)
-	shift_name = f"SHIFT-{sanitized}-{shift_date.isoformat()}.{shift_label}"
 	for existing_name in frappe.get_all(
 		"Shift",
 		filters={"department": department, "shift_date": shift_date.isoformat(), "shift_label": shift_label},
@@ -319,9 +311,6 @@ def _ensure_shift(
 	):
 		frappe.db.set_value("Shift", existing_name, "status", "Running", update_modified=False)
 		return existing_name
-	if frappe.db.exists("Shift", shift_name):
-		frappe.db.set_value("Shift", shift_name, "status", "Running", update_modified=False)
-		return shift_name
 
 	shift = frappe.get_doc(
 		{

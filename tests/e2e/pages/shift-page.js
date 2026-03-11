@@ -14,8 +14,15 @@ class ShiftPage {
 						doc: cur_frm.doc,
 						method: action,
 						callback: () => resolve(true),
-						error: (err) =>
-							reject(new Error(err?.message || `Failed doc action: ${action}`)),
+						error: (err) => {
+							const detail =
+								err?._server_messages ||
+								err?.message ||
+								err?.exc ||
+								err?.responseJSON?.message ||
+								"";
+							reject(new Error(detail || `Failed doc action: ${action}`));
+						},
 					});
 				}),
 			{ action: methodName }
@@ -56,7 +63,10 @@ class ShiftPage {
 		});
 	}
 
-	async setDraftFields({ date, label, duration, startTime }) {
+	async setDraftFields({ department, date, label, duration, startTime }) {
+		if (department != null) {
+			await setFieldValue(this.page, "department", department);
+		}
 		if (label != null) {
 			await setFieldValue(this.page, "shift_label", String(label));
 		}
