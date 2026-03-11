@@ -103,10 +103,10 @@ The code intentionally does not include a permanent report-sync hook for this de
 # Report throughput benchmark
 bench --site development.localhost execute \
   production_entry_app.production_entry_app.report.report_benchmark.run_report_benchmark \
-  --kwargs '{"entry_count": 10000, "day_span": 20, "dataset_key": "PHASE2"}'
+  --kwargs '{"entry_count": 10000, "day_span": 20, "dataset_key": "PHASE2", "keep_data": 1}'
 
 # Write-path benchmark
 bench --site development.localhost execute \
   production_entry_app.production_entry_app.write_benchmark.run_stock_entry_write_benchmark \
-  --kwargs '{"iterations": 3, "warmup_iterations": 1, "source_dataset_key": "PHASE2"}'
+  --kwargs '{"iterations": 3, "warmup_iterations": 1, "source_dataset_key": "PHASE2", "keep_data": 1}'
 ```

@@ -7,6 +7,7 @@ import frappe
 from frappe.exceptions import ValidationError
 from frappe.tests.utils import FrappeTestCase
 
+from production_entry_app.production_entry_app.doctype.shift.shift import _resolve_shift_company
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	bootstrap_manufacturing_test_context,
 	cleanup_running_shifts,
@@ -43,7 +44,7 @@ def _ensure_shift_duration_options() -> None:
 	shift_meta = frappe.get_meta("Shift", cached=True)
 	shift_duration = shift_meta.get_field("shift_duration")
 	options = (shift_duration.options or "").splitlines() if shift_duration else []
-	if "14" in options and "16" in options:
+	if "14" in options and "16" in options and shift_meta.get_field("company"):
 		return
 	frappe.reload_doc("production_entry_app", "doctype", "shift")
 	frappe.clear_cache(doctype="Shift")
@@ -124,6 +125,48 @@ class TestShift(FrappeTestCase):
 		self.assertTrue(doc.planned_start_time)
 		self.assertTrue(doc.planned_end_time)
 		self.assertEqual(doc.supervisor, frappe.session.user)
+		self.assertEqual(doc.company, resolve_test_company())
+
+	def test_shift_company_field_is_present_on_meta(self) -> None:
+		meta = frappe.get_meta("Shift")
+		company_field = meta.get_field("company")
+		self.assertIsNotNone(company_field)
+		self.assertEqual(company_field.fieldtype, "Link")
+		self.assertEqual(company_field.options, "Company")
+
+	def test_resolve_shift_company_prefers_current_value(self) -> None:
+		self.assertEqual(
+			_resolve_shift_company(
+				current_company="Company A",
+				default_company="Company B",
+				default_exists=True,
+				company_count=2,
+				sole_company=None,
+			),
+			"Company A",
+		)
+
+	def test_resolve_shift_company_uses_default_or_sole_company(self) -> None:
+		self.assertEqual(
+			_resolve_shift_company(
+				current_company=None,
+				default_company="Company B",
+				default_exists=True,
+				company_count=2,
+				sole_company=None,
+			),
+			"Company B",
+		)
+		self.assertEqual(
+			_resolve_shift_company(
+				current_company=None,
+				default_company=None,
+				default_exists=False,
+				company_count=1,
+				sole_company="Company A",
+			),
+			"Company A",
+		)
 
 	def test_planned_end_time_is_calculated(self) -> None:
 		self._delete_shift_if_exists(self._expected_name("2026-02-06", "2"))

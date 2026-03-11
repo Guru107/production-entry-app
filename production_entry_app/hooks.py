@@ -145,6 +145,9 @@ before_uninstall = ["production_entry_app.production_entry_app.lifecycle.before_
 # override_doctype_class = {
 # 	"ToDo": "custom_app.overrides.CustomToDo"
 # }
+override_doctype_class = {
+	"Stock Entry": "production_entry_app.production_entry_app.overrides.stock_entry.ProductionEntryAppStockEntry"
+}
 
 # Document Events
 # ---------------

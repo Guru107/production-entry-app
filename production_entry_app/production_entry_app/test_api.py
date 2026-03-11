@@ -10,7 +10,10 @@ from production_entry_app.production_entry_app.api import (
 	_assert_e2e_api_allowed,
 	_build_e2e_shift_doc,
 	_cleanup_orphan_stock_entry_loss_links,
+	_cleanup_reserved_e2e_artifacts,
+	_collect_reserved_e2e_prefixes,
 	_e2e_base_date,
+	_get_candidate_e2e_stock_entries,
 	_get_or_create_e2e_shift,
 	_stock_entry_matches_cleanup_target,
 	bootstrap_e2e_context,
@@ -171,8 +174,35 @@ class TestE2EApi(FrappeTestCase):
 						with patch("production_entry_app.production_entry_app.api.frappe.db.commit"):
 							cleanup_e2e_context(prefix="E2E")
 		get_candidates.assert_called_once_with(
-			target_operator="E2E Operator", target_workstation="E2E Workstation"
+			target_operator="E2E Operator",
+			target_workstation="E2E Workstation",
+			target_fg_item="_E2E_FG_Item",
+			target_rm_item="_E2E_RM_Item",
 		)
+
+	def test_get_candidate_e2e_stock_entries_filters_to_manufacture_and_distinct(self) -> None:
+		results = [{"name": "MAT-STE-0001", "docstatus": 1}]
+		with patch("production_entry_app.production_entry_app.api.frappe.qb.from_") as qb_from:
+			query = qb_from.return_value
+			query.left_join.return_value = query
+			query.on.return_value = query
+			query.distinct.return_value = query
+			query.select.return_value = query
+			query.where.return_value = query
+			query.orderby.return_value = query
+			query.run.return_value = results
+
+			response = _get_candidate_e2e_stock_entries(
+				target_operator="E2E Operator",
+				target_workstation="E2E Workstation",
+				target_fg_item="_E2E_FG_Item",
+				target_rm_item="_E2E_RM_Item",
+			)
+
+		self.assertEqual(response, results)
+		query.distinct.assert_called_once_with()
+		self.assertEqual(query.where.call_count, 2)
+		self.assertIn("stock_entry_type", str(query.where.call_args_list[0].args[0]))
 
 	def test_cleanup_continues_when_one_stock_entry_delete_fails(self) -> None:
 		row1 = frappe._dict({"name": "STE-FAIL", "docstatus": 0})
@@ -212,6 +242,48 @@ class TestE2EApi(FrappeTestCase):
 
 		self.assertEqual(delete_doc.call_count, 2)
 		log_error.assert_called_once()
+
+	def test_collect_reserved_e2e_prefixes_derives_item_and_workstation_names(self) -> None:
+		with patch(
+			"production_entry_app.production_entry_app.api.frappe.get_all",
+			side_effect=[
+				["_E2E_SAMPLE_W0_FG_Item", "OTHER_FG_Item"],
+				["E2E Workstation", "E2E_SAMPLE_W0 Workstation", "X2E_SAMPLE_W0 Workstation"],
+			],
+		):
+			self.assertEqual(_collect_reserved_e2e_prefixes(), ["E2E", "E2E_SAMPLE_W0"])
+
+	def test_cleanup_reserved_e2e_artifacts_sweeps_prefixes_and_permission_docs(self) -> None:
+		with ExitStack() as stack:
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.api._collect_reserved_e2e_prefixes",
+					return_value=["E2E_SAMPLE_W0"],
+				)
+			)
+			cleanup_prefix = stack.enter_context(
+				patch("production_entry_app.production_entry_app.api._cleanup_e2e_context")
+			)
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.api.frappe.get_all",
+					side_effect=[
+						["e2e-user-sample@example.com"],
+						["E2E ROLE SAMPLE"],
+						["E2E-DOWNTIME-SAMPLE"],
+					],
+				)
+			)
+			delete_doc = stack.enter_context(
+				patch("production_entry_app.production_entry_app.api.frappe.delete_doc")
+			)
+			stack.enter_context(patch("production_entry_app.production_entry_app.api.frappe.db.commit"))
+
+			result = _cleanup_reserved_e2e_artifacts()
+
+		self.assertEqual(result, {"ok": True, "prefixes": ["E2E_SAMPLE_W0"]})
+		cleanup_prefix.assert_called_once_with(prefix="E2E_SAMPLE_W0")
+		self.assertEqual(delete_doc.call_count, 3)
 
 	def test_build_e2e_shift_doc_contains_expected_fields(self) -> None:
 		doc = _build_e2e_shift_doc(

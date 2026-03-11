@@ -9,6 +9,7 @@ const baseURL = process.env.PLAYWRIGHT_BASE_URL || "http://localhost:8002";
 
 module.exports = defineConfig({
 	testDir: "./tests/e2e/specs",
+	globalTeardown: "./tests/e2e/global-teardown.js",
 	fullyParallel: false,
 	workers: 1,
 	timeout: 90_000,
