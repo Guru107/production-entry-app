@@ -12,10 +12,9 @@ function plusOneDay(dateString) {
 	return nextDate.toISOString().slice(0, 10);
 }
 
-function plusDays(dateString, days) {
-	const nextDate = new Date(dateString);
-	nextDate.setDate(nextDate.getDate() + days);
-	return nextDate.toISOString().slice(0, 10);
+function uniqueFutureDate() {
+	const uniqueDay = String((Date.now() % 20) + 10).padStart(2, "0");
+	return `2099-12-${uniqueDay}`;
 }
 
 async function setupFreshContext(page, prefix) {
@@ -23,17 +22,28 @@ async function setupFreshContext(page, prefix) {
 	return await bootstrapE2E(page, prefix);
 }
 
-async function deleteShiftIfExists(page, date, label) {
-	const name = `SHIFT-${date}.Shift-${label}`;
-	const exists = await callFrappeMethod(page, "frappe.client.get_value", {
+function sanitizeDepartmentForShiftName(departmentName) {
+	return String(departmentName || "")
+		.trim()
+		.replace(/[^A-Za-z0-9_-]+/g, "-")
+		.replace(/^-+|-+$/g, "");
+}
+
+async function deleteShiftIfExists(page, { department, date, label }) {
+	const rows = await callFrappeMethod(page, "frappe.client.get_list", {
 		doctype: "Shift",
-		filters: JSON.stringify({ name }),
-		fieldname: "name",
+		fields: JSON.stringify(["name"]),
+		filters: JSON.stringify({
+			department,
+			shift_date: date,
+			shift_label: label,
+		}),
+		limit_page_length: 20,
 	});
-	if (exists?.name) {
+	for (const row of rows || []) {
 		await callFrappeMethod(page, "frappe.client.delete", {
 			doctype: "Shift",
-			name,
+			name: row.name,
 		});
 	}
 }
@@ -46,6 +56,8 @@ test.describe("Shift to Stock Entry integration", () => {
 	}) => {
 		await page.goto("/app/home");
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
+		const shift = await getDoc(page, "Shift", ctx.shift_name);
+		const department = await getDoc(page, "Department", shift.department);
 
 		const shiftPage = new ShiftPage(page);
 		await shiftPage.open(ctx.shift_name);
@@ -55,6 +67,11 @@ test.describe("Shift to Stock Entry integration", () => {
 		const values = await stockEntryPage.getFieldValues(["stock_entry_type", "custom_shift"]);
 		expect(values.stock_entry_type).toBe("Manufacture");
 		expect(values.custom_shift).toBe(ctx.shift_name);
+		expect(ctx.shift_name).toBe(
+			`SHIFT-${sanitizeDepartmentForShiftName(department.department_name)}-${
+				ctx.shift_date
+			}.1`
+		);
 	});
 
 	test("@regression selecting shift auto-fills branch and planned dates", async ({ page }) => {
@@ -124,9 +141,11 @@ test.describe("Shift to Stock Entry integration", () => {
 	test("@regression custom_shift query returns only running shifts", async ({ page }) => {
 		await page.goto("/app/home");
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
+		const seededShift = await getDoc(page, "Shift", ctx.shift_name);
 
 		const shiftPage = new ShiftPage(page);
 		const draft = await shiftPage.createDraftViaApi({
+			department: seededShift.department,
 			date: plusOneDay(ctx.shift_date),
 			label: "2",
 			startTime: "16:00:00",
@@ -166,12 +185,18 @@ test.describe("Shift to Stock Entry integration", () => {
 	}) => {
 		await page.goto("/app/home");
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
+		const runningShift = await getDoc(page, "Shift", ctx.shift_name);
 
 		const shiftPage = new ShiftPage(page);
-		const draftDate = plusDays(ctx.shift_date, 2);
+		const draftDate = uniqueFutureDate();
 		const draftLabel = "2";
-		await deleteShiftIfExists(page, draftDate, draftLabel);
+		await deleteShiftIfExists(page, {
+			department: runningShift.department,
+			date: draftDate,
+			label: draftLabel,
+		});
 		const draft = await shiftPage.createDraftViaApi({
+			department: runningShift.department,
 			date: draftDate,
 			label: draftLabel,
 			startTime: "18:00:00",

@@ -37,10 +37,17 @@ class ShiftPage {
 		);
 	}
 
-	async createDraftViaApi({ date, label = "2", duration = "8", startTime = "10:00:00" }) {
+	async createDraftViaApi({
+		department,
+		date,
+		label = "2",
+		duration = "8",
+		startTime = "10:00:00",
+	}) {
 		return await callFrappeMethod(this.page, "frappe.client.insert", {
 			doc: JSON.stringify({
 				doctype: "Shift",
+				department,
 				shift_label: label,
 				shift_duration: duration,
 				shift_date: date,

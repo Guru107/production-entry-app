@@ -374,7 +374,43 @@ def get_shift_aggregate_production_entries(shift_name: str) -> list[dict]:
 	return result
 
 
+def _sanitize_department_for_name(department_name: str) -> str:
+	"""Sanitize department name for use in Shift autoname (alphanumeric and hyphen only)."""
+	if not department_name:
+		frappe.throw(_("Department is required."))
+	allowed: list[str] = []
+	for char in str(department_name).strip():
+		if char.isalnum() or char in "-_":
+			allowed.append(char)
+		elif char.isspace():
+			allowed.append("-")
+		else:
+			allowed.append("-")
+	result = "".join(allowed).strip("-")
+	if not result:
+		frappe.throw(_("Department name could not be sanitized for naming."))
+	return result
+
+
+def _resolve_department_name_for_shift_naming(department: str) -> str:
+	"""Resolve the human-facing Department label to use in Shift names."""
+	if not department:
+		frappe.throw(_("Department is required."))
+	department_name = frappe.db.get_value("Department", department, "department_name")
+	if department_name and str(department_name).strip():
+		return str(department_name).strip()
+	return department
+
+
 class Shift(Document):
+	def autoname(self) -> None:
+		"""Format: SHIFT-{sanitized_dept}-{shift_date}.{shift_label}"""
+		if not self.department or not self.shift_date or not self.shift_label:
+			return
+		department_label = _resolve_department_name_for_shift_naming(self.department)
+		sanitized = _sanitize_department_for_name(department_label)
+		self.name = f"SHIFT-{sanitized}-{self.shift_date}.{self.shift_label}"
+
 	def before_insert(self) -> None:
 		self._set_defaults()
 		self._set_warehouse_defaults_from_manufacturing_settings()
