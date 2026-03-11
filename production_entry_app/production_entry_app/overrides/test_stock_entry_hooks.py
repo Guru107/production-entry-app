@@ -1247,7 +1247,7 @@ class TestStockEntryHooks(FrappeTestCase):
 			}
 		).insert()
 
-		with self.assertRaisesRegex(ValidationError, "Only Running shifts can be linked"):
+		with self.assertRaisesRegex(ValidationError, "Only Running shifts can be linked in Stock Entry"):
 			get_shift_details_for_stock_entry(draft_shift.name)
 
 	def test_stock_entry_blocks_non_running_shift_on_save(self) -> None:

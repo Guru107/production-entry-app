@@ -246,9 +246,12 @@ class TestE2EApi(FrappeTestCase):
 	def test_collect_reserved_e2e_prefixes_derives_item_and_workstation_names(self) -> None:
 		with patch(
 			"production_entry_app.production_entry_app.api.frappe.get_all",
-			side_effect=[["_E2E_SAMPLE_W0_FG_Item"], ["E2E_SAMPLE_W0 Workstation"]],
+			side_effect=[
+				["_E2E_SAMPLE_W0_FG_Item", "OTHER_FG_Item"],
+				["E2E Workstation", "E2E_SAMPLE_W0 Workstation", "X2E_SAMPLE_W0 Workstation"],
+			],
 		):
-			self.assertEqual(_collect_reserved_e2e_prefixes(), ["E2E_SAMPLE_W0"])
+			self.assertEqual(_collect_reserved_e2e_prefixes(), ["E2E", "E2E_SAMPLE_W0"])
 
 	def test_cleanup_reserved_e2e_artifacts_sweeps_prefixes_and_permission_docs(self) -> None:
 		with ExitStack() as stack:

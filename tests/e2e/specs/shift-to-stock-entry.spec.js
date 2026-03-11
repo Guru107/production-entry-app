@@ -188,6 +188,6 @@ test.describe("Shift to Stock Entry integration", () => {
 		await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
 		await stockEntryPage.fetchItems();
 		await stockEntryPage.attemptSaveDraft();
-		await expectValidationError(page, /Only Running shifts can be linked in Shift/i);
+		await expectValidationError(page, /Only Running shifts can be linked in Stock Entry/i);
 	});
 });

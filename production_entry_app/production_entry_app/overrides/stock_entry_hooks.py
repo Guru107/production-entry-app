@@ -126,7 +126,7 @@ def _validate_linked_shift_is_running(doc) -> None:
 	status = frappe.db.get_value("Shift", shift_name, "status")
 	if status != "Running":
 		frappe.throw(
-			_("Only Running shifts can be linked in Shift. Selected shift {0} is {1}.").format(
+			_("Only Running shifts can be linked in Stock Entry. Selected shift {0} is {1}.").format(
 				frappe.bold(shift_name),
 				frappe.bold(status or _("not found")),
 			)

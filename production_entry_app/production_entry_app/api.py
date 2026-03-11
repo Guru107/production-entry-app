@@ -91,7 +91,7 @@ def get_shift_details_for_stock_entry(shift_name: str) -> dict:
 	shift = frappe.get_doc("Shift", shift_name)
 	if shift.status != "Running":
 		frappe.throw(
-			_("Only Running shifts can be linked in Shift. Selected shift {0} is {1}.").format(
+			_("Only Running shifts can be linked in Stock Entry. Selected shift {0} is {1}.").format(
 				frappe.bold(shift.name),
 				frappe.bold(shift.status or _("not found")),
 			)
@@ -104,7 +104,6 @@ def get_shift_details_for_stock_entry(shift_name: str) -> dict:
 			get_time(shift.planned_start_time),
 		)
 
-	planned_end = None
 	planned_end = get_shift_planned_end_datetime(
 		shift_date=shift.shift_date,
 		planned_start_time=shift.planned_start_time,
@@ -678,13 +677,13 @@ def cleanup_e2e_context(prefix: str = "E2E") -> dict:
 
 def _collect_reserved_e2e_prefixes() -> list[str]:
 	prefixes: set[str] = set()
-	for item_code in frappe.get_all("Item", filters={"item_code": ("like", "_E2E%_FG_Item")}, pluck="name"):
+	for item_code in frappe.get_all("Item", filters={"item_code": ("like", "%FG_Item")}, pluck="name"):
 		if item_code.startswith("_") and item_code.endswith("_FG_Item"):
 			prefixes.add(item_code[1:-8])
 	for workstation_name in frappe.get_all(
-		"Workstation", filters={"name": ("like", "E2E_% Workstation")}, pluck="name"
+		"Workstation", filters={"name": ("like", "E2E% Workstation")}, pluck="name"
 	):
-		if workstation_name.endswith(" Workstation"):
+		if workstation_name.startswith("E2E") and workstation_name.endswith(" Workstation"):
 			prefixes.add(workstation_name[:-12])
 	return sorted(prefixes)
 
