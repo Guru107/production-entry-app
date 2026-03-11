@@ -13,9 +13,11 @@ const WAREHOUSE_FIELDS = [
 frappe.ui.form.on("Shift", {
 	setup(frm) {
 		_set_warehouse_queries(frm);
+		_set_department_query(frm);
 	},
 	company(frm) {
 		_set_warehouse_queries(frm);
+		_set_department_query(frm);
 	},
 	planned_start_time(frm) {
 		_populate_default_breaks_if_draft(frm);
@@ -32,6 +34,7 @@ frappe.ui.form.on("Shift", {
 		_set_warehouse_field_editability(frm);
 		_toggle_company_field_visibility(frm);
 		_set_warehouse_queries(frm);
+		_set_department_query(frm);
 
 		const actions_group = __("Actions");
 		if (frm.doc.status === "Draft") {
@@ -131,6 +134,16 @@ function _set_warehouse_field_editability(frm) {
 function _toggle_company_field_visibility(frm) {
 	frappe.db.count("Company").then((count) => {
 		frm.toggle_display("company", Number(count || 0) > 1);
+	});
+}
+
+function _set_department_query(frm) {
+	frm.set_query("department", () => {
+		const filters = {};
+		if (frm.doc.company) {
+			filters.company = frm.doc.company;
+		}
+		return { filters };
 	});
 }
 
