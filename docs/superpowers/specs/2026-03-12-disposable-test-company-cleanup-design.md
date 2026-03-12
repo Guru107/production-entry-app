@@ -1,558 +1,272 @@
-# Disposable Test Company Cleanup Design
+# Ephemeral Test Site Cleanup Design
 
 ## Summary
 
-Replace prefix-based best-effort test cleanup with disposable company-root cleanup.
+Replace reusable-site cleanup with isolated ephemeral test sites.
 
-The system will keep dedicated test company documents in place, but wipe all company-owned
-test data beneath them at the end of Python and Playwright test runs. This avoids orphaned
-records such as Stock Entries referencing deleted Items, which can happen with the current
-reserved-artifact sweep.
+Instead of trying to scrub a long-lived site back to a clean state after tests, each
+authoritative Python or Playwright run will execute against its own disposable site and
+database. End-of-run cleanup drops that entire site. This removes most of the ownership,
+locking, and partial-cleanup complexity that comes from sharing one persistent test site.
 
 ## Goals
 
-- Ensure automated tests leave the instance clean after the full suite finishes.
-- Prevent orphaned records caused by partial cleanup.
-- Make cleanup deterministic and easy to reason about.
-- Keep cleanup scoped to explicitly disposable test companies only.
+- Leave no test data behind after authoritative test runs.
+- Eliminate orphaned records caused by partial object-by-object cleanup.
+- Remove most cross-suite interference and locking complexity.
+- Make cleanup deterministic by deleting the whole test site instead of inferring document
+  ownership across a shared site.
 
 ## Non-Goals
 
-- Do not delete or recreate the Company document itself.
-- Do not broaden cleanup into shared non-test companies.
-- Do not rely on prefix inference as the primary cleanup mechanism.
+- Do not preserve a reusable long-lived test site between authoritative runs.
+- Do not implement a complex shared-site lock protocol unless a fallback is absolutely needed.
+- Do not rely on prefix-based sweeping as the primary cleanup strategy.
 
-## Current Problem
+## Core Decision
 
-Current cleanup mixes:
-
-- reserved-prefix deletion for E2E artifacts
-- benchmark cleanup by dataset key
-- lightweight per-test cleanup for Python tests
-
-This is not a closed ownership model. It can delete masters such as Items or Warehouses while
-leaving transactional documents that still reference them. The observed `Stock Entry` cancel
-failure is one example: a Material Receipt survived while its test Item was deleted.
-
-## Proposed Model
-
-Introduce dedicated disposable companies:
-
-- one for Python test data
-- one for E2E test data
-
-All automated test bootstrap helpers must create data only inside one of these disposable
-companies. End-of-suite cleanup wipes all company-owned data inside the disposable company
-while preserving the Company document itself.
-
-The model is two-layered:
-
-- company-root cleanup for company-scoped and company-owned records
-- explicit reserved cleanup for global doctypes and singletons that are not company-scoped
-
-Company-root cleanup becomes the primary ownership boundary, but it does not replace cleanup
-for truly global test artifacts.
-
-## Company Strategy
-
-Recommended company roots:
-
-- `_PEA Python Test Company`
-- `_PEA E2E Test Company`
-
-The exact names can be finalized during implementation, but they must be:
-
-- explicit
-- centrally defined
-- treated as an allowlist for destructive cleanup
-
-If cleanup is asked to target any company outside that allowlist, it must fail immediately.
-
-## Execution Model
-
-This design requires enforced site-exclusive automated test execution.
-
-Contract:
-
-- only one automated test run may target a given site at a time
-- Python and E2E suites on the same site are serialized, not concurrent
-- local development runs must not overlap with CI runs against the same site/database
-
-This is enforced, not assumed:
-
-- the site-level test/cleanup lock is acquired before any test bootstrap that creates disposable
-  or reserved test data
-- the lock is held for the full run lifetime, from bootstrap through suite teardown
-- destructive cleanup requires that same lock to still be held
-- if the lock cannot be acquired, bootstrap/teardown fails immediately
-- authoritative runners must not proceed without the lock
-
-Lock contract:
-
-- the lock is represented by a site-scoped record carrying owner token, heartbeat timestamp,
-  and TTL
-- `before_tests()` or E2E bootstrap acquires the lock and persists the owner token in a
-  site-local location
-- later teardown commands must present the same owner token to prove lock ownership
-- stale locks may be reclaimed only after TTL expiry and heartbeat timeout
-- crash recovery follows stale-lock reclamation, not silent lock overwrite
-
-## Data Ownership Rule
-
-Every automated test helper that creates company-scoped data must do so under one disposable
-company root.
-
-This includes, at minimum:
-
-- Warehouses
-- Departments
-- BOMs
-- Shifts
-- Stock Entries
-- Downtime Entries
-- Employees
-- benchmark fixtures
-
-Any helper that attempts to create test data in a non-disposable company should fail fast.
-
-## Ownership Map
-
-The cleanup design must use an explicit doctype-to-ownership rule map instead of generic
-heuristics.
-
-Primary company-root path:
-
-- `Warehouse` -> `company`
-- `Department` -> `company` when field exists
-- `BOM` -> `company`
-- `Shift` -> primary predicate: linked `Department.company` is the disposable company; fallback
-  predicate: reserved shift naming prefix owned by the suite
-- `Stock Entry` -> `company`
-- `Downtime Entry` -> primary predicate: linked `employee.company` is the disposable company;
-  fallback predicate: reserved test naming/foreign-key path owned by the suite
-- `Employee` -> `company`
-
-Reserved-global path:
-
-- `Item` -> reserved test item code/prefix allowlist
-- `Operator` -> reserved name allowlist
-- `Workstation` -> reserved name allowlist
-- `Die Tool Counter` -> `die_tool_item` matching the reserved test item allowlist
-- `Die Tool Maintenance Log` -> `die_tool_item` matching the reserved test item allowlist
-- `User` -> reserved email/name allowlist
-- `Role` -> reserved role-name allowlist
-- `Rejection Reason` -> reserved reason-name allowlist
-- `Downtime Reason` -> reserved reason-name allowlist
-- `Manufacturing Settings` -> snapshot/restore, never delete
-- `Global Defaults` -> snapshot/restore, never delete
-- per-user defaults such as user default company -> snapshot/restore, never delete
-
-If a doctype cannot be matched by one of these authoritative ownership rules, teardown fails
-verification and no success response is returned.
-
-## Global Artifact Policy
-
-Not all current test artifacts are company-scoped.
-
-The following must remain on an explicit reserved-artifact cleanup path rather than being
-treated as part of company-root deletion:
-
-- `Manufacturing Settings`
-- `Global Defaults`
-- per-user defaults
-- `User`
-- `Role`
-- `Rejection Reason`
-- `Downtime Reason`
-- `Operator`
-- `Workstation`
-- `Item`
-
-For these doctypes:
-
-- tests must use dedicated reserved naming conventions
-- teardown must clean them by reserved ownership rules
-- company-root cleanup must not assume that deleting the company subtree is sufficient
-
-This means the final cleanup system is intentionally hybrid:
-
-- disposable-company cleanup for company-owned records
-- reserved-prefix cleanup for global artifacts
-
-That is stricter than the current design and avoids pretending that all test data is
-company-bound when the schema does not support that.
-
-### Item policy
-
-`Item` is treated as a reserved global artifact, not a company-owned record.
+Authoritative automated runs should use isolated ephemeral sites, not a shared reusable site.
 
 That means:
 
-- test Items must use reserved ownership markers
-- company-root cleanup must not assume Item deletion is implied by company wipe
-- Item cleanup must only run after all dependent transactional docs have been cancelled and deleted
-- post-clean verification must confirm no surviving `Stock Entry Detail`, `BOM`, `Stock Ledger Entry`,
-  or similar dependency still references the reserved test Item before the Item is deleted
+- each Python suite run gets a fresh site/database
+- each Playwright suite run gets a fresh site/database
+- teardown removes the entire site
 
-This resolves the ownership contradiction directly: `Item` participates in test cleanup, but on
-the explicit reserved-global path rather than the company-root path.
+This is the cleanup boundary, not individual doctypes.
 
-## Cleanup Strategy
+## Execution Model
 
-### Per-test cleanup
+### Authoritative runs
 
-Keep the current lightweight per-test cleanup for speed:
+Authoritative runs are:
 
-- rollback transient DB state where appropriate
-- restore Manufacturing Settings snapshots
-- remove reserved benchmark artifacts if needed
+- CI Python test jobs
+- CI Playwright jobs
+- any scripted local full-suite run intended to validate the branch end-to-end
 
-This remains useful for isolation during the run.
+These runs must:
 
-Per-test cleanup must continue to restore and clean global state, especially:
+1. create a fresh site
+2. install required apps and test records
+3. run the suite
+4. drop the site in a `finally`/trap-style teardown path
 
-- `Manufacturing Settings` snapshots
-- benchmark fixtures
-- reserved global Python-test artifacts only
+### Non-authoritative local development
 
-### End-of-suite cleanup
+Developers may still use a long-lived local site for ad hoc debugging, manual testing, and
+focused reproduction work.
 
-Add a company-root cleaner that wipes all test data beneath a disposable company after:
+That site is explicitly outside this cleanup guarantee.
 
-- Python suite completion
-- Playwright suite completion
+If a developer chooses to run tests against a long-lived site, they accept that cleanup is
+best-effort only. The “wipe clean on ending all tests” guarantee applies to authoritative
+ephemeral-site runs.
 
-This becomes the authoritative cleanup pass.
+## Site Strategy
 
-The authoritative cleanup consists of:
+Recommended pattern:
 
-- company-root wipe for the disposable company
-- reserved global-artifact sweep for non-company doctypes
+- Python site: per-run site name such as `pea-py-<run-id>.localhost`
+- E2E site: per-run site name such as `pea-e2e-<run-id>.localhost`
 
-## Company-Root Wipe Semantics
+Where `<run-id>` is unique per invocation.
 
-The wipe must preserve the Company document and rebuildable essentials, while deleting
-company-owned test data in dependency-safe order.
+The site name must also drive:
 
-High-level order:
+- database name
+- Redis/cache namespace where relevant
+- filesystem site directory
 
-1. Quiesce active runtime docs
-2. Cancel submitted transactional docs
-3. Delete transactional docs
-4. Delete dependent masters
-5. Restore company-local defaults needed for the next run
+No two authoritative runs should reuse the same site name.
 
-The cleaner should prefer explicit cancellation and normal deletes before force deletes.
-Force deletes are only for known cleanup-safe cases.
+## Data Ownership Model
 
-## Cleanup Phases
+Ownership becomes simple:
 
-### Phase 1: Quiesce runtime state
+- any data inside the ephemeral site belongs to that run
+- cleanup deletes the entire site instead of deleting individual records by ownership inference
 
-- Move active runtime docs into a deletable state without completing business workflows
-- Stop Running Shifts in the disposable company without creating new downstream business records
+This removes the need to fully model ownership for:
 
-For `Shift`, this requires a cleanup-only quiesce path. Cleanup must not call normal
-business transitions such as `end_shift()` if those can create or mutate additional
-business records. The cleanup contract is:
-
-- transition to a deletable status using a cleanup-specific bypass/helper, or
-- directly set the minimal state needed for cancellation/deletion under cleanup guardrails
-
-### Phase 2: Cancel submitted transactions
-
-Cancel submitted documents scoped to the disposable company, such as:
-
-- Stock Entry
-- Downtime Entry, if submittable in the target environment
-- BOM, where submission state applies
-
-If a document cannot be cancelled because of referential corruption, log it and stop the wipe.
-Silent continuation here would reintroduce orphan risks.
-
-### Phase 3: Delete transactions and child rows
-
-Delete now-cancelled or draft transactional records and dependent child rows.
-
-### Phase 4: Delete company-owned masters
-
-Delete company-owned master data created for tests, including:
-
-- BOMs
+- Stock Entries
+- Shifts
+- Items
 - Warehouses
 - Departments
-- Employees
-
-`Item`, `Operator`, and `Workstation` are not assumed to be company-owned in the current
-schema. They stay on the reserved-artifact path unless the implementation first introduces
-and enforces a stronger ownership model for them.
-
-### Phase 4b: Delete reserved global artifacts
-
-Delete reserved global artifacts only after all dependent transactional and company-owned docs
-have been removed.
-
-This includes:
-
-- Items
-- Operators
-- Workstations
-- Die Tool Counters
-- Die Tool Maintenance Logs
 - Users
 - Roles
-- Rejection Reasons
 - Downtime Reasons
+- Rejection Reasons
+- counters, logs, and other derived records
 
-Deletion must be guarded by explicit reserved ownership checks, not company filters.
+They are all removed when the site is dropped.
 
-Deletion order must respect ERPNext dependencies.
+## Why This Is Simpler
 
-For `Die Tool Maintenance Log`:
+The current shared-site design forces the spec to answer hard and fragile questions:
 
-- submitted logs must be cancelled before deletion
-- cleanup must respect any counter side effects of that cancellation
-- `Die Tool Counter` deletion happens only after maintenance logs and dependent transactions are gone
+- Which doctypes are company-owned vs global?
+- What happens when links are already broken?
+- How do we coordinate Python and E2E teardown on one site?
+- How do we keep lock ownership across processes?
+- How do we restore mutated singleton and per-user defaults?
 
-### Phase 5: Restore local defaults
+Ephemeral sites avoid most of that. If the whole site is disposable, the cleanup problem is
+mostly:
 
-Re-seed only the minimum company-local defaults needed for the next test bootstrap.
+- create site correctly
+- run tests
+- reliably drop site even on failure
 
-This keeps startup predictable without requiring full Company recreation.
+## Bootstrap Contract
+
+Each authoritative runner must own site creation.
+
+Required bootstrap steps:
+
+1. create a fresh site with unique name
+2. install `frappe`, `erpnext`, and `production_entry_app`
+3. apply migrations / setup required metadata
+4. seed required test bootstrap records
+5. run tests against only that site
+
+The current `before_tests()` logic remains useful, but it now targets the ephemeral site
+created for the run rather than a shared persistent one.
+
+## Teardown Contract
+
+Each authoritative runner must own site deletion.
+
+Required teardown behavior:
+
+- teardown runs in a `finally`/trap-style path even when tests fail
+- teardown drops the site directory and backing database
+- teardown failure is itself treated as a failed run
+- teardown logs the site name so failed cleanup can be manually recovered if needed
+
+This is the authoritative cleanup guarantee.
+
+## Failure Semantics
+
+### Test failure
+
+If tests fail, teardown still runs and should still remove the ephemeral site.
+
+### Runner crash
+
+If the runner crashes before teardown:
+
+- the site name must be discoverable from logs or a run manifest
+- a separate recovery command can list and delete stale ephemeral sites
+
+This recovery path is much simpler than shared-site document cleanup because it still operates
+at site granularity.
+
+## Recovery Strategy
+
+Add one recovery utility for stale ephemeral sites.
+
+Responsibilities:
+
+- list stale `pea-py-*` and `pea-e2e-*` sites
+- show age / last modified time
+- allow explicit deletion of stale sites
+
+This is not the primary cleanup path. It is only a fallback for abnormal termination.
+
+## Impact on Existing Cleanup Code
+
+### Keep
+
+- lightweight per-test rollback/snapshot cleanup for speed inside a single run
+- benchmark cleanup helpers where they simplify test isolation inside the same ephemeral site
+- focused helpers that make repeated tests in one run deterministic
+
+### De-emphasize
+
+- global reserved-artifact sweep as the authoritative end-of-run cleanup mechanism
+- complex ownership inference for shared-site teardown
+- long-lived shared test-company cleanup roots as the main solution
+
+Shared-site cleanup helpers may still exist for local debugging, but they are no longer the
+primary correctness mechanism.
 
 ## Python Test Integration
 
-`before_tests()` should:
+Authoritative Python test command structure should become:
 
-- ensure the disposable Python company exists
-- ensure required minimal defaults for that company exist
+1. create ephemeral site
+2. run `before_tests()` / required setup against that site
+3. run `bench --site <site> run-tests ...`
+4. drop the site in a guaranteed teardown step
 
-Current repo state only exposes `before_tests()` directly and uses a per-test
-`FrappeTestCase.run()` wrapper for cleanup. The design therefore requires an explicit
-suite-end trigger, not an unspecified future mechanism.
+This should be wrapped in one script or command entrypoint so the teardown is not optional.
 
-Required design direction:
+## Playwright Integration
 
-- keep the existing per-test cleanup wrapper
-- add one explicit Python suite-finalization entrypoint for company-root cleanup
-- ensure the test runner or CI command invokes that suite-finalization step once after all
-  Python tests finish
+Authoritative Playwright command structure should become:
 
-At suite end, that finalization step should:
+1. create ephemeral site
+2. install/setup app data for that site
+3. start web server against that site
+4. run Playwright against that site URL
+5. drop the site in a guaranteed teardown step
 
-- wipe the disposable Python company contents
-- clean reserved global test artifacts
-- restore the minimal post-clean state
+Playwright global teardown should not be responsible for reconstructing ownership and sweeping
+data inside a shared site. Its job becomes run-local cleanup only, while site deletion remains
+the authoritative final cleanup.
 
-Benchmarks are part of the Python-test path.
+## Security / Safety
 
-Their ownership contract is:
+Because teardown is destructive at site level:
 
-- benchmark transactional and company-scoped data belongs to the disposable Python company path
-- benchmark global masters such as reserved benchmark Items stay on the reserved-global cleanup path
-- the Python suite-end finalization step is authoritative for benchmark cleanup
-
-Per-test cleanup remains installed for app test cases.
-
-The suite-end trigger is not an implementation detail; it is a required contract of this
-design.
-
-Mandated invocation path:
-
-- provide a single bench-executable cleanup command in
-  `production_entry_app.production_entry_app.utils.test_cleanup`
-- `before_tests()` acquires the site lock and persists a run token in a known site-local location
-- the suite-finalization command must present and validate that same run token before cleanup
-- the suite-finalization command releases the lock only after successful teardown
-- failed teardown leaves the site locked and marked dirty until an explicit recovery/override path clears it
-- authoritative Python suite runners must invoke it exactly once after `bench run-tests`
-- a test run is considered incomplete if that command does not run
-
-## E2E Integration
-
-`bootstrap_e2e_context()` should always use the disposable E2E company.
-
-Playwright global teardown should:
-
-- call a whitelisted cleanup endpoint
-- wipe the disposable E2E company contents
-- clean reserved global E2E artifacts
-- restore the minimal post-clean state
-
-The existing prefix sweep cannot be fully removed because permission tests create global
-`User`, `Role`, and `Downtime Reason` records that are not owned by company root.
-
-Playwright teardown must therefore:
-
-- fail hard on cleanup endpoint failure
-- not merely warn and continue
-- report a non-OK cleanup response as teardown failure
-
-The E2E cleanup endpoint must validate current lock ownership before wiping data:
-
-- the Playwright run passes the persisted owner token
-- the endpoint verifies that token against the site lock record
-- cleanup is rejected if token validation fails or the lock is stale/owned by another run
-
-Python per-test cleanup must not delete reserved E2E globals. Cross-suite ownership stays split:
-
-- Python cleanup handles Python disposable company + Python reserved globals
-- E2E cleanup handles E2E disposable company + E2E reserved globals
-
-## Safety Guardrails
-
-- Cleanup only runs for companies in a fixed disposable-company allowlist.
-- Cleanup logs targeted company and document counts before deletion.
-- Cleanup aborts on unexpected target company.
-- Helpers fail if they try to create test data outside disposable companies.
-- End-of-suite cleanup should not silently skip cancellation failures that would leave
-  invalid references behind.
-- Global doctypes may only be cleaned when they match explicit reserved ownership markers.
-
-## Helper Migration Boundary
-
-Current helper architecture is centered around shared bootstrap helpers and one implicit
-`resolve_test_company()` flow used by Python tests, E2E, and benchmarks.
-
-The design requires a deliberate migration boundary:
-
-- shared bootstrap helpers become parameterized by target disposable company and test mode, or
-- separate Python/E2E bootstrap wrappers call a common lower-level helper with explicit company
-  input
-
-Recommendation:
-
-- keep one common low-level helper layer
-- add explicit company-aware wrapper functions for Python and E2E paths
-
-This avoids duplicating bootstrap logic while removing the current implicit-company behavior.
-
-Benchmark helpers follow the Python wrapper path, not a third company model.
-
-## Error Handling
-
-Use fail-fast behavior for ownership violations and cleanup-target mistakes.
-
-For cleanup execution:
-
-- expected missing records can be skipped
-- cancellation failures on core submitted records should stop the wipe and log the document
-- partial cleanup should be treated as a failed test-run teardown, not success
-- cleanup should run inside explicit transaction boundaries where possible, with rollback before
-  advancing to destructive follow-up steps
-
-### Phase commit model
-
-The wipe must be idempotent and phase-bounded.
-
-Required boundaries:
-
-1. Discovery phase
-   - gather targeted records by ownership map
-   - no writes
-2. Quiesce/cancel phase
-   - cancel or quiesce submitted/runtime docs
-   - rollback entire phase on unexpected failure
-   - commit only if phase completes successfully
-3. Delete phase
-   - delete now-safe records in dependency order
-   - rollback this phase on unexpected failure before commit
-   - commit only if phase completes successfully
-4. Verification phase
-   - verify no surviving forbidden references remain
-   - if verification fails, teardown is failed and no success response is returned
-
-Retry behavior must assume partial prior success only at committed phase boundaries.
-
-### Playwright teardown contract
-
-The E2E cleanup endpoint must return a strict success/failure payload.
-
-If cleanup does not fully succeed:
-
-- the endpoint returns non-OK status
-- Playwright global teardown throws
-- the nightly/CI run fails visibly
-
-Warning-only teardown is not acceptable for this design.
-
-## Derived ERPNext Records
-
-Submitted transactions create ERPNext-managed derived records such as:
-
-- Stock Ledger Entry
-- Bin mutations
-- GL Entry, where applicable
-- Serial/Batch bundle links
-
-The design assumes these derived records should disappear through normal cancel/delete invariants,
-not direct force-delete as a primary strategy.
-
-That contract requires:
-
-- cleanup cancels top-level submitted transactions first
-- cleanup only deletes masters after those cancellations succeed
-- post-clean verification explicitly checks that no derived records still reference reserved test
-  Items, Warehouses, BOMs, or surviving voucher numbers
-
-If derived references remain after normal cleanup, teardown fails hard instead of continuing.
+- only site names matching the ephemeral naming contract may be dropped automatically
+- recovery tooling must require explicit confirmation for stale-site deletion
+- no automatic deletion should target non-ephemeral developer or production sites
 
 ## Testing Plan
 
 ### Unit tests
 
-- company allowlist enforcement
-- helper rejection for non-disposable companies
-- cleanup ordering over mocked doctypes
-- end-of-suite cleanup invocation for Python path
-- E2E teardown endpoint invocation path
+- ephemeral site name generation
+- stale-site discovery logic
+- safe filtering so only ephemeral sites are eligible for automatic drop
 
 ### Integration tests
 
-- wiping a disposable company removes company-root records such as Warehouses, BOMs, Shifts,
-  Stock Entries, and Employees
-- company document remains
-- post-wipe bootstrap can recreate required test context cleanly
-- no orphaned Stock Entry / Stock Ledger references remain after cleanup
-- reserved global artifacts are deleted only after dependent records are gone
-- reserved test Items are removed by the reserved-global sweep, not implied company-root wipe
+- authoritative Python run creates and drops a temporary site
+- authoritative Playwright run creates and drops a temporary site
+- failed test run still triggers site teardown
+- teardown failure marks the run failed
 
 ### Regression tests
 
-- Material Receipt or other non-Manufacture test records do not survive while their Items are deleted
-- cleanup does not touch shared companies
+- orphaned document issues on reusable sites no longer affect authoritative runs
+- dropped ephemeral sites leave no residual app data in their database/site directory
 
 ## Trade-offs
 
-### Preserving the Company document
+### Advantages
 
-Pros:
+- far simpler cleanup model
+- avoids complex doctype ownership mapping
+- avoids cross-suite interference on one shared site
+- avoids most lock/token/heartbeat complexity
+- strongest guarantee that no test data remains after the run
 
-- avoids ERPNext company bootstrap complexity on every run
-- reduces risk around accounting trees and default master creation
-- keeps cleanup focused on app-owned and company-owned test data
+### Costs
 
-Cons:
+- slower than reusing one warm site
+- requires stronger runner/tooling around site creation and teardown
+- local ad hoc runs against a persistent site still need separate expectations
 
-- requires explicit wipe ordering and minimal re-seed logic
+## Recommendation
 
-### Dedicated disposable companies
+Use ephemeral sites for all authoritative Python and E2E runs.
 
-Pros:
+Keep shared-site cleanup utilities only as local-development fallback tools, not as the main
+correctness path.
 
-- strong ownership boundary
-- simpler reasoning than prefix inference
-- lower risk of corrupting shared development data
-
-Cons:
-
-- requires all test helpers to consistently route data through the disposable company
-
-## Open Implementation Decisions
-
-- final disposable company names
-- exact hook mechanism for Python end-of-suite cleanup
-- exact Playwright global teardown integration point
-- final allowlist/config location
-
-These are implementation details and do not change the design direction.
+This gives the cleanest path to the requirement: test-generated data should be wiped clean at
+the end of all tests, without building a fragile shared-site cleanup engine.
