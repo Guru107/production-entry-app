@@ -86,29 +86,25 @@ def _get_columns() -> list[dict]:
 			"label": _("Productivity (P)"),
 			"fieldname": "productivity_pct",
 			"fieldtype": "Percent",
-			"precision": 0,
 			"width": 130,
 		},
 		{
 			"label": _("Quality (Q)"),
 			"fieldname": "quality_pct",
 			"fieldtype": "Percent",
-			"precision": 0,
 			"width": 110,
 		},
 		{
 			"label": _("Availability (A)"),
 			"fieldname": "availability_pct",
 			"fieldtype": "Percent",
-			"precision": 0,
 			"width": 130,
 		},
-		{"label": _("OEE"), "fieldname": "oee", "fieldtype": "Percent", "precision": 0, "width": 90},
+		{"label": _("OEE"), "fieldname": "oee", "fieldtype": "Percent", "width": 90},
 		{
 			"label": _("OEE Mult %"),
 			"fieldname": "oee_mult_pct",
 			"fieldtype": "Percent",
-			"precision": 0,
 			"width": 100,
 		},
 		{"label": _("Avl. time (hrs)"), "fieldname": "avl_time_hrs", "fieldtype": "Float", "width": 110},
@@ -172,11 +168,11 @@ def _get_rows(filters: dict, timeout_guard) -> list[dict]:
 		total_strokes = flt(group["total_strokes"], 3)
 		rejection = flt(group["rejection"], 3)
 		act_spm = flt((total_strokes / (raw_running_time * 60)), 3) if raw_running_time > 0 else 0
-		productivity_pct = flt((act_spm / std_spm) * 100, 0) if std_spm > 0 else 0
-		quality_pct = flt(((total_strokes - rejection) / total_strokes) * 100, 0) if total_strokes > 0 else 0
-		availability_pct = flt((raw_running_time / avl_time_hrs) * 100, 0) if avl_time_hrs > 0 else 0
-		oee = flt((availability_pct + quality_pct + productivity_pct) / 3, 0)
-		oee_mult_pct = flt((availability_pct * quality_pct * productivity_pct) / 10000, 0)
+		productivity_pct = flt((act_spm / std_spm) * 100, 3) if std_spm > 0 else 0
+		quality_pct = flt(((total_strokes - rejection) / total_strokes) * 100, 3) if total_strokes > 0 else 0
+		availability_pct = flt((raw_running_time / avl_time_hrs) * 100, 3) if avl_time_hrs > 0 else 0
+		oee = flt((availability_pct + quality_pct + productivity_pct) / 3, 3)
+		oee_mult_pct = flt((availability_pct * quality_pct * productivity_pct) / 10000, 3)
 
 		row = {
 			"day": group["day"],

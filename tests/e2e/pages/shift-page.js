@@ -46,6 +46,7 @@ class ShiftPage {
 
 	async createDraftViaApi({
 		department,
+		branch,
 		date,
 		label = "2",
 		duration = "8",
@@ -55,6 +56,7 @@ class ShiftPage {
 			doc: JSON.stringify({
 				doctype: "Shift",
 				department,
+				branch,
 				shift_label: label,
 				shift_duration: duration,
 				shift_date: date,
@@ -63,9 +65,12 @@ class ShiftPage {
 		});
 	}
 
-	async setDraftFields({ department, date, label, duration, startTime }) {
+	async setDraftFields({ department, branch, date, label, duration, startTime }) {
 		if (department != null) {
 			await setFieldValue(this.page, "department", department);
+		}
+		if (branch != null) {
+			await setFieldValue(this.page, "branch", branch);
 		}
 		if (label != null) {
 			await setFieldValue(this.page, "shift_label", String(label));

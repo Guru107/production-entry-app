@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from unittest.mock import call, patch
+from unittest.mock import patch
 
 from frappe.tests.utils import FrappeTestCase
 
@@ -21,8 +21,8 @@ class TestTestSetup(FrappeTestCase):
 				"production_entry_app.production_entry_app.utils.test_setup.cleanup_reserved_benchmark_data"
 			) as cleanup_benchmarks,
 			patch(
-				"production_entry_app.production_entry_app.utils.test_setup.make_test_records"
-			) as make_test_records,
+				"production_entry_app.production_entry_app.utils.test_setup.erpnext_before_tests"
+			) as erpnext_before_tests,
 			patch(
 				"production_entry_app.production_entry_app.utils.test_setup._ensure_company_defaults"
 			) as ensure_defaults,
@@ -32,13 +32,13 @@ class TestTestSetup(FrappeTestCase):
 		):
 			test_setup.before_tests()
 
-		make_test_records.assert_not_called()
+		erpnext_before_tests.assert_not_called()
 		install_cleanup.assert_called_once_with()
 		cleanup_benchmarks.assert_called_once_with()
 		ensure_defaults.assert_called_once_with()
 		ensure_genders.assert_called_once_with()
 
-	def test_before_tests_only_creates_missing_core_records(self) -> None:
+	def test_before_tests_runs_erpnext_bootstrap_when_cost_center_missing(self) -> None:
 		def fake_exists(doctype, name=None):
 			return doctype == "Company"
 
@@ -52,16 +52,16 @@ class TestTestSetup(FrappeTestCase):
 				"production_entry_app.production_entry_app.utils.test_setup.cleanup_reserved_benchmark_data"
 			),
 			patch(
-				"production_entry_app.production_entry_app.utils.test_setup.make_test_records"
-			) as make_test_records,
+				"production_entry_app.production_entry_app.utils.test_setup.erpnext_before_tests"
+			) as erpnext_before_tests,
 			patch("production_entry_app.production_entry_app.utils.test_setup._ensure_company_defaults"),
 			patch("production_entry_app.production_entry_app.utils.test_setup._ensure_gender_records"),
 		):
 			test_setup.before_tests()
 
-		make_test_records.assert_called_once_with("Cost Center", commit=True)
+		erpnext_before_tests.assert_called_once_with()
 
-	def test_before_tests_creates_company_before_cost_center_when_both_missing(self) -> None:
+	def test_before_tests_runs_erpnext_bootstrap_when_company_missing(self) -> None:
 		with (
 			patch(
 				"production_entry_app.production_entry_app.utils.test_setup.frappe.db.exists",
@@ -72,16 +72,11 @@ class TestTestSetup(FrappeTestCase):
 				"production_entry_app.production_entry_app.utils.test_setup.cleanup_reserved_benchmark_data"
 			),
 			patch(
-				"production_entry_app.production_entry_app.utils.test_setup.make_test_records"
-			) as make_test_records,
+				"production_entry_app.production_entry_app.utils.test_setup.erpnext_before_tests"
+			) as erpnext_before_tests,
 			patch("production_entry_app.production_entry_app.utils.test_setup._ensure_company_defaults"),
 			patch("production_entry_app.production_entry_app.utils.test_setup._ensure_gender_records"),
 		):
 			test_setup.before_tests()
 
-		make_test_records.assert_has_calls(
-			[
-				call("Company", commit=True),
-				call("Cost Center", commit=True),
-			]
-		)
+		erpnext_before_tests.assert_called_once_with()

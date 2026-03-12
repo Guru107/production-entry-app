@@ -4,6 +4,10 @@ const ADMIN_USERNAME = process.env.PLAYWRIGHT_USERNAME || "Administrator";
 const ADMIN_PASSWORD = process.env.PLAYWRIGHT_PASSWORD || "123";
 
 module.exports = async () => {
+	if (process.env.PLAYWRIGHT_EPHEMERAL_SITE === "1") {
+		return;
+	}
+
 	const baseURL = process.env.PLAYWRIGHT_BASE_URL || "http://localhost:8002";
 	const requestContext = await request.newContext({ baseURL });
 

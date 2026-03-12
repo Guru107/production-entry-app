@@ -22,13 +22,6 @@ async function setupFreshContext(page, prefix) {
 	return await bootstrapE2E(page, prefix);
 }
 
-function sanitizeDepartmentForShiftName(departmentName) {
-	return String(departmentName || "")
-		.trim()
-		.replace(/[^A-Za-z0-9_-]+/g, "-")
-		.replace(/^-+|-+$/g, "");
-}
-
 async function deleteShiftIfExists(page, { department, date, label }) {
 	const rows = await callFrappeMethod(page, "frappe.client.get_list", {
 		doctype: "Shift",
@@ -57,8 +50,6 @@ test.describe("Shift to Stock Entry integration", () => {
 		await page.goto("/app/home");
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 		const shift = await getDoc(page, "Shift", ctx.shift_name);
-		const department = await getDoc(page, "Department", shift.department);
-
 		const shiftPage = new ShiftPage(page);
 		await shiftPage.open(ctx.shift_name);
 		await shiftPage.createProductionEntryFromShift();
@@ -67,11 +58,7 @@ test.describe("Shift to Stock Entry integration", () => {
 		const values = await stockEntryPage.getFieldValues(["stock_entry_type", "custom_shift"]);
 		expect(values.stock_entry_type).toBe("Manufacture");
 		expect(values.custom_shift).toBe(ctx.shift_name);
-		expect(ctx.shift_name).toBe(
-			`SHIFT-${sanitizeDepartmentForShiftName(department.department_name)}-${
-				ctx.shift_date
-			}.1`
-		);
+		expect(ctx.shift_name).toBe(`SHIFT-${ctx.shift_date}.1.0001`);
 	});
 
 	test("@regression selecting shift auto-fills branch and planned dates", async ({ page }) => {
@@ -146,6 +133,7 @@ test.describe("Shift to Stock Entry integration", () => {
 		const shiftPage = new ShiftPage(page);
 		const draft = await shiftPage.createDraftViaApi({
 			department: seededShift.department,
+			branch: seededShift.branch,
 			date: plusOneDay(ctx.shift_date),
 			label: "2",
 			startTime: "16:00:00",
@@ -197,6 +185,7 @@ test.describe("Shift to Stock Entry integration", () => {
 		});
 		const draft = await shiftPage.createDraftViaApi({
 			department: runningShift.department,
+			branch: runningShift.branch,
 			date: draftDate,
 			label: draftLabel,
 			startTime: "18:00:00",

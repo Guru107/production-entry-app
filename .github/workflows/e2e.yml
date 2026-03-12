@@ -60,67 +60,24 @@ jobs:
           bench get-app production_entry_app "$GITHUB_WORKSPACE"
           bench get-app --branch "version-$ERPNEXT_VERSION" erpnext
           bench setup requirements --dev
-          bench new-site --db-root-password root --admin-password 123 development.localhost
-          bench --site development.localhost install-app erpnext
-          bench --site development.localhost install-app production_entry_app
-          bench set-config -g developer_mode 1
-          bench --site development.localhost set-config allow_e2e_tests 1
           bench build
-          bench --site development.localhost execute erpnext.setup.setup_wizard.operations.install_fixtures.install --args '["India"]'
-
-      - name: Preflight verify company exists
-        id: company_preflight_initial
-        continue-on-error: true
-        run: |
-          cd ~/frappe-bench
-          bench --site development.localhost execute production_entry_app.production_entry_app.utils.test_bootstrap.resolve_test_company
-
-      - name: Bootstrap ERPNext test records for E2E (fallback)
-        if: steps.company_preflight_initial.outcome == 'failure'
-        run: |
-          cd ~/frappe-bench
-          bench --site development.localhost execute erpnext.setup.utils.before_tests
-
-      - name: Preflight verify company bootstrap
-        run: |
-          cd ~/frappe-bench
-          bench --site development.localhost execute production_entry_app.production_entry_app.utils.test_bootstrap.resolve_test_company
 
       - name: Install Playwright deps
         run: |
           npm install
           npx playwright install --with-deps chromium
 
-      - name: Start site server
-        run: |
-          cd ~/frappe-bench
-          nohup bench --site development.localhost serve --port 8002 --noreload > /tmp/bench-serve.log 2>&1 &
-          for i in {1..45}; do
-            if curl -sSf http://localhost:8002/login >/dev/null; then
-              echo "Server is up"
-              exit 0
-            fi
-            sleep 2
-          done
-          echo "Server failed to start"
-          tail -n 200 /tmp/bench-serve.log
-          exit 1
-
       - name: Run Playwright smoke on PRs
         if: github.event_name != 'schedule'
-        env:
-          PLAYWRIGHT_BASE_URL: http://localhost:8002
-          PLAYWRIGHT_USERNAME: Administrator
-          PLAYWRIGHT_PASSWORD: 123
-        run: npm run test:e2e
+        run: |
+          chmod +x scripts/run_ephemeral_e2e.sh
+          BENCH_ROOT=~/frappe-bench DB_ROOT_PASSWORD=root scripts/run_ephemeral_e2e.sh smoke
 
       - name: Run Playwright full regression nightly
         if: github.event_name == 'schedule'
-        env:
-          PLAYWRIGHT_BASE_URL: http://localhost:8002
-          PLAYWRIGHT_USERNAME: Administrator
-          PLAYWRIGHT_PASSWORD: 123
-        run: npm run test:e2e:ci
+        run: |
+          chmod +x scripts/run_ephemeral_e2e.sh
+          BENCH_ROOT=~/frappe-bench DB_ROOT_PASSWORD=root scripts/run_ephemeral_e2e.sh ci
 
       - name: Upload Playwright report
         if: always()

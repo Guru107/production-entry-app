@@ -38,6 +38,20 @@ def get_company_abbr(company: str) -> str:
 	return frappe.db.get_value("Company", company, "abbr") or "_TC"
 
 
+def resolve_test_branch() -> str | None:
+	for key in ("branch", "Branch"):
+		branch = frappe.defaults.get_user_default(key)
+		if branch and frappe.db.exists("Branch", branch):
+			return branch
+	return frappe.db.get_value("Branch", {}, "name", order_by="creation asc")
+
+
+def ensure_branch(name: str) -> str:
+	if frappe.db.exists("Branch", name):
+		return name
+	return frappe.get_doc({"doctype": "Branch", "branch": name}).insert(ignore_permissions=True).name
+
+
 def ensure_department(name: str, company: str | None = None) -> str:
 	"""Ensure a Department exists; return its name (doc name, which may differ from department_name)."""
 	if frappe.db.exists("Department", name):
@@ -202,6 +216,7 @@ def cleanup_running_shifts() -> None:
 def bootstrap_manufacturing_test_context(prefix: str) -> dict[str, Any]:
 	company = resolve_test_company()
 	abbr = get_company_abbr(company)
+	branch = ensure_branch(resolve_test_branch() or "_Test Branch")
 	rejection_warehouse = ensure_warehouse(f"{prefix} Rejection - {abbr}", company)
 	if frappe.get_meta("Warehouse", cached=True).has_field("is_rejected_warehouse"):
 		frappe.db.set_value(
@@ -209,6 +224,7 @@ def bootstrap_manufacturing_test_context(prefix: str) -> dict[str, Any]:
 		)
 	return {
 		"company": company,
+		"branch": branch,
 		"abbr": abbr,
 		"wip_warehouse": ensure_warehouse(f"{prefix} WIP - {abbr}", company),
 		"rm_warehouse": ensure_warehouse(f"{prefix} RM - {abbr}", company),

@@ -41,7 +41,53 @@ async function loginAsAdmin(page) {
 	await loginAs(page, ADMIN_USERNAME, ADMIN_PASSWORD);
 }
 
+async function ensureBranch(page, branchName = "_Test Branch") {
+	const rows = await callFrappeMethod(page, "frappe.client.get_list", {
+		doctype: "Branch",
+		fields: JSON.stringify(["name"]),
+		filters: JSON.stringify([["name", "=", branchName]]),
+		limit_page_length: 1,
+	});
+	if (rows?.[0]?.name) {
+		return rows[0].name;
+	}
+	const doc = await callFrappeMethod(page, "frappe.client.insert", {
+		doc: JSON.stringify({
+			doctype: "Branch",
+			branch: branchName,
+		}),
+	});
+	return doc.name;
+}
+
+async function ensureDepartment(page, departmentName = "E2E Department") {
+	const rows = await callFrappeMethod(page, "frappe.client.get_list", {
+		doctype: "Department",
+		fields: JSON.stringify(["name"]),
+		filters: JSON.stringify([["department_name", "=", departmentName]]),
+		limit_page_length: 1,
+	});
+	if (rows?.[0]?.name) {
+		return rows[0].name;
+	}
+	const doc = await callFrappeMethod(page, "frappe.client.insert", {
+		doc: JSON.stringify({
+			doctype: "Department",
+			department_name: departmentName,
+		}),
+	});
+	return doc.name;
+}
+
+async function getShiftSeedFields(page) {
+	return {
+		department: await ensureDepartment(page),
+		branch: await ensureBranch(page),
+	};
+}
+
 async function runShiftCrudAsRole(page, { email, role, dayOffset }) {
+	const shiftFields = await getShiftSeedFields(page);
 	await ensureUser(page, {
 		email,
 		firstName: role.replace(/\s+/g, ""),
@@ -56,6 +102,8 @@ async function runShiftCrudAsRole(page, { email, role, dayOffset }) {
 	const createdDoc = await callFrappeMethod(page, "frappe.client.insert", {
 		doc: JSON.stringify({
 			doctype: "Shift",
+			department: shiftFields.department,
+			branch: shiftFields.branch,
 			shift_label: "1",
 			shift_duration: "8",
 			shift_date: shiftDate,
@@ -177,6 +225,7 @@ test.describe("Permissions", () => {
 			callFrappeMethod(page, "frappe.client.insert", {
 				doc: JSON.stringify({
 					doctype: "Shift",
+					...(await getShiftSeedFields(page)),
 					shift_label: "1",
 					shift_duration: "8",
 					shift_date: futureDate(49),

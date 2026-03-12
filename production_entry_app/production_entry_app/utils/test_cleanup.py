@@ -20,6 +20,8 @@ def restore_manufacturing_settings_snapshot(snapshot: dict[str, Any] | None) -> 
 
 
 def cleanup_reserved_test_data() -> None:
+	# Persistent-site runs still use document-level cleanup, but authoritative suites now
+	# rely on dropping the whole ephemeral site after the run.
 	api._cleanup_reserved_e2e_artifacts()
 	for dataset_key in _PYTHON_TEST_BENCHMARK_KEYS:
 		report_benchmark.cleanup_report_benchmark(dataset_key)

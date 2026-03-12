@@ -19,6 +19,7 @@ test.describe("Shift lifecycle", () => {
 		const shiftPage = new ShiftPage(page);
 		const draft = await shiftPage.createDraftViaApi({
 			department: seededShift.department,
+			branch: seededShift.branch,
 			date: nextDateString,
 			label: "2",
 			startTime: "16:00:00",
@@ -54,6 +55,7 @@ test.describe("Shift lifecycle", () => {
 
 		const draft = await shiftPage.createDraftViaApi({
 			department: seededShift.department,
+			branch: seededShift.branch,
 			date: nextDateString,
 			label: "1",
 			startTime: "08:00:00",
