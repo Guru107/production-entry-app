@@ -97,22 +97,13 @@ jobs:
           bench get-app production_entry_app $GITHUB_WORKSPACE
           bench get-app --branch "version-$ERPNEXT_VERSION" erpnext
           bench setup requirements --dev
-          bench new-site --db-root-password root --admin-password admin test_site
-          bench --site test_site install-app erpnext
-          bench --site test_site install-app production_entry_app
-          bench build
         env:
           CI: 'Yes'
 
-      - name: Install ERPNext fixtures
-        working-directory: /home/runner/frappe-bench
-        run: |
-          bench --site test_site execute erpnext.setup.setup_wizard.operations.install_fixtures.install --args '["India"]'
-
       - name: Run Tests
-        working-directory: /home/runner/frappe-bench
+        working-directory: ${{ github.workspace }}
         run: |
-          bench --site test_site set-config allow_tests true
-          bench --site test_site run-tests --app production_entry_app
+          chmod +x scripts/run_ephemeral_python_tests.sh
+          BENCH_ROOT=/home/runner/frappe-bench DB_ROOT_PASSWORD=root scripts/run_ephemeral_python_tests.sh
         env:
           TYPE: server

@@ -34,9 +34,7 @@ def list_ephemeral_site_directories(sites_root: Path) -> list[Path]:
 	if not sites_root.exists():
 		return []
 	return sorted(
-		path
-		for path in sites_root.iterdir()
-		if path.is_dir() and is_ephemeral_site_name(path.name)
+		path for path in sites_root.iterdir() if path.is_dir() and is_ephemeral_site_name(path.name)
 	)
 
 
@@ -65,7 +63,47 @@ def list_stale_site_descriptions(
 		for site_path in list_ephemeral_site_directories(sites_root)
 	]
 	return [
-		description
-		for description in descriptions
-		if int(description["age_seconds"]) >= minimum_age_seconds
+		description for description in descriptions if int(description["age_seconds"]) >= minimum_age_seconds
 	]
+
+
+def build_new_site_command(
+	site_name: str,
+	*,
+	db_root_password: str | None = None,
+	admin_password: str,
+	db_root_username: str = "root",
+) -> list[str]:
+	validate_ephemeral_site_name(site_name)
+	command = [
+		"bench",
+		"new-site",
+		site_name,
+		"--db-root-username",
+		db_root_username,
+	]
+	if db_root_password:
+		command.extend(["--db-root-password", db_root_password])
+	command.extend(["--admin-password", admin_password])
+	return command
+
+
+def build_drop_site_command(
+	site_name: str,
+	*,
+	db_root_password: str | None = None,
+	db_root_username: str = "root",
+) -> list[str]:
+	validate_ephemeral_site_name(site_name)
+	command = [
+		"bench",
+		"drop-site",
+		site_name,
+		"--force",
+		"--no-backup",
+		"--db-root-username",
+		db_root_username,
+	]
+	if db_root_password:
+		command.extend(["--db-root-password", db_root_password])
+	return command

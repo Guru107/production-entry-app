@@ -36,6 +36,28 @@ This app can use GitHub Actions for CI. The following workflows are configured:
 - Linters: Runs [Frappe Semgrep Rules](https://github.com/frappe/semgrep-rules) and [pip-audit](https://pypi.org/project/pip-audit/) on every pull request.
 - E2E Playwright: Runs browser-based end-to-end smoke tests on PRs and full regression on nightly schedule.
 
+Authoritative CI runs now create disposable Frappe sites and drop them after the suite finishes.
+Persistent local sites remain useful for debugging, but they are not the cleanup boundary anymore.
+
+### Authoritative Ephemeral Runs
+
+Run from `apps/production_entry_app` with a bench available at `BENCH_ROOT` and a MariaDB root password
+available in `DB_ROOT_PASSWORD`:
+
+```bash
+BENCH_ROOT=/path/to/frappe-bench DB_ROOT_PASSWORD=... bash scripts/run_ephemeral_python_tests.sh
+BENCH_ROOT=/path/to/frappe-bench DB_ROOT_PASSWORD=... bash scripts/run_ephemeral_e2e.sh smoke
+BENCH_ROOT=/path/to/frappe-bench DB_ROOT_PASSWORD=... bash scripts/run_ephemeral_e2e.sh ci
+```
+
+These commands create a fresh site, run the target suite, then drop that site in teardown.
+
+To inspect leftover disposable sites after an interrupted run:
+
+```bash
+/path/to/frappe-bench/env/bin/python scripts/cleanup_stale_ephemeral_sites.py
+```
+
 ### E2E (Playwright)
 
 Run from `apps/production_entry_app`:
@@ -59,6 +81,8 @@ Notes:
 - `npm run test:e2e` runs only `@smoke`.
 - `npm run test:e2e:regression` runs only `@regression` (includes Phase 7 permission tests).
 - `npm run test:e2e:ci` runs all E2E tests.
+- `tests/e2e/global-teardown.js` remains best-effort cleanup for persistent local sites; authoritative
+  ephemeral runs do not depend on it.
 
 Environment variables (defaults shown) are in `tests/e2e/.env.example`:
 

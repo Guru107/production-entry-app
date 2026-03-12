@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime
 import os
+from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -77,3 +77,42 @@ class TestEphemeralTestSite(FrappeTestCase):
 			)
 
 		self.assertEqual([item["site_name"] for item in old_descriptions], ["pea-py-old.localhost"])
+
+	def test_build_new_site_command_uses_expected_root_and_admin_flags(self) -> None:
+		self.assertEqual(
+			ephemeral_test_site.build_new_site_command(
+				"pea-py-abc.localhost",
+				db_root_password="root",
+				admin_password="admin",
+			),
+			[
+				"bench",
+				"new-site",
+				"pea-py-abc.localhost",
+				"--db-root-username",
+				"root",
+				"--db-root-password",
+				"root",
+				"--admin-password",
+				"admin",
+			],
+		)
+
+	def test_build_drop_site_command_enables_force_and_no_backup(self) -> None:
+		self.assertEqual(
+			ephemeral_test_site.build_drop_site_command(
+				"pea-e2e-abc.localhost",
+				db_root_password="root",
+			),
+			[
+				"bench",
+				"drop-site",
+				"pea-e2e-abc.localhost",
+				"--force",
+				"--no-backup",
+				"--db-root-username",
+				"root",
+				"--db-root-password",
+				"root",
+			],
+		)

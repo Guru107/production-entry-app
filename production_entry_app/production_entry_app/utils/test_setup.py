@@ -36,7 +36,7 @@ def _ensure_gender_records() -> None:
 
 
 def before_tests() -> None:
-	"""Bootstrap critical ERPNext test records for deterministic local/CI runs."""
+	"""Bootstrap site-local ERPNext test records for deterministic local/CI runs."""
 	install_test_run_cleanup()
 	cleanup_reserved_benchmark_data()
 	for doctype in ("Company", "Cost Center"):
