@@ -157,6 +157,24 @@ class TestProductionReports(FrappeTestCase):
 			],
 		)
 
+	def test_production_oee_report_percent_columns_use_frappe_defaults(self) -> None:
+		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
+			execute,
+		)
+
+		percent_fieldnames = {
+			"productivity_pct",
+			"quality_pct",
+			"availability_pct",
+			"oee",
+			"oee_mult_pct",
+		}
+		columns, _rows = execute({})
+		columns = {column["fieldname"]: column for column in columns}
+		for fieldname in percent_fieldnames:
+			self.assertEqual(columns[fieldname]["fieldtype"], "Percent")
+			self.assertNotIn("precision", columns[fieldname])
+
 	def test_production_oee_report_metrics(self) -> None:
 		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
 			execute,
@@ -179,9 +197,9 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(len(rows), 1)
 		self.assertEqual(str(rows[0]["day"]), "2026-06-01")
 		self.assertEqual(float(rows[0]["availability_pct"]), 100.0)
-		self.assertEqual(float(rows[0]["productivity_pct"]), 12.0)
+		self.assertEqual(float(rows[0]["productivity_pct"]), 12.5)
 		self.assertEqual(float(rows[0]["quality_pct"]), 100.0)
-		self.assertEqual(float(rows[0]["oee_mult_pct"]), 12.0)
+		self.assertEqual(float(rows[0]["oee_mult_pct"]), 12.5)
 		self.assertEqual(float(rows[0]["first_shift_strokes"]), 120.0)
 		self.assertEqual(float(rows[0]["second_shift_strokes"]), 0.0)
 		self.assertEqual(float(rows[0]["running_time"]), 8.0)
@@ -573,7 +591,7 @@ class TestProductionReports(FrappeTestCase):
 		_, rows = execute({"from_date": "2026-06-04", "to_date": "2026-06-04"})
 		self.assertEqual(len(rows), 1)
 		self.assertEqual(float(rows[0]["std_spm"]), 2.0)
-		self.assertEqual(float(rows[0]["productivity_pct"]), 12.0)
+		self.assertEqual(float(rows[0]["productivity_pct"]), 12.5)
 
 	def test_production_oee_report_uses_single_group_standard_spm(self) -> None:
 		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
