@@ -1344,7 +1344,7 @@ class TestShift(FrappeTestCase):
 
 	def test_start_shift_allows_other_branch_running_shift(self) -> None:
 		other_branch = ensure_branch("Concurrent Test Branch")
-		self._delete_shifts_for_date("2026-02-29")
+		self._delete_shifts_for_date("2026-02-28")
 
 		doc1 = frappe.get_doc(
 			{
@@ -1353,7 +1353,7 @@ class TestShift(FrappeTestCase):
 				"branch": self._test_branch,
 				"shift_label": "1",
 				"shift_duration": "8",
-				"shift_date": "2026-02-29",
+				"shift_date": "2026-02-28",
 				"planned_start_time": "08:00:00",
 			}
 		).insert()
@@ -1364,7 +1364,7 @@ class TestShift(FrappeTestCase):
 				"branch": other_branch,
 				"shift_label": "1",
 				"shift_duration": "8",
-				"shift_date": "2026-02-29",
+				"shift_date": "2026-02-28",
 				"planned_start_time": "08:00:00",
 			}
 		).insert()
@@ -2176,6 +2176,7 @@ class TestShiftPermissions(FrappeTestCase):
 			{
 				"doctype": "Shift",
 				"department": self._test_department,
+				"branch": self._test_branch,
 				"shift_label": "1",
 				"shift_duration": "8",
 				"shift_date": "2026-03-02",
@@ -2204,6 +2205,7 @@ class TestShiftPermissions(FrappeTestCase):
 			{
 				"doctype": "Shift",
 				"department": self._test_department,
+				"branch": self._test_branch,
 				"shift_label": "2",
 				"shift_duration": "8",
 				"shift_date": "2026-03-03",
