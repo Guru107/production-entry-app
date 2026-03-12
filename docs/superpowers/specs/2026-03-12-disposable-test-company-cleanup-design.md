@@ -45,6 +45,14 @@ All automated test bootstrap helpers must create data only inside one of these d
 companies. End-of-suite cleanup wipes all company-owned data inside the disposable company
 while preserving the Company document itself.
 
+The model is two-layered:
+
+- company-root cleanup for company-scoped and company-owned records
+- explicit reserved cleanup for global doctypes and singletons that are not company-scoped
+
+Company-root cleanup becomes the primary ownership boundary, but it does not replace cleanup
+for truly global test artifacts.
+
 ## Company Strategy
 
 Recommended company roots:
@@ -74,11 +82,42 @@ This includes, at minimum:
 - Shifts
 - Stock Entries
 - Downtime Entries
+- Employees
 - Die Tool Counters
 - Die Tool Maintenance Logs
 - benchmark fixtures
 
 Any helper that attempts to create test data in a non-disposable company should fail fast.
+
+## Global Artifact Policy
+
+Not all current test artifacts are company-scoped.
+
+The following must remain on an explicit reserved-artifact cleanup path rather than being
+treated as part of company-root deletion:
+
+- `Manufacturing Settings`
+- `Global Defaults`
+- `User`
+- `Role`
+- `Downtime Reason`
+- `Operator`
+- `Workstation`
+- `Item`, unless test ownership is explicitly restricted by reserved code and validated before delete
+
+For these doctypes:
+
+- tests must use dedicated reserved naming conventions
+- teardown must clean them by reserved ownership rules
+- company-root cleanup must not assume that deleting the company subtree is sufficient
+
+This means the final cleanup system is intentionally hybrid:
+
+- disposable-company cleanup for company-owned records
+- reserved-prefix cleanup for global artifacts
+
+That is stricter than the current design and avoids pretending that all test data is
+company-bound when the schema does not support that.
 
 ## Cleanup Strategy
 
@@ -92,6 +131,12 @@ Keep the current lightweight per-test cleanup for speed:
 
 This remains useful for isolation during the run.
 
+Per-test cleanup must continue to restore and clean global state, especially:
+
+- `Manufacturing Settings` snapshots
+- benchmark fixtures
+- reserved global E2E artifacts
+
 ### End-of-suite cleanup
 
 Add a company-root cleaner that wipes all test data beneath a disposable company after:
@@ -100,6 +145,11 @@ Add a company-root cleaner that wipes all test data beneath a disposable company
 - Playwright suite completion
 
 This becomes the authoritative cleanup pass.
+
+The authoritative cleanup consists of:
+
+- company-root wipe for the disposable company
+- reserved global-artifact sweep for non-company doctypes
 
 ## Company-Root Wipe Semantics
 
@@ -145,12 +195,14 @@ Delete now-cancelled or draft transactional records and dependent child rows.
 Delete company-owned master data created for tests, including:
 
 - BOMs
-- Items
 - Warehouses
 - Departments
-- Workstations where test-owned
-- Operators where test-owned
+- Employees
 - Die Tool Counters
+
+`Item`, `Operator`, and `Workstation` are not assumed to be company-owned in the current
+schema. They stay on the reserved-artifact path unless the implementation first introduces
+and enforces a stronger ownership model for them.
 
 Deletion order must respect ERPNext dependencies.
 
@@ -167,12 +219,27 @@ This keeps startup predictable without requiring full Company recreation.
 - ensure the disposable Python company exists
 - ensure required minimal defaults for that company exist
 
-At suite end, an automatic cleanup hook should:
+Current repo state only exposes `before_tests()` directly and uses a per-test
+`FrappeTestCase.run()` wrapper for cleanup. The design therefore requires an explicit
+suite-end trigger, not an unspecified future mechanism.
+
+Required design direction:
+
+- keep the existing per-test cleanup wrapper
+- add one explicit Python suite-finalization entrypoint for company-root cleanup
+- ensure the test runner or CI command invokes that suite-finalization step once after all
+  Python tests finish
+
+At suite end, that finalization step should:
 
 - wipe the disposable Python company contents
+- clean reserved global test artifacts
 - restore the minimal post-clean state
 
 Per-test cleanup remains installed for app test cases.
+
+The suite-end trigger is not an implementation detail; it is a required contract of this
+design.
 
 ## E2E Integration
 
@@ -182,9 +249,17 @@ Playwright global teardown should:
 
 - call a whitelisted cleanup endpoint
 - wipe the disposable E2E company contents
+- clean reserved global E2E artifacts
 - restore the minimal post-clean state
 
-The existing prefix sweep can be reduced or removed once company-root ownership is complete.
+The existing prefix sweep cannot be fully removed because permission tests create global
+`User`, `Role`, and `Downtime Reason` records that are not owned by company root.
+
+Playwright teardown must therefore:
+
+- fail hard on cleanup endpoint failure
+- not merely warn and continue
+- report a non-OK cleanup response as teardown failure
 
 ## Safety Guardrails
 
@@ -194,6 +269,25 @@ The existing prefix sweep can be reduced or removed once company-root ownership 
 - Helpers fail if they try to create test data outside disposable companies.
 - End-of-suite cleanup should not silently skip cancellation failures that would leave
   invalid references behind.
+- Global doctypes may only be cleaned when they match explicit reserved ownership markers.
+
+## Helper Migration Boundary
+
+Current helper architecture is centered around shared bootstrap helpers and one implicit
+`resolve_test_company()` flow used by Python tests, E2E, and benchmarks.
+
+The design requires a deliberate migration boundary:
+
+- shared bootstrap helpers become parameterized by target disposable company and test mode, or
+- separate Python/E2E bootstrap wrappers call a common lower-level helper with explicit company
+  input
+
+Recommendation:
+
+- keep one common low-level helper layer
+- add explicit company-aware wrapper functions for Python and E2E paths
+
+This avoids duplicating bootstrap logic while removing the current implicit-company behavior.
 
 ## Error Handling
 
@@ -204,6 +298,20 @@ For cleanup execution:
 - expected missing records can be skipped
 - cancellation failures on core submitted records should stop the wipe and log the document
 - partial cleanup should be treated as a failed test-run teardown, not success
+- cleanup should run inside explicit transaction boundaries where possible, with rollback before
+  advancing to destructive follow-up steps
+
+### Playwright teardown contract
+
+The E2E cleanup endpoint must return a strict success/failure payload.
+
+If cleanup does not fully succeed:
+
+- the endpoint returns non-OK status
+- Playwright global teardown throws
+- the nightly/CI run fails visibly
+
+Warning-only teardown is not acceptable for this design.
 
 ## Testing Plan
 
