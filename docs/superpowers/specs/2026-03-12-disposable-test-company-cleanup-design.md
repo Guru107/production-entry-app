@@ -128,8 +128,9 @@ Required bootstrap steps:
 1. create a fresh site with unique name
 2. install `frappe`, `erpnext`, and `production_entry_app`
 3. apply migrations / setup required metadata
-4. seed required test bootstrap records
-5. run tests against only that site
+4. for E2E sites, set site config `developer_mode=1` and `allow_e2e_tests=1`
+5. seed required test bootstrap records
+6. run tests against only that site
 
 The current `before_tests()` logic remains useful, but it now targets the ephemeral site
 created for the run rather than a shared persistent one.
@@ -209,9 +210,19 @@ Authoritative Playwright command structure should become:
 
 1. create ephemeral site
 2. install/setup app data for that site
-3. start web server against that site
-4. run Playwright against that site URL
-5. drop the site in a guaranteed teardown step
+3. set site config `developer_mode=1` and `allow_e2e_tests=1`
+4. start an HTTP server that resolves requests to that exact site by hostname
+5. expose that hostname as `PLAYWRIGHT_BASE_URL`
+6. run Playwright against that site URL
+7. drop the site in a guaranteed teardown step
+
+The routing contract must be explicit:
+
+- the ephemeral site must have a unique hostname such as `pea-e2e-<run-id>.localhost`
+- bench/web-server configuration must resolve requests for that hostname to the matching site
+- browser requests must hit that hostname directly rather than relying on a default site fallback
+- if local DNS is not enough on its own, the runner must provide the required host mapping or
+  host-header behavior as part of startup
 
 Playwright global teardown should not be responsible for reconstructing ownership and sweeping
 data inside a shared site. Its job becomes run-local cleanup only, while site deletion remains
