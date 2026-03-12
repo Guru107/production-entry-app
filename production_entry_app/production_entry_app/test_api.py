@@ -397,7 +397,9 @@ class TestE2EApi(FrappeTestCase):
 		shift.status = "Running"
 		with patch("production_entry_app.production_entry_app.api.frappe.get_all", return_value=[]):
 			with patch("production_entry_app.production_entry_app.api.frappe.db.exists", return_value=True):
-				with patch("production_entry_app.production_entry_app.api.frappe.get_doc", return_value=shift):
+				with patch(
+					"production_entry_app.production_entry_app.api.frappe.get_doc", return_value=shift
+				):
 					result = _get_or_create_e2e_shift(
 						shift_name="SHIFT-TEST-2099-01-20.1",
 						base_date="2099-01-20",
@@ -433,7 +435,9 @@ class TestE2EApi(FrappeTestCase):
 		shift.status = "Draft"
 		with patch("production_entry_app.production_entry_app.api.frappe.get_all", return_value=[]):
 			with patch("production_entry_app.production_entry_app.api.frappe.db.exists", return_value=True):
-				with patch("production_entry_app.production_entry_app.api.frappe.get_doc", return_value=shift):
+				with patch(
+					"production_entry_app.production_entry_app.api.frappe.get_doc", return_value=shift
+				):
 					result = _get_or_create_e2e_shift(
 						shift_name="SHIFT-TEST-2099-01-20.1",
 						base_date="2099-01-20",
@@ -459,7 +463,9 @@ class TestE2EApi(FrappeTestCase):
 					"production_entry_app.production_entry_app.api.frappe.get_doc",
 					side_effect=[existing, doc_builder],
 				):
-					with patch("production_entry_app.production_entry_app.api.frappe.delete_doc") as delete_doc:
+					with patch(
+						"production_entry_app.production_entry_app.api.frappe.delete_doc"
+					) as delete_doc:
 						result = _get_or_create_e2e_shift(
 							shift_name="SHIFT-TEST-2099-01-20.1",
 							base_date="2099-01-20",
