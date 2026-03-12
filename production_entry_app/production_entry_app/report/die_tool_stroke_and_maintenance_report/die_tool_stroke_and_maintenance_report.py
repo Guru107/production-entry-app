@@ -93,9 +93,9 @@ def _get_rows(filters: dict) -> list[dict]:
 
 	rows = []
 	for counter in counters:
-		stroke_capacity = flt(counter.get("stroke_capacity") or 0, 3)
-		current_strokes = flt(counter.get("current_stroke_count") or 0, 3)
-		warning_threshold_pct = flt(counter.get("warning_threshold_pct") or 90, 2)
+		stroke_capacity = flt(counter.get("stroke_capacity") or 0)
+		current_strokes = flt(counter.get("current_stroke_count") or 0)
+		warning_threshold_pct = flt(counter.get("warning_threshold_pct") or 90)
 		utilization_pct, maintenance_due = get_counter_health(
 			current_strokes=current_strokes,
 			stroke_capacity=stroke_capacity,

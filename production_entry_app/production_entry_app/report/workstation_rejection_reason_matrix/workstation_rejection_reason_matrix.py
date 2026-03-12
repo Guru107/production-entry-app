@@ -91,13 +91,13 @@ def _get_rows(filters: dict, top_n: int) -> tuple[list[dict], list[str]]:
 		for row in breakup_rows:
 			parent = row.get("parent")
 			reason = row.get("rejection_reason")
-			qty = flt(row.get("qty") or 0, 3)
+			qty = flt(row.get("qty") or 0)
 			if not parent or not reason or qty <= 0:
 				continue
 			workstation = workstation_by_entry.get(parent, "Unassigned")
-			reason_totals[reason] = flt(reason_totals.get(reason) or 0, 3) + qty
+			reason_totals[reason] = flt(reason_totals.get(reason) or 0) + qty
 			matrix.setdefault(workstation, {})
-			matrix[workstation][reason] = flt(matrix[workstation].get(reason) or 0, 3) + qty
+			matrix[workstation][reason] = flt(matrix[workstation].get(reason) or 0) + qty
 			entry_sets.setdefault(workstation, set()).add(parent)
 
 	if not has_entries or not reason_totals:
@@ -105,7 +105,7 @@ def _get_rows(filters: dict, top_n: int) -> tuple[list[dict], list[str]]:
 
 	reason_order = [
 		reason
-		for reason, _qty in sorted(reason_totals.items(), key=lambda item: (-flt(item[1], 3), item[0]))[
+		for reason, _qty in sorted(reason_totals.items(), key=lambda item: (-flt(item[1]), item[0]))[
 			:top_n
 		]
 	]
@@ -115,10 +115,10 @@ def _get_rows(filters: dict, top_n: int) -> tuple[list[dict], list[str]]:
 		row = {
 			"workstation": workstation,
 			"entries": len(entry_sets.get(workstation, set())),
-			"total_rejection_qty": flt(sum(reason_map.values()), 3),
+			"total_rejection_qty": flt(sum(reason_map.values())),
 		}
 		for reason in reason_order:
-			row[_sanitize_reason_fieldname(reason)] = flt(reason_map.get(reason) or 0, 3)
+			row[_sanitize_reason_fieldname(reason)] = flt(reason_map.get(reason) or 0)
 		rows.append(row)
 
 	return rows, reason_order

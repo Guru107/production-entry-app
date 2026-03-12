@@ -59,12 +59,12 @@ def _get_rows(filters: dict) -> list[dict]:
 		breakup_rows = get_parent_breakup_reason_rows(entry_names, is_rework=False)
 		for row in breakup_rows:
 			reason = row.get("rejection_reason")
-			qty = flt(row.get("qty") or 0, 3)
+			qty = flt(row.get("qty") or 0)
 			parent = row.get("parent")
 			if not reason or qty <= 0 or not parent:
 				continue
 			total_rejection_qty += qty
-			reason_totals[reason] = flt(reason_totals.get(reason) or 0, 3) + qty
+			reason_totals[reason] = flt(reason_totals.get(reason) or 0) + qty
 			entry_sets.setdefault(reason, set()).add(parent)
 			shift_name = shift_by_entry.get(parent)
 			if shift_name:
@@ -73,19 +73,19 @@ def _get_rows(filters: dict) -> list[dict]:
 	if not has_entries or total_rejection_qty <= 0:
 		return []
 
-	sorted_reasons = sorted(reason_totals.items(), key=lambda row: (-flt(row[1], 3), row[0]))
+	sorted_reasons = sorted(reason_totals.items(), key=lambda row: (-flt(row[1]), row[0]))
 	rows = []
 	cumulative = 0.0
 	for index, (reason, qty) in enumerate(sorted_reasons, start=1):
-		reason_pct = flt((qty / total_rejection_qty) * 100, 2)
-		cumulative = flt(cumulative + reason_pct, 2)
+		reason_pct = flt((qty / total_rejection_qty) * 100)
+		cumulative = flt(cumulative + reason_pct)
 		if index == len(sorted_reasons):
 			cumulative = 100.0
 		rows.append(
 			{
 				"rank": index,
 				"rejection_reason": reason,
-				"rejection_qty": flt(qty, 3),
+				"rejection_qty": flt(qty),
 				"rejection_pct": reason_pct,
 				"cumulative_pct": cumulative,
 				"entries": len(entry_sets.get(reason, set())),
@@ -105,12 +105,12 @@ def _get_chart(rows: list[dict]) -> dict | None:
 			"datasets": [
 				{
 					"name": _("Rejection Qty"),
-					"values": [flt(row["rejection_qty"], 3) for row in rows],
+					"values": [flt(row["rejection_qty"]) for row in rows],
 					"chartType": "bar",
 				},
 				{
 					"name": _("Cumulative %"),
-					"values": [flt(row["cumulative_pct"], 2) for row in rows],
+					"values": [flt(row["cumulative_pct"]) for row in rows],
 					"chartType": "line",
 				},
 			],

@@ -60,12 +60,11 @@ def _get_rows(filters: dict) -> list[dict]:
 			entry_name = entry.get("name")
 			entry_metrics = parent_quantity_metrics.get(entry_name or "", {})
 			operator = entry.get("custom_operator") or "Unassigned"
-			rejection_qty = flt(entry_metrics.get("rejection_qty") or 0, 3)
-			total_qty = flt(entry.get("fg_completed_qty") or 0, 3)
+			rejection_qty = flt(entry_metrics.get("rejection_qty") or 0)
+			total_qty = flt(entry.get("fg_completed_qty") or 0)
 			if total_qty <= 0 and entry_name:
-				total_qty = flt(entry_metrics.get("good_qty") or 0, 3) + flt(
-					entry_metrics.get("total_rejected_qty") or 0,
-					3,
+				total_qty = flt(entry_metrics.get("good_qty") or 0) + flt(
+					entry_metrics.get("total_rejected_qty") or 0
 				)
 			agg = agg_by_operator.setdefault(
 				operator,
@@ -81,7 +80,7 @@ def _get_rows(filters: dict) -> list[dict]:
 			agg["entries"] += 1
 			agg["total_qty"] += total_qty
 			agg["rejection_qty"] += rejection_qty
-			actual_spm = flt(entry.get("custom_actual_spm") or 0, 3)
+			actual_spm = flt(entry.get("custom_actual_spm") or 0)
 			if actual_spm > 0:
 				agg["actual_spm_sum"] += actual_spm
 				agg["actual_spm_count"] += 1
@@ -94,7 +93,7 @@ def _get_rows(filters: dict) -> list[dict]:
 		for row in breakup_rows:
 			parent = row.get("parent")
 			reason = row.get("rejection_reason")
-			qty = flt(row.get("qty") or 0, 3)
+			qty = flt(row.get("qty") or 0)
 			if not parent or not reason or qty <= 0:
 				continue
 			operator = operator_by_entry.get(parent, "Unassigned")
@@ -109,7 +108,7 @@ def _get_rows(filters: dict) -> list[dict]:
 					"reason_totals": {},
 				},
 			)["reason_totals"]
-			reason_totals[reason] = flt(reason_totals.get(reason) or 0, 3) + qty
+			reason_totals[reason] = flt(reason_totals.get(reason) or 0) + qty
 
 	if not has_entries:
 		return []
@@ -117,15 +116,15 @@ def _get_rows(filters: dict) -> list[dict]:
 	rows = []
 	for operator in sorted(agg_by_operator.keys()):
 		agg = agg_by_operator[operator]
-		total_qty = flt(agg["total_qty"], 3)
-		rejection_qty = flt(agg["rejection_qty"], 3)
-		rejection_rate_pct = flt((rejection_qty / total_qty) * 100, 2) if total_qty > 0 else 0
+		total_qty = flt(agg["total_qty"])
+		rejection_qty = flt(agg["rejection_qty"])
+		rejection_rate_pct = flt((rejection_qty / total_qty) * 100) if total_qty > 0 else 0
 		avg_actual_spm = (
-			flt(agg["actual_spm_sum"] / agg["actual_spm_count"], 3) if agg["actual_spm_count"] > 0 else 0
+			flt(agg["actual_spm_sum"] / agg["actual_spm_count"]) if agg["actual_spm_count"] > 0 else 0
 		)
 		reason_totals = agg.get("reason_totals") or {}
-		top_reasons = sorted(reason_totals.items(), key=lambda item: (-flt(item[1], 3), item[0]))[:3]
-		top_3_reasons = ", ".join(f"{reason} ({flt(qty, 3)})" for reason, qty in top_reasons)
+		top_reasons = sorted(reason_totals.items(), key=lambda item: (-flt(item[1]), item[0]))[:3]
+		top_3_reasons = ", ".join(f"{reason} ({flt(qty)})" for reason, qty in top_reasons)
 		rows.append(
 			{
 				"operator": operator,

@@ -54,12 +54,11 @@ def _get_rows(filters: dict) -> list[dict]:
 				continue
 			entry_name = entry.get("name")
 			entry_metrics = parent_quantity_metrics.get(entry_name or "", {})
-			rejection_qty = flt(entry_metrics.get("rejection_qty") or 0, 3)
-			total_qty = flt(entry.get("fg_completed_qty") or 0, 3)
+			rejection_qty = flt(entry_metrics.get("rejection_qty") or 0)
+			total_qty = flt(entry.get("fg_completed_qty") or 0)
 			if total_qty <= 0 and entry_name:
-				total_qty = flt(entry_metrics.get("good_qty") or 0, 3) + flt(
-					entry_metrics.get("total_rejected_qty") or 0,
-					3,
+				total_qty = flt(entry_metrics.get("good_qty") or 0) + flt(
+					entry_metrics.get("total_rejected_qty") or 0
 				)
 
 			aggregate = aggregates.setdefault(
@@ -76,9 +75,9 @@ def _get_rows(filters: dict) -> list[dict]:
 	rows = []
 	for key_date in sorted(aggregates):
 		aggregate = aggregates[key_date]
-		total_qty = flt(aggregate["total_qty"], 3)
-		rejection_qty = flt(aggregate["rejection_qty"], 3)
-		ppm = flt((rejection_qty / total_qty) * PPM_MULTIPLIER, 2) if total_qty > 0 else 0
+		total_qty = flt(aggregate["total_qty"])
+		rejection_qty = flt(aggregate["rejection_qty"])
+		ppm = flt((rejection_qty / total_qty) * PPM_MULTIPLIER) if total_qty > 0 else 0
 		rows.append(
 			{
 				"date": aggregate["date"],
@@ -101,7 +100,7 @@ def _get_chart(rows: list[dict]) -> dict | None:
 			"datasets": [
 				{
 					"name": _("PPM"),
-					"values": [flt(row["ppm"], 2) for row in rows],
+					"values": [flt(row["ppm"]) for row in rows],
 				},
 			],
 		},

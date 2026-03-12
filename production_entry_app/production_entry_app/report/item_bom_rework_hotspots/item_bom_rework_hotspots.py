@@ -80,15 +80,14 @@ def _get_rows(filters: dict, timeout_guard) -> list[dict]:
 				continue
 			item_code = item_by_entry.get(entry_name)
 			group = _group_key(item_code, entry.get("bom_no"))
-			total_qty = flt(entry.get("fg_completed_qty") or 0, 3)
+			total_qty = flt(entry.get("fg_completed_qty") or 0)
 			if total_qty <= 0:
-				total_qty = flt(parent_metrics.get(entry_name, {}).get("good_qty") or 0, 3) + flt(
-					parent_metrics.get(entry_name, {}).get("total_rejected_qty") or 0,
-					3,
+				total_qty = flt(parent_metrics.get(entry_name, {}).get("good_qty") or 0) + flt(
+					parent_metrics.get(entry_name, {}).get("total_rejected_qty") or 0
 				)
-			rework_qty = flt(entry.get("custom_rework_qty") or 0, 3)
+			rework_qty = flt(entry.get("custom_rework_qty") or 0)
 			if rework_qty <= 0:
-				rework_qty = flt(parent_metrics.get(entry_name, {}).get("rework_qty") or 0, 3)
+				rework_qty = flt(parent_metrics.get(entry_name, {}).get("rework_qty") or 0)
 			row = agg.setdefault(
 				group,
 				{"entries": set(), "total_qty": 0.0, "rework_qty": 0.0, "reason_totals": {}},
@@ -100,7 +99,7 @@ def _get_rows(filters: dict, timeout_guard) -> list[dict]:
 		for breakup in breakup_rows:
 			parent = breakup.get("parent")
 			reason = breakup.get("rejection_reason")
-			qty = flt(breakup.get("qty") or 0, 3)
+			qty = flt(breakup.get("qty") or 0)
 			if not parent or not reason or qty <= 0:
 				continue
 			entry = entry_by_name.get(parent)
@@ -111,21 +110,21 @@ def _get_rows(filters: dict, timeout_guard) -> list[dict]:
 				group,
 				{"entries": set(), "total_qty": 0.0, "rework_qty": 0.0, "reason_totals": {}},
 			)["reason_totals"]
-			reasons[reason] = flt(reasons.get(reason) or 0, 3) + qty
+			reasons[reason] = flt(reasons.get(reason) or 0) + qty
 
 	if not has_entries:
 		return []
 
 	rows: list[dict] = []
 	for (item_code, bom_no), values in agg.items():
-		total_qty = flt(values["total_qty"], 3)
-		rework_qty = flt(values["rework_qty"], 3)
-		rework_rate_pct = flt((rework_qty / total_qty) * 100, 2) if total_qty > 0 else 0
+		total_qty = flt(values["total_qty"])
+		rework_qty = flt(values["rework_qty"])
+		rework_rate_pct = flt((rework_qty / total_qty) * 100) if total_qty > 0 else 0
 		reasons = values.get("reason_totals") or {}
 		dominant_reason = ""
 		if reasons:
-			reason, qty = sorted(reasons.items(), key=lambda item: (-flt(item[1], 3), item[0]))[0]
-			dominant_reason = f"{reason} ({flt(qty, 3)})"
+			reason, qty = sorted(reasons.items(), key=lambda item: (-flt(item[1]), item[0]))[0]
+			dominant_reason = f"{reason} ({flt(qty)})"
 		rows.append(
 			{
 				"item_code": item_code,
@@ -138,5 +137,5 @@ def _get_rows(filters: dict, timeout_guard) -> list[dict]:
 			}
 		)
 
-	rows.sort(key=lambda row: (-flt(row["rework_qty"], 3), row["item_code"], row["bom_no"] or ""))
+	rows.sort(key=lambda row: (-flt(row["rework_qty"]), row["item_code"], row["bom_no"] or ""))
 	return rows
