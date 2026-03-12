@@ -10,6 +10,7 @@ DB_ROOT_PASSWORD="${DB_ROOT_PASSWORD:-}"
 EPHEMERAL_ADMIN_PASSWORD="${EPHEMERAL_ADMIN_PASSWORD:-123}"
 RUN_ID="${EPHEMERAL_SITE_RUN_ID:-$(date +%Y%m%d%H%M%S)-$$}"
 E2E_MODE="${1:-smoke}"
+SERVE_PORT="${EPHEMERAL_E2E_PORT:-}"
 SITE_NAME=""
 SERVER_PID=""
 PREVIOUS_SITE=""
@@ -55,6 +56,10 @@ cleanup() {
 
 trap cleanup EXIT
 
+if [ -z "$SERVE_PORT" ] && [ "${CI:-}" = "true" ]; then
+	SERVE_PORT="18002"
+fi
+
 cd "$BENCH_ROOT"
 if [ -f "$BENCH_ROOT/sites/currentsite.txt" ]; then
 	PREVIOUS_SITE="$(cat "$BENCH_ROOT/sites/currentsite.txt")"
@@ -72,14 +77,21 @@ bench --site "$SITE_NAME" execute production_entry_app.production_entry_app.api.
 bench --site "$SITE_NAME" execute production_entry_app.production_entry_app.api._is_allow_e2e_tests_enabled
 bench use "$SITE_NAME"
 
-nohup bench --site "$SITE_NAME" serve --port 0 --noreload > "$SERVE_LOG" 2>&1 &
+if [ -n "$SERVE_PORT" ]; then
+	nohup bench --site "$SITE_NAME" serve --port "$SERVE_PORT" --noreload > "$SERVE_LOG" 2>&1 &
+else
+	nohup bench --site "$SITE_NAME" serve --port 0 --noreload > "$SERVE_LOG" 2>&1 &
+fi
 SERVER_PID=$!
 for _ in $(seq 1 45); do
 	if ! kill -0 "$SERVER_PID" >/dev/null 2>&1; then
 		cat "$SERVE_LOG" >&2 || true
 		exit 1
 	fi
-	PORT="$("$BENCH_PYTHON" - "$SERVE_LOG" <<'PY'
+	if [ -n "$SERVE_PORT" ]; then
+		PORT="$SERVE_PORT"
+	else
+		PORT="$("$BENCH_PYTHON" - "$SERVE_LOG" <<'PY'
 import sys
 from pathlib import Path
 
@@ -94,8 +106,9 @@ if port is None:
 print(port)
 PY
 )" || true
+	fi
 	if [ -n "$PORT" ]; then
-		BASE_URL="http://$SITE_NAME:$PORT"
+		BASE_URL="http://localhost:$PORT"
 	fi
 	if [ -n "$BASE_URL" ] && curl -sSf "$BASE_URL/login" >/dev/null; then
 		break
