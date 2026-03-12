@@ -87,6 +87,16 @@ This is enforced, not assumed:
 - if the lock cannot be acquired, bootstrap/teardown fails immediately
 - authoritative runners must not proceed without the lock
 
+Lock contract:
+
+- the lock is represented by a site-scoped record carrying owner token, heartbeat timestamp,
+  and TTL
+- `before_tests()` or E2E bootstrap acquires the lock and persists the owner token in a
+  site-local location
+- later teardown commands must present the same owner token to prove lock ownership
+- stale locks may be reclaimed only after TTL expiry and heartbeat timeout
+- crash recovery follows stale-lock reclamation, not silent lock overwrite
+
 ## Data Ownership Rule
 
 Every automated test helper that creates company-scoped data must do so under one disposable
@@ -133,6 +143,7 @@ Reserved-global path:
 - `Die Tool Maintenance Log` -> `die_tool_item` matching the reserved test item allowlist
 - `User` -> reserved email/name allowlist
 - `Role` -> reserved role-name allowlist
+- `Rejection Reason` -> reserved reason-name allowlist
 - `Downtime Reason` -> reserved reason-name allowlist
 - `Manufacturing Settings` -> snapshot/restore, never delete
 - `Global Defaults` -> snapshot/restore, never delete
@@ -151,6 +162,7 @@ treated as part of company-root deletion:
 - `Global Defaults`
 - `User`
 - `Role`
+- `Rejection Reason`
 - `Downtime Reason`
 - `Operator`
 - `Workstation`
@@ -289,6 +301,7 @@ This includes:
 - Die Tool Maintenance Logs
 - Users
 - Roles
+- Rejection Reasons
 - Downtime Reasons
 
 Deletion must be guarded by explicit reserved ownership checks, not company filters.
