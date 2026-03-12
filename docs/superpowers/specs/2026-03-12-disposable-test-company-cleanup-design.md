@@ -68,6 +68,19 @@ The exact names can be finalized during implementation, but they must be:
 
 If cleanup is asked to target any company outside that allowlist, it must fail immediately.
 
+## Execution Model
+
+This design assumes site-exclusive automated test execution.
+
+Contract:
+
+- only one automated test run may target a given site at a time
+- Python and E2E suites on the same site are serialized, not concurrent
+- local development runs must not overlap with CI runs against the same site/database
+
+If that exclusivity cannot be guaranteed, the implementation must add a site-level cleanup lock
+before any destructive teardown runs.
+
 ## Data Ownership Rule
 
 Every automated test helper that creates company-scoped data must do so under one disposable
@@ -87,6 +100,36 @@ This includes, at minimum:
 - benchmark fixtures
 
 Any helper that attempts to create test data in a non-disposable company should fail fast.
+
+## Ownership Map
+
+The cleanup design must use an explicit doctype-to-ownership rule map instead of generic
+heuristics.
+
+Primary company-root path:
+
+- `Warehouse` -> `company`
+- `Department` -> `company` when field exists
+- `BOM` -> `company`
+- `Shift` -> derived through linked `Department` in the disposable company
+- `Stock Entry` -> `company`
+- `Downtime Entry` -> linked `Employee.company` or disposable-company-linked workstation path
+- `Employee` -> `company`
+- `Die Tool Maintenance Log` -> derived through linked item/workflow path created by test wrapper
+
+Reserved-global path:
+
+- `Item` -> reserved test item code/prefix allowlist
+- `Operator` -> reserved name allowlist
+- `Workstation` -> reserved name allowlist
+- `User` -> reserved email/name allowlist
+- `Role` -> reserved role-name allowlist
+- `Downtime Reason` -> reserved reason-name allowlist
+- `Manufacturing Settings` -> snapshot/restore, never delete
+- `Global Defaults` -> snapshot/restore, never delete
+
+If a doctype cannot be matched by one of these authoritative ownership rules, it is out of
+scope for deletion until a rule is added.
 
 ## Global Artifact Policy
 
@@ -149,7 +192,7 @@ Per-test cleanup must continue to restore and clean global state, especially:
 
 - `Manufacturing Settings` snapshots
 - benchmark fixtures
-- reserved global E2E artifacts
+- reserved global Python-test artifacts only
 
 ### End-of-suite cleanup
 
@@ -187,6 +230,13 @@ Force deletes are only for known cleanup-safe cases.
 
 - Move active runtime docs into a deletable state without completing business workflows
 - Stop Running Shifts in the disposable company without creating new downstream business records
+
+For `Shift`, this requires a cleanup-only quiesce path. Cleanup must not call normal
+business transitions such as `end_shift()` if those can create or mutate additional
+business records. The cleanup contract is:
+
+- transition to a deletable status using a cleanup-specific bypass/helper, or
+- directly set the minimal state needed for cancellation/deletion under cleanup guardrails
 
 ### Phase 2: Cancel submitted transactions
 
@@ -299,6 +349,11 @@ Playwright teardown must therefore:
 - not merely warn and continue
 - report a non-OK cleanup response as teardown failure
 
+Python per-test cleanup must not delete reserved E2E globals. Cross-suite ownership stays split:
+
+- Python cleanup handles Python disposable company + Python reserved globals
+- E2E cleanup handles E2E disposable company + E2E reserved globals
+
 ## Safety Guardrails
 
 - Cleanup only runs for companies in a fixed disposable-company allowlist.
@@ -340,6 +395,29 @@ For cleanup execution:
 - partial cleanup should be treated as a failed test-run teardown, not success
 - cleanup should run inside explicit transaction boundaries where possible, with rollback before
   advancing to destructive follow-up steps
+
+### Phase commit model
+
+The wipe must be idempotent and phase-bounded.
+
+Required boundaries:
+
+1. Discovery phase
+   - gather targeted records by ownership map
+   - no writes
+2. Quiesce/cancel phase
+   - cancel or quiesce submitted/runtime docs
+   - rollback entire phase on unexpected failure
+   - commit only if phase completes successfully
+3. Delete phase
+   - delete now-safe records in dependency order
+   - rollback this phase on unexpected failure before commit
+   - commit only if phase completes successfully
+4. Verification phase
+   - verify no surviving forbidden references remain
+   - if verification fails, teardown is failed and no success response is returned
+
+Retry behavior must assume partial prior success only at committed phase boundaries.
 
 ### Playwright teardown contract
 
@@ -386,11 +464,13 @@ If derived references remain after normal cleanup, teardown fails hard instead o
 
 ### Integration tests
 
-- wiping a disposable company removes all seeded Items, Warehouses, BOMs, Shifts, and Stock Entries
+- wiping a disposable company removes company-root records such as Warehouses, BOMs, Shifts,
+  Stock Entries, and Employees
 - company document remains
 - post-wipe bootstrap can recreate required test context cleanly
 - no orphaned Stock Entry / Stock Ledger references remain after cleanup
 - reserved global artifacts are deleted only after dependent records are gone
+- reserved test Items are removed by the reserved-global sweep, not implied company-root wipe
 
 ### Regression tests
 
