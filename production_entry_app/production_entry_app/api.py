@@ -485,6 +485,7 @@ def _build_e2e_shift_doc(
 		"rejection_warehouse": rejection_warehouse,
 	}
 
+
 def _complete_other_running_e2e_shifts(*, keep_department: str | None = None) -> None:
 	reserved_departments = frappe.get_all(
 		"Department",

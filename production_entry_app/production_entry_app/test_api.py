@@ -327,7 +327,9 @@ class TestE2EApi(FrappeTestCase):
 				)
 			)
 			stack.enter_context(
-				patch("production_entry_app.production_entry_app.api._e2e_base_date", return_value="2099-01-10")
+				patch(
+					"production_entry_app.production_entry_app.api._e2e_base_date", return_value="2099-01-10"
+				)
 			)
 			stack.enter_context(
 				patch(
@@ -357,9 +359,7 @@ class TestE2EApi(FrappeTestCase):
 			_cleanup_e2e_context(prefix="E2E")
 
 		deleted_items = [
-			call.args[1]
-			for call in safe_force_delete.call_args_list
-			if call.args and call.args[0] == "Item"
+			call.args[1] for call in safe_force_delete.call_args_list if call.args and call.args[0] == "Item"
 		]
 		self.assertEqual(deleted_items, ["_E2E_RM_Item"])
 

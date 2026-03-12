@@ -118,7 +118,11 @@ def _resolve_shift_branch(current_branch: str | None, default_branch: str | None
 		return current_branch
 	if default_branch and frappe.db.exists("Branch", default_branch):
 		return default_branch
-	return frappe.db.get_value("Branch", {}, "name", order_by="creation asc") if frappe.db.count("Branch") == 1 else None
+	return (
+		frappe.db.get_value("Branch", {}, "name", order_by="creation asc")
+		if frappe.db.count("Branch") == 1
+		else None
+	)
 
 
 def _get_next_shift_sequence(shift_date: str) -> int:

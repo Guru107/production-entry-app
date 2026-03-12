@@ -3,11 +3,11 @@ from __future__ import annotations
 import frappe
 from erpnext.setup.utils import before_tests as erpnext_before_tests
 
+from production_entry_app.production_entry_app.utils.test_bootstrap import ensure_branch
 from production_entry_app.production_entry_app.utils.test_cleanup import (
 	cleanup_reserved_benchmark_data,
 	install_test_run_cleanup,
 )
-from production_entry_app.production_entry_app.utils.test_bootstrap import ensure_branch
 
 
 def _ensure_company_defaults() -> None:

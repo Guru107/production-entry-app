@@ -17,8 +17,8 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	ensure_item,
 	ensure_warehouse,
 	get_company_abbr,
-	resolve_test_company,
 	resolve_test_branch,
+	resolve_test_company,
 )
 
 _USE_DURATION = object()
