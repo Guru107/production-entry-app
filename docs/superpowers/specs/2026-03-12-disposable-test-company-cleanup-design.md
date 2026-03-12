@@ -80,7 +80,10 @@ Contract:
 
 This is enforced, not assumed:
 
-- destructive cleanup requires acquiring a site-level cleanup lock first
+- the site-level test/cleanup lock is acquired before any test bootstrap that creates disposable
+  or reserved test data
+- the lock is held for the full run lifetime, from bootstrap through suite teardown
+- destructive cleanup requires that same lock to still be held
 - if the lock cannot be acquired, bootstrap/teardown fails immediately
 - authoritative runners must not proceed without the lock
 
@@ -114,10 +117,13 @@ Primary company-root path:
 - `Warehouse` -> `company`
 - `Department` -> `company` when field exists
 - `BOM` -> `company`
-- `Shift` -> linked `Department` whose `company` is the disposable company
+- `Shift` -> primary predicate: linked `Department.company` is the disposable company; fallback
+  predicate: reserved shift naming prefix owned by the suite
 - `Stock Entry` -> `company`
-- `Downtime Entry` -> linked `employee` whose `company` is the disposable company
+- `Downtime Entry` -> primary predicate: linked `employee.company` is the disposable company;
+  fallback predicate: reserved test naming/foreign-key path owned by the suite
 - `Employee` -> `company`
+- `Die Tool Counter` -> `die_tool_item` matching the reserved test item allowlist
 
 Reserved-global path:
 
@@ -131,8 +137,8 @@ Reserved-global path:
 - `Manufacturing Settings` -> snapshot/restore, never delete
 - `Global Defaults` -> snapshot/restore, never delete
 
-If a doctype cannot be matched by one of these authoritative ownership rules, it is out of
-scope for deletion until a rule is added.
+If a doctype cannot be matched by one of these authoritative ownership rules, teardown fails
+verification and no success response is returned.
 
 ## Global Artifact Policy
 
@@ -280,6 +286,7 @@ This includes:
 - Items
 - Operators
 - Workstations
+- Die Tool Counters
 - Die Tool Maintenance Logs
 - Users
 - Roles
@@ -288,6 +295,12 @@ This includes:
 Deletion must be guarded by explicit reserved ownership checks, not company filters.
 
 Deletion order must respect ERPNext dependencies.
+
+For `Die Tool Maintenance Log`:
+
+- submitted logs must be cancelled before deletion
+- cleanup must respect any counter side effects of that cancellation
+- `Die Tool Counter` deletion happens only after maintenance logs and dependent transactions are gone
 
 ### Phase 5: Restore local defaults
 
