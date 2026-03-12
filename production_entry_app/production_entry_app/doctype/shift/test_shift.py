@@ -258,7 +258,7 @@ class TestShift(FrappeTestCase):
 		self.assertTrue(doc.planned_start_time)
 		self.assertTrue(doc.planned_end_time)
 		self.assertEqual(doc.supervisor, frappe.session.user)
-		self.assertEqual(doc.company, resolve_test_company())
+		self.assertEqual(doc.company, frappe.db.get_single_value("Global Defaults", "default_company"))
 
 	def test_department_sanitized_in_name(self) -> None:
 		"""Department name is sanitized (spaces → hyphens) in Shift autoname."""
