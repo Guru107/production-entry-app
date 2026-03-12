@@ -80,6 +80,14 @@ The site name must also drive:
 
 No two authoritative runs should reuse the same site name.
 
+The HTTP URL does not need to match the site name. For this repo, the simpler contract is:
+
+- the site name stays unique per run
+- the web server is started with `bench --site <ephemeral-site> serve ...`
+- Playwright continues to use a stable URL such as `http://localhost:8002`
+
+This avoids host-header and DNS complexity while still keeping the backing site disposable.
+
 ## Data Ownership Model
 
 Ownership becomes simple:
@@ -128,9 +136,11 @@ Required bootstrap steps:
 1. create a fresh site with unique name
 2. install `frappe`, `erpnext`, and `production_entry_app`
 3. apply migrations / setup required metadata
-4. for E2E sites, set site config `developer_mode=1` and `allow_e2e_tests=1`
-5. seed required test bootstrap records
-6. run tests against only that site
+4. for Python sites, set site config `allow_tests=true`
+5. for E2E sites, set site config `developer_mode=1` and `allow_e2e_tests=1`
+6. install ERPNext fixtures and run `erpnext.setup.utils.before_tests` so Company/defaults exist
+7. seed any additional app-specific test bootstrap records
+8. run tests against only that site
 
 The current `before_tests()` logic remains useful, but it now targets the ephemeral site
 created for the run rather than a shared persistent one.
@@ -198,9 +208,10 @@ primary correctness mechanism.
 Authoritative Python test command structure should become:
 
 1. create ephemeral site
-2. run `before_tests()` / required setup against that site
-3. run `bench --site <site> run-tests ...`
-4. drop the site in a guaranteed teardown step
+2. set `allow_tests=true`
+3. install ERPNext fixtures and run `before_tests()` / required setup against that site
+4. run `bench --site <site> run-tests ...`
+5. drop the site in a guaranteed teardown step
 
 This should be wrapped in one script or command entrypoint so the teardown is not optional.
 
@@ -211,22 +222,32 @@ Authoritative Playwright command structure should become:
 1. create ephemeral site
 2. install/setup app data for that site
 3. set site config `developer_mode=1` and `allow_e2e_tests=1`
-4. start an HTTP server that resolves requests to that exact site by hostname
-5. expose that hostname as `PLAYWRIGHT_BASE_URL`
-6. run Playwright against that site URL
-7. drop the site in a guaranteed teardown step
+4. install ERPNext fixtures and run `erpnext.setup.utils.before_tests`
+5. create deterministic admin credentials for that site and export them to Playwright env
+6. start the web server with `bench --site <ephemeral-site> serve --port 8002 --noreload`
+7. set `PLAYWRIGHT_BASE_URL=http://localhost:8002`
+8. run Playwright against that site URL
+9. drop the site in a guaranteed teardown step
 
-The routing contract must be explicit:
+The routing contract is intentionally simple for this bench:
 
-- the ephemeral site must have a unique hostname such as `pea-e2e-<run-id>.localhost`
-- bench/web-server configuration must resolve requests for that hostname to the matching site
-- browser requests must hit that hostname directly rather than relying on a default site fallback
-- if local DNS is not enough on its own, the runner must provide the required host mapping or
-  host-header behavior as part of startup
+- requests go to `http://localhost:8002`
+- site selection comes from `bench --site <ephemeral-site> serve ...`, not from host-based routing
+- the runner must not rely on `default_site` or `serve_default_site` for authoritative E2E runs
+- if a future deployment model cannot bind the site explicitly at serve time, that runner will need
+  a separate routing design and is out of scope for this first implementation
 
 Playwright global teardown should not be responsible for reconstructing ownership and sweeping
-data inside a shared site. Its job becomes run-local cleanup only, while site deletion remains
-the authoritative final cleanup.
+data inside a shared site. Site deletion remains the authoritative final cleanup.
+
+In this repo, the practical transition is:
+
+- keep existing `globalTeardown` as best-effort cleanup for local persistent-site runs
+- authoritative ephemeral-site runners may keep it enabled, but correctness must not depend on it
+- if `globalTeardown` fails, the run is still expected to end cleanly because the site drop removes
+  all test data afterward
+- Playwright login/bootstrap must receive deterministic admin credentials from runner-managed env,
+  matching the admin password used when the ephemeral site is created
 
 ## Security / Safety
 
