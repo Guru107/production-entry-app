@@ -78,7 +78,6 @@ This includes, at minimum:
 - Warehouses
 - Departments
 - BOMs
-- Items
 - Shifts
 - Stock Entries
 - Downtime Entries
@@ -103,7 +102,7 @@ treated as part of company-root deletion:
 - `Downtime Reason`
 - `Operator`
 - `Workstation`
-- `Item`, unless test ownership is explicitly restricted by reserved code and validated before delete
+- `Item`
 
 For these doctypes:
 
@@ -118,6 +117,21 @@ This means the final cleanup system is intentionally hybrid:
 
 That is stricter than the current design and avoids pretending that all test data is
 company-bound when the schema does not support that.
+
+### Item policy
+
+`Item` is treated as a reserved global artifact, not a company-owned record.
+
+That means:
+
+- test Items must use reserved ownership markers
+- company-root cleanup must not assume Item deletion is implied by company wipe
+- Item cleanup must only run after all dependent transactional docs have been cancelled and deleted
+- post-clean verification must confirm no surviving `Stock Entry Detail`, `BOM`, `Stock Ledger Entry`,
+  or similar dependency still references the reserved test Item before the Item is deleted
+
+This resolves the ownership contradiction directly: `Item` participates in test cleanup, but on
+the explicit reserved-global path rather than the company-root path.
 
 ## Cleanup Strategy
 
@@ -171,8 +185,8 @@ Force deletes are only for known cleanup-safe cases.
 
 ### Phase 1: Quiesce runtime state
 
-- End Running Shifts in the disposable company
-- Resolve active test runtime state that blocks cancellation
+- Move active runtime docs into a deletable state without completing business workflows
+- Stop Running Shifts in the disposable company without creating new downstream business records
 
 ### Phase 2: Cancel submitted transactions
 
@@ -203,6 +217,22 @@ Delete company-owned master data created for tests, including:
 `Item`, `Operator`, and `Workstation` are not assumed to be company-owned in the current
 schema. They stay on the reserved-artifact path unless the implementation first introduces
 and enforces a stronger ownership model for them.
+
+### Phase 4b: Delete reserved global artifacts
+
+Delete reserved global artifacts only after all dependent transactional and company-owned docs
+have been removed.
+
+This includes:
+
+- Items
+- Operators
+- Workstations
+- Users
+- Roles
+- Downtime Reasons
+
+Deletion must be guarded by explicit reserved ownership checks, not company filters.
 
 Deletion order must respect ERPNext dependencies.
 
@@ -235,6 +265,14 @@ At suite end, that finalization step should:
 - wipe the disposable Python company contents
 - clean reserved global test artifacts
 - restore the minimal post-clean state
+
+Benchmarks are part of the Python-test path.
+
+Their ownership contract is:
+
+- benchmark transactional and company-scoped data belongs to the disposable Python company path
+- benchmark global masters such as reserved benchmark Items stay on the reserved-global cleanup path
+- the Python suite-end finalization step is authoritative for benchmark cleanup
 
 Per-test cleanup remains installed for app test cases.
 
@@ -289,6 +327,8 @@ Recommendation:
 
 This avoids duplicating bootstrap logic while removing the current implicit-company behavior.
 
+Benchmark helpers follow the Python wrapper path, not a third company model.
+
 ## Error Handling
 
 Use fail-fast behavior for ownership violations and cleanup-target mistakes.
@@ -313,6 +353,27 @@ If cleanup does not fully succeed:
 
 Warning-only teardown is not acceptable for this design.
 
+## Derived ERPNext Records
+
+Submitted transactions create ERPNext-managed derived records such as:
+
+- Stock Ledger Entry
+- Bin mutations
+- GL Entry, where applicable
+- Serial/Batch bundle links
+
+The design assumes these derived records should disappear through normal cancel/delete invariants,
+not direct force-delete as a primary strategy.
+
+That contract requires:
+
+- cleanup cancels top-level submitted transactions first
+- cleanup only deletes masters after those cancellations succeed
+- post-clean verification explicitly checks that no derived records still reference reserved test
+  Items, Warehouses, BOMs, or surviving voucher numbers
+
+If derived references remain after normal cleanup, teardown fails hard instead of continuing.
+
 ## Testing Plan
 
 ### Unit tests
@@ -329,6 +390,7 @@ Warning-only teardown is not acceptable for this design.
 - company document remains
 - post-wipe bootstrap can recreate required test context cleanly
 - no orphaned Stock Entry / Stock Ledger references remain after cleanup
+- reserved global artifacts are deleted only after dependent records are gone
 
 ### Regression tests
 
