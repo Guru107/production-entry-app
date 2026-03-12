@@ -111,8 +111,6 @@ This includes, at minimum:
 - Stock Entries
 - Downtime Entries
 - Employees
-- Die Tool Counters
-- Die Tool Maintenance Logs
 - benchmark fixtures
 
 Any helper that attempts to create test data in a non-disposable company should fail fast.
@@ -365,7 +363,8 @@ Mandated invocation path:
   `production_entry_app.production_entry_app.utils.test_cleanup`
 - `before_tests()` acquires the site lock and persists a run token in a known site-local location
 - the suite-finalization command must present and validate that same run token before cleanup
-- the suite-finalization command is responsible for releasing the lock after successful or failed teardown
+- the suite-finalization command releases the lock only after successful teardown
+- failed teardown leaves the site locked and marked dirty until an explicit recovery/override path clears it
 - authoritative Python suite runners must invoke it exactly once after `bench run-tests`
 - a test run is considered incomplete if that command does not run
 
