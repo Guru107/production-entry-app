@@ -113,6 +113,33 @@ def _resolve_shift_company(
 	return None
 
 
+def _resolve_shift_branch(current_branch: str | None, default_branch: str | None) -> str | None:
+	if current_branch:
+		return current_branch
+	if default_branch and frappe.db.exists("Branch", default_branch):
+		return default_branch
+	return frappe.db.get_value("Branch", {}, "name", order_by="creation asc") if frappe.db.count("Branch") == 1 else None
+
+
+def _get_next_shift_sequence(shift_date: str) -> int:
+	prefix = f"SHIFT-{shift_date}."
+	existing_names = frappe.get_all(
+		"Shift",
+		filters={"shift_date": shift_date},
+		pluck="name",
+		limit_page_length=0,
+	)
+	max_sequence = 0
+	for name in existing_names:
+		if not isinstance(name, str) or not name.startswith(prefix):
+			continue
+		try:
+			max_sequence = max(max_sequence, int(name.removeprefix(prefix)))
+		except ValueError:
+			continue
+	return max_sequence + 1
+
+
 @frappe.whitelist()
 def get_planned_losses_for_duration(
 	shift_duration: str, planned_start_time: str, shift_date: str
@@ -172,7 +199,7 @@ def get_linked_downtime_entries(shift_name: str) -> list[dict]:
 
 @frappe.whitelist()
 def check_running_shift_conflict(shift_name: str) -> dict:
-	"""Return whether another shift is currently Running, excluding the given shift.
+	"""Return whether another shift in the same department and branch is currently Running.
 
 	Used by client to show a warning dialog before starting a shift.
 	Returns: {"has_conflict": bool, "conflicting_shifts": [{"name": str, "shift_label": str, ...}]}
@@ -180,11 +207,22 @@ def check_running_shift_conflict(shift_name: str) -> dict:
 	if not shift_name:
 		return {"has_conflict": False, "conflicting_shifts": []}
 
+	current_shift = frappe.db.get_value(
+		"Shift",
+		shift_name,
+		["department", "branch"],
+		as_dict=True,
+	)
+	if not current_shift or not current_shift.get("department") or not current_shift.get("branch"):
+		return {"has_conflict": False, "conflicting_shifts": []}
+
 	running = frappe.get_all(
 		"Shift",
 		filters=[
 			["status", "=", "Running"],
 			["name", "!=", shift_name],
+			["department", "=", current_shift["department"]],
+			["branch", "=", current_shift["branch"]],
 		],
 		fields=["name", "shift_label", "shift_date", "supervisor"],
 	)
@@ -402,12 +440,10 @@ def _resolve_department_name_for_shift_naming(department: str) -> str:
 
 class Shift(Document):
 	def autoname(self) -> None:
-		"""Format: SHIFT-{sanitized_dept}-{shift_date}.{shift_label}"""
-		if not self.department or not self.shift_date or not self.shift_label:
+		"""Format: SHIFT-{shift_date}.{sequence}"""
+		if not self.shift_date:
 			return
-		department_label = _resolve_department_name_for_shift_naming(self.department)
-		sanitized = _sanitize_department_for_name(department_label)
-		self.name = f"SHIFT-{sanitized}-{self.shift_date}.{self.shift_label}"
+		self.name = f"SHIFT-{self.shift_date}.{_get_next_shift_sequence(self.shift_date)}"
 
 	def before_insert(self) -> None:
 		self._set_defaults()
@@ -415,6 +451,7 @@ class Shift(Document):
 
 	def validate(self) -> None:
 		self._ensure_company()
+		self._ensure_branch()
 		self._validate_status()
 		self._validate_field_locking()
 		self._calculate_planned_end_time_and_dates()
@@ -427,16 +464,24 @@ class Shift(Document):
 		"""Transition Draft -> Running.
 
 		Status is system-managed; use this action instead of editing the Status field.
-		Blocked if another shift is already Running.
+		Blocked if another shift in the same department and branch is already Running.
 		"""
 		self._validate_no_other_running_shift()
 		self._transition_status(to_status="Running", allowed_from=("Draft",))
 
 	def _validate_no_other_running_shift(self) -> None:
-		"""Prevent starting a shift when another shift is already Running."""
+		"""Prevent starting a shift when another shift in the same department and branch is already Running."""
+		if not self.department or not self.branch:
+			return
+
 		running = frappe.get_all(
 			"Shift",
-			filters=[["status", "=", "Running"], ["name", "!=", self.name or ""]],
+			filters=[
+				["status", "=", "Running"],
+				["name", "!=", self.name or ""],
+				["department", "=", self.department],
+				["branch", "=", self.branch],
+			],
 			fields=["name", "shift_label", "shift_date"],
 			limit=1,
 		)
@@ -504,6 +549,25 @@ class Shift(Document):
 
 		frappe.throw(_("Company is required to create a Shift."))
 
+	def _ensure_branch(self) -> None:
+		if getattr(self, "branch", None):
+			return
+
+		default_branch = None
+		for key in ("branch", "Branch"):
+			default_branch = frappe.defaults.get_user_default(key)
+			if default_branch:
+				break
+
+		self.branch = _resolve_shift_branch(
+			current_branch=None,
+			default_branch=default_branch,
+		)
+		if self.branch:
+			return
+
+		frappe.throw(_("Branch is required to create a Shift."))
+
 	def _validate_status(self) -> None:
 		if not self.status:
 			self.status = "Draft"
@@ -561,7 +625,16 @@ class Shift(Document):
 
 	def _validate_no_overlapping_shifts(self) -> None:
 		"""Prevent overlapping shift time periods (exclude Cancelled)."""
-		if not all([self.shift_date, self.planned_start_time, self.shift_end_date, self.planned_end_time]):
+		if not all(
+			[
+				self.shift_date,
+				self.planned_start_time,
+				self.shift_end_date,
+				self.planned_end_time,
+				self.department,
+				self.branch,
+			]
+		):
 			return
 
 		my_start = self._combine_date_time(self.shift_date, self.planned_start_time)
@@ -573,6 +646,8 @@ class Shift(Document):
 			frappe.qb.from_(shift)
 			.select(shift.name)
 			.where(shift.status != "Cancelled")
+			.where(shift.department == self.department)
+			.where(shift.branch == self.branch)
 			.where(shift.shift_date >= add_to_date(self.shift_date, days=-1, as_string=True))
 			.where(shift.shift_date <= add_to_date(self.shift_date, days=1, as_string=True))
 			.where(
@@ -593,13 +668,15 @@ class Shift(Document):
 			frappe.throw(_("Shift time overlaps with {0}.").format(link))
 
 	def _validate_unique_shift_label_per_date(self) -> None:
-		"""Enforce unique shift_label per shift_date (exclude Cancelled)."""
-		if not self.shift_date or not self.shift_label:
+		"""Enforce unique shift_label per shift_date within the same department and branch."""
+		if not self.shift_date or not self.shift_label or not self.department or not self.branch:
 			return
 
 		filters = [
 			["shift_date", "=", self.shift_date],
 			["shift_label", "=", self.shift_label],
+			["department", "=", self.department],
+			["branch", "=", self.branch],
 			["status", "!=", "Cancelled"],
 		]
 		if not self.is_new():

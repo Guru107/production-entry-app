@@ -54,6 +54,7 @@ test.describe("Shift validations", () => {
 
 		const draft = await shiftPage.createDraftViaApi({
 			department: seededShift.department,
+			branch: seededShift.branch,
 			date: plusOneDay(ctx.shift_date),
 			label: "2",
 			startTime: "16:00:00",
@@ -80,6 +81,7 @@ test.describe("Shift validations", () => {
 
 		await shiftPage.createDraftViaApi({
 			department: seededShift.department,
+			branch: seededShift.branch,
 			date: shiftDate,
 			label: "1",
 			startTime: "08:00:00",
@@ -88,6 +90,7 @@ test.describe("Shift validations", () => {
 		await shiftPage.openNew();
 		await shiftPage.setDraftFields({
 			department: seededShift.department,
+			branch: seededShift.branch,
 			date: shiftDate,
 			label: "2",
 			duration: "8",
@@ -106,6 +109,7 @@ test.describe("Shift validations", () => {
 
 		await shiftPage.createDraftViaApi({
 			department: seededShift.department,
+			branch: seededShift.branch,
 			date: shiftDate,
 			label: "2",
 			startTime: "08:00:00",
@@ -114,6 +118,7 @@ test.describe("Shift validations", () => {
 		await shiftPage.openNew();
 		await shiftPage.setDraftFields({
 			department: seededShift.department,
+			branch: seededShift.branch,
 			date: shiftDate,
 			label: "2",
 			duration: "8",
@@ -132,6 +137,7 @@ test.describe("Shift validations", () => {
 
 		await shiftPage.openNew();
 		await shiftPage.setDraftFields({
+			branch: ctx.branch,
 			date: plusOneDay(ctx.shift_date),
 			label: "2",
 			duration: "8",
@@ -171,6 +177,7 @@ test.describe("Shift validations", () => {
 
 		await shiftPage.openNew();
 		await shiftPage.setDraftFields({
+			branch: ctx.branch,
 			date: plusOneDay(ctx.shift_date),
 			label: "2",
 			duration: "8",
@@ -195,6 +202,7 @@ test.describe("Shift validations", () => {
 
 		await shiftPage.openNew();
 		await shiftPage.setDraftFields({
+			branch: ctx.branch,
 			date: targetDate,
 			label: "2",
 			duration: "8",
@@ -222,6 +230,7 @@ test.describe("Shift validations", () => {
 			}
 		});
 		await shiftPage.setDraftFields({
+			branch: ctx.branch,
 			date: plusOneDay(ctx.shift_date),
 			label: "2",
 			duration: "8",
@@ -240,6 +249,7 @@ test.describe("Shift validations", () => {
 
 		const draft = await shiftPage.createDraftViaApi({
 			department: seededShift.department,
+			branch: seededShift.branch,
 			date: plusOneDay(ctx.shift_date),
 			label: "2",
 			startTime: "16:00:00",
@@ -259,11 +269,9 @@ test.describe("Shift validations", () => {
 		const seededShift = await getDoc(page, "Shift", ctx.shift_name);
 		const shiftPage = new ShiftPage(page);
 		const editDate = uniqueFutureDate();
-		const draftName = `SHIFT-${editDate}.Shift-2`;
-		await deleteShiftIfExists(page, draftName);
-
 		const draft = await shiftPage.createDraftViaApi({
 			department: seededShift.department,
+			branch: seededShift.branch,
 			date: editDate,
 			label: "2",
 			startTime: "08:00:00",

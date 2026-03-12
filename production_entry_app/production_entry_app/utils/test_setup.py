@@ -7,6 +7,7 @@ from production_entry_app.production_entry_app.utils.test_cleanup import (
 	cleanup_reserved_benchmark_data,
 	install_test_run_cleanup,
 )
+from production_entry_app.production_entry_app.utils.test_bootstrap import ensure_branch
 
 
 def _ensure_company_defaults() -> None:
@@ -35,6 +36,12 @@ def _ensure_gender_records() -> None:
 		frappe.get_doc({"doctype": "Gender", "gender": gender}).insert(ignore_permissions=True)
 
 
+def _ensure_branch_defaults() -> None:
+	branch = ensure_branch("_Test Branch")
+	frappe.defaults.set_user_default("branch", branch)
+	frappe.defaults.set_user_default("Branch", branch)
+
+
 def before_tests() -> None:
 	"""Bootstrap site-local ERPNext test records for deterministic local/CI runs."""
 	install_test_run_cleanup()
@@ -42,4 +49,5 @@ def before_tests() -> None:
 	if not frappe.db.exists("Company", None) or not frappe.db.exists("Cost Center", None):
 		erpnext_before_tests()
 	_ensure_company_defaults()
+	_ensure_branch_defaults()
 	_ensure_gender_records()

@@ -19,6 +19,7 @@ from production_entry_app.production_entry_app.utils.die_tool_counter import (
 from production_entry_app.production_entry_app.utils.shift_time import get_shift_planned_end_datetime
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	cleanup_running_shifts,
+	ensure_branch,
 	ensure_default_bom,
 	ensure_department,
 	ensure_downtime_reason,
@@ -28,6 +29,7 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	ensure_stock,
 	ensure_warehouse,
 	ensure_workstation,
+	resolve_test_branch,
 	resolve_test_company,
 )
 
@@ -446,6 +448,7 @@ def _build_e2e_shift_doc(
 	*,
 	base_date: str,
 	department: str,
+	branch: str,
 	wip_warehouse: str,
 	rm_warehouse: str,
 	rejection_warehouse: str,
@@ -453,6 +456,7 @@ def _build_e2e_shift_doc(
 	return {
 		"doctype": "Shift",
 		"department": department,
+		"branch": branch,
 		"shift_label": "1",
 		"shift_duration": "8",
 		"shift_date": base_date,
@@ -461,18 +465,6 @@ def _build_e2e_shift_doc(
 		"raw_material_warehouse": rm_warehouse,
 		"rejection_warehouse": rejection_warehouse,
 	}
-
-
-def _build_e2e_shift_name(*, department: str, shift_date: str, shift_label: str) -> str:
-	from production_entry_app.production_entry_app.doctype.shift.shift import (
-		_resolve_department_name_for_shift_naming,
-		_sanitize_department_for_name,
-	)
-
-	department_label = _resolve_department_name_for_shift_naming(department)
-	sanitized_dept = _sanitize_department_for_name(department_label)
-	return f"SHIFT-{sanitized_dept}-{shift_date}.{shift_label}"
-
 
 def _complete_other_running_e2e_shifts(*, keep_department: str | None = None) -> None:
 	reserved_departments = frappe.get_all(
@@ -494,26 +486,32 @@ def _complete_other_running_e2e_shifts(*, keep_department: str | None = None) ->
 
 def _get_or_create_e2e_shift(
 	*,
-	shift_name: str,
 	base_date: str,
 	department: str,
+	branch: str,
 	wip_warehouse: str,
 	rm_warehouse: str,
 	rejection_warehouse: str,
 ):
 	existing_names = frappe.get_all(
 		"Shift",
-		filters={"department": department, "shift_date": base_date, "shift_label": "1"},
+		filters={
+			"department": department,
+			"branch": branch,
+			"shift_date": base_date,
+			"shift_label": "1",
+		},
 		pluck="name",
 		limit=1,
 	)
 	if existing_names:
 		shift_name = existing_names[0]
-	elif not frappe.db.exists("Shift", shift_name):
+	else:
 		shift = frappe.get_doc(
 			_build_e2e_shift_doc(
 				base_date=base_date,
 				department=department,
+				branch=branch,
 				wip_warehouse=wip_warehouse,
 				rm_warehouse=rm_warehouse,
 				rejection_warehouse=rejection_warehouse,
@@ -529,6 +527,7 @@ def _get_or_create_e2e_shift(
 			_build_e2e_shift_doc(
 				base_date=base_date,
 				department=department,
+				branch=branch,
 				wip_warehouse=wip_warehouse,
 				rm_warehouse=rm_warehouse,
 				rejection_warehouse=rejection_warehouse,
@@ -553,6 +552,7 @@ def bootstrap_e2e_context(prefix: str = "E2E") -> dict:
 	_cache_e2e_settings_snapshot(prefix)
 	company = resolve_test_company()
 	abbr = frappe.db.get_value("Company", company, "abbr") or "TC"
+	branch = ensure_branch(resolve_test_branch() or "_Test Branch")
 
 	wip_warehouse = ensure_warehouse(f"{prefix} WIP - {abbr}", company)
 	rm_warehouse = ensure_warehouse(f"{prefix} RM - {abbr}", company)
@@ -595,15 +595,10 @@ def bootstrap_e2e_context(prefix: str = "E2E") -> dict:
 	department = ensure_department(dept_name, company)
 	_complete_other_running_e2e_shifts(keep_department=department)
 	base_date = _e2e_base_date(prefix)
-	shift_name = _build_e2e_shift_name(
-		department=department,
-		shift_date=base_date,
-		shift_label="1",
-	)
 	shift = _get_or_create_e2e_shift(
-		shift_name=shift_name,
 		base_date=base_date,
 		department=department,
+		branch=branch,
 		wip_warehouse=wip_warehouse,
 		rm_warehouse=rm_warehouse,
 		rejection_warehouse=rejection_warehouse,
@@ -613,6 +608,7 @@ def bootstrap_e2e_context(prefix: str = "E2E") -> dict:
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit - tests need deterministic persisted setup
 	return {
 		"company": company,
+		"branch": branch,
 		"wip_warehouse": wip_warehouse,
 		"rm_warehouse": rm_warehouse,
 		"fg_warehouse": fg_warehouse,
@@ -640,19 +636,20 @@ def _cleanup_e2e_context(prefix: str = "E2E") -> dict:
 	base_date = _e2e_base_date(prefix)
 	next_date = add_to_date(base_date, days=1, as_string=True)
 	e2e_shift_names = list(frappe.cache().get_value(_get_e2e_shift_names_cache_key(prefix)) or [])
+	for shift_date in (base_date, next_date):
+		for label in ("1", "2"):
+			legacy_name = f"SHIFT-{shift_date}.Shift-{label}"
+			if legacy_name not in e2e_shift_names:
+				e2e_shift_names.append(legacy_name)
 	for department in departments:
-		for shift_date in (base_date, next_date):
-			for label in ("1", "2"):
-				legacy_name = f"SHIFT-{shift_date}.Shift-{label}"
-				if legacy_name not in e2e_shift_names:
-					e2e_shift_names.append(legacy_name)
-				candidate_name = _build_e2e_shift_name(
-					department=department,
-					shift_date=shift_date,
-					shift_label=label,
-				)
-				if candidate_name not in e2e_shift_names:
-					e2e_shift_names.append(candidate_name)
+		rows = frappe.get_all(
+			"Shift",
+			filters={"department": department, "shift_date": ("in", [base_date, next_date])},
+			pluck="name",
+		)
+		for row_name in rows:
+			if row_name not in e2e_shift_names:
+				e2e_shift_names.append(row_name)
 
 	for name in e2e_shift_names:
 		if not frappe.db.exists("Shift", name):

@@ -11,12 +11,14 @@ from production_entry_app.production_entry_app.doctype.shift.shift import _resol
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	bootstrap_manufacturing_test_context,
 	cleanup_running_shifts,
+	ensure_branch,
 	ensure_default_bom,
 	ensure_department,
 	ensure_item,
 	ensure_warehouse,
 	get_company_abbr,
 	resolve_test_company,
+	resolve_test_branch,
 )
 
 _USE_DURATION = object()
@@ -48,20 +50,14 @@ def _cleanup_old_format_shifts_for_dates(*dates: str) -> None:
 
 
 def _cleanup_test_department_shift_variants_for_dates(department: str, *dates: str) -> None:
-	"""Delete both display-name and legacy-docname Shift variants for the test Department."""
-	from production_entry_app.production_entry_app.doctype.shift.shift import (
-		_resolve_department_name_for_shift_naming,
-		_sanitize_department_for_name,
-	)
-
-	current_prefix = _sanitize_department_for_name(_resolve_department_name_for_shift_naming(department))
-	legacy_prefix = _sanitize_department_for_name(department)
 	for shift_date in dates:
-		for label in ("1", "2"):
-			for prefix in {current_prefix, legacy_prefix}:
-				name = f"SHIFT-{prefix}-{shift_date}.{label}"
-				if frappe.db.exists("Shift", name):
-					frappe.delete_doc("Shift", name, force=True, ignore_permissions=True)
+		for name in frappe.get_all(
+			"Shift",
+			filters={"department": department, "shift_date": shift_date},
+			pluck="name",
+		):
+			if frappe.db.exists("Shift", name):
+				frappe.delete_doc("Shift", name, force=True, ignore_permissions=True)
 
 
 def _ensure_loss_entry_shift_field() -> None:
@@ -87,6 +83,9 @@ class TestShift(FrappeTestCase):
 		_ensure_downtime_reasons()
 		_ensure_loss_entry_shift_field()
 		self._test_department = _ensure_test_department()
+		self._test_branch = ensure_branch(resolve_test_branch() or "_Test Branch")
+		frappe.defaults.set_user_default("branch", self._test_branch)
+		frappe.defaults.set_user_default("Branch", self._test_branch)
 		# End any stale Running shifts so start_shift() is not blocked
 		for sn in frappe.get_all("Shift", filters={"status": "Running"}, pluck="name"):
 			frappe.db.set_value("Shift", sn, "status", "Completed", update_modified=False)
@@ -261,20 +260,21 @@ class TestShift(FrappeTestCase):
 		self.assertEqual(doc.company, frappe.db.get_single_value("Global Defaults", "default_company"))
 
 	def test_department_sanitized_in_name(self) -> None:
-		"""Department name is sanitized (spaces → hyphens) in Shift autoname."""
+		"""Shift autoname uses the next date sequence."""
 		name = self._expected_name(self._test_department, "2026-05-20", "1")
 		self._delete_shift_if_exists(name)
 		doc = frappe.get_doc(
 			{
 				"doctype": "Shift",
 				"department": self._test_department,
+				"branch": self._test_branch,
 				"shift_label": "1",
 				"shift_duration": "8",
 				"shift_date": "2026-05-20",
 			}
 		).insert()
 		self.assertEqual(doc.name, name)
-		self.assertIn("Test-Department", doc.name)
+		self.assertEqual(doc.name, "SHIFT-2026-05-20.1")
 		self.assertTrue(doc.name.endswith(".1"))
 
 	def test_department_display_name_used_in_name(self) -> None:
@@ -294,12 +294,13 @@ class TestShift(FrappeTestCase):
 			{
 				"doctype": "Shift",
 				"department": department,
+				"branch": self._test_branch,
 				"shift_label": "1",
 				"shift_duration": "8",
 				"shift_date": "2026-05-21",
 			}
 		).insert()
-		self.assertEqual(doc.name, "SHIFT-Press-Shop-2026-05-21.1")
+		self.assertEqual(doc.name, "SHIFT-2026-05-21.1")
 
 	def test_shift_company_field_is_present_on_meta(self) -> None:
 		meta = frappe.get_meta("Shift")
@@ -382,6 +383,7 @@ class TestShift(FrappeTestCase):
 			{
 				"doctype": "Shift",
 				"department": self._test_department,
+				"branch": self._test_branch,
 				"shift_label": "2",
 				"shift_duration": "8",
 				"shift_date": "2026-04-01",
@@ -912,6 +914,7 @@ class TestShift(FrappeTestCase):
 			{
 				"doctype": "Shift",
 				"department": self._test_department,
+				"branch": self._test_branch,
 				"shift_label": "1",
 				"shift_duration": "8",
 				"shift_date": "2026-02-20",
@@ -926,6 +929,7 @@ class TestShift(FrappeTestCase):
 				{
 					"doctype": "Shift",
 					"department": self._test_department,
+					"branch": self._test_branch,
 					"shift_label": "2",
 					"shift_duration": "8",
 					"shift_date": "2026-02-20",
@@ -936,39 +940,41 @@ class TestShift(FrappeTestCase):
 
 	def test_non_overlapping_shifts_allowed(self) -> None:
 		"""Shifts that do not overlap on the same date are allowed."""
-		name1 = self._expected_name(self._test_department, "2026-02-21", "1")
-		name2 = self._expected_name(self._test_department, "2026-02-21", "2")
-		self._delete_shift_if_exists(name1)
-		self._delete_shift_if_exists(name2)
+		self._delete_shifts_for_date("2026-02-21")
 
-		frappe.get_doc(
+		doc1 = frappe.get_doc(
 			{
 				"doctype": "Shift",
 				"department": self._test_department,
+				"branch": self._test_branch,
 				"shift_label": "1",
 				"shift_duration": "8",
 				"shift_date": "2026-02-21",
 				"planned_start_time": "08:00:00",
 			}
 		).insert()
+		self.assertEqual(doc1.name, "SHIFT-2026-02-21.1")
 
 		# Shift 2: 16:00-24:00 (midnight) - ends 00:00 next day, does not overlap 08:00-16:00
 		doc2 = frappe.get_doc(
 			{
 				"doctype": "Shift",
 				"department": self._test_department,
+				"branch": self._test_branch,
 				"shift_label": "2",
 				"shift_duration": "8",
 				"shift_date": "2026-02-21",
 				"planned_start_time": "16:00:00",
 			}
 		).insert()
-		self.assertEqual(doc2.name, name2)
+		self.assertEqual(doc2.name, "SHIFT-2026-02-21.2")
 
 	def test_overlap_query_scopes_to_nearby_dates(self) -> None:
 		from production_entry_app.production_entry_app.doctype.shift.shift import Shift
 
 		doc = frappe.new_doc("Shift")
+		doc.department = self._test_department
+		doc.branch = self._test_branch
 		doc.shift_date = "2026-02-21"
 		doc.planned_start_time = "08:00:00"
 		doc.shift_end_date = "2026-02-21"
@@ -999,6 +1005,7 @@ class TestShift(FrappeTestCase):
 			{
 				"doctype": "Shift",
 				"department": self._test_department,
+				"branch": self._test_branch,
 				"shift_label": "1",
 				"shift_duration": "8",
 				"shift_date": "2026-04-14",
@@ -1012,6 +1019,7 @@ class TestShift(FrappeTestCase):
 				{
 					"doctype": "Shift",
 					"department": self._test_department,
+					"branch": self._test_branch,
 					"shift_label": "1",
 					"shift_duration": "8",
 					"shift_date": "2026-04-15",
@@ -1020,7 +1028,7 @@ class TestShift(FrappeTestCase):
 			).insert()
 
 	def test_unique_shift_label_per_date_validation(self) -> None:
-		"""Only one Shift 1 and one Shift 2 per date."""
+		"""Only one Shift label per date within the same department and branch."""
 		name = self._expected_name(self._test_department, "2026-02-22", "1")
 		self._delete_shift_if_exists(name)
 
@@ -1028,6 +1036,7 @@ class TestShift(FrappeTestCase):
 			{
 				"doctype": "Shift",
 				"department": self._test_department,
+				"branch": self._test_branch,
 				"shift_label": "1",
 				"shift_duration": "8",
 				"shift_date": "2026-02-22",
@@ -1042,6 +1051,7 @@ class TestShift(FrappeTestCase):
 				{
 					"doctype": "Shift",
 					"department": self._test_department,
+					"branch": self._test_branch,
 					"shift_label": "1",
 					"shift_duration": "8",
 					"shift_date": "2026-02-22",
@@ -1062,6 +1072,7 @@ class TestShift(FrappeTestCase):
 			{
 				"doctype": "Shift",
 				"department": self._test_department,
+				"branch": self._test_branch,
 				"shift_label": "1",
 				"shift_duration": "8",
 				"shift_date": "2026-02-23",
@@ -1072,6 +1083,7 @@ class TestShift(FrappeTestCase):
 			{
 				"doctype": "Shift",
 				"department": self._test_department,
+				"branch": self._test_branch,
 				"shift_label": "1",
 				"shift_duration": "8",
 				"shift_date": "2026-02-24",
@@ -1251,20 +1263,22 @@ class TestShift(FrappeTestCase):
 		self._delete_shift_if_exists(name1)
 		self._delete_shift_if_exists(name2)
 
-		frappe.get_doc(
+		doc1 = frappe.get_doc(
 			{
 				"doctype": "Shift",
 				"department": self._test_department,
+				"branch": self._test_branch,
 				"shift_label": "1",
 				"shift_duration": "8",
 				"shift_date": "2026-02-28",
 				"planned_start_time": "08:00:00",
 			}
 		).insert()
-		frappe.get_doc(
+		doc2 = frappe.get_doc(
 			{
 				"doctype": "Shift",
 				"department": self._test_department,
+				"branch": self._test_branch,
 				"shift_label": "2",
 				"shift_duration": "8",
 				"shift_date": "2026-02-28",
@@ -1273,6 +1287,8 @@ class TestShift(FrappeTestCase):
 		).insert()
 
 		# Start Shift 1
+		name1 = doc1.name
+		name2 = doc2.name
 		doc1 = frappe.get_doc("Shift", name1)
 		doc1.start_shift()
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so check sees Running shift
@@ -1286,26 +1302,25 @@ class TestShift(FrappeTestCase):
 		frappe.get_doc("Shift", name1).end_shift()
 
 	def test_start_shift_blocked_when_another_running(self) -> None:
-		"""start_shift raises error when another shift is already Running."""
-		name1 = self._expected_name(self._test_department, "2026-02-28", "1")
-		name2 = self._expected_name(self._test_department, "2026-02-28", "2")
-		self._delete_shift_if_exists(name1)
-		self._delete_shift_if_exists(name2)
+		"""start_shift raises error when another shift in the same department and branch is already Running."""
+		self._delete_shifts_for_date("2026-02-28")
 
-		frappe.get_doc(
+		doc1 = frappe.get_doc(
 			{
 				"doctype": "Shift",
 				"department": self._test_department,
+				"branch": self._test_branch,
 				"shift_label": "1",
 				"shift_duration": "8",
 				"shift_date": "2026-02-28",
 				"planned_start_time": "08:00:00",
 			}
 		).insert()
-		frappe.get_doc(
+		doc2 = frappe.get_doc(
 			{
 				"doctype": "Shift",
 				"department": self._test_department,
+				"branch": self._test_branch,
 				"shift_label": "2",
 				"shift_duration": "8",
 				"shift_date": "2026-02-28",
@@ -1314,6 +1329,8 @@ class TestShift(FrappeTestCase):
 		).insert()
 
 		# Start Shift 1
+		name1 = doc1.name
+		name2 = doc2.name
 		doc1 = frappe.get_doc("Shift", name1)
 		doc1.start_shift()
 
@@ -1324,6 +1341,42 @@ class TestShift(FrappeTestCase):
 
 		# End Shift 1 so it does not leak
 		frappe.get_doc("Shift", name1).end_shift()
+
+	def test_start_shift_allows_other_branch_running_shift(self) -> None:
+		other_branch = ensure_branch("Concurrent Test Branch")
+		self._delete_shifts_for_date("2026-02-29")
+
+		doc1 = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"department": self._test_department,
+				"branch": self._test_branch,
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": "2026-02-29",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+		doc2 = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"department": self._test_department,
+				"branch": other_branch,
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": "2026-02-29",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+
+		doc1.start_shift()
+		doc2 = frappe.get_doc("Shift", doc2.name)
+		doc2.start_shift()
+
+		self.assertEqual(frappe.db.get_value("Shift", doc2.name, "status"), "Running")
+
+		frappe.get_doc("Shift", doc1.name).end_shift()
+		frappe.get_doc("Shift", doc2.name).end_shift()
 
 	def test_no_running_shift_conflict_when_none_running(self) -> None:
 		"""check_running_shift_conflict returns no conflict when no other shift is Running."""
@@ -1354,10 +1407,47 @@ class TestShift(FrappeTestCase):
 		self.assertFalse(result.get("has_conflict"))
 		self.assertEqual(result.get("conflicting_shifts"), [])
 
-	def test_branch_field_can_be_set(self) -> None:
-		name = self._expected_name(self._test_department, "2026-03-11", "1")
-		self._delete_shift_if_exists(name)
+	def test_running_shift_conflict_ignores_other_branch(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import (
+			check_running_shift_conflict,
+		)
 
+		other_branch = ensure_branch("Conflict-Free Branch")
+		self._delete_shifts_for_date("2026-03-02")
+
+		doc1 = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"department": self._test_department,
+				"branch": self._test_branch,
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": "2026-03-02",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+		doc2 = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"department": self._test_department,
+				"branch": other_branch,
+				"shift_label": "2",
+				"shift_duration": "8",
+				"shift_date": "2026-03-02",
+				"planned_start_time": "16:00:00",
+			}
+		).insert()
+
+		doc1.start_shift()
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so check sees Running shift
+
+		result = check_running_shift_conflict(doc2.name)
+		self.assertFalse(result.get("has_conflict"))
+		self.assertEqual(result.get("conflicting_shifts"), [])
+
+		frappe.get_doc("Shift", doc1.name).end_shift()
+
+	def test_branch_field_can_be_set(self) -> None:
 		if not frappe.db.exists("Branch", "Test Branch"):
 			frappe.get_doc({"doctype": "Branch", "branch": "Test Branch"}).insert(ignore_permissions=True)
 
@@ -1374,30 +1464,89 @@ class TestShift(FrappeTestCase):
 		).insert()
 		self.assertEqual(doc.branch, "Test Branch")
 
-	def test_branch_field_is_optional(self) -> None:
-		name = self._expected_name(self._test_department, "2026-03-12", "1")
-		self._delete_shift_if_exists(name)
+	def test_branch_is_required_when_no_default_is_available(self) -> None:
+		for key in ("branch", "Branch"):
+			frappe.defaults.clear_user_default(key)
+		for name in frappe.get_all("Branch", pluck="name"):
+			frappe.delete_doc("Branch", name, force=True, ignore_permissions=True)
+
+		with self.assertRaises(ValidationError):
+			frappe.get_doc(
+				{
+					"doctype": "Shift",
+					"department": self._test_department,
+					"shift_label": "1",
+					"shift_duration": "8",
+					"shift_date": "2026-03-12",
+					"planned_start_time": "08:00:00",
+				}
+			).insert()
+
+		self._test_branch = ensure_branch("_Test Branch")
+		frappe.defaults.set_user_default("branch", self._test_branch)
+		frappe.defaults.set_user_default("Branch", self._test_branch)
+
+	def test_same_department_different_branch_overlap_is_allowed(self) -> None:
+		other_branch = ensure_branch("Other Test Branch")
+		self._delete_shifts_for_date("2026-03-13")
+
+		frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"department": self._test_department,
+				"branch": self._test_branch,
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": "2026-03-13",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
 
 		doc = frappe.get_doc(
 			{
 				"doctype": "Shift",
 				"department": self._test_department,
+				"branch": other_branch,
 				"shift_label": "1",
 				"shift_duration": "8",
-				"shift_date": "2026-03-12",
+				"shift_date": "2026-03-13",
+				"planned_start_time": "10:00:00",
+			}
+		).insert()
+		self.assertEqual(doc.name, "SHIFT-2026-03-13.2")
+
+	def test_same_shift_label_different_branch_same_date_allowed(self) -> None:
+		other_branch = ensure_branch("Another Test Branch")
+		self._delete_shifts_for_date("2026-03-14")
+
+		frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"department": self._test_department,
+				"branch": self._test_branch,
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": "2026-03-14",
 				"planned_start_time": "08:00:00",
 			}
 		).insert()
-		self.assertFalse(doc.branch)
+
+		doc = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"department": self._test_department,
+				"branch": other_branch,
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": "2026-03-14",
+				"planned_start_time": "16:00:00",
+			}
+		).insert()
+		self.assertEqual(doc.name, "SHIFT-2026-03-14.2")
 
 	def _expected_name(self, department: str, shift_date: str, shift_label: str) -> str:
-		from production_entry_app.production_entry_app.doctype.shift.shift import (
-			_resolve_department_name_for_shift_naming,
-			_sanitize_department_for_name,
-		)
-
-		sanitized = _sanitize_department_for_name(_resolve_department_name_for_shift_naming(department))
-		return f"SHIFT-{sanitized}-{shift_date}.{shift_label}"
+		sequence = frappe.db.count("Shift", {"shift_date": shift_date}) + 1
+		return f"SHIFT-{shift_date}.{sequence}"
 
 	def _delete_shift_if_exists(self, name: str) -> None:
 		if frappe.db.exists("Shift", name):
@@ -1558,20 +1707,15 @@ class TestShiftMetrics(FrappeTestCase):
 
 	def _create_shift(self, shift_date: str, shift_label: str = "1"):
 		dept = _ensure_test_department()
-		from production_entry_app.production_entry_app.doctype.shift.shift import (
-			_resolve_department_name_for_shift_naming,
-			_sanitize_department_for_name,
-		)
-
-		sanitized = _sanitize_department_for_name(_resolve_department_name_for_shift_naming(dept))
-		name = f"SHIFT-{sanitized}-{shift_date}.{shift_label}"
-		for old_name in (name, f"SHIFT-{shift_date}.Shift-{shift_label}"):
+		branch = ensure_branch(resolve_test_branch() or "_Test Branch")
+		for old_name in frappe.get_all("Shift", filters={"shift_date": shift_date}, pluck="name"):
 			if frappe.db.exists("Shift", old_name):
 				frappe.delete_doc("Shift", old_name, force=True, ignore_permissions=True)
 		return frappe.get_doc(
 			{
 				"doctype": "Shift",
 				"department": dept,
+				"branch": branch,
 				"shift_label": shift_label,
 				"shift_duration": "8",
 				"shift_date": shift_date,
@@ -1808,20 +1952,15 @@ class TestShiftAggregateProductionEntries(FrappeTestCase):
 
 	def _create_shift(self, shift_date: str, shift_label: str = "1"):
 		dept = _ensure_test_department()
-		from production_entry_app.production_entry_app.doctype.shift.shift import (
-			_resolve_department_name_for_shift_naming,
-			_sanitize_department_for_name,
-		)
-
-		sanitized = _sanitize_department_for_name(_resolve_department_name_for_shift_naming(dept))
-		name = f"SHIFT-{sanitized}-{shift_date}.{shift_label}"
-		for old_name in (name, f"SHIFT-{shift_date}.Shift-{shift_label}"):
+		branch = ensure_branch(resolve_test_branch() or "_Test Branch")
+		for old_name in frappe.get_all("Shift", filters={"shift_date": shift_date}, pluck="name"):
 			if frappe.db.exists("Shift", old_name):
 				frappe.delete_doc("Shift", old_name, force=True, ignore_permissions=True)
 		return frappe.get_doc(
 			{
 				"doctype": "Shift",
 				"department": dept,
+				"branch": branch,
 				"shift_label": shift_label,
 				"shift_duration": "8",
 				"shift_date": shift_date,
@@ -2004,6 +2143,9 @@ class TestShiftPermissions(FrappeTestCase):
 
 	def setUp(self) -> None:
 		self._test_department = _ensure_test_department()
+		self._test_branch = ensure_branch(resolve_test_branch() or "_Test Branch")
+		frappe.defaults.set_user_default("branch", self._test_branch)
+		frappe.defaults.set_user_default("Branch", self._test_branch)
 		_ensure_downtime_reasons()
 		frappe.reload_doc("production_entry_app", "doctype", "loss_entry")
 		frappe.reload_doc("production_entry_app", "doctype", "rejection_breakup")
@@ -2120,13 +2262,8 @@ class TestShiftPermissions(FrappeTestCase):
 		self.assertIn("Manufacturing Manager", roles)
 
 	def _expected_name(self, department: str, shift_date: str, shift_label: str) -> str:
-		from production_entry_app.production_entry_app.doctype.shift.shift import (
-			_resolve_department_name_for_shift_naming,
-			_sanitize_department_for_name,
-		)
-
-		sanitized = _sanitize_department_for_name(_resolve_department_name_for_shift_naming(department))
-		return f"SHIFT-{sanitized}-{shift_date}.{shift_label}"
+		sequence = frappe.db.count("Shift", {"shift_date": shift_date}) + 1
+		return f"SHIFT-{shift_date}.{sequence}"
 
 	def _delete_shift_if_exists(self, name: str) -> None:
 		if frappe.db.exists("Shift", name):
