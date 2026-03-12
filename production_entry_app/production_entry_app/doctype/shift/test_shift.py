@@ -274,8 +274,8 @@ class TestShift(FrappeTestCase):
 			}
 		).insert()
 		self.assertEqual(doc.name, name)
-		self.assertEqual(doc.name, "SHIFT-2026-05-20.1")
-		self.assertTrue(doc.name.endswith(".1"))
+		self.assertEqual(doc.name, "SHIFT-2026-05-20.1.0001")
+		self.assertTrue(doc.name.endswith(".0001"))
 
 	def test_department_display_name_used_in_name(self) -> None:
 		department = ensure_department("Display Name Department")
@@ -300,7 +300,7 @@ class TestShift(FrappeTestCase):
 				"shift_date": "2026-05-21",
 			}
 		).insert()
-		self.assertEqual(doc.name, "SHIFT-2026-05-21.1")
+		self.assertEqual(doc.name, "SHIFT-2026-05-21.1.0001")
 
 	def test_shift_company_field_is_present_on_meta(self) -> None:
 		meta = frappe.get_meta("Shift")
@@ -953,7 +953,7 @@ class TestShift(FrappeTestCase):
 				"planned_start_time": "08:00:00",
 			}
 		).insert()
-		self.assertEqual(doc1.name, "SHIFT-2026-02-21.1")
+		self.assertEqual(doc1.name, "SHIFT-2026-02-21.1.0001")
 
 		# Shift 2: 16:00-24:00 (midnight) - ends 00:00 next day, does not overlap 08:00-16:00
 		doc2 = frappe.get_doc(
@@ -967,7 +967,7 @@ class TestShift(FrappeTestCase):
 				"planned_start_time": "16:00:00",
 			}
 		).insert()
-		self.assertEqual(doc2.name, "SHIFT-2026-02-21.2")
+		self.assertEqual(doc2.name, "SHIFT-2026-02-21.2.0002")
 
 	def test_overlap_query_scopes_to_nearby_dates(self) -> None:
 		from production_entry_app.production_entry_app.doctype.shift.shift import Shift
@@ -1513,7 +1513,7 @@ class TestShift(FrappeTestCase):
 				"planned_start_time": "10:00:00",
 			}
 		).insert()
-		self.assertEqual(doc.name, "SHIFT-2026-03-13.2")
+		self.assertEqual(doc.name, "SHIFT-2026-03-13.1.0002")
 
 	def test_same_shift_label_different_branch_same_date_allowed(self) -> None:
 		other_branch = ensure_branch("Another Test Branch")
@@ -1542,11 +1542,11 @@ class TestShift(FrappeTestCase):
 				"planned_start_time": "16:00:00",
 			}
 		).insert()
-		self.assertEqual(doc.name, "SHIFT-2026-03-14.2")
+		self.assertEqual(doc.name, "SHIFT-2026-03-14.1.0002")
 
 	def _expected_name(self, department: str, shift_date: str, shift_label: str) -> str:
 		sequence = frappe.db.count("Shift", {"shift_date": shift_date}) + 1
-		return f"SHIFT-{shift_date}.{sequence}"
+		return f"SHIFT-{shift_date}.{shift_label}.{sequence:04d}"
 
 	def _delete_shift_if_exists(self, name: str) -> None:
 		if frappe.db.exists("Shift", name):
@@ -2263,7 +2263,7 @@ class TestShiftPermissions(FrappeTestCase):
 
 	def _expected_name(self, department: str, shift_date: str, shift_label: str) -> str:
 		sequence = frappe.db.count("Shift", {"shift_date": shift_date}) + 1
-		return f"SHIFT-{shift_date}.{sequence}"
+		return f"SHIFT-{shift_date}.{shift_label}.{sequence:04d}"
 
 	def _delete_shift_if_exists(self, name: str) -> None:
 		if frappe.db.exists("Shift", name):

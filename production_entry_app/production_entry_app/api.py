@@ -381,6 +381,25 @@ def _get_candidate_e2e_stock_entries(
 	return query.run(as_dict=True)
 
 
+def _item_has_live_stock_entry_references(item_code: str) -> bool:
+	if not item_code:
+		return False
+
+	stock_entry = DocType("Stock Entry")
+	stock_entry_detail = DocType("Stock Entry Detail")
+	rows = (
+		frappe.qb.from_(stock_entry_detail)
+		.inner_join(stock_entry)
+		.on(stock_entry.name == stock_entry_detail.parent)
+		.select(stock_entry.name)
+		.where(stock_entry_detail.item_code == item_code)
+		.where(stock_entry.docstatus != 2)
+		.limit(1)
+		.run()
+	)
+	return bool(rows)
+
+
 def _safe_force_delete(doctype: str, name: str, *, context: str) -> None:
 	try:
 		frappe.delete_doc(doctype, name, ignore_permissions=True, force=True)
@@ -729,7 +748,7 @@ def _cleanup_e2e_context(prefix: str = "E2E") -> dict:
 					)
 					continue
 			_safe_force_delete("BOM", bom_name, context="cleanup_e2e_context")
-		if frappe.db.exists("Item", item):
+		if frappe.db.exists("Item", item) and not _item_has_live_stock_entry_references(item):
 			_safe_force_delete("Item", item, context="cleanup_e2e_context")
 
 	company = resolve_test_company()

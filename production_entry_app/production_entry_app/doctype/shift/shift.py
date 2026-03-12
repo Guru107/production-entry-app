@@ -134,7 +134,7 @@ def _get_next_shift_sequence(shift_date: str) -> int:
 		if not isinstance(name, str) or not name.startswith(prefix):
 			continue
 		try:
-			max_sequence = max(max_sequence, int(name.removeprefix(prefix)))
+			max_sequence = max(max_sequence, int(name.rsplit(".", 1)[-1]))
 		except ValueError:
 			continue
 	return max_sequence + 1
@@ -440,10 +440,11 @@ def _resolve_department_name_for_shift_naming(department: str) -> str:
 
 class Shift(Document):
 	def autoname(self) -> None:
-		"""Format: SHIFT-{shift_date}.{sequence}"""
-		if not self.shift_date:
+		"""Format: SHIFT-{shift_date}.{shift_label}.{sequence:04d}."""
+		if not self.shift_date or not self.shift_label:
 			return
-		self.name = f"SHIFT-{self.shift_date}.{_get_next_shift_sequence(self.shift_date)}"
+		sequence = _get_next_shift_sequence(self.shift_date)
+		self.name = f"SHIFT-{self.shift_date}.{self.shift_label}.{sequence:04d}"
 
 	def before_insert(self) -> None:
 		self._set_defaults()

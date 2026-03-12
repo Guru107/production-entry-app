@@ -125,7 +125,7 @@ class TestE2EApi(FrappeTestCase):
 			],
 		):
 			with patch("production_entry_app.production_entry_app.api.frappe.db.delete") as db_delete:
-				_cleanup_orphan_stock_entry_loss_links("SHIFT-2026-02-22.Shift-1")
+				_cleanup_orphan_stock_entry_loss_links("SHIFT-2026-02-22.1.0001")
 		db_delete.assert_called_once_with("Loss Entry", {"name": ("in", ["LOSS-001"])})
 
 	def test_delete_wrapper_cleans_shift_orphans_before_delete(self) -> None:
@@ -135,9 +135,9 @@ class TestE2EApi(FrappeTestCase):
 			with patch(
 				"production_entry_app.production_entry_app.api.frappe_client_delete_doc"
 			) as delete_doc:
-				delete("Shift", "SHIFT-2026-02-22.Shift-1")
-		cleanup.assert_called_once_with("SHIFT-2026-02-22.Shift-1")
-		delete_doc.assert_called_once_with("Shift", "SHIFT-2026-02-22.Shift-1")
+				delete("Shift", "SHIFT-2026-02-22.1.0001")
+		cleanup.assert_called_once_with("SHIFT-2026-02-22.1.0001")
+		delete_doc.assert_called_once_with("Shift", "SHIFT-2026-02-22.1.0001")
 
 	def test_delete_wrapper_does_not_cleanup_non_shift_doctypes(self) -> None:
 		with patch(
@@ -318,6 +318,51 @@ class TestE2EApi(FrappeTestCase):
 		self.assertEqual(delete_doc.call_count, 2)
 		log_error.assert_called_once()
 
+	def test_cleanup_e2e_context_keeps_items_with_live_stock_entry_references(self) -> None:
+		with ExitStack() as stack:
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.api._get_candidate_e2e_stock_entries",
+					return_value=[],
+				)
+			)
+			stack.enter_context(
+				patch("production_entry_app.production_entry_app.api._e2e_base_date", return_value="2099-01-10")
+			)
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.api.frappe.db.exists",
+					side_effect=lambda doctype, name=None, *args, **kwargs: (
+						doctype == "Item" and name in {"_E2E_FG_Item", "_E2E_RM_Item"}
+					),
+				)
+			)
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.api.frappe.get_all",
+					side_effect=lambda doctype, *args, **kwargs: [] if doctype != "BOM" else [],
+				)
+			)
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.api._item_has_live_stock_entry_references",
+					side_effect=lambda item_code: item_code == "_E2E_FG_Item",
+				)
+			)
+			safe_force_delete = stack.enter_context(
+				patch("production_entry_app.production_entry_app.api._safe_force_delete")
+			)
+			stack.enter_context(patch("production_entry_app.production_entry_app.api.frappe.db.commit"))
+
+			_cleanup_e2e_context(prefix="E2E")
+
+		deleted_items = [
+			call.args[1]
+			for call in safe_force_delete.call_args_list
+			if call.args and call.args[0] == "Item"
+		]
+		self.assertEqual(deleted_items, ["_E2E_RM_Item"])
+
 	def test_collect_reserved_e2e_prefixes_derives_item_and_workstation_names(self) -> None:
 		with patch(
 			"production_entry_app.production_entry_app.api.frappe.get_all",
@@ -382,7 +427,7 @@ class TestE2EApi(FrappeTestCase):
 		shift.status = "Running"
 		with patch(
 			"production_entry_app.production_entry_app.api.frappe.get_all",
-			return_value=["SHIFT-2099-01-20.1"],
+			return_value=["SHIFT-2099-01-20.1.0001"],
 		):
 			with patch("production_entry_app.production_entry_app.api.frappe.get_doc", return_value=shift):
 				result = _get_or_create_e2e_shift(
@@ -420,7 +465,7 @@ class TestE2EApi(FrappeTestCase):
 		shift.status = "Draft"
 		with patch(
 			"production_entry_app.production_entry_app.api.frappe.get_all",
-			return_value=["SHIFT-2099-01-20.1"],
+			return_value=["SHIFT-2099-01-20.1.0001"],
 		):
 			with patch("production_entry_app.production_entry_app.api.frappe.get_doc", return_value=shift):
 				result = _get_or_create_e2e_shift(
@@ -444,7 +489,7 @@ class TestE2EApi(FrappeTestCase):
 
 		with patch(
 			"production_entry_app.production_entry_app.api.frappe.get_all",
-			return_value=["SHIFT-2099-01-20.1"],
+			return_value=["SHIFT-2099-01-20.1.0001"],
 		):
 			with patch(
 				"production_entry_app.production_entry_app.api.frappe.get_doc",
@@ -461,14 +506,14 @@ class TestE2EApi(FrappeTestCase):
 					)
 
 		delete_doc.assert_called_once_with(
-			"Shift", "SHIFT-2099-01-20.1", force=True, ignore_permissions=True
+			"Shift", "SHIFT-2099-01-20.1.0001", force=True, ignore_permissions=True
 		)
 		self.assertIs(result, recreated)
 		recreated.start_shift.assert_called_once()
 
 	def test_bootstrap_e2e_context_re_enables_die_tool_flag_for_fg_item(self) -> None:
 		shift = MagicMock()
-		shift.name = "SHIFT-2099-01-20.1"
+		shift.name = "SHIFT-2099-01-20.1.0001"
 
 		class _Meta:
 			def __init__(self, has_field_result: bool) -> None:
@@ -572,7 +617,7 @@ class TestE2EApi(FrappeTestCase):
 
 	def test_bootstrap_e2e_context_passes_branch_to_shift_creation(self) -> None:
 		shift = MagicMock()
-		shift.name = "SHIFT-2099-01-20.1"
+		shift.name = "SHIFT-2099-01-20.1.0001"
 
 		class _Meta:
 			def __init__(self, has_field_result: bool) -> None:

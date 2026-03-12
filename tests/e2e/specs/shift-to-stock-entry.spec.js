@@ -58,7 +58,7 @@ test.describe("Shift to Stock Entry integration", () => {
 		const values = await stockEntryPage.getFieldValues(["stock_entry_type", "custom_shift"]);
 		expect(values.stock_entry_type).toBe("Manufacture");
 		expect(values.custom_shift).toBe(ctx.shift_name);
-		expect(ctx.shift_name).toBe(`SHIFT-${ctx.shift_date}.1`);
+		expect(ctx.shift_name).toBe(`SHIFT-${ctx.shift_date}.1.0001`);
 	});
 
 	test("@regression selecting shift auto-fills branch and planned dates", async ({ page }) => {
