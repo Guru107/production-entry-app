@@ -70,7 +70,7 @@ If cleanup is asked to target any company outside that allowlist, it must fail i
 
 ## Execution Model
 
-This design assumes site-exclusive automated test execution.
+This design requires enforced site-exclusive automated test execution.
 
 Contract:
 
@@ -78,8 +78,11 @@ Contract:
 - Python and E2E suites on the same site are serialized, not concurrent
 - local development runs must not overlap with CI runs against the same site/database
 
-If that exclusivity cannot be guaranteed, the implementation must add a site-level cleanup lock
-before any destructive teardown runs.
+This is enforced, not assumed:
+
+- destructive cleanup requires acquiring a site-level cleanup lock first
+- if the lock cannot be acquired, bootstrap/teardown fails immediately
+- authoritative runners must not proceed without the lock
 
 ## Data Ownership Rule
 
@@ -111,17 +114,17 @@ Primary company-root path:
 - `Warehouse` -> `company`
 - `Department` -> `company` when field exists
 - `BOM` -> `company`
-- `Shift` -> derived through linked `Department` in the disposable company
+- `Shift` -> linked `Department` whose `company` is the disposable company
 - `Stock Entry` -> `company`
-- `Downtime Entry` -> linked `Employee.company` or disposable-company-linked workstation path
+- `Downtime Entry` -> linked `employee` whose `company` is the disposable company
 - `Employee` -> `company`
-- `Die Tool Maintenance Log` -> derived through linked item/workflow path created by test wrapper
 
 Reserved-global path:
 
 - `Item` -> reserved test item code/prefix allowlist
 - `Operator` -> reserved name allowlist
 - `Workstation` -> reserved name allowlist
+- `Die Tool Maintenance Log` -> `die_tool_item` matching the reserved test item allowlist
 - `User` -> reserved email/name allowlist
 - `Role` -> reserved role-name allowlist
 - `Downtime Reason` -> reserved reason-name allowlist
@@ -215,7 +218,7 @@ company-owned test data in dependency-safe order.
 
 High-level order:
 
-1. Stop or complete active runtime docs
+1. Quiesce active runtime docs
 2. Cancel submitted transactional docs
 3. Delete transactional docs
 4. Delete dependent masters
@@ -244,7 +247,6 @@ Cancel submitted documents scoped to the disposable company, such as:
 
 - Stock Entry
 - Downtime Entry, if submittable in the target environment
-- Die Tool Maintenance Log
 - BOM, where submission state applies
 
 If a document cannot be cancelled because of referential corruption, log it and stop the wipe.
@@ -278,6 +280,7 @@ This includes:
 - Items
 - Operators
 - Workstations
+- Die Tool Maintenance Logs
 - Users
 - Roles
 - Downtime Reasons
@@ -328,6 +331,13 @@ Per-test cleanup remains installed for app test cases.
 
 The suite-end trigger is not an implementation detail; it is a required contract of this
 design.
+
+Mandated invocation path:
+
+- provide a single bench-executable cleanup command in
+  `production_entry_app.production_entry_app.utils.test_cleanup`
+- authoritative Python suite runners must invoke it exactly once after `bench run-tests`
+- a test run is considered incomplete if that command does not run
 
 ## E2E Integration
 
