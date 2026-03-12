@@ -1,6 +1,7 @@
 {
  "actions": [],
- "autoname": "format:SHIFT-{shift_date}.Shift-{shift_label}",
+ "autoname": "",
+ "naming_rule": "By script",
  "creation": "2026-02-03 00:00:00.000000",
  "doctype": "DocType",
  "editable_grid": 1,
@@ -17,6 +18,7 @@
   "planned_start_time",
   "planned_end_time",
   "supervisor",
+  "department",
   "branch",
   "company",
   "tab_warehouses",
@@ -116,6 +118,14 @@
    "label": "Supervisor",
    "options": "User",
    "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "department",
+   "fieldtype": "Link",
+   "label": "Department",
+   "options": "Department",
+   "reqd": 1,
    "search_index": 1
   },
   {
@@ -236,7 +246,6 @@
  "modified_by": "Administrator",
  "module": "Production Entry App",
  "name": "Shift",
- "naming_rule": "",
  "owner": "Administrator",
  "permissions": [
   {

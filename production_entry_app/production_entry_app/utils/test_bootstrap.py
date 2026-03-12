@@ -38,6 +38,32 @@ def get_company_abbr(company: str) -> str:
 	return frappe.db.get_value("Company", company, "abbr") or "_TC"
 
 
+def ensure_department(name: str, company: str | None = None) -> str:
+	"""Ensure a Department exists; return its name (doc name, which may differ from department_name)."""
+	if frappe.db.exists("Department", name):
+		return name
+	company = company or resolve_test_company()
+	# Department may autoname as "department_name - company_abbr"; check by department_name
+	meta = frappe.get_meta("Department", cached=True)
+	filters: dict[str, str] = {"department_name": name}
+	if meta.has_field("company") and company:
+		filters["company"] = company
+	existing = frappe.get_all(
+		"Department",
+		filters=filters,
+		limit=1,
+		pluck="name",
+	)
+	if existing:
+		return existing[0]
+	kwargs: dict[str, Any] = {"doctype": "Department", "department_name": name}
+	if meta.has_field("company") and company:
+		kwargs["company"] = company
+	doc = frappe.get_doc(kwargs)
+	doc.insert(ignore_permissions=True)
+	return doc.name
+
+
 def ensure_warehouse(warehouse_name: str, company: str) -> str:
 	if frappe.db.exists("Warehouse", warehouse_name):
 		return warehouse_name

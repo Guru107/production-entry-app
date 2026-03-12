@@ -23,6 +23,7 @@ from production_entry_app.production_entry_app.overrides.test_stock_entry_hooks 
 from production_entry_app.production_entry_app.utils import test_cleanup
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	bootstrap_manufacturing_test_context,
+	ensure_department,
 	ensure_downtime_reason,
 	ensure_item,
 	ensure_operator,
@@ -37,6 +38,7 @@ class BenchmarkContext:
 	rm_item: str
 	operator: str
 	workstation: str
+	department: str
 	rm_warehouse: str
 	fg_warehouse: str
 	rejection_warehouse: str
@@ -82,6 +84,7 @@ def cleanup_report_benchmark(dataset_key: str = "PHASE2") -> dict[str, int | str
 	workstation = f"Benchmark Workstation {dataset_key}"
 	fg_item = f"_Benchmark FG Item {dataset_key}"
 	rm_item = f"_Benchmark RM Item {dataset_key}"
+	department = f"Benchmark Department {dataset_key}"
 	warehouse_prefix = f"Report Benchmark {dataset_key} "
 	rows = frappe.get_all(
 		"Stock Entry",
@@ -128,6 +131,13 @@ def cleanup_report_benchmark(dataset_key: str = "PHASE2") -> dict[str, int | str
 		pluck="name",
 	):
 		frappe.delete_doc("Warehouse", warehouse_name, ignore_permissions=True, force=True)
+
+	for department_name in frappe.get_all(
+		"Department",
+		filters={"department_name": department},
+		pluck="name",
+	):
+		frappe.delete_doc("Department", department_name, ignore_permissions=True, force=True)
 
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit - benchmark cleanup must commit before reseeding
 	return {
@@ -189,6 +199,7 @@ def _prepare_benchmark_context(dataset_key: str) -> BenchmarkContext:
 		rm_item=rm_item,
 		operator=operator,
 		workstation=workstation,
+		department=ensure_department(f"Benchmark Department {dataset_key}", base_context["company"]),
 		rm_warehouse=base_context["rm_warehouse"],
 		fg_warehouse=base_context["fg_warehouse"],
 		rejection_warehouse=base_context["rejection_warehouse"],
@@ -226,7 +237,12 @@ def _seed_benchmark_entries(
 		posting_date = start_date + datetime.timedelta(days=day_offset)
 		shift_name = shifts.get((posting_date.isoformat(), shift_label))
 		if not shift_name:
-			shift_name = _ensure_shift(posting_date, shift_label, context.rejection_warehouse)
+			shift_name = _ensure_shift(
+				posting_date,
+				shift_label,
+				context.rejection_warehouse,
+				context.department,
+			)
 			shifts[(posting_date.isoformat(), shift_label)] = shift_name
 
 		start_hour = 8 if shift_label == "1" else 16
@@ -282,15 +298,24 @@ def _get_benchmark_shift_label(index: int, day_span: int) -> str:
 	return "1" if (index // day_span) % 2 == 0 else "2"
 
 
-def _ensure_shift(shift_date: datetime.date, shift_label: str, rejection_warehouse: str) -> str:
-	shift_name = f"SHIFT-{shift_date.isoformat()}.Shift-{shift_label}"
-	if frappe.db.exists("Shift", shift_name):
-		frappe.db.set_value("Shift", shift_name, "status", "Running", update_modified=False)
-		return shift_name
+def _ensure_shift(
+	shift_date: datetime.date,
+	shift_label: str,
+	rejection_warehouse: str,
+	department: str,
+) -> str:
+	for existing_name in frappe.get_all(
+		"Shift",
+		filters={"department": department, "shift_date": shift_date.isoformat(), "shift_label": shift_label},
+		pluck="name",
+	):
+		frappe.db.set_value("Shift", existing_name, "status", "Running", update_modified=False)
+		return existing_name
 
 	shift = frappe.get_doc(
 		{
 			"doctype": "Shift",
+			"department": department,
 			"shift_label": shift_label,
 			"shift_duration": "8",
 			"shift_date": shift_date.isoformat(),

@@ -47,12 +47,19 @@ class TestGetShiftTimelineData(FrappeTestCase):
 		frappe.db.rollback()
 
 	def _create_running_shift(self, shift_date: str = "2026-10-01", shift_label: str = "1"):
-		name = f"SHIFT-{shift_date}.Shift-{shift_label}"
-		if frappe.db.exists("Shift", name):
-			frappe.delete_doc("Shift", name, force=True, ignore_permissions=True)
+		from production_entry_app.production_entry_app.utils.test_bootstrap import ensure_department
+
+		department = ensure_department("Test Department")
+		for existing_name in frappe.get_all(
+			"Shift",
+			filters={"department": department, "shift_date": shift_date, "shift_label": shift_label},
+			pluck="name",
+		):
+			frappe.delete_doc("Shift", existing_name, force=True, ignore_permissions=True)
 		shift = frappe.get_doc(
 			{
 				"doctype": "Shift",
+				"department": department,
 				"shift_label": shift_label,
 				"shift_duration": "8",
 				"shift_date": shift_date,

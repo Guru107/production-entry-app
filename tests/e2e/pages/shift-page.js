@@ -14,8 +14,15 @@ class ShiftPage {
 						doc: cur_frm.doc,
 						method: action,
 						callback: () => resolve(true),
-						error: (err) =>
-							reject(new Error(err?.message || `Failed doc action: ${action}`)),
+						error: (err) => {
+							const detail =
+								err?._server_messages ||
+								err?.message ||
+								err?.exc ||
+								err?.responseJSON?.message ||
+								"";
+							reject(new Error(detail || `Failed doc action: ${action}`));
+						},
 					});
 				}),
 			{ action: methodName }
@@ -37,10 +44,17 @@ class ShiftPage {
 		);
 	}
 
-	async createDraftViaApi({ date, label = "2", duration = "8", startTime = "10:00:00" }) {
+	async createDraftViaApi({
+		department,
+		date,
+		label = "2",
+		duration = "8",
+		startTime = "10:00:00",
+	}) {
 		return await callFrappeMethod(this.page, "frappe.client.insert", {
 			doc: JSON.stringify({
 				doctype: "Shift",
+				department,
 				shift_label: label,
 				shift_duration: duration,
 				shift_date: date,
@@ -49,7 +63,10 @@ class ShiftPage {
 		});
 	}
 
-	async setDraftFields({ date, label, duration, startTime }) {
+	async setDraftFields({ department, date, label, duration, startTime }) {
+		if (department != null) {
+			await setFieldValue(this.page, "department", department);
+		}
 		if (label != null) {
 			await setFieldValue(this.page, "shift_label", String(label));
 		}

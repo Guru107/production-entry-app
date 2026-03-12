@@ -9,6 +9,7 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	_resolve_company_from_candidates,
 	bootstrap_manufacturing_test_context,
 	ensure_default_bom,
+	ensure_department,
 	ensure_downtime_reason,
 	ensure_item,
 	ensure_operator,
@@ -82,6 +83,33 @@ class TestTestBootstrap(FrappeTestCase):
 		second = ensure_item(item_code)
 		self.assertEqual(first, second)
 		self.assertTrue(frappe.db.exists("Item", first))
+
+	def test_ensure_department_filters_existing_by_company(self) -> None:
+		class _Meta:
+			def has_field(self, fieldname: str) -> bool:
+				return fieldname == "company"
+
+		with patch(
+			"production_entry_app.production_entry_app.utils.test_bootstrap.frappe.db.exists",
+			return_value=False,
+		):
+			with patch(
+				"production_entry_app.production_entry_app.utils.test_bootstrap.frappe.get_meta",
+				return_value=_Meta(),
+			):
+				with patch(
+					"production_entry_app.production_entry_app.utils.test_bootstrap.frappe.get_all",
+					return_value=["Dept A - TC"],
+				) as get_all:
+					result = ensure_department("Dept A", company="Target Company")
+
+		self.assertEqual(result, "Dept A - TC")
+		get_all.assert_called_once_with(
+			"Department",
+			filters={"department_name": "Dept A", "company": "Target Company"},
+			limit=1,
+			pluck="name",
+		)
 
 	def test_ensure_default_bom_filters_existing_by_company(self) -> None:
 		with patch(

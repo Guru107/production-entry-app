@@ -20,6 +20,7 @@ from production_entry_app.production_entry_app.utils.shift_time import get_shift
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	cleanup_running_shifts,
 	ensure_default_bom,
+	ensure_department,
 	ensure_downtime_reason,
 	ensure_item,
 	ensure_operator,
@@ -269,6 +270,10 @@ def _get_e2e_settings_cache_key(prefix: str) -> str:
 	return f"pea:e2e:settings:{prefix or 'E2E'}"
 
 
+def _get_e2e_shift_names_cache_key(prefix: str) -> str:
+	return f"pea:e2e:shift-names:{prefix or 'E2E'}"
+
+
 def _get_manufacturing_settings_snapshot() -> dict[str, str | int | None]:
 	return {
 		fieldname: frappe.db.get_single_value("Manufacturing Settings", fieldname)
@@ -281,6 +286,16 @@ def _cache_e2e_settings_snapshot(prefix: str) -> None:
 	if frappe.cache().get_value(cache_key):
 		return
 	frappe.cache().set_value(cache_key, _get_manufacturing_settings_snapshot())
+
+
+def _cache_e2e_shift_name(prefix: str, shift_name: str | None) -> None:
+	if not shift_name:
+		return
+	cache_key = _get_e2e_shift_names_cache_key(prefix)
+	cached_names = frappe.cache().get_value(cache_key) or []
+	if shift_name in cached_names:
+		return
+	frappe.cache().set_value(cache_key, [*cached_names, shift_name])
 
 
 def _restore_manufacturing_settings(snapshot: dict[str, str | int | None] | None) -> None:
@@ -296,6 +311,9 @@ def _restore_cached_e2e_settings(prefix: str) -> None:
 	if snapshot:
 		_restore_manufacturing_settings(snapshot)
 		frappe.cache().delete_value(cache_key)
+
+	shift_names_key = _get_e2e_shift_names_cache_key(prefix)
+	frappe.cache().delete_value(shift_names_key)
 
 
 def _is_developer_mode_enabled() -> bool:
@@ -427,12 +445,14 @@ def _clear_timeline_cache_for_context(ctx: dict, shift_name: str) -> None:
 def _build_e2e_shift_doc(
 	*,
 	base_date: str,
+	department: str,
 	wip_warehouse: str,
 	rm_warehouse: str,
 	rejection_warehouse: str,
 ) -> dict:
 	return {
 		"doctype": "Shift",
+		"department": department,
 		"shift_label": "1",
 		"shift_duration": "8",
 		"shift_date": base_date,
@@ -443,18 +463,57 @@ def _build_e2e_shift_doc(
 	}
 
 
+def _build_e2e_shift_name(*, department: str, shift_date: str, shift_label: str) -> str:
+	from production_entry_app.production_entry_app.doctype.shift.shift import (
+		_resolve_department_name_for_shift_naming,
+		_sanitize_department_for_name,
+	)
+
+	department_label = _resolve_department_name_for_shift_naming(department)
+	sanitized_dept = _sanitize_department_for_name(department_label)
+	return f"SHIFT-{sanitized_dept}-{shift_date}.{shift_label}"
+
+
+def _complete_other_running_e2e_shifts(*, keep_department: str | None = None) -> None:
+	reserved_departments = frappe.get_all(
+		"Department",
+		filters={"department_name": ("like", "E2E% Department")},
+		pluck="name",
+	)
+	if keep_department:
+		reserved_departments = [name for name in reserved_departments if name != keep_department]
+	if not reserved_departments:
+		return
+	for shift_name in frappe.get_all(
+		"Shift",
+		filters={"status": "Running", "department": ["in", reserved_departments]},
+		pluck="name",
+	):
+		frappe.db.set_value("Shift", shift_name, "status", "Completed", update_modified=False)
+
+
 def _get_or_create_e2e_shift(
 	*,
 	shift_name: str,
 	base_date: str,
+	department: str,
 	wip_warehouse: str,
 	rm_warehouse: str,
 	rejection_warehouse: str,
 ):
-	if not frappe.db.exists("Shift", shift_name):
+	existing_names = frappe.get_all(
+		"Shift",
+		filters={"department": department, "shift_date": base_date, "shift_label": "1"},
+		pluck="name",
+		limit=1,
+	)
+	if existing_names:
+		shift_name = existing_names[0]
+	elif not frappe.db.exists("Shift", shift_name):
 		shift = frappe.get_doc(
 			_build_e2e_shift_doc(
 				base_date=base_date,
+				department=department,
 				wip_warehouse=wip_warehouse,
 				rm_warehouse=rm_warehouse,
 				rejection_warehouse=rejection_warehouse,
@@ -469,6 +528,7 @@ def _get_or_create_e2e_shift(
 		shift = frappe.get_doc(
 			_build_e2e_shift_doc(
 				base_date=base_date,
+				department=department,
 				wip_warehouse=wip_warehouse,
 				rm_warehouse=rm_warehouse,
 				rejection_warehouse=rejection_warehouse,
@@ -531,15 +591,24 @@ def bootstrap_e2e_context(prefix: str = "E2E") -> dict:
 	bom = ensure_default_bom(fg_item=fg_item, rm_item=rm_item, company=company)
 	ensure_stock(rm_item, wip_warehouse, company, target_qty=1000)
 
+	dept_name = f"{prefix} Department"
+	department = ensure_department(dept_name, company)
+	_complete_other_running_e2e_shifts(keep_department=department)
 	base_date = _e2e_base_date(prefix)
-	shift_name = f"SHIFT-{base_date}.Shift-1"
+	shift_name = _build_e2e_shift_name(
+		department=department,
+		shift_date=base_date,
+		shift_label="1",
+	)
 	shift = _get_or_create_e2e_shift(
 		shift_name=shift_name,
 		base_date=base_date,
+		department=department,
 		wip_warehouse=wip_warehouse,
 		rm_warehouse=rm_warehouse,
 		rejection_warehouse=rejection_warehouse,
 	)
+	_cache_e2e_shift_name(prefix, shift.name)
 
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit - tests need deterministic persisted setup
 	return {
@@ -564,12 +633,26 @@ def _cleanup_e2e_context(prefix: str = "E2E") -> dict:
 	target_fg_item = f"_{prefix}_FG_Item"
 	target_rm_item = f"_{prefix}_RM_Item"
 
+	dept_name = f"{prefix} Department"
+	departments = frappe.get_all("Department", filters={"department_name": dept_name}, pluck="name")
+	if not departments:
+		departments = [dept_name]
 	base_date = _e2e_base_date(prefix)
 	next_date = add_to_date(base_date, days=1, as_string=True)
-	e2e_shift_names = []
-	for shift_date in (base_date, next_date):
-		for label in ("1", "2"):
-			e2e_shift_names.append(f"SHIFT-{shift_date}.Shift-{label}")
+	e2e_shift_names = list(frappe.cache().get_value(_get_e2e_shift_names_cache_key(prefix)) or [])
+	for department in departments:
+		for shift_date in (base_date, next_date):
+			for label in ("1", "2"):
+				legacy_name = f"SHIFT-{shift_date}.Shift-{label}"
+				if legacy_name not in e2e_shift_names:
+					e2e_shift_names.append(legacy_name)
+				candidate_name = _build_e2e_shift_name(
+					department=department,
+					shift_date=shift_date,
+					shift_label=label,
+				)
+				if candidate_name not in e2e_shift_names:
+					e2e_shift_names.append(candidate_name)
 
 	for name in e2e_shift_names:
 		if not frappe.db.exists("Shift", name):

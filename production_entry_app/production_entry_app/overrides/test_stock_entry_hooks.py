@@ -11,6 +11,7 @@ from frappe.tests.utils import FrappeTestCase
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	bootstrap_manufacturing_test_context,
 	cleanup_running_shifts,
+	ensure_department,
 	ensure_item,
 	ensure_operator,
 	ensure_warehouse,
@@ -254,12 +255,17 @@ def _create_test_shift(
 	"""Create and return a test Shift."""
 	_ensure_downtime_reasons()
 	cleanup_running_shifts()
-	name = f"SHIFT-{shift_date}.Shift-{shift_label}"
-	if frappe.db.exists("Shift", name):
-		frappe.delete_doc("Shift", name, force=True, ignore_permissions=True)
+	department = ensure_department("Test Department")
+	for existing_name in frappe.get_all(
+		"Shift",
+		filters={"department": department, "shift_date": shift_date, "shift_label": shift_label},
+		pluck="name",
+	):
+		frappe.delete_doc("Shift", existing_name, force=True, ignore_permissions=True)
 
 	doc_data = {
 		"doctype": "Shift",
+		"department": department,
 		"shift_label": shift_label,
 		"shift_duration": "8",
 		"shift_date": shift_date,
@@ -483,10 +489,14 @@ class TestStockEntryHooks(FrappeTestCase):
 	@classmethod
 	def tearDownClass(cls) -> None:
 		"""End all Running shifts created by this test class to prevent leakage."""
+		department = ensure_department("Test Department")
 		for shift_date in cls._SHIFT_DATES:
 			for label in ("1", "2"):
-				name = f"SHIFT-{shift_date}.Shift-{label}"
-				if frappe.db.exists("Shift", name):
+				for name in frappe.get_all(
+					"Shift",
+					filters={"department": department, "shift_date": shift_date, "shift_label": label},
+					pluck="name",
+				):
 					frappe.db.set_value("Shift", name, "status", "Completed", update_modified=False)
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed to persist cleanup
 		super().tearDownClass()
@@ -1234,12 +1244,17 @@ class TestStockEntryHooks(FrappeTestCase):
 		from production_entry_app.production_entry_app.api import get_shift_details_for_stock_entry
 
 		cleanup_running_shifts()
-		shift_name = "SHIFT-2090-01-23.Shift-2"
-		if frappe.db.exists("Shift", shift_name):
-			frappe.delete_doc("Shift", shift_name, force=True, ignore_permissions=True)
+		department = ensure_department("Test Department")
+		for existing_name in frappe.get_all(
+			"Shift",
+			filters={"department": department, "shift_date": "2090-01-23", "shift_label": "2"},
+			pluck="name",
+		):
+			frappe.delete_doc("Shift", existing_name, force=True, ignore_permissions=True)
 		draft_shift = frappe.get_doc(
 			{
 				"doctype": "Shift",
+				"department": department,
 				"shift_label": "2",
 				"shift_duration": "8",
 				"shift_date": "2090-01-23",
@@ -1252,12 +1267,17 @@ class TestStockEntryHooks(FrappeTestCase):
 
 	def test_stock_entry_blocks_non_running_shift_on_save(self) -> None:
 		cleanup_running_shifts()
-		shift_name = "SHIFT-2090-01-24.Shift-2"
-		if frappe.db.exists("Shift", shift_name):
-			frappe.delete_doc("Shift", shift_name, force=True, ignore_permissions=True)
+		department = ensure_department("Test Department")
+		for existing_name in frappe.get_all(
+			"Shift",
+			filters={"department": department, "shift_date": "2090-01-24", "shift_label": "2"},
+			pluck="name",
+		):
+			frappe.delete_doc("Shift", existing_name, force=True, ignore_permissions=True)
 		draft_shift = frappe.get_doc(
 			{
 				"doctype": "Shift",
+				"department": department,
 				"shift_label": "2",
 				"shift_duration": "8",
 				"shift_date": "2090-01-24",
@@ -1952,10 +1972,14 @@ class TestOverlapValidation(FrappeTestCase):
 
 	@classmethod
 	def tearDownClass(cls) -> None:
+		department = ensure_department("Test Department")
 		for shift_date in cls._SHIFT_DATES:
 			for label in ("1", "2"):
-				name = f"SHIFT-{shift_date}.Shift-{label}"
-				if frappe.db.exists("Shift", name):
+				for name in frappe.get_all(
+					"Shift",
+					filters={"department": department, "shift_date": shift_date, "shift_label": label},
+					pluck="name",
+				):
 					frappe.db.set_value("Shift", name, "status", "Completed", update_modified=False)
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed to persist cleanup
 		super().tearDownClass()
@@ -2791,9 +2815,13 @@ class TestGetItemsWithRejection(FrappeTestCase):
 	@classmethod
 	def tearDownClass(cls) -> None:
 		# Clean up any Running shifts used in this class
+		department = ensure_department("Test Department")
 		for day in ("20", "21", "22", "23"):
-			name = f"SHIFT-2026-04-{day}.Shift-1"
-			if frappe.db.exists("Shift", name):
+			for name in frappe.get_all(
+				"Shift",
+				filters={"department": department, "shift_date": f"2026-04-{day}", "shift_label": "1"},
+				pluck="name",
+			):
 				frappe.db.set_value("Shift", name, "status", "Completed", update_modified=False)
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed to persist cleanup
 		super().tearDownClass()
@@ -2922,7 +2950,8 @@ class TestDieToolCounter(FrappeTestCase):
 			on_submit_stock_entry,
 		)
 
-		doc = frappe._dict({"custom_shift": "SHIFT-2026-04-20.Shift-1"})
+		shift_name = "SHIFT-CACHE-TEST-2026-04-20.1"
+		doc = frappe._dict({"custom_shift": shift_name})
 		with patch(
 			"production_entry_app.production_entry_app.overrides.stock_entry_hooks.update_counter_for_stock_entry"
 		):
@@ -2931,16 +2960,15 @@ class TestDieToolCounter(FrappeTestCase):
 			) as cache_fn:
 				on_submit_stock_entry(doc, "on_submit")
 
-		cache_fn.return_value.delete_value.assert_called_once_with(
-			"pea:shift_metrics:SHIFT-2026-04-20.Shift-1"
-		)
+		cache_fn.return_value.delete_value.assert_called_once_with(f"pea:shift_metrics:{shift_name}")
 
 	def test_cache_invalidated_on_stock_entry_cancel(self) -> None:
 		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
 			on_cancel_stock_entry,
 		)
 
-		doc = frappe._dict({"custom_shift": "SHIFT-2026-04-20.Shift-1"})
+		shift_name = "SHIFT-CACHE-TEST-2026-04-20.1"
+		doc = frappe._dict({"custom_shift": shift_name})
 		with patch(
 			"production_entry_app.production_entry_app.overrides.stock_entry_hooks.update_counter_for_stock_entry"
 		):
@@ -2949,9 +2977,7 @@ class TestDieToolCounter(FrappeTestCase):
 			) as cache_fn:
 				on_cancel_stock_entry(doc, "on_cancel")
 
-		cache_fn.return_value.delete_value.assert_called_once_with(
-			"pea:shift_metrics:SHIFT-2026-04-20.Shift-1"
-		)
+		cache_fn.return_value.delete_value.assert_called_once_with(f"pea:shift_metrics:{shift_name}")
 
 	def test_die_tool_counter_resets_on_maintenance_log_submit(self) -> None:
 		if frappe.db.exists("Die Tool Counter", self.fg_item):

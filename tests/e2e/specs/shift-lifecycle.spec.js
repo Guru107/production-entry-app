@@ -10,6 +10,7 @@ test.describe("Shift lifecycle", () => {
 	test("@smoke draft shift can be cancelled", async ({ page }) => {
 		await page.goto("/app/home");
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const seededShift = await getDoc(page, "Shift", ctx.shift_name);
 
 		const nextDate = new Date(ctx.shift_date);
 		nextDate.setDate(nextDate.getDate() + 1);
@@ -17,6 +18,7 @@ test.describe("Shift lifecycle", () => {
 
 		const shiftPage = new ShiftPage(page);
 		const draft = await shiftPage.createDraftViaApi({
+			department: seededShift.department,
 			date: nextDateString,
 			label: "2",
 			startTime: "16:00:00",
@@ -51,6 +53,7 @@ test.describe("Shift lifecycle", () => {
 		const nextDateString = nextDate.toISOString().slice(0, 10);
 
 		const draft = await shiftPage.createDraftViaApi({
+			department: seededShift.department,
 			date: nextDateString,
 			label: "1",
 			startTime: "08:00:00",
