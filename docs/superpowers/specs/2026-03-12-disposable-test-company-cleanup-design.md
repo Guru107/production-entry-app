@@ -147,6 +147,7 @@ Reserved-global path:
 - `Downtime Reason` -> reserved reason-name allowlist
 - `Manufacturing Settings` -> snapshot/restore, never delete
 - `Global Defaults` -> snapshot/restore, never delete
+- per-user defaults such as user default company -> snapshot/restore, never delete
 
 If a doctype cannot be matched by one of these authoritative ownership rules, teardown fails
 verification and no success response is returned.
@@ -160,6 +161,7 @@ treated as part of company-root deletion:
 
 - `Manufacturing Settings`
 - `Global Defaults`
+- per-user defaults
 - `User`
 - `Role`
 - `Rejection Reason`
@@ -386,6 +388,12 @@ Playwright teardown must therefore:
 - fail hard on cleanup endpoint failure
 - not merely warn and continue
 - report a non-OK cleanup response as teardown failure
+
+The E2E cleanup endpoint must validate current lock ownership before wiping data:
+
+- the Playwright run passes the persisted owner token
+- the endpoint verifies that token against the site lock record
+- cleanup is rejected if token validation fails or the lock is stale/owned by another run
 
 Python per-test cleanup must not delete reserved E2E globals. Cross-suite ownership stays split:
 
