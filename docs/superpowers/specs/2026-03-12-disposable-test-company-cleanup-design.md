@@ -123,13 +123,13 @@ Primary company-root path:
 - `Downtime Entry` -> primary predicate: linked `employee.company` is the disposable company;
   fallback predicate: reserved test naming/foreign-key path owned by the suite
 - `Employee` -> `company`
-- `Die Tool Counter` -> `die_tool_item` matching the reserved test item allowlist
 
 Reserved-global path:
 
 - `Item` -> reserved test item code/prefix allowlist
 - `Operator` -> reserved name allowlist
 - `Workstation` -> reserved name allowlist
+- `Die Tool Counter` -> `die_tool_item` matching the reserved test item allowlist
 - `Die Tool Maintenance Log` -> `die_tool_item` matching the reserved test item allowlist
 - `User` -> reserved email/name allowlist
 - `Role` -> reserved role-name allowlist
@@ -270,7 +270,6 @@ Delete company-owned master data created for tests, including:
 - Warehouses
 - Departments
 - Employees
-- Die Tool Counters
 
 `Item`, `Operator`, and `Workstation` are not assumed to be company-owned in the current
 schema. They stay on the reserved-artifact path unless the implementation first introduces
@@ -349,6 +348,9 @@ Mandated invocation path:
 
 - provide a single bench-executable cleanup command in
   `production_entry_app.production_entry_app.utils.test_cleanup`
+- `before_tests()` acquires the site lock and persists a run token in a known site-local location
+- the suite-finalization command must present and validate that same run token before cleanup
+- the suite-finalization command is responsible for releasing the lock after successful or failed teardown
 - authoritative Python suite runners must invoke it exactly once after `bench run-tests`
 - a test run is considered incomplete if that command does not run
 
