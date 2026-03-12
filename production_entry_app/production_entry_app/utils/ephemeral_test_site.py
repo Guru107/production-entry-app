@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Final
@@ -9,6 +10,7 @@ from frappe import _
 
 EPHEMERAL_SITE_PREFIXES: Final[tuple[str, ...]] = ("pea-py-", "pea-e2e-")
 _VALID_KINDS: Final[frozenset[str]] = frozenset({"py", "e2e"})
+_SERVE_PORT_PATTERN: Final[re.Pattern[str]] = re.compile(r"http://[^:]+:(\d+)")
 
 
 def build_site_name(kind: str, run_id: str) -> str:
@@ -107,3 +109,10 @@ def build_drop_site_command(
 	if db_root_password:
 		command.extend(["--db-root-password", db_root_password])
 	return command
+
+
+def extract_port_from_serve_log(log_text: str) -> int | None:
+	matches = _SERVE_PORT_PATTERN.findall(log_text or "")
+	if not matches:
+		return None
+	return int(matches[-1])

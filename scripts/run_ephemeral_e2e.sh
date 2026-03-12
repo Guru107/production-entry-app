@@ -12,6 +12,10 @@ RUN_ID="${EPHEMERAL_SITE_RUN_ID:-$(date +%Y%m%d%H%M%S)-$$}"
 E2E_MODE="${1:-smoke}"
 SITE_NAME=""
 SERVER_PID=""
+PREVIOUS_SITE=""
+SERVE_LOG=""
+BASE_URL=""
+PORT=""
 
 export PYTHONPATH="$APP_ROOT:$BENCH_ROOT/apps/frappe${PYTHONPATH:+:$PYTHONPATH}"
 
@@ -28,6 +32,7 @@ from production_entry_app.production_entry_app.utils.ephemeral_test_site import 
 print(build_site_name("e2e", sys.argv[1]))
 PY
 )"
+SERVE_LOG="/tmp/bench-serve-${RUN_ID}.log"
 
 cleanup() {
 	local exit_code=$?
@@ -41,12 +46,19 @@ cleanup() {
 		cd "$BENCH_ROOT"
 		bench drop-site "$SITE_NAME" --force --no-backup --db-root-username "$DB_ROOT_USERNAME" --db-root-password "$DB_ROOT_PASSWORD"
 	fi
+	if [ -n "${PREVIOUS_SITE:-}" ] && [ -d "$BENCH_ROOT/sites/$PREVIOUS_SITE" ]; then
+		cd "$BENCH_ROOT"
+		bench use "$PREVIOUS_SITE" >/dev/null 2>&1 || true
+	fi
 	exit "$exit_code"
 }
 
 trap cleanup EXIT
 
 cd "$BENCH_ROOT"
+if [ -f "$BENCH_ROOT/sites/currentsite.txt" ]; then
+	PREVIOUS_SITE="$(cat "$BENCH_ROOT/sites/currentsite.txt")"
+fi
 
 bench new-site "$SITE_NAME" --db-root-username "$DB_ROOT_USERNAME" --db-root-password "$DB_ROOT_PASSWORD" --admin-password "$EPHEMERAL_ADMIN_PASSWORD"
 bench --site "$SITE_NAME" install-app erpnext
@@ -56,19 +68,51 @@ bench --site "$SITE_NAME" execute erpnext.setup.setup_wizard.operations.install_
 bench --site "$SITE_NAME" execute erpnext.setup.utils.before_tests
 bench --site "$SITE_NAME" set-config developer_mode 1
 bench --site "$SITE_NAME" set-config allow_e2e_tests 1
+bench --site "$SITE_NAME" execute production_entry_app.production_entry_app.api._is_developer_mode_enabled
+bench --site "$SITE_NAME" execute production_entry_app.production_entry_app.api._is_allow_e2e_tests_enabled
+bench use "$SITE_NAME"
 
-nohup bench --site "$SITE_NAME" serve --port 8002 --noreload > /tmp/bench-serve.log 2>&1 &
+nohup bench --site "$SITE_NAME" serve --port 0 --noreload > "$SERVE_LOG" 2>&1 &
 SERVER_PID=$!
 for _ in $(seq 1 45); do
-	if curl -sSf http://localhost:8002/login >/dev/null; then
+	if ! kill -0 "$SERVER_PID" >/dev/null 2>&1; then
+		cat "$SERVE_LOG" >&2 || true
+		exit 1
+	fi
+	PORT="$("$BENCH_PYTHON" - "$SERVE_LOG" <<'PY'
+import sys
+from pathlib import Path
+
+from production_entry_app.production_entry_app.utils.ephemeral_test_site import extract_port_from_serve_log
+
+log_path = Path(sys.argv[1])
+if not log_path.exists():
+	sys.exit(1)
+port = extract_port_from_serve_log(log_path.read_text())
+if port is None:
+	sys.exit(1)
+print(port)
+PY
+)" || true
+	if [ -n "$PORT" ]; then
+		BASE_URL="http://$SITE_NAME:$PORT"
+	fi
+	if [ -n "$BASE_URL" ] && curl -sSf "$BASE_URL/login" >/dev/null; then
 		break
 	fi
 	sleep 2
 done
-curl -sSf http://localhost:8002/login >/dev/null
+if [ -z "$BASE_URL" ]; then
+	cat "$SERVE_LOG" >&2 || true
+	exit 1
+fi
+curl -sSf "$BASE_URL/login" >/dev/null || {
+	cat "$SERVE_LOG" >&2 || true
+	exit 1
+}
 
 cd "$APP_ROOT"
-export PLAYWRIGHT_BASE_URL="http://localhost:8002"
+export PLAYWRIGHT_BASE_URL="$BASE_URL"
 export PLAYWRIGHT_USERNAME="Administrator"
 export PLAYWRIGHT_PASSWORD="$EPHEMERAL_ADMIN_PASSWORD"
 export PLAYWRIGHT_EPHEMERAL_SITE="1"

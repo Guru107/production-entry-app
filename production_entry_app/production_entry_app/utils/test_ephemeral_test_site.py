@@ -116,3 +116,15 @@ class TestEphemeralTestSite(FrappeTestCase):
 				"root",
 			],
 		)
+
+	def test_extract_port_from_serve_log_returns_last_http_port(self) -> None:
+		log_text = """
+		 * Running on all addresses (0.0.0.0)
+		 * Running on http://127.0.0.1:43791
+		 * Running on http://192.168.1.2:43791
+		"""
+
+		self.assertEqual(ephemeral_test_site.extract_port_from_serve_log(log_text), 43791)
+
+	def test_extract_port_from_serve_log_returns_none_without_http_url(self) -> None:
+		self.assertIsNone(ephemeral_test_site.extract_port_from_serve_log("Starting server..."))
