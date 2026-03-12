@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -17,6 +19,23 @@ def _default_sites_root() -> Path:
 	return Path(__file__).resolve().parents[3] / "sites"
 
 
+def _delete_site(site_name: str, *, sites_root: Path) -> int:
+	ephemeral_test_site.validate_ephemeral_site_name(site_name)
+	site_path = sites_root / site_name
+	if not site_path.exists():
+		print(f"No site directory found for {site_name} under {sites_root}")
+		return 1
+
+	command = ephemeral_test_site.build_drop_site_command(
+		site_name,
+		db_root_username=os.environ.get("DB_ROOT_USERNAME", "root"),
+		db_root_password=os.environ.get("DB_ROOT_PASSWORD"),
+	)
+	subprocess.run(command, check=True, cwd=BENCH_ROOT)
+	print(f"Deleted {site_name}")
+	return 0
+
+
 def main() -> int:
 	parser = argparse.ArgumentParser(description="List or delete stale ephemeral Frappe test sites.")
 	parser.add_argument("--sites-root", type=Path, default=_default_sites_root())
@@ -25,9 +44,7 @@ def main() -> int:
 	args = parser.parse_args()
 
 	if args.site_to_delete:
-		ephemeral_test_site.validate_ephemeral_site_name(args.site_to_delete)
-		print(f"Deletion requested for {args.site_to_delete} under {args.sites_root}")
-		return 0
+		return _delete_site(args.site_to_delete, sites_root=args.sites_root)
 
 	for description in ephemeral_test_site.list_stale_site_descriptions(
 		args.sites_root,
