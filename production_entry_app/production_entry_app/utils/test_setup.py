@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import frappe
-from frappe.test_runner import make_test_records
+from erpnext.setup.utils import before_tests as erpnext_before_tests
 
 from production_entry_app.production_entry_app.utils.test_cleanup import (
 	cleanup_reserved_benchmark_data,
@@ -39,9 +39,7 @@ def before_tests() -> None:
 	"""Bootstrap site-local ERPNext test records for deterministic local/CI runs."""
 	install_test_run_cleanup()
 	cleanup_reserved_benchmark_data()
-	for doctype in ("Company", "Cost Center"):
-		if frappe.db.exists(doctype, None):
-			continue
-		make_test_records(doctype, commit=True)
+	if not frappe.db.exists("Company", None) or not frappe.db.exists("Cost Center", None):
+		erpnext_before_tests()
 	_ensure_company_defaults()
 	_ensure_gender_records()
