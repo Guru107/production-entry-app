@@ -48,9 +48,13 @@
 
 - [ ] Add failing assertions for representative reports that still round in report-specific code.
 - [ ] Cover at least one chart-heavy report, one text-summary report, one pareto report, and one OEE/efficiency-style report.
+- [ ] Add explicit failing coverage for `die_tool_stroke_and_maintenance_report`, including the current
+  `warning_threshold_pct` precision-owned path.
 - [ ] Add coverage for Pareto cumulative behavior: raw running sum with final row hard-clamped to `100.0`.
 - [ ] Add coverage for string-summary fields to keep their string contract while removing local numeric rounding decisions.
-- [ ] Run `test_reports.py` and verify the new expectations fail before implementation.
+- [ ] Run from the bench root:
+  `bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.report.test_reports`
+  and verify the new expectations fail before implementation.
 
 ### Task 4: Remove explicit rounding from report modules
 
@@ -75,10 +79,13 @@
 - Modify: `production_entry_app/production_entry_app/report/die_tool_stroke_and_maintenance_report/die_tool_stroke_and_maintenance_report.py`
 
 - [ ] Remove report-local `flt(..., n)` and `round(..., n)` calls from row builders, totals, and chart payloads.
-- [ ] Keep string-only summary fields as strings, but route embedded numeric fragments through Frappe formatting helpers with Frappe defaults.
+- [ ] Keep string-only summary fields as strings, but route embedded numeric fragments through
+  `frappe.format_value(...)` with Frappe-default field formatting instead of local rounding.
 - [ ] Preserve existing field shapes and report formulas.
 - [ ] Keep Pareto final cumulative rows clamped to `100.0`.
-- [ ] Run `production_entry_app.production_entry_app.report.test_reports` and fix any fallout until it passes.
+- [ ] Run from the bench root:
+  `bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.report.test_reports`
+  and fix any fallout until it passes.
 - [ ] Commit the report-module change set.
 
 ## Chunk 3: Runtime APIs, Hooks, Die-Tool Paths, and Frontend Messaging
@@ -100,7 +107,12 @@
 - [ ] Add failing frontend coverage for stock-entry dashboard messaging that should stop using local `.toFixed(...)`.
 - [ ] If the stock entry dashboard formatting logic is not unit-testable in its current shape, move that assertion to the
   existing die-tool E2E specs instead of forcing a new JS extraction unless it stays small and local.
-- [ ] Run the touched focused suites and confirm they fail for the expected precision-contract reasons.
+- [ ] Run the touched focused suites and confirm they fail for the expected precision-contract reasons:
+  - `bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.test_api`
+  - `bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.overrides.test_stock_entry_hooks`
+  - `bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.test_tasks`
+  - `bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.utils.test_die_tool_counter`
+  - plus the chosen JS/E2E test command for the stock entry dashboard coverage
 
 ### Task 6: Remove runtime rounding from APIs, hooks, die-tool utilities, tasks, and JS
 
@@ -112,11 +124,20 @@
 - Modify: `production_entry_app/public/js/stock_entry.js`
 
 - [ ] Remove explicit runtime rounding from die-tool health/API calculations and any precision arguments that force rounded outputs.
+- [ ] In `stock_entry_hooks.py`, add a small local helper that derives `derived_abs_tol` from the effective precision of
+  `doc.custom_rejection_qty` and child-row `custom_rejection_breakup.qty`, using the looser precision when they differ.
 - [ ] Replace rounded float equality checks in hooks with `math.isclose(..., rel_tol=0.0, abs_tol=derived_abs_tol)`.
-- [ ] Derive `derived_abs_tol` from effective field precision, using the looser precision when compared fields differ.
-- [ ] Remove JS `.toFixed(...)` formatting owned by the app and rely on Frappe formatting/display helpers where needed.
+- [ ] In Python string assembly paths such as `production_entry_app/tasks.py`, use `frappe.format_value(...)` for
+  embedded numeric fragments instead of `flt(..., n)`.
+- [ ] In JS display paths such as `production_entry_app/public/js/stock_entry.js`, replace `.toFixed(...)` with
+  `frappe.format(...)` so UI formatting stays Frappe-owned.
 - [ ] Keep user-facing strings stable while delegating precision display to Frappe defaults.
-- [ ] Run focused Python and JS tests again and make them pass.
+- [ ] Run focused Python and JS tests again and make them pass:
+  - `bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.test_api`
+  - `bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.overrides.test_stock_entry_hooks`
+  - `bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.test_tasks`
+  - `bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.utils.test_die_tool_counter`
+  - `npx playwright test tests/e2e/specs/die-tool-metrics.spec.js tests/e2e/specs/stock-entry-and-die-tool.spec.js tests/e2e/specs/stock-entry-validations.spec.js`
 - [ ] Commit the runtime-path change set.
 
 ## Chunk 4: End-to-End Verification and Site Checks
@@ -127,14 +148,14 @@
 - No code changes expected
 
 - [ ] Run focused Python modules:
-  - `production_entry_app.production_entry_app.report.test_reports`
-  - `production_entry_app.production_entry_app.test_api`
-  - `production_entry_app.production_entry_app.test_api_timeline`
-  - `production_entry_app.production_entry_app.doctype.shift.test_shift`
-  - `production_entry_app.production_entry_app.overrides.test_stock_entry_hooks`
-  - `production_entry_app.production_entry_app.test_tasks`
-  - `production_entry_app.production_entry_app.utils.test_die_tool_counter`
-  - `production_entry_app.production_entry_app.utils.test_loss_time`
+  - `bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.report.test_reports`
+  - `bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.test_api`
+  - `bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.test_api_timeline`
+  - `bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.doctype.shift.test_shift`
+  - `bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.overrides.test_stock_entry_hooks`
+  - `bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.test_tasks`
+  - `bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.utils.test_die_tool_counter`
+  - `bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.utils.test_loss_time`
 - [ ] Fix any remaining precision regressions before moving to E2E.
 
 ### Task 8: Run full user-facing verification
@@ -149,7 +170,7 @@
 - Modify if needed: `tests/e2e/specs/shift-lifecycle.spec.js`
 - Modify if needed: `tests/e2e/specs/shift-batch2.spec.js`
 
-- [ ] Run the full Playwright suite.
+- [ ] Run the full Playwright suite with `npx playwright test`.
 - [ ] Fix any user-visible precision fallout in existing E2E assertions.
 - [ ] Spot-check `Production OEE Report` on `development.localhost`.
 - [ ] Spot-check one chart-heavy report such as `Rejection Pareto Report` or `Rework Pareto Report`.
