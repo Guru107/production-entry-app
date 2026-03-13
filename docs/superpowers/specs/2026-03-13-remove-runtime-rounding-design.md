@@ -63,6 +63,11 @@ Examples:
 Sorting and grouping should operate on raw values unless a current implementation sorts a value only after rounding.
 In that case, sorting should use the unrounded value.
 
+Pareto-specific rule:
+
+- cumulative percentage should be computed from raw values without per-step rounding
+- the final cumulative row may remain hard-clamped to `100.0` to preserve the expected Pareto endpoint contract
+
 ### 3. Preserve numeric types
 
 Returned values stay numeric where the contract is numeric.
@@ -151,6 +156,7 @@ For this change set:
 - derive absolute tolerance from effective field precision instead of using a hardcoded universal constant
 - use `abs_tol = 0.5 * 10 ** (-precision)` where `precision` is the effective precision of the compared quantity
 - use the document field precision when available
+- when two compared fields have different precisions, use the looser precision as the comparison source of truth
 - if metadata lookup is not practical at that call site, use the existing business precision for that quantity path
   rather than inventing a stricter contract
 - use absolute tolerance only; no relative tolerance
