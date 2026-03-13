@@ -107,9 +107,7 @@ def get_shift_timeline_data(doctype: str, docname: str) -> dict:
 		if parent and parent not in fg_item_by_entry:
 			fg_item_by_entry[parent] = fg_row.get("item_code")
 		if parent:
-			fg_qty_by_entry[parent] = flt(fg_qty_by_entry.get(parent) or 0) + flt(
-				fg_row.get("fg_qty") or 0
-			)
+			fg_qty_by_entry[parent] = flt(fg_qty_by_entry.get(parent) or 0) + flt(fg_row.get("fg_qty") or 0)
 
 	entries = []
 	for row in rows:

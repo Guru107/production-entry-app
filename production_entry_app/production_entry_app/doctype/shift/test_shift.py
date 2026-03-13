@@ -1865,7 +1865,9 @@ class TestShiftMetrics(FrappeTestCase):
 		self.assertAlmostEqual(
 			float(metrics["total_duration_mins"]), expected_total_duration_mins, delta=derived_abs_tol
 		)
-		self.assertAlmostEqual(float(metrics["avg_actual_spm"]), expected_avg_actual_spm, delta=derived_abs_tol)
+		self.assertAlmostEqual(
+			float(metrics["avg_actual_spm"]), expected_avg_actual_spm, delta=derived_abs_tol
+		)
 
 	def test_avg_spm_is_zero_when_duration_is_zero(self) -> None:
 		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_metrics

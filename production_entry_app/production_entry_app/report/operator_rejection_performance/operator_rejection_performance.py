@@ -67,7 +67,9 @@ def _get_rows(filters: dict) -> list[dict]:
 			rejection_qty = flt(entry_metrics.get("rejection_qty") or 0)
 			total_qty = flt(entry.get("fg_completed_qty") or 0)
 			if total_qty <= 0 and entry_name:
-				total_qty = flt(entry_metrics.get("good_qty") or 0) + flt(entry_metrics.get("total_rejected_qty") or 0)
+				total_qty = flt(entry_metrics.get("good_qty") or 0) + flt(
+					entry_metrics.get("total_rejected_qty") or 0
+				)
 			agg = agg_by_operator.setdefault(
 				operator,
 				{
@@ -121,7 +123,9 @@ def _get_rows(filters: dict) -> list[dict]:
 		total_qty = flt(agg["total_qty"])
 		rejection_qty = flt(agg["rejection_qty"])
 		rejection_rate_pct = flt((rejection_qty / total_qty) * 100) if total_qty > 0 else 0
-		avg_actual_spm = flt(agg["actual_spm_sum"] / agg["actual_spm_count"]) if agg["actual_spm_count"] > 0 else 0
+		avg_actual_spm = (
+			flt(agg["actual_spm_sum"] / agg["actual_spm_count"]) if agg["actual_spm_count"] > 0 else 0
+		)
 		reason_totals = agg.get("reason_totals") or {}
 		top_reasons = sorted(reason_totals.items(), key=lambda item: (-flt(item[1]), item[0]))[:3]
 		top_3_reasons = ", ".join(f"{reason} ({_format_numeric_summary(qty)})" for reason, qty in top_reasons)

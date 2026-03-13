@@ -242,12 +242,16 @@ def _get_stock_entry_groups(
 		has_rows = True
 		entry_names = [entry.get("name") for entry in chunk if entry.get("name")]
 		parent_quantity_metrics = get_parent_quantity_metrics(entry_names)
-		good_qty_map = {parent: flt(metrics.get("good_qty") or 0) for parent, metrics in parent_quantity_metrics.items()}
+		good_qty_map = {
+			parent: flt(metrics.get("good_qty") or 0) for parent, metrics in parent_quantity_metrics.items()
+		}
 		rejection_qty_map = {
-			parent: flt(metrics.get("rejection_qty") or 0) for parent, metrics in parent_quantity_metrics.items()
+			parent: flt(metrics.get("rejection_qty") or 0)
+			for parent, metrics in parent_quantity_metrics.items()
 		}
 		total_rejected_qty_map = {
-			parent: flt(metrics.get("total_rejected_qty") or 0) for parent, metrics in parent_quantity_metrics.items()
+			parent: flt(metrics.get("total_rejected_qty") or 0)
+			for parent, metrics in parent_quantity_metrics.items()
 		}
 		loss_rows = frappe.get_all(
 			"Loss Entry",
@@ -353,7 +357,9 @@ def _get_availability_hours_by_group(
 		duration_mins = get_loss_duration_minutes(row.get("start_time"), row.get("end_time"))
 		if duration_mins <= 0:
 			continue
-		planned_loss_hours_by_shift[shift_name] = flt(planned_loss_hours_by_shift.get(shift_name, 0) + (duration_mins / 60))
+		planned_loss_hours_by_shift[shift_name] = flt(
+			planned_loss_hours_by_shift.get(shift_name, 0) + (duration_mins / 60)
+		)
 
 	availability_hours_by_group: dict[tuple[str, str], float] = {}
 	for key, group in groups.items():

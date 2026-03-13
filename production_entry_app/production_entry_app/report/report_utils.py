@@ -321,9 +321,9 @@ def get_parent_quantity_metrics(
 			{"good_qty": 0.0, "rejection_qty": 0.0, "rework_qty": 0.0, "total_rejected_qty": 0.0},
 		)
 		qty = flt(row.get("qty") or 0)
-		parent_metrics[parent]["total_rejected_qty"] = flt(
-			parent_metrics[parent].get("total_rejected_qty") or 0
-		) + qty
+		parent_metrics[parent]["total_rejected_qty"] = (
+			flt(parent_metrics[parent].get("total_rejected_qty") or 0) + qty
+		)
 		if row.get("is_rework"):
 			parent_metrics[parent]["rework_qty"] = qty
 		else:

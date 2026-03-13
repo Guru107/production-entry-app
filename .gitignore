@@ -12,3 +12,4 @@ playwright-report
 tests/e2e/.auth/*.json
 .npm-cache/
 .npmrc
+.playwright-browsers/

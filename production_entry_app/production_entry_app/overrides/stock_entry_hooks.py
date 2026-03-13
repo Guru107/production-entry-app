@@ -378,12 +378,14 @@ def _validate_rejection_breakup(doc) -> None:
 				total_qty, rejection_qty
 			)
 		)
-	doc.custom_rework_qty = flt(rework_qty, 3)
+	doc.custom_rework_qty = flt(rework_qty)
 
 
 def _get_rejection_breakup_abs_tol(doc, breakup_rows: list) -> float:
 	parent_precision = _get_docfield_precision("Stock Entry", "custom_rejection_qty", doc)
-	child_precision = _get_docfield_precision("Rejection Breakup", "qty", breakup_rows[0]) if breakup_rows else 3
+	child_precision = (
+		_get_docfield_precision("Rejection Breakup", "qty", breakup_rows[0]) if breakup_rows else 3
+	)
 	effective_precision = min(parent_precision, child_precision)
 	return 0.5 * (10 ** (-effective_precision))
 
@@ -561,7 +563,7 @@ def _set_entry_metrics(doc) -> None:
 	meta = frappe.get_meta("Stock Entry", cached=True)
 	_set_die_tool_health_metrics(doc, meta)
 	ok_qty = _get_ok_units_for_metrics(doc)
-	_set_if_field(doc, meta, "custom_ok_qty", flt(ok_qty, 3))
+	_set_if_field(doc, meta, "custom_ok_qty", flt(ok_qty))
 	actual_start = _as_datetime(doc.get("custom_actual_start_date"))
 	actual_end = _as_datetime(doc.get("custom_actual_end_date"))
 
@@ -594,11 +596,11 @@ def _set_entry_metrics(doc) -> None:
 	standard_spm = flt(doc.get("custom_standard_spm") or 0)
 	operator_efficiency = ((actual_spm / standard_spm) * 100) if standard_spm > 0 else 0
 
-	_set_if_field(doc, meta, "custom_actual_duration_mins", flt(duration_mins, 3))
-	_set_if_field(doc, meta, "custom_production_time_mins", flt(production_time_mins, 3))
-	_set_if_field(doc, meta, "custom_actual_spm", flt(actual_spm, 3))
-	_set_if_field(doc, meta, "custom_cycle_time_sec", flt(cycle_time_sec, 3))
-	_set_if_field(doc, meta, "custom_operator_efficiency_pct", flt(operator_efficiency, 2))
+	_set_if_field(doc, meta, "custom_actual_duration_mins", flt(duration_mins))
+	_set_if_field(doc, meta, "custom_production_time_mins", flt(production_time_mins))
+	_set_if_field(doc, meta, "custom_actual_spm", flt(actual_spm))
+	_set_if_field(doc, meta, "custom_cycle_time_sec", flt(cycle_time_sec))
+	_set_if_field(doc, meta, "custom_operator_efficiency_pct", flt(operator_efficiency))
 
 
 def _get_deducted_loss_minutes_for_entry(
@@ -642,7 +644,7 @@ def _get_deducted_loss_minutes_for_entry(
 
 	merged_intervals = merge_intervals(overlap_intervals)
 	total_mins = sum(get_interval_minutes(start_dt, end_dt) for start_dt, end_dt in merged_intervals)
-	return flt(total_mins, 3)
+	return flt(total_mins)
 
 
 def _get_shift_planned_losses_for_metrics(

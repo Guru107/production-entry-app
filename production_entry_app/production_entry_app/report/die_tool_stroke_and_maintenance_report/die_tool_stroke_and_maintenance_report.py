@@ -5,6 +5,7 @@ from frappe import _
 from frappe.query_builder import DocType
 from frappe.utils import flt
 
+
 def execute(filters: dict | None = None):
 	filters = filters or {}
 	columns = _get_columns()

@@ -98,12 +98,16 @@ def _get_rows(filters: dict) -> list[dict]:
 		entry_names = [entry.get("name") for entry in entries if entry.get("name")]
 		parent_quantity_metrics = get_parent_quantity_metrics(entry_names)
 		parent_loss_metrics = get_parent_loss_metrics(entry_names)
-		good_qty_map = {parent: flt(metrics.get("good_qty") or 0) for parent, metrics in parent_quantity_metrics.items()}
+		good_qty_map = {
+			parent: flt(metrics.get("good_qty") or 0) for parent, metrics in parent_quantity_metrics.items()
+		}
 		rejection_qty_map = {
-			parent: flt(metrics.get("rejection_qty") or 0) for parent, metrics in parent_quantity_metrics.items()
+			parent: flt(metrics.get("rejection_qty") or 0)
+			for parent, metrics in parent_quantity_metrics.items()
 		}
 		total_rejected_qty_map = {
-			parent: flt(metrics.get("total_rejected_qty") or 0) for parent, metrics in parent_quantity_metrics.items()
+			parent: flt(metrics.get("total_rejected_qty") or 0)
+			for parent, metrics in parent_quantity_metrics.items()
 		}
 
 		for entry in entries:

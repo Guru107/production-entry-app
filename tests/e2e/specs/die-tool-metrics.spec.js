@@ -195,8 +195,7 @@ test.describe("Die tool metrics and counter", () => {
 
 		await stockEntryPage.saveDraft();
 		await page.waitForFunction(
-			() =>
-				String(window.cur_frm?.__peaDieToolAlertMessage || "").includes("90.12345%"),
+			() => String(window.cur_frm?.__peaDieToolAlertMessage || "").includes("90.12345%"),
 			undefined,
 			{ timeout: 10000 }
 		);

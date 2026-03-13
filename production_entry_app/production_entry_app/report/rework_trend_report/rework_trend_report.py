@@ -91,7 +91,9 @@ def _get_rows(filters: dict) -> list[dict]:
 			non_rework_rejection_qty = flt(entry_metrics.get("rejection_qty") or 0)
 			total_qty = flt(entry.get("fg_completed_qty") or 0)
 			if total_qty <= 0 and entry_name:
-				total_qty = flt(entry_metrics.get("good_qty") or 0) + flt(entry_metrics.get("total_rejected_qty") or 0)
+				total_qty = flt(entry_metrics.get("good_qty") or 0) + flt(
+					entry_metrics.get("total_rejected_qty") or 0
+				)
 
 			key_date, period_label = _period_key(posting_date, time_grain)
 			aggregate = aggregates.setdefault(
