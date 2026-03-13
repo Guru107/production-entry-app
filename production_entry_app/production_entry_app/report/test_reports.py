@@ -401,6 +401,37 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(float(rows[0]["running_time"]), 6.0)
 		self.assertEqual(float(rows[0]["availability_pct"]), 75.0)
 
+	def test_production_oee_report_preserves_raw_runtime_values(self) -> None:
+		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
+			execute,
+		)
+
+		shift = self._create_shift_for_label("2026-06-13", "1", clear_planned_losses=True)
+		self._create_mock_submitted_entry(
+			posting_date="2026-06-13",
+			planned_start="2026-06-13 08:00:00",
+			planned_end="2026-06-13 09:00:00",
+			actual_start="2026-06-13 08:00:00",
+			actual_end="2026-06-13 09:00:00",
+			fg_qty=120,
+			rejection_qty=0,
+			shift_name=shift.name,
+			unplanned_losses=[{"downtime_reason": "Other", "start_time": "10:00:00", "end_time": "10:00:20"}],
+		)
+
+		_, rows = execute({"from_date": "2026-06-13", "to_date": "2026-06-13"})
+		self.assertEqual(len(rows), 1)
+		row = rows[0]
+		expected_total_loss_time = (20 / 60) / 60
+		expected_running_time = 8 - expected_total_loss_time
+		expected_availability_pct = (expected_running_time / 8) * 100
+		derived_abs_tol = expected_total_loss_time / 1_000_000_000
+		self.assertAlmostEqual(float(row["total_loss_time"]), expected_total_loss_time, delta=derived_abs_tol)
+		self.assertAlmostEqual(float(row["running_time"]), expected_running_time, delta=derived_abs_tol)
+		self.assertAlmostEqual(
+			float(row["availability_pct"]), expected_availability_pct, delta=derived_abs_tol
+		)
+
 	def test_production_oee_report_availability_includes_all_linked_shifts_for_a_workstation(self) -> None:
 		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
 			execute,

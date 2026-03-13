@@ -7,7 +7,12 @@ from frappe.exceptions import ValidationError
 from frappe.tests.utils import FrappeTestCase
 
 from production_entry_app.production_entry_app.overrides.test_stock_entry_hooks import (
+	_append_rejection_breakup_rows,
 	_create_manufacture_stock_entry,
+	_ensure_rejection_breakup_custom_field,
+	_ensure_rejection_breakup_doctype,
+	_ensure_rejection_reason_doctype,
+	_ensure_rejection_reasons,
 )
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	bootstrap_manufacturing_test_context,
@@ -21,6 +26,10 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 class TestGetShiftTimelineData(FrappeTestCase):
 	def setUp(self) -> None:
 		cleanup_running_shifts()
+		_ensure_rejection_breakup_doctype()
+		_ensure_rejection_reason_doctype()
+		_ensure_rejection_reasons()
+		_ensure_rejection_breakup_custom_field()
 		self.ctx = bootstrap_manufacturing_test_context("TIMELINE")
 		self.fg_item = ensure_item("_TIMELINE_FG")
 		self.rm_item = ensure_item("_TIMELINE_RM")
@@ -96,6 +105,16 @@ class TestGetShiftTimelineData(FrappeTestCase):
 		entry.custom_operator = operator
 		entry.custom_actual_start_date = actual_start
 		entry.custom_actual_end_date = actual_end
+		if rejection_qty > 0:
+			_append_rejection_breakup_rows(
+				entry,
+				[
+					{
+						"rejection_reason": "Burr",
+						"qty": rejection_qty,
+					}
+				],
+			)
 		entry.save()
 		frappe.db.set_value("Stock Entry", entry.name, "docstatus", docstatus, update_modified=False)
 		return entry.name
@@ -250,6 +269,32 @@ class TestGetShiftTimelineData(FrappeTestCase):
 		self.assertEqual(float(entry["fg_qty"]), 120.0)
 		self.assertEqual(float(entry["rejection_qty"]), 0.0)
 		self.assertEqual(float(entry["ok_qty"]), 120.0)
+
+	def test_entry_qty_fields_preserve_raw_decimal_values(self) -> None:
+		from production_entry_app.production_entry_app.api_timeline import get_shift_timeline_data
+
+		shift = self._create_running_shift("2026-10-14")
+		good_qty = 120
+		rejection_qty = 0.1235
+		expected_ok_qty = good_qty - rejection_qty
+		derived_abs_tol = max(abs(expected_ok_qty), abs(rejection_qty), 1.0) / 1_000_000_000
+		entry_name = self._create_submitted_like_entry(
+			shift.name,
+			workstation=self.workstation_a,
+			operator=self.operator_a,
+			good_qty=good_qty,
+			rejection_qty=0,
+			actual_start="2026-10-14 09:00:00",
+			actual_end="2026-10-14 10:00:00",
+		)
+		frappe.db.set_value("Stock Entry", entry_name, "custom_rejection_qty", rejection_qty, update_modified=False)
+
+		result = get_shift_timeline_data("Workstation", self.workstation_a)
+		self.assertEqual(len(result["entries"]), 1)
+		entry = result["entries"][0]
+		self.assertEqual(float(entry["fg_qty"]), good_qty)
+		self.assertAlmostEqual(float(entry["rejection_qty"]), rejection_qty, delta=derived_abs_tol)
+		self.assertAlmostEqual(float(entry["ok_qty"]), expected_ok_qty, delta=derived_abs_tol)
 
 	def test_entry_has_fg_item_from_finished_items(self) -> None:
 		from production_entry_app.production_entry_app.api_timeline import get_shift_timeline_data
