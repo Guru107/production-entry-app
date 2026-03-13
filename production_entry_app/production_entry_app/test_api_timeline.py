@@ -107,16 +107,6 @@ class TestGetShiftTimelineData(FrappeTestCase):
 		entry.custom_operator = operator
 		entry.custom_actual_start_date = actual_start
 		entry.custom_actual_end_date = actual_end
-		if rejection_qty > 0:
-			_append_rejection_breakup_rows(
-				entry,
-				[
-					{
-						"rejection_reason": "Burr",
-						"qty": rejection_qty,
-					}
-				],
-			)
 		entry.save()
 		frappe.db.set_value("Stock Entry", entry.name, "docstatus", docstatus, update_modified=False)
 		return entry.name
@@ -279,23 +269,35 @@ class TestGetShiftTimelineData(FrappeTestCase):
 		shift = self._create_running_shift("2026-10-14")
 		total_finished_qty_before_rejection = 120
 		rejection_qty = 0.1235
-		entry_name = self._create_submitted_like_entry(
-			shift.name,
-			workstation=self.workstation_a,
-			operator=self.operator_a,
-			good_qty=total_finished_qty_before_rejection,
-			rejection_qty=rejection_qty,
-			actual_start="2026-10-14 09:00:00",
-			actual_end="2026-10-14 10:00:00",
-		)
-		entry_doc = frappe.get_doc("Stock Entry", entry_name)
-		expected_fg_qty = sum(
-			float(item.qty)
-			for item in entry_doc.items
-			if item.is_finished_item and not int(item.get("custom_is_rejection_item") or 0)
-		)
-		expected_ok_qty = expected_fg_qty - rejection_qty
+		expected_fg_qty = 119.8765
+		expected_ok_qty = 119.753
 		derived_abs_tol = max(abs(expected_fg_qty), abs(expected_ok_qty), abs(rejection_qty), 1.0) / 1_000_000_000
+		entry = _create_manufacture_stock_entry(
+			company=self.ctx["company"],
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			fg_qty=total_finished_qty_before_rejection,
+			rm_qty=total_finished_qty_before_rejection,
+			custom_shift=shift.name,
+			custom_rejection_qty=rejection_qty,
+			fg_warehouse=self.ctx["fg_warehouse"],
+			rm_warehouse=self.ctx["rm_warehouse"],
+		)
+		entry.custom_workstation = self.workstation_a
+		entry.custom_operator = self.operator_a
+		entry.custom_actual_start_date = "2026-10-14 09:00:00"
+		entry.custom_actual_end_date = "2026-10-14 10:00:00"
+		_append_rejection_breakup_rows(
+			entry,
+			[
+				{
+					"rejection_reason": "Burr",
+					"qty": rejection_qty,
+				}
+			],
+		)
+		entry.save()
+		frappe.db.set_value("Stock Entry", entry.name, "docstatus", 1, update_modified=False)
 
 		result = get_shift_timeline_data("Workstation", self.workstation_a)
 		self.assertEqual(len(result["entries"]), 1)
