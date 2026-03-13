@@ -155,8 +155,8 @@ Removing explicit rounding does not mean replacing it with brittle raw-float equ
 For validation paths:
 
 - avoid direct equality checks on computed floating-point values
-- compare using `math.isclose(..., rel_tol=0.0, abs_tol=NUMERIC_COMPARISON_ABS_TOLERANCE)`
-  when the values are derived from arithmetic
+- compare using `math.isclose(..., rel_tol=0.0, abs_tol=derived_abs_tol)` when the values are derived from
+  arithmetic
 - keep exact equality only for values that are already integral or directly stored without float math
 
 For this change set:
@@ -183,7 +183,7 @@ Tests that currently encode rounded values must be updated.
 Rules:
 
 - Use exact equality when the value should remain integral or directly sourced
-- Use `assertAlmostEqual` when floating-point math is involved
+- Use `assertAlmostEqual` with `delta=derived_abs_tol` when floating-point math is involved
 - Keep test expectations aligned with the new unrounded raw values rather than prior rounded snapshots
 
 Primary test surfaces:
