@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation
+
 import frappe
 from frappe import _
-from frappe.utils import flt
+from frappe.utils import get_number_format_info
 
 from production_entry_app.production_entry_app.doctype.shift.shift import (
 	WARNING_THRESHOLD_PCT_DEFAULT,
@@ -34,14 +36,13 @@ def _get_due_die_tool_counters() -> list[dict]:
 	)
 	due: list[dict] = []
 	for row in rows:
-		current_strokes = flt(row.get("current_stroke_count") or 0, 3)
-		stroke_capacity = flt(row.get("stroke_capacity") or 0, 3)
-		threshold = flt(row.get("warning_threshold_pct") or WARNING_THRESHOLD_PCT_DEFAULT, 2)
+		current_strokes = float(row.get("current_stroke_count") or 0)
+		stroke_capacity = float(row.get("stroke_capacity") or 0)
+		threshold = float(row.get("warning_threshold_pct") or WARNING_THRESHOLD_PCT_DEFAULT)
 		utilization_pct, is_maintenance_due = get_counter_health(
 			current_strokes=current_strokes,
 			stroke_capacity=stroke_capacity,
 			warning_threshold_pct=threshold,
-			precision=2,
 		)
 		if not is_maintenance_due:
 			continue
@@ -67,13 +68,29 @@ def _build_alert_message(due_counters: list[dict]) -> str:
 		lines.append(
 			_("{0}: {1}% utilized (current: {2}, capacity: {3}, threshold: {4}%)").format(
 				row.get("die_tool_item"),
-				flt(row.get("utilization_pct") or 0, 2),
-				flt(row.get("current_stroke_count") or 0, 3),
-				flt(row.get("stroke_capacity") or 0, 3),
-				flt(row.get("warning_threshold_pct") or WARNING_THRESHOLD_PCT_DEFAULT, 2),
+				_format_numeric_fragment(row.get("utilization_pct") or 0),
+				_format_numeric_fragment(row.get("current_stroke_count") or 0),
+				_format_numeric_fragment(row.get("stroke_capacity") or 0),
+				_format_numeric_fragment(row.get("warning_threshold_pct") or WARNING_THRESHOLD_PCT_DEFAULT),
 			)
 		)
 	return "\n".join(lines)
+
+
+def _format_numeric_fragment(value: float | int) -> str:
+	precision = _get_numeric_precision(value)
+	formatted = frappe.format_value(value, df={"fieldtype": "Float", "precision": precision})
+	number_format = frappe.db.get_default("number_format") or "#,###.##"
+	_decimal_sep, group_sep, _precision = get_number_format_info(number_format)
+	return formatted.replace(group_sep, "") if group_sep else formatted
+
+
+def _get_numeric_precision(value: float | int) -> int:
+	try:
+		decimal_value = Decimal(str(value)).normalize()
+	except (InvalidOperation, ValueError):
+		return 0
+	return max(-decimal_value.as_tuple().exponent, 0)
 
 
 def send_daily_die_tool_maintenance_alerts() -> None:
