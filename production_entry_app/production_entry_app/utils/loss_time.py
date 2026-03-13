@@ -18,7 +18,7 @@ def get_loss_duration_minutes(start_value, end_value) -> float:
 	duration_mins = end_mins - start_mins
 	if duration_mins < 0:
 		duration_mins += 24 * 60
-	return flt(duration_mins if duration_mins > 0 else 0, 3)
+	return flt(duration_mins if duration_mins > 0 else 0)
 
 
 def resolve_time_interval_in_window(
@@ -117,4 +117,4 @@ def merge_intervals(
 
 
 def get_interval_minutes(start_dt: datetime.datetime, end_dt: datetime.datetime) -> float:
-	return flt(max((end_dt - start_dt).total_seconds() / 60, 0), 3)
+	return flt(max((end_dt - start_dt).total_seconds() / 60, 0))
