@@ -138,6 +138,7 @@
   - `bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.test_tasks`
   - `bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.utils.test_die_tool_counter`
   - `npx playwright test tests/e2e/specs/die-tool-metrics.spec.js tests/e2e/specs/stock-entry-and-die-tool.spec.js tests/e2e/specs/stock-entry-validations.spec.js`
+- [ ] Run `bench build --app production_entry_app` after any JS change and before browser-based verification.
 - [ ] Commit the runtime-path change set.
 
 ## Chunk 4: End-to-End Verification and Site Checks
