@@ -17,6 +17,7 @@ from production_entry_app.production_entry_app.api import (
 	_get_candidate_e2e_stock_entries,
 	_get_e2e_shift_names_cache_key,
 	_get_or_create_e2e_shift,
+	get_die_tool_counter,
 	_stock_entry_matches_cleanup_target,
 	bootstrap_e2e_context,
 	cleanup_e2e_context,
@@ -153,6 +154,22 @@ class TestE2EApi(FrappeTestCase):
 	def test_delete_wrapper_http_methods_match_frappe_client_delete(self) -> None:
 		allowed_methods = frappe.allowed_http_methods_for_whitelisted_func.get(delete, [])
 		self.assertEqual(set(allowed_methods), {"DELETE", "POST"})
+
+	def test_get_die_tool_counter_preserves_unrounded_utilization_and_threshold_check(self) -> None:
+		with patch("production_entry_app.production_entry_app.api.frappe.db.exists", return_value=True):
+			with patch("production_entry_app.production_entry_app.api.is_die_tool_enabled", return_value=True):
+				with patch(
+					"production_entry_app.production_entry_app.api.get_counter_snapshot",
+					return_value={
+						"current_stroke_count": 1,
+						"stroke_capacity": 3,
+						"warning_threshold_pct": 33.3333,
+					},
+				):
+					result = get_die_tool_counter("ITEM-001")
+
+		self.assertAlmostEqual(float(result.get("utilization_pct") or 0), 33.3333333333, places=6)
+		self.assertEqual(int(result.get("is_maintenance_due") or 0), 1)
 
 	def test_e2e_base_date_is_deterministic(self) -> None:
 		date_a = _e2e_base_date("StablePrefix")

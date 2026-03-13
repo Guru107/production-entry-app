@@ -155,6 +155,53 @@ test.describe("Die tool metrics and counter", () => {
 		);
 	});
 
+	test("@regression die-tool warning headline keeps API precision instead of local toFixed", async ({
+		page,
+	}) => {
+		await page.goto("/app/home");
+		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
+
+		const stockEntryPage = await createManufactureEntry(page, ctx, {
+			fgQty: 10,
+			rejectionQty: 0,
+		});
+		await page.evaluate(() => {
+			const originalCall = frappe.call.bind(frappe);
+			window.__peaOriginalFrappeCall = originalCall;
+			frappe.call = function (options) {
+				if (
+					options?.method ===
+					"production_entry_app.production_entry_app.api.get_die_tool_counter"
+				) {
+					options.callback?.({
+						message: {
+							die_tool_code: window.cur_frm?.doc?.fg_item || "ITEM-001",
+							has_die_tool: 1,
+							current_strokes: 901.2345,
+							stroke_capacity: 1000,
+							warning_threshold_pct: 90,
+							utilization_pct: 90.12345,
+							is_maintenance_due: 1,
+						},
+					});
+					return Promise.resolve();
+				}
+				return originalCall(options);
+			};
+		});
+		await page.evaluate(async () => {
+			await window.cur_frm?.script_manager?.trigger("custom_rejection_qty");
+		});
+
+		await stockEntryPage.saveDraft();
+		await page.waitForFunction(
+			() =>
+				String(window.cur_frm?.__peaDieToolAlertMessage || "").includes("90.12345%"),
+			undefined,
+			{ timeout: 10000 }
+		);
+	});
+
 	test("@regression die-tool counter increases on submit and decreases on cancel", async ({
 		page,
 	}) => {

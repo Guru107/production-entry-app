@@ -67,3 +67,43 @@ class TestTasks(FrappeTestCase):
 
 		self.assertEqual(len(due), 1)
 		self.assertEqual(due[0].get("die_tool_item"), "_High FG")
+
+	def test_due_counter_uses_exact_threshold_without_runtime_rounding(self) -> None:
+		with patch(
+			"production_entry_app.tasks.frappe.get_all",
+			return_value=[
+				{
+					"name": "DTC-1",
+					"die_tool_item": "_Borderline FG",
+					"current_stroke_count": 1000,
+					"stroke_capacity": 3000,
+					"warning_threshold_pct": 33.3334,
+				}
+			],
+		):
+			due = _get_due_die_tool_counters()
+
+		self.assertEqual(due, [])
+
+	def test_alert_message_preserves_unrounded_numeric_fragments(self) -> None:
+		with patch("production_entry_app.tasks._get_maintenance_recipients", return_value=["qa@example.com"]):
+			with patch(
+				"production_entry_app.tasks._get_due_die_tool_counters",
+				return_value=[
+					{
+						"die_tool_item": "_Precision FG",
+						"utilization_pct": 95.6789,
+						"current_stroke_count": 956.7894,
+						"stroke_capacity": 1000.1234,
+						"warning_threshold_pct": 95.4321,
+					}
+				],
+			):
+				with patch("production_entry_app.tasks.frappe.sendmail") as sendmail:
+					send_daily_die_tool_maintenance_alerts()
+
+		message = sendmail.call_args.kwargs.get("message") or ""
+		self.assertIn("95.6789", message)
+		self.assertIn("956.7894", message)
+		self.assertIn("1000.1234", message)
+		self.assertIn("95.4321", message)

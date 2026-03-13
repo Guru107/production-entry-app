@@ -8,6 +8,7 @@ from frappe.tests.utils import FrappeTestCase
 from production_entry_app.production_entry_app.utils.die_tool_counter import (
 	_ensure_counter_exists,
 	_get_or_create_counter,
+	get_counter_health,
 	get_counter_snapshot,
 	is_die_tool_enabled,
 )
@@ -145,3 +146,13 @@ class TestDieToolCounterUtils(FrappeTestCase):
 				row = get_counter_snapshot("DIE-001")
 
 		self.assertIsNone(row)
+
+	def test_get_counter_health_uses_exact_utilization_for_threshold_check(self) -> None:
+		utilization_pct, is_maintenance_due = get_counter_health(
+			current_strokes=1,
+			stroke_capacity=3,
+			warning_threshold_pct=33.3333,
+		)
+
+		self.assertAlmostEqual(utilization_pct, 33.3333333333, places=6)
+		self.assertEqual(is_maintenance_due, 1)
