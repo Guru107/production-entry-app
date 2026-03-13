@@ -25,7 +25,10 @@ scope.
 - Benchmark output in:
   - `production_entry_app/production_entry_app/write_benchmark.py`
   - `production_entry_app/production_entry_app/report/report_benchmark.py`
-- Column metadata precision changes, unless a specific field still hardcodes a backend-rounded value contract
+- New column metadata precision rules
+
+Existing explicit column precision overrides may be removed if they are part of the current app-owned rounding
+behavior. This pass does not add new precision metadata to compensate for backend rounding removal.
 
 ## Design Rules
 
@@ -145,9 +148,11 @@ For validation paths:
 
 For this change set:
 
-- define `NUMERIC_COMPARISON_ABS_TOLERANCE: float = 1e-9`
-- place it near the validation logic that needs it, or in the smallest shared module if multiple runtime paths need
-  the same rule
+- derive absolute tolerance from effective field precision instead of using a hardcoded universal constant
+- use `abs_tol = 0.5 * 10 ** (-precision)` where `precision` is the effective precision of the compared quantity
+- use the document field precision when available
+- if metadata lookup is not practical at that call site, use the existing business precision for that quantity path
+  rather than inventing a stricter contract
 - use absolute tolerance only; no relative tolerance
 
 The intended replacement for rounded float equality contracts is tolerance-based comparison, not raw `==` on floats
@@ -185,11 +190,14 @@ Minimum verification after implementation:
 - Focused Python test modules for each touched area
 - Focused Playwright coverage for the closest affected user-facing flows required by repo policy
 - `pre-commit run --all-files`
-- A real report spot check on `development.localhost`
+- Representative real report checks on `development.localhost`
 
-Suggested report spot check:
+Minimum representative spot-check set:
 
 - `Production OEE Report`
+- one chart-heavy report such as `Rejection Pareto Report` or `Rework Pareto Report`
+- one text-summary report such as `Operator Rejection Performance` or `Operator Rework Performance`
+- one persisted-metric flow affected by runtime hooks, using the closest existing Shift/Stock Entry Playwright suite
 
 ## Trade-offs
 
