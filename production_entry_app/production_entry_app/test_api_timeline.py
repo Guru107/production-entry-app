@@ -277,20 +277,25 @@ class TestGetShiftTimelineData(FrappeTestCase):
 
 		self._ensure_rejection_breakup_fixtures()
 		shift = self._create_running_shift("2026-10-14")
-		good_qty = 120
+		total_finished_qty_before_rejection = 120
 		rejection_qty = 0.1235
-		expected_fg_qty = good_qty - rejection_qty
-		expected_ok_qty = expected_fg_qty - rejection_qty
-		derived_abs_tol = max(abs(expected_fg_qty), abs(expected_ok_qty), abs(rejection_qty), 1.0) / 1_000_000_000
-		self._create_submitted_like_entry(
+		entry_name = self._create_submitted_like_entry(
 			shift.name,
 			workstation=self.workstation_a,
 			operator=self.operator_a,
-			good_qty=good_qty,
+			good_qty=total_finished_qty_before_rejection,
 			rejection_qty=rejection_qty,
 			actual_start="2026-10-14 09:00:00",
 			actual_end="2026-10-14 10:00:00",
 		)
+		entry_doc = frappe.get_doc("Stock Entry", entry_name)
+		expected_fg_qty = sum(
+			float(item.qty)
+			for item in entry_doc.items
+			if item.is_finished_item and not int(item.get("custom_is_rejection_item") or 0)
+		)
+		expected_ok_qty = expected_fg_qty - rejection_qty
+		derived_abs_tol = max(abs(expected_fg_qty), abs(expected_ok_qty), abs(rejection_qty), 1.0) / 1_000_000_000
 
 		result = get_shift_timeline_data("Workstation", self.workstation_a)
 		self.assertEqual(len(result["entries"]), 1)
