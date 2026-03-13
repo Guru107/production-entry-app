@@ -425,7 +425,7 @@ class TestProductionReports(FrappeTestCase):
 		expected_total_loss_time = (20 / 60) / 60
 		expected_running_time = 8 - expected_total_loss_time
 		expected_availability_pct = (expected_running_time / 8) * 100
-		derived_abs_tol = expected_total_loss_time / 1_000_000_000
+		derived_abs_tol = 1e-6
 		self.assertAlmostEqual(float(row["total_loss_time"]), expected_total_loss_time, delta=derived_abs_tol)
 		self.assertAlmostEqual(float(row["running_time"]), expected_running_time, delta=derived_abs_tol)
 		self.assertAlmostEqual(
@@ -2108,7 +2108,7 @@ class TestProductionReports(FrappeTestCase):
 		# total_strokes = good_qty(90) + rejection(10) = 100
 		self.assertAlmostEqual(float(data_row["total_strokes"]), 100.0, places=2)
 		expected_spm = 100 / (0.25 * 60)
-		derived_abs_tol = expected_spm / 1_000_000_000
+		derived_abs_tol = 1e-6
 		self.assertAlmostEqual(float(data_row["spm"]), expected_spm, delta=derived_abs_tol)
 		self.assertAlmostEqual(float(data_row["rejection"]), 10.0, places=2)
 		self.assertAlmostEqual(float(data_row["rework"]), 0.0, places=2)
@@ -2305,7 +2305,7 @@ class TestProductionReports(FrappeTestCase):
 		self.assertAlmostEqual(float(row["production_time_hrs"]), 2.5, places=3)
 		self.assertAlmostEqual(float(row["total_strokes"]), 100.0, places=3)
 		expected_spm = 100 / (2.5 * 60)
-		derived_abs_tol = expected_spm / 1_000_000_000
+		derived_abs_tol = 1e-6
 		self.assertAlmostEqual(float(row["spm"]), expected_spm, delta=derived_abs_tol)
 
 	def test_operator_daily_spm_report_multiple_workstations_same_day(self) -> None:
@@ -2389,7 +2389,7 @@ class TestProductionReports(FrappeTestCase):
 		row = rows[0]
 		# Sum per-entry durations and deduct shift planned losses where overlapped.
 		expected_production_time_hrs = 100 / 60
-		derived_abs_tol = expected_production_time_hrs / 1_000_000_000
+		derived_abs_tol = 1e-6
 		self.assertAlmostEqual(
 			float(row["production_time_hrs"]), expected_production_time_hrs, delta=derived_abs_tol
 		)

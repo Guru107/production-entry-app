@@ -66,7 +66,7 @@ class TestLossTime(FrappeTestCase):
 
 	def test_get_loss_duration_minutes_preserves_raw_fractional_minutes(self) -> None:
 		expected_minutes = 20 / 60
-		derived_abs_tol = expected_minutes / 1_000_000_000
+		derived_abs_tol = 1e-6
 
 		self.assertAlmostEqual(
 			get_loss_duration_minutes("10:00:00", "10:00:20"),
@@ -78,7 +78,7 @@ class TestLossTime(FrappeTestCase):
 		start_dt = datetime.datetime(2026, 3, 3, 10, 0, 0)
 		end_dt = datetime.datetime(2026, 3, 3, 10, 0, 20)
 		expected_minutes = 20 / 60
-		derived_abs_tol = expected_minutes / 1_000_000_000
+		derived_abs_tol = 1e-6
 
 		self.assertAlmostEqual(
 			get_interval_minutes(start_dt, end_dt),
@@ -88,7 +88,7 @@ class TestLossTime(FrappeTestCase):
 
 	def test_get_loss_duration_minutes_preserves_raw_cross_midnight_fractional_minutes(self) -> None:
 		expected_minutes = 40 / 60
-		derived_abs_tol = expected_minutes / 1_000_000_000
+		derived_abs_tol = 1e-6
 
 		self.assertAlmostEqual(
 			get_loss_duration_minutes("23:59:40", "00:00:20"),

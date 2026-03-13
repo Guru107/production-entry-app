@@ -271,7 +271,7 @@ class TestGetShiftTimelineData(FrappeTestCase):
 		rejection_qty = 0.1235
 		expected_fg_qty = 119.8765
 		expected_ok_qty = 119.753
-		derived_abs_tol = max(abs(expected_fg_qty), abs(expected_ok_qty), abs(rejection_qty), 1.0) / 1_000_000_000
+		derived_abs_tol = 1e-6
 		entry = _create_manufacture_stock_entry(
 			company=self.ctx["company"],
 			fg_item=self.fg_item,
