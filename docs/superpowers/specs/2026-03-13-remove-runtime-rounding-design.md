@@ -77,7 +77,7 @@ Returned values stay numeric where the contract is numeric.
 - Frappe remains responsible for visible precision in reports/forms
 
 For non-report user-facing string surfaces that must remain strings, Frappe formatting helpers may be used to render
-numeric fragments with default precision. Raw Python float repr must not be exposed to users.
+numeric fragments with Frappe default precision. Raw Python float repr must not be exposed to users.
 
 #### Existing text summary fields
 
@@ -87,7 +87,7 @@ For this pass:
 
 - keep those fields as strings
 - remove ad hoc `round(...)` and `flt(..., n)` formatting inside the string assembly
-- use Frappe formatting helpers with default precision when a number must still be embedded into a string
+- use Frappe formatting helpers with Frappe default precision when a number must still be embedded into a string
 - do not change the field shape from string to object/list
 
 This keeps the report contract stable while delegating precision display to Frappe instead of local rounding code.
@@ -175,8 +175,8 @@ Tests that currently encode rounded values must be updated.
 Rules:
 
 - Use exact equality when the value should remain integral or directly sourced
-- Use approximate assertions when floating-point math is involved
-- Prefer built-in unittest assertions such as `assertAlmostEqual`
+- Use `assertAlmostEqual` when floating-point math is involved
+- Keep test expectations aligned with the new unrounded raw values rather than prior rounded snapshots
 
 Primary test surfaces:
 
@@ -194,7 +194,7 @@ chart/totals outputs.
 Minimum verification after implementation:
 
 - Focused Python test modules for each touched area
-- Focused Playwright coverage for the closest affected user-facing flows required by repo policy
+- Full Playwright suite verification
 - `pre-commit run --all-files`
 - Representative real report checks on `development.localhost`
 
