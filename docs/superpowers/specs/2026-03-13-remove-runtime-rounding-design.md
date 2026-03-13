@@ -15,9 +15,13 @@ scope.
 - Report modules under `production_entry_app/production_entry_app/report/`
 - Shared report helpers in `production_entry_app/production_entry_app/report/report_utils.py`
 - Timeline and API helpers such as `production_entry_app/production_entry_app/api_timeline.py`
+- Die-tool API helpers such as `production_entry_app/production_entry_app/api.py`
 - Shift runtime and metrics helpers in `production_entry_app/production_entry_app/doctype/shift/shift.py`
 - Stock Entry runtime hooks in `production_entry_app/production_entry_app/overrides/stock_entry_hooks.py`
+- Die-tool runtime utilities in `production_entry_app/production_entry_app/utils/die_tool_counter.py`
 - Utility math helpers in `production_entry_app/production_entry_app/utils/loss_time.py`
+- User-facing JS formatting in `production_entry_app/production_entry_app/public/js/stock_entry.js`
+- Maintenance alert/task formatting in `production_entry_app/production_entry_app/tasks.py`
 - Tests that assert rounded values from the above code paths
 
 ### Out of scope
@@ -132,9 +136,13 @@ intermediates.
 
 ## Runtime helpers outside reports
 
+- `api.py`
 - `api_timeline.py`
 - `doctype/shift/shift.py`
 - `overrides/stock_entry_hooks.py`
+- `public/js/stock_entry.js`
+- `tasks.py`
+- `utils/die_tool_counter.py`
 - `utils/loss_time.py`
 
 These paths affect application state, downstream report inputs, and API payloads. Leaving rounding here would
@@ -182,9 +190,13 @@ Primary test surfaces:
 
 - `production_entry_app/production_entry_app/report/test_reports.py`
 - `production_entry_app/production_entry_app/doctype/shift/test_shift.py`
+- `production_entry_app/production_entry_app/test_api.py`
 - `production_entry_app/production_entry_app/test_api_timeline.py`
 - `production_entry_app/production_entry_app/overrides/test_stock_entry_hooks.py`
+- `production_entry_app/production_entry_app/test_tasks.py`
+- `production_entry_app/production_entry_app/utils/test_die_tool_counter.py`
 - `production_entry_app/production_entry_app/utils/test_loss_time.py`
+- `tests/unit/stock-entry*.test.js` or the closest existing frontend coverage for stock entry dashboard messaging
 
 Additional tests should be adjusted wherever current expectations explicitly depend on `flt(..., n)` or rounded
 chart/totals outputs.
