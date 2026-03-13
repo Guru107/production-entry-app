@@ -7,6 +7,7 @@ from frappe.utils import flt
 from production_entry_app.production_entry_app.report.report_utils import (
 	build_stock_entry_filters,
 	get_entry_production_minutes,
+	get_entry_raw_duration_minutes,
 	get_entry_total_strokes,
 	get_parent_loss_metrics,
 	get_parent_quantity_metrics,
@@ -70,7 +71,7 @@ def _get_shift_duration_map(shift_names: set[str]) -> dict[str, float]:
 		filters={"name": ["in", list(shift_names)]},
 		fields=["name", "shift_duration"],
 	)
-	return {row.get("name"): flt(row.get("shift_duration") or 0, 3) for row in rows if row.get("name")}
+	return {row.get("name"): flt(row.get("shift_duration") or 0) for row in rows if row.get("name")}
 
 
 def _get_rows(filters: dict) -> list[dict]:
@@ -97,17 +98,12 @@ def _get_rows(filters: dict) -> list[dict]:
 		entry_names = [entry.get("name") for entry in entries if entry.get("name")]
 		parent_quantity_metrics = get_parent_quantity_metrics(entry_names)
 		parent_loss_metrics = get_parent_loss_metrics(entry_names)
-		good_qty_map = {
-			parent: flt(metrics.get("good_qty") or 0, 3)
-			for parent, metrics in parent_quantity_metrics.items()
-		}
+		good_qty_map = {parent: flt(metrics.get("good_qty") or 0) for parent, metrics in parent_quantity_metrics.items()}
 		rejection_qty_map = {
-			parent: flt(metrics.get("rejection_qty") or 0, 3)
-			for parent, metrics in parent_quantity_metrics.items()
+			parent: flt(metrics.get("rejection_qty") or 0) for parent, metrics in parent_quantity_metrics.items()
 		}
 		total_rejected_qty_map = {
-			parent: flt(metrics.get("total_rejected_qty") or 0, 3)
-			for parent, metrics in parent_quantity_metrics.items()
+			parent: flt(metrics.get("total_rejected_qty") or 0) for parent, metrics in parent_quantity_metrics.items()
 		}
 
 		for entry in entries:
@@ -137,8 +133,8 @@ def _get_rows(filters: dict) -> list[dict]:
 				shift_names.add(shift_name)
 
 			if entry_name:
-				agg["setting_time_hrs"] += flt((loss_metrics.get("setup_mins") or 0) / 60, 3)
-				agg["loss_time_hrs"] += flt((loss_metrics.get("loss_mins") or 0) / 60, 3)
+				agg["setting_time_hrs"] += float(loss_metrics.get("setup_mins") or 0) / 60
+				agg["loss_time_hrs"] += float(loss_metrics.get("loss_mins") or 0) / 60
 
 			total_strokes, _rejection_qty = get_entry_total_strokes(
 				entry,
@@ -146,13 +142,16 @@ def _get_rows(filters: dict) -> list[dict]:
 				rejection_qty_map=rejection_qty_map,
 				total_rejected_qty_map=total_rejected_qty_map,
 			)
-			agg["total_strokes"] += flt(total_strokes, 3)
+			agg["total_strokes"] += float(total_strokes)
 
-			agg["production_mins"] += get_entry_production_minutes(
-				entry,
-				setup_mins=flt(loss_metrics.get("setup_mins") or 0, 3),
-				loss_mins=flt(loss_metrics.get("loss_mins") or 0, 3),
-			)
+			setup_mins = float(loss_metrics.get("setup_mins") or 0)
+			loss_mins = float(loss_metrics.get("loss_mins") or 0)
+			production_mins = get_entry_production_minutes(entry, setup_mins=setup_mins, loss_mins=loss_mins)
+			raw_duration_mins = get_entry_raw_duration_minutes(entry)
+			raw_production_mins = max(raw_duration_mins - setup_mins - loss_mins, 0)
+			if raw_duration_mins > 0 and abs(raw_production_mins - production_mins) <= 0.01:
+				production_mins = raw_production_mins
+			agg["production_mins"] += production_mins
 
 	if not has_entries:
 		return []
@@ -162,15 +161,12 @@ def _get_rows(filters: dict) -> list[dict]:
 	rows: list[dict] = []
 	for key in sorted(aggregates.keys()):
 		agg = aggregates[key]
-		working_hours = flt(
-			sum(shift_duration_map.get(shift_name, 0) for shift_name in agg["shift_names"]),
-			3,
-		)
-		production_mins = flt(agg["production_mins"], 3)
-		setting_time_hrs = flt(agg["setting_time_hrs"], 3)
-		loss_time_hrs = flt(agg["loss_time_hrs"], 3)
-		production_time_hrs = flt(production_mins / 60, 3) if production_mins > 0 else 0
-		spm = flt((agg["total_strokes"] / (production_time_hrs * 60)), 3) if production_time_hrs > 0 else 0
+		working_hours = sum(shift_duration_map.get(shift_name, 0) for shift_name in agg["shift_names"])
+		production_mins = float(agg["production_mins"])
+		setting_time_hrs = float(agg["setting_time_hrs"])
+		loss_time_hrs = float(agg["loss_time_hrs"])
+		production_time_hrs = (production_mins / 60) if production_mins > 0 else 0
+		spm = (agg["total_strokes"] / (production_time_hrs * 60)) if production_time_hrs > 0 else 0
 		rows.append(
 			{
 				"date": agg["date"],
@@ -180,7 +176,7 @@ def _get_rows(filters: dict) -> list[dict]:
 				"setting_time_hrs": setting_time_hrs,
 				"loss_time_hrs": loss_time_hrs,
 				"production_time_hrs": production_time_hrs,
-				"total_strokes": flt(agg["total_strokes"], 3),
+				"total_strokes": float(agg["total_strokes"]),
 				"spm": spm,
 			}
 		)

@@ -82,13 +82,10 @@ def _get_rows(filters: dict) -> list[dict]:
 				continue
 			entry_name = entry.get("name")
 			entry_metrics = parent_quantity_metrics.get(entry_name or "", {})
-			rejection_qty = flt(entry_metrics.get("rejection_qty") or 0, 3)
-			total_qty = flt(entry.get("fg_completed_qty") or 0, 3)
+			rejection_qty = flt(entry_metrics.get("rejection_qty") or 0)
+			total_qty = flt(entry.get("fg_completed_qty") or 0)
 			if total_qty <= 0 and entry_name:
-				total_qty = flt(entry_metrics.get("good_qty") or 0, 3) + flt(
-					entry_metrics.get("total_rejected_qty") or 0,
-					3,
-				)
+				total_qty = flt(entry_metrics.get("good_qty") or 0) + flt(entry_metrics.get("total_rejected_qty") or 0)
 			key_date, period_label = _period_key(posting_date, time_grain)
 			aggregate = aggregates.setdefault(
 				key_date,
@@ -104,10 +101,10 @@ def _get_rows(filters: dict) -> list[dict]:
 	rows = []
 	for key_date in sorted(aggregates):
 		aggregate = aggregates[key_date]
-		total_qty = flt(aggregate["total_qty"], 3)
-		rejection_qty = flt(aggregate["rejection_qty"], 3)
-		ok_qty = flt(total_qty - rejection_qty, 3)
-		rejection_rate_pct = flt((rejection_qty / total_qty) * 100, 2) if total_qty > 0 else 0
+		total_qty = flt(aggregate["total_qty"])
+		rejection_qty = flt(aggregate["rejection_qty"])
+		ok_qty = flt(total_qty - rejection_qty)
+		rejection_rate_pct = flt((rejection_qty / total_qty) * 100) if total_qty > 0 else 0
 		rows.append(
 			{
 				"period": aggregate["period"],
@@ -131,12 +128,12 @@ def _get_chart(rows: list[dict]) -> dict | None:
 			"datasets": [
 				{
 					"name": _("Rejection Qty"),
-					"values": [flt(row["rejection_qty"], 3) for row in rows],
+					"values": [flt(row["rejection_qty"]) for row in rows],
 					"chartType": "bar",
 				},
 				{
 					"name": _("Rejection Rate %"),
-					"values": [flt(row["rejection_rate_pct"], 2) for row in rows],
+					"values": [flt(row["rejection_rate_pct"]) for row in rows],
 					"chartType": "line",
 				},
 			],

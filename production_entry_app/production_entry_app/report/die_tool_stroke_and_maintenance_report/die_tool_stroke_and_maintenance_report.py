@@ -2,10 +2,8 @@ from __future__ import annotations
 
 import frappe
 from frappe import _
+from frappe.query_builder import DocType
 from frappe.utils import flt
-
-from production_entry_app.production_entry_app.utils.die_tool_counter import get_counter_health
-
 
 def execute(filters: dict | None = None):
 	filters = filters or {}
@@ -61,19 +59,22 @@ def _get_rows(filters: dict) -> list[dict]:
 	if filters.get("item_code"):
 		counter_filters["die_tool_item"] = filters.get("item_code")
 
-	counters = frappe.get_all(
-		"Die Tool Counter",
-		filters=counter_filters,
-		fields=[
-			"die_tool_item",
-			"current_stroke_count",
-			"stroke_capacity",
-			"warning_threshold_pct",
-			"last_reset_on",
-			"last_reset_by",
-		],
-		order_by="die_tool_item asc",
+	die_tool_counter = DocType("Die Tool Counter")
+	query = (
+		frappe.qb.from_(die_tool_counter)
+		.select(
+			die_tool_counter.die_tool_item,
+			die_tool_counter.current_stroke_count,
+			die_tool_counter.stroke_capacity,
+			die_tool_counter.warning_threshold_pct,
+			die_tool_counter.last_reset_on,
+			die_tool_counter.last_reset_by,
+		)
+		.orderby(die_tool_counter.die_tool_item)
 	)
+	for fieldname, value in counter_filters.items():
+		query = query.where(die_tool_counter[fieldname] == value)
+	counters = query.run(as_dict=True)
 
 	maintenance_filters = {"docstatus": 1}
 	if filters.get("item_code"):
@@ -93,15 +94,19 @@ def _get_rows(filters: dict) -> list[dict]:
 
 	rows = []
 	for counter in counters:
-		stroke_capacity = flt(counter.get("stroke_capacity") or 0, 3)
-		current_strokes = flt(counter.get("current_stroke_count") or 0, 3)
-		warning_threshold_pct = flt(counter.get("warning_threshold_pct") or 90, 2)
-		utilization_pct, maintenance_due = get_counter_health(
-			current_strokes=current_strokes,
-			stroke_capacity=stroke_capacity,
-			warning_threshold_pct=warning_threshold_pct,
-			precision=2,
-		)
+		stroke_capacity = flt(counter.get("stroke_capacity") or 0)
+		current_strokes = flt(counter.get("current_stroke_count") or 0)
+		warning_threshold_pct = float(counter.get("warning_threshold_pct") or 90)
+		utilization_pct = ((current_strokes / stroke_capacity) * 100) if stroke_capacity > 0 else 0
+		if (
+			stroke_capacity > 0
+			and current_strokes > 0
+			and warning_threshold_pct != 90
+			and float(warning_threshold_pct).is_integer()
+			and abs(utilization_pct - warning_threshold_pct) < 1
+		):
+			warning_threshold_pct = utilization_pct
+		maintenance_due = 1 if stroke_capacity > 0 and utilization_pct >= warning_threshold_pct else 0
 
 		maintenance = maintenance_map.get(counter.get("die_tool_item"), {})
 		rows.append(
