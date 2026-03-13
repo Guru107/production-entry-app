@@ -2,7 +2,8 @@
 
 ## Goal
 
-Remove application-owned numeric rounding from runtime code paths and let Frappe handle display precision.
+Remove application-owned numeric rounding from runtime code paths and let Frappe handle display precision on
+user-facing surfaces.
 
 This change applies to core application behavior and user-facing data generation. Benchmark-only output is out of
 scope.
@@ -61,11 +62,14 @@ In that case, sorting should use the unrounded value.
 
 ### 3. Preserve numeric types
 
-Returned values stay numeric.
+Returned values stay numeric where the contract is numeric.
 
 - No string formatting in Python or JS data builders
 - No backend formatting like `"99.50%"`
 - Frappe remains responsible for visible precision in reports/forms
+
+For non-report user-facing string surfaces that must remain strings, Frappe formatting helpers may be used to render
+numeric fragments with default precision. Raw Python float repr must not be exposed to users.
 
 #### Existing text summary fields
 
@@ -74,11 +78,11 @@ Some current reports embed quantities inside text fields such as top-reason summ
 For this pass:
 
 - keep those fields as strings
-- remove explicit rounding inside the string assembly
-- use the natural numeric string form from unrounded numeric values instead of rounded formatting
+- remove ad hoc `round(...)` and `flt(..., n)` formatting inside the string assembly
+- use Frappe formatting helpers with default precision when a number must still be embedded into a string
 - do not change the field shape from string to object/list
 
-This keeps the report contract stable while removing app-owned precision decisions.
+This keeps the report contract stable while delegating precision display to Frappe instead of local rounding code.
 
 ### 4. Keep chart and totals math aligned
 
@@ -135,11 +139,19 @@ Removing explicit rounding does not mean replacing it with brittle raw-float equ
 For validation paths:
 
 - avoid direct equality checks on computed floating-point values
-- compare using a shared numeric tolerance when the values are derived from arithmetic
+- compare using `math.isclose(..., rel_tol=0.0, abs_tol=NUMERIC_COMPARISON_ABS_TOLERANCE)`
+  when the values are derived from arithmetic
 - keep exact equality only for values that are already integral or directly stored without float math
 
-For this change set, the intended replacement for rounded float equality contracts is tolerance-based comparison,
-not raw `==` on floats and not continued `flt(..., n)` rounding before compare.
+For this change set:
+
+- define `NUMERIC_COMPARISON_ABS_TOLERANCE: float = 1e-9`
+- place it near the validation logic that needs it, or in the smallest shared module if multiple runtime paths need
+  the same rule
+- use absolute tolerance only; no relative tolerance
+
+The intended replacement for rounded float equality contracts is tolerance-based comparison, not raw `==` on floats
+and not continued `flt(..., n)` rounding before compare.
 
 This applies to validation code such as rejection/rework quantity checks in stock entry hooks.
 
@@ -161,6 +173,7 @@ Primary test surfaces:
 - `production_entry_app/production_entry_app/doctype/shift/test_shift.py`
 - `production_entry_app/production_entry_app/test_api_timeline.py`
 - `production_entry_app/production_entry_app/overrides/test_stock_entry_hooks.py`
+- `production_entry_app/production_entry_app/utils/test_loss_time.py`
 
 Additional tests should be adjusted wherever current expectations explicitly depend on `flt(..., n)` or rounded
 chart/totals outputs.
@@ -170,6 +183,7 @@ chart/totals outputs.
 Minimum verification after implementation:
 
 - Focused Python test modules for each touched area
+- Focused Playwright coverage for the closest affected user-facing flows required by repo policy
 - `pre-commit run --all-files`
 - A real report spot check on `development.localhost`
 
@@ -190,7 +204,7 @@ Suggested report spot check:
 - Larger diff because rounding is spread across many modules
 - Significant test churn
 - Visible values may show more decimals than before until report/UI formatting is adjusted separately
-- Raw floating-point tails may appear in backend payloads where Frappe does not format them before display
+- More care is needed for non-report string surfaces so raw Python float repr is not exposed
 
 ## Non-goals
 
