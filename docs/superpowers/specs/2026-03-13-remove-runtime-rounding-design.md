@@ -20,8 +20,8 @@ scope.
 - Stock Entry runtime hooks in `production_entry_app/production_entry_app/overrides/stock_entry_hooks.py`
 - Die-tool runtime utilities in `production_entry_app/production_entry_app/utils/die_tool_counter.py`
 - Utility math helpers in `production_entry_app/production_entry_app/utils/loss_time.py`
-- User-facing JS formatting in `production_entry_app/production_entry_app/public/js/stock_entry.js`
-- Maintenance alert/task formatting in `production_entry_app/production_entry_app/tasks.py`
+- User-facing JS formatting in `production_entry_app/public/js/stock_entry.js`
+- Maintenance alert/task formatting in `production_entry_app/tasks.py`
 - Tests that assert rounded values from the above code paths
 
 ### Out of scope
