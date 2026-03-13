@@ -67,6 +67,19 @@ Returned values stay numeric.
 - No backend formatting like `"99.50%"`
 - Frappe remains responsible for visible precision in reports/forms
 
+#### Existing text summary fields
+
+Some current reports embed quantities inside text fields such as top-reason summaries or dominant-reason labels.
+
+For this pass:
+
+- keep those fields as strings
+- remove explicit rounding inside the string assembly
+- use the natural numeric string form from unrounded numeric values instead of rounded formatting
+- do not change the field shape from string to object/list
+
+This keeps the report contract stable while removing app-owned precision decisions.
+
 ### 4. Keep chart and totals math aligned
 
 Charts, totals rows, and summary values must use the same unrounded numeric values as the main report rows.
@@ -114,6 +127,21 @@ intermediates.
 
 These paths affect application state, downstream report inputs, and API payloads. Leaving rounding here would
 continue to leak rounded values into higher layers.
+
+## Validation and comparison rules
+
+Removing explicit rounding does not mean replacing it with brittle raw-float equality.
+
+For validation paths:
+
+- avoid direct equality checks on computed floating-point values
+- compare using a shared numeric tolerance when the values are derived from arithmetic
+- keep exact equality only for values that are already integral or directly stored without float math
+
+For this change set, the intended replacement for rounded float equality contracts is tolerance-based comparison,
+not raw `==` on floats and not continued `flt(..., n)` rounding before compare.
+
+This applies to validation code such as rejection/rework quantity checks in stock entry hooks.
 
 ## Testing Strategy
 
