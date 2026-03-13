@@ -2089,7 +2089,9 @@ class TestShiftAggregateProductionEntries(FrappeTestCase):
 		self.assertEqual(float(rows[0]["total_qty"]), 150.0)
 		self.assertEqual(float(rows[0]["total_reject_qty"]), 8.0)
 		self.assertEqual(float(rows[0]["total_ok_qty"]), 142.0)
-		self.assertEqual(float(rows[0]["avg_spm"]), float(frappe.utils.flt(142 / 90, 3)))
+		expected_avg_spm = 142 / 90
+		derived_abs_tol = expected_avg_spm / 1_000_000_000
+		self.assertAlmostEqual(float(rows[0]["avg_spm"]), expected_avg_spm, delta=derived_abs_tol)
 
 	def test_avg_spm_is_zero_when_total_duration_is_zero(self) -> None:
 		from production_entry_app.production_entry_app.doctype.shift.shift import (
@@ -2132,7 +2134,9 @@ class TestShiftAggregateProductionEntries(FrappeTestCase):
 		)
 		rows = get_shift_aggregate_production_entries(shift.name)
 		self.assertEqual(len(rows), 1)
-		self.assertEqual(float(rows[0]["avg_spm"]), float(frappe.utils.flt(150 / 70, 3)))
+		expected_avg_spm = 150 / 70
+		derived_abs_tol = expected_avg_spm / 1_000_000_000
+		self.assertAlmostEqual(float(rows[0]["avg_spm"]), expected_avg_spm, delta=derived_abs_tol)
 
 	def test_ignores_non_manufacture_and_missing_bom_rows(self) -> None:
 		from production_entry_app.production_entry_app.doctype.shift.shift import (

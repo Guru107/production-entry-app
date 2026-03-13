@@ -2107,8 +2107,9 @@ class TestProductionReports(FrappeTestCase):
 		self.assertAlmostEqual(float(data_row["prod_time_hrs"]), 0.25, places=2)
 		# total_strokes = good_qty(90) + rejection(10) = 100
 		self.assertAlmostEqual(float(data_row["total_strokes"]), 100.0, places=2)
-		# SPM = 100 / (0.25 * 60) ~= 6.667
-		self.assertAlmostEqual(float(data_row["spm"]), 6.667, places=2)
+		expected_spm = 100 / (0.25 * 60)
+		derived_abs_tol = expected_spm / 1_000_000_000
+		self.assertAlmostEqual(float(data_row["spm"]), expected_spm, delta=derived_abs_tol)
 		self.assertAlmostEqual(float(data_row["rejection"]), 10.0, places=2)
 		self.assertAlmostEqual(float(data_row["rework"]), 0.0, places=2)
 
@@ -2303,7 +2304,9 @@ class TestProductionReports(FrappeTestCase):
 		self.assertAlmostEqual(float(row["loss_time_hrs"]), 1.0, places=3)
 		self.assertAlmostEqual(float(row["production_time_hrs"]), 2.5, places=3)
 		self.assertAlmostEqual(float(row["total_strokes"]), 100.0, places=3)
-		self.assertAlmostEqual(float(row["spm"]), 0.667, places=3)
+		expected_spm = 100 / (2.5 * 60)
+		derived_abs_tol = expected_spm / 1_000_000_000
+		self.assertAlmostEqual(float(row["spm"]), expected_spm, delta=derived_abs_tol)
 
 	def test_operator_daily_spm_report_multiple_workstations_same_day(self) -> None:
 		from production_entry_app.production_entry_app.report.operator_daily_spm_report.operator_daily_spm_report import (
@@ -2385,9 +2388,14 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(len(rows), 1)
 		row = rows[0]
 		# Sum per-entry durations and deduct shift planned losses where overlapped.
-		self.assertAlmostEqual(float(row["production_time_hrs"]), 1.667, places=3)
+		expected_production_time_hrs = 100 / 60
+		derived_abs_tol = expected_production_time_hrs / 1_000_000_000
+		self.assertAlmostEqual(
+			float(row["production_time_hrs"]), expected_production_time_hrs, delta=derived_abs_tol
+		)
 		self.assertAlmostEqual(float(row["total_strokes"]), 200.0, places=3)
-		self.assertAlmostEqual(float(row["spm"]), 2.0, places=3)
+		expected_spm = 200 / (expected_production_time_hrs * 60)
+		self.assertAlmostEqual(float(row["spm"]), expected_spm, delta=derived_abs_tol)
 
 	def _create_mock_submitted_entry(
 		self,
