@@ -267,6 +267,9 @@ class TestGetShiftTimelineData(FrappeTestCase):
 
 		self._ensure_rejection_breakup_fixtures()
 		shift = self._create_running_shift("2026-10-14")
+		frappe.db.set_value(
+			"Shift", shift.name, "rejection_warehouse", self.ctx["rejection_warehouse"], update_modified=False
+		)
 		total_finished_qty_before_rejection = 120
 		rejection_qty = 0.1235
 		expected_fg_qty = 119.8765
