@@ -9,6 +9,7 @@ from frappe.utils import flt, getdate
 from production_entry_app.production_entry_app.report.report_utils import (
 	build_stock_entry_filters,
 	get_entry_production_minutes,
+	get_entry_raw_duration_minutes,
 	get_entry_total_strokes,
 	get_parent_loss_metrics,
 	get_parent_quantity_metrics,
@@ -219,11 +220,8 @@ def _get_rows(filters: dict) -> list[dict]:
 				loss_mins=loss_mins,
 			)
 			if production_time_mins <= 0 and entry.get("custom_production_time_mins") is not None:
-				production_time_mins = get_entry_production_minutes(
-					{**entry, "custom_production_time_mins": None},
-					setup_mins=setup_mins,
-					loss_mins=loss_mins,
-				)
+				raw_duration_mins = get_entry_raw_duration_minutes(entry)
+				production_time_mins = max(raw_duration_mins - setup_mins - loss_mins, 0)
 			production_time_hrs = (production_time_mins / 60) if production_time_mins > 0 else 0.0
 
 			agg["setup_time_hrs"] += setup_hrs

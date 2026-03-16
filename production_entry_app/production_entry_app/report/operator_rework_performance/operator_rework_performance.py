@@ -6,6 +6,7 @@ from frappe.utils import flt
 
 from production_entry_app.production_entry_app.report.report_utils import (
 	build_stock_entry_filters,
+	format_numeric_summary,
 	get_parent_quantity_metrics,
 	iter_stock_entries_in_chunks,
 )
@@ -51,10 +52,6 @@ def _empty_agg() -> dict:
 		"actual_spm_count": 0,
 		"reason_totals": {},
 	}
-
-
-def _format_numeric_summary(value: float) -> str:
-	return frappe.format_value(value, df={"fieldtype": "Float", "precision": 1, "options": "1"})
 
 
 def _get_rows(filters: dict) -> list[dict]:
@@ -129,7 +126,7 @@ def _get_rows(filters: dict) -> list[dict]:
 		)
 		reason_totals = agg.get("reason_totals") or {}
 		top_reasons = sorted(reason_totals.items(), key=lambda item: (-flt(item[1]), item[0]))[:3]
-		top_3_reasons = ", ".join(f"{reason} ({_format_numeric_summary(qty)})" for reason, qty in top_reasons)
+		top_3_reasons = ", ".join(f"{reason} ({format_numeric_summary(qty)})" for reason, qty in top_reasons)
 		rows.append(
 			{
 				"operator": operator,

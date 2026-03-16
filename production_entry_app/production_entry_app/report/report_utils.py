@@ -487,6 +487,11 @@ def get_entry_raw_duration_minutes(entry: dict) -> float:
 	)
 
 
+def format_numeric_summary(value: float) -> str:
+	"""Format a number for human-readable inline display in report text (e.g. dominant reason qty)."""
+	return frappe.format_value(value, df={"fieldtype": "Float"})
+
+
 def new_efficiency_aggregates() -> defaultdict:
 	return defaultdict(
 		lambda: {

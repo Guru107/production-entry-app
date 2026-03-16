@@ -7,7 +7,6 @@ from frappe.utils import flt
 from production_entry_app.production_entry_app.report.report_utils import (
 	build_stock_entry_filters,
 	get_entry_production_minutes,
-	get_entry_raw_duration_minutes,
 	get_entry_total_strokes,
 	get_parent_loss_metrics,
 	get_parent_quantity_metrics,
@@ -151,10 +150,6 @@ def _get_rows(filters: dict) -> list[dict]:
 			setup_mins = float(loss_metrics.get("setup_mins") or 0)
 			loss_mins = float(loss_metrics.get("loss_mins") or 0)
 			production_mins = get_entry_production_minutes(entry, setup_mins=setup_mins, loss_mins=loss_mins)
-			raw_duration_mins = get_entry_raw_duration_minutes(entry)
-			raw_production_mins = max(raw_duration_mins - setup_mins - loss_mins, 0)
-			if raw_duration_mins > 0 and abs(raw_production_mins - production_mins) <= 0.01:
-				production_mins = raw_production_mins
 			agg["production_mins"] += production_mins
 
 	if not has_entries:

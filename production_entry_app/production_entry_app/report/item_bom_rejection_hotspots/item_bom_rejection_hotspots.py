@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import frappe
 from frappe import _
 from frappe.utils import flt
 
 from production_entry_app.production_entry_app.report.report_utils import (
 	build_stock_entry_filters,
+	format_numeric_summary,
 	get_finished_item_map,
 	get_parent_breakup_reason_rows,
 	get_parent_quantity_metrics,
@@ -56,10 +56,6 @@ def _build_filters(filters: dict) -> dict:
 
 def _group_key(item_code: str | None, bom_no: str | None) -> tuple[str, str]:
 	return (item_code or "Unknown", bom_no or "")
-
-
-def _format_numeric_summary(value: float) -> str:
-	return frappe.format_value(value, df={"fieldtype": "Float", "precision": 1, "options": "1"})
 
 
 def _get_rows(filters: dict, timeout_guard) -> list[dict]:
@@ -127,7 +123,7 @@ def _get_rows(filters: dict, timeout_guard) -> list[dict]:
 		dominant_reason = ""
 		if reasons:
 			reason, qty = sorted(reasons.items(), key=lambda item: (-flt(item[1]), item[0]))[0]
-			dominant_reason = f"{reason} ({_format_numeric_summary(qty)})"
+			dominant_reason = f"{reason} ({format_numeric_summary(qty)})"
 		rows.append(
 			{
 				"item_code": item_code,

@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-from decimal import Decimal, InvalidOperation
-
 import frappe
 from frappe import _
-from frappe.utils import get_number_format_info
 
 from production_entry_app.production_entry_app.doctype.shift.shift import (
 	WARNING_THRESHOLD_PCT_DEFAULT,
@@ -78,19 +75,7 @@ def _build_alert_message(due_counters: list[dict]) -> str:
 
 
 def _format_numeric_fragment(value: float | int) -> str:
-	precision = _get_numeric_precision(value)
-	formatted = frappe.format_value(value, df={"fieldtype": "Float", "precision": precision})
-	number_format = frappe.db.get_default("number_format") or "#,###.##"
-	_decimal_sep, group_sep, _precision = get_number_format_info(number_format)
-	return formatted.replace(group_sep, "") if group_sep else formatted
-
-
-def _get_numeric_precision(value: float | int) -> int:
-	try:
-		decimal_value = Decimal(str(value)).normalize()
-	except (InvalidOperation, ValueError):
-		return 0
-	return max(-decimal_value.as_tuple().exponent, 0)
+	return frappe.format_value(value, df={"fieldtype": "Float"})
 
 
 def send_daily_die_tool_maintenance_alerts() -> None:

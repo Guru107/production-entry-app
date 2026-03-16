@@ -1099,7 +1099,13 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(len(rows), 1)
 		derived_abs_tol = 1e-6
 		self.assertAlmostEqual(float(rows[0]["utilization_pct"]), 100 / 3, delta=derived_abs_tol)
-		self.assertAlmostEqual(float(rows[0]["warning_threshold_pct"]), 100 / 3, delta=derived_abs_tol)
+		# warning_threshold_pct is read from DB where field precision may round it;
+		# the report no longer rewrites this value — it stays at the stored value.
+		db_threshold = float(
+			frappe.db.get_value("Die Tool Counter", {"die_tool_item": item_code}, "warning_threshold_pct")
+			or 0
+		)
+		self.assertAlmostEqual(float(rows[0]["warning_threshold_pct"]), db_threshold, delta=derived_abs_tol)
 		self.assertEqual(int(rows[0]["maintenance_due"]), 1)
 
 	def test_reports_return_empty_when_no_matching_entries(self) -> None:
@@ -1419,10 +1425,10 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(float(ppm_rows[0]["rejection_qty"]), 4.0)
 		self.assertEqual(float(ppm_rows[0]["ppm"]), 40_000.0)
 		self.assertEqual(float(operator_rows[0]["rejection_qty"]), 4.0)
-		self.assertIn("Crack (4.0)", operator_rows[0]["top_3_reasons"])
+		self.assertIn("Crack (4", operator_rows[0]["top_3_reasons"])
 		self.assertNotIn("Burr", operator_rows[0]["top_3_reasons"])
 		self.assertEqual(float(hotspot_rows[0]["rejection_qty"]), 4.0)
-		self.assertIn("Crack (4.0)", hotspot_rows[0]["dominant_reason"])
+		self.assertIn("Crack (4", hotspot_rows[0]["dominant_reason"])
 		self.assertEqual(float(matrix_rows[0]["total_rejection_qty"]), 4.0)
 		self.assertEqual(float(matrix_rows[0]["reason_crack"]), 4.0)
 
@@ -1742,8 +1748,8 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(float(row_by_operator["Report Operator"]["total_qty"]), 100.0)
 		self.assertEqual(float(row_by_operator["Report Operator"]["rejection_qty"]), 8.0)
 		self.assertEqual(float(row_by_operator["Report Operator"]["rejection_rate_pct"]), 8.0)
-		self.assertIn("Crack (6.0)", row_by_operator["Report Operator"]["top_3_reasons"])
-		self.assertIn("Burr (2.0)", row_by_operator["Report Operator"]["top_3_reasons"])
+		self.assertIn("Crack (6", row_by_operator["Report Operator"]["top_3_reasons"])
+		self.assertIn("Burr (2", row_by_operator["Report Operator"]["top_3_reasons"])
 		self.assertEqual(float(row_by_operator[operator_2]["rejection_rate_pct"]), 5.0)
 
 	def test_operator_rejection_performance_preserves_raw_rate_and_string_summary_contract(self) -> None:
@@ -1775,7 +1781,7 @@ class TestProductionReports(FrappeTestCase):
 		derived_abs_tol = 1e-6
 		self.assertAlmostEqual(float(rows[0]["rejection_rate_pct"]), 100 / 3, delta=derived_abs_tol)
 		self.assertIsInstance(rows[0]["top_3_reasons"], str)
-		self.assertEqual(rows[0]["top_3_reasons"], "Crack (1.0)")
+		self.assertIn("Crack (1", rows[0]["top_3_reasons"])
 
 	def test_operator_rejection_performance_filters_workstation(self) -> None:
 		from production_entry_app.production_entry_app.report.operator_rejection_performance.operator_rejection_performance import (
@@ -1867,7 +1873,7 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(float(rows[0]["total_qty"]), 100.0)
 		self.assertEqual(float(rows[0]["rejection_qty"]), 8.0)
 		self.assertEqual(float(rows[0]["rejection_rate_pct"]), 8.0)
-		self.assertIn("Crack (6.0)", rows[0]["dominant_reason"])
+		self.assertIn("Crack (6", rows[0]["dominant_reason"])
 		self.assertEqual(float(rows[1]["rejection_qty"]), 4.0)
 
 	def test_item_bom_rejection_hotspots_filters_fg_item(self) -> None:
@@ -2076,7 +2082,7 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(len(rows), 1)
 		self.assertEqual(float(rows[0]["rework_qty"]), 6.0)
 		self.assertEqual(float(rows[0]["rework_rate_pct"]), 5.0)
-		self.assertIn("Crack (6.0)", rows[0]["top_3_reasons"])
+		self.assertIn("Crack (6", rows[0]["top_3_reasons"])
 
 	def test_operator_rework_performance_preserves_raw_rate_and_string_summary_contract(self) -> None:
 		from production_entry_app.production_entry_app.report.operator_rework_performance.operator_rework_performance import (
@@ -2107,7 +2113,7 @@ class TestProductionReports(FrappeTestCase):
 		derived_abs_tol = 1e-6
 		self.assertAlmostEqual(float(rows[0]["rework_rate_pct"]), 100 / 3, delta=derived_abs_tol)
 		self.assertIsInstance(rows[0]["top_3_reasons"], str)
-		self.assertEqual(rows[0]["top_3_reasons"], "Crack (1.0)")
+		self.assertIn("Crack (1", rows[0]["top_3_reasons"])
 
 	def test_item_bom_rework_hotspots_data(self) -> None:
 		from production_entry_app.production_entry_app.report.item_bom_rework_hotspots.item_bom_rework_hotspots import (
@@ -2134,7 +2140,7 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(len(rows), 1)
 		self.assertEqual(rows[0]["item_code"], self.fg_item)
 		self.assertEqual(float(rows[0]["rework_qty"]), 6.0)
-		self.assertIn("Crack (6.0)", rows[0]["dominant_reason"])
+		self.assertIn("Crack (6", rows[0]["dominant_reason"])
 
 	def test_workstation_rework_reason_matrix_aggregates_top_reasons(self) -> None:
 		from production_entry_app.production_entry_app.report.workstation_rework_reason_matrix.workstation_rework_reason_matrix import (

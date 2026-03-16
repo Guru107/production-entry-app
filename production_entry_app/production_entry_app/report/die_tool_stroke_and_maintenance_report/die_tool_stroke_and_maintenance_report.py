@@ -5,6 +5,8 @@ from frappe import _
 from frappe.query_builder import DocType
 from frappe.utils import flt
 
+from production_entry_app.production_entry_app.utils.die_tool_counter import get_counter_health
+
 
 def execute(filters: dict | None = None):
 	filters = filters or {}
@@ -98,16 +100,11 @@ def _get_rows(filters: dict) -> list[dict]:
 		stroke_capacity = flt(counter.get("stroke_capacity") or 0)
 		current_strokes = flt(counter.get("current_stroke_count") or 0)
 		warning_threshold_pct = float(counter.get("warning_threshold_pct") or 90)
-		utilization_pct = ((current_strokes / stroke_capacity) * 100) if stroke_capacity > 0 else 0
-		if (
-			stroke_capacity > 0
-			and current_strokes > 0
-			and warning_threshold_pct != 90
-			and float(warning_threshold_pct).is_integer()
-			and abs(utilization_pct - warning_threshold_pct) < 1
-		):
-			warning_threshold_pct = utilization_pct
-		maintenance_due = 1 if stroke_capacity > 0 and utilization_pct >= warning_threshold_pct else 0
+		utilization_pct, maintenance_due = get_counter_health(
+			current_strokes=current_strokes,
+			stroke_capacity=stroke_capacity,
+			warning_threshold_pct=warning_threshold_pct,
+		)
 
 		maintenance = maintenance_map.get(counter.get("die_tool_item"), {})
 		rows.append(
