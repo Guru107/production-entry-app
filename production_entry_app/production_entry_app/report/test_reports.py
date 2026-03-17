@@ -401,6 +401,37 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(float(rows[0]["running_time"]), 6.0)
 		self.assertEqual(float(rows[0]["availability_pct"]), 75.0)
 
+	def test_production_oee_report_preserves_raw_runtime_values(self) -> None:
+		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
+			execute,
+		)
+
+		shift = self._create_shift_for_label("2026-06-13", "1", clear_planned_losses=True)
+		self._create_mock_submitted_entry(
+			posting_date="2026-06-13",
+			planned_start="2026-06-13 08:00:00",
+			planned_end="2026-06-13 09:00:00",
+			actual_start="2026-06-13 08:00:00",
+			actual_end="2026-06-13 09:00:00",
+			fg_qty=120,
+			rejection_qty=0,
+			shift_name=shift.name,
+			unplanned_losses=[{"downtime_reason": "Other", "start_time": "10:00:00", "end_time": "10:00:20"}],
+		)
+
+		_, rows = execute({"from_date": "2026-06-13", "to_date": "2026-06-13"})
+		self.assertEqual(len(rows), 1)
+		row = rows[0]
+		expected_total_loss_time = (20 / 60) / 60
+		expected_running_time = 8 - expected_total_loss_time
+		expected_availability_pct = (expected_running_time / 8) * 100
+		derived_abs_tol = 1e-6
+		self.assertAlmostEqual(float(row["total_loss_time"]), expected_total_loss_time, delta=derived_abs_tol)
+		self.assertAlmostEqual(float(row["running_time"]), expected_running_time, delta=derived_abs_tol)
+		self.assertAlmostEqual(
+			float(row["availability_pct"]), expected_availability_pct, delta=derived_abs_tol
+		)
+
 	def test_production_oee_report_availability_includes_all_linked_shifts_for_a_workstation(self) -> None:
 		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
 			execute,
@@ -1048,6 +1079,35 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(str(rows[0]["last_maintenance_date"]), "2026-06-04 12:00:00")
 		self.assertEqual(int(rows[0]["maintenance_count"]), 1)
 
+	def test_die_tool_stroke_report_preserves_raw_health_metrics(self) -> None:
+		from production_entry_app.production_entry_app.report.die_tool_stroke_and_maintenance_report.die_tool_stroke_and_maintenance_report import (
+			execute,
+		)
+
+		item_code = _get_or_create_item("_Test FG Item For Reports Die Tool Raw")
+		frappe.get_doc(
+			{
+				"doctype": "Die Tool Counter",
+				"die_tool_item": item_code,
+				"current_stroke_count": 1,
+				"stroke_capacity": 3,
+				"warning_threshold_pct": 100 / 3,
+			}
+		).insert(ignore_permissions=True)
+
+		_, rows = execute({"item_code": item_code})
+		self.assertEqual(len(rows), 1)
+		derived_abs_tol = 1e-6
+		self.assertAlmostEqual(float(rows[0]["utilization_pct"]), 100 / 3, delta=derived_abs_tol)
+		# warning_threshold_pct is read from DB where field precision may round it;
+		# the report no longer rewrites this value — it stays at the stored value.
+		db_threshold = float(
+			frappe.db.get_value("Die Tool Counter", {"die_tool_item": item_code}, "warning_threshold_pct")
+			or 0
+		)
+		self.assertAlmostEqual(float(rows[0]["warning_threshold_pct"]), db_threshold, delta=derived_abs_tol)
+		self.assertEqual(int(rows[0]["maintenance_due"]), 1)
+
 	def test_reports_return_empty_when_no_matching_entries(self) -> None:
 		from production_entry_app.production_entry_app.report.operator_efficiency_report.operator_efficiency_report import (
 			execute as operator_execute,
@@ -1274,6 +1334,44 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(float(rows[0]["rejection_qty"]), 5.0)
 		self.assertEqual(int(rows[0]["entries"]), 1)
 
+	def test_rejection_pareto_report_preserves_raw_cumulative_pct_until_final_clamp(self) -> None:
+		from production_entry_app.production_entry_app.report.rejection_pareto_report.rejection_pareto_report import (
+			execute,
+		)
+
+		shift = self._create_shift_for_label("2026-06-12", "1")
+		self._create_mock_submitted_entry_with_breakup(
+			posting_date="2026-06-12",
+			planned_start="2026-06-12 14:00:00",
+			planned_end="2026-06-12 15:00:00",
+			actual_start="2026-06-12 14:00:00",
+			actual_end="2026-06-12 15:00:00",
+			fg_qty=30,
+			shift_name=shift.name,
+			breakup_rows=[
+				{"rejection_reason": "Crack", "qty": 1},
+				{"rejection_reason": "Blank Cut", "qty": 1},
+				{"rejection_reason": "Burr", "qty": 1},
+			],
+		)
+
+		_, rows, _, chart = execute({"from_date": "2026-06-12", "to_date": "2026-06-12"})
+		expected_pct = 100 / 3
+		derived_abs_tol = 1e-6
+		self.assertEqual([row["rejection_reason"] for row in rows], ["Blank Cut", "Burr", "Crack"])
+		self.assertAlmostEqual(float(rows[0]["rejection_pct"]), expected_pct, delta=derived_abs_tol)
+		self.assertAlmostEqual(float(rows[0]["cumulative_pct"]), expected_pct, delta=derived_abs_tol)
+		self.assertAlmostEqual(float(rows[1]["cumulative_pct"]), expected_pct * 2, delta=derived_abs_tol)
+		self.assertEqual(float(rows[2]["cumulative_pct"]), 100.0)
+		self.assertEqual(chart.get("type"), "axis-mixed")
+		self.assertAlmostEqual(
+			float(chart["data"]["datasets"][1]["values"][0]), expected_pct, delta=derived_abs_tol
+		)
+		self.assertAlmostEqual(
+			float(chart["data"]["datasets"][1]["values"][1]), expected_pct * 2, delta=derived_abs_tol
+		)
+		self.assertEqual(float(chart["data"]["datasets"][1]["values"][2]), 100.0)
+
 	def test_rejection_reports_exclude_rework_rows(self) -> None:
 		from production_entry_app.production_entry_app.report.item_bom_rejection_hotspots.item_bom_rejection_hotspots import (
 			execute as rejection_hotspots_execute,
@@ -1327,10 +1425,10 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(float(ppm_rows[0]["rejection_qty"]), 4.0)
 		self.assertEqual(float(ppm_rows[0]["ppm"]), 40_000.0)
 		self.assertEqual(float(operator_rows[0]["rejection_qty"]), 4.0)
-		self.assertIn("Crack (4.0)", operator_rows[0]["top_3_reasons"])
+		self.assertIn("Crack (4", operator_rows[0]["top_3_reasons"])
 		self.assertNotIn("Burr", operator_rows[0]["top_3_reasons"])
 		self.assertEqual(float(hotspot_rows[0]["rejection_qty"]), 4.0)
-		self.assertIn("Crack (4.0)", hotspot_rows[0]["dominant_reason"])
+		self.assertIn("Crack (4", hotspot_rows[0]["dominant_reason"])
 		self.assertEqual(float(matrix_rows[0]["total_rejection_qty"]), 4.0)
 		self.assertEqual(float(matrix_rows[0]["reason_crack"]), 4.0)
 
@@ -1375,6 +1473,50 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(float(rows[1]["rejection_rate_pct"]), 10.0)
 		self.assertEqual(chart.get("type"), "axis-mixed")
 		self.assertEqual(chart.get("data", {}).get("labels"), ["2026-06-12", "2026-06-13"])
+
+	def test_rejection_trend_report_chart_preserves_raw_rate_values(self) -> None:
+		from production_entry_app.production_entry_app.report.rejection_trend_report.rejection_trend_report import (
+			execute,
+		)
+
+		shift_day_1 = self._create_shift_for_label("2026-06-14", "1")
+		shift_day_2 = self._create_shift_for_label("2026-06-15", "1")
+		self._create_mock_submitted_entry(
+			posting_date="2026-06-14",
+			planned_start="2026-06-14 08:00:00",
+			planned_end="2026-06-14 09:00:00",
+			actual_start="2026-06-14 08:00:00",
+			actual_end="2026-06-14 09:00:00",
+			fg_qty=3,
+			rejection_qty=1,
+			shift_name=shift_day_1.name,
+		)
+		self._create_mock_submitted_entry(
+			posting_date="2026-06-15",
+			planned_start="2026-06-15 08:00:00",
+			planned_end="2026-06-15 09:00:00",
+			actual_start="2026-06-15 08:00:00",
+			actual_end="2026-06-15 09:00:00",
+			fg_qty=6,
+			rejection_qty=2,
+			shift_name=shift_day_2.name,
+		)
+
+		_, rows, _, chart = execute(
+			{"from_date": "2026-06-14", "to_date": "2026-06-15", "time_grain": "Daily"}
+		)
+		expected_rate = 100 / 3
+		derived_abs_tol = 1e-6
+		self.assertEqual(len(rows), 2)
+		self.assertAlmostEqual(float(rows[0]["rejection_rate_pct"]), expected_rate, delta=derived_abs_tol)
+		self.assertAlmostEqual(float(rows[1]["rejection_rate_pct"]), expected_rate, delta=derived_abs_tol)
+		self.assertEqual(chart.get("type"), "axis-mixed")
+		self.assertAlmostEqual(
+			float(chart["data"]["datasets"][1]["values"][0]), expected_rate, delta=derived_abs_tol
+		)
+		self.assertAlmostEqual(
+			float(chart["data"]["datasets"][1]["values"][1]), expected_rate, delta=derived_abs_tol
+		)
 
 	def test_rejection_trend_report_weekly_aggregation(self) -> None:
 		from production_entry_app.production_entry_app.report.rejection_trend_report.rejection_trend_report import (
@@ -1606,9 +1748,40 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(float(row_by_operator["Report Operator"]["total_qty"]), 100.0)
 		self.assertEqual(float(row_by_operator["Report Operator"]["rejection_qty"]), 8.0)
 		self.assertEqual(float(row_by_operator["Report Operator"]["rejection_rate_pct"]), 8.0)
-		self.assertIn("Crack (6.0)", row_by_operator["Report Operator"]["top_3_reasons"])
-		self.assertIn("Burr (2.0)", row_by_operator["Report Operator"]["top_3_reasons"])
+		self.assertIn("Crack (6", row_by_operator["Report Operator"]["top_3_reasons"])
+		self.assertIn("Burr (2", row_by_operator["Report Operator"]["top_3_reasons"])
 		self.assertEqual(float(row_by_operator[operator_2]["rejection_rate_pct"]), 5.0)
+
+	def test_operator_rejection_performance_preserves_raw_rate_and_string_summary_contract(self) -> None:
+		from production_entry_app.production_entry_app.report.operator_rejection_performance.operator_rejection_performance import (
+			execute,
+		)
+
+		shift = self._create_shift_for_label("2026-06-25", "1")
+		self._create_mock_submitted_entry_with_breakup(
+			posting_date="2026-06-25",
+			planned_start="2026-06-25 12:00:00",
+			planned_end="2026-06-25 13:00:00",
+			actual_start="2026-06-25 12:00:00",
+			actual_end="2026-06-25 13:00:00",
+			fg_qty=3,
+			operator="Report Operator",
+			shift_name=shift.name,
+			breakup_rows=[{"rejection_reason": "Crack", "qty": 1}],
+		)
+
+		_, rows = execute(
+			{
+				"from_date": "2026-06-25",
+				"to_date": "2026-06-25",
+				"custom_operator": "Report Operator",
+			}
+		)
+		self.assertEqual(len(rows), 1)
+		derived_abs_tol = 1e-6
+		self.assertAlmostEqual(float(rows[0]["rejection_rate_pct"]), 100 / 3, delta=derived_abs_tol)
+		self.assertIsInstance(rows[0]["top_3_reasons"], str)
+		self.assertIn("Crack (1", rows[0]["top_3_reasons"])
 
 	def test_operator_rejection_performance_filters_workstation(self) -> None:
 		from production_entry_app.production_entry_app.report.operator_rejection_performance.operator_rejection_performance import (
@@ -1700,7 +1873,7 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(float(rows[0]["total_qty"]), 100.0)
 		self.assertEqual(float(rows[0]["rejection_qty"]), 8.0)
 		self.assertEqual(float(rows[0]["rejection_rate_pct"]), 8.0)
-		self.assertIn("Crack (6.0)", rows[0]["dominant_reason"])
+		self.assertIn("Crack (6", rows[0]["dominant_reason"])
 		self.assertEqual(float(rows[1]["rejection_qty"]), 4.0)
 
 	def test_item_bom_rejection_hotspots_filters_fg_item(self) -> None:
@@ -1909,7 +2082,38 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(len(rows), 1)
 		self.assertEqual(float(rows[0]["rework_qty"]), 6.0)
 		self.assertEqual(float(rows[0]["rework_rate_pct"]), 5.0)
-		self.assertIn("Crack (6.0)", rows[0]["top_3_reasons"])
+		self.assertIn("Crack (6", rows[0]["top_3_reasons"])
+
+	def test_operator_rework_performance_preserves_raw_rate_and_string_summary_contract(self) -> None:
+		from production_entry_app.production_entry_app.report.operator_rework_performance.operator_rework_performance import (
+			execute,
+		)
+
+		shift = self._create_shift_for_label("2026-07-07", "1")
+		self._create_mock_submitted_entry_with_breakup(
+			posting_date="2026-07-07",
+			planned_start="2026-07-07 12:00:00",
+			planned_end="2026-07-07 13:00:00",
+			actual_start="2026-07-07 12:00:00",
+			actual_end="2026-07-07 13:00:00",
+			fg_qty=3,
+			operator="Report Operator",
+			shift_name=shift.name,
+			breakup_rows=[{"rejection_reason": "Crack", "qty": 1, "is_rework": 1}],
+		)
+
+		_, rows = execute(
+			{
+				"from_date": "2026-07-07",
+				"to_date": "2026-07-07",
+				"custom_operator": "Report Operator",
+			}
+		)
+		self.assertEqual(len(rows), 1)
+		derived_abs_tol = 1e-6
+		self.assertAlmostEqual(float(rows[0]["rework_rate_pct"]), 100 / 3, delta=derived_abs_tol)
+		self.assertIsInstance(rows[0]["top_3_reasons"], str)
+		self.assertIn("Crack (1", rows[0]["top_3_reasons"])
 
 	def test_item_bom_rework_hotspots_data(self) -> None:
 		from production_entry_app.production_entry_app.report.item_bom_rework_hotspots.item_bom_rework_hotspots import (
@@ -1936,7 +2140,7 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(len(rows), 1)
 		self.assertEqual(rows[0]["item_code"], self.fg_item)
 		self.assertEqual(float(rows[0]["rework_qty"]), 6.0)
-		self.assertIn("Crack (6.0)", rows[0]["dominant_reason"])
+		self.assertIn("Crack (6", rows[0]["dominant_reason"])
 
 	def test_workstation_rework_reason_matrix_aggregates_top_reasons(self) -> None:
 		from production_entry_app.production_entry_app.report.workstation_rework_reason_matrix.workstation_rework_reason_matrix import (
@@ -2076,10 +2280,54 @@ class TestProductionReports(FrappeTestCase):
 		self.assertAlmostEqual(float(data_row["prod_time_hrs"]), 0.25, places=2)
 		# total_strokes = good_qty(90) + rejection(10) = 100
 		self.assertAlmostEqual(float(data_row["total_strokes"]), 100.0, places=2)
-		# SPM = 100 / (0.25 * 60) ~= 6.667
-		self.assertAlmostEqual(float(data_row["spm"]), 6.667, places=2)
+		expected_spm = 100 / (0.25 * 60)
+		derived_abs_tol = 1e-6
+		self.assertAlmostEqual(float(data_row["spm"]), expected_spm, delta=derived_abs_tol)
 		self.assertAlmostEqual(float(data_row["rejection"]), 10.0, places=2)
 		self.assertAlmostEqual(float(data_row["rework"]), 0.0, places=2)
+
+	def test_daily_strokes_spm_monitor_preserves_raw_group_values(self) -> None:
+		from production_entry_app.production_entry_app.report.daily_strokes_spm_monitor.daily_strokes_spm_monitor import (
+			execute,
+		)
+
+		self._ensure_fiscal_year("2082-2083", "2082-04-01", "2083-03-31")
+		shift = self._create_shift_for_label("2082-05-11", "1")
+		self._create_mock_submitted_entry(
+			posting_date="2082-05-11",
+			planned_start="2082-05-11 08:00:00",
+			planned_end="2082-05-11 08:01:00",
+			actual_start="2082-05-11 08:00:00",
+			actual_end="2082-05-11 08:01:00",
+			fg_qty=1,
+			rejection_qty=0,
+			shift_name=shift.name,
+			unplanned_losses=[
+				{
+					"downtime_reason": "Setup Time",
+					"start_time": "08:00:00",
+					"end_time": "08:00:20",
+				},
+				{
+					"downtime_reason": "Maint",
+					"start_time": "08:00:20",
+					"end_time": "08:00:40",
+				},
+			],
+		)
+
+		_, rows = execute({"fiscal_year": "2082-2083", "month": "May", "custom_operator": "Report Operator"})
+		self.assertEqual(len(rows), 2)
+		data_row = rows[0]
+		expected_setup = 20 / 3600
+		expected_loss = 20 / 3600
+		expected_prod = 20 / 3600
+		expected_spm = 1 / ((20 / 3600) * 60)
+		derived_abs_tol = 1e-6
+		self.assertAlmostEqual(float(data_row["setup_time_hrs"]), expected_setup, delta=derived_abs_tol)
+		self.assertAlmostEqual(float(data_row["loss_time_hrs"]), expected_loss, delta=derived_abs_tol)
+		self.assertAlmostEqual(float(data_row["prod_time_hrs"]), expected_prod, delta=derived_abs_tol)
+		self.assertAlmostEqual(float(data_row["spm"]), expected_spm, delta=derived_abs_tol)
 
 	def test_daily_strokes_spm_monitor_totals_row(self) -> None:
 		from production_entry_app.production_entry_app.report.daily_strokes_spm_monitor.daily_strokes_spm_monitor import (
@@ -2272,7 +2520,43 @@ class TestProductionReports(FrappeTestCase):
 		self.assertAlmostEqual(float(row["loss_time_hrs"]), 1.0, places=3)
 		self.assertAlmostEqual(float(row["production_time_hrs"]), 2.5, places=3)
 		self.assertAlmostEqual(float(row["total_strokes"]), 100.0, places=3)
-		self.assertAlmostEqual(float(row["spm"]), 0.667, places=3)
+		expected_spm = 100 / (2.5 * 60)
+		derived_abs_tol = 1e-6
+		self.assertAlmostEqual(float(row["spm"]), expected_spm, delta=derived_abs_tol)
+
+	def test_operator_daily_spm_report_preserves_raw_group_values(self) -> None:
+		from production_entry_app.production_entry_app.report.operator_daily_spm_report.operator_daily_spm_report import (
+			execute,
+		)
+
+		shift = self._create_shift_for_label("2026-08-05", "1", clear_planned_losses=True)
+		self._create_mock_submitted_entry(
+			posting_date="2026-08-05",
+			planned_start="2026-08-05 08:00:00",
+			planned_end="2026-08-05 08:01:00",
+			actual_start="2026-08-05 08:00:00",
+			actual_end="2026-08-05 08:01:00",
+			fg_qty=1,
+			rejection_qty=0,
+			shift_name=shift.name,
+			unplanned_losses=[
+				{"downtime_reason": "Setup Time", "start_time": "08:00:00", "end_time": "08:00:20"},
+				{"downtime_reason": "Maint", "start_time": "08:00:20", "end_time": "08:00:40"},
+			],
+		)
+
+		_, rows = execute({"from_date": "2026-08-05", "to_date": "2026-08-05"})
+		self.assertEqual(len(rows), 1)
+		row = rows[0]
+		expected_setup = 20 / 3600
+		expected_loss = 20 / 3600
+		expected_prod = 20 / 3600
+		expected_spm = 1 / ((20 / 3600) * 60)
+		derived_abs_tol = 1e-6
+		self.assertAlmostEqual(float(row["setting_time_hrs"]), expected_setup, delta=derived_abs_tol)
+		self.assertAlmostEqual(float(row["loss_time_hrs"]), expected_loss, delta=derived_abs_tol)
+		self.assertAlmostEqual(float(row["production_time_hrs"]), expected_prod, delta=derived_abs_tol)
+		self.assertAlmostEqual(float(row["spm"]), expected_spm, delta=derived_abs_tol)
 
 	def test_operator_daily_spm_report_multiple_workstations_same_day(self) -> None:
 		from production_entry_app.production_entry_app.report.operator_daily_spm_report.operator_daily_spm_report import (
@@ -2354,9 +2638,14 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(len(rows), 1)
 		row = rows[0]
 		# Sum per-entry durations and deduct shift planned losses where overlapped.
-		self.assertAlmostEqual(float(row["production_time_hrs"]), 1.667, places=3)
+		expected_production_time_hrs = 100 / 60
+		derived_abs_tol = 1e-6
+		self.assertAlmostEqual(
+			float(row["production_time_hrs"]), expected_production_time_hrs, delta=derived_abs_tol
+		)
 		self.assertAlmostEqual(float(row["total_strokes"]), 200.0, places=3)
-		self.assertAlmostEqual(float(row["spm"]), 2.0, places=3)
+		expected_spm = 200 / (expected_production_time_hrs * 60)
+		self.assertAlmostEqual(float(row["spm"]), expected_spm, delta=derived_abs_tol)
 
 	def _create_mock_submitted_entry(
 		self,

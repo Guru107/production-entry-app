@@ -9,6 +9,7 @@ from frappe.utils import flt, getdate
 from production_entry_app.production_entry_app.report.report_utils import (
 	build_stock_entry_filters,
 	get_entry_production_minutes,
+	get_entry_raw_duration_minutes,
 	get_entry_total_strokes,
 	get_parent_loss_metrics,
 	get_parent_quantity_metrics,
@@ -168,15 +169,14 @@ def _get_rows(filters: dict) -> list[dict]:
 		parent_quantity_metrics = get_parent_quantity_metrics(entry_names, include_rework=True)
 		parent_loss_metrics = get_parent_loss_metrics(entry_names)
 		good_qty_map = {
-			parent: flt(metrics.get("good_qty") or 0, 3)
-			for parent, metrics in parent_quantity_metrics.items()
+			parent: flt(metrics.get("good_qty") or 0) for parent, metrics in parent_quantity_metrics.items()
 		}
 		rejection_qty_map = {
-			parent: flt(metrics.get("rejection_qty") or 0, 3)
+			parent: flt(metrics.get("rejection_qty") or 0)
 			for parent, metrics in parent_quantity_metrics.items()
 		}
 		total_rejected_qty_map = {
-			parent: flt(metrics.get("total_rejected_qty") or 0, 3)
+			parent: flt(metrics.get("total_rejected_qty") or 0)
 			for parent, metrics in parent_quantity_metrics.items()
 		}
 
@@ -203,11 +203,11 @@ def _get_rows(filters: dict) -> list[dict]:
 			entry_name = entry.get("name")
 			entry_metrics = parent_quantity_metrics.get(entry_name or "", {})
 			loss_metrics = parent_loss_metrics.get(entry_name or "", {})
-			setup_mins = flt(loss_metrics.get("setup_mins") or 0, 3)
-			loss_mins = flt(loss_metrics.get("loss_mins") or 0, 3)
-			setup_hrs = flt(setup_mins / 60, 3)
-			loss_hrs = flt(loss_mins / 60, 3)
-			rework_qty = flt(entry.get("custom_rework_qty") or entry_metrics.get("rework_qty") or 0, 3)
+			setup_mins = float(loss_metrics.get("setup_mins") or 0)
+			loss_mins = float(loss_metrics.get("loss_mins") or 0)
+			setup_hrs = setup_mins / 60
+			loss_hrs = loss_mins / 60
+			rework_qty = float(entry.get("custom_rework_qty") or entry_metrics.get("rework_qty") or 0)
 			total_strokes, rejection_qty = get_entry_total_strokes(
 				entry,
 				good_qty_map=good_qty_map,
@@ -219,7 +219,10 @@ def _get_rows(filters: dict) -> list[dict]:
 				setup_mins=setup_mins,
 				loss_mins=loss_mins,
 			)
-			production_time_hrs = flt(production_time_mins / 60, 3) if production_time_mins > 0 else 0.0
+			if production_time_mins <= 0 and entry.get("custom_production_time_mins") is not None:
+				raw_duration_mins = get_entry_raw_duration_minutes(entry)
+				production_time_mins = max(raw_duration_mins - setup_mins - loss_mins, 0)
+			production_time_hrs = (production_time_mins / 60) if production_time_mins > 0 else 0.0
 
 			agg["setup_time_hrs"] += setup_hrs
 			agg["loss_time_hrs"] += loss_hrs
@@ -235,13 +238,13 @@ def _get_rows(filters: dict) -> list[dict]:
 	rows: list[dict] = []
 	for key in sorted(aggregates):
 		agg = aggregates[key]
-		setup_hrs = flt(agg["setup_time_hrs"], 3)
-		loss_hrs = flt(agg["loss_time_hrs"], 3)
-		prod_hrs = flt(agg["prod_time_hrs"], 3)
-		strokes = flt(agg["total_strokes"], 3)
-		rejection = flt(agg["rejection"], 3)
-		rework = flt(agg["rework"], 3)
-		spm = flt(strokes / (prod_hrs * 60), 3) if prod_hrs > 0 else 0.0
+		setup_hrs = float(agg["setup_time_hrs"])
+		loss_hrs = float(agg["loss_time_hrs"])
+		prod_hrs = float(agg["prod_time_hrs"])
+		strokes = float(agg["total_strokes"])
+		rejection = float(agg["rejection"])
+		rework = float(agg["rework"])
+		spm = (strokes / (prod_hrs * 60)) if prod_hrs > 0 else 0.0
 
 		row: dict = {"date": agg["date"]}
 		if group_by_operator:
@@ -263,22 +266,22 @@ def _get_rows(filters: dict) -> list[dict]:
 
 
 def _build_totals_row(rows: list[dict], group_by_operator: bool) -> dict:
-	total_setup = sum(flt(r["setup_time_hrs"], 3) for r in rows)
-	total_loss = sum(flt(r["loss_time_hrs"], 3) for r in rows)
-	total_prod = sum(flt(r["prod_time_hrs"], 3) for r in rows)
-	total_strokes = sum(flt(r["total_strokes"], 3) for r in rows)
-	total_rejection = sum(flt(r["rejection"], 3) for r in rows)
-	total_rework = sum(flt(r["rework"], 3) for r in rows)
-	total_spm = flt(total_strokes / (total_prod * 60), 3) if total_prod > 0 else 0.0
+	total_setup = sum(float(r["setup_time_hrs"]) for r in rows)
+	total_loss = sum(float(r["loss_time_hrs"]) for r in rows)
+	total_prod = sum(float(r["prod_time_hrs"]) for r in rows)
+	total_strokes = sum(float(r["total_strokes"]) for r in rows)
+	total_rejection = sum(float(r["rejection"]) for r in rows)
+	total_rework = sum(float(r["rework"]) for r in rows)
+	total_spm = (total_strokes / (total_prod * 60)) if total_prod > 0 else 0.0
 
 	totals: dict = {"date": _("Total")}
 	if group_by_operator:
 		totals["operator"] = ""
-	totals["setup_time_hrs"] = flt(total_setup, 3)
-	totals["loss_time_hrs"] = flt(total_loss, 3)
-	totals["prod_time_hrs"] = flt(total_prod, 3)
-	totals["total_strokes"] = flt(total_strokes, 3)
+	totals["setup_time_hrs"] = total_setup
+	totals["loss_time_hrs"] = total_loss
+	totals["prod_time_hrs"] = total_prod
+	totals["total_strokes"] = total_strokes
 	totals["spm"] = total_spm
-	totals["rejection"] = flt(total_rejection, 3)
-	totals["rework"] = flt(total_rework, 3)
+	totals["rejection"] = total_rejection
+	totals["rework"] = total_rework
 	return totals

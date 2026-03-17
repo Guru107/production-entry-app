@@ -8,6 +8,8 @@ from frappe.tests.utils import FrappeTestCase
 from production_entry_app.production_entry_app.utils.loss_time import (
 	build_interval_overlap_criterion,
 	build_interval_overlap_filters,
+	get_interval_minutes,
+	get_loss_duration_minutes,
 	resolve_time_interval_in_window,
 )
 
@@ -61,3 +63,35 @@ class TestLossTime(FrappeTestCase):
 		self.assertIn("to_time", criterion_sql)
 		self.assertIn("<", criterion_sql)
 		self.assertIn(">", criterion_sql)
+
+	def test_get_loss_duration_minutes_preserves_raw_fractional_minutes(self) -> None:
+		expected_minutes = 20 / 60
+		derived_abs_tol = 1e-6
+
+		self.assertAlmostEqual(
+			get_loss_duration_minutes("10:00:00", "10:00:20"),
+			expected_minutes,
+			delta=derived_abs_tol,
+		)
+
+	def test_get_interval_minutes_preserves_raw_fractional_minutes(self) -> None:
+		start_dt = datetime.datetime(2026, 3, 3, 10, 0, 0)
+		end_dt = datetime.datetime(2026, 3, 3, 10, 0, 20)
+		expected_minutes = 20 / 60
+		derived_abs_tol = 1e-6
+
+		self.assertAlmostEqual(
+			get_interval_minutes(start_dt, end_dt),
+			expected_minutes,
+			delta=derived_abs_tol,
+		)
+
+	def test_get_loss_duration_minutes_preserves_raw_cross_midnight_fractional_minutes(self) -> None:
+		expected_minutes = 40 / 60
+		derived_abs_tol = 1e-6
+
+		self.assertAlmostEqual(
+			get_loss_duration_minutes("23:59:40", "00:00:20"),
+			expected_minutes,
+			delta=derived_abs_tol,
+		)

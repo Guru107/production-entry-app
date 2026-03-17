@@ -316,18 +316,17 @@ def get_shift_metrics(shift_name: str) -> dict:
 		_set_cached_shift_metrics(shift_name, empty_metrics)
 		return empty_metrics
 
-	total_qty = flt(metrics.get("total_qty") or 0, 3)
-	total_rejection_qty = flt(metrics.get("total_rejection_qty") or 0, 3)
-	total_ok_qty = flt(total_qty - total_rejection_qty, 3)
+	total_qty = flt(metrics.get("total_qty") or 0)
+	total_rejection_qty = flt(metrics.get("total_rejection_qty") or 0)
+	total_ok_qty = total_qty - total_rejection_qty
 	total_production_mins = metrics.get("total_production_mins")
 	total_duration_mins = flt(
 		total_production_mins
 		if total_production_mins is not None
 		else (metrics.get("total_duration_mins") or 0),
-		3,
 	)
-	avg_actual_spm = flt((total_ok_qty / total_duration_mins), 3) if total_duration_mins > 0 else 0
-	avg_efficiency_pct = flt(metrics.get("avg_efficiency_pct") or 0, 2)
+	avg_actual_spm = (total_ok_qty / total_duration_mins) if total_duration_mins > 0 else 0
+	avg_efficiency_pct = flt(metrics.get("avg_efficiency_pct") or 0)
 
 	result = {
 		"entry_count": entry_count,
@@ -391,17 +390,16 @@ def get_shift_aggregate_production_entries(shift_name: str) -> list[dict]:
 
 	result: list[dict] = []
 	for row in rows:
-		total_qty = flt(row.get("total_qty") or 0, 3)
-		total_reject_qty = flt(row.get("total_reject_qty") or 0, 3)
-		total_ok_qty = flt(total_qty - total_reject_qty, 3)
+		total_qty = flt(row.get("total_qty") or 0)
+		total_reject_qty = flt(row.get("total_reject_qty") or 0)
+		total_ok_qty = total_qty - total_reject_qty
 		total_production_mins = row.get("total_production_mins")
 		total_duration_mins = flt(
 			total_production_mins
 			if total_production_mins is not None
 			else (row.get("total_duration_mins") or 0),
-			3,
 		)
-		avg_spm = flt((total_ok_qty / total_duration_mins), 3) if total_duration_mins > 0 else 0
+		avg_spm = (total_ok_qty / total_duration_mins) if total_duration_mins > 0 else 0
 		result.append(
 			{
 				"bom_used": row.get("bom_used"),

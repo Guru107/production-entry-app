@@ -76,15 +76,14 @@ def _get_rows(filters: dict, timeout_guard) -> list[dict]:
 		parent_quantity_metrics = get_parent_quantity_metrics(entry_names, include_rework=True)
 		parent_loss_metrics = get_parent_loss_metrics(entry_names)
 		good_qty_map = {
-			parent: flt(metrics.get("good_qty") or 0, 3)
-			for parent, metrics in parent_quantity_metrics.items()
+			parent: flt(metrics.get("good_qty") or 0) for parent, metrics in parent_quantity_metrics.items()
 		}
 		rejection_qty_map = {
-			parent: flt(metrics.get("rejection_qty") or 0, 3)
+			parent: flt(metrics.get("rejection_qty") or 0)
 			for parent, metrics in parent_quantity_metrics.items()
 		}
 		total_rejected_qty_map = {
-			parent: flt(metrics.get("total_rejected_qty") or 0, 3)
+			parent: flt(metrics.get("total_rejected_qty") or 0)
 			for parent, metrics in parent_quantity_metrics.items()
 		}
 
@@ -97,12 +96,12 @@ def _get_rows(filters: dict, timeout_guard) -> list[dict]:
 				rejection_qty_map=rejection_qty_map,
 				total_rejected_qty_map=total_rejected_qty_map,
 			)
-			good_qty = flt(max(total_strokes - rejection_qty, 0), 3)
-			rework_qty = flt(entry.get("custom_rework_qty") or entry_metrics.get("rework_qty") or 0, 3)
+			good_qty = flt(max(total_strokes - rejection_qty, 0))
+			rework_qty = flt(entry.get("custom_rework_qty") or entry_metrics.get("rework_qty") or 0)
 			production_time_mins = get_entry_production_minutes(
 				entry,
-				setup_mins=flt(loss_metrics.get("setup_mins") or 0, 3),
-				loss_mins=flt(loss_metrics.get("loss_mins") or 0, 3),
+				setup_mins=flt(loss_metrics.get("setup_mins") or 0),
+				loss_mins=flt(loss_metrics.get("loss_mins") or 0),
 			)
 			raw_duration_mins = get_entry_raw_duration_minutes(entry)
 			entry["_good_qty"] = good_qty

@@ -107,14 +107,12 @@ def get_shift_timeline_data(doctype: str, docname: str) -> dict:
 		if parent and parent not in fg_item_by_entry:
 			fg_item_by_entry[parent] = fg_row.get("item_code")
 		if parent:
-			fg_qty_by_entry[parent] = flt(fg_qty_by_entry.get(parent) or 0, 3) + flt(
-				fg_row.get("fg_qty") or 0, 3
-			)
+			fg_qty_by_entry[parent] = flt(fg_qty_by_entry.get(parent) or 0) + flt(fg_row.get("fg_qty") or 0)
 
 	entries = []
 	for row in rows:
-		good_qty = flt(fg_qty_by_entry.get(row.get("name"), row.get("fg_qty") or 0), 3)
-		rejection_qty = flt(row.get("rejection_qty") or 0, 3)
+		good_qty = flt(fg_qty_by_entry.get(row.get("name"), row.get("fg_qty") or 0))
+		rejection_qty = flt(row.get("rejection_qty") or 0)
 		entries.append(
 			{
 				"name": row.get("name"),
@@ -123,7 +121,7 @@ def get_shift_timeline_data(doctype: str, docname: str) -> dict:
 				"fg_item": fg_item_by_entry.get(row.get("name")),
 				"fg_qty": good_qty,
 				"rejection_qty": rejection_qty,
-				"ok_qty": flt(good_qty - rejection_qty, 3),
+				"ok_qty": good_qty - rejection_qty,
 				"entry_type": "production",
 			}
 		)

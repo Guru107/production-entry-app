@@ -510,7 +510,7 @@ function _update_die_tool_metrics(frm) {
 			if (due && frm.dashboard && frm.dashboard.set_headline_alert) {
 				const message = __(
 					"Die tool {0} has reached {1}% utilization and needs maintenance.",
-					[item_code, utilization.toFixed(2)]
+					[item_code, _formatFloatFragment(utilization)]
 				);
 				if (frm.__peaDieToolAlertMessage !== message) {
 					frm.dashboard.set_headline_alert(message, "orange");
@@ -535,6 +535,32 @@ function _set_die_tool_metric_fields(frm, utilization, due) {
 		frm.doc.custom_die_tool_maintenance_due = due;
 	}
 	frm.refresh_fields(["custom_die_tool_utilization_pct", "custom_die_tool_maintenance_due"]);
+}
+
+function _formatFloatFragment(value) {
+	const numericValue = Number(value || 0);
+	const precision = _getNumericPrecision(value);
+	if (typeof frappe !== "undefined" && typeof frappe.format === "function") {
+		return frappe.format(
+			numericValue,
+			{ fieldtype: "Float", precision },
+			{ only_value: true }
+		);
+	}
+	return String(numericValue);
+}
+
+function _getNumericPrecision(value) {
+	const text = String(value ?? "").trim();
+	if (!text) {
+		return 0;
+	}
+	const normalized = text.includes("e") || text.includes("E") ? Number(value).toString() : text;
+	const parts = normalized.split(".");
+	if (parts.length < 2) {
+		return 0;
+	}
+	return parts[1].replace(/0+$/, "").length;
 }
 
 function _clear_die_tool_alert(frm) {

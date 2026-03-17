@@ -7,7 +7,7 @@ import frappe
 from frappe import _
 from frappe.query_builder import DocType as QBDocType
 from frappe.query_builder.functions import CustomFunction
-from frappe.utils import cint, flt, get_datetime, now_datetime
+from frappe.utils import cint, get_datetime, now_datetime
 
 
 def update_counter_for_stock_entry(doc, direction: int = 1) -> None:
@@ -73,9 +73,8 @@ def get_counter_health(
 	current_strokes: float,
 	stroke_capacity: float,
 	warning_threshold_pct: float = 90,
-	precision: int = 3,
 ) -> tuple[float, int]:
-	utilization_pct = flt((current_strokes / stroke_capacity) * 100, precision) if stroke_capacity > 0 else 0
+	utilization_pct = ((current_strokes / stroke_capacity) * 100) if stroke_capacity > 0 else 0
 	is_maintenance_due = 1 if stroke_capacity > 0 and utilization_pct >= warning_threshold_pct else 0
 	return utilization_pct, is_maintenance_due
 

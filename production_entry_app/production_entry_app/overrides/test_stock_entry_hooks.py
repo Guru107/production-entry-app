@@ -699,6 +699,63 @@ class TestStockEntryHooks(FrappeTestCase):
 		se.save()
 		self.assertEqual(float(se.custom_rework_qty or 0), 3.0)
 
+	def test_rejection_breakup_allows_difference_within_precision_tolerance(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-04-17",
+			shift_label="2",
+			planned_start_time="17:00:00",
+			wip_warehouse=self.wip_warehouse,
+			rejection_warehouse=self.rejection_warehouse,
+		)
+
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			fg_qty=100,
+			custom_shift=shift.name,
+			custom_rejection_qty=5.00049,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		_append_rejection_breakup_rows(
+			se,
+			[
+				{"rejection_reason": "Burr", "qty": 5.0005, "remark": "Within precision tolerance"},
+			],
+		)
+
+		se.save()
+
+	def test_rejection_breakup_rejects_difference_beyond_precision_tolerance(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-04-20",
+			shift_label="2",
+			planned_start_time="17:00:00",
+			wip_warehouse=self.wip_warehouse,
+			rejection_warehouse=self.rejection_warehouse,
+		)
+
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			fg_qty=100,
+			custom_shift=shift.name,
+			custom_rejection_qty=5.00049,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		_append_rejection_breakup_rows(
+			se,
+			[
+				{"rejection_reason": "Burr", "qty": 4.99951, "remark": "Beyond precision tolerance"},
+			],
+		)
+
+		with self.assertRaises(ValidationError):
+			se.save()
+
 	def test_rework_qty_is_zero_when_no_rows_marked_rework(self) -> None:
 		shift = _create_test_shift(
 			shift_date="2026-04-18",

@@ -1832,6 +1832,43 @@ class TestShiftMetrics(FrappeTestCase):
 		metrics = get_shift_metrics(shift.name)
 		self.assertEqual(float(metrics["avg_actual_spm"]), 1.5)
 
+	def test_shift_metrics_preserve_raw_decimal_totals_and_spm(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_metrics
+
+		shift = self._create_shift("2026-09-13")
+		self._create_submitted_like_entry(
+			shift.name,
+			good_qty=30.1234,
+			rejection_qty=0.1111,
+			duration_mins=20.1234,
+		)
+		self._create_submitted_like_entry(
+			shift.name,
+			good_qty=60.1234,
+			rejection_qty=0.2222,
+			duration_mins=10.1234,
+		)
+
+		metrics = get_shift_metrics(shift.name)
+		expected_total_qty = 30.1234 + 60.1234
+		expected_total_rejection_qty = 0.1111 + 0.2222
+		expected_total_ok_qty = expected_total_qty - expected_total_rejection_qty
+		expected_total_duration_mins = 20.1234 + 10.1234
+		expected_avg_actual_spm = expected_total_ok_qty / expected_total_duration_mins
+		derived_abs_tol = 1e-6
+
+		self.assertAlmostEqual(float(metrics["total_qty"]), expected_total_qty, delta=derived_abs_tol)
+		self.assertAlmostEqual(
+			float(metrics["total_rejection_qty"]), expected_total_rejection_qty, delta=derived_abs_tol
+		)
+		self.assertAlmostEqual(float(metrics["total_ok_qty"]), expected_total_ok_qty, delta=derived_abs_tol)
+		self.assertAlmostEqual(
+			float(metrics["total_duration_mins"]), expected_total_duration_mins, delta=derived_abs_tol
+		)
+		self.assertAlmostEqual(
+			float(metrics["avg_actual_spm"]), expected_avg_actual_spm, delta=derived_abs_tol
+		)
+
 	def test_avg_spm_is_zero_when_duration_is_zero(self) -> None:
 		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_metrics
 
@@ -2054,7 +2091,9 @@ class TestShiftAggregateProductionEntries(FrappeTestCase):
 		self.assertEqual(float(rows[0]["total_qty"]), 150.0)
 		self.assertEqual(float(rows[0]["total_reject_qty"]), 8.0)
 		self.assertEqual(float(rows[0]["total_ok_qty"]), 142.0)
-		self.assertEqual(float(rows[0]["avg_spm"]), float(frappe.utils.flt(142 / 90, 3)))
+		expected_avg_spm = 142 / 90
+		derived_abs_tol = 1e-6
+		self.assertAlmostEqual(float(rows[0]["avg_spm"]), expected_avg_spm, delta=derived_abs_tol)
 
 	def test_avg_spm_is_zero_when_total_duration_is_zero(self) -> None:
 		from production_entry_app.production_entry_app.doctype.shift.shift import (
@@ -2097,7 +2136,9 @@ class TestShiftAggregateProductionEntries(FrappeTestCase):
 		)
 		rows = get_shift_aggregate_production_entries(shift.name)
 		self.assertEqual(len(rows), 1)
-		self.assertEqual(float(rows[0]["avg_spm"]), float(frappe.utils.flt(150 / 70, 3)))
+		expected_avg_spm = 150 / 70
+		derived_abs_tol = 1e-6
+		self.assertAlmostEqual(float(rows[0]["avg_spm"]), expected_avg_spm, delta=derived_abs_tol)
 
 	def test_ignores_non_manufacture_and_missing_bom_rows(self) -> None:
 		from production_entry_app.production_entry_app.doctype.shift.shift import (

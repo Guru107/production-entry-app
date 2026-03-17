@@ -217,7 +217,7 @@ def get_entry_qty_maps(
 	good_qty_map: dict[str, float] = {}
 	fg_item_map: dict[str, str] = {}
 	for parent, metrics in parent_metrics.items():
-		good_qty_map[parent] = flt(metrics.get("good_qty") or 0, 3)
+		good_qty_map[parent] = flt(metrics.get("good_qty") or 0)
 
 	if include_fg_item:
 		stock_entry_detail = DocType("Stock Entry Detail")
@@ -245,7 +245,7 @@ def get_entry_qty_maps(
 
 	rejection_qty_map: dict[str, float] = {}
 	for parent, metrics in parent_metrics.items():
-		rejection_qty_map[parent] = flt(metrics.get("rejection_qty") or 0, 3)
+		rejection_qty_map[parent] = flt(metrics.get("rejection_qty") or 0)
 
 	return good_qty_map, rejection_qty_map, fg_item_map
 
@@ -298,7 +298,7 @@ def get_parent_quantity_metrics(
 			parent,
 			{"good_qty": 0.0, "rejection_qty": 0.0, "rework_qty": 0.0, "total_rejected_qty": 0.0},
 		)
-		parent_metrics[parent]["good_qty"] = flt(row.get("good_qty") or 0, 3)
+		parent_metrics[parent]["good_qty"] = flt(row.get("good_qty") or 0)
 
 	rejection_breakup = DocType("Rejection Breakup")
 	rejection_rows = (
@@ -320,13 +320,9 @@ def get_parent_quantity_metrics(
 			parent,
 			{"good_qty": 0.0, "rejection_qty": 0.0, "rework_qty": 0.0, "total_rejected_qty": 0.0},
 		)
-		qty = flt(row.get("qty") or 0, 3)
+		qty = flt(row.get("qty") or 0)
 		parent_metrics[parent]["total_rejected_qty"] = (
-			flt(
-				parent_metrics[parent].get("total_rejected_qty") or 0,
-				3,
-			)
-			+ qty
+			flt(parent_metrics[parent].get("total_rejected_qty") or 0) + qty
 		)
 		if row.get("is_rework"):
 			parent_metrics[parent]["rework_qty"] = qty
@@ -409,18 +405,16 @@ def get_parent_loss_metrics(stock_entry_names: list[str]) -> dict[str, dict[str,
 			continue
 		parent_metrics.setdefault(parent, {"setup_mins": 0.0, "loss_mins": 0.0})
 		if row.get("downtime_reason") == SETUP_TIME_REASON:
-			parent_metrics[parent]["setup_mins"] = flt(
-				parent_metrics[parent]["setup_mins"] + duration_mins, 3
-			)
+			parent_metrics[parent]["setup_mins"] = parent_metrics[parent]["setup_mins"] + duration_mins
 		else:
-			parent_metrics[parent]["loss_mins"] = flt(parent_metrics[parent]["loss_mins"] + duration_mins, 3)
+			parent_metrics[parent]["loss_mins"] = parent_metrics[parent]["loss_mins"] + duration_mins
 	return parent_metrics
 
 
 def get_rework_qty_map(stock_entry_names: list[str]) -> dict[str, float]:
 	"""Return {entry_name: rework_qty} from Rejection Breakup rows where is_rework=1."""
 	return {
-		parent: flt(metrics.get("rework_qty") or 0, 3)
+		parent: flt(metrics.get("rework_qty") or 0)
 		for parent, metrics in get_parent_quantity_metrics(stock_entry_names, include_rework=True).items()
 	}
 
@@ -429,8 +423,8 @@ def get_loss_time_maps(entry_names: list[str]) -> tuple[dict[str, float], dict[s
 	"""Return setup and non-setup loss minutes keyed by Stock Entry name."""
 	parent_loss_metrics = get_parent_loss_metrics(entry_names)
 	return (
-		{parent: flt(metrics.get("setup_mins") or 0, 3) for parent, metrics in parent_loss_metrics.items()},
-		{parent: flt(metrics.get("loss_mins") or 0, 3) for parent, metrics in parent_loss_metrics.items()},
+		{parent: flt(metrics.get("setup_mins") or 0) for parent, metrics in parent_loss_metrics.items()},
+		{parent: flt(metrics.get("loss_mins") or 0) for parent, metrics in parent_loss_metrics.items()},
 	)
 
 
@@ -442,7 +436,7 @@ def get_duration_minutes(start_value, end_value) -> float:
 	if not isinstance(start_dt, datetime.datetime) or not isinstance(end_dt, datetime.datetime):
 		return 0
 	duration = (end_dt - start_dt).total_seconds() / 60
-	return flt(duration if duration > 0 else 0, 3)
+	return flt(duration if duration > 0 else 0)
 
 
 def get_entry_total_strokes(
@@ -455,16 +449,16 @@ def get_entry_total_strokes(
 	entry_name = entry.get("name")
 	rejection_qty = 0.0
 	if entry_name and rejection_qty_map is not None:
-		rejection_qty = flt(rejection_qty_map.get(entry_name) or 0, 3)
-	total_rejected_qty = flt(entry.get("custom_rejection_qty") or 0, 3)
+		rejection_qty = flt(rejection_qty_map.get(entry_name) or 0)
+	total_rejected_qty = flt(entry.get("custom_rejection_qty") or 0)
 	if entry_name and total_rejected_qty_map is not None:
-		total_rejected_qty = flt(total_rejected_qty_map.get(entry_name) or 0, 3)
+		total_rejected_qty = flt(total_rejected_qty_map.get(entry_name) or 0)
 
-	fg_completed_qty = flt(entry.get("fg_completed_qty") or 0, 3)
+	fg_completed_qty = flt(entry.get("fg_completed_qty") or 0)
 	if fg_completed_qty > 0:
 		return fg_completed_qty, rejection_qty
 	if entry_name and good_qty_map is not None:
-		return flt(good_qty_map.get(entry_name) or 0, 3) + total_rejected_qty, rejection_qty
+		return flt(good_qty_map.get(entry_name) or 0) + total_rejected_qty, rejection_qty
 	return rejection_qty, rejection_qty
 
 
@@ -476,21 +470,26 @@ def get_entry_production_minutes(
 	"""Return production minutes using custom_production_time_mins when present."""
 	production_time_value = entry.get("custom_production_time_mins")
 	if production_time_value is not None:
-		return flt(max(production_time_value, 0), 3)
+		return flt(max(production_time_value, 0))
 
 	duration_mins = get_entry_raw_duration_minutes(entry)
-	return flt(max(duration_mins - flt(setup_mins, 3) - flt(loss_mins, 3), 0), 3)
+	return max(duration_mins - flt(setup_mins) - flt(loss_mins), 0)
 
 
 def get_entry_raw_duration_minutes(entry: dict) -> float:
 	"""Return wall-clock duration minutes from stored field or start/end fallback."""
-	duration_mins = flt(entry.get("custom_actual_duration_mins") or 0, 3)
+	duration_mins = flt(entry.get("custom_actual_duration_mins") or 0)
 	if duration_mins > 0:
 		return duration_mins
 	return get_duration_minutes(
 		entry.get("custom_actual_start_date"),
 		entry.get("custom_actual_end_date"),
 	)
+
+
+def format_numeric_summary(value: float) -> str:
+	"""Format a number for human-readable inline display in report text (e.g. dominant reason qty)."""
+	return frappe.format_value(value, df={"fieldtype": "Float"})
 
 
 def new_efficiency_aggregates() -> defaultdict:
@@ -515,16 +514,15 @@ def accumulate_efficiency_aggregate(
 	group_label_default: str = "Unassigned",
 ) -> None:
 	group_value = entry.get(group_field) or group_label_default
-	good_qty = flt(entry.get("_good_qty") or 0, 3)
-	rejection_qty = flt(entry.get("_rejection_qty") or 0, 3)
-	rework_qty = flt(entry.get("_rework_qty") or 0, 3)
-	total_units = flt(good_qty + rejection_qty, 3)
+	good_qty = flt(entry.get("_good_qty") or 0)
+	rejection_qty = flt(entry.get("_rejection_qty") or 0)
+	rework_qty = flt(entry.get("_rework_qty") or 0)
+	total_units = good_qty + rejection_qty
 	production_time_mins = entry.get("_production_time_mins")
 	duration_mins = flt(
 		production_time_mins if production_time_mins is not None else (entry.get("_duration_mins") or 0),
-		3,
 	)
-	standard_spm = flt(entry.get("custom_standard_spm") or 0, 3)
+	standard_spm = flt(entry.get("custom_standard_spm") or 0)
 
 	agg = aggregates[group_value]
 	agg["entries"] += 1
@@ -533,7 +531,7 @@ def accumulate_efficiency_aggregate(
 	agg["rework_qty"] += rework_qty
 	agg["total_units"] += total_units
 	agg["duration_mins"] += duration_mins
-	agg["actual_spm_sum"] += flt(entry.get("custom_actual_spm") or 0, 3)
+	agg["actual_spm_sum"] += flt(entry.get("custom_actual_spm") or 0)
 	if standard_spm > 0 and agg["standard_spm"] <= 0:
 		agg["standard_spm"] = standard_spm
 
@@ -557,20 +555,20 @@ def build_efficiency_rows(
 	rows = []
 	for group_value, agg in sorted(aggregates.items()):
 		entry_count = int(agg["entries"])
-		duration_mins = flt(agg["duration_mins"], 3)
-		actual_spm = flt((agg["total_units"] / duration_mins), 3) if duration_mins > 0 else 0
-		standard_spm = flt(agg["standard_spm"], 3)
+		duration_mins = flt(agg["duration_mins"])
+		actual_spm = (agg["total_units"] / duration_mins) if duration_mins > 0 else 0
+		standard_spm = flt(agg["standard_spm"])
 		if duration_mins <= 0 and entry_count:
-			actual_spm = flt((agg["actual_spm_sum"] / entry_count), 3)
-		efficiency_pct = flt((actual_spm / standard_spm) * 100, 2) if standard_spm > 0 else 0
+			actual_spm = agg["actual_spm_sum"] / entry_count
+		efficiency_pct = ((actual_spm / standard_spm) * 100) if standard_spm > 0 else 0
 		rows.append(
 			{
 				group_result_field: group_value,
 				"entries": entry_count,
-				"good_qty": flt(agg["good_qty"], 3),
-				"rejection_qty": flt(agg["rejection_qty"], 3),
-				"rework_qty": flt(agg["rework_qty"], 3),
-				"total_units": flt(agg["total_units"], 3),
+				"good_qty": flt(agg["good_qty"]),
+				"rejection_qty": flt(agg["rejection_qty"]),
+				"rework_qty": flt(agg["rework_qty"]),
+				"total_units": flt(agg["total_units"]),
 				"actual_spm": actual_spm,
 				"standard_spm": standard_spm,
 				efficiency_result_field: efficiency_pct,

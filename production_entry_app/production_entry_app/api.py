@@ -211,7 +211,6 @@ def get_die_tool_counter(die_tool_code: str) -> dict:
 		current_strokes=current_strokes,
 		stroke_capacity=stroke_capacity,
 		warning_threshold_pct=warning_threshold_pct,
-		precision=3,
 	)
 	return {
 		"die_tool_code": die_tool_code,
