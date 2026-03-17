@@ -8,7 +8,8 @@
       "Bash(xargs:*)",
       "Bash(wc:*)",
       "Read(//Users/gurudattkulkarni/Workspace/production-entry-app/**)",
-      "Bash(python3 -c \":*)"
+      "Bash(python3 -c \":*)",
+      "Bash(pre-commit run:*)"
     ]
   }
 }
