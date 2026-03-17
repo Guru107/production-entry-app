@@ -10,7 +10,9 @@
       "Read(//Users/gurudattkulkarni/Workspace/production-entry-app/**)",
       "Bash(python3 -c \":*)",
       "Bash(pre-commit run:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(git commit:*)",
+      "Bash(git add:*)"
     ]
   }
 }
