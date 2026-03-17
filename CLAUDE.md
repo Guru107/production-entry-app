@@ -22,10 +22,12 @@ A Frappe Framework (v15) application for ERPNext that simplifies production entr
 **Shift** document. The Shift is a central hub for supervisors: planned losses, downtime entries,
 warehouse defaults, and linked Stock Entries all flow through it.
 
-Bench root: `/Users/gurudattkulkarni/Workspace/production-entry-app/`
-App root: `apps/production_entry_app/production_entry_app/`
-Site: `development.localhost`
-Sibling apps in bench: `frappe/`, `erpnext/`
+This repo is a **standalone Frappe app**. It can be installed into a bench either by
+cloning directly into the bench's `apps/` directory or by cloning elsewhere and linking
+it via `bench get-app /path/to/production-entry-app`.
+
+App module root: `production_entry_app/production_entry_app/`
+Sibling apps in bench (installed separately): `frappe`, `erpnext`
 
 ### DocTypes
 
