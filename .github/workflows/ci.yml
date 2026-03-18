@@ -9,8 +9,8 @@ on:
 
 env:
   # Override via GitHub repo variables (Settings → Secrets and variables → Actions → Variables)
-  FRAPPE_VERSION: ${{ vars.FRAPPE_VERSION || '15' }}
-  ERPNEXT_VERSION: ${{ vars.ERPNEXT_VERSION || '15' }}
+  FRAPPE_VERSION: ${{ matrix.frappe_version }}
+  ERPNEXT_VERSION: ${{ matrix.erpnext_version }}
 
 concurrency:
   group: develop-production_entry_app-${{ github.event.number }}
@@ -21,7 +21,10 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-    name: Server
+      matrix:
+        frappe_version: ["15", "16"]
+        erpnext_version: ["15", "16"]
+    name: Server v${{ matrix.frappe_version }}-erp${{ matrix.erpnext_version }}
 
     services:
       redis-cache:

@@ -10,12 +10,18 @@ on:
     - cron: '0 2 * * *'
 
 env:
-  FRAPPE_VERSION: ${{ vars.FRAPPE_VERSION || '15' }}
-  ERPNEXT_VERSION: ${{ vars.ERPNEXT_VERSION || '15' }}
+  FRAPPE_VERSION: ${{ matrix.frappe_version }}
+  ERPNEXT_VERSION: ${{ matrix.erpnext_version }}
 
 jobs:
   e2e:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        frappe_version: ["15", "16"]
+        erpnext_version: ["15", "16"]
+    name: E2E v${{ matrix.frappe_version }}-erp${{ matrix.erpnext_version }}
     services:
       redis-cache:
         image: redis:alpine
