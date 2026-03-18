@@ -1,4 +1,5 @@
 const { expect } = require("@playwright/test");
+const { getRoute, getRouteRegex, getRoutePrefix } = require("../utils/routing");
 
 class ReportsPage {
 	constructor(page) {
@@ -10,8 +11,8 @@ class ReportsPage {
 		const ignorePreparedReport =
 			options.ignorePreparedReport === undefined ? true : options.ignorePreparedReport;
 		const queryString = ignorePreparedReport ? "?ignore_prepared_report=1" : "";
-		await this.page.goto(`/app/query-report/${encodedName}${queryString}`);
-		await expect(this.page).toHaveURL(new RegExp(`/app/query-report/${encodedName}`));
+		await this.page.goto(getRoute(`/query-report/${encodedName}${queryString}`));
+		await expect(this.page).toHaveURL(new RegExp(`${getRoutePrefix()}/query-report/${encodedName}`));
 		await this.page.waitForFunction(
 			(name) =>
 				Boolean(window.frappe?.query_report) &&

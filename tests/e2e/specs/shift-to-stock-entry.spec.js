@@ -5,6 +5,7 @@ const { expectValidationError } = require("../fixtures/assertions");
 const { registerE2ELifecycle } = require("../fixtures/lifecycle");
 const { ShiftPage } = require("../pages/shift-page");
 const { StockEntryPage } = require("../pages/stock-entry-page");
+const { getRoute } = require("../utils/routing");
 
 function plusOneDay(dateString) {
 	const nextDate = new Date(dateString);
@@ -47,7 +48,7 @@ test.describe("Shift to Stock Entry integration", () => {
 	test("@smoke running shift create action opens stock entry with shift prefilled", async ({
 		page,
 	}) => {
-		await page.goto("/app/home");
+		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 		const shift = await getDoc(page, "Shift", ctx.shift_name);
 		const shiftPage = new ShiftPage(page);
@@ -62,7 +63,7 @@ test.describe("Shift to Stock Entry integration", () => {
 	});
 
 	test("@regression selecting shift auto-fills branch and planned dates", async ({ page }) => {
-		await page.goto("/app/home");
+		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 		const shift = await getDoc(page, "Shift", ctx.shift_name);
 
@@ -94,7 +95,7 @@ test.describe("Shift to Stock Entry integration", () => {
 	test("@regression clearing shift clears auto-filled planning and warehouse fields", async ({
 		page,
 	}) => {
-		await page.goto("/app/home");
+		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 
 		const stockEntryPage = new StockEntryPage(page);
@@ -126,7 +127,7 @@ test.describe("Shift to Stock Entry integration", () => {
 	});
 
 	test("@regression custom_shift query returns only running shifts", async ({ page }) => {
-		await page.goto("/app/home");
+		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 		const seededShift = await getDoc(page, "Shift", ctx.shift_name);
 
@@ -171,7 +172,7 @@ test.describe("Shift to Stock Entry integration", () => {
 	test("@regression save is blocked when custom_shift points to draft shift", async ({
 		page,
 	}) => {
-		await page.goto("/app/home");
+		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 		const runningShift = await getDoc(page, "Shift", ctx.shift_name);
 

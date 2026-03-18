@@ -2,6 +2,7 @@ const { test, expect } = require("@playwright/test");
 const { deleteRoleIfExists, deleteUserIfExists, ensureUser } = require("../fixtures/users");
 const { callFrappeMethod, getDoc, saveForm, setFieldValue } = require("../fixtures/frappe");
 const { ShiftPage } = require("../pages/shift-page");
+const { getRoute } = require("../utils/routing");
 
 const ADMIN_USERNAME = process.env.PLAYWRIGHT_USERNAME || "Administrator";
 const ADMIN_PASSWORD = process.env.PLAYWRIGHT_PASSWORD || "123";
@@ -33,7 +34,7 @@ async function loginAs(page, username, password) {
 		},
 	});
 	expect(response.ok()).toBeTruthy();
-	await page.goto("/app/home");
+	await page.goto(getRoute("/home"));
 	await expect(page).toHaveURL(/\/app\//);
 }
 
@@ -210,8 +211,8 @@ test.describe("Permissions", () => {
 
 		await loginAs(page, email, TEST_PASSWORD);
 
-		await page.goto("/app/shift");
-		await page.goto("/app/shift/new");
+		await page.goto(getRoute("/shift"));
+		await page.goto(getRoute("/shift/new"));
 
 		await expect(
 			callFrappeMethod(page, "frappe.client.get_list", {
@@ -254,7 +255,7 @@ test.describe("Permissions", () => {
 
 		await loginAs(page, email, TEST_PASSWORD);
 
-		await page.goto("/app/downtime-reason/new");
+		await page.goto(getRoute("/downtime-reason/new"));
 		await page.waitForLoadState("domcontentloaded");
 
 		await expect

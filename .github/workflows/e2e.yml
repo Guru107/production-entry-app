@@ -12,6 +12,7 @@ on:
 env:
   FRAPPE_VERSION: ${{ matrix.frappe_version }}
   ERPNEXT_VERSION: ${{ matrix.erpnext_version }}
+  PLAYWRIGHT_ROUTE_PREFIX: ${{ matrix.frappe_version == '16' && 'desk' || 'app' }}
 
 jobs:
   e2e:

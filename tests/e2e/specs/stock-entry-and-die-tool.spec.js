@@ -3,6 +3,7 @@ const { bootstrapE2E } = require("../fixtures/test-data");
 const { getDoc, callFrappeMethod } = require("../fixtures/frappe");
 const { StockEntryPage } = require("../pages/stock-entry-page");
 const { registerE2ELifecycle } = require("../fixtures/lifecycle");
+const { getRoute } = require("../utils/routing");
 
 test.describe("Stock Entry integration", () => {
 	const lifecycle = registerE2ELifecycle(test);
@@ -10,7 +11,7 @@ test.describe("Stock Entry integration", () => {
 	test("@smoke manufacture stock entry computes metrics and updates die tool counter", async ({
 		page,
 	}) => {
-		await page.goto("/app/home");
+		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 
 		const stockEntryPage = new StockEntryPage(page);
@@ -41,7 +42,7 @@ test.describe("Stock Entry integration", () => {
 	test("@regression manufacture stock entry keeps die tool metrics zero when item has no die tool", async ({
 		page,
 	}) => {
-		await page.goto("/app/home");
+		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 		await callFrappeMethod(page, "frappe.client.set_value", {
 			doctype: "Item",
@@ -79,7 +80,7 @@ test.describe("Stock Entry integration", () => {
 	test("@regression get_die_tool_counter stays non-throwing during concurrent first reads", async ({
 		page,
 	}) => {
-		await page.goto("/app/home");
+		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 
 		const existingCounter = await callFrappeMethod(page, "frappe.client.get_value", {

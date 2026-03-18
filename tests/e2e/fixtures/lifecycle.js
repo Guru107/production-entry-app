@@ -1,5 +1,6 @@
 const { cleanupE2E } = require("./test-data");
 const { e2ePrefix } = require("./prefix");
+const { getRoute } = require("../utils/routing");
 
 function registerE2ELifecycle(test, options = {}) {
 	const { navigateHomeBeforeCleanup = true } = options;
@@ -11,7 +12,7 @@ function registerE2ELifecycle(test, options = {}) {
 
 	test.afterEach(async ({ page }) => {
 		if (navigateHomeBeforeCleanup) {
-			await page.goto("/app/home");
+			await page.goto(getRoute("/home"));
 		}
 		await cleanupE2E(page, prefix);
 	});
