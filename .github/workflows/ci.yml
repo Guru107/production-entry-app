@@ -7,11 +7,6 @@ on:
       - develop
   pull_request:
 
-env:
-  # Override via GitHub repo variables (Settings → Secrets and variables → Actions → Variables)
-  FRAPPE_VERSION: ${{ matrix.frappe_version }}
-  ERPNEXT_VERSION: ${{ matrix.erpnext_version }}
-
 concurrency:
   group: develop-production_entry_app-${{ github.event.number }}
   cancel-in-progress: true
@@ -19,6 +14,10 @@ concurrency:
 jobs:
   tests:
     runs-on: ubuntu-latest
+    env:
+      # Override via GitHub repo variables (Settings → Secrets and variables → Actions → Variables)
+      FRAPPE_VERSION: ${{ matrix.frappe_version }}
+      ERPNEXT_VERSION: ${{ matrix.erpnext_version }}
     strategy:
       fail-fast: false
       matrix:

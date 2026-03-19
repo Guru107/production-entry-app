@@ -9,22 +9,23 @@ on:
   schedule:
     - cron: '0 2 * * *'
 
-env:
-  FRAPPE_VERSION: ${{ matrix.frappe_version }}
-  ERPNEXT_VERSION: ${{ matrix.erpnext_version }}
-  PLAYWRIGHT_ROUTE_PREFIX: ${{ matrix.frappe_version == '16' && 'desk' || 'app' }}
-
 jobs:
   e2e:
     runs-on: ubuntu-latest
+    env:
+      FRAPPE_VERSION: ${{ matrix.frappe_version }}
+      ERPNEXT_VERSION: ${{ matrix.erpnext_version }}
+      PLAYWRIGHT_ROUTE_PREFIX: ${{ matrix.route_prefix }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - frappe_version: "15"
             erpnext_version: "15"
+            route_prefix: "app"
           - frappe_version: "16"
             erpnext_version: "16"
+            route_prefix: "desk"
     name: E2E v${{ matrix.frappe_version }}-erp${{ matrix.erpnext_version }}
     services:
       redis-cache:

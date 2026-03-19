@@ -19,18 +19,14 @@ class TestVersionDetection(FrappeTestCase):
 	"""Test version detection flags are set correctly."""
 
 	def test_is_v15_flag_consistency(self) -> None:
-		"""IS_V15 should be True only when on v15."""
-		if IS_V15:
-			self.assertTrue(IS_V15)
-		else:
-			self.assertFalse(IS_V15)
+		"""IS_V15 should be True only when on Frappe v15."""
+		frappe_major = int(frappe.__version__.split(".")[0].split("-")[0].split("~")[0])
+		self.assertEqual(IS_V15, frappe_major == 15)
 
 	def test_is_v16_or_greater_flag_consistency(self) -> None:
-		"""IS_V16_OR_GREATER should be True when on v16+."""
-		if IS_V16_OR_GREATER:
-			self.assertTrue(IS_V16_OR_GREATER)
-		else:
-			self.assertFalse(IS_V16_OR_GREATER)
+		"""IS_V16_OR_GREATER should be True when on Frappe v16+."""
+		frappe_major = int(frappe.__version__.split(".")[0].split("-")[0].split("~")[0])
+		self.assertEqual(IS_V16_OR_GREATER, frappe_major >= 16)
 
 
 class TestFrappeInTest(FrappeTestCase):
