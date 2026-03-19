@@ -6,7 +6,7 @@ from typing import Any
 
 import frappe
 
-from production_entry_app.production_entry_app.compat import IS_V16_OR_GREATER
+from production_entry_app.production_entry_app.compat import IS_V15, IS_V16_OR_GREATER
 
 
 def frappe_in_test() -> bool:
@@ -39,28 +39,6 @@ def has_permission_strict(
 		True if permission is explicitly granted, False otherwise
 	"""
 	result = frappe.has_permission(doc, ptype=ptype, user=user)
-	return result is True
-
-
-def get_value_strict(
-	doctype: str,
-	name: str,
-	fieldname: str,
-	*,
-	cached: bool = True,
-) -> int | float | str | None:
-	"""Get a single value with v16-compatible return type handling.
-
-	v16 changed frappe.db.get_value to return stricter types (int/float/bool)
-	rather than strings. This helper ensures consistent behavior.
-
-	Args:
-		doctype: DocType name
-		name: Document name
-		fieldname: Field to retrieve
-		cached: Whether to use cached metadata
-
-	Returns:
-		The field value with v16-compatible typing
-	"""
-	return frappe.db.get_value(doctype, name, fieldname, cached=cached)
+	# v15 may return truthy-but-not-exactly-True values (e.g., 1); normalize
+	# v16 should return exactly True, but bool() is harmless
+	return bool(result) if IS_V15 else result is True

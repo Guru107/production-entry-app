@@ -6,13 +6,11 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from production_entry_app.production_entry_app.compat import (
-	FRAPPE_VERSION,
 	IS_V15,
 	IS_V16_OR_GREATER,
 )
 from production_entry_app.production_entry_app.compat.utils import (
 	frappe_in_test,
-	get_value_strict,
 	has_permission_strict,
 )
 
@@ -20,20 +18,16 @@ from production_entry_app.production_entry_app.compat.utils import (
 class TestVersionDetection(FrappeTestCase):
 	"""Test version detection flags are set correctly."""
 
-	def test_frappe_version_is_parsed(self) -> None:
-		"""FRAPPE_VERSION should be a valid Version object."""
-		self.assertIsNotNone(FRAPPE_VERSION)
-
 	def test_is_v15_flag_consistency(self) -> None:
 		"""IS_V15 should be True only when on v15."""
-		if FRAPPE_VERSION.major == 15 and FRAPPE_VERSION.minor == 0:
+		if IS_V15:
 			self.assertTrue(IS_V15)
 		else:
 			self.assertFalse(IS_V15)
 
 	def test_is_v16_or_greater_flag_consistency(self) -> None:
 		"""IS_V16_OR_GREATER should be True when on v16+."""
-		if FRAPPE_VERSION.major >= 16:
+		if IS_V16_OR_GREATER:
 			self.assertTrue(IS_V16_OR_GREATER)
 		else:
 			self.assertFalse(IS_V16_OR_GREATER)

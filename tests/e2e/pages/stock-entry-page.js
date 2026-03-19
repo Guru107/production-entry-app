@@ -24,7 +24,9 @@ class StockEntryPage {
 		const encodedName = encodeURIComponent(name);
 		await this.page.goto(getRoute(`/stock-entry/${encodedName}`));
 		// v16 may append anchor fragment like #tab_overview
-		await expect(this.page).toHaveURL(new RegExp(`${getRoutePrefix()}/stock-entry/${encodedName}(?:\\#.*)?$`));
+		await expect(this.page).toHaveURL(
+			new RegExp(`${getRoutePrefix()}/stock-entry/${encodedName}(?:\\#.*)?$`)
+		);
 		await this.page.waitForFunction((docname) => window.cur_frm?.doc?.name === docname, name);
 	}
 

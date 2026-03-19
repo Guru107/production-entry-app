@@ -22,8 +22,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        frappe_version: ["15", "16"]
-        erpnext_version: ["15", "16"]
+        include:
+          - frappe_version: "15"
+            erpnext_version: "15"
+          - frappe_version: "16"
+            erpnext_version: "16"
     name: Server v${{ matrix.frappe_version }}-erp${{ matrix.erpnext_version }}
 
     services:

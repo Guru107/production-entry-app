@@ -7,7 +7,12 @@ from frappe.tests.utils import FrappeTestCase
 
 
 class TestPermissionHooksExplicitReturn(FrappeTestCase):
-	"""Verify permission hooks return exactly True (not just truthy values)."""
+	"""Verify permission hooks return exactly True (not just truthy values).
+
+	These tests run as Administrator, so has_permission("read") should always
+	return True. The assertion checks that the return value is exactly True
+	(v16 requirement) rather than just truthy.
+	"""
 
 	def test_shift_has_permission_returns_explicit_true(self) -> None:
 		"""Shift's has_permission hook must return exactly True."""
@@ -17,8 +22,11 @@ class TestPermissionHooksExplicitReturn(FrappeTestCase):
 
 		shift = frappe.get_doc({"doctype": "Shift", "shift_date": "2026-01-01"})
 		result = shift.has_permission("read")
-		if result:
-			self.assertIs(result, True)
+		self.assertIs(
+			result,
+			True,
+			"has_permission must return exactly True, not a truthy value",
+		)
 
 	def test_downtime_reason_has_permission_returns_explicit_true(
 		self,
@@ -28,12 +36,13 @@ class TestPermissionHooksExplicitReturn(FrappeTestCase):
 			DowntimeReason,
 		)
 
-		dt = frappe.get_doc(
-			{"doctype": "DowntimeReason", "downtime_reason_name": "Test"}
-		)
+		dt = frappe.get_doc({"doctype": "DowntimeReason", "downtime_reason_name": "Test"})
 		result = dt.has_permission("read")
-		if result:
-			self.assertIs(result, True)
+		self.assertIs(
+			result,
+			True,
+			"has_permission must return exactly True, not a truthy value",
+		)
 
 	def test_operator_has_permission_returns_explicit_true(self) -> None:
 		"""Operator's has_permission hook must return exactly True."""
@@ -41,12 +50,13 @@ class TestPermissionHooksExplicitReturn(FrappeTestCase):
 			Operator,
 		)
 
-		operator = frappe.get_doc(
-			{"doctype": "Operator", "operator_name": "Test Operator"}
-		)
+		operator = frappe.get_doc({"doctype": "Operator", "operator_name": "Test Operator"})
 		result = operator.has_permission("read")
-		if result:
-			self.assertIs(result, True)
+		self.assertIs(
+			result,
+			True,
+			"has_permission must return exactly True, not a truthy value",
+		)
 
 	def test_die_tool_counter_has_permission_returns_explicit_true(
 		self,
@@ -56,12 +66,13 @@ class TestPermissionHooksExplicitReturn(FrappeTestCase):
 			DieToolCounter,
 		)
 
-		dtc = frappe.get_doc(
-			{"doctype": "Die Tool Counter", "die_tool_item": "Test Item"}
-		)
+		dtc = frappe.get_doc({"doctype": "Die Tool Counter", "die_tool_item": "Test Item"})
 		result = dtc.has_permission("read")
-		if result:
-			self.assertIs(result, True)
+		self.assertIs(
+			result,
+			True,
+			"has_permission must return exactly True, not a truthy value",
+		)
 
 	def test_die_tool_maintenance_log_has_permission_returns_explicit_true(
 		self,
@@ -71,12 +82,13 @@ class TestPermissionHooksExplicitReturn(FrappeTestCase):
 			DieToolMaintenanceLog,
 		)
 
-		log = frappe.get_doc(
-			{"doctype": "Die Tool Maintenance Log", "die_tool_item": "Test Item"}
-		)
+		log = frappe.get_doc({"doctype": "Die Tool Maintenance Log", "die_tool_item": "Test Item"})
 		result = log.has_permission("read")
-		if result:
-			self.assertIs(result, True)
+		self.assertIs(
+			result,
+			True,
+			"has_permission must return exactly True, not a truthy value",
+		)
 
 	def test_rejection_reason_has_permission_returns_explicit_true(
 		self,
@@ -86,9 +98,10 @@ class TestPermissionHooksExplicitReturn(FrappeTestCase):
 			RejectionReason,
 		)
 
-		rr = frappe.get_doc(
-			{"doctype": "Rejection Reason", "rejection_reason_name": "Test"}
-		)
+		rr = frappe.get_doc({"doctype": "Rejection Reason", "rejection_reason_name": "Test"})
 		result = rr.has_permission("read")
-		if result:
-			self.assertIs(result, True)
+		self.assertIs(
+			result,
+			True,
+			"has_permission must return exactly True, not a truthy value",
+		)
