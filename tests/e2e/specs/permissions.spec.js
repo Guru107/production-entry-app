@@ -2,7 +2,7 @@ const { test, expect } = require("@playwright/test");
 const { deleteRoleIfExists, deleteUserIfExists, ensureUser } = require("../fixtures/users");
 const { callFrappeMethod, getDoc, saveForm, setFieldValue } = require("../fixtures/frappe");
 const { ShiftPage } = require("../pages/shift-page");
-const { getRoute } = require("../utils/routing");
+const { getRoute, getRouteRegex } = require("../utils/routing");
 
 const ADMIN_USERNAME = process.env.PLAYWRIGHT_USERNAME || "Administrator";
 const ADMIN_PASSWORD = process.env.PLAYWRIGHT_PASSWORD || "123";
@@ -35,7 +35,7 @@ async function loginAs(page, username, password) {
 	});
 	expect(response.ok()).toBeTruthy();
 	await page.goto(getRoute("/home"));
-	await expect(page).toHaveURL(/\/app\//);
+	await expect(page).toHaveURL(getRouteRegex("/home"));
 }
 
 async function loginAsAdmin(page) {
@@ -269,7 +269,7 @@ test.describe("Permissions", () => {
 		let docName = await page.evaluate(() => window.cur_frm?.doc?.name || "");
 		expect(docName).toBe(reasonName);
 
-		await page.goto(`/app/downtime-reason/${encodeURIComponent(docName)}`);
+		await page.goto(getRoute(`/downtime-reason/${encodeURIComponent(docName)}`));
 		await page.waitForFunction((name) => window.cur_frm?.doc?.name === name, docName);
 
 		const renamedReason = `${reasonName}-UPDATED`;
@@ -284,7 +284,7 @@ test.describe("Permissions", () => {
 		expect(updatedReason.name).toBe(renamedReason);
 		expect(updatedReason.downtime_reason_name).toBe(renamedReason);
 
-		await page.goto(`/app/downtime-reason/${encodeURIComponent(docName)}`);
+		await page.goto(getRoute(`/downtime-reason/${encodeURIComponent(docName)}`));
 		await page.waitForFunction((name) => window.cur_frm?.doc?.name === name, docName);
 
 		await callFrappeMethod(page, "frappe.client.delete", {

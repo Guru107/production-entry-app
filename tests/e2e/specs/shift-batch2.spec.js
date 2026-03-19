@@ -16,7 +16,7 @@ async function openForm(page, doctypeRoute, name) {
 		operator: "Operator",
 	};
 	const encodedName = encodeURIComponent(name);
-	await page.goto(`/app/${doctypeRoute}/${encodedName}`);
+	await page.goto(getRoute(`/${doctypeRoute}/${encodedName}`));
 	await page.waitForFunction(
 		({ expectedName, expectedDoctype }) =>
 			window.cur_frm?.doc?.name === expectedName &&

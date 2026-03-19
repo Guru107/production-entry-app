@@ -94,19 +94,19 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report
+          name: playwright-report-v${{ matrix.frappe_version }}-erp${{ matrix.erpnext_version }}
           path: playwright-report
 
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-test-results
+          name: playwright-test-results-v${{ matrix.frappe_version }}-erp${{ matrix.erpnext_version }}
           path: test-results
 
       - name: Upload bench logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: bench-serve-log
+          name: bench-serve-log-v${{ matrix.frappe_version }}-erp${{ matrix.erpnext_version }}
           path: /tmp/bench-serve.log
