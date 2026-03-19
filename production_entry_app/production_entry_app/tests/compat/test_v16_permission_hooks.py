@@ -36,7 +36,7 @@ class TestPermissionHooksExplicitReturn(FrappeTestCase):
 			DowntimeReason,
 		)
 
-		dt = frappe.get_doc({"doctype": "DowntimeReason", "downtime_reason_name": "Test"})
+		dt = frappe.get_doc({"doctype": "Downtime Reason", "downtime_reason_name": "Test"})
 		result = dt.has_permission("read")
 		self.assertIs(
 			result,

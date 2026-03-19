@@ -24,8 +24,10 @@ jobs:
         include:
           - frappe_version: "15"
             erpnext_version: "15"
+            python_version: "3.10"
           - frappe_version: "16"
             erpnext_version: "16"
+            python_version: "3.11"
     name: Server v${{ matrix.frappe_version }}-erp${{ matrix.erpnext_version }}
 
     services:
@@ -57,7 +59,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
+          python-version: ${{ matrix.python_version }}
 
       - name: Setup Node
         uses: actions/setup-node@v3

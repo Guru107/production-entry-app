@@ -2005,6 +2005,26 @@ class TestStockEntryHooks(FrappeTestCase):
 			rejection_warehouse=self.rejection_warehouse,
 		)
 
+		# Seed RM stock via material receipt so manufacture submission doesn't fail
+		mr = frappe.get_doc(
+			{
+				"doctype": "Stock Entry",
+				"purpose": "Material Receipt",
+				"stock_entry_type": "Material Receipt",
+				"company": self.company,
+				"items": [
+					{
+						"item_code": self.rm_item,
+						"qty": 200,
+						"t_warehouse": self.rm_warehouse,
+						"basic_rate": 50,
+					},
+				],
+			}
+		)
+		mr.insert(ignore_permissions=True)
+		mr.submit()
+
 		se = _create_manufacture_stock_entry(
 			company=self.company,
 			fg_item=self.fg_item,

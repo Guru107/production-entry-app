@@ -53,14 +53,6 @@ class TestHasPermissionStrict(FrappeTestCase):
 		result = has_permission_strict("Shift", ptype="read")
 		self.assertIsInstance(result, bool)
 
-	def test_has_permission_strict_returns_true_for_valid_permission(
-		self,
-	) -> None:
-		"""has_permission_strict() should return True when permission exists."""
-		result = has_permission_strict("Shift", ptype="read")
-		if result:
-			self.assertIs(result, True)
-
 	def test_has_permission_strict_returns_exact_true(self) -> None:
 		"""has_permission_strict() must return the boolean True, not truthy."""
 		result = has_permission_strict("Shift", ptype="read")
