@@ -3,6 +3,7 @@ from __future__ import annotations
 import frappe
 from frappe import _
 from frappe.query_builder import DocType
+from frappe.query_builder.functions import Count, Max
 from frappe.utils import flt
 
 from production_entry_app.production_entry_app.utils.die_tool_counter import get_counter_health
@@ -83,16 +84,20 @@ def _get_rows(filters: dict) -> list[dict]:
 	if filters.get("item_code"):
 		maintenance_filters["die_tool_item"] = filters.get("item_code")
 
-	maintenance_rows = frappe.get_all(
-		"Die Tool Maintenance Log",
-		filters=maintenance_filters,
-		fields=[
-			"die_tool_item",
-			"max(maintenance_date) as last_maintenance_date",
-			"count(name) as maintenance_count",
-		],
-		group_by="die_tool_item",
+	die_tool_maintenance_log = DocType("Die Tool Maintenance Log")
+	maintenance_query = (
+		frappe.qb.from_(die_tool_maintenance_log)
+		.select(
+			die_tool_maintenance_log.die_tool_item,
+			Max(die_tool_maintenance_log.maintenance_date).as_("last_maintenance_date"),
+			Count(die_tool_maintenance_log.name).as_("maintenance_count"),
+		)
+		.where(die_tool_maintenance_log.docstatus == 1)
+		.groupby(die_tool_maintenance_log.die_tool_item)
 	)
+	if filters.get("item_code"):
+		maintenance_query = maintenance_query.where(die_tool_maintenance_log.die_tool_item == filters.get("item_code"))
+	maintenance_rows = maintenance_query.run(as_dict=True)
 	maintenance_map = {row.get("die_tool_item"): row for row in maintenance_rows}
 
 	rows = []
