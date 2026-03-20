@@ -27,6 +27,9 @@ class TestTestSetup(FrappeTestCase):
 				"production_entry_app.production_entry_app.utils.test_setup._ensure_company_defaults"
 			) as ensure_defaults,
 			patch(
+				"production_entry_app.production_entry_app.utils.test_setup._ensure_branch_defaults"
+			) as ensure_branch_defaults,
+			patch(
 				"production_entry_app.production_entry_app.utils.test_setup._ensure_gender_records"
 			) as ensure_genders,
 		):
@@ -36,6 +39,7 @@ class TestTestSetup(FrappeTestCase):
 		install_cleanup.assert_called_once_with()
 		cleanup_benchmarks.assert_called_once_with()
 		ensure_defaults.assert_called_once_with()
+		ensure_branch_defaults.assert_called_once_with()
 		ensure_genders.assert_called_once_with()
 
 	def test_before_tests_runs_erpnext_bootstrap_when_cost_center_missing(self) -> None:
@@ -55,6 +59,7 @@ class TestTestSetup(FrappeTestCase):
 				"production_entry_app.production_entry_app.utils.test_setup.erpnext_before_tests"
 			) as erpnext_before_tests,
 			patch("production_entry_app.production_entry_app.utils.test_setup._ensure_company_defaults"),
+			patch("production_entry_app.production_entry_app.utils.test_setup._ensure_branch_defaults"),
 			patch("production_entry_app.production_entry_app.utils.test_setup._ensure_gender_records"),
 		):
 			test_setup.before_tests()
@@ -75,6 +80,7 @@ class TestTestSetup(FrappeTestCase):
 				"production_entry_app.production_entry_app.utils.test_setup.erpnext_before_tests"
 			) as erpnext_before_tests,
 			patch("production_entry_app.production_entry_app.utils.test_setup._ensure_company_defaults"),
+			patch("production_entry_app.production_entry_app.utils.test_setup._ensure_branch_defaults"),
 			patch("production_entry_app.production_entry_app.utils.test_setup._ensure_gender_records"),
 		):
 			test_setup.before_tests()
