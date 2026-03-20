@@ -2,6 +2,7 @@ const { test, expect } = require("@playwright/test");
 const { bootstrapE2E, cleanupE2E } = require("../fixtures/test-data");
 const { callFrappeMethod } = require("../fixtures/frappe");
 const { registerE2ELifecycle } = require("../fixtures/lifecycle");
+const { getRoute } = require("../utils/routing");
 
 async function setupFreshContext(page, prefix) {
 	await cleanupE2E(page, prefix);
@@ -15,7 +16,7 @@ async function openForm(page, doctypeRoute, name) {
 		operator: "Operator",
 	};
 	const encodedName = encodeURIComponent(name);
-	await page.goto(`/app/${doctypeRoute}/${encodedName}`);
+	await page.goto(getRoute(`/${doctypeRoute}/${encodedName}`));
 	await page.waitForFunction(
 		({ expectedName, expectedDoctype }) =>
 			window.cur_frm?.doc?.name === expectedName &&
@@ -118,7 +119,7 @@ test.describe("Batch 2 shift UX", () => {
 	const lifecycle = registerE2ELifecycle(test);
 
 	test("@regression shift form has batch 2 tabs and metrics field", async ({ page }) => {
-		await page.goto("/app/home");
+		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, `${lifecycle.getPrefix()}-tabs`);
 
 		await openForm(page, "shift", ctx.shift_name);
@@ -150,7 +151,7 @@ test.describe("Batch 2 shift UX", () => {
 	test("@regression shift metrics renders empty state then table after production entry", async ({
 		page,
 	}) => {
-		await page.goto("/app/home");
+		await page.goto(getRoute("/home"));
 		const testPrefix = `${lifecycle.getPrefix()}-metrics`;
 		const ctx = await setupFreshContext(page, testPrefix);
 
@@ -182,7 +183,7 @@ test.describe("Batch 2 shift UX", () => {
 	test("@regression shift aggregate entries renders empty state then table after production entry", async ({
 		page,
 	}) => {
-		await page.goto("/app/home");
+		await page.goto(getRoute("/home"));
 		const testPrefix = `${lifecycle.getPrefix()}-aggregate`;
 		const ctx = await setupFreshContext(page, testPrefix);
 
@@ -224,7 +225,7 @@ test.describe("Batch 2 shift UX", () => {
 	test("@regression workstation and operator render timeline in dedicated html fields", async ({
 		page,
 	}) => {
-		await page.goto("/app/home");
+		await page.goto(getRoute("/home"));
 		const testPrefix = `${lifecycle.getPrefix()}-timeline`;
 		const ctx = await setupFreshContext(page, testPrefix);
 
@@ -269,7 +270,7 @@ test.describe("Batch 2 shift UX", () => {
 	test("@regression timeline shows empty-state when shift is running but no entries exist", async ({
 		page,
 	}) => {
-		await page.goto("/app/home");
+		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, `${lifecycle.getPrefix()}-empty`);
 
 		await openForm(page, "workstation", ctx.workstation);
@@ -294,7 +295,7 @@ test.describe("Batch 2 shift UX", () => {
 	test("@regression timeline hover shows tooltip and click opens stock entry", async ({
 		page,
 	}) => {
-		await page.goto("/app/home");
+		await page.goto(getRoute("/home"));
 		const testPrefix = `${lifecycle.getPrefix()}-hover`;
 		const ctx = await setupFreshContext(page, testPrefix);
 
@@ -346,7 +347,7 @@ test.describe("Batch 2 shift UX", () => {
 	test("@regression timeline renders contiguous full-shift production entries across entire duration", async ({
 		page,
 	}) => {
-		await page.goto("/app/home");
+		await page.goto(getRoute("/home"));
 		const testPrefix = `${lifecycle.getPrefix()}-fullshift`;
 		const ctx = await setupFreshContext(page, testPrefix);
 
@@ -391,7 +392,7 @@ test.describe("Batch 2 shift UX", () => {
 	test("@regression workstation timeline includes downtime entries and opens downtime form on click", async ({
 		page,
 	}) => {
-		await page.goto("/app/home");
+		await page.goto(getRoute("/home"));
 		const testPrefix = `${lifecycle.getPrefix()}-downtime`;
 		const ctx = await setupFreshContext(page, testPrefix);
 

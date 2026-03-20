@@ -456,9 +456,24 @@ class TestGetShiftTimelineData(FrappeTestCase):
 			"shift_end": "2026-10-10 16:00:00",
 			"entries": [{"name": "SE-CACHED-1"}],
 		}
-		with patch(
-			"production_entry_app.production_entry_app.api_timeline._get_cached_timeline_data",
-			return_value=cached,
+		running_shift = [
+			{
+				"name": shift.name,
+				"shift_date": shift.shift_date,
+				"planned_start_time": shift.planned_start_time,
+				"shift_end_date": shift.shift_end_date,
+				"planned_end_time": shift.planned_end_time,
+			}
+		]
+		with (
+			patch(
+				"production_entry_app.production_entry_app.api_timeline.frappe.get_all",
+				return_value=running_shift,
+			),
+			patch(
+				"production_entry_app.production_entry_app.api_timeline._get_cached_timeline_data",
+				return_value=cached,
+			),
 		):
 			with patch("production_entry_app.production_entry_app.api_timeline.frappe.qb.from_") as qb_from:
 				result = get_shift_timeline_data("Workstation", self.workstation_a)

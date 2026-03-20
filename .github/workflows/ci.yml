@@ -7,11 +7,6 @@ on:
       - develop
   pull_request:
 
-env:
-  # Override via GitHub repo variables (Settings → Secrets and variables → Actions → Variables)
-  FRAPPE_VERSION: ${{ vars.FRAPPE_VERSION || '15' }}
-  ERPNEXT_VERSION: ${{ vars.ERPNEXT_VERSION || '15' }}
-
 concurrency:
   group: develop-production_entry_app-${{ github.event.number }}
   cancel-in-progress: true
@@ -19,9 +14,23 @@ concurrency:
 jobs:
   tests:
     runs-on: ubuntu-latest
+    env:
+      # Override via GitHub repo variables (Settings → Secrets and variables → Actions → Variables)
+      FRAPPE_VERSION: ${{ matrix.frappe_version }}
+      ERPNEXT_VERSION: ${{ matrix.erpnext_version }}
     strategy:
       fail-fast: false
-    name: Server
+      matrix:
+        include:
+          - frappe_version: "15"
+            erpnext_version: "15"
+            python_version: "3.10"
+            node_version: "18"
+          - frappe_version: "16"
+            erpnext_version: "16"
+            python_version: "3.14"
+            node_version: "24"
+    name: Server v${{ matrix.frappe_version }}-erp${{ matrix.erpnext_version }}
 
     services:
       redis-cache:
@@ -52,12 +61,12 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
+          python-version: ${{ matrix.python_version }}
 
       - name: Setup Node
         uses: actions/setup-node@v3
         with:
-          node-version: 18
+          node-version: ${{ matrix.node_version }}
           check-latest: true
 
       - name: Cache pip

@@ -1,5 +1,11 @@
 const { expect } = require("@playwright/test");
 const { callFrappeMethod, saveForm, setFieldValue } = require("../fixtures/frappe");
+const {
+	escapeRegexLiteral,
+	getRoute,
+	getRouteRegex,
+	getRoutePrefix,
+} = require("../utils/routing");
 
 class ShiftPage {
 	constructor(page) {
@@ -31,14 +37,17 @@ class ShiftPage {
 
 	async open(name) {
 		const encodedName = encodeURIComponent(name);
-		await this.page.goto(`/app/shift/${encodedName}`);
-		await expect(this.page).toHaveURL(new RegExp(`/app/shift/${encodedName}$`));
+		await this.page.goto(getRoute(`/shift/${encodedName}`));
+		// v16 may append anchor fragment like #tab_overview
+		await expect(this.page).toHaveURL(
+			new RegExp(`${getRoutePrefix()}/shift/${escapeRegexLiteral(encodedName)}(?:\\#.*)?$`)
+		);
 		await this.page.waitForFunction((docname) => window.cur_frm?.doc?.name === docname, name);
 	}
 
 	async openNew() {
-		await this.page.goto("/app/shift/new");
-		await expect(this.page).toHaveURL(/\/app\/shift\/new-shift-/);
+		await this.page.goto(getRoute("/shift/new"));
+		await expect(this.page).toHaveURL(getRouteRegex("/shift/new-shift-"));
 		await this.page.waitForFunction(
 			() => window.cur_frm?.doctype === "Shift" && window.cur_frm?.is_new?.()
 		);
@@ -184,7 +193,7 @@ class ShiftPage {
 			}
 			button.trigger("click");
 		});
-		await expect(this.page).toHaveURL(/\/app\/stock-entry\/new-stock-entry-/);
+		await expect(this.page).toHaveURL(getRouteRegex("/stock-entry/new-stock-entry-"));
 		await this.page.waitForFunction(
 			() => window.cur_frm?.doctype === "Stock Entry" && window.cur_frm?.is_new?.()
 		);

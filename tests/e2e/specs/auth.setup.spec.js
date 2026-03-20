@@ -9,7 +9,7 @@ test("authenticate admin for e2e", async ({ page }) => {
 	await page.getByRole("textbox", { name: "Password" }).fill(password);
 	await page.getByRole("button", { name: "Login" }).click();
 
-	await expect(page).toHaveURL(/\/app\//);
+	await expect(page).toHaveURL(/\/(app|desk)/);
 	await page.waitForFunction(
 		(expectedUser) => window.frappe?.session?.user === expectedUser,
 		username
