@@ -24,10 +24,12 @@ jobs:
             erpnext_version: "15"
             route_prefix: "app"
             python_version: "3.10"
+            node_version: "20"
           - frappe_version: "16"
             erpnext_version: "16"
             route_prefix: "desk"
             python_version: "3.14"
+            node_version: "24"
     name: E2E v${{ matrix.frappe_version }}-erp${{ matrix.erpnext_version }}
     services:
       redis-cache:
@@ -58,7 +60,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ matrix.node_version }}
 
       - name: Install MariaDB client
         run: sudo apt-get update && sudo apt-get install -y mariadb-client

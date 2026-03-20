@@ -25,9 +25,11 @@ jobs:
           - frappe_version: "15"
             erpnext_version: "15"
             python_version: "3.10"
+            node_version: "18"
           - frappe_version: "16"
             erpnext_version: "16"
             python_version: "3.14"
+            node_version: "24"
     name: Server v${{ matrix.frappe_version }}-erp${{ matrix.erpnext_version }}
 
     services:
@@ -64,7 +66,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v3
         with:
-          node-version: 18
+          node-version: ${{ matrix.node_version }}
           check-latest: true
 
       - name: Cache pip
