@@ -1,6 +1,11 @@
 const { expect } = require("@playwright/test");
 const { callFrappeMethod, saveForm, setFieldValue } = require("../fixtures/frappe");
-const { getRoute, getRouteRegex, getRoutePrefix } = require("../utils/routing");
+const {
+	escapeRegexLiteral,
+	getRoute,
+	getRouteRegex,
+	getRoutePrefix,
+} = require("../utils/routing");
 
 class ShiftPage {
 	constructor(page) {
@@ -35,7 +40,7 @@ class ShiftPage {
 		await this.page.goto(getRoute(`/shift/${encodedName}`));
 		// v16 may append anchor fragment like #tab_overview
 		await expect(this.page).toHaveURL(
-			new RegExp(`${getRoutePrefix()}/shift/${encodedName}(?:\\#.*)?$`)
+			new RegExp(`${getRoutePrefix()}/shift/${escapeRegexLiteral(encodedName)}(?:\\#.*)?$`)
 		);
 		await this.page.waitForFunction((docname) => window.cur_frm?.doc?.name === docname, name);
 	}

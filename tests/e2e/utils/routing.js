@@ -46,4 +46,10 @@ function getRouteRegex(pathPattern) {
 	return new RegExp(`\\/${ROUTE_PREFIX}${escapeRegexLiteral(pathPattern)}`);
 }
 
-module.exports = { getRoute, getRoutePrefix, getRouteRegex, ROUTE_PREFIX };
+module.exports = {
+	escapeRegexLiteral,
+	getRoute,
+	getRoutePrefix,
+	getRouteRegex,
+	ROUTE_PREFIX,
+};

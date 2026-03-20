@@ -5,7 +5,12 @@ const {
 	saveForm,
 	setFieldValue,
 } = require("../fixtures/frappe");
-const { getRoute, getRouteRegex, getRoutePrefix } = require("../utils/routing");
+const {
+	escapeRegexLiteral,
+	getRoute,
+	getRouteRegex,
+	getRoutePrefix,
+} = require("../utils/routing");
 
 class StockEntryPage {
 	constructor(page) {
@@ -25,7 +30,9 @@ class StockEntryPage {
 		await this.page.goto(getRoute(`/stock-entry/${encodedName}`));
 		// v16 may append anchor fragment like #tab_overview
 		await expect(this.page).toHaveURL(
-			new RegExp(`${getRoutePrefix()}/stock-entry/${encodedName}(?:\\#.*)?$`)
+			new RegExp(
+				`${getRoutePrefix()}/stock-entry/${escapeRegexLiteral(encodedName)}(?:\\#.*)?$`
+			)
 		);
 		await this.page.waitForFunction((docname) => window.cur_frm?.doc?.name === docname, name);
 	}
