@@ -6,8 +6,10 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from production_entry_app.production_entry_app.compat import (
+	FRAPPE_MAJOR,
 	IS_V15,
 	IS_V16_OR_GREATER,
+	parse_frappe_major,
 )
 from production_entry_app.production_entry_app.compat.utils import (
 	frappe_in_test,
@@ -20,13 +22,15 @@ class TestVersionDetection(FrappeTestCase):
 
 	def test_is_v15_flag_consistency(self) -> None:
 		"""IS_V15 should be True only when on Frappe v15."""
-		frappe_major = int(frappe.__version__.split(".")[0].split("-")[0].split("~")[0])
-		self.assertEqual(IS_V15, frappe_major == 15)
+		self.assertEqual(IS_V15, FRAPPE_MAJOR == 15)
 
 	def test_is_v16_or_greater_flag_consistency(self) -> None:
 		"""IS_V16_OR_GREATER should be True when on Frappe v16+."""
-		frappe_major = int(frappe.__version__.split(".")[0].split("-")[0].split("~")[0])
-		self.assertEqual(IS_V16_OR_GREATER, frappe_major >= 16)
+		self.assertEqual(IS_V16_OR_GREATER, FRAPPE_MAJOR >= 16)
+
+	def test_parse_frappe_major_matches_runtime_version(self) -> None:
+		"""Runtime major version parsing should use the shared helper."""
+		self.assertEqual(FRAPPE_MAJOR, parse_frappe_major(frappe.__version__))
 
 
 class TestFrappeInTest(FrappeTestCase):

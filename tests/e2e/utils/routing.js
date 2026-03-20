@@ -16,6 +16,10 @@
 
 const ROUTE_PREFIX = process.env.PLAYWRIGHT_ROUTE_PREFIX || "app";
 
+function escapeRegexLiteral(value) {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 /**
  * Get the full route path with the correct prefix.
  * @param {string} path - Path starting with /, e.g., "/home" or "/shift/new"
@@ -39,7 +43,7 @@ function getRoutePrefix() {
  * @returns {RegExp} Regex that matches URLs with the current prefix
  */
 function getRouteRegex(pathPattern) {
-	return new RegExp(`\\/${ROUTE_PREFIX}${pathPattern}`);
+	return new RegExp(`\\/${ROUTE_PREFIX}${escapeRegexLiteral(pathPattern)}`);
 }
 
 module.exports = { getRoute, getRoutePrefix, getRouteRegex, ROUTE_PREFIX };

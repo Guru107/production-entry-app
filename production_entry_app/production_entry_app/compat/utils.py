@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import frappe
+from frappe.model.document import Document
 
 from production_entry_app.production_entry_app.compat import IS_V15, IS_V16_OR_GREATER
 
@@ -21,7 +22,7 @@ def frappe_in_test() -> bool:
 
 
 def has_permission_strict(
-	doc: str | dict[str, Any],
+	doc: str | dict[str, Any] | Document,
 	ptype: str = "read",
 	user: str | None = None,
 ) -> bool:
@@ -40,5 +41,6 @@ def has_permission_strict(
 	"""
 	result = frappe.has_permission(doc, ptype=ptype, user=user)
 	# v15 may return truthy-but-not-exactly-True values (e.g., 1); normalize
-	# v16 should return exactly True, but bool() is harmless
+	# v16 permission hooks are expected to return the boolean True exactly.
+	# Keep the strict identity check so non-bool truthy values do not mask hook bugs.
 	return bool(result) if IS_V15 else result is True
