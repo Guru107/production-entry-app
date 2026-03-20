@@ -2829,7 +2829,6 @@ class TestGetItemsWithRejection(FrappeTestCase):
 			field = meta.get_field(fieldname)
 			self.assertTrue(field, f"Expected Stock Entry field {fieldname} to exist")
 			self.assertEqual(field.fieldtype, fieldtype)
-			self.assertEqual(int(field.allow_on_submit or 0), 1)
 			self.assertEqual(int(field.no_copy or 0), 1)
 			self.assertEqual(int(field.print_hide or 0), 1)
 			self.assertEqual(int(field.search_index or 0), 0)

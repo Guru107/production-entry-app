@@ -197,7 +197,6 @@
   "label": "Actual Start Date",
   "insert_after": "custom_operation_details_col_break",
   "module": "Production Entry App",
-  "allow_on_submit": 1,
   "no_copy": 1,
   "print_hide": 1,
   "search_index": 0
@@ -211,7 +210,6 @@
   "label": "Time",
   "insert_after": "custom_actual_start_date_input",
   "module": "Production Entry App",
-  "allow_on_submit": 1,
   "no_copy": 1,
   "print_hide": 1,
   "search_index": 0,
@@ -241,7 +239,6 @@
   "label": "Actual End Date",
   "insert_after": "custom_actual_start_time_input",
   "module": "Production Entry App",
-  "allow_on_submit": 1,
   "no_copy": 1,
   "print_hide": 1,
   "search_index": 0
@@ -255,7 +252,6 @@
   "label": "Time",
   "insert_after": "custom_actual_end_date_input",
   "module": "Production Entry App",
-  "allow_on_submit": 1,
   "no_copy": 1,
   "print_hide": 1,
   "search_index": 0,
