@@ -27,7 +27,7 @@ jobs:
           - frappe_version: "16"
             erpnext_version: "16"
             route_prefix: "desk"
-            python_version: "3.12"
+            python_version: "3.14"
     name: E2E v${{ matrix.frappe_version }}-erp${{ matrix.erpnext_version }}
     services:
       redis-cache:
