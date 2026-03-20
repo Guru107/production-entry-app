@@ -96,7 +96,9 @@ def _get_rows(filters: dict) -> list[dict]:
 		.groupby(die_tool_maintenance_log.die_tool_item)
 	)
 	if filters.get("item_code"):
-		maintenance_query = maintenance_query.where(die_tool_maintenance_log.die_tool_item == filters.get("item_code"))
+		maintenance_query = maintenance_query.where(
+			die_tool_maintenance_log.die_tool_item == filters.get("item_code")
+		)
 	maintenance_rows = maintenance_query.run(as_dict=True)
 	maintenance_map = {row.get("die_tool_item"): row for row in maintenance_rows}
 

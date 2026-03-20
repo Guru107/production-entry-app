@@ -2167,6 +2167,8 @@ class TestShiftAggregateProductionEntries(FrappeTestCase):
 
 def _ensure_user_with_role(email: str, role: str) -> None:
 	"""Create or update user to have the given role."""
+	if not frappe.db.exists("Role", role):
+		frappe.get_doc({"doctype": "Role", "role_name": role}).insert(ignore_permissions=True)
 	if frappe.db.exists("User", email):
 		user = frappe.get_doc("User", email)
 	else:
