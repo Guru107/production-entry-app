@@ -27,7 +27,7 @@ jobs:
             python_version: "3.10"
           - frappe_version: "16"
             erpnext_version: "16"
-            python_version: "3.11"
+            python_version: "3.12"
     name: Server v${{ matrix.frappe_version }}-erp${{ matrix.erpnext_version }}
 
     services:

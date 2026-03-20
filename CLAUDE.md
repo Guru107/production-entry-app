@@ -18,13 +18,18 @@ Guidance for Claude Code and developers working in this repository.
 
 ## Project Overview
 
-A Frappe Framework (v15) application for ERPNext that simplifies production entries through a
-**Shift** document. The Shift is a central hub for supervisors: planned losses, downtime entries,
-warehouse defaults, and linked Stock Entries all flow through it.
+A Frappe/ERPNext application that simplifies production entries through a **Shift** document.
+The Shift is a central hub for supervisors: planned losses, downtime entries, warehouse defaults,
+and linked Stock Entries all flow through it.
 
-This repo is a **standalone Frappe app**. It can be installed into a bench either by
-cloning directly into the bench's `apps/` directory or by cloning elsewhere and linking
-it via `bench get-app /path/to/production-entry-app`.
+This repo is a **standalone Frappe app** and is currently installed into two local bench servers
+as a symlinked app:
+
+- `/Users/gurudattkulkarni/Workspace/bench16` running Frappe v16 and ERPNext v16
+- `/Users/gurudattkulkarni/Workspace/bench15` running Frappe v15 and ERPNext v15
+
+In both benches, `production_entry_app` is linked from this repository into the bench's
+`apps/` directory rather than maintained as a separate clone inside each bench.
 
 App module root: `production_entry_app/production_entry_app/`
 Sibling apps in bench (installed separately): `frappe`, `erpnext`
@@ -52,7 +57,11 @@ Shifts: `SHIFT-YYYY.MM.DD.Shift-{N}` (e.g., `SHIFT-2026.02.03.Shift-1`)
 
 ## Commands
 
-All `bench` commands run from the bench root, not from inside the app directory.
+All `bench` commands run from the relevant bench root, not from inside the app directory.
+Use the bench that matches the Frappe/ERPNext version you are working against:
+
+- `cd /Users/gurudattkulkarni/Workspace/bench16` for v16 work
+- `cd /Users/gurudattkulkarni/Workspace/bench15` for v15 work
 
 ```bash
 # Run all tests
