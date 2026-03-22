@@ -184,14 +184,24 @@ def _ensure_stock_entry_metric_fields() -> None:
 			"fieldname": "custom_operator_efficiency_pct",
 			"fieldtype": "Float",
 			"label": "Operator Efficiency (%)",
+			"read_only": 1,
 			"insert_after": "custom_cycle_time_sec",
+		},
+		{
+			"name": "Stock Entry-custom_metrics_note",
+			"fieldname": "custom_metrics_note",
+			"fieldtype": "Small Text",
+			"label": "Metrics Note",
+			"read_only": 1,
+			"insert_after": "custom_operator_efficiency_pct",
 		},
 		{
 			"name": "Stock Entry-custom_die_tool_utilization_pct",
 			"fieldname": "custom_die_tool_utilization_pct",
 			"fieldtype": "Float",
 			"label": "Die Tool Utilization (%)",
-			"insert_after": "custom_operator_efficiency_pct",
+			"read_only": 1,
+			"insert_after": "custom_metrics_note",
 		},
 		{
 			"name": "Stock Entry-custom_die_tool_maintenance_due",
@@ -1120,6 +1130,45 @@ class TestStockEntryHooks(FrappeTestCase):
 		self.assertEqual(float(se.custom_actual_duration_mins), 30.0)
 		# Planned + unplanned overlap the same interval; subtract once (10 mins), not twice.
 		self.assertEqual(float(se.custom_production_time_mins), 20.0)
+		self.assertFalse(se.get("custom_metrics_note"))
+
+	def test_metrics_note_explains_when_deducted_losses_consume_full_window(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-04-16",
+			wip_warehouse=self.wip_warehouse,
+			rejection_warehouse=self.rejection_warehouse,
+		)
+
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			fg_qty=120,
+			custom_shift=shift.name,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		se.custom_standard_spm = 2
+		se.custom_actual_start_date = "2026-04-16 08:00:00"
+		se.custom_actual_end_date = "2026-04-16 08:20:00"
+		se.append(
+			"custom_unplanned_losses",
+			{
+				"downtime_reason": "Setup Time",
+				"start_time": "08:00:00",
+				"end_time": "08:10:00",
+				"remark": "setup",
+				"shift": shift.name,
+			},
+		)
+		se.save()
+
+		self.assertEqual(float(se.custom_actual_duration_mins), 20.0)
+		self.assertEqual(float(se.custom_production_time_mins), 0.0)
+		self.assertEqual(float(se.custom_actual_spm), 0.0)
+		self.assertEqual(float(se.custom_operator_efficiency_pct), 0.0)
+		self.assertIn("deducted loss time", se.get("custom_metrics_note") or "")
+		self.assertIn("full actual window", se.get("custom_metrics_note") or "")
 
 	def test_metrics_remain_empty_when_actual_times_missing(self) -> None:
 		shift = _create_test_shift(
@@ -2869,6 +2918,14 @@ class TestGetItemsWithRejection(FrappeTestCase):
 		self.assertEqual(start_field.insert_after, "custom_planned_end_date")
 		self.assertEqual(end_field.insert_after, "custom_actual_start_date")
 
+	def test_metrics_note_field_exists_below_operator_efficiency(self) -> None:
+		meta = frappe.get_meta("Stock Entry")
+		field = meta.get_field("custom_metrics_note")
+		self.assertTrue(field)
+		self.assertEqual(field.fieldtype, "Small Text")
+		self.assertEqual(int(field.read_only or 0), 1)
+		self.assertEqual(field.insert_after, "custom_operator_efficiency_pct")
+
 	@classmethod
 	def tearDownClass(cls) -> None:
 		# Clean up any Running shifts used in this class
@@ -3017,7 +3074,7 @@ class TestDieToolCounter(FrappeTestCase):
 			) as cache_fn:
 				on_submit_stock_entry(doc, "on_submit")
 
-		cache_fn.return_value.delete_value.assert_called_once_with(f"pea:shift_metrics:{shift_name}")
+		cache_fn.return_value.delete_value.assert_called_once_with(f"pea:shift_summary:{shift_name}")
 
 	def test_cache_invalidated_on_stock_entry_cancel(self) -> None:
 		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
@@ -3034,7 +3091,7 @@ class TestDieToolCounter(FrappeTestCase):
 			) as cache_fn:
 				on_cancel_stock_entry(doc, "on_cancel")
 
-		cache_fn.return_value.delete_value.assert_called_once_with(f"pea:shift_metrics:{shift_name}")
+		cache_fn.return_value.delete_value.assert_called_once_with(f"pea:shift_summary:{shift_name}")
 
 	def test_die_tool_counter_resets_on_maintenance_log_submit(self) -> None:
 		if frappe.db.exists("Die Tool Counter", self.fg_item):

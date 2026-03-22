@@ -217,17 +217,23 @@ def bootstrap_manufacturing_test_context(prefix: str) -> dict[str, Any]:
 	company = resolve_test_company()
 	abbr = get_company_abbr(company)
 	branch = ensure_branch(resolve_test_branch() or "_Test Branch")
+	wip_warehouse = ensure_warehouse(f"{prefix} WIP - {abbr}", company)
+	rm_warehouse = ensure_warehouse(f"{prefix} RM - {abbr}", company)
+	fg_warehouse = ensure_warehouse(f"{prefix} FG - {abbr}", company)
 	rejection_warehouse = ensure_warehouse(f"{prefix} Rejection - {abbr}", company)
 	if frappe.get_meta("Warehouse", cached=True).has_field("is_rejected_warehouse"):
 		frappe.db.set_value(
 			"Warehouse", rejection_warehouse, "is_rejected_warehouse", 1, update_modified=False
 		)
+	frappe.db.set_single_value("Manufacturing Settings", "shift_raw_material_warehouse", rm_warehouse)
+	frappe.db.set_single_value("Manufacturing Settings", "shift_wip_warehouse", wip_warehouse)
+	frappe.db.set_single_value("Manufacturing Settings", "shift_rejection_warehouse", rejection_warehouse)
 	return {
 		"company": company,
 		"branch": branch,
 		"abbr": abbr,
-		"wip_warehouse": ensure_warehouse(f"{prefix} WIP - {abbr}", company),
-		"rm_warehouse": ensure_warehouse(f"{prefix} RM - {abbr}", company),
-		"fg_warehouse": ensure_warehouse(f"{prefix} FG - {abbr}", company),
+		"wip_warehouse": wip_warehouse,
+		"rm_warehouse": rm_warehouse,
+		"fg_warehouse": fg_warehouse,
 		"rejection_warehouse": rejection_warehouse,
 	}

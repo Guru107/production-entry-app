@@ -207,12 +207,12 @@
   {
    "fieldname": "tab_metrics",
    "fieldtype": "Tab Break",
-   "label": "Metrics"
+   "label": "Summary"
   },
   {
    "fieldname": "shift_metrics",
    "fieldtype": "HTML",
-   "label": "Shift Metrics",
+   "label": "Shift Summary",
    "options": "<p class=\"text-muted\">Loading...</p>",
    "read_only": 1
   },

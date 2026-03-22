@@ -16,6 +16,7 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	ensure_department,
 	ensure_item,
 	ensure_warehouse,
+	ensure_workstation,
 	get_company_abbr,
 	resolve_test_branch,
 	resolve_test_company,
@@ -79,6 +80,7 @@ def _ensure_shift_duration_options() -> None:
 
 class TestShift(FrappeTestCase):
 	def setUp(self) -> None:
+		bootstrap_manufacturing_test_context("SHIFT-CORE")
 		_ensure_shift_duration_options()
 		_ensure_downtime_reasons()
 		_ensure_loss_entry_shift_field()
@@ -1679,18 +1681,25 @@ class TestShiftLayout(FrappeTestCase):
 		)
 
 
-class TestShiftMetrics(FrappeTestCase):
+class TestShiftSummary(FrappeTestCase):
 	@classmethod
 	def setUpClass(cls) -> None:
 		super().setUpClass()
-		cls.ctx = bootstrap_manufacturing_test_context("SHIFT-METRICS")
+		cls.ctx = bootstrap_manufacturing_test_context("SHIFT-SUMMARY")
 
 	def setUp(self) -> None:
+		_ensure_downtime_reasons()
 		cleanup_running_shifts()
 		_cleanup_old_format_shifts_for_dates(
 			"2026-09-01",
 			"2026-09-02",
 			"2026-09-03",
+			"2026-09-04",
+			"2026-09-05",
+			"2026-09-06",
+			"2026-09-07",
+			"2026-09-08",
+			"2026-09-09",
 			"2026-09-10",
 		)
 		_cleanup_test_department_shift_variants_for_dates(
@@ -1698,6 +1707,12 @@ class TestShiftMetrics(FrappeTestCase):
 			"2026-09-01",
 			"2026-09-02",
 			"2026-09-03",
+			"2026-09-04",
+			"2026-09-05",
+			"2026-09-06",
+			"2026-09-07",
+			"2026-09-08",
+			"2026-09-09",
 			"2026-09-10",
 		)
 
@@ -1711,7 +1726,7 @@ class TestShiftMetrics(FrappeTestCase):
 		for old_name in frappe.get_all("Shift", filters={"shift_date": shift_date}, pluck="name"):
 			if frappe.db.exists("Shift", old_name):
 				frappe.delete_doc("Shift", old_name, force=True, ignore_permissions=True)
-		return frappe.get_doc(
+		shift = frappe.get_doc(
 			{
 				"doctype": "Shift",
 				"department": dept,
@@ -1722,16 +1737,22 @@ class TestShiftMetrics(FrappeTestCase):
 				"planned_start_time": "08:00:00",
 			}
 		).insert()
+		frappe.cache().delete_value(f"pea:shift_summary:{shift.name}")
+		return shift
 
 	def _create_submitted_like_entry(
 		self,
 		shift_name: str,
 		*,
-		good_qty: float,
+		total_qty: float,
 		rejection_qty: float,
 		duration_mins: float = 0,
 		production_time_mins: float | None | object = _USE_DURATION,
-		efficiency_pct: float = 0,
+		standard_spm: float = 0,
+		workstation: str | None = None,
+		fg_item: str | None = None,
+		bom_no: str | None = None,
+		unplanned_losses: list[dict] | None = None,
 		docstatus: int = 1,
 	) -> str:
 		production_minutes = duration_mins if production_time_mins is _USE_DURATION else production_time_mins
@@ -1744,176 +1765,277 @@ class TestShiftMetrics(FrappeTestCase):
 				"posting_date": "2026-09-01",
 				"posting_time": "09:00:00",
 				"custom_shift": shift_name,
-				"fg_completed_qty": good_qty,
+				"fg_completed_qty": total_qty,
 				"custom_rejection_qty": rejection_qty,
 				"custom_actual_duration_mins": duration_mins,
 				"custom_production_time_mins": production_minutes,
-				"custom_operator_efficiency_pct": efficiency_pct,
+				"custom_standard_spm": standard_spm,
+				"custom_workstation": workstation,
+				"bom_no": bom_no,
 				"docstatus": docstatus,
 			}
 		)
 		entry.db_insert()
+		if fg_item:
+			frappe.get_doc(
+				{
+					"doctype": "Stock Entry Detail",
+					"parenttype": "Stock Entry",
+					"parent": entry.name,
+					"parentfield": "items",
+					"idx": 1,
+					"item_code": fg_item,
+					"qty": total_qty,
+					"transfer_qty": total_qty,
+					"is_finished_item": 1,
+					"t_warehouse": self.ctx["fg_warehouse"],
+					"basic_rate": 0,
+				}
+			).db_insert()
+		for index, row in enumerate(unplanned_losses or [], start=1):
+			frappe.get_doc(
+				{
+					"doctype": "Loss Entry",
+					"parenttype": "Stock Entry",
+					"parent": entry.name,
+					"parentfield": "custom_unplanned_losses",
+					"idx": index,
+					"downtime_reason": row.get("downtime_reason"),
+					"start_time": row.get("start_time"),
+					"end_time": row.get("end_time"),
+					"shift": row.get("shift") or shift_name,
+				}
+			).db_insert()
 		return entry.name
 
-	def test_returns_zeros_when_no_entries(self) -> None:
-		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_metrics
+	def _ensure_employee(self) -> str:
+		employee = frappe.db.get_value("Employee", {"employee_number": "SHIFT-SUMMARY-EMP"}, "name")
+		if employee:
+			return employee
+		return (
+			frappe.get_doc(
+				{
+					"doctype": "Employee",
+					"first_name": "Shift",
+					"last_name": "Summary",
+					"gender": "Male",
+					"date_of_birth": "1990-01-01",
+					"date_of_joining": "2020-01-01",
+					"company": self.ctx["company"],
+					"status": "Active",
+					"employee_number": "SHIFT-SUMMARY-EMP",
+				}
+			)
+			.insert(ignore_permissions=True)
+			.name
+		)
+
+	def _create_downtime_entry(
+		self,
+		*,
+		workstation: str,
+		from_time: str,
+		to_time: str,
+		shift_name: str,
+		stop_reason: str = "Other",
+	) -> str:
+		ensure_workstation(workstation, standard_spm=2)
+		return (
+			frappe.get_doc(
+				{
+					"doctype": "Downtime Entry",
+					"workstation": workstation,
+					"operator": self._ensure_employee(),
+					"from_time": from_time,
+					"to_time": to_time,
+					"shift": shift_name,
+					"stop_reason": stop_reason,
+				}
+			)
+			.insert(ignore_permissions=True)
+			.name
+		)
+
+	def test_returns_zeroed_summary_when_no_entries(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
 
 		shift = self._create_shift("2026-09-01")
-		metrics = get_shift_metrics(shift.name)
-		self.assertEqual(metrics["entry_count"], 0)
-		self.assertEqual(metrics["total_qty"], 0)
-		self.assertEqual(metrics["total_rejection_qty"], 0)
-		self.assertEqual(metrics["total_ok_qty"], 0)
-		self.assertEqual(metrics["total_duration_mins"], 0)
-		self.assertEqual(metrics["avg_actual_spm"], 0)
-		self.assertEqual(metrics["avg_efficiency_pct"], 0)
+		summary = get_shift_summary(shift.name)
+		self.assertEqual(summary["snapshot"]["entry_count"], 0)
+		self.assertEqual(float(summary["snapshot"]["total_qty"]), 0.0)
+		self.assertEqual(float(summary["snapshot"]["ok_qty"]), 0.0)
+		self.assertEqual(float(summary["snapshot"]["rejection_qty"]), 0.0)
+		self.assertEqual(float(summary["snapshot"]["recorded_production_mins"]), 0.0)
+		self.assertEqual(float(summary["snapshot"]["overall_throughput_spm"]), 0.0)
+		self.assertEqual(float(summary["snapshot"]["overall_ok_spm"]), 0.0)
+		self.assertIsNone(summary["snapshot"]["overall_shift_efficiency_pct"])
+		self.assertEqual(float(summary["logged_downtime"]["total_mins"]), 0.0)
+		self.assertFalse(summary["logged_downtime"]["recorded"])
+		self.assertTrue(summary["completeness"]["show_banner"])
 
-	def test_aggregates_good_qty_across_entries(self) -> None:
-		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_metrics
+	def test_computes_shift_level_snapshot_metrics_from_totals(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
 
 		shift = self._create_shift("2026-09-02")
-		self._create_submitted_like_entry(shift.name, good_qty=100, rejection_qty=0)
-		self._create_submitted_like_entry(shift.name, good_qty=40, rejection_qty=0)
-		metrics = get_shift_metrics(shift.name)
-		self.assertEqual(float(metrics["total_qty"]), 140.0)
-
-	def test_aggregates_rejection_qty(self) -> None:
-		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_metrics
-
-		shift = self._create_shift("2026-09-03")
-		self._create_submitted_like_entry(shift.name, good_qty=100, rejection_qty=3)
-		self._create_submitted_like_entry(shift.name, good_qty=40, rejection_qty=2)
-		metrics = get_shift_metrics(shift.name)
-		self.assertEqual(float(metrics["total_rejection_qty"]), 5.0)
-
-	def test_ok_qty_is_good_minus_rejection(self) -> None:
-		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_metrics
-
-		shift = self._create_shift("2026-09-04")
-		self._create_submitted_like_entry(shift.name, good_qty=80, rejection_qty=5)
-		self._create_submitted_like_entry(shift.name, good_qty=20, rejection_qty=3)
-		metrics = get_shift_metrics(shift.name)
-		self.assertEqual(float(metrics["total_ok_qty"]), 92.0)
-
-	def test_entry_count_matches_submitted_entries(self) -> None:
-		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_metrics
-
-		shift = self._create_shift("2026-09-05")
-		self._create_submitted_like_entry(shift.name, good_qty=10, rejection_qty=0, docstatus=1)
-		self._create_submitted_like_entry(shift.name, good_qty=10, rejection_qty=0, docstatus=1)
-		metrics = get_shift_metrics(shift.name)
-		self.assertEqual(metrics["entry_count"], 2)
-
-	def test_only_submitted_entries_counted(self) -> None:
-		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_metrics
-
-		shift = self._create_shift("2026-09-06")
-		self._create_submitted_like_entry(shift.name, good_qty=10, rejection_qty=1, docstatus=1)
-		self._create_submitted_like_entry(shift.name, good_qty=10, rejection_qty=9, docstatus=0)
-		metrics = get_shift_metrics(shift.name)
-		self.assertEqual(metrics["entry_count"], 1)
-		self.assertEqual(float(metrics["total_rejection_qty"]), 1.0)
-
-	def test_total_duration_mins_summed(self) -> None:
-		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_metrics
-
-		shift = self._create_shift("2026-09-07")
-		self._create_submitted_like_entry(shift.name, good_qty=30, rejection_qty=0, duration_mins=40)
-		self._create_submitted_like_entry(shift.name, good_qty=60, rejection_qty=0, duration_mins=20)
-		metrics = get_shift_metrics(shift.name)
-		self.assertEqual(float(metrics["total_duration_mins"]), 60.0)
-
-	def test_avg_spm_computed_from_aggregate(self) -> None:
-		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_metrics
-
-		shift = self._create_shift("2026-09-08")
-		self._create_submitted_like_entry(shift.name, good_qty=30, rejection_qty=0, duration_mins=30)
-		self._create_submitted_like_entry(shift.name, good_qty=60, rejection_qty=0, duration_mins=30)
-		metrics = get_shift_metrics(shift.name)
-		self.assertEqual(float(metrics["avg_actual_spm"]), 1.5)
-
-	def test_shift_metrics_preserve_raw_decimal_totals_and_spm(self) -> None:
-		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_metrics
-
-		shift = self._create_shift("2026-09-13")
 		self._create_submitted_like_entry(
 			shift.name,
-			good_qty=30.1234,
-			rejection_qty=0.1111,
-			duration_mins=20.1234,
+			total_qty=60,
+			rejection_qty=10,
+			duration_mins=30,
+			production_time_mins=20,
+			standard_spm=2,
+			workstation="WS-A",
 		)
 		self._create_submitted_like_entry(
 			shift.name,
-			good_qty=60.1234,
-			rejection_qty=0.2222,
-			duration_mins=10.1234,
-		)
-
-		metrics = get_shift_metrics(shift.name)
-		expected_total_qty = 30.1234 + 60.1234
-		expected_total_rejection_qty = 0.1111 + 0.2222
-		expected_total_ok_qty = expected_total_qty - expected_total_rejection_qty
-		expected_total_duration_mins = 20.1234 + 10.1234
-		expected_avg_actual_spm = expected_total_ok_qty / expected_total_duration_mins
-		derived_abs_tol = 1e-6
-
-		self.assertAlmostEqual(float(metrics["total_qty"]), expected_total_qty, delta=derived_abs_tol)
-		self.assertAlmostEqual(
-			float(metrics["total_rejection_qty"]), expected_total_rejection_qty, delta=derived_abs_tol
-		)
-		self.assertAlmostEqual(float(metrics["total_ok_qty"]), expected_total_ok_qty, delta=derived_abs_tol)
-		self.assertAlmostEqual(
-			float(metrics["total_duration_mins"]), expected_total_duration_mins, delta=derived_abs_tol
-		)
-		self.assertAlmostEqual(
-			float(metrics["avg_actual_spm"]), expected_avg_actual_spm, delta=derived_abs_tol
-		)
-
-	def test_avg_spm_is_zero_when_duration_is_zero(self) -> None:
-		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_metrics
-
-		shift = self._create_shift("2026-09-21")
-		self._create_submitted_like_entry(shift.name, good_qty=60, rejection_qty=10, duration_mins=0)
-		metrics = get_shift_metrics(shift.name)
-		self.assertEqual(float(metrics["total_ok_qty"]), 50.0)
-		self.assertEqual(float(metrics["total_duration_mins"]), 0.0)
-		self.assertEqual(float(metrics["avg_actual_spm"]), 0.0)
-
-	def test_total_duration_mins_coalesces_legacy_and_new_rows(self) -> None:
-		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_metrics
-
-		shift = self._create_shift("2026-09-09")
-		self._create_submitted_like_entry(
-			shift.name,
-			good_qty=100,
-			rejection_qty=0,
-			duration_mins=40,
-			production_time_mins=0,
-		)
-		self._create_submitted_like_entry(
-			shift.name,
-			good_qty=100,
+			total_qty=40,
 			rejection_qty=0,
 			duration_mins=20,
-			production_time_mins=10,
+			production_time_mins=20,
+			standard_spm=2,
+			workstation="WS-B",
 		)
-		metrics = get_shift_metrics(shift.name)
-		self.assertEqual(float(metrics["total_duration_mins"]), 50.0)
-		self.assertEqual(float(metrics["avg_actual_spm"]), 4.0)
+		summary = get_shift_summary(shift.name)
+		self.assertEqual(summary["snapshot"]["entry_count"], 2)
+		self.assertAlmostEqual(float(summary["snapshot"]["total_qty"]), 100.0, places=6)
+		self.assertAlmostEqual(float(summary["snapshot"]["rejection_qty"]), 10.0, places=6)
+		self.assertAlmostEqual(float(summary["snapshot"]["ok_qty"]), 90.0, places=6)
+		self.assertAlmostEqual(float(summary["snapshot"]["rejection_pct"]), 10.0, places=6)
+		self.assertAlmostEqual(float(summary["snapshot"]["recorded_production_mins"]), 40.0, places=6)
+		self.assertAlmostEqual(float(summary["snapshot"]["overall_throughput_spm"]), 2.5, places=6)
+		self.assertAlmostEqual(float(summary["snapshot"]["overall_ok_spm"]), 2.25, places=6)
+		self.assertAlmostEqual(float(summary["snapshot"]["target_coverage_pct"]), 100.0, places=6)
+		self.assertAlmostEqual(float(summary["snapshot"]["overall_shift_efficiency_pct"]), 125.0, places=6)
+		self.assertFalse(summary["completeness"]["show_banner"])
 
-	def test_empty_shift_name_returns_empty(self) -> None:
-		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_metrics
+	def test_hides_efficiency_when_target_coverage_below_threshold(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
 
-		metrics = get_shift_metrics("")
-		self.assertEqual(metrics["entry_count"], 0)
-		self.assertEqual(metrics["total_qty"], 0)
+		shift = self._create_shift("2026-09-03")
+		self._create_submitted_like_entry(
+			shift.name,
+			total_qty=100,
+			rejection_qty=0,
+			duration_mins=30,
+			production_time_mins=30,
+			standard_spm=2,
+		)
+		self._create_submitted_like_entry(
+			shift.name,
+			total_qty=100,
+			rejection_qty=0,
+			duration_mins=30,
+			production_time_mins=30,
+			standard_spm=0,
+		)
+		summary = get_shift_summary(shift.name)
+		self.assertAlmostEqual(float(summary["snapshot"]["target_coverage_pct"]), 50.0, places=6)
+		self.assertIsNone(summary["snapshot"]["overall_shift_efficiency_pct"])
+
+	def test_explicit_zero_production_minutes_do_not_fallback_to_duration(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
+
+		shift = self._create_shift("2026-09-03")
+		self._create_submitted_like_entry(
+			shift.name,
+			total_qty=120,
+			rejection_qty=0,
+			duration_mins=20,
+			production_time_mins=0,
+			standard_spm=3,
+			workstation="WS-ZERO",
+		)
+		summary = get_shift_summary(shift.name)
+		self.assertAlmostEqual(float(summary["snapshot"]["recorded_production_mins"]), 0.0, places=6)
+		self.assertAlmostEqual(float(summary["snapshot"]["overall_throughput_spm"]), 0.0, places=6)
+		self.assertAlmostEqual(float(summary["snapshot"]["overall_ok_spm"]), 0.0, places=6)
+		self.assertAlmostEqual(float(summary["snapshot"]["target_coverage_pct"]), 0.0, places=6)
+
+	def test_item_bom_exceptions_group_by_item_and_bom(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
+
+		shift = self._create_shift("2026-09-03")
+		item_a = ensure_item("_SHIFT_SUMMARY_ITEM_A")
+		item_b = ensure_item("_SHIFT_SUMMARY_ITEM_B")
+		self._create_submitted_like_entry(
+			shift.name,
+			total_qty=30,
+			rejection_qty=10,
+			duration_mins=30,
+			fg_item=item_a,
+			bom_no=None,
+		)
+		self._create_submitted_like_entry(
+			shift.name,
+			total_qty=30,
+			rejection_qty=1,
+			duration_mins=30,
+			fg_item=item_b,
+			bom_no=None,
+		)
+		summary = get_shift_summary(shift.name)
+		item_boms = summary["exceptions"]["item_boms"]
+		self.assertGreaterEqual(len(item_boms), 2)
+		self.assertEqual(item_boms[0]["item_code"], item_a)
+		self.assertEqual(item_boms[1]["item_code"], item_b)
+		self.assertNotEqual(item_boms[0]["label"], item_boms[1]["label"])
+
+	def test_separates_unplanned_losses_from_logged_downtime_incidents(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
+
+		shift = self._create_shift("2026-09-04")
+		self._create_submitted_like_entry(
+			shift.name,
+			total_qty=50,
+			rejection_qty=5,
+			duration_mins=60,
+			production_time_mins=30,
+			workstation="WS-LINE-1",
+			unplanned_losses=[
+				{
+					"downtime_reason": "Tea Break",
+					"start_time": "09:00:00",
+					"end_time": "09:10:00",
+					"shift": shift.name,
+				},
+				{
+					"downtime_reason": "Lunch Break",
+					"start_time": "09:10:00",
+					"end_time": "09:30:00",
+					"shift": shift.name,
+				},
+			],
+		)
+		self._create_downtime_entry(
+			workstation="WS-LINE-1",
+			from_time="2026-09-04 10:00:00",
+			to_time="2026-09-04 10:30:00",
+			shift_name=shift.name,
+			stop_reason="Other",
+		)
+		summary = get_shift_summary(shift.name)
+		self.assertAlmostEqual(float(summary["losses"]["unplanned_loss_mins"]), 30.0, places=6)
+		self.assertEqual(summary["logged_downtime"]["entry_count"], 1)
+		self.assertAlmostEqual(float(summary["logged_downtime"]["total_mins"]), 30.0, places=6)
+		self.assertTrue(summary["logged_downtime"]["recorded"])
+		self.assertEqual(summary["logged_downtime"]["top_reasons"][0]["reason"], "Other")
+		self.assertEqual(summary["exceptions"]["unplanned_loss_reasons"][0]["reason"], "Lunch Break")
+
+	def test_running_shift_shows_provisional_completeness_banner(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
+
+		shift = self._create_shift("2026-09-05")
+		frappe.db.set_value("Shift", shift.name, "status", "Running", update_modified=False)
+		summary = get_shift_summary(shift.name)
+		self.assertTrue(summary["completeness"]["show_banner"])
+		self.assertIn("Running", " ".join(summary["completeness"]["messages"]))
 
 	def test_requires_shift_read_permission(self) -> None:
-		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_metrics
+		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
 
 		shift = self._create_shift("2026-09-10")
-		_ensure_user_with_role("test_shift_metrics_blogger@example.com", "Blogger")
-		user = frappe.get_doc("User", "test_shift_metrics_blogger@example.com")
+		_ensure_user_with_role("test_shift_summary_blogger@example.com", "Blogger")
+		user = frappe.get_doc("User", "test_shift_summary_blogger@example.com")
 		for role in ("Manufacturing User", "Manufacturing Manager"):
 			if role in frappe.get_roles(user.name):
 				user.remove_roles(role)
@@ -1922,47 +2044,46 @@ class TestShiftMetrics(FrappeTestCase):
 		frappe.set_user(user.name)
 
 		with self.assertRaises(frappe.PermissionError):
-			get_shift_metrics(shift.name)
+			get_shift_summary(shift.name)
 
-	def test_returns_cached_metrics_without_querying_database(self) -> None:
-		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_metrics
+	def test_returns_cached_summary_without_querying_database(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
 
-		shift = self._create_shift("2026-09-11")
+		shift = self._create_shift("2026-09-06")
 		cached = {
-			"entry_count": 7,
-			"total_qty": 70,
-			"total_rejection_qty": 2,
-			"total_ok_qty": 68,
-			"total_duration_mins": 40,
-			"avg_actual_spm": 1.7,
-			"avg_efficiency_pct": 88,
+			"snapshot": {"entry_count": 7, "total_qty": 70},
+			"losses": {"unplanned_loss_mins": 12},
+			"exceptions": {"workstations": []},
+			"logged_downtime": {"recorded": False, "entry_count": 0, "total_mins": 0, "top_reasons": []},
+			"positive_signal": None,
+			"completeness": {"show_banner": False, "messages": []},
 		}
 		with patch(
-			"production_entry_app.production_entry_app.doctype.shift.shift._get_cached_shift_metrics",
+			"production_entry_app.production_entry_app.doctype.shift.shift._get_cached_shift_summary",
 			return_value=cached,
 		):
-			metrics = get_shift_metrics(shift.name)
-		self.assertEqual(metrics, cached)
+			summary = get_shift_summary(shift.name)
+		self.assertEqual(summary, cached)
 
-	def test_metrics_fresh_after_submit_without_waiting_ttl(self) -> None:
-		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_metrics
+	def test_summary_fresh_after_submit_without_waiting_ttl(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
 		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
 			on_submit_stock_entry,
 		)
 
-		shift = self._create_shift("2026-09-12")
-		self._create_submitted_like_entry(shift.name, good_qty=50, rejection_qty=0)
-		first = get_shift_metrics(shift.name)
-		self.assertEqual(float(first["total_qty"]), 50.0)
+		shift = self._create_shift("2026-09-07")
+		self._create_submitted_like_entry(shift.name, total_qty=50, rejection_qty=0)
+		first = get_shift_summary(shift.name)
+		self.assertEqual(float(first["snapshot"]["total_qty"]), 50.0)
 
-		new_entry_name = self._create_submitted_like_entry(shift.name, good_qty=30, rejection_qty=0)
+		new_entry_name = self._create_submitted_like_entry(shift.name, total_qty=30, rejection_qty=0)
 		with patch(
 			"production_entry_app.production_entry_app.overrides.stock_entry_hooks.update_counter_for_stock_entry"
 		):
 			on_submit_stock_entry(frappe.get_doc("Stock Entry", new_entry_name), "on_submit")
 
-		second = get_shift_metrics(shift.name)
-		self.assertEqual(float(second["total_qty"]), 80.0)
+		second = get_shift_summary(shift.name)
+		self.assertEqual(float(second["snapshot"]["total_qty"]), 80.0)
 
 
 class TestShiftAggregateProductionEntries(FrappeTestCase):
@@ -2185,6 +2306,7 @@ class TestShiftPermissions(FrappeTestCase):
 	"""Verify role-based access control for Shift and Downtime Reason."""
 
 	def setUp(self) -> None:
+		bootstrap_manufacturing_test_context("SHIFT-PERM")
 		self._test_department = _ensure_test_department()
 		self._test_branch = ensure_branch(resolve_test_branch() or "_Test Branch")
 		frappe.defaults.set_user_default("branch", self._test_branch)

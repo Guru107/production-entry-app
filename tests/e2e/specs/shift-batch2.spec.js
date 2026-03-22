@@ -148,7 +148,7 @@ test.describe("Batch 2 shift UX", () => {
 		expect(meta.fieldNames).toContain("aggregate_production_entries");
 	});
 
-	test("@regression shift metrics renders empty state then table after production entry", async ({
+	test("@regression shift summary renders empty state then summary after production entry", async ({
 		page,
 	}) => {
 		await page.goto(getRoute("/home"));
@@ -160,8 +160,8 @@ test.describe("Batch 2 shift UX", () => {
 			const field = window.cur_frm?.fields_dict?.shift_metrics;
 			const text = (field?.$wrapper?.text?.() || "").replace(/\s+/g, " ").trim();
 			return (
-				text.includes("No production entries linked to this shift yet.") ||
-				(text.includes("Entries") && text.includes("Total Qty"))
+				text.includes("No production entries are recorded for this shift yet.") ||
+				(text.includes("Outcome Snapshot") && text.includes("Overall Throughput SPM"))
 			);
 		});
 
@@ -176,7 +176,14 @@ test.describe("Batch 2 shift UX", () => {
 		await page.waitForFunction(() => {
 			const field = window.cur_frm?.fields_dict?.shift_metrics;
 			const text = (field?.$wrapper?.text?.() || "").replace(/\s+/g, " ").trim();
-			return text.includes("Entries") && text.includes("Total Qty");
+			return (
+				text.includes("Outcome Snapshot") &&
+				text.includes("Overall Throughput SPM") &&
+				text.includes("Logged Downtime Incidents") &&
+				text.includes("Top Item/BOM Exceptions") &&
+				!text.includes("Avg Actual SPM") &&
+				!text.includes("Avg Efficiency (%)")
+			);
 		});
 	});
 
