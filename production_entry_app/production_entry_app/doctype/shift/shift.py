@@ -7,7 +7,7 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.query_builder import DocType
 from frappe.query_builder.functions import CustomFunction, Sum
-from frappe.utils import add_to_date, flt, get_datetime
+from frappe.utils import add_to_date, cint, flt, get_datetime
 
 from production_entry_app.production_entry_app.utils.loss_time import (
 	build_interval_overlap_criterion,
@@ -242,6 +242,7 @@ def check_running_shift_conflict(shift_name: str) -> dict:
 
 def _empty_shift_summary() -> dict:
 	return {
+		"float_precision": cint(frappe.db.get_single_value("System Settings", "float_precision")) or 3,
 		"snapshot": {
 			"entry_count": 0,
 			"total_qty": 0,
@@ -294,6 +295,27 @@ def _set_cached_shift_summary(shift_name: str, summary: dict) -> None:
 	frappe.cache().set_value(
 		_get_shift_summary_cache_key(shift_name), summary, expires_in_sec=METRICS_CACHE_TTL_SEC
 	)
+
+
+def invalidate_shift_summary_cache(shift_name: str | None) -> None:
+	if not shift_name:
+		return
+	frappe.cache().delete_value(_get_shift_summary_cache_key(shift_name))
+
+
+def invalidate_shift_summary_for_shift(doc, method: str | None = None) -> None:
+	invalidate_shift_summary_cache(getattr(doc, "name", None))
+
+
+def invalidate_shift_summary_for_downtime_entry(doc, method: str | None = None) -> None:
+	shift_names = {getattr(doc, "shift", None)}
+	get_before_save = getattr(doc, "get_doc_before_save", None)
+	if callable(get_before_save):
+		before_doc = get_before_save()
+		if before_doc:
+			shift_names.add(getattr(before_doc, "shift", None))
+	for shift_name in shift_names:
+		invalidate_shift_summary_cache(shift_name)
 
 
 def _get_shift_window(shift_name: str) -> tuple[dict, datetime.datetime, datetime.datetime] | None:
@@ -558,7 +580,10 @@ def get_shift_summary(shift_name: str) -> dict:
 	)
 	logged_downtime_rows = frappe.get_all(
 		"Downtime Entry",
-		filters=build_interval_overlap_filters("from_time", "to_time", start_dt, end_dt),
+		filters=[
+			["shift", "=", shift_name],
+			*build_interval_overlap_filters("from_time", "to_time", start_dt, end_dt),
+		],
 		fields=["name", "downtime", "from_time", "to_time", "stop_reason"],
 		order_by="from_time asc",
 	)
@@ -630,6 +655,7 @@ def get_shift_summary(shift_name: str) -> dict:
 
 	workstation_rows, best_workstation = _build_workstation_summary_rows(entry_rows)
 	summary = {
+		"float_precision": cint(frappe.db.get_single_value("System Settings", "float_precision")) or 3,
 		"snapshot": {
 			"entry_count": entry_count,
 			"total_qty": flt(total_qty),

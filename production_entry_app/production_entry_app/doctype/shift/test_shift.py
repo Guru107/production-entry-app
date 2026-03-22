@@ -2021,6 +2021,31 @@ class TestShiftSummary(FrappeTestCase):
 		self.assertEqual(summary["logged_downtime"]["top_reasons"][0]["reason"], "Other")
 		self.assertEqual(summary["exceptions"]["unplanned_loss_reasons"][0]["reason"], "Lunch Break")
 
+	def test_logged_downtime_ignores_overlapping_rows_from_other_shifts(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
+
+		shift = self._create_shift("2026-09-04")
+		other_shift = self._create_shift("2026-09-05")
+		self._create_downtime_entry(
+			workstation="WS-LINE-1",
+			from_time="2026-09-04 10:00:00",
+			to_time="2026-09-04 10:15:00",
+			shift_name=shift.name,
+			stop_reason="Other",
+		)
+		self._create_downtime_entry(
+			workstation="WS-LINE-2",
+			from_time="2026-09-04 10:05:00",
+			to_time="2026-09-04 10:25:00",
+			shift_name=other_shift.name,
+			stop_reason="Machine malfunction",
+		)
+
+		summary = get_shift_summary(shift.name)
+		self.assertEqual(summary["logged_downtime"]["entry_count"], 1)
+		self.assertAlmostEqual(float(summary["logged_downtime"]["total_mins"]), 15.0, places=6)
+		self.assertEqual(summary["logged_downtime"]["top_reasons"][0]["reason"], "Other")
+
 	def test_running_shift_shows_provisional_completeness_banner(self) -> None:
 		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
 
@@ -2084,6 +2109,43 @@ class TestShiftSummary(FrappeTestCase):
 
 		second = get_shift_summary(shift.name)
 		self.assertEqual(float(second["snapshot"]["total_qty"]), 80.0)
+
+	def test_summary_fresh_after_shift_status_change_without_waiting_ttl(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import (
+			get_shift_summary,
+			invalidate_shift_summary_for_shift,
+		)
+
+		shift = self._create_shift("2026-09-08")
+		self._create_submitted_like_entry(shift.name, total_qty=50, rejection_qty=0)
+		first = get_shift_summary(shift.name)
+		self.assertFalse(first["completeness"]["show_banner"])
+
+		frappe.db.set_value("Shift", shift.name, "status", "Running", update_modified=False)
+		invalidate_shift_summary_for_shift(frappe.get_doc("Shift", shift.name), "on_update")
+
+		second = get_shift_summary(shift.name)
+		self.assertTrue(second["completeness"]["show_banner"])
+		self.assertIn("Running", " ".join(second["completeness"]["messages"]))
+
+	def test_summary_fresh_after_downtime_insert_without_waiting_ttl(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
+
+		shift = self._create_shift("2026-09-09")
+		first = get_shift_summary(shift.name)
+		self.assertEqual(first["logged_downtime"]["entry_count"], 0)
+
+		self._create_downtime_entry(
+			workstation="WS-LINE-3",
+			from_time="2026-09-09 10:00:00",
+			to_time="2026-09-09 10:20:00",
+			shift_name=shift.name,
+			stop_reason="Other",
+		)
+
+		second = get_shift_summary(shift.name)
+		self.assertEqual(second["logged_downtime"]["entry_count"], 1)
+		self.assertAlmostEqual(float(second["logged_downtime"]["total_mins"]), 20.0, places=4)
 
 
 class TestShiftAggregateProductionEntries(FrappeTestCase):
