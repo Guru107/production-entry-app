@@ -325,6 +325,7 @@ function _render_shift_summary(frm) {
 		args: { shift_name: frm.doc.name },
 		callback(r) {
 			const summary = r.message || {};
+			const floatPrecision = _resolve_summary_float_precision(summary);
 			const snapshot = summary.snapshot || {};
 			const losses = summary.losses || {};
 			const exceptions = summary.exceptions || {};
@@ -350,110 +351,199 @@ function _render_shift_summary(frm) {
 				);
 			} else {
 				const snapshotRows = [
-					[__("Entries"), snapshot.entry_count],
-					[__("Total Qty"), snapshot.total_qty],
-					[__("OK Qty"), snapshot.ok_qty],
-					[__("Rejection Qty"), snapshot.rejection_qty],
-					[__("Rejection (%)"), snapshot.rejection_pct],
-					[__("Recorded Production Mins"), snapshot.recorded_production_mins],
-					[__("Overall Throughput SPM"), snapshot.overall_throughput_spm],
-					[__("Overall OK SPM"), snapshot.overall_ok_spm],
-					[__("Target Coverage (%)"), snapshot.target_coverage_pct],
-					[
-						__("Overall Shift Efficiency (%)"),
-						snapshot.overall_shift_efficiency_pct == null
-							? __("Insufficient target coverage")
-							: snapshot.overall_shift_efficiency_pct,
-					],
+					{ label: __("Entries"), value: snapshot.entry_count, fieldtype: "Int" },
+					{ label: __("Total Qty"), value: snapshot.total_qty, fieldtype: "Float" },
+					{ label: __("OK Qty"), value: snapshot.ok_qty, fieldtype: "Float" },
+					{
+						label: __("Rejection Qty"),
+						value: snapshot.rejection_qty,
+						fieldtype: "Float",
+					},
+					{
+						label: __("Rejection (%)"),
+						value: snapshot.rejection_pct,
+						fieldtype: "Float",
+					},
+					{
+						label: __("Recorded Production Mins"),
+						value: snapshot.recorded_production_mins,
+						fieldtype: "Float",
+					},
+					{
+						label: __("Overall Throughput SPM"),
+						value: snapshot.overall_throughput_spm,
+						fieldtype: "Float",
+					},
+					{
+						label: __("Overall OK SPM"),
+						value: snapshot.overall_ok_spm,
+						fieldtype: "Float",
+					},
+					{
+						label: __("Target Coverage (%)"),
+						value: snapshot.target_coverage_pct,
+						fieldtype: "Float",
+					},
+					{
+						label: __("Overall Shift Efficiency (%)"),
+						value:
+							snapshot.overall_shift_efficiency_pct == null
+								? __("Insufficient target coverage")
+								: snapshot.overall_shift_efficiency_pct,
+						fieldtype: snapshot.overall_shift_efficiency_pct == null ? null : "Float",
+					},
 				];
-				sections.push(_render_summary_table(__("Outcome Snapshot"), snapshotRows));
 				sections.push(
-					_render_summary_table(__("Loss And Variance"), [
-						[__("Planned Shift Mins"), losses.planned_shift_mins],
-						[__("Planned Loss Mins"), losses.planned_loss_mins],
-						[__("Planned Usable Mins"), losses.planned_usable_mins],
-						[__("Production Loss Mins"), losses.unplanned_loss_mins],
-					])
+					_render_summary_table(
+						__("Outcome Snapshot"),
+						snapshotRows,
+						null,
+						floatPrecision
+					)
+				);
+				sections.push(
+					_render_summary_table(
+						__("Loss And Variance"),
+						[
+							{
+								label: __("Planned Shift Mins"),
+								value: losses.planned_shift_mins,
+								fieldtype: "Float",
+							},
+							{
+								label: __("Planned Loss Mins"),
+								value: losses.planned_loss_mins,
+								fieldtype: "Float",
+							},
+							{
+								label: __("Planned Usable Mins"),
+								value: losses.planned_usable_mins,
+								fieldtype: "Float",
+							},
+							{
+								label: __("Production Loss Mins"),
+								value: losses.unplanned_loss_mins,
+								fieldtype: "Float",
+							},
+						],
+						null,
+						floatPrecision
+					)
 				);
 			}
 
 			sections.push(
-				_render_summary_table(__("Logged Downtime Incidents"), [
-					[__("Recorded"), loggedDowntime.recorded ? __("Yes") : __("No")],
-					[__("Incident Count"), loggedDowntime.entry_count || 0],
-					[__("Total Logged Mins"), loggedDowntime.total_mins || 0],
-				])
+				_render_summary_table(
+					__("Logged Downtime Incidents"),
+					[
+						{
+							label: __("Recorded"),
+							value: loggedDowntime.recorded ? __("Yes") : __("No"),
+						},
+						{
+							label: __("Incident Count"),
+							value: loggedDowntime.entry_count || 0,
+							fieldtype: "Int",
+						},
+						{
+							label: __("Total Logged Mins"),
+							value: loggedDowntime.total_mins || 0,
+							fieldtype: "Float",
+						},
+					],
+					null,
+					floatPrecision
+				)
 			);
 
-			const topReasonRows = (loggedDowntime.top_reasons || []).map((row) => [
-				row.reason || "",
-				row.mins || 0,
-			]);
+			const topReasonRows = (loggedDowntime.top_reasons || []).map((row) => ({
+				label: row.reason || "",
+				value: row.mins || 0,
+				fieldtype: "Float",
+			}));
 			if (topReasonRows.length) {
 				sections.push(
 					_render_summary_table(
 						__("Top Logged Downtime Reasons"),
 						topReasonRows,
-						__("Reason")
+						__("Reason"),
+						floatPrecision
 					)
 				);
 			}
 
-			const unplannedLossRows = (exceptions.unplanned_loss_reasons || []).map((row) => [
-				row.reason || "",
-				row.mins || 0,
-			]);
+			const unplannedLossRows = (exceptions.unplanned_loss_reasons || []).map((row) => ({
+				label: row.reason || "",
+				value: row.mins || 0,
+				fieldtype: "Float",
+			}));
 			if (unplannedLossRows.length) {
 				sections.push(
 					_render_summary_table(
 						__("Top Production Loss Reasons"),
 						unplannedLossRows,
-						__("Reason")
+						__("Reason"),
+						floatPrecision
 					)
 				);
 			}
 
-			const workstationRows = (exceptions.workstations || []).map((row) => [
-				row.workstation || "",
-				row.efficiency_pct == null ? row.throughput_spm || 0 : row.efficiency_pct,
-			]);
+			const workstationRows = (exceptions.workstations || []).map((row) => ({
+				label: row.workstation || "",
+				value: row.efficiency_pct == null ? row.throughput_spm || 0 : row.efficiency_pct,
+				fieldtype: "Float",
+			}));
 			if (workstationRows.length) {
 				sections.push(
 					_render_summary_table(
 						__("Top Workstation Exceptions"),
 						workstationRows,
-						__("Workstation")
+						__("Workstation"),
+						floatPrecision
 					)
 				);
 			}
 
-			const itemBomRows = (exceptions.item_boms || []).map((row) => [
-				row.label || row.bom_no || row.item_code || "",
-				row.rejection_qty || 0,
-			]);
+			const itemBomRows = (exceptions.item_boms || []).map((row) => ({
+				label: row.label || row.bom_no || row.item_code || "",
+				value: row.rejection_qty || 0,
+				fieldtype: "Float",
+			}));
 			if (itemBomRows.length) {
 				sections.push(
 					_render_summary_table(
 						__("Top Item/BOM Exceptions"),
 						itemBomRows,
-						__("Item / BOM")
+						__("Item / BOM"),
+						floatPrecision
 					)
 				);
 			}
 
 			if (positiveSignal) {
 				sections.push(
-					_render_summary_table(__("Positive Signal"), [
-						[__("Best Workstation"), positiveSignal.workstation || ""],
+					_render_summary_table(
+						__("Positive Signal"),
 						[
-							positiveSignal.efficiency_pct == null
-								? __("Throughput SPM")
-								: __("Efficiency (%)"),
-							positiveSignal.efficiency_pct == null
-								? positiveSignal.throughput_spm || 0
-								: positiveSignal.efficiency_pct,
+							{
+								label: __("Best Workstation"),
+								value: positiveSignal.workstation || "",
+							},
+							{
+								label:
+									positiveSignal.efficiency_pct == null
+										? __("Throughput SPM")
+										: __("Efficiency (%)"),
+								value:
+									positiveSignal.efficiency_pct == null
+										? positiveSignal.throughput_spm || 0
+										: positiveSignal.efficiency_pct,
+								fieldtype: "Float",
+							},
 						],
-					])
+						null,
+						floatPrecision
+					)
 				);
 			}
 
@@ -469,15 +559,17 @@ function _render_shift_summary(frm) {
 	});
 }
 
-function _render_summary_table(title, rows, firstColumnLabel) {
+function _render_summary_table(title, rows, firstColumnLabel, floatPrecision) {
 	const safeTitle = frappe.utils.escape_html(String(title || ""));
 	const firstHeader = frappe.utils.escape_html(String(firstColumnLabel || __("Metric")));
 	const body = (rows || [])
 		.map(
-			([label, value]) =>
+			(row) =>
 				`<tr><td>${frappe.utils.escape_html(
-					String(label ?? "")
-				)}</td><td>${frappe.utils.escape_html(String(value ?? ""))}</td></tr>`
+					String(row?.label ?? "")
+				)}</td><td>${frappe.utils.escape_html(
+					_format_summary_value(row, floatPrecision)
+				)}</td></tr>`
 		)
 		.join("");
 	return `
@@ -489,6 +581,41 @@ function _render_summary_table(title, rows, firstColumnLabel) {
 			</table>
 		</div>
 	`;
+}
+
+function _format_summary_value(row, floatPrecision) {
+	if (!row) {
+		return "";
+	}
+	const value = row.value;
+	if (value == null) {
+		return "";
+	}
+	if (!row.fieldtype || typeof value !== "number" || !Number.isFinite(value)) {
+		return String(value);
+	}
+	if (typeof frappe !== "undefined" && typeof frappe.format === "function") {
+		const df = { fieldtype: row.fieldtype };
+		if (row.fieldtype === "Float") {
+			df.precision = _get_summary_float_precision(floatPrecision);
+		}
+		return frappe.format(value, df, { only_value: true, always_show_decimals: true });
+	}
+	return String(value);
+}
+
+function _resolve_summary_float_precision(summary) {
+	return _get_summary_float_precision(summary?.float_precision);
+}
+
+function _get_summary_float_precision(rawPrecision) {
+	const resolvedRawPrecision =
+		rawPrecision ??
+		frappe?.boot?.sysdefaults?.float_precision ??
+		frappe?.defaults?.get_default?.("float_precision") ??
+		3;
+	const numericPrecision = Number(resolvedRawPrecision);
+	return Number.isFinite(numericPrecision) ? numericPrecision : 3;
 }
 
 function _render_aggregate_production_entries(frm) {

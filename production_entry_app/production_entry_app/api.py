@@ -40,6 +40,7 @@ _E2E_SETTINGS_FIELDS: tuple[str, ...] = (
 	"shift_start_buffer_mins",
 	"shift_end_buffer_mins",
 )
+_E2E_SYSTEM_SETTINGS_FIELDS: tuple[str, ...] = ("float_precision",)
 _E2E_RESERVED_USER_EMAIL_PREFIX: str = "e2e-user-"
 _E2E_RESERVED_ROLE_PREFIX: str = "E2E ROLE "
 _E2E_RESERVED_DOWNTIME_PREFIX: str = "E2E-DOWNTIME-"
@@ -282,11 +283,24 @@ def _get_manufacturing_settings_snapshot() -> dict[str, str | int | None]:
 	}
 
 
+def _get_system_settings_snapshot() -> dict[str, str | int | None]:
+	return {
+		fieldname: frappe.db.get_single_value("System Settings", fieldname)
+		for fieldname in _E2E_SYSTEM_SETTINGS_FIELDS
+	}
+
+
 def _cache_e2e_settings_snapshot(prefix: str) -> None:
 	cache_key = _get_e2e_settings_cache_key(prefix)
 	if frappe.cache().get_value(cache_key):
 		return
-	frappe.cache().set_value(cache_key, _get_manufacturing_settings_snapshot())
+	frappe.cache().set_value(
+		cache_key,
+		{
+			"manufacturing_settings": _get_manufacturing_settings_snapshot(),
+			"system_settings": _get_system_settings_snapshot(),
+		},
+	)
 
 
 def _cache_e2e_shift_name(prefix: str, shift_name: str | None) -> None:
@@ -306,11 +320,19 @@ def _restore_manufacturing_settings(snapshot: dict[str, str | int | None] | None
 		frappe.db.set_single_value("Manufacturing Settings", fieldname, snapshot.get(fieldname))
 
 
+def _restore_system_settings(snapshot: dict[str, str | int | None] | None) -> None:
+	if not snapshot:
+		return
+	for fieldname in _E2E_SYSTEM_SETTINGS_FIELDS:
+		frappe.db.set_single_value("System Settings", fieldname, snapshot.get(fieldname))
+
+
 def _restore_cached_e2e_settings(prefix: str) -> None:
 	cache_key = _get_e2e_settings_cache_key(prefix)
 	snapshot = frappe.cache().get_value(cache_key)
 	if snapshot:
-		_restore_manufacturing_settings(snapshot)
+		_restore_manufacturing_settings(snapshot.get("manufacturing_settings"))
+		_restore_system_settings(snapshot.get("system_settings"))
 		frappe.cache().delete_value(cache_key)
 
 	shift_names_key = _get_e2e_shift_names_cache_key(prefix)
@@ -640,6 +662,17 @@ def bootstrap_e2e_context(prefix: str = "E2E") -> dict:
 		"shift_name": shift.name,
 		"shift_date": base_date,
 	}
+
+
+@frappe.whitelist()
+def set_e2e_system_float_precision(prefix: str = "E2E", precision: int = 3) -> dict:
+	"""Set System Settings float precision for a specific E2E context."""
+	_assert_e2e_api_allowed()
+	_cache_e2e_settings_snapshot(prefix)
+	frappe.db.set_single_value("System Settings", "float_precision", cint(precision))
+	frappe.clear_cache()
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit - tests need deterministic persisted setup
+	return {"float_precision": cint(precision)}
 
 
 def _cleanup_e2e_context(prefix: str = "E2E") -> dict:

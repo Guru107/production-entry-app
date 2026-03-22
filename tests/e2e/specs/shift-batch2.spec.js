@@ -187,6 +187,35 @@ test.describe("Batch 2 shift UX", () => {
 		});
 	});
 
+	test("@regression shift summary honours system float precision", async ({ page }) => {
+		await page.goto(getRoute("/home"));
+		const testPrefix = `${lifecycle.getPrefix()}-precision`;
+		const ctx = await setupFreshContext(page, testPrefix);
+
+		await callFrappeMethod(
+			page,
+			"production_entry_app.production_entry_app.api.set_e2e_system_float_precision",
+			{ prefix: testPrefix, precision: 4 }
+		);
+		await page.goto(getRoute("/home"));
+		await callFrappeMethod(
+			page,
+			"production_entry_app.production_entry_app.api.create_e2e_submitted_stock_entry",
+			{ prefix: testPrefix, rejection_qty: 1 }
+		);
+
+		await openForm(page, "shift", ctx.shift_name);
+		await page.waitForFunction(() => {
+			const field = window.cur_frm?.fields_dict?.shift_metrics;
+			const text = (field?.$wrapper?.text?.() || "").replace(/\s+/g, " ").trim();
+			return text.includes("Outcome Snapshot") && text.includes("Top Item/BOM Exceptions");
+		});
+
+		const summaryText = await getFieldText(page, "shift_metrics");
+		expect(summaryText).toContain("1.0000");
+		expect(summaryText).toContain("2.5000");
+	});
+
 	test("@regression shift aggregate entries renders empty state then table after production entry", async ({
 		page,
 	}) => {
