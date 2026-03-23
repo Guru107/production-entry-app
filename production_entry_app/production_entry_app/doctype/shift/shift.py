@@ -15,6 +15,9 @@ from production_entry_app.production_entry_app.utils.loss_time import (
 	get_loss_duration_minutes,
 )
 from production_entry_app.production_entry_app.utils.shift_time import combine_date_time
+from production_entry_app.production_entry_app.utils.system_precision import (
+	get_system_float_precision,
+)
 
 METRICS_CACHE_TTL_SEC: int = 30
 WARNING_THRESHOLD_PCT_DEFAULT: float = 90.0
@@ -242,7 +245,7 @@ def check_running_shift_conflict(shift_name: str) -> dict:
 
 def _empty_shift_summary() -> dict:
 	return {
-		"float_precision": cint(frappe.db.get_single_value("System Settings", "float_precision")) or 3,
+		"float_precision": get_system_float_precision(),
 		"snapshot": {
 			"entry_count": 0,
 			"total_qty": 0,
@@ -655,7 +658,7 @@ def get_shift_summary(shift_name: str) -> dict:
 
 	workstation_rows, best_workstation = _build_workstation_summary_rows(entry_rows)
 	summary = {
-		"float_precision": cint(frappe.db.get_single_value("System Settings", "float_precision")) or 3,
+		"float_precision": get_system_float_precision(),
 		"snapshot": {
 			"entry_count": entry_count,
 			"total_qty": flt(total_qty),
@@ -705,6 +708,7 @@ def get_shift_aggregate_production_entries(shift_name: str) -> list[dict]:
 		return []
 	if not frappe.has_permission("Shift", "read", shift_name):
 		raise frappe.PermissionError
+	float_precision = get_system_float_precision()
 
 	stock_entry = DocType("Stock Entry")
 	bom = DocType("BOM")
@@ -765,6 +769,7 @@ def get_shift_aggregate_production_entries(shift_name: str) -> list[dict]:
 				"total_ok_qty": total_ok_qty,
 				"total_reject_qty": total_reject_qty,
 				"avg_spm": avg_spm,
+				"float_precision": float_precision,
 			}
 		)
 

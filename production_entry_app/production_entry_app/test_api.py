@@ -204,6 +204,32 @@ class TestE2EApi(FrappeTestCase):
 		self.assertAlmostEqual(float(result.get("utilization_pct") or 0), 33.3333333333, places=6)
 		self.assertEqual(int(result.get("is_maintenance_due") or 0), 1)
 
+	def test_get_die_tool_counter_includes_float_precision_without_rounding_payload(self) -> None:
+		from production_entry_app.production_entry_app.utils.system_precision import (
+			get_system_float_precision,
+		)
+
+		with patch("production_entry_app.production_entry_app.api.frappe.db.exists", return_value=True):
+			with patch(
+				"production_entry_app.production_entry_app.api.is_die_tool_enabled", return_value=True
+			):
+				with patch(
+					"production_entry_app.production_entry_app.api.get_counter_snapshot",
+					return_value={
+						"current_stroke_count": 12.5,
+						"stroke_capacity": 50,
+						"warning_threshold_pct": 90,
+					},
+				):
+					result = get_die_tool_counter("ITEM-001")
+
+		self.assertEqual(result["float_precision"], get_system_float_precision())
+		self.assertIsInstance(result["current_strokes"], float)
+		self.assertIsInstance(result["stroke_capacity"], float)
+		self.assertIsInstance(result["warning_threshold_pct"], float)
+		self.assertIsInstance(result["utilization_pct"], float)
+		self.assertIsInstance(result["is_maintenance_due"], int)
+
 	def test_e2e_base_date_is_deterministic(self) -> None:
 		date_a = _e2e_base_date("StablePrefix")
 		date_b = _e2e_base_date("StablePrefix")

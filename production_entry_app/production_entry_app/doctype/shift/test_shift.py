@@ -1859,7 +1859,7 @@ class TestShiftSummary(FrappeTestCase):
 	def test_returns_zeroed_summary_when_no_entries(self) -> None:
 		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
 
-		shift = self._create_shift("2026-09-01")
+		shift = self._create_shift("2026-09-11")
 		summary = get_shift_summary(shift.name)
 		self.assertEqual(summary["snapshot"]["entry_count"], 0)
 		self.assertEqual(float(summary["snapshot"]["total_qty"]), 0.0)
@@ -1872,6 +1872,20 @@ class TestShiftSummary(FrappeTestCase):
 		self.assertEqual(float(summary["logged_downtime"]["total_mins"]), 0.0)
 		self.assertFalse(summary["logged_downtime"]["recorded"])
 		self.assertTrue(summary["completeness"]["show_banner"])
+
+	def test_shift_summary_includes_float_precision_and_numeric_snapshot_metrics(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
+		from production_entry_app.production_entry_app.utils.system_precision import (
+			get_system_float_precision,
+		)
+
+		shift = self._create_shift("2026-09-01")
+		summary = get_shift_summary(shift.name)
+		self.assertEqual(summary["float_precision"], get_system_float_precision())
+		self.assertIsInstance(summary["snapshot"]["total_qty"], float)
+		self.assertIsInstance(summary["snapshot"]["ok_qty"], float)
+		self.assertIsInstance(summary["snapshot"]["rejection_qty"], float)
+		self.assertIsInstance(summary["snapshot"]["overall_throughput_spm"], float)
 
 	def test_computes_shift_level_snapshot_metrics_from_totals(self) -> None:
 		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
@@ -2346,6 +2360,29 @@ class TestShiftAggregateProductionEntries(FrappeTestCase):
 		)
 		rows = get_shift_aggregate_production_entries(shift.name)
 		self.assertEqual(rows, [])
+
+	def test_shift_aggregate_production_entries_include_float_precision(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import (
+			get_shift_aggregate_production_entries,
+		)
+		from production_entry_app.production_entry_app.utils.system_precision import (
+			get_system_float_precision,
+		)
+
+		shift = self._create_shift("2026-10-06")
+		self._create_submitted_like_entry(
+			shift.name,
+			good_qty=120,
+			rejection_qty=6,
+			duration_mins=60,
+			bom_no=self.bom,
+		)
+		rows = get_shift_aggregate_production_entries(shift.name)
+		self.assertEqual(rows[0]["float_precision"], get_system_float_precision())
+		self.assertIsInstance(rows[0]["total_qty"], float)
+		self.assertIsInstance(rows[0]["total_ok_qty"], float)
+		self.assertIsInstance(rows[0]["total_reject_qty"], float)
+		self.assertIsInstance(rows[0]["avg_spm"], float)
 
 
 def _ensure_user_with_role(email: str, role: str) -> None:

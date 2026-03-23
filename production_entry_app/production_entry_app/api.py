@@ -17,6 +17,9 @@ from production_entry_app.production_entry_app.utils.die_tool_counter import (
 	is_die_tool_enabled,
 )
 from production_entry_app.production_entry_app.utils.shift_time import get_shift_planned_end_datetime
+from production_entry_app.production_entry_app.utils.system_precision import (
+	get_system_float_precision,
+)
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	cleanup_running_shifts,
 	ensure_branch,
@@ -204,6 +207,7 @@ def get_die_tool_counter(die_tool_code: str) -> dict:
 			"warning_threshold_pct": 90,
 			"utilization_pct": 0,
 			"is_maintenance_due": 0,
+			"float_precision": get_system_float_precision(),
 		}
 	current_strokes = float(counter.get("current_stroke_count") or 0)
 	stroke_capacity = float(counter.get("stroke_capacity") or 0)
@@ -221,6 +225,7 @@ def get_die_tool_counter(die_tool_code: str) -> dict:
 		"warning_threshold_pct": warning_threshold_pct,
 		"utilization_pct": utilization_pct,
 		"is_maintenance_due": is_maintenance_due,
+		"float_precision": get_system_float_precision(),
 	}
 
 
@@ -233,6 +238,7 @@ def _empty_die_tool_payload(die_tool_code: str | None) -> dict:
 		"warning_threshold_pct": 90,
 		"utilization_pct": 0,
 		"is_maintenance_due": 0,
+		"float_precision": get_system_float_precision(),
 	}
 
 
