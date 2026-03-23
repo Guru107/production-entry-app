@@ -26,6 +26,37 @@ from production_entry_app.production_entry_app.api import (
 )
 
 
+def _meta_stub(has_field_result: bool) -> object:
+	class _Meta:
+		def __init__(self, has_field_result: bool) -> None:
+			self._has_field_result = has_field_result
+
+		def has_field(self, _fieldname: str) -> bool:
+			return self._has_field_result
+
+		def get_field(self, _fieldname: str) -> object | None:
+			return object() if self._has_field_result else None
+
+	return _Meta(has_field_result)
+
+
+def _patch_bootstrap_settings_reads(
+	stack: ExitStack, *, company_code: str = "TC", single_value: int = 3
+) -> None:
+	stack.enter_context(
+		patch(
+			"production_entry_app.production_entry_app.api.frappe.db.get_value",
+			side_effect=lambda doctype, *_args, **_kwargs: company_code,
+		)
+	)
+	stack.enter_context(
+		patch(
+			"production_entry_app.production_entry_app.api.frappe.db.get_single_value",
+			return_value=single_value,
+		)
+	)
+
+
 class TestE2EApi(FrappeTestCase):
 	def tearDown(self) -> None:
 		frappe.db.rollback()
@@ -534,19 +565,12 @@ class TestE2EApi(FrappeTestCase):
 		shift = MagicMock()
 		shift.name = "SHIFT-2099-01-20.1.0001"
 
-		class _Meta:
-			def __init__(self, has_field_result: bool) -> None:
-				self._has_field_result = has_field_result
-
-			def has_field(self, _fieldname: str) -> bool:
-				return self._has_field_result
-
 		def _get_meta(doctype: str, cached: bool = True):
 			if doctype == "Warehouse":
-				return _Meta(True)
+				return _meta_stub(True)
 			if doctype == "Item":
-				return _Meta(True)
-			return _Meta(False)
+				return _meta_stub(True)
+			return _meta_stub(False)
 
 		with ExitStack() as stack:
 			stack.enter_context(
@@ -571,12 +595,7 @@ class TestE2EApi(FrappeTestCase):
 					return_value="_Test Branch",
 				)
 			)
-			stack.enter_context(
-				patch(
-					"production_entry_app.production_entry_app.api.frappe.db.get_value",
-					return_value="TC",
-				)
-			)
+			_patch_bootstrap_settings_reads(stack)
 			stack.enter_context(
 				patch(
 					"production_entry_app.production_entry_app.api.ensure_warehouse",
@@ -638,17 +657,10 @@ class TestE2EApi(FrappeTestCase):
 		shift = MagicMock()
 		shift.name = "SHIFT-2099-01-20.1.0001"
 
-		class _Meta:
-			def __init__(self, has_field_result: bool) -> None:
-				self._has_field_result = has_field_result
-
-			def has_field(self, _fieldname: str) -> bool:
-				return self._has_field_result
-
 		def _get_meta(doctype: str, cached: bool = True):
 			if doctype in {"Warehouse", "Item"}:
-				return _Meta(True)
-			return _Meta(False)
+				return _meta_stub(True)
+			return _meta_stub(False)
 
 		with ExitStack() as stack:
 			stack.enter_context(
@@ -673,12 +685,7 @@ class TestE2EApi(FrappeTestCase):
 					return_value="_Test Branch",
 				)
 			)
-			stack.enter_context(
-				patch(
-					"production_entry_app.production_entry_app.api.frappe.db.get_value",
-					side_effect=lambda doctype, *_args, **_kwargs: "TC",
-				)
-			)
+			_patch_bootstrap_settings_reads(stack)
 			stack.enter_context(
 				patch(
 					"production_entry_app.production_entry_app.api.ensure_warehouse",
