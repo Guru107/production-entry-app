@@ -2087,6 +2087,9 @@ class TestShiftSummary(FrappeTestCase):
 
 	def test_returns_cached_summary_without_querying_database(self) -> None:
 		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
+		from production_entry_app.production_entry_app.utils.system_precision import (
+			get_system_float_precision,
+		)
 
 		shift = self._create_shift("2026-09-06")
 		cached = {
@@ -2102,7 +2105,11 @@ class TestShiftSummary(FrappeTestCase):
 			return_value=cached,
 		):
 			summary = get_shift_summary(shift.name)
-		self.assertEqual(summary, cached)
+		self.assertEqual(summary["float_precision"], get_system_float_precision())
+		self.assertEqual(summary["snapshot"], cached["snapshot"])
+		self.assertEqual(summary["losses"], cached["losses"])
+		self.assertEqual(summary["logged_downtime"], cached["logged_downtime"])
+		self.assertNotIn("float_precision", cached)
 
 	def test_summary_fresh_after_submit_without_waiting_ttl(self) -> None:
 		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary

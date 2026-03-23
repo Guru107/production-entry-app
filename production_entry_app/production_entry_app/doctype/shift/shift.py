@@ -300,6 +300,12 @@ def _set_cached_shift_summary(shift_name: str, summary: dict) -> None:
 	)
 
 
+def _with_shift_summary_float_precision(summary: dict) -> dict:
+	result = dict(summary)
+	result.setdefault("float_precision", get_system_float_precision())
+	return result
+
+
 def invalidate_shift_summary_cache(shift_name: str | None) -> None:
 	if not shift_name:
 		return
@@ -523,7 +529,7 @@ def get_shift_summary(shift_name: str) -> dict:
 		raise frappe.PermissionError
 	cached_summary = _get_cached_shift_summary(shift_name)
 	if cached_summary is not None:
-		return cached_summary
+		return _with_shift_summary_float_precision(cached_summary)
 
 	window = _get_shift_window(shift_name)
 	if not window:

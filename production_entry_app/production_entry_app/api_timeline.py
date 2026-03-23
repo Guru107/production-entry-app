@@ -29,6 +29,12 @@ def _set_cached_timeline_data(doctype: str, docname: str, shift_name: str, data:
 	)
 
 
+def _with_float_precision(payload: dict) -> dict:
+	result = dict(payload)
+	result.setdefault("float_precision", get_system_float_precision())
+	return result
+
+
 @frappe.whitelist()
 def get_shift_timeline_data(doctype: str, docname: str) -> dict:
 	"""Return running shift timeline data for Workstation/Operator forms."""
@@ -52,7 +58,7 @@ def get_shift_timeline_data(doctype: str, docname: str) -> dict:
 		raise frappe.PermissionError
 	cached_data = _get_cached_timeline_data(doctype, docname, shift.get("name"))
 	if cached_data is not None:
-		return cached_data
+		return _with_float_precision(cached_data)
 
 	shift_start = combine_date_time(shift.get("shift_date"), shift.get("planned_start_time"))
 	shift_end = combine_date_time(
