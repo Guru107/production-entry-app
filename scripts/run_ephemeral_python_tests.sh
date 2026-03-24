@@ -57,8 +57,13 @@ bench --site "$SITE_NAME" execute erpnext.setup.setup_wizard.operations.install_
 bench --site "$SITE_NAME" set-config allow_tests true
 bench --site "$SITE_NAME" execute production_entry_app.production_entry_app.utils.test_setup.before_tests
 
-if [ "$#" -gt 0 ]; then
-	bench --site "$SITE_NAME" run-tests --app production_entry_app --module "$1"
-else
-	bench --site "$SITE_NAME" run-tests --app production_entry_app
+run_tests_cmd=(bench --site "$SITE_NAME" run-tests --app production_entry_app)
+if [ "${ERPNEXT_VERSION:-}" = "16" ]; then
+	run_tests_cmd+=(--lightmode)
 fi
+
+if [ "$#" -gt 0 ]; then
+	run_tests_cmd+=(--module "$1")
+fi
+
+"${run_tests_cmd[@]}"

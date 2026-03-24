@@ -117,7 +117,7 @@ frappe.ui.form.on("Shift", {
 		}
 
 		_render_linked_downtime_entries(frm);
-		_render_shift_metrics(frm);
+		_render_shift_summary(frm);
 		_render_aggregate_production_entries(frm);
 		_sync_shift_helper_fields(frm);
 		_setup_shift_quick_entry(frm);
@@ -316,56 +316,310 @@ function _render_linked_downtime_entries(frm) {
 	});
 }
 
-function _render_shift_metrics(frm) {
+function _render_shift_summary(frm) {
 	if (!frm.doc.name) {
 		return;
 	}
 	frappe.call({
-		method: "production_entry_app.production_entry_app.doctype.shift.shift.get_shift_metrics",
+		method: "production_entry_app.production_entry_app.doctype.shift.shift.get_shift_summary",
 		args: { shift_name: frm.doc.name },
 		callback(r) {
-			const metrics = r.message || {};
-			const entry_count = Number(metrics.entry_count || 0);
-			if (!entry_count) {
-				_set_shared_html_field(
-					frm,
-					"shift_metrics",
-					`<p class="text-muted">${__(
-						"No production entries linked to this shift yet."
-					)}</p>`
+			const summary = r.message || {};
+			const floatPrecision = _resolve_summary_float_precision(summary);
+			const snapshot = summary.snapshot || {};
+			const losses = summary.losses || {};
+			const exceptions = summary.exceptions || {};
+			const loggedDowntime = summary.logged_downtime || {};
+			const completeness = summary.completeness || {};
+			const positiveSignal = summary.positive_signal || null;
+			const sections = [];
+
+			if (completeness.show_banner && (completeness.messages || []).length) {
+				sections.push(
+					`<div class="alert alert-warning">${(completeness.messages || [])
+						.map((message) => frappe.utils.escape_html(String(message)))
+						.join("<br>")}</div>`
 				);
-				return;
 			}
 
-			const rows = [
-				[__("Entries"), metrics.entry_count],
-				[__("Total Qty"), metrics.total_qty],
-				[__("Rejection Qty"), metrics.total_rejection_qty],
-				[__("OK Qty"), metrics.total_ok_qty],
-				[__("Total Duration (mins)"), metrics.total_duration_mins],
-				[__("Avg Actual SPM"), metrics.avg_actual_spm],
-				[__("Avg Efficiency (%)"), metrics.avg_efficiency_pct],
-			];
+			const entryCount = Number(snapshot.entry_count || 0);
+			if (!entryCount) {
+				sections.push(
+					`<p class="text-muted">${__(
+						"No production entries are recorded for this shift yet."
+					)}</p>`
+				);
+			} else {
+				const snapshotRows = [
+					{ label: __("Entries"), value: snapshot.entry_count, fieldtype: "Int" },
+					{ label: __("Total Qty"), value: snapshot.total_qty, fieldtype: "Float" },
+					{ label: __("OK Qty"), value: snapshot.ok_qty, fieldtype: "Float" },
+					{
+						label: __("Rejection Qty"),
+						value: snapshot.rejection_qty,
+						fieldtype: "Float",
+					},
+					{
+						label: __("Rejection (%)"),
+						value: snapshot.rejection_pct,
+						fieldtype: "Float",
+					},
+					{
+						label: __("Recorded Production Mins"),
+						value: snapshot.recorded_production_mins,
+						fieldtype: "Float",
+					},
+					{
+						label: __("Overall Throughput SPM"),
+						value: snapshot.overall_throughput_spm,
+						fieldtype: "Float",
+					},
+					{
+						label: __("Overall OK SPM"),
+						value: snapshot.overall_ok_spm,
+						fieldtype: "Float",
+					},
+					{
+						label: __("Target Coverage (%)"),
+						value: snapshot.target_coverage_pct,
+						fieldtype: "Float",
+					},
+					{
+						label: __("Overall Shift Efficiency (%)"),
+						value:
+							snapshot.overall_shift_efficiency_pct == null
+								? __("Insufficient target coverage")
+								: snapshot.overall_shift_efficiency_pct,
+						fieldtype: snapshot.overall_shift_efficiency_pct == null ? null : "Float",
+					},
+				];
+				sections.push(
+					_render_summary_table(
+						__("Outcome Snapshot"),
+						snapshotRows,
+						null,
+						floatPrecision
+					)
+				);
+				sections.push(
+					_render_summary_table(
+						__("Loss And Variance"),
+						[
+							{
+								label: __("Planned Shift Mins"),
+								value: losses.planned_shift_mins,
+								fieldtype: "Float",
+							},
+							{
+								label: __("Planned Loss Mins"),
+								value: losses.planned_loss_mins,
+								fieldtype: "Float",
+							},
+							{
+								label: __("Planned Usable Mins"),
+								value: losses.planned_usable_mins,
+								fieldtype: "Float",
+							},
+							{
+								label: __("Production Loss Mins"),
+								value: losses.unplanned_loss_mins,
+								fieldtype: "Float",
+							},
+						],
+						null,
+						floatPrecision
+					)
+				);
+			}
 
-			const htmlRows = rows
-				.map(
-					([label, value]) =>
-						`<tr><td>${frappe.utils.escape_html(
-							String(label)
-						)}</td><td>${frappe.utils.escape_html(String(value))}</td></tr>`
+			sections.push(
+				_render_summary_table(
+					__("Logged Downtime Incidents"),
+					[
+						{
+							label: __("Recorded"),
+							value: loggedDowntime.recorded ? __("Yes") : __("No"),
+						},
+						{
+							label: __("Incident Count"),
+							value: loggedDowntime.entry_count || 0,
+							fieldtype: "Int",
+						},
+						{
+							label: __("Total Logged Mins"),
+							value: loggedDowntime.total_mins || 0,
+							fieldtype: "Float",
+						},
+					],
+					null,
+					floatPrecision
 				)
-				.join("");
-			const html = `<table class="table table-condensed table-bordered"><tbody>${htmlRows}</tbody></table>`;
-			_set_shared_html_field(frm, "shift_metrics", html);
+			);
+
+			const topReasonRows = (loggedDowntime.top_reasons || []).map((row) => ({
+				label: row.reason || "",
+				value: row.mins || 0,
+				fieldtype: "Float",
+			}));
+			if (topReasonRows.length) {
+				sections.push(
+					_render_summary_table(
+						__("Top Logged Downtime Reasons"),
+						topReasonRows,
+						__("Reason"),
+						floatPrecision
+					)
+				);
+			}
+
+			const unplannedLossRows = (exceptions.unplanned_loss_reasons || []).map((row) => ({
+				label: row.reason || "",
+				value: row.mins || 0,
+				fieldtype: "Float",
+			}));
+			if (unplannedLossRows.length) {
+				sections.push(
+					_render_summary_table(
+						__("Top Production Loss Reasons"),
+						unplannedLossRows,
+						__("Reason"),
+						floatPrecision
+					)
+				);
+			}
+
+			const workstationRows = (exceptions.workstations || []).map((row) => ({
+				label: row.workstation || "",
+				value: row.efficiency_pct == null ? row.throughput_spm || 0 : row.efficiency_pct,
+				fieldtype: "Float",
+			}));
+			if (workstationRows.length) {
+				sections.push(
+					_render_summary_table(
+						__("Top Workstation Exceptions"),
+						workstationRows,
+						__("Workstation"),
+						floatPrecision
+					)
+				);
+			}
+
+			const itemBomRows = (exceptions.item_boms || []).map((row) => ({
+				label: row.label || row.bom_no || row.item_code || "",
+				value: row.rejection_qty || 0,
+				fieldtype: "Float",
+			}));
+			if (itemBomRows.length) {
+				sections.push(
+					_render_summary_table(
+						__("Top Item/BOM Exceptions"),
+						itemBomRows,
+						__("Item / BOM"),
+						floatPrecision
+					)
+				);
+			}
+
+			if (positiveSignal) {
+				sections.push(
+					_render_summary_table(
+						__("Positive Signal"),
+						[
+							{
+								label: __("Best Workstation"),
+								value: positiveSignal.workstation || "",
+							},
+							{
+								label:
+									positiveSignal.efficiency_pct == null
+										? __("Throughput SPM")
+										: __("Efficiency (%)"),
+								value:
+									positiveSignal.efficiency_pct == null
+										? positiveSignal.throughput_spm || 0
+										: positiveSignal.efficiency_pct,
+								fieldtype: "Float",
+							},
+						],
+						null,
+						floatPrecision
+					)
+				);
+			}
+
+			_set_shared_html_field(frm, "shift_metrics", sections.join(""));
 		},
 		error() {
 			_set_shared_html_field(
 				frm,
 				"shift_metrics",
-				`<p class="text-muted">${__("Unable to load shift metrics.")}</p>`
+				`<p class="text-muted">${__("Unable to load shift summary.")}</p>`
 			);
 		},
 	});
+}
+
+function _render_summary_table(title, rows, firstColumnLabel, floatPrecision) {
+	const safeTitle = frappe.utils.escape_html(String(title || ""));
+	const firstHeader = frappe.utils.escape_html(String(firstColumnLabel || __("Metric")));
+	const body = (rows || [])
+		.map(
+			(row) =>
+				`<tr><td>${frappe.utils.escape_html(
+					String(row?.label ?? "")
+				)}</td><td>${frappe.utils.escape_html(
+					_format_summary_value(row, floatPrecision)
+				)}</td></tr>`
+		)
+		.join("");
+	return `
+		<div class="pea-shift-summary-section">
+			<h5>${safeTitle}</h5>
+			<table class="table table-condensed table-bordered">
+				<thead><tr><th>${firstHeader}</th><th>${__("Value")}</th></tr></thead>
+				<tbody>${body}</tbody>
+			</table>
+		</div>
+	`;
+}
+
+function _format_summary_value(row, floatPrecision) {
+	if (!row) {
+		return "";
+	}
+	const value = row.value;
+	if (value == null) {
+		return "";
+	}
+	if (!row.fieldtype || typeof value !== "number" || !Number.isFinite(value)) {
+		return String(value);
+	}
+	if (typeof frappe !== "undefined" && typeof frappe.format === "function") {
+		const df = { fieldtype: row.fieldtype };
+		if (row.fieldtype === "Float") {
+			df.precision = _get_summary_float_precision(floatPrecision);
+		}
+		return frappe.format(value, df, { only_value: true, always_show_decimals: true });
+	}
+	return String(value);
+}
+
+function _resolve_summary_float_precision(summary) {
+	return _get_summary_float_precision(summary?.float_precision);
+}
+
+function _get_summary_float_precision(rawPrecision) {
+	const resolvedRawPrecision =
+		rawPrecision ??
+		frappe?.boot?.sysdefaults?.float_precision ??
+		frappe?.defaults?.get_default?.("float_precision") ??
+		3;
+	const numericPrecision = Number(resolvedRawPrecision);
+	return Number.isFinite(numericPrecision) ? numericPrecision : 3;
+}
+
+function _format_aggregate_metric_value(value, floatPrecision) {
+	return _format_summary_value({ value, fieldtype: "Float" }, floatPrecision);
 }
 
 function _render_aggregate_production_entries(frm) {
@@ -387,6 +641,7 @@ function _render_aggregate_production_entries(frm) {
 				);
 				return;
 			}
+			const floatPrecision = _get_summary_float_precision(rows[0]?.float_precision);
 
 			const headers = [
 				__("BOM Used"),
@@ -407,13 +662,13 @@ function _render_aggregate_production_entries(frm) {
 						)}</td><td>${frappe.utils.escape_html(
 							String(row.item_code || "")
 						)}</td><td>${frappe.utils.escape_html(
-							String(row.total_qty ?? "")
+							_format_aggregate_metric_value(row.total_qty, floatPrecision)
 						)}</td><td>${frappe.utils.escape_html(
-							String(row.total_ok_qty ?? "")
+							_format_aggregate_metric_value(row.total_ok_qty, floatPrecision)
 						)}</td><td>${frappe.utils.escape_html(
-							String(row.total_reject_qty ?? "")
+							_format_aggregate_metric_value(row.total_reject_qty, floatPrecision)
 						)}</td><td>${frappe.utils.escape_html(
-							String(row.avg_spm ?? "")
+							_format_aggregate_metric_value(row.avg_spm, floatPrecision)
 						)}</td></tr>`
 				)
 				.join("")}</tbody>`;

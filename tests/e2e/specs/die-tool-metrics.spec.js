@@ -10,6 +10,14 @@ async function setupFreshContext(page, prefix) {
 	return await bootstrapE2E(page, prefix);
 }
 
+async function setSystemFloatPrecision(page, prefix, precision) {
+	await callFrappeMethod(
+		page,
+		"production_entry_app.production_entry_app.api.set_e2e_system_float_precision",
+		{ prefix, precision }
+	);
+}
+
 async function createManufactureEntry(page, ctx, options = {}) {
 	const stockEntryPage = new StockEntryPage(page);
 	await stockEntryPage.openNew();
@@ -56,6 +64,10 @@ test.describe("Die tool metrics and counter", () => {
 			actualEnd: `${ctx.shift_date} 09:20:00`,
 		});
 		await stockEntryPage.saveDraft();
+		await page.waitForFunction(() => {
+			const name = window.cur_frm?.doc?.name || "";
+			return Boolean(name) && !String(name).startsWith("new-stock-entry");
+		});
 
 		const stockEntryName = await page.evaluate(() => window.cur_frm?.doc?.name);
 		const stockEntry = await getDoc(page, "Stock Entry", stockEntryName);
@@ -104,6 +116,37 @@ test.describe("Die tool metrics and counter", () => {
 		expect(stockEntry.custom_actual_spm).toBeFalsy();
 		expect(stockEntry.custom_cycle_time_sec).toBeFalsy();
 		expect(stockEntry.custom_operator_efficiency_pct).toBeFalsy();
+	});
+
+	test("@regression full deducted-loss window shows metrics note on stock entry", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
+
+		const stockEntryPage = await createManufactureEntry(page, ctx, {
+			fgQty: 80,
+			rejectionQty: 0,
+			actualStart: `${ctx.shift_date} 08:00:00`,
+			actualEnd: `${ctx.shift_date} 08:20:00`,
+		});
+		await stockEntryPage.addUnplannedLossRow({
+			downtime_reason: "Setup Time",
+			start_time: "08:00:00",
+			end_time: "08:10:00",
+		});
+		await stockEntryPage.saveDraft();
+
+		const stockEntryName = await page.evaluate(() => window.cur_frm?.doc?.name);
+		const stockEntry = await getDoc(page, "Stock Entry", stockEntryName);
+		expect(Number(stockEntry.custom_production_time_mins || 0)).toBe(0);
+		expect(Number(stockEntry.custom_actual_spm || 0)).toBe(0);
+		expect(Number(stockEntry.custom_operator_efficiency_pct || 0)).toBe(0);
+		expect(String(stockEntry.custom_metrics_note || "")).toContain("deducted loss time");
+
+		const metricsNote = page.locator('[data-fieldname="custom_metrics_note"]');
+		await expect(metricsNote).toContainText("deducted loss time");
+		await expect(metricsNote).toContainText("full actual window");
 	});
 
 	test("@regression high utilization sets maintenance due and shows warning headline", async ({
@@ -160,7 +203,9 @@ test.describe("Die tool metrics and counter", () => {
 		page,
 	}) => {
 		await page.goto(getRoute("/home"));
-		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
+		const prefix = `${lifecycle.getPrefix()}-die-tool-precision`;
+		const ctx = await setupFreshContext(page, prefix);
+		await setSystemFloatPrecision(page, prefix, 4);
 
 		const stockEntryPage = await createManufactureEntry(page, ctx, {
 			fgQty: 10,

@@ -94,6 +94,30 @@
 		return `${hours}h ${remainder}m`;
 	}
 
+	function getSystemFloatPrecision(rawPrecision) {
+		const resolvedRawPrecision =
+			rawPrecision ??
+			frappe?.boot?.sysdefaults?.float_precision ??
+			frappe?.defaults?.get_default?.("float_precision") ??
+			3;
+		const numericPrecision = Number(resolvedRawPrecision);
+		return Number.isFinite(numericPrecision) ? numericPrecision : 3;
+	}
+
+	function formatMetricDisplay(value, fieldtype = "Float", rawPrecision) {
+		if (value == null || typeof value !== "number" || !Number.isFinite(value)) {
+			return String(value ?? "");
+		}
+		if (typeof frappe !== "undefined" && typeof frappe.format === "function") {
+			const df = { fieldtype };
+			if (fieldtype === "Float") {
+				df.precision = getSystemFloatPrecision(rawPrecision);
+			}
+			return frappe.format(value, df, { only_value: true, always_show_decimals: true });
+		}
+		return String(value);
+	}
+
 	function _clear_timeline_state(frm, htmlFieldname) {
 		if (!frm.__peaTimelineState) {
 			return;
@@ -211,7 +235,11 @@
 				ctx.shadowBlur = 2;
 				const label = isDowntime
 					? `DT ${entry.stop_reason || __("Downtime")}`
-					: `${entry.fg_item || "-"} ${entry.ok_qty || 0}`;
+					: `${entry.fg_item || "-"} ${formatMetricDisplay(
+							entry.ok_qty || 0,
+							"Float",
+							payload.float_precision
+					  )}`;
 				const maxChars = Math.max(4, Math.floor((w - 12) / 7));
 				ctx.fillText(_truncate_label(label, maxChars), x + 6, y + h / 2 + 4);
 				ctx.restore();
@@ -296,9 +324,19 @@
 					`<div><strong>${safe(entry.name)}</strong></div>`,
 					`<div>${safe(__("Type"))}: ${safe(__("Production"))}</div>`,
 					`<div>${safe(__("FG"))}: ${safe(entry.fg_item || "-")}</div>`,
-					`<div>${safe(__("FG Qty"))}: ${safe(entry.fg_qty || 0)}</div>`,
-					`<div>${safe(__("Rejection Qty"))}: ${safe(entry.rejection_qty || 0)}</div>`,
-					`<div>${safe(__("OK Qty"))}: ${safe(entry.ok_qty || 0)}</div>`,
+					`<div>${safe(__("FG Qty"))}: ${safe(
+						formatMetricDisplay(entry.fg_qty || 0, "Float", canvas.__peaFloatPrecision)
+					)}</div>`,
+					`<div>${safe(__("Rejection Qty"))}: ${safe(
+						formatMetricDisplay(
+							entry.rejection_qty || 0,
+							"Float",
+							canvas.__peaFloatPrecision
+						)
+					)}</div>`,
+					`<div>${safe(__("OK Qty"))}: ${safe(
+						formatMetricDisplay(entry.ok_qty || 0, "Float", canvas.__peaFloatPrecision)
+					)}</div>`,
 					`<div>${safe(__("Duration"))}: ${safe(
 						_format_duration(entry.__start, entry.__end)
 					)}</div>`,
@@ -405,12 +443,14 @@
 			ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 			canvas.__peaWidth = width;
 			canvas.__peaHeight = CANVAS_HEIGHT;
+			canvas.__peaFloatPrecision = getSystemFloatPrecision(data.float_precision);
 			_draw_timeline(
 				canvas,
 				{
 					shiftStart,
 					shiftEnd,
 					entries: preparedEntries,
+					float_precision: data.float_precision,
 				},
 				pulseAlpha
 			);

@@ -5,6 +5,7 @@ from frappe.utils import flt
 
 from production_entry_app.production_entry_app.report.report_utils import (
 	accumulate_efficiency_aggregate,
+	apply_system_precision,
 	build_efficiency_rows,
 	build_stock_entry_filters,
 	get_entry_production_minutes,
@@ -29,28 +30,30 @@ def execute(filters: dict | None = None):
 
 
 def _get_columns() -> list[dict]:
-	return [
-		{
-			"label": _("Operator"),
-			"fieldname": "operator",
-			"fieldtype": "Link",
-			"options": "Operator",
-			"width": 160,
-		},
-		{"label": _("Entries"), "fieldname": "entries", "fieldtype": "Int", "width": 90},
-		{"label": _("Good Qty"), "fieldname": "good_qty", "fieldtype": "Float", "width": 120},
-		{"label": _("Rejection Qty"), "fieldname": "rejection_qty", "fieldtype": "Float", "width": 120},
-		{"label": _("Rework Qty"), "fieldname": "rework_qty", "fieldtype": "Float", "width": 120},
-		{"label": _("Total Units"), "fieldname": "total_units", "fieldtype": "Float", "width": 120},
-		{"label": _("Actual SPM"), "fieldname": "actual_spm", "fieldtype": "Float", "width": 110},
-		{"label": _("Standard SPM"), "fieldname": "standard_spm", "fieldtype": "Float", "width": 120},
-		{
-			"label": _("Operator Efficiency %"),
-			"fieldname": "operator_efficiency_pct",
-			"fieldtype": "Percent",
-			"width": 160,
-		},
-	]
+	return apply_system_precision(
+		[
+			{
+				"label": _("Operator"),
+				"fieldname": "operator",
+				"fieldtype": "Link",
+				"options": "Operator",
+				"width": 160,
+			},
+			{"label": _("Entries"), "fieldname": "entries", "fieldtype": "Int", "width": 90},
+			{"label": _("Good Qty"), "fieldname": "good_qty", "fieldtype": "Float", "width": 120},
+			{"label": _("Rejection Qty"), "fieldname": "rejection_qty", "fieldtype": "Float", "width": 120},
+			{"label": _("Rework Qty"), "fieldname": "rework_qty", "fieldtype": "Float", "width": 120},
+			{"label": _("Total Units"), "fieldname": "total_units", "fieldtype": "Float", "width": 120},
+			{"label": _("Actual SPM"), "fieldname": "actual_spm", "fieldtype": "Float", "width": 110},
+			{"label": _("Standard SPM"), "fieldname": "standard_spm", "fieldtype": "Float", "width": 120},
+			{
+				"label": _("Operator Efficiency %"),
+				"fieldname": "operator_efficiency_pct",
+				"fieldtype": "Percent",
+				"width": 160,
+			},
+		]
+	)
 
 
 def _get_rows(filters: dict, timeout_guard) -> list[dict]:

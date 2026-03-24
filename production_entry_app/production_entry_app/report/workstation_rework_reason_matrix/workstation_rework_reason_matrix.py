@@ -6,6 +6,7 @@ from frappe import _
 from frappe.utils import flt
 
 from production_entry_app.production_entry_app.report.report_utils import (
+	apply_system_precision,
 	build_stock_entry_filters,
 	get_parent_breakup_reason_rows,
 	iter_stock_entries_in_chunks,
@@ -69,7 +70,7 @@ def _get_columns(reason_order: list[str]) -> list[dict]:
 				"width": 130,
 			}
 		)
-	return columns
+	return apply_system_precision(columns)
 
 
 def _get_rows(filters: dict, top_n: int) -> tuple[list[dict], list[str]]:

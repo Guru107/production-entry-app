@@ -8,6 +8,9 @@ from frappe.utils import flt
 
 from production_entry_app.production_entry_app.utils.loss_time import build_interval_overlap_criterion
 from production_entry_app.production_entry_app.utils.shift_time import combine_date_time
+from production_entry_app.production_entry_app.utils.system_precision import (
+	get_system_float_precision,
+)
 
 
 def _get_timeline_cache_key(doctype: str, docname: str, shift_name: str) -> str:
@@ -26,6 +29,12 @@ def _set_cached_timeline_data(doctype: str, docname: str, shift_name: str, data:
 	)
 
 
+def _with_float_precision(payload: dict) -> dict:
+	result = dict(payload)
+	result.setdefault("float_precision", get_system_float_precision())
+	return result
+
+
 @frappe.whitelist()
 def get_shift_timeline_data(doctype: str, docname: str) -> dict:
 	"""Return running shift timeline data for Workstation/Operator forms."""
@@ -42,14 +51,14 @@ def get_shift_timeline_data(doctype: str, docname: str) -> dict:
 		order_by="modified desc",
 	)
 	if not running_shift:
-		return {"shift_name": None, "entries": []}
+		return {"shift_name": None, "entries": [], "float_precision": get_system_float_precision()}
 
 	shift = running_shift[0]
 	if not frappe.has_permission("Shift", "read", shift.get("name")):
 		raise frappe.PermissionError
 	cached_data = _get_cached_timeline_data(doctype, docname, shift.get("name"))
 	if cached_data is not None:
-		return cached_data
+		return _with_float_precision(cached_data)
 
 	shift_start = combine_date_time(shift.get("shift_date"), shift.get("planned_start_time"))
 	shift_end = combine_date_time(
@@ -169,6 +178,7 @@ def get_shift_timeline_data(doctype: str, docname: str) -> dict:
 		"shift_name": shift.get("name"),
 		"shift_start": str(shift_start),
 		"shift_end": str(shift_end),
+		"float_precision": get_system_float_precision(),
 		"entries": entries,
 	}
 	_set_cached_timeline_data(doctype, docname, shift.get("name"), result)

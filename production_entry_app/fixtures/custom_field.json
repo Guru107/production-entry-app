@@ -485,13 +485,24 @@
  },
  {
   "doctype": "Custom Field",
+  "name": "Stock Entry-custom_metrics_note",
+  "dt": "Stock Entry",
+  "fieldname": "custom_metrics_note",
+  "fieldtype": "Small Text",
+  "label": "Metrics Note",
+  "read_only": 1,
+  "insert_after": "custom_operator_efficiency_pct",
+  "module": "Production Entry App"
+ },
+ {
+  "doctype": "Custom Field",
   "name": "Stock Entry-custom_die_tool_utilization_pct",
   "dt": "Stock Entry",
   "fieldname": "custom_die_tool_utilization_pct",
   "fieldtype": "Float",
   "label": "Die Tool Utilization (%)",
   "read_only": 1,
-  "insert_after": "custom_operator_efficiency_pct",
+  "insert_after": "custom_metrics_note",
   "module": "Production Entry App"
  },
  {

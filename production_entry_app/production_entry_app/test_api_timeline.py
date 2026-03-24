@@ -220,6 +220,28 @@ class TestGetShiftTimelineData(FrappeTestCase):
 			["2026-10-08 09:00:00", "2026-10-08 10:00:00", "2026-10-08 11:00:00"],
 		)
 
+	def test_returns_float_precision_for_custom_timeline_rendering(self) -> None:
+		from production_entry_app.production_entry_app.api_timeline import get_shift_timeline_data
+		from production_entry_app.production_entry_app.utils.system_precision import (
+			get_system_float_precision,
+		)
+
+		shift = self._create_running_shift("2026-10-09")
+		self._create_submitted_like_entry(
+			shift.name,
+			workstation=self.workstation_a,
+			operator=self.operator_a,
+			actual_start="2026-10-09 09:00:00",
+			actual_end="2026-10-09 10:00:00",
+			good_qty=95,
+			rejection_qty=0,
+		)
+		result = get_shift_timeline_data("Workstation", self.workstation_a)
+		self.assertEqual(result["float_precision"], get_system_float_precision())
+		self.assertIsInstance(result["entries"][0]["fg_qty"], float)
+		self.assertIsInstance(result["entries"][0]["rejection_qty"], float)
+		self.assertIsInstance(result["entries"][0]["ok_qty"], float)
+
 	def test_returns_entries_for_operator_in_running_shift(self) -> None:
 		from production_entry_app.production_entry_app.api_timeline import get_shift_timeline_data
 
@@ -448,6 +470,9 @@ class TestGetShiftTimelineData(FrappeTestCase):
 
 	def test_returns_cached_timeline_without_querying_stock_entries(self) -> None:
 		from production_entry_app.production_entry_app.api_timeline import get_shift_timeline_data
+		from production_entry_app.production_entry_app.utils.system_precision import (
+			get_system_float_precision,
+		)
 
 		shift = self._create_running_shift("2026-10-10")
 		cached = {
@@ -471,11 +496,19 @@ class TestGetShiftTimelineData(FrappeTestCase):
 				return_value=running_shift,
 			),
 			patch(
+				"production_entry_app.production_entry_app.api_timeline.get_system_float_precision",
+				return_value=4,
+			),
+			patch(
 				"production_entry_app.production_entry_app.api_timeline._get_cached_timeline_data",
 				return_value=cached,
 			),
 		):
 			with patch("production_entry_app.production_entry_app.api_timeline.frappe.qb.from_") as qb_from:
 				result = get_shift_timeline_data("Workstation", self.workstation_a)
-		self.assertEqual(result, cached)
+		self.assertEqual(result["shift_name"], cached["shift_name"])
+		self.assertEqual(result["shift_start"], cached["shift_start"])
+		self.assertEqual(result["shift_end"], cached["shift_end"])
+		self.assertEqual(result["entries"], cached["entries"])
+		self.assertEqual(result["float_precision"], 4)
 		qb_from.assert_not_called()

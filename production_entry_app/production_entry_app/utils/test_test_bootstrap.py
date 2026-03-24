@@ -166,6 +166,25 @@ class TestTestBootstrap(FrappeTestCase):
 			self.assertIn(key, context)
 		self.assertTrue(frappe.db.exists("Company", context["company"]))
 
+	def test_bootstrap_manufacturing_test_context_resets_shift_warehouse_defaults(self) -> None:
+		company = resolve_test_company()
+		abbr = get_company_abbr(company)
+		stale_wip = ensure_warehouse(f"Bootstrap Stale WIP - {abbr}", company)
+		stale_rejection = ensure_warehouse(f"Bootstrap Stale Rejection - {abbr}", company)
+		frappe.db.set_single_value("Manufacturing Settings", "shift_wip_warehouse", stale_wip)
+		frappe.db.set_single_value("Manufacturing Settings", "shift_rejection_warehouse", stale_rejection)
+
+		context = bootstrap_manufacturing_test_context("Bootstrap Fresh")
+
+		self.assertEqual(
+			frappe.db.get_single_value("Manufacturing Settings", "shift_wip_warehouse"),
+			context["wip_warehouse"],
+		)
+		self.assertEqual(
+			frappe.db.get_single_value("Manufacturing Settings", "shift_rejection_warehouse"),
+			context["rejection_warehouse"],
+		)
+
 	def test_standard_rejection_reason_fixtures_exist(self) -> None:
 		expected = [
 			"Double Stroke",

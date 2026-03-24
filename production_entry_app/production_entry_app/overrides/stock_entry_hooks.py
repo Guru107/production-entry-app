@@ -573,6 +573,7 @@ def _set_entry_metrics(doc) -> None:
 		_set_if_field(doc, meta, "custom_actual_spm", None)
 		_set_if_field(doc, meta, "custom_cycle_time_sec", None)
 		_set_if_field(doc, meta, "custom_operator_efficiency_pct", None)
+		_set_if_field(doc, meta, "custom_metrics_note", "")
 		return
 
 	duration_mins = (actual_end - actual_start).total_seconds() / 60
@@ -582,6 +583,7 @@ def _set_entry_metrics(doc) -> None:
 		_set_if_field(doc, meta, "custom_actual_spm", None)
 		_set_if_field(doc, meta, "custom_cycle_time_sec", None)
 		_set_if_field(doc, meta, "custom_operator_efficiency_pct", None)
+		_set_if_field(doc, meta, "custom_metrics_note", "")
 		return
 
 	deducted_loss_mins = _get_deducted_loss_minutes_for_entry(doc, actual_start, actual_end)
@@ -601,6 +603,17 @@ def _set_entry_metrics(doc) -> None:
 	_set_if_field(doc, meta, "custom_actual_spm", flt(actual_spm))
 	_set_if_field(doc, meta, "custom_cycle_time_sec", flt(cycle_time_sec))
 	_set_if_field(doc, meta, "custom_operator_efficiency_pct", flt(operator_efficiency))
+	_set_if_field(doc, meta, "custom_metrics_note", _build_metrics_note(duration_mins, deducted_loss_mins))
+
+
+def _build_metrics_note(duration_mins: float, deducted_loss_mins: float) -> str:
+	if flt(duration_mins) <= 0:
+		return ""
+	if flt(deducted_loss_mins) < flt(duration_mins):
+		return ""
+	return _(
+		"Production metrics are zero because deducted loss time covers the full actual window. Review planned losses and unplanned losses for this entry."
+	)
 
 
 def _get_deducted_loss_minutes_for_entry(

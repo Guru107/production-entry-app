@@ -6,6 +6,7 @@ from frappe.query_builder import DocType
 from frappe.query_builder.functions import Count, Max
 from frappe.utils import flt
 
+from production_entry_app.production_entry_app.report.report_utils import apply_system_precision
 from production_entry_app.production_entry_app.utils.die_tool_counter import get_counter_health
 
 
@@ -17,45 +18,72 @@ def execute(filters: dict | None = None):
 
 
 def _get_columns() -> list[dict]:
-	return [
-		{
-			"label": _("Die Tool Item"),
-			"fieldname": "die_tool_item",
-			"fieldtype": "Link",
-			"options": "Item",
-			"width": 180,
-		},
-		{
-			"label": _("Current Stroke Count"),
-			"fieldname": "current_stroke_count",
-			"fieldtype": "Float",
-			"width": 160,
-		},
-		{"label": _("Max Stroke Count"), "fieldname": "stroke_capacity", "fieldtype": "Float", "width": 140},
-		{"label": _("Utilization %"), "fieldname": "utilization_pct", "fieldtype": "Percent", "width": 110},
-		{
-			"label": _("Warning Threshold %"),
-			"fieldname": "warning_threshold_pct",
-			"fieldtype": "Percent",
-			"width": 140,
-		},
-		{"label": _("Maintenance Due"), "fieldname": "maintenance_due", "fieldtype": "Check", "width": 120},
-		{
-			"label": _("Last Maintenance Date"),
-			"fieldname": "last_maintenance_date",
-			"fieldtype": "Datetime",
-			"width": 180,
-		},
-		{"label": _("Maintenance Count"), "fieldname": "maintenance_count", "fieldtype": "Int", "width": 140},
-		{"label": _("Last Reset On"), "fieldname": "last_reset_on", "fieldtype": "Datetime", "width": 160},
-		{
-			"label": _("Last Reset By"),
-			"fieldname": "last_reset_by",
-			"fieldtype": "Link",
-			"options": "User",
-			"width": 140,
-		},
-	]
+	return apply_system_precision(
+		[
+			{
+				"label": _("Die Tool Item"),
+				"fieldname": "die_tool_item",
+				"fieldtype": "Link",
+				"options": "Item",
+				"width": 180,
+			},
+			{
+				"label": _("Current Stroke Count"),
+				"fieldname": "current_stroke_count",
+				"fieldtype": "Float",
+				"width": 160,
+			},
+			{
+				"label": _("Max Stroke Count"),
+				"fieldname": "stroke_capacity",
+				"fieldtype": "Float",
+				"width": 140,
+			},
+			{
+				"label": _("Utilization %"),
+				"fieldname": "utilization_pct",
+				"fieldtype": "Percent",
+				"width": 110,
+			},
+			{
+				"label": _("Warning Threshold %"),
+				"fieldname": "warning_threshold_pct",
+				"fieldtype": "Percent",
+				"width": 140,
+			},
+			{
+				"label": _("Maintenance Due"),
+				"fieldname": "maintenance_due",
+				"fieldtype": "Check",
+				"width": 120,
+			},
+			{
+				"label": _("Last Maintenance Date"),
+				"fieldname": "last_maintenance_date",
+				"fieldtype": "Datetime",
+				"width": 180,
+			},
+			{
+				"label": _("Maintenance Count"),
+				"fieldname": "maintenance_count",
+				"fieldtype": "Int",
+				"width": 140,
+			},
+			{
+				"label": _("Last Reset On"),
+				"fieldname": "last_reset_on",
+				"fieldtype": "Datetime",
+				"width": 160,
+			},
+			{
+				"label": _("Last Reset By"),
+				"fieldname": "last_reset_by",
+				"fieldtype": "Link",
+				"options": "User",
+				"width": 140,
+			},
+		]
+	)
 
 
 def _get_rows(filters: dict) -> list[dict]:

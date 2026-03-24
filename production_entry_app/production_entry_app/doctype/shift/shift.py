@@ -6,17 +6,24 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 from frappe.query_builder import DocType
-from frappe.query_builder.functions import Avg, Count, CustomFunction, Sum
-from frappe.utils import add_to_date, flt
+from frappe.query_builder.functions import CustomFunction, Sum
+from frappe.utils import add_to_date, cint, flt, get_datetime
 
 from production_entry_app.production_entry_app.utils.loss_time import (
 	build_interval_overlap_criterion,
 	build_interval_overlap_filters,
+	get_loss_duration_minutes,
 )
 from production_entry_app.production_entry_app.utils.shift_time import combine_date_time
+from production_entry_app.production_entry_app.utils.system_precision import (
+	get_system_float_precision,
+)
 
 METRICS_CACHE_TTL_SEC: int = 30
 WARNING_THRESHOLD_PCT_DEFAULT: float = 90.0
+SHIFT_SUMMARY_TARGET_COVERAGE_PCT_MIN: float = 60.0
+SHIFT_SUMMARY_COMPLETENESS_MIN_RECORDED_RATIO: float = 0.5
+SHIFT_SUMMARY_WORKSTATION_MIN_PRODUCTION_MINS: float = 15.0
 VALID_SHIFT_DURATIONS: frozenset[int] = frozenset({8, 10, 12, 14, 16})
 _SHIFT_START_LOSSES: list[tuple[str, int, int]] = [
 	("Shift Start Up", 0, 10),
@@ -236,109 +243,468 @@ def check_running_shift_conflict(shift_name: str) -> dict:
 	}
 
 
-def _empty_shift_metrics() -> dict:
+def _empty_shift_summary() -> dict:
 	return {
-		"entry_count": 0,
-		"total_qty": 0,
-		"total_rejection_qty": 0,
-		"total_ok_qty": 0,
-		"total_duration_mins": 0,
-		"avg_actual_spm": 0,
-		"avg_efficiency_pct": 0,
+		"float_precision": get_system_float_precision(),
+		"snapshot": {
+			"entry_count": 0,
+			"total_qty": 0,
+			"ok_qty": 0,
+			"rejection_qty": 0,
+			"rejection_pct": 0,
+			"recorded_production_mins": 0,
+			"overall_throughput_spm": 0,
+			"overall_ok_spm": 0,
+			"overall_shift_efficiency_pct": None,
+			"target_coverage_pct": 0,
+		},
+		"losses": {
+			"planned_shift_mins": 0,
+			"planned_loss_mins": 0,
+			"planned_usable_mins": 0,
+			"unplanned_loss_mins": 0,
+			"unplanned_loss_breakdown": [],
+		},
+		"exceptions": {
+			"workstations": [],
+			"item_boms": [],
+			"unplanned_loss_reasons": [],
+		},
+		"logged_downtime": {
+			"recorded": False,
+			"entry_count": 0,
+			"total_mins": 0,
+			"top_reasons": [],
+		},
+		"positive_signal": None,
+		"completeness": {"show_banner": False, "messages": []},
 	}
+
+
+def _get_shift_summary_cache_key(shift_name: str) -> str:
+	return f"pea:shift_summary:{shift_name}"
 
 
 def _get_shift_metrics_cache_key(shift_name: str) -> str:
-	return f"pea:shift_metrics:{shift_name}"
+	"""Compatibility alias for Stock Entry cache invalidation hooks."""
+	return _get_shift_summary_cache_key(shift_name)
 
 
-def _get_cached_shift_metrics(shift_name: str) -> dict | None:
-	return frappe.cache().get_value(_get_shift_metrics_cache_key(shift_name))
+def _get_cached_shift_summary(shift_name: str) -> dict | None:
+	return frappe.cache().get_value(_get_shift_summary_cache_key(shift_name))
 
 
-def _set_cached_shift_metrics(shift_name: str, metrics: dict) -> None:
+def _set_cached_shift_summary(shift_name: str, summary: dict) -> None:
 	frappe.cache().set_value(
-		_get_shift_metrics_cache_key(shift_name), metrics, expires_in_sec=METRICS_CACHE_TTL_SEC
+		_get_shift_summary_cache_key(shift_name), summary, expires_in_sec=METRICS_CACHE_TTL_SEC
 	)
+
+
+def _with_shift_summary_float_precision(summary: dict) -> dict:
+	result = dict(summary)
+	result.setdefault("float_precision", get_system_float_precision())
+	return result
+
+
+def invalidate_shift_summary_cache(shift_name: str | None) -> None:
+	if not shift_name:
+		return
+	frappe.cache().delete_value(_get_shift_summary_cache_key(shift_name))
+
+
+def invalidate_shift_summary_for_shift(doc, method: str | None = None) -> None:
+	invalidate_shift_summary_cache(getattr(doc, "name", None))
+
+
+def invalidate_shift_summary_for_downtime_entry(doc, method: str | None = None) -> None:
+	shift_names = {getattr(doc, "shift", None)}
+	get_before_save = getattr(doc, "get_doc_before_save", None)
+	if callable(get_before_save):
+		before_doc = get_before_save()
+		if before_doc:
+			shift_names.add(getattr(before_doc, "shift", None))
+	for shift_name in shift_names:
+		invalidate_shift_summary_cache(shift_name)
+
+
+def _get_shift_window(shift_name: str) -> tuple[dict, datetime.datetime, datetime.datetime] | None:
+	shift = frappe.db.get_value(
+		"Shift",
+		shift_name,
+		[
+			"name",
+			"status",
+			"shift_duration",
+			"shift_date",
+			"planned_start_time",
+			"shift_end_date",
+			"planned_end_time",
+		],
+		as_dict=True,
+	)
+	if not shift or not shift.get("shift_date") or not shift.get("planned_start_time"):
+		return None
+	start_dt = combine_date_time(shift["shift_date"], shift["planned_start_time"])
+	end_dt = combine_date_time(
+		shift.get("shift_end_date") or shift["shift_date"],
+		shift.get("planned_end_time") or "23:59:59",
+	)
+	return shift, start_dt, end_dt
+
+
+def _get_entry_production_minutes(entry: dict) -> float:
+	production_time_mins = entry.get("custom_production_time_mins")
+	if production_time_mins is not None:
+		return flt(production_time_mins)
+	return flt(entry.get("custom_actual_duration_mins") or 0)
+
+
+def _get_logged_downtime_minutes(row: dict) -> float:
+	if flt(row.get("downtime") or 0) > 0:
+		return flt(row.get("downtime") or 0)
+	start_dt = get_datetime(row.get("from_time")) if row.get("from_time") else None
+	end_dt = get_datetime(row.get("to_time")) if row.get("to_time") else None
+	if not start_dt or not end_dt or end_dt <= start_dt:
+		return 0
+	return flt((end_dt - start_dt).total_seconds() / 60)
+
+
+def _top_reason_rows(reason_totals: dict[str, float], key_name: str = "reason") -> list[dict]:
+	return [
+		{key_name: reason, "mins": flt(total_mins)}
+		for reason, total_mins in sorted(
+			reason_totals.items(),
+			key=lambda row: (-flt(row[1]), row[0]),
+		)[:3]
+	]
+
+
+def _build_workstation_summary_rows(entries: list[dict]) -> tuple[list[dict], dict | None]:
+	aggregates: dict[str, dict] = {}
+	for entry in entries:
+		workstation = entry.get("custom_workstation") or "Unassigned"
+		aggregate = aggregates.setdefault(
+			workstation,
+			{
+				"workstation": workstation,
+				"total_qty": 0.0,
+				"ok_qty": 0.0,
+				"rejection_qty": 0.0,
+				"production_mins": 0.0,
+				"target_mins": 0.0,
+				"standard_weighted_sum": 0.0,
+			},
+		)
+		total_qty = flt(entry.get("fg_completed_qty") or 0)
+		rejection_qty = flt(entry.get("custom_rejection_qty") or 0)
+		ok_qty = max(total_qty - rejection_qty, 0)
+		production_mins = _get_entry_production_minutes(entry)
+		standard_spm = flt(entry.get("custom_standard_spm") or 0)
+		aggregate["total_qty"] += total_qty
+		aggregate["ok_qty"] += ok_qty
+		aggregate["rejection_qty"] += rejection_qty
+		aggregate["production_mins"] += production_mins
+		if standard_spm > 0 and production_mins > 0:
+			aggregate["target_mins"] += production_mins
+			aggregate["standard_weighted_sum"] += standard_spm * production_mins
+
+	rows: list[dict] = []
+	for aggregate in aggregates.values():
+		production_mins = flt(aggregate["production_mins"])
+		target_mins = flt(aggregate["target_mins"])
+		throughput_spm = (flt(aggregate["total_qty"]) / production_mins) if production_mins > 0 else 0
+		target_coverage_pct = (target_mins / production_mins) * 100 if production_mins > 0 else 0
+		weighted_target_spm = flt(aggregate["standard_weighted_sum"]) / target_mins if target_mins > 0 else 0
+		efficiency_pct = None
+		if (
+			production_mins >= SHIFT_SUMMARY_WORKSTATION_MIN_PRODUCTION_MINS
+			and target_coverage_pct >= SHIFT_SUMMARY_TARGET_COVERAGE_PCT_MIN
+			and weighted_target_spm > 0
+		):
+			efficiency_pct = flt((throughput_spm / weighted_target_spm) * 100)
+		rows.append(
+			{
+				"workstation": aggregate["workstation"],
+				"total_qty": flt(aggregate["total_qty"]),
+				"ok_qty": flt(aggregate["ok_qty"]),
+				"rejection_qty": flt(aggregate["rejection_qty"]),
+				"production_mins": production_mins,
+				"throughput_spm": flt(throughput_spm),
+				"efficiency_pct": efficiency_pct,
+				"target_coverage_pct": flt(target_coverage_pct),
+			}
+		)
+
+	def _sort_worst(row: dict) -> tuple[float, float, str]:
+		efficiency_pct = row.get("efficiency_pct")
+		if efficiency_pct is not None:
+			return (0, flt(efficiency_pct), str(row["workstation"]))
+		return (1, flt(row["throughput_spm"]), str(row["workstation"]))
+
+	def _sort_best(row: dict) -> tuple[float, float, str]:
+		efficiency_pct = row.get("efficiency_pct")
+		if efficiency_pct is not None:
+			return (0, -flt(efficiency_pct), str(row["workstation"]))
+		return (1, -flt(row["throughput_spm"]), str(row["workstation"]))
+
+	worst_rows = sorted(rows, key=_sort_worst)[:3]
+	best_row = sorted(rows, key=_sort_best)[0] if rows else None
+	return worst_rows, best_row
+
+
+def _build_item_bom_rows(entries: list[dict]) -> list[dict]:
+	aggregates: dict[str, dict] = {}
+	for entry in entries:
+		item_code = entry.get("item_code") or entry.get("fg_item") or _("Unknown Item")
+		bom_no = entry.get("bom_no") or ""
+		label = f"{item_code} / {bom_no}" if bom_no else f"{item_code} / {_('No BOM')}"
+		aggregate = aggregates.setdefault(
+			label,
+			{
+				"label": label,
+				"item_code": item_code,
+				"bom_no": bom_no,
+				"total_qty": 0.0,
+				"ok_qty": 0.0,
+				"rejection_qty": 0.0,
+			},
+		)
+		total_qty = flt(entry.get("fg_completed_qty") or 0)
+		rejection_qty = flt(entry.get("custom_rejection_qty") or 0)
+		aggregate["total_qty"] += total_qty
+		aggregate["ok_qty"] += max(total_qty - rejection_qty, 0)
+		aggregate["rejection_qty"] += rejection_qty
+	rows: list[dict] = []
+	for aggregate in aggregates.values():
+		total_qty = flt(aggregate["total_qty"])
+		rows.append(
+			{
+				"label": aggregate["label"],
+				"item_code": aggregate["item_code"],
+				"bom_no": aggregate["bom_no"] or None,
+				"total_qty": total_qty,
+				"ok_qty": flt(aggregate["ok_qty"]),
+				"rejection_qty": flt(aggregate["rejection_qty"]),
+				"rejection_pct": flt((aggregate["rejection_qty"] / total_qty) * 100) if total_qty > 0 else 0,
+			}
+		)
+	return sorted(
+		rows,
+		key=lambda row: (
+			-flt(row["rejection_qty"]),
+			-flt(row["rejection_pct"]),
+			flt(row["ok_qty"]),
+			row["label"],
+		),
+	)[:3]
+
+
+def _build_completeness_state(
+	*,
+	shift_status: str | None,
+	entry_count: int,
+	recorded_production_mins: float,
+	planned_usable_mins: float,
+) -> dict:
+	messages: list[str] = []
+	if shift_status == "Running":
+		messages.append(_("Running shift summaries are provisional."))
+	if entry_count == 0:
+		messages.append(_("No production entries are recorded for this shift yet."))
+	if (
+		shift_status == "Completed"
+		and planned_usable_mins > 0
+		and (recorded_production_mins / planned_usable_mins) < SHIFT_SUMMARY_COMPLETENESS_MIN_RECORDED_RATIO
+	):
+		messages.append(_("Recorded production time looks low relative to planned usable time."))
+	return {"show_banner": len(messages) > 0, "messages": messages}
 
 
 @frappe.whitelist()
-def get_shift_metrics(shift_name: str) -> dict:
-	"""Return aggregate production metrics for submitted Stock Entries linked to a shift."""
+def get_shift_summary(shift_name: str) -> dict:
+	"""Return structured summary data for the Shift summary tab."""
 	if not shift_name:
-		return _empty_shift_metrics()
+		return _empty_shift_summary()
 	if not frappe.has_permission("Shift", "read", shift_name):
 		raise frappe.PermissionError
-	cached_metrics = _get_cached_shift_metrics(shift_name)
-	if cached_metrics is not None:
-		return cached_metrics
+	cached_summary = _get_cached_shift_summary(shift_name)
+	if cached_summary is not None:
+		return _with_shift_summary_float_precision(cached_summary)
 
-	stock_entry = DocType("Stock Entry")
-	has_production_time_field = frappe.get_meta("Stock Entry", cached=True).has_field(
-		"custom_production_time_mins"
+	window = _get_shift_window(shift_name)
+	if not window:
+		empty_summary = _empty_shift_summary()
+		_set_cached_shift_summary(shift_name, empty_summary)
+		return empty_summary
+	shift, start_dt, end_dt = window
+
+	entry_rows = frappe.get_all(
+		"Stock Entry",
+		filters={"docstatus": 1, "purpose": "Manufacture", "custom_shift": shift_name},
+		fields=[
+			"name",
+			"fg_completed_qty",
+			"custom_rejection_qty",
+			"custom_actual_duration_mins",
+			"custom_production_time_mins",
+			"custom_standard_spm",
+			"custom_workstation",
+			"bom_no",
+		],
+		order_by="name asc",
 	)
-	production_time_expr = (
-		frappe.qb.terms.Case()
-		.when(stock_entry.custom_production_time_mins > 0, stock_entry.custom_production_time_mins)
-		.else_(stock_entry.custom_actual_duration_mins)
+	entry_names = [row.get("name") for row in entry_rows if row.get("name")]
+	item_by_entry = (
+		{
+			row.get("parent"): row.get("item_code")
+			for row in frappe.get_all(
+				"Stock Entry Detail",
+				filters={"parent": ["in", entry_names], "is_finished_item": 1},
+				fields=["parent", "item_code"],
+				order_by="idx asc",
+			)
+		}
+		if entry_names
+		else {}
 	)
-	select_fields = [
-		Count(stock_entry.name).as_("entry_count"),
-		Sum(stock_entry.fg_completed_qty).as_("total_qty"),
-		Sum(stock_entry.custom_rejection_qty).as_("total_rejection_qty"),
-		Sum(stock_entry.custom_actual_duration_mins).as_("total_duration_mins"),
-		Avg(stock_entry.custom_operator_efficiency_pct).as_("avg_efficiency_pct"),
-	]
-	if has_production_time_field:
-		select_fields.insert(
-			3,
-			Sum(production_time_expr).as_("total_production_mins"),
+	bom_names = sorted({row.get("bom_no") for row in entry_rows if row.get("bom_no")})
+	item_by_bom = (
+		{
+			row.get("name"): row.get("item")
+			for row in frappe.get_all("BOM", filters={"name": ["in", bom_names]}, fields=["name", "item"])
+		}
+		if bom_names
+		else {}
+	)
+	for row in entry_rows:
+		row["item_code"] = item_by_entry.get(row.get("name")) or item_by_bom.get(row.get("bom_no")) or ""
+	loss_rows = (
+		frappe.get_all(
+			"Loss Entry",
+			filters={"parenttype": "Stock Entry", "parent": ["in", entry_names]},
+			fields=["parent", "downtime_reason", "start_time", "end_time"],
 		)
-	row = (
-		frappe.qb.from_(stock_entry)
-		.select(*select_fields)
-		.where(
-			(stock_entry.docstatus == 1)
-			& (stock_entry.purpose == "Manufacture")
-			& (stock_entry.custom_shift == shift_name)
-		)
-	).run(as_dict=True)
-
-	if not row:
-		empty_metrics = _empty_shift_metrics()
-		_set_cached_shift_metrics(shift_name, empty_metrics)
-		return empty_metrics
-
-	metrics = row[0] or {}
-	entry_count = int(metrics.get("entry_count") or 0)
-	if entry_count == 0:
-		empty_metrics = _empty_shift_metrics()
-		_set_cached_shift_metrics(shift_name, empty_metrics)
-		return empty_metrics
-
-	total_qty = flt(metrics.get("total_qty") or 0)
-	total_rejection_qty = flt(metrics.get("total_rejection_qty") or 0)
-	total_ok_qty = total_qty - total_rejection_qty
-	total_production_mins = metrics.get("total_production_mins")
-	total_duration_mins = flt(
-		total_production_mins
-		if total_production_mins is not None
-		else (metrics.get("total_duration_mins") or 0),
+		if entry_names
+		else []
 	)
-	avg_actual_spm = (total_ok_qty / total_duration_mins) if total_duration_mins > 0 else 0
-	avg_efficiency_pct = flt(metrics.get("avg_efficiency_pct") or 0)
+	logged_downtime_rows = frappe.get_all(
+		"Downtime Entry",
+		filters=[
+			["shift", "=", shift_name],
+			*build_interval_overlap_filters("from_time", "to_time", start_dt, end_dt),
+		],
+		fields=["name", "downtime", "from_time", "to_time", "stop_reason"],
+		order_by="from_time asc",
+	)
+	planned_loss_rows = frappe.get_all(
+		"Loss Entry",
+		filters={"parenttype": "Shift", "parent": shift_name},
+		fields=["downtime_reason", "start_time", "end_time"],
+	)
 
-	result = {
-		"entry_count": entry_count,
-		"total_qty": total_qty,
-		"total_rejection_qty": total_rejection_qty,
-		"total_ok_qty": total_ok_qty,
-		"total_duration_mins": total_duration_mins,
-		"avg_actual_spm": avg_actual_spm,
-		"avg_efficiency_pct": avg_efficiency_pct,
+	entry_count = len(entry_rows)
+	total_qty = 0.0
+	rejection_qty = 0.0
+	recorded_production_mins = 0.0
+	target_covered_mins = 0.0
+	weighted_target_sum = 0.0
+	for row in entry_rows:
+		total_qty += flt(row.get("fg_completed_qty") or 0)
+		rejection_qty += flt(row.get("custom_rejection_qty") or 0)
+		production_mins = _get_entry_production_minutes(row)
+		recorded_production_mins += production_mins
+		standard_spm = flt(row.get("custom_standard_spm") or 0)
+		if standard_spm > 0 and production_mins > 0:
+			target_covered_mins += production_mins
+			weighted_target_sum += standard_spm * production_mins
+
+	ok_qty = max(total_qty - rejection_qty, 0)
+	rejection_pct = flt((rejection_qty / total_qty) * 100) if total_qty > 0 else 0
+	overall_throughput_spm = (total_qty / recorded_production_mins) if recorded_production_mins > 0 else 0
+	overall_ok_spm = (ok_qty / recorded_production_mins) if recorded_production_mins > 0 else 0
+	target_coverage_pct = (
+		(target_covered_mins / recorded_production_mins) * 100 if recorded_production_mins > 0 else 0
+	)
+	weighted_target_spm = (weighted_target_sum / target_covered_mins) if target_covered_mins > 0 else 0
+	overall_shift_efficiency_pct = (
+		flt((overall_throughput_spm / weighted_target_spm) * 100)
+		if weighted_target_spm > 0 and target_coverage_pct >= SHIFT_SUMMARY_TARGET_COVERAGE_PCT_MIN
+		else None
+	)
+
+	unplanned_loss_reason_totals: dict[str, float] = {}
+	unplanned_loss_mins = 0.0
+	for row in loss_rows:
+		reason = row.get("downtime_reason") or _("Unknown")
+		duration_mins = get_loss_duration_minutes(row.get("start_time"), row.get("end_time"))
+		if duration_mins <= 0:
+			continue
+		unplanned_loss_mins += duration_mins
+		unplanned_loss_reason_totals[reason] = (
+			flt(unplanned_loss_reason_totals.get(reason) or 0) + duration_mins
+		)
+
+	logged_downtime_reason_totals: dict[str, float] = {}
+	logged_downtime_total_mins = 0.0
+	for row in logged_downtime_rows:
+		reason = row.get("stop_reason") or _("Unknown")
+		duration_mins = _get_logged_downtime_minutes(row)
+		if duration_mins <= 0:
+			continue
+		logged_downtime_total_mins += duration_mins
+		logged_downtime_reason_totals[reason] = (
+			flt(logged_downtime_reason_totals.get(reason) or 0) + duration_mins
+		)
+
+	planned_loss_mins = 0.0
+	for row in planned_loss_rows:
+		planned_loss_mins += get_loss_duration_minutes(row.get("start_time"), row.get("end_time"))
+	planned_shift_mins = flt(shift.get("shift_duration") or 0) * 60
+	planned_usable_mins = max(planned_shift_mins - planned_loss_mins, 0)
+
+	workstation_rows, best_workstation = _build_workstation_summary_rows(entry_rows)
+	summary = {
+		"float_precision": get_system_float_precision(),
+		"snapshot": {
+			"entry_count": entry_count,
+			"total_qty": flt(total_qty),
+			"ok_qty": flt(ok_qty),
+			"rejection_qty": flt(rejection_qty),
+			"rejection_pct": rejection_pct,
+			"recorded_production_mins": flt(recorded_production_mins),
+			"overall_throughput_spm": flt(overall_throughput_spm),
+			"overall_ok_spm": flt(overall_ok_spm),
+			"overall_shift_efficiency_pct": overall_shift_efficiency_pct,
+			"target_coverage_pct": flt(target_coverage_pct),
+		},
+		"losses": {
+			"planned_shift_mins": flt(planned_shift_mins),
+			"planned_loss_mins": flt(planned_loss_mins),
+			"planned_usable_mins": flt(planned_usable_mins),
+			"unplanned_loss_mins": flt(unplanned_loss_mins),
+			"unplanned_loss_breakdown": _top_reason_rows(unplanned_loss_reason_totals),
+		},
+		"exceptions": {
+			"workstations": workstation_rows,
+			"item_boms": _build_item_bom_rows(entry_rows),
+			"unplanned_loss_reasons": _top_reason_rows(unplanned_loss_reason_totals),
+		},
+		"logged_downtime": {
+			"recorded": len(logged_downtime_rows) > 0,
+			"entry_count": len(logged_downtime_rows),
+			"total_mins": flt(logged_downtime_total_mins),
+			"top_reasons": _top_reason_rows(logged_downtime_reason_totals),
+		},
+		"positive_signal": best_workstation,
+		"completeness": _build_completeness_state(
+			shift_status=shift.get("status"),
+			entry_count=entry_count,
+			recorded_production_mins=flt(recorded_production_mins),
+			planned_usable_mins=flt(planned_usable_mins),
+		),
 	}
-	_set_cached_shift_metrics(shift_name, result)
-	return result
+	_set_cached_shift_summary(shift_name, summary)
+	return summary
 
 
 @frappe.whitelist()
@@ -348,6 +714,7 @@ def get_shift_aggregate_production_entries(shift_name: str) -> list[dict]:
 		return []
 	if not frappe.has_permission("Shift", "read", shift_name):
 		raise frappe.PermissionError
+	float_precision = get_system_float_precision()
 
 	stock_entry = DocType("Stock Entry")
 	bom = DocType("BOM")
@@ -408,6 +775,7 @@ def get_shift_aggregate_production_entries(shift_name: str) -> list[dict]:
 				"total_ok_qty": total_ok_qty,
 				"total_reject_qty": total_reject_qty,
 				"avg_spm": avg_spm,
+				"float_precision": float_precision,
 			}
 		)
 

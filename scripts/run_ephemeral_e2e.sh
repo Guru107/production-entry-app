@@ -70,7 +70,7 @@ bench --site "$SITE_NAME" install-app erpnext
 bench --site "$SITE_NAME" install-app production_entry_app
 bench build --app production_entry_app
 bench --site "$SITE_NAME" execute erpnext.setup.setup_wizard.operations.install_fixtures.install --args '["India"]'
-bench --site "$SITE_NAME" execute erpnext.setup.utils.before_tests
+bench --site "$SITE_NAME" execute production_entry_app.production_entry_app.utils.test_setup.before_tests
 bench --site "$SITE_NAME" set-config developer_mode 1
 bench --site "$SITE_NAME" set-config allow_e2e_tests 1
 bench --site "$SITE_NAME" execute production_entry_app.production_entry_app.api._is_developer_mode_enabled

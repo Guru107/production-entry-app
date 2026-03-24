@@ -154,12 +154,21 @@ override_doctype_class = {
 # Hook on document methods and events
 
 doc_events = {
+	"Shift": {
+		"on_update": "production_entry_app.production_entry_app.doctype.shift.shift.invalidate_shift_summary_for_shift",
+		"on_trash": "production_entry_app.production_entry_app.doctype.shift.shift.invalidate_shift_summary_for_shift",
+	},
 	"Stock Entry": {
 		"validate": "production_entry_app.production_entry_app.overrides.stock_entry_hooks.validate_stock_entry",
 		"on_submit": "production_entry_app.production_entry_app.overrides.stock_entry_hooks.on_submit_stock_entry",
 		"on_cancel": "production_entry_app.production_entry_app.overrides.stock_entry_hooks.on_cancel_stock_entry",
 		"on_trash": "production_entry_app.production_entry_app.overrides.stock_entry_hooks.on_trash_stock_entry",
-	}
+	},
+	"Downtime Entry": {
+		"after_insert": "production_entry_app.production_entry_app.doctype.shift.shift.invalidate_shift_summary_for_downtime_entry",
+		"on_update": "production_entry_app.production_entry_app.doctype.shift.shift.invalidate_shift_summary_for_downtime_entry",
+		"on_trash": "production_entry_app.production_entry_app.doctype.shift.shift.invalidate_shift_summary_for_downtime_entry",
+	},
 }
 
 # Scheduled Tasks

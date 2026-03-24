@@ -6,6 +6,7 @@ from frappe import _
 from frappe.utils import flt, getdate
 
 from production_entry_app.production_entry_app.report.report_utils import (
+	apply_system_precision,
 	build_stock_entry_filters,
 	get_parent_quantity_metrics,
 	iter_stock_entries_in_chunks,
@@ -23,19 +24,21 @@ def execute(filters: dict | None = None):
 
 
 def _get_columns() -> list[dict]:
-	return [
-		{"label": _("Period"), "fieldname": "period", "fieldtype": "Data", "width": 150},
-		{"label": _("Entries"), "fieldname": "entries", "fieldtype": "Int", "width": 90},
-		{"label": _("Total Qty"), "fieldname": "total_qty", "fieldtype": "Float", "width": 120},
-		{"label": _("Rejection Qty"), "fieldname": "rejection_qty", "fieldtype": "Float", "width": 130},
-		{"label": _("OK Qty"), "fieldname": "ok_qty", "fieldtype": "Float", "width": 110},
-		{
-			"label": _("Rejection Rate %"),
-			"fieldname": "rejection_rate_pct",
-			"fieldtype": "Percent",
-			"width": 150,
-		},
-	]
+	return apply_system_precision(
+		[
+			{"label": _("Period"), "fieldname": "period", "fieldtype": "Data", "width": 150},
+			{"label": _("Entries"), "fieldname": "entries", "fieldtype": "Int", "width": 90},
+			{"label": _("Total Qty"), "fieldname": "total_qty", "fieldtype": "Float", "width": 120},
+			{"label": _("Rejection Qty"), "fieldname": "rejection_qty", "fieldtype": "Float", "width": 130},
+			{"label": _("OK Qty"), "fieldname": "ok_qty", "fieldtype": "Float", "width": 110},
+			{
+				"label": _("Rejection Rate %"),
+				"fieldname": "rejection_rate_pct",
+				"fieldtype": "Percent",
+				"width": 150,
+			},
+		]
+	)
 
 
 def _build_filters(filters: dict) -> dict:
