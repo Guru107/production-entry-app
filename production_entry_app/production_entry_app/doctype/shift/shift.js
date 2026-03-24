@@ -618,6 +618,10 @@ function _get_summary_float_precision(rawPrecision) {
 	return Number.isFinite(numericPrecision) ? numericPrecision : 3;
 }
 
+function _format_aggregate_metric_value(value, floatPrecision) {
+	return _format_summary_value({ value, fieldtype: "Float" }, floatPrecision);
+}
+
 function _render_aggregate_production_entries(frm) {
 	if (!frm.doc.name) {
 		return;
@@ -637,6 +641,7 @@ function _render_aggregate_production_entries(frm) {
 				);
 				return;
 			}
+			const floatPrecision = _get_summary_float_precision(rows[0]?.float_precision);
 
 			const headers = [
 				__("BOM Used"),
@@ -657,13 +662,13 @@ function _render_aggregate_production_entries(frm) {
 						)}</td><td>${frappe.utils.escape_html(
 							String(row.item_code || "")
 						)}</td><td>${frappe.utils.escape_html(
-							String(row.total_qty ?? "")
+							_format_aggregate_metric_value(row.total_qty, floatPrecision)
 						)}</td><td>${frappe.utils.escape_html(
-							String(row.total_ok_qty ?? "")
+							_format_aggregate_metric_value(row.total_ok_qty, floatPrecision)
 						)}</td><td>${frappe.utils.escape_html(
-							String(row.total_reject_qty ?? "")
+							_format_aggregate_metric_value(row.total_reject_qty, floatPrecision)
 						)}</td><td>${frappe.utils.escape_html(
-							String(row.avg_spm ?? "")
+							_format_aggregate_metric_value(row.avg_spm, floatPrecision)
 						)}</td></tr>`
 				)
 				.join("")}</tbody>`;

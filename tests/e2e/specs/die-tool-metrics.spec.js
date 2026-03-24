@@ -10,6 +10,14 @@ async function setupFreshContext(page, prefix) {
 	return await bootstrapE2E(page, prefix);
 }
 
+async function setSystemFloatPrecision(page, prefix, precision) {
+	await callFrappeMethod(
+		page,
+		"production_entry_app.production_entry_app.api.set_e2e_system_float_precision",
+		{ prefix, precision }
+	);
+}
+
 async function createManufactureEntry(page, ctx, options = {}) {
 	const stockEntryPage = new StockEntryPage(page);
 	await stockEntryPage.openNew();
@@ -191,7 +199,9 @@ test.describe("Die tool metrics and counter", () => {
 		page,
 	}) => {
 		await page.goto(getRoute("/home"));
-		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
+		const prefix = `${lifecycle.getPrefix()}-die-tool-precision`;
+		const ctx = await setupFreshContext(page, prefix);
+		await setSystemFloatPrecision(page, prefix, 4);
 
 		const stockEntryPage = await createManufactureEntry(page, ctx, {
 			fgQty: 10,

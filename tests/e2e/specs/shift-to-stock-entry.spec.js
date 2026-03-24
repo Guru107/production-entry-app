@@ -23,6 +23,95 @@ async function setupFreshContext(page, prefix) {
 	return await bootstrapE2E(page, prefix);
 }
 
+async function setSystemFloatPrecision(page, prefix, precision) {
+	await callFrappeMethod(
+		page,
+		"production_entry_app.production_entry_app.api.set_e2e_system_float_precision",
+		{ prefix, precision }
+	);
+}
+
+async function openForm(page, doctypeRoute, name) {
+	const doctypeByRoute = {
+		shift: "Shift",
+		workstation: "Workstation",
+		operator: "Operator",
+	};
+	const encodedName = encodeURIComponent(name);
+	await page.goto(getRoute(`/${doctypeRoute}/${encodedName}`));
+	await page.waitForFunction(
+		({ expectedName, expectedDoctype }) =>
+			window.cur_frm?.doc?.name === expectedName &&
+			window.cur_frm?.doctype === expectedDoctype,
+		{ expectedName: name, expectedDoctype: doctypeByRoute[doctypeRoute] }
+	);
+}
+
+async function getFieldText(page, fieldname) {
+	return await page.evaluate((name) => {
+		const field = window.cur_frm?.fields_dict?.[name];
+		return (field?.$wrapper?.text?.() || "").replace(/\s+/g, " ").trim();
+	}, fieldname);
+}
+
+async function getTimelineCanvasDetails(page, fieldname) {
+	return await page.evaluate((name) => {
+		const field = window.cur_frm?.fields_dict?.[name];
+		const wrapper = field?.$wrapper?.[0];
+		const canvas = wrapper?.querySelector(".pea-shift-timeline-canvas");
+		if (!canvas) {
+			return null;
+		}
+		const first = (canvas.__peaHitBoxes || [])[0];
+		return {
+			hasCanvas: true,
+			firstCenter: first
+				? { x: Math.round(first.x + first.w / 2), y: Math.round(first.y + first.h / 2) }
+				: null,
+		};
+	}, fieldname);
+}
+
+async function dispatchTimelineCanvasEvent(page, fieldname, eventType, position) {
+	return await page.evaluate(
+		({ name, type, pos }) => {
+			const field = window.cur_frm?.fields_dict?.[name];
+			const canvas = field?.$wrapper?.[0]?.querySelector(".pea-shift-timeline-canvas");
+			if (!canvas) {
+				return false;
+			}
+			const rect = canvas.getBoundingClientRect();
+			const clientX = rect.left + (pos?.x || 0);
+			const clientY = rect.top + (pos?.y || 0);
+			canvas.dispatchEvent(
+				new MouseEvent(type, {
+					bubbles: true,
+					cancelable: true,
+					clientX,
+					clientY,
+				})
+			);
+			return true;
+		},
+		{ name: fieldname, type: eventType, pos: position }
+	);
+}
+
+function formatFloatForUi(value, precision) {
+	return Number(value || 0).toFixed(precision);
+}
+
+async function createSubmittedDecimalManufactureEntry(page, prefix, options = {}) {
+	return await callFrappeMethod(
+		page,
+		"production_entry_app.production_entry_app.api.create_e2e_submitted_stock_entry",
+		{
+			prefix,
+			rejection_qty: options.rejectionQty ?? 0,
+		}
+	);
+}
+
 async function deleteShiftIfExists(page, { department, date, label }) {
 	const rows = await callFrappeMethod(page, "frappe.client.get_list", {
 		doctype: "Shift",
@@ -204,5 +293,95 @@ test.describe("Shift to Stock Entry integration", () => {
 		await stockEntryPage.fetchItems();
 		await stockEntryPage.attemptSaveDraft();
 		await expectValidationError(page, /Only Running shifts can be linked in Stock Entry/i);
+	});
+
+	test("@regression shift aggregate production entries format numeric metrics with system precision", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		const prefix = `${lifecycle.getPrefix()}-shift-aggregate-precision`;
+		const ctx = await setupFreshContext(page, prefix);
+		await setSystemFloatPrecision(page, prefix, 4);
+
+		const shiftPage = new ShiftPage(page);
+		await shiftPage.open(ctx.shift_name);
+		await createSubmittedDecimalManufactureEntry(page, prefix, { rejectionQty: 1 });
+		await page.evaluate(async () => {
+			await cur_frm.reload_doc();
+		});
+		await page.waitForFunction(() => {
+			const field = window.cur_frm?.fields_dict?.aggregate_production_entries;
+			const text = (field?.$wrapper?.text?.() || "").replace(/\s+/g, " ").trim();
+			return (
+				text.includes("BOM Used") &&
+				text.includes("Total Qty") &&
+				text.includes("Total OK Qty") &&
+				text.includes("Total Reject Qty") &&
+				text.includes("Avg SPM")
+			);
+		});
+
+		const rows = await callFrappeMethod(
+			page,
+			"production_entry_app.production_entry_app.doctype.shift.shift.get_shift_aggregate_production_entries",
+			{ shift_name: ctx.shift_name }
+		);
+		const firstRow = rows[0];
+		expect(firstRow).toBeTruthy();
+		const aggregateText = await getFieldText(page, "aggregate_production_entries");
+		expect(aggregateText).toContain(formatFloatForUi(firstRow.total_qty, 4));
+		expect(aggregateText).toContain(formatFloatForUi(firstRow.total_ok_qty, 4));
+		expect(aggregateText).toContain(formatFloatForUi(firstRow.total_reject_qty, 4));
+		expect(aggregateText).toContain(formatFloatForUi(firstRow.avg_spm, 4));
+	});
+
+	test("@regression workstation timeline tooltip formats quantity values with system precision", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		const prefix = `${lifecycle.getPrefix()}-timeline-precision`;
+		const ctx = await setupFreshContext(page, prefix);
+		await setSystemFloatPrecision(page, prefix, 4);
+
+		await createSubmittedDecimalManufactureEntry(page, prefix, { rejectionQty: 1 });
+
+		await openForm(page, "workstation", ctx.workstation);
+		await page.waitForFunction(() => {
+			const field = window.cur_frm?.fields_dict?.custom_shift_timeline_html;
+			const canvas = field?.$wrapper?.[0]?.querySelector(".pea-shift-timeline-canvas");
+			return Boolean(canvas && (canvas.__peaHitBoxes || []).length > 0);
+		});
+
+		const timelineData = await callFrappeMethod(
+			page,
+			"production_entry_app.production_entry_app.api_timeline.get_shift_timeline_data",
+			{ doctype: "Workstation", docname: ctx.workstation }
+		);
+		const productionEntry = (timelineData.entries || []).find((row) => row.entry_type === "production");
+		expect(productionEntry).toBeTruthy();
+		const canvasData = await getTimelineCanvasDetails(page, "custom_shift_timeline_html");
+		expect(canvasData?.firstCenter).toBeTruthy();
+		const hovered = await dispatchTimelineCanvasEvent(
+			page,
+			"custom_shift_timeline_html",
+			"mousemove",
+			canvasData.firstCenter
+		);
+		expect(hovered).toBe(true);
+
+		await page.waitForFunction(() => {
+			const tooltip = document.querySelector(".pea-shift-timeline-tooltip");
+			return Boolean(tooltip && getComputedStyle(tooltip).display !== "none");
+		});
+		const tooltipText = await page.locator(".pea-shift-timeline-tooltip").textContent();
+		expect(String(tooltipText || "")).toContain(
+			formatFloatForUi(productionEntry.fg_qty, timelineData.float_precision)
+		);
+		expect(String(tooltipText || "")).toContain(
+			formatFloatForUi(productionEntry.rejection_qty, timelineData.float_precision)
+		);
+		expect(String(tooltipText || "")).toContain(
+			formatFloatForUi(productionEntry.ok_qty, timelineData.float_precision)
+		);
 	});
 });
