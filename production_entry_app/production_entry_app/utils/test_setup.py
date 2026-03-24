@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from importlib import import_module
+from typing import Callable
+
 import frappe
-from erpnext.setup.utils import before_tests as erpnext_before_tests
 
 from production_entry_app.production_entry_app.utils.test_bootstrap import ensure_branch
 from production_entry_app.production_entry_app.utils.test_cleanup import (
@@ -42,12 +44,23 @@ def _ensure_branch_defaults() -> None:
 	frappe.defaults.set_user_default("Branch", branch)
 
 
+def _get_erpnext_before_tests() -> Callable[[], None] | None:
+	try:
+		erpnext_setup_utils = import_module("erpnext.setup.utils")
+	except ImportError:
+		return None
+
+	before_tests = getattr(erpnext_setup_utils, "before_tests", None)
+	return before_tests if callable(before_tests) else None
+
+
 def before_tests() -> None:
 	"""Bootstrap site-local ERPNext test records for deterministic local/CI runs."""
 	install_test_run_cleanup()
 	cleanup_reserved_benchmark_data()
 	if not frappe.db.exists("Company", None) or not frappe.db.exists("Cost Center", None):
-		erpnext_before_tests()
+		if erpnext_before_tests := _get_erpnext_before_tests():
+			erpnext_before_tests()
 	_ensure_company_defaults()
 	_ensure_branch_defaults()
 	_ensure_gender_records()

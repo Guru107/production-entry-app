@@ -510,5 +510,5 @@ class TestGetShiftTimelineData(FrappeTestCase):
 		self.assertEqual(result["shift_start"], cached["shift_start"])
 		self.assertEqual(result["shift_end"], cached["shift_end"])
 		self.assertEqual(result["entries"], cached["entries"])
-		self.assertEqual(result["float_precision"], get_system_float_precision())
+		self.assertEqual(result["float_precision"], 4)
 		qb_from.assert_not_called()
