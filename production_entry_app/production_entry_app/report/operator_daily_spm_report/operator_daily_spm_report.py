@@ -5,6 +5,7 @@ from frappe import _
 from frappe.utils import flt
 
 from production_entry_app.production_entry_app.report.report_utils import (
+	apply_system_precision,
 	build_stock_entry_filters,
 	get_entry_production_minutes,
 	get_entry_total_strokes,
@@ -20,7 +21,7 @@ def execute(filters: dict | None = None):
 
 
 def _get_columns() -> list[dict]:
-	return [
+	return apply_system_precision([
 		{"label": _("Date"), "fieldname": "date", "fieldtype": "Date", "width": 120},
 		{
 			"label": _("Operator"),
@@ -52,7 +53,7 @@ def _get_columns() -> list[dict]:
 		},
 		{"label": _("Total Strokes"), "fieldname": "total_strokes", "fieldtype": "Float", "width": 120},
 		{"label": _("SPM"), "fieldname": "spm", "fieldtype": "Float", "width": 100},
-	]
+	])
 
 
 def _build_filters(filters: dict) -> dict:

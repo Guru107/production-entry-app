@@ -5,6 +5,7 @@ from frappe import _
 from frappe.utils import flt, get_time
 
 from production_entry_app.production_entry_app.report.report_utils import (
+	apply_system_precision,
 	get_entry_production_minutes,
 	get_entry_total_strokes,
 	get_loss_duration_minutes,
@@ -140,7 +141,7 @@ def _get_columns() -> list[dict]:
 		]
 	)
 
-	return columns
+	return apply_system_precision(columns)
 
 
 def _get_rows(filters: dict, timeout_guard) -> list[dict]:

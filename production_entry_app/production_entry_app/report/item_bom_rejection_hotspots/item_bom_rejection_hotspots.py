@@ -4,6 +4,7 @@ from frappe import _
 from frappe.utils import flt
 
 from production_entry_app.production_entry_app.report.report_utils import (
+	apply_system_precision,
 	build_stock_entry_filters,
 	format_numeric_summary,
 	get_finished_item_map,
@@ -25,7 +26,7 @@ def execute(filters: dict | None = None):
 
 
 def _get_columns() -> list[dict]:
-	return [
+	return apply_system_precision([
 		{
 			"label": _("Item Code"),
 			"fieldname": "item_code",
@@ -44,7 +45,7 @@ def _get_columns() -> list[dict]:
 			"width": 150,
 		},
 		{"label": _("Dominant Reason"), "fieldname": "dominant_reason", "fieldtype": "Data", "width": 240},
-	]
+	])
 
 
 def _build_filters(filters: dict) -> dict:

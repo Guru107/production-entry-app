@@ -1006,6 +1006,8 @@ class TestStockEntryHooks(FrappeTestCase):
 		self.assertAlmostEqual(
 			float(se.custom_operator_efficiency_pct), float((total_strokes / 70.0) * 100), places=2
 		)
+		self.assertNotIsInstance(se.get("custom_actual_spm"), str)
+		self.assertNotIsInstance(se.get("custom_operator_efficiency_pct"), str)
 
 	def test_metrics_use_production_time_after_setup_and_loss(self) -> None:
 		shift = _create_test_shift(

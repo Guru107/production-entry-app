@@ -7,6 +7,7 @@ from frappe import _
 from frappe.utils import flt, getdate
 
 from production_entry_app.production_entry_app.report.report_utils import (
+	apply_system_precision,
 	build_stock_entry_filters,
 	get_entry_production_minutes,
 	get_entry_raw_duration_minutes,
@@ -86,7 +87,7 @@ def _get_columns(filters: dict) -> list[dict]:
 			{"label": _("Rework"), "fieldname": "rework", "fieldtype": "Float", "width": 100},
 		]
 	)
-	return columns
+	return apply_system_precision(columns)
 
 
 def _get_date_range(filters: dict) -> tuple[str, str]:

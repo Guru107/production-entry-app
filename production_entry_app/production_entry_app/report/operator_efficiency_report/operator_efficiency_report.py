@@ -5,6 +5,7 @@ from frappe.utils import flt
 
 from production_entry_app.production_entry_app.report.report_utils import (
 	accumulate_efficiency_aggregate,
+	apply_system_precision,
 	build_efficiency_rows,
 	build_stock_entry_filters,
 	get_entry_production_minutes,
@@ -29,7 +30,7 @@ def execute(filters: dict | None = None):
 
 
 def _get_columns() -> list[dict]:
-	return [
+	return apply_system_precision([
 		{
 			"label": _("Operator"),
 			"fieldname": "operator",
@@ -50,7 +51,7 @@ def _get_columns() -> list[dict]:
 			"fieldtype": "Percent",
 			"width": 160,
 		},
-	]
+	])
 
 
 def _get_rows(filters: dict, timeout_guard) -> list[dict]:

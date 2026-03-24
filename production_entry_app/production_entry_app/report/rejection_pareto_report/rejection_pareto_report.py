@@ -4,6 +4,7 @@ from frappe import _
 from frappe.utils import flt
 
 from production_entry_app.production_entry_app.report.report_utils import (
+	apply_system_precision,
 	build_stock_entry_filters,
 	get_parent_breakup_reason_rows,
 	iter_stock_entries_in_chunks,
@@ -19,7 +20,7 @@ def execute(filters: dict | None = None):
 
 
 def _get_columns() -> list[dict]:
-	return [
+	return apply_system_precision([
 		{"label": _("Rank"), "fieldname": "rank", "fieldtype": "Int", "width": 70},
 		{
 			"label": _("Rejection Reason"),
@@ -33,7 +34,7 @@ def _get_columns() -> list[dict]:
 		{"label": _("Cumulative %"), "fieldname": "cumulative_pct", "fieldtype": "Percent", "width": 120},
 		{"label": _("Entries"), "fieldname": "entries", "fieldtype": "Int", "width": 100},
 		{"label": _("Shifts"), "fieldname": "shifts", "fieldtype": "Int", "width": 90},
-	]
+	])
 
 
 def _build_filters(filters: dict) -> dict:

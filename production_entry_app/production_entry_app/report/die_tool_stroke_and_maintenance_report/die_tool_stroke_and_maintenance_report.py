@@ -6,6 +6,7 @@ from frappe.query_builder import DocType
 from frappe.query_builder.functions import Count, Max
 from frappe.utils import flt
 
+from production_entry_app.production_entry_app.report.report_utils import apply_system_precision
 from production_entry_app.production_entry_app.utils.die_tool_counter import get_counter_health
 
 
@@ -17,7 +18,7 @@ def execute(filters: dict | None = None):
 
 
 def _get_columns() -> list[dict]:
-	return [
+	return apply_system_precision([
 		{
 			"label": _("Die Tool Item"),
 			"fieldname": "die_tool_item",
@@ -55,7 +56,7 @@ def _get_columns() -> list[dict]:
 			"options": "User",
 			"width": 140,
 		},
-	]
+	])
 
 
 def _get_rows(filters: dict) -> list[dict]:

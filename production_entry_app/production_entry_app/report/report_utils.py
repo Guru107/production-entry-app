@@ -15,6 +15,9 @@ from production_entry_app.production_entry_app.utils.loss_time import (
 	SETUP_TIME_REASON,
 	get_loss_duration_minutes,
 )
+from production_entry_app.production_entry_app.utils.system_precision import (
+	get_system_float_precision,
+)
 
 _MAX_FG_ITEM_PARENT_MATCHES = 5000
 _DEFAULT_REPORT_CHUNK_SIZE = 1000
@@ -489,7 +492,18 @@ def get_entry_raw_duration_minutes(entry: dict) -> float:
 
 def format_numeric_summary(value: float) -> str:
 	"""Format a number for human-readable inline display in report text (e.g. dominant reason qty)."""
-	return frappe.format_value(value, df={"fieldtype": "Float"})
+	return frappe.format_value(
+		value,
+		df={"fieldtype": "Float", "precision": get_system_float_precision()},
+	)
+
+
+def apply_system_precision(columns: list[dict]) -> list[dict]:
+	precision = get_system_float_precision()
+	for column in columns:
+		if column.get("fieldtype") in {"Float", "Percent"}:
+			column["precision"] = precision
+	return columns
 
 
 def new_efficiency_aggregates() -> defaultdict:

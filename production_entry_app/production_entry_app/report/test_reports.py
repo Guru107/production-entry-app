@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import ExitStack
 import time
 from unittest.mock import patch
 
@@ -27,6 +28,13 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 
 
 class TestProductionReports(FrappeTestCase):
+	def _assert_column_precision(
+		self, columns: list[dict], fieldnames: tuple[str, ...], expected_precision: int
+	) -> None:
+		columns_by_field = {column["fieldname"]: column for column in columns}
+		for fieldname in fieldnames:
+			self.assertEqual(columns_by_field[fieldname]["precision"], expected_precision)
+
 	@classmethod
 	def _ensure_base_fixtures(cls) -> None:
 		if not frappe.get_meta("Loss Entry", cached=True).has_field("shift"):
@@ -157,23 +165,157 @@ class TestProductionReports(FrappeTestCase):
 			],
 		)
 
-	def test_production_oee_report_percent_columns_use_frappe_defaults(self) -> None:
+	def test_report_metric_columns_follow_system_precision(self) -> None:
+		from production_entry_app.production_entry_app.report.daily_strokes_spm_monitor.daily_strokes_spm_monitor import (
+			_get_columns as get_daily_columns,
+		)
+		from production_entry_app.production_entry_app.report.die_tool_stroke_and_maintenance_report.die_tool_stroke_and_maintenance_report import (
+			_get_columns as get_die_tool_columns,
+		)
+		from production_entry_app.production_entry_app.report.item_bom_rejection_hotspots.item_bom_rejection_hotspots import (
+			_get_columns as get_rejection_hotspot_columns,
+		)
+		from production_entry_app.production_entry_app.report.item_bom_rework_hotspots.item_bom_rework_hotspots import (
+			_get_columns as get_rework_hotspot_columns,
+		)
+		from production_entry_app.production_entry_app.report.operator_daily_spm_report.operator_daily_spm_report import (
+			_get_columns as get_operator_daily_columns,
+		)
+		from production_entry_app.production_entry_app.report.operator_efficiency_report.operator_efficiency_report import (
+			_get_columns as get_operator_efficiency_columns,
+		)
+		from production_entry_app.production_entry_app.report.operator_rejection_performance.operator_rejection_performance import (
+			_get_columns as get_operator_rejection_columns,
+		)
+		from production_entry_app.production_entry_app.report.operator_rework_performance.operator_rework_performance import (
+			_get_columns as get_operator_rework_columns,
+		)
 		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
-			execute,
+			_get_columns as get_oee_columns,
+		)
+		from production_entry_app.production_entry_app.report.rejection_ppm_report.rejection_ppm_report import (
+			_get_columns as get_rejection_ppm_columns,
+		)
+		from production_entry_app.production_entry_app.report.rejection_trend_report.rejection_trend_report import (
+			_get_columns as get_rejection_trend_columns,
+		)
+		from production_entry_app.production_entry_app.report.rework_ppm_report.rework_ppm_report import (
+			_get_columns as get_rework_ppm_columns,
+		)
+		from production_entry_app.production_entry_app.report.rework_trend_report.rework_trend_report import (
+			_get_columns as get_rework_trend_columns,
+		)
+		from production_entry_app.production_entry_app.report.workstation_efficiency_report.workstation_efficiency_report import (
+			_get_columns as get_workstation_efficiency_columns,
+		)
+		from production_entry_app.production_entry_app.report.workstation_rejection_reason_matrix.workstation_rejection_reason_matrix import (
+			_get_columns as get_workstation_rejection_matrix_columns,
+		)
+		from production_entry_app.production_entry_app.report.workstation_rework_reason_matrix.workstation_rework_reason_matrix import (
+			_get_columns as get_workstation_rework_matrix_columns,
 		)
 
-		percent_fieldnames = {
-			"productivity_pct",
-			"quality_pct",
-			"availability_pct",
-			"oee",
-			"oee_mult_pct",
-		}
-		columns, _rows = execute({})
-		columns = {column["fieldname"]: column for column in columns}
-		for fieldname in percent_fieldnames:
-			self.assertEqual(columns[fieldname]["fieldtype"], "Percent")
-			self.assertNotIn("precision", columns[fieldname])
+		with ExitStack() as stack:
+			for target in (
+				"production_entry_app.production_entry_app.report.production_oee_report.production_oee_report.get_system_float_precision",
+				"production_entry_app.production_entry_app.report.operator_efficiency_report.operator_efficiency_report.get_system_float_precision",
+				"production_entry_app.production_entry_app.report.workstation_efficiency_report.workstation_efficiency_report.get_system_float_precision",
+				"production_entry_app.production_entry_app.report.daily_strokes_spm_monitor.daily_strokes_spm_monitor.get_system_float_precision",
+				"production_entry_app.production_entry_app.report.operator_daily_spm_report.operator_daily_spm_report.get_system_float_precision",
+				"production_entry_app.production_entry_app.report.item_bom_rejection_hotspots.item_bom_rejection_hotspots.get_system_float_precision",
+				"production_entry_app.production_entry_app.report.item_bom_rework_hotspots.item_bom_rework_hotspots.get_system_float_precision",
+				"production_entry_app.production_entry_app.report.rejection_ppm_report.rejection_ppm_report.get_system_float_precision",
+				"production_entry_app.production_entry_app.report.rework_ppm_report.rework_ppm_report.get_system_float_precision",
+				"production_entry_app.production_entry_app.report.rejection_trend_report.rejection_trend_report.get_system_float_precision",
+				"production_entry_app.production_entry_app.report.rework_trend_report.rework_trend_report.get_system_float_precision",
+				"production_entry_app.production_entry_app.report.operator_rejection_performance.operator_rejection_performance.get_system_float_precision",
+				"production_entry_app.production_entry_app.report.operator_rework_performance.operator_rework_performance.get_system_float_precision",
+				"production_entry_app.production_entry_app.report.die_tool_stroke_and_maintenance_report.die_tool_stroke_and_maintenance_report.get_system_float_precision",
+				"production_entry_app.production_entry_app.report.workstation_rejection_reason_matrix.workstation_rejection_reason_matrix.get_system_float_precision",
+				"production_entry_app.production_entry_app.report.workstation_rework_reason_matrix.workstation_rework_reason_matrix.get_system_float_precision",
+			):
+				stack.enter_context(patch(target, return_value=4, create=True))
+
+			self._assert_column_precision(
+				get_oee_columns(),
+				("act_spm", "oee_mult_pct", "running_time"),
+				expected_precision=4,
+			)
+			self._assert_column_precision(
+				get_operator_efficiency_columns(),
+				("good_qty", "actual_spm", "operator_efficiency_pct"),
+				expected_precision=4,
+			)
+			self._assert_column_precision(
+				get_workstation_efficiency_columns(),
+				("good_qty", "actual_spm", "workstation_efficiency_pct"),
+				expected_precision=4,
+			)
+			self._assert_column_precision(
+				get_daily_columns({"fiscal_year": "2090-2091", "month": "April"}),
+				("setup_time_hrs", "spm", "rejection"),
+				expected_precision=4,
+			)
+			self._assert_column_precision(
+				get_operator_daily_columns(),
+				("working_hours", "production_time_hrs", "spm"),
+				expected_precision=4,
+			)
+			self._assert_column_precision(
+				get_rejection_hotspot_columns(),
+				("total_qty", "rejection_rate_pct"),
+				expected_precision=4,
+			)
+			self._assert_column_precision(
+				get_rework_hotspot_columns(),
+				("total_qty", "rework_rate_pct"),
+				expected_precision=4,
+			)
+			self._assert_column_precision(
+				get_rejection_ppm_columns(),
+				("total_qty", "ppm"),
+				expected_precision=4,
+			)
+			self._assert_column_precision(
+				get_rework_ppm_columns(),
+				("total_qty", "ppm"),
+				expected_precision=4,
+			)
+			self._assert_column_precision(
+				get_rejection_trend_columns(),
+				("total_qty", "ok_qty", "rejection_rate_pct"),
+				expected_precision=4,
+			)
+			self._assert_column_precision(
+				get_rework_trend_columns(),
+				("total_qty", "non_rework_rejection_qty", "rework_rate_pct"),
+				expected_precision=4,
+			)
+			self._assert_column_precision(
+				get_operator_rejection_columns(),
+				("total_qty", "avg_actual_spm", "rejection_rate_pct"),
+				expected_precision=4,
+			)
+			self._assert_column_precision(
+				get_operator_rework_columns(),
+				("total_qty", "avg_actual_spm", "rework_rate_pct"),
+				expected_precision=4,
+			)
+			self._assert_column_precision(
+				get_die_tool_columns(),
+				("current_stroke_count", "utilization_pct", "warning_threshold_pct"),
+				expected_precision=4,
+			)
+			self._assert_column_precision(
+				get_workstation_rejection_matrix_columns(["Crack"]),
+				("total_rejection_qty", "reason_crack"),
+				expected_precision=4,
+			)
+			self._assert_column_precision(
+				get_workstation_rework_matrix_columns(["Crack"]),
+				("total_rework_qty", "reason_crack"),
+				expected_precision=4,
+			)
 
 	def test_production_oee_report_metrics(self) -> None:
 		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
