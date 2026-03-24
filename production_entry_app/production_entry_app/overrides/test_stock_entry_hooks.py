@@ -2688,6 +2688,7 @@ class TestGetItemsWithRejection(FrappeTestCase):
 		_ensure_rejection_reason_doctype()
 		_ensure_rejection_reasons()
 		_ensure_rejection_breakup_custom_field()
+		_ensure_stock_entry_metric_fields()
 		context = bootstrap_manufacturing_test_context("SE Rejection")
 		cls.company = context["company"]
 		cls.wip_warehouse = context["wip_warehouse"]
@@ -2705,6 +2706,7 @@ class TestGetItemsWithRejection(FrappeTestCase):
 		_ensure_rejection_reason_doctype()
 		_ensure_rejection_reasons()
 		_ensure_rejection_breakup_custom_field()
+		_ensure_stock_entry_metric_fields()
 		context = bootstrap_manufacturing_test_context("SE Rejection")
 		self.company = context["company"]
 		self.wip_warehouse = context["wip_warehouse"]
