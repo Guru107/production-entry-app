@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from contextlib import ExitStack
 import time
+from contextlib import ExitStack
 from unittest.mock import patch
 
 import frappe
@@ -216,25 +216,12 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		with ExitStack() as stack:
-			for target in (
-				"production_entry_app.production_entry_app.report.production_oee_report.production_oee_report.get_system_float_precision",
-				"production_entry_app.production_entry_app.report.operator_efficiency_report.operator_efficiency_report.get_system_float_precision",
-				"production_entry_app.production_entry_app.report.workstation_efficiency_report.workstation_efficiency_report.get_system_float_precision",
-				"production_entry_app.production_entry_app.report.daily_strokes_spm_monitor.daily_strokes_spm_monitor.get_system_float_precision",
-				"production_entry_app.production_entry_app.report.operator_daily_spm_report.operator_daily_spm_report.get_system_float_precision",
-				"production_entry_app.production_entry_app.report.item_bom_rejection_hotspots.item_bom_rejection_hotspots.get_system_float_precision",
-				"production_entry_app.production_entry_app.report.item_bom_rework_hotspots.item_bom_rework_hotspots.get_system_float_precision",
-				"production_entry_app.production_entry_app.report.rejection_ppm_report.rejection_ppm_report.get_system_float_precision",
-				"production_entry_app.production_entry_app.report.rework_ppm_report.rework_ppm_report.get_system_float_precision",
-				"production_entry_app.production_entry_app.report.rejection_trend_report.rejection_trend_report.get_system_float_precision",
-				"production_entry_app.production_entry_app.report.rework_trend_report.rework_trend_report.get_system_float_precision",
-				"production_entry_app.production_entry_app.report.operator_rejection_performance.operator_rejection_performance.get_system_float_precision",
-				"production_entry_app.production_entry_app.report.operator_rework_performance.operator_rework_performance.get_system_float_precision",
-				"production_entry_app.production_entry_app.report.die_tool_stroke_and_maintenance_report.die_tool_stroke_and_maintenance_report.get_system_float_precision",
-				"production_entry_app.production_entry_app.report.workstation_rejection_reason_matrix.workstation_rejection_reason_matrix.get_system_float_precision",
-				"production_entry_app.production_entry_app.report.workstation_rework_reason_matrix.workstation_rework_reason_matrix.get_system_float_precision",
-			):
-				stack.enter_context(patch(target, return_value=4, create=True))
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.report.report_utils.get_report_float_precision",
+					return_value=4,
+				)
+			)
 
 			self._assert_column_precision(
 				get_oee_columns(),

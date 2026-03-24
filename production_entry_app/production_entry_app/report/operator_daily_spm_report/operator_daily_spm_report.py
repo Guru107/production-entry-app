@@ -21,39 +21,41 @@ def execute(filters: dict | None = None):
 
 
 def _get_columns() -> list[dict]:
-	return apply_system_precision([
-		{"label": _("Date"), "fieldname": "date", "fieldtype": "Date", "width": 120},
-		{
-			"label": _("Operator"),
-			"fieldname": "operator",
-			"fieldtype": "Link",
-			"options": "Operator",
-			"width": 160,
-		},
-		{
-			"label": _("Workstation"),
-			"fieldname": "workstation",
-			"fieldtype": "Link",
-			"options": "Workstation",
-			"width": 160,
-		},
-		{"label": _("Working Hours"), "fieldname": "working_hours", "fieldtype": "Float", "width": 120},
-		{
-			"label": _("Setting Time (Hrs)"),
-			"fieldname": "setting_time_hrs",
-			"fieldtype": "Float",
-			"width": 130,
-		},
-		{"label": _("Loss Time (Hrs)"), "fieldname": "loss_time_hrs", "fieldtype": "Float", "width": 130},
-		{
-			"label": _("Production Time (Hrs)"),
-			"fieldname": "production_time_hrs",
-			"fieldtype": "Float",
-			"width": 150,
-		},
-		{"label": _("Total Strokes"), "fieldname": "total_strokes", "fieldtype": "Float", "width": 120},
-		{"label": _("SPM"), "fieldname": "spm", "fieldtype": "Float", "width": 100},
-	])
+	return apply_system_precision(
+		[
+			{"label": _("Date"), "fieldname": "date", "fieldtype": "Date", "width": 120},
+			{
+				"label": _("Operator"),
+				"fieldname": "operator",
+				"fieldtype": "Link",
+				"options": "Operator",
+				"width": 160,
+			},
+			{
+				"label": _("Workstation"),
+				"fieldname": "workstation",
+				"fieldtype": "Link",
+				"options": "Workstation",
+				"width": 160,
+			},
+			{"label": _("Working Hours"), "fieldname": "working_hours", "fieldtype": "Float", "width": 120},
+			{
+				"label": _("Setting Time (Hrs)"),
+				"fieldname": "setting_time_hrs",
+				"fieldtype": "Float",
+				"width": 130,
+			},
+			{"label": _("Loss Time (Hrs)"), "fieldname": "loss_time_hrs", "fieldtype": "Float", "width": 130},
+			{
+				"label": _("Production Time (Hrs)"),
+				"fieldname": "production_time_hrs",
+				"fieldtype": "Float",
+				"width": 150,
+			},
+			{"label": _("Total Strokes"), "fieldname": "total_strokes", "fieldtype": "Float", "width": 120},
+			{"label": _("SPM"), "fieldname": "spm", "fieldtype": "Float", "width": 100},
+		]
+	)
 
 
 def _build_filters(filters: dict) -> dict:

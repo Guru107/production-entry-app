@@ -26,26 +26,33 @@ def execute(filters: dict | None = None):
 
 
 def _get_columns() -> list[dict]:
-	return apply_system_precision([
-		{
-			"label": _("Item Code"),
-			"fieldname": "item_code",
-			"fieldtype": "Link",
-			"options": "Item",
-			"width": 180,
-		},
-		{"label": _("BOM"), "fieldname": "bom_no", "fieldtype": "Link", "options": "BOM", "width": 220},
-		{"label": _("Entries"), "fieldname": "entries", "fieldtype": "Int", "width": 90},
-		{"label": _("Total Qty"), "fieldname": "total_qty", "fieldtype": "Float", "width": 120},
-		{"label": _("Rejection Qty"), "fieldname": "rejection_qty", "fieldtype": "Float", "width": 130},
-		{
-			"label": _("Rejection Rate %"),
-			"fieldname": "rejection_rate_pct",
-			"fieldtype": "Percent",
-			"width": 150,
-		},
-		{"label": _("Dominant Reason"), "fieldname": "dominant_reason", "fieldtype": "Data", "width": 240},
-	])
+	return apply_system_precision(
+		[
+			{
+				"label": _("Item Code"),
+				"fieldname": "item_code",
+				"fieldtype": "Link",
+				"options": "Item",
+				"width": 180,
+			},
+			{"label": _("BOM"), "fieldname": "bom_no", "fieldtype": "Link", "options": "BOM", "width": 220},
+			{"label": _("Entries"), "fieldname": "entries", "fieldtype": "Int", "width": 90},
+			{"label": _("Total Qty"), "fieldname": "total_qty", "fieldtype": "Float", "width": 120},
+			{"label": _("Rejection Qty"), "fieldname": "rejection_qty", "fieldtype": "Float", "width": 130},
+			{
+				"label": _("Rejection Rate %"),
+				"fieldname": "rejection_rate_pct",
+				"fieldtype": "Percent",
+				"width": 150,
+			},
+			{
+				"label": _("Dominant Reason"),
+				"fieldname": "dominant_reason",
+				"fieldtype": "Data",
+				"width": 240,
+			},
+		]
+	)
 
 
 def _build_filters(filters: dict) -> dict:

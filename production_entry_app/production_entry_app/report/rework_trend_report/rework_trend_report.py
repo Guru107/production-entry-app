@@ -24,24 +24,26 @@ def execute(filters: dict | None = None):
 
 
 def _get_columns() -> list[dict]:
-	return apply_system_precision([
-		{"label": _("Period"), "fieldname": "period", "fieldtype": "Data", "width": 150},
-		{"label": _("Entries"), "fieldname": "entries", "fieldtype": "Int", "width": 90},
-		{"label": _("Total Qty"), "fieldname": "total_qty", "fieldtype": "Float", "width": 120},
-		{"label": _("Rework Qty"), "fieldname": "rework_qty", "fieldtype": "Float", "width": 130},
-		{
-			"label": _("Non-Rework Rejection Qty"),
-			"fieldname": "non_rework_rejection_qty",
-			"fieldtype": "Float",
-			"width": 180,
-		},
-		{
-			"label": _("Rework Rate %"),
-			"fieldname": "rework_rate_pct",
-			"fieldtype": "Percent",
-			"width": 140,
-		},
-	])
+	return apply_system_precision(
+		[
+			{"label": _("Period"), "fieldname": "period", "fieldtype": "Data", "width": 150},
+			{"label": _("Entries"), "fieldname": "entries", "fieldtype": "Int", "width": 90},
+			{"label": _("Total Qty"), "fieldname": "total_qty", "fieldtype": "Float", "width": 120},
+			{"label": _("Rework Qty"), "fieldname": "rework_qty", "fieldtype": "Float", "width": 130},
+			{
+				"label": _("Non-Rework Rejection Qty"),
+				"fieldname": "non_rework_rejection_qty",
+				"fieldtype": "Float",
+				"width": 180,
+			},
+			{
+				"label": _("Rework Rate %"),
+				"fieldname": "rework_rate_pct",
+				"fieldtype": "Percent",
+				"width": 140,
+			},
+		]
+	)
 
 
 def _build_filters(filters: dict) -> dict:

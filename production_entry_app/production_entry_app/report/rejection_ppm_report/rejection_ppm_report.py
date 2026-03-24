@@ -22,13 +22,15 @@ def execute(filters: dict | None = None):
 
 
 def _get_columns() -> list[dict]:
-	return apply_system_precision([
-		{"label": _("Date"), "fieldname": "date", "fieldtype": "Date", "width": 120},
-		{"label": _("Entries"), "fieldname": "entries", "fieldtype": "Int", "width": 90},
-		{"label": _("Total Qty"), "fieldname": "total_qty", "fieldtype": "Float", "width": 120},
-		{"label": _("Rejection Qty"), "fieldname": "rejection_qty", "fieldtype": "Float", "width": 130},
-		{"label": _("PPM"), "fieldname": "ppm", "fieldtype": "Float", "width": 120},
-	])
+	return apply_system_precision(
+		[
+			{"label": _("Date"), "fieldname": "date", "fieldtype": "Date", "width": 120},
+			{"label": _("Entries"), "fieldname": "entries", "fieldtype": "Int", "width": 90},
+			{"label": _("Total Qty"), "fieldname": "total_qty", "fieldtype": "Float", "width": 120},
+			{"label": _("Rejection Qty"), "fieldname": "rejection_qty", "fieldtype": "Float", "width": 130},
+			{"label": _("PPM"), "fieldname": "ppm", "fieldtype": "Float", "width": 120},
+		]
+	)
 
 
 def _build_filters(filters: dict) -> dict:

@@ -357,7 +357,9 @@ test.describe("Shift to Stock Entry integration", () => {
 			"production_entry_app.production_entry_app.api_timeline.get_shift_timeline_data",
 			{ doctype: "Workstation", docname: ctx.workstation }
 		);
-		const productionEntry = (timelineData.entries || []).find((row) => row.entry_type === "production");
+		const productionEntry = (timelineData.entries || []).find(
+			(row) => row.entry_type === "production"
+		);
 		expect(productionEntry).toBeTruthy();
 		const canvasData = await getTimelineCanvasDetails(page, "custom_shift_timeline_html");
 		expect(canvasData?.firstCenter).toBeTruthy();

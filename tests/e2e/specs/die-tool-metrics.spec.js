@@ -64,6 +64,10 @@ test.describe("Die tool metrics and counter", () => {
 			actualEnd: `${ctx.shift_date} 09:20:00`,
 		});
 		await stockEntryPage.saveDraft();
+		await page.waitForFunction(() => {
+			const name = window.cur_frm?.doc?.name || "";
+			return Boolean(name) && !String(name).startsWith("new-stock-entry");
+		});
 
 		const stockEntryName = await page.evaluate(() => window.cur_frm?.doc?.name);
 		const stockEntry = await getDoc(page, "Stock Entry", stockEntryName);
