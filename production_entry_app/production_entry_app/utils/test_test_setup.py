@@ -60,6 +60,9 @@ class TestTestSetup(FrappeTestCase):
 				"production_entry_app.production_entry_app.utils.test_setup._get_erpnext_before_tests",
 				return_value=erpnext_before_tests,
 			) as get_erpnext_before_tests,
+			patch(
+				"production_entry_app.production_entry_app.utils.test_setup._bootstrap_erpnext_defaults_without_hook"
+			) as fallback_bootstrap,
 			patch("production_entry_app.production_entry_app.utils.test_setup._ensure_company_defaults"),
 			patch("production_entry_app.production_entry_app.utils.test_setup._ensure_branch_defaults"),
 			patch("production_entry_app.production_entry_app.utils.test_setup._ensure_gender_records"),
@@ -68,6 +71,7 @@ class TestTestSetup(FrappeTestCase):
 
 		get_erpnext_before_tests.assert_called_once_with()
 		erpnext_before_tests.assert_called_once_with()
+		fallback_bootstrap.assert_not_called()
 
 	def test_before_tests_runs_erpnext_bootstrap_when_company_missing(self) -> None:
 		erpnext_before_tests = Mock()
@@ -84,6 +88,9 @@ class TestTestSetup(FrappeTestCase):
 				"production_entry_app.production_entry_app.utils.test_setup._get_erpnext_before_tests",
 				return_value=erpnext_before_tests,
 			) as get_erpnext_before_tests,
+			patch(
+				"production_entry_app.production_entry_app.utils.test_setup._bootstrap_erpnext_defaults_without_hook"
+			) as fallback_bootstrap,
 			patch("production_entry_app.production_entry_app.utils.test_setup._ensure_company_defaults"),
 			patch("production_entry_app.production_entry_app.utils.test_setup._ensure_branch_defaults"),
 			patch("production_entry_app.production_entry_app.utils.test_setup._ensure_gender_records"),
@@ -92,8 +99,9 @@ class TestTestSetup(FrappeTestCase):
 
 		get_erpnext_before_tests.assert_called_once_with()
 		erpnext_before_tests.assert_called_once_with()
+		fallback_bootstrap.assert_not_called()
 
-	def test_before_tests_tolerates_missing_erpnext_bootstrap_hook(self) -> None:
+	def test_before_tests_uses_local_fallback_when_erpnext_bootstrap_hook_missing(self) -> None:
 		def fake_exists(doctype, name=None):
 			return doctype == "Company"
 
@@ -110,6 +118,9 @@ class TestTestSetup(FrappeTestCase):
 				"production_entry_app.production_entry_app.utils.test_setup._get_erpnext_before_tests",
 				return_value=None,
 			) as get_erpnext_before_tests,
+			patch(
+				"production_entry_app.production_entry_app.utils.test_setup._bootstrap_erpnext_defaults_without_hook"
+			) as fallback_bootstrap,
 			patch("production_entry_app.production_entry_app.utils.test_setup._ensure_company_defaults"),
 			patch("production_entry_app.production_entry_app.utils.test_setup._ensure_branch_defaults"),
 			patch("production_entry_app.production_entry_app.utils.test_setup._ensure_gender_records"),
@@ -117,3 +128,4 @@ class TestTestSetup(FrappeTestCase):
 			test_setup.before_tests()
 
 		get_erpnext_before_tests.assert_called_once_with()
+		fallback_bootstrap.assert_called_once_with()
