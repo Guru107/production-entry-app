@@ -386,4 +386,29 @@ test.describe("Shift to Stock Entry integration", () => {
 			formatFloatForUi(productionEntry.ok_qty, timelineData.float_precision)
 		);
 	});
+
+	test("@regression changing shift_duration while Running updates planned end time and refreshes summary", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
+		const shiftPage = new ShiftPage(page);
+
+		await shiftPage.open(ctx.shift_name);
+		await page.waitForFunction(() => window.cur_frm?.doc?.status === "Running", { timeout: 10000 });
+
+		const originalDuration = await shiftPage.getFieldValue("shift_duration");
+		const originalPlannedEndTime = await shiftPage.getFieldValue("planned_end_time");
+
+		const newDuration = String(parseInt(originalDuration, 10) + 2);
+		await setFieldValue(page, "shift_duration", newDuration);
+		await shiftPage.saveDraft();
+		await page.waitForFunction(() => window.cur_frm?.doc, { timeout: 10000 });
+
+		const updatedDuration = await shiftPage.getFieldValue("shift_duration");
+		expect(updatedDuration).toBe(newDuration);
+
+		const updatedPlannedEndTime = await shiftPage.getFieldValue("planned_end_time");
+		expect(updatedPlannedEndTime).not.toBe(originalPlannedEndTime);
+	});
 });
