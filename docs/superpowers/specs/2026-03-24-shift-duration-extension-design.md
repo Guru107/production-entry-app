@@ -18,7 +18,8 @@ Allow supervisors to revise `shift_duration` while a Shift is `Running` so the S
 	- running timeline window
 	- report denominators that depend on `shift_duration` or Shift planned losses
 - `planned_losses` remain server-generated and read-only while the Shift is `Running`.
-- `JH Activity` must always be scheduled at `10:00 AM - 10:10 AM` as a fixed absolute slot.
+- `JH Activity` must use a fixed absolute slot of `10:00 AM - 10:10 AM`.
+- Fixed planned-loss rows are only created when their clock window overlaps the active Shift window. If `10:00 AM - 10:10 AM` falls outside the Shift window, no `JH Activity` row is created.
 - Submitted Stock Entries must not be rewritten when the Shift duration changes.
 - Draft or future Stock Entries linked to the Shift should pick up the revised planned window through normal validation/save flows.
 
@@ -82,6 +83,10 @@ Rules:
 - `JH Activity` becomes a fixed absolute slot: `10:00:00` to `10:10:00`
 - tea/lunch/dinner breaks continue to use fixed clock-based definitions
 - only rows overlapping the current Shift window are generated
+
+Example:
+
+- Shift window `2026-03-25 22:00` to `2026-03-26 08:00`: no `JH Activity` row is generated because the fixed `10:00 AM - 10:10 AM` slot is outside the active Shift window
 
 Impact:
 
@@ -260,13 +265,16 @@ Changes:
 Files:
 
 - `production_entry_app/production_entry_app/overrides/stock_entry_hooks.py`
+- `production_entry_app/production_entry_app/api.py`
 - related tests under `overrides/`
+- API tests under `test_api.py`
 
 Changes:
 
 - no submitted-document rewrites
 - verify new/draft Stock Entries pick up the revised planned end via `_apply_shift_defaults()`
 - verify planned-window validation immediately respects the extended Shift
+- verify user-facing API payloads that hydrate Stock Entry forms continue returning current Shift end details after extension
 
 ### Reports
 
@@ -288,7 +296,9 @@ Required verification:
 
 - unit tests for planned-loss generation with fixed `JH Activity`
 - unit tests for Running-shift duration update and overlap rejection
+- unit tests for cross-midnight extension cases so fixed-loss overlap remains explicit
 - API tests for updated timeline end boundary
+- API tests for `get_shift_details_for_stock_entry()` against an extended Running shift
 - report tests for:
 	- OEE availability before/after extension
 	- operator daily working hours before/after extension
