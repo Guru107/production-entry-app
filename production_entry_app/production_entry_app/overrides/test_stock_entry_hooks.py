@@ -2061,6 +2061,7 @@ class TestStockEntryHooks(FrappeTestCase):
 		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
 			validate_stock_entry,
 		)
+
 		validate_stock_entry(se)
 		original_planned_end = se.custom_planned_end_date
 
@@ -2125,6 +2126,7 @@ class TestStockEntryHooks(FrappeTestCase):
 		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
 			validate_stock_entry,
 		)
+
 		validate_stock_entry(se_reloaded)
 
 		# The submitted doc's planned dates must remain unchanged
