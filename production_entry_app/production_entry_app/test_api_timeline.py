@@ -516,11 +516,18 @@ class TestGetShiftTimelineData(FrappeTestCase):
 	def test_timeline_payload_uses_updated_shift_end_after_duration_change(self) -> None:
 		"""When a Running shift's duration changes, the timeline payload must use the
 		updated shift_end rather than a stale value from before the change."""
-		from production_entry_app.production_entry_app.api_timeline import get_shift_timeline_data
+		from production_entry_app.production_entry_app.api_timeline import (
+			_get_cached_timeline_data,
+			_get_timeline_cache_key,
+			get_shift_timeline_data,
+		)
 
 		shift = self._create_running_shift("2026-10-15")
 		# Shift is 8 hours (08:00 - 16:00)
 		self.assertEqual(str(shift.planned_end_time), "16:00:00")
+
+		# Record the old modified timestamp before the change
+		old_modified = frappe.db.get_value("Shift", shift.name, "modified")
 
 		# Change shift duration to 10 hours (simulate the update)
 		frappe.db.set_value(
@@ -529,8 +536,16 @@ class TestGetShiftTimelineData(FrappeTestCase):
 			{"shift_duration": "10", "planned_end_time": "18:00:00"},
 		)
 
+		# Verify the cache key is different because the modified timestamp changed
+		new_modified = frappe.db.get_value("Shift", shift.name, "modified")
+		self.assertNotEqual(old_modified, new_modified)
+
+		# Verify the cache is bypassed (returns None because cache key changed)
+		cached = _get_cached_timeline_data("Workstation", self.workstation_a, shift.name)
+		self.assertIsNone(cached)
+
+		# Verify fresh data is returned with the new shift end
 		result = get_shift_timeline_data("Workstation", self.workstation_a)
-		# After a 10-hour shift from 08:00, end should be 18:00
 		self.assertIn("18:00", result["shift_end"])
 
 	def test_timeline_cache_is_invalidated_when_running_shift_duration_changes(self) -> None:
