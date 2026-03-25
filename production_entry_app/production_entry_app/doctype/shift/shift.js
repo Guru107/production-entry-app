@@ -36,6 +36,12 @@ frappe.ui.form.on("Shift", {
 		_set_warehouse_queries(frm);
 		_set_department_query(frm);
 
+		// Re-render summary sections after save completes
+		frm.after_save = () => {
+			_render_shift_summary(frm);
+			_render_aggregate_production_entries(frm);
+		};
+
 		const actions_group = __("Actions");
 		if (frm.doc.status === "Draft") {
 			frm.add_custom_button(
