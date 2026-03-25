@@ -2039,6 +2039,98 @@ class TestStockEntryHooks(FrappeTestCase):
 		se.save()
 		self.assertEqual(se.custom_unplanned_losses[0].shift, "")
 
+	def test_draft_stock_entry_rehydrates_updated_planned_end_from_running_shift(self) -> None:
+		"""When a Running shift's duration is changed, a new (draft) Stock Entry
+		created against that shift must get the updated planned_end_date from the Shift."""
+		_ensure_downtime_reasons()
+		shift = _create_test_shift(
+			shift_date="2026-04-20",
+			wip_warehouse=self.wip_warehouse,
+		)
+		# Shift is now Running with 8-hour duration (08:00 -> 16:00)
+
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			custom_shift=shift.name,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		# Before changing shift duration, validate to populate planned end
+		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
+			validate_stock_entry,
+		)
+		validate_stock_entry(se)
+		original_planned_end = se.custom_planned_end_date
+
+		# Change shift duration to 10 hours (shift end becomes 18:00)
+		frappe.db.set_value(
+			"Shift",
+			shift.name,
+			{"shift_duration": "10", "planned_end_time": "18:00:00"},
+			update_modified=False,
+		)
+
+		# Create a new draft SE and validate - it should pick up the new shift end
+		se2 = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			custom_shift=shift.name,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		validate_stock_entry(se2)
+		updated_planned_end = se2.custom_planned_end_date
+
+		# The updated planned end should be later than the original
+		self.assertGreater(updated_planned_end, original_planned_end)
+
+	def test_submitted_stock_entry_is_not_rewritten_by_shift_duration_change(self) -> None:
+		"""When a Running shift's duration is changed after a Stock Entry is submitted,
+		the submitted Stock Entry must NOT be rewritten/updated by the hook."""
+		_ensure_downtime_reasons()
+		shift = _create_test_shift(
+			shift_date="2026-04-21",
+			wip_warehouse=self.wip_warehouse,
+		)
+		# Shift is Running with 8h (08:00 -> 16:00)
+
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			custom_shift=shift.name,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		se.custom_actual_start_date = "2026-04-21 08:00:00"
+		se.custom_actual_end_date = "2026-04-21 09:00:00"
+		se.save()
+		frappe.db.set_value("Stock Entry", se.name, "docstatus", 1, update_modified=False)
+		submitted_planned_start = se.custom_planned_start_date
+		submitted_planned_end = se.custom_planned_end_date
+
+		# Change shift duration to 10 hours (now ends at 18:00)
+		frappe.db.set_value(
+			"Shift",
+			shift.name,
+			{"shift_duration": "10", "planned_end_time": "18:00:00"},
+			update_modified=False,
+		)
+
+		# Re-validate the submitted doc - hook should NOT rewrite it
+		se_reloaded = frappe.get_doc("Stock Entry", se.name)
+		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
+			validate_stock_entry,
+		)
+		validate_stock_entry(se_reloaded)
+
+		# The submitted doc's planned dates must remain unchanged
+		self.assertEqual(se_reloaded.custom_planned_start_date, submitted_planned_start)
+		self.assertEqual(se_reloaded.custom_planned_end_date, submitted_planned_end)
+
 
 class TestOverlapValidation(FrappeTestCase):
 	# Shift dates used by tests in this class (May 1-12, 2026)

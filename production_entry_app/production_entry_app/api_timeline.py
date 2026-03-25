@@ -14,11 +14,10 @@ from production_entry_app.production_entry_app.utils.system_precision import (
 
 
 def _get_timeline_cache_key(doctype: str, docname: str, shift_name: str) -> str:
-	return f"pea:timeline:{frappe.session.user}:{doctype}:{docname}:{shift_name}"
-
-
-def _get_cached_timeline_data(doctype: str, docname: str, shift_name: str) -> dict | None:
-	return frappe.cache().get_value(_get_timeline_cache_key(doctype, docname, shift_name))
+	"""Cache key includes shift's modified timestamp so any change to the shift
+	automatically invalidates the timeline cache."""
+	shift_modified = frappe.db.get_value("Shift", shift_name, "modified") or ""
+	return f"pea:timeline:{frappe.session.user}:{doctype}:{docname}:{shift_name}:{shift_modified}"
 
 
 def _set_cached_timeline_data(doctype: str, docname: str, shift_name: str, data: dict) -> None:
@@ -27,6 +26,15 @@ def _set_cached_timeline_data(doctype: str, docname: str, shift_name: str, data:
 		data,
 		expires_in_sec=30,
 	)
+
+
+def _get_cached_timeline_data(doctype: str, docname: str, shift_name: str) -> dict | None:
+	"""Return cached timeline data if present, None if stale or missing.
+
+	Cache is keyed by the shift's modified timestamp, so any change to the shift
+	automatically produces a different key, making the cache stale.
+	"""
+	return frappe.cache().get_value(_get_timeline_cache_key(doctype, docname, shift_name))
 
 
 def _with_float_precision(payload: dict) -> dict:

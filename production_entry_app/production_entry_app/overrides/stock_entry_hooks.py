@@ -89,27 +89,37 @@ def _invalidate_shift_metrics_cache(doc) -> None:
 
 
 def _apply_shift_defaults(doc) -> None:
-	"""Populate Stock Entry fields from the linked Shift document."""
+	"""Populate Stock Entry fields from the linked Shift document.
+
+	For draft/new Stock Entries, applies current Shift values.
+	For submitted Stock Entries, only applies warehouse defaults (not planned dates),
+	preserving the immutable planned dates that were locked at submission time.
+	"""
 	shift = frappe.get_doc("Shift", doc.custom_shift)
 
 	if shift.branch:
 		doc.branch = shift.branch
 
-	if shift.shift_date and shift.planned_start_time:
-		doc.custom_planned_start_date = datetime.datetime.combine(
-			frappe.utils.getdate(shift.shift_date),
-			get_time(shift.planned_start_time),
-		)
+	# Only update planned dates for draft/new Stock Entries.
+	# Submitted entries have their planned dates locked at submission time
+	# and must not be rewritten when the Shift duration changes.
+	is_submitted = doc.docstatus == 1
+	if not is_submitted:
+		if shift.shift_date and shift.planned_start_time:
+			doc.custom_planned_start_date = datetime.datetime.combine(
+				frappe.utils.getdate(shift.shift_date),
+				get_time(shift.planned_start_time),
+			)
 
-	planned_end = get_shift_planned_end_datetime(
-		shift_date=shift.shift_date,
-		planned_start_time=shift.planned_start_time,
-		planned_end_time=shift.planned_end_time,
-		shift_end_date=shift.shift_end_date,
-		shift_duration=shift.shift_duration,
-	)
-	if planned_end:
-		doc.custom_planned_end_date = planned_end
+		planned_end = get_shift_planned_end_datetime(
+			shift_date=shift.shift_date,
+			planned_start_time=shift.planned_start_time,
+			planned_end_time=shift.planned_end_time,
+			shift_end_date=shift.shift_end_date,
+			shift_duration=shift.shift_duration,
+		)
+		if planned_end:
+			doc.custom_planned_end_date = planned_end
 
 	if shift.work_in_progress_warehouse:
 		# Shift warehouse values are defaults only; preserve explicit user choices.

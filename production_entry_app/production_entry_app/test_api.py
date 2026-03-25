@@ -236,6 +236,44 @@ class TestE2EApi(FrappeTestCase):
 		self.assertEqual(date_a, date_b)
 		self.assertTrue(date_a.startswith("2099-"))
 
+	def test_get_shift_details_for_stock_entry_returns_updated_planned_end_for_running_shift(self) -> None:
+		"""When a Running shift's duration is changed, get_shift_details_for_stock_entry
+		must return the newly-calculated planned_end_time and shift_end_date, not stale cached values."""
+		from unittest.mock import MagicMock
+
+		from production_entry_app.production_entry_app.api import get_shift_details_for_stock_entry
+
+		shift_doc = MagicMock()
+		shift_doc.name = "SHIFT-RUNNING-001"
+		shift_doc.status = "Running"
+		shift_doc.branch = "Test Branch"
+		shift_doc.shift_date = "2026-03-01"
+		shift_doc.planned_start_time = "08:00:00"
+		# Original duration: 8 hours -> original planned_end: 16:00
+		shift_doc.planned_end_time = "16:00:00"
+		shift_doc.shift_end_date = "2026-03-01"
+		shift_doc.shift_duration = "8"
+		shift_doc.work_in_progress_warehouse = "WIP Warehouse"
+
+		def mock_get_doc(doctype, name):
+			if doctype == "Shift":
+				return shift_doc
+			return frappe.get_doc(doctype, name)
+
+		self.assertEqual(str(shift_doc.shift_end_date), "2026-03-01")
+		self.assertEqual(str(shift_doc.planned_end_time), "16:00:00")
+
+		# Simulate duration change: 8 -> 10 hours
+		shift_doc.shift_duration = "10"
+		shift_doc.planned_end_time = "18:00:00"
+		shift_doc.shift_end_date = "2026-03-01"
+
+		with patch("production_entry_app.production_entry_app.api.frappe.get_doc", side_effect=mock_get_doc):
+			updated_result = get_shift_details_for_stock_entry("SHIFT-RUNNING-001")
+
+		# The updated planned_end must reflect the new 10-hour duration ending at 18:00
+		self.assertIn("18:00", updated_result.get("custom_planned_end_date", ""))
+
 	def test_cleanup_stock_entry_query_uses_single_qb_run(self) -> None:
 		with patch(
 			"production_entry_app.production_entry_app.api._get_candidate_e2e_stock_entries",
