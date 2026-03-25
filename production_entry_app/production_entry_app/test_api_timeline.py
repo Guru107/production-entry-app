@@ -515,7 +515,11 @@ class TestGetShiftTimelineData(FrappeTestCase):
 
 	def test_timeline_payload_uses_updated_shift_end_after_duration_change(self) -> None:
 		"""When a Running shift's duration changes, the timeline payload must use the
-		updated shift_end rather than a stale value from before the change."""
+		updated shift_end rather than a stale value from before the change.
+
+		This test primes the cache with data that has the old end time, then changes
+		the shift's duration, then verifies the returned data has the NEW end time
+		(proving the cache was bypassed and fresh data was computed)."""
 		from production_entry_app.production_entry_app.api_timeline import (
 			_get_cached_timeline_data,
 			_get_timeline_cache_key,
@@ -526,25 +530,30 @@ class TestGetShiftTimelineData(FrappeTestCase):
 		# Shift is 8 hours (08:00 - 16:00)
 		self.assertEqual(str(shift.planned_end_time), "16:00:00")
 
+		# Prime the cache with data that has the OLD end time (16:00)
+		result_before = get_shift_timeline_data("Workstation", self.workstation_a)
+		self.assertIn("16:00", result_before["shift_end"])
+
 		# Record the old modified timestamp before the change
 		old_modified = frappe.db.get_value("Shift", shift.name, "modified")
 
-		# Change shift duration to 10 hours (simulate the update)
+		# Change shift duration to 10 hours (shift end becomes 18:00)
 		frappe.db.set_value(
 			"Shift",
 			shift.name,
 			{"shift_duration": "10", "planned_end_time": "18:00:00"},
 		)
 
-		# Verify the cache key is different because the modified timestamp changed
+		# Verify the modified timestamp changed (cache key will be different)
 		new_modified = frappe.db.get_value("Shift", shift.name, "modified")
 		self.assertNotEqual(old_modified, new_modified)
 
-		# Verify the cache is bypassed (returns None because cache key changed)
+		# Verify the cache is bypassed (returns None because the cache key changed
+		# since the shift's modified timestamp is now different from when we cached)
 		cached = _get_cached_timeline_data("Workstation", self.workstation_a, shift.name)
 		self.assertIsNone(cached)
 
-		# Verify fresh data is returned with the new shift end
+		# Verify fresh data is returned with the new shift end (not 16:00)
 		result = get_shift_timeline_data("Workstation", self.workstation_a)
 		self.assertIn("18:00", result["shift_end"])
 
