@@ -1700,7 +1700,7 @@ class TestShift(FrappeTestCase):
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit
 
 		# Second shift: 16:00-24:00 (8 hours), starts right after first ends
-		doc2 = frappe.get_doc(
+		frappe.get_doc(
 			{
 				"doctype": "Shift",
 				"department": self._test_department,

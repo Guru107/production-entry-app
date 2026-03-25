@@ -977,6 +977,7 @@ class Shift(Document):
 			# and planned_losses via _populate_planned_losses_if_needed called later in validate).
 			mutable_fields: set[str] = {
 				"shift_duration",
+				"planned_start_time",
 				"planned_end_time",
 				"shift_end_date",
 				"raw_material_warehouse",
@@ -991,10 +992,14 @@ class Shift(Document):
 			elif self._planned_losses_changed():
 				frappe.throw(_("Planned Losses cannot be edited when shift is Running."))
 			else:
+				# Only check scalar fields via has_value_changed; child tables (e.g. planned_losses)
+				# may report false positives after reload due to object identity vs content equality.
 				changed = {
 					f.fieldname
 					for f in self.meta.get("fields", [])
-					if self.has_value_changed(f.fieldname) and f.fieldname not in mutable_fields
+					if f.fieldtype != "Table"
+					and self.has_value_changed(f.fieldname)
+					and f.fieldname not in mutable_fields
 				}
 				if changed:
 					frappe.throw(
@@ -1017,10 +1022,17 @@ class Shift(Document):
 			if i >= len(prev):
 				return True
 			p = prev[i]
+
+			# Normalize time values for comparison (DB stores HH:MM:SS strings, in-memory may be datetime.time)
+			def _norm(v):
+				if hasattr(v, "strftime"):
+					return v.strftime("%H:%M:%S")
+				return str(v) if v is not None else None
+
 			if (
 				getattr(row, "downtime_reason", None) != getattr(p, "downtime_reason", None)
-				or getattr(row, "start_time", None) != getattr(p, "start_time", None)
-				or getattr(row, "end_time", None) != getattr(p, "end_time", None)
+				or _norm(getattr(row, "start_time", None)) != _norm(getattr(p, "start_time", None))
+				or _norm(getattr(row, "end_time", None)) != _norm(getattr(p, "end_time", None))
 			):
 				return True
 		return False
