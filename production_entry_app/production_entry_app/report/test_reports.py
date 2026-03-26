@@ -809,8 +809,8 @@ class TestProductionReports(FrappeTestCase):
 		initial_avl_time_hrs = float(rows[0]["avl_time_hrs"])
 
 		running_doc = frappe.get_doc("Shift", shift.name)
-		running_doc.flags.allow_status_change = True
 		running_doc.shift_duration = "10"
+		running_doc.flags.ignore_links = True
 		running_doc.save()
 		running_doc.reload()
 
@@ -2842,8 +2842,8 @@ class TestProductionReports(FrappeTestCase):
 		initial_working_hours = float(rows[0]["working_hours"])
 
 		running_doc = frappe.get_doc("Shift", shift.name)
-		running_doc.flags.allow_status_change = True
 		running_doc.shift_duration = "10"
+		running_doc.flags.ignore_links = True
 		running_doc.save()
 		running_doc.reload()
 

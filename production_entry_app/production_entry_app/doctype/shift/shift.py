@@ -973,18 +973,21 @@ class Shift(Document):
 			return
 
 		if current_status == "Running":
-			# Allow shift_duration and warehouse fields to be edited (recalculates end time
-			# and planned_losses via _populate_planned_losses_if_needed called later in validate).
-			mutable_fields: set[str] = {
+			# Fields the user may edit directly on a Running shift.
+			_user_editable: set[str] = {
 				"shift_duration",
-				"planned_start_time",
-				"planned_end_time",
-				"shift_end_date",
 				"raw_material_warehouse",
 				"work_in_progress_warehouse",
 				"rejection_warehouse",
 				"scrap_warehouse",
 			}
+			# Fields recomputed by the server when shift_duration changes.
+			_server_computed: set[str] = {
+				"planned_start_time",
+				"planned_end_time",
+				"shift_end_date",
+			}
+			mutable_fields = _user_editable | _server_computed
 			if self.has_value_changed("shift_duration"):
 				# shift_duration-driven repopulation of planned_losses is allowed.
 				# planned_losses_changed check is skipped intentionally.

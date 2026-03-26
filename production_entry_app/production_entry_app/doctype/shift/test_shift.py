@@ -78,6 +78,20 @@ def _ensure_shift_duration_options() -> None:
 	frappe.clear_cache(doctype="Shift")
 
 
+def _to_time_str(val) -> str:
+	"""Normalize a time-like value (datetime.time, timedelta, or str) to HH:MM:SS."""
+	if hasattr(val, "strftime"):
+		return val.strftime("%H:%M:%S")
+	return str(val)
+
+
+def _to_date_str(val) -> str:
+	"""Normalize a date-like value (datetime.date or str) to YYYY-MM-DD."""
+	if hasattr(val, "isoformat"):
+		return val.isoformat()
+	return str(val)
+
+
 class TestShift(FrappeTestCase):
 	def setUp(self) -> None:
 		bootstrap_manufacturing_test_context("SHIFT-CORE")
@@ -1568,37 +1582,15 @@ class TestShift(FrappeTestCase):
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so Running state is visible to recalculation
 
 		running_doc = frappe.get_doc("Shift", name)
-		original_end_time = running_doc.planned_end_time
-		# planned_end_time may be returned as timedelta; normalize to HH:MM:SS string
-		if hasattr(original_end_time, "strftime"):
-			original_end_time_str = original_end_time.strftime("%H:%M:%S")
-		else:
-			original_end_time_str = str(original_end_time)
-		original_end_date = running_doc.shift_end_date
-		if hasattr(original_end_date, "isoformat"):
-			original_end_date_str = original_end_date.isoformat()
-		else:
-			original_end_date_str = str(original_end_date)
-		self.assertEqual(original_end_time_str, "16:00:00")
-		self.assertEqual(original_end_date_str, "2026-02-17")
+		self.assertEqual(_to_time_str(running_doc.planned_end_time), "16:00:00")
+		self.assertEqual(_to_date_str(running_doc.shift_end_date), "2026-02-17")
 
 		running_doc.shift_duration = "10"
 		running_doc.save()
 		running_doc.reload()
 
-		new_end_time = running_doc.planned_end_time
-		if hasattr(new_end_time, "strftime"):
-			new_end_time_str = new_end_time.strftime("%H:%M:%S")
-		else:
-			new_end_time_str = str(new_end_time)
-		new_end_date = running_doc.shift_end_date
-		if hasattr(new_end_date, "isoformat"):
-			new_end_date_str = new_end_date.isoformat()
-		else:
-			new_end_date_str = str(new_end_date)
-		self.assertEqual(new_end_time_str, "18:00:00")
-		self.assertEqual(new_end_date_str, "2026-02-17")
-		self.assertNotEqual(new_end_time_str, original_end_time_str)
+		self.assertEqual(_to_time_str(running_doc.planned_end_time), "18:00:00")
+		self.assertEqual(_to_date_str(running_doc.shift_end_date), "2026-02-17")
 
 		# End shift so it does not leak into subsequent tests
 		frappe.get_doc("Shift", name).end_shift()
@@ -1732,10 +1724,7 @@ class TestShift(FrappeTestCase):
 		# 8-hour shift: 3 planned losses (Startup, Tea, JH Activity)
 		self.assertEqual(len(running_doc.planned_losses), 3)
 		# End time should now be 16:00 instead of 18:00
-		end_time = running_doc.planned_end_time
-		if hasattr(end_time, "strftime"):
-			end_time = end_time.strftime("%H:%M:%S")
-		self.assertEqual(str(end_time), "16:00:00")
+		self.assertEqual(_to_time_str(running_doc.planned_end_time), "16:00:00")
 
 		frappe.get_doc("Shift", doc.name).end_shift()
 
