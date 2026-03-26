@@ -27,8 +27,10 @@ SHIFT_SUMMARY_WORKSTATION_MIN_PRODUCTION_MINS: float = 15.0
 VALID_SHIFT_DURATIONS: frozenset[int] = frozenset({8, 10, 12, 14, 16})
 _SHIFT_START_LOSSES: list[tuple[str, int, int]] = [
 	("Shift Start Up", 0, 10),
-	("JH Activity", 10, 10),
 ]
+# JH Activity is scheduled at a fixed absolute time (10:00-10:10) if the shift window overlaps.
+_JH_ACTIVITY_FIXED_START_TIME: datetime.time = datetime.time(10, 0, 0)
+_JH_ACTIVITY_DURATION_MINS: int = 10
 _FIXED_TIME_BREAKS: dict[int, list[tuple[str, str, int]]] = {
 	8: [("Tea Break", "09:00", 10)],
 	10: [("Tea Break", "09:00", 10), ("Lunch Break", "12:00", 30), ("Tea Break", "17:00", 10)],
@@ -954,7 +956,11 @@ class Shift(Document):
 			frappe.throw(_("Status is system-managed. Use Start Shift / End Shift actions."))
 
 	def _validate_field_locking(self) -> None:
-		"""Enforce locking: planned_losses in Running; entire doc in Completed/Cancelled."""
+		"""Enforce locking: planned_losses and most fields in Running; entire doc in Completed/Cancelled.
+
+		shift_duration changes are allowed in Running state and trigger recalculation of
+		planned_end_time, shift_end_date, and planned_losses.
+		"""
 		if self.is_new():
 			return
 
@@ -967,8 +973,41 @@ class Shift(Document):
 			return
 
 		if current_status == "Running":
-			if self._planned_losses_changed():
+			# Fields the user may edit directly on a Running shift.
+			_user_editable: set[str] = {
+				"shift_duration",
+				"raw_material_warehouse",
+				"work_in_progress_warehouse",
+				"rejection_warehouse",
+				"scrap_warehouse",
+			}
+			# Fields recomputed by the server when shift_duration changes.
+			_server_computed: set[str] = {
+				"planned_start_time",
+				"planned_end_time",
+				"shift_end_date",
+			}
+			mutable_fields = _user_editable | _server_computed
+			if self.has_value_changed("shift_duration"):
+				# shift_duration-driven repopulation of planned_losses is allowed.
+				# planned_losses_changed check is skipped intentionally.
+				pass
+			elif self._planned_losses_changed():
 				frappe.throw(_("Planned Losses cannot be edited when shift is Running."))
+			else:
+				# Only check scalar fields via has_value_changed; child tables (e.g. planned_losses)
+				# may report false positives after reload due to object identity vs content equality.
+				changed = {
+					f.fieldname
+					for f in self.meta.get("fields", [])
+					if f.fieldtype != "Table"
+					and self.has_value_changed(f.fieldname)
+					and f.fieldname not in mutable_fields
+				}
+				if changed:
+					frappe.throw(
+						_("Only shift duration and warehouse fields can be edited when shift is Running.")
+					)
 
 		if current_status in ("Completed", "Cancelled"):
 			frappe.throw(_("Shift in {0} state cannot be modified.").format(frappe.bold(current_status)))
@@ -982,14 +1021,21 @@ class Shift(Document):
 		curr = self.get("planned_losses") or []
 		if len(prev) != len(curr):
 			return True
+
+		# Normalize time values for comparison (DB stores HH:MM:SS strings, in-memory may be datetime.time)
+		def _norm(v):
+			if hasattr(v, "strftime"):
+				return v.strftime("%H:%M:%S")
+			return str(v) if v is not None else None
+
 		for i, row in enumerate(curr):
 			if i >= len(prev):
 				return True
 			p = prev[i]
 			if (
 				getattr(row, "downtime_reason", None) != getattr(p, "downtime_reason", None)
-				or getattr(row, "start_time", None) != getattr(p, "start_time", None)
-				or getattr(row, "end_time", None) != getattr(p, "end_time", None)
+				or _norm(getattr(row, "start_time", None)) != _norm(getattr(p, "start_time", None))
+				or _norm(getattr(row, "end_time", None)) != _norm(getattr(p, "end_time", None))
 			):
 				return True
 		return False
@@ -1129,7 +1175,10 @@ class Shift(Document):
 		return combine_date_time(date_value, time_value)
 
 	def _populate_planned_losses_if_needed(self) -> None:
-		"""Auto-populate planned_losses when shift_duration, planned_start_time, or shift_date changes."""
+		"""Auto-populate planned_losses when shift_duration, planned_start_time, or shift_date changes.
+
+		Also repopulates when a Running shift's duration is changed (allowed by _validate_field_locking).
+		"""
 		if not self.shift_duration or not self.planned_start_time or not self.shift_date:
 			return
 
@@ -1166,6 +1215,8 @@ class Shift(Document):
 			return reason_active_cache[reason]
 
 		entries_with_start: list[tuple[datetime.datetime, dict]] = []
+
+		# Shift Start Up - relative to shift start
 		for reason, offset_mins, duration_mins in _SHIFT_START_LOSSES:
 			if not is_active_reason(reason):
 				continue
@@ -1181,6 +1232,31 @@ class Shift(Document):
 					},
 				)
 			)
+
+		# JH Activity - fixed absolute 10:00-10:10, only if shift window overlaps.
+		# Check both day-0 and day+1 candidates for cross-midnight shifts.
+		if is_active_reason("JH Activity"):
+			jh_candidates = [
+				datetime.datetime.combine(base.date(), _JH_ACTIVITY_FIXED_START_TIME),
+				datetime.datetime.combine(
+					base.date() + datetime.timedelta(days=1), _JH_ACTIVITY_FIXED_START_TIME
+				),
+			]
+			jh_fixed = next((c for c in jh_candidates if base <= c < shift_end), None)
+			if jh_fixed is not None:
+				jh_end = add_to_date(jh_fixed, minutes=_JH_ACTIVITY_DURATION_MINS)
+				# Clip to shift boundaries if needed
+				actual_end = jh_end if jh_end <= shift_end else shift_end
+				entries_with_start.append(
+					(
+						jh_fixed,
+						{
+							"downtime_reason": "JH Activity",
+							"start_time": jh_fixed.time().strftime("%H:%M:%S"),
+							"end_time": actual_end.time().strftime("%H:%M:%S"),
+						},
+					)
+				)
 
 		for reason, fixed_time, duration_mins in _FIXED_TIME_BREAKS.get(duration_hours, []):
 			if not is_active_reason(reason):

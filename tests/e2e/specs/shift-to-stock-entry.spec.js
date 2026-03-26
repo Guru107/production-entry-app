@@ -386,4 +386,57 @@ test.describe("Shift to Stock Entry integration", () => {
 			formatFloatForUi(productionEntry.ok_qty, timelineData.float_precision)
 		);
 	});
+
+	test("@regression changing shift_duration while Running updates planned end time and refreshes summary", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
+		const shiftPage = new ShiftPage(page);
+
+		await shiftPage.open(ctx.shift_name);
+		await page.waitForFunction(() => window.cur_frm?.doc?.status === "Running", {
+			timeout: 10000,
+		});
+
+		const originalDuration = await shiftPage.getFieldValue("shift_duration");
+		const originalPlannedEndTime = await shiftPage.getFieldValue("planned_end_time");
+
+		const newDuration = String(parseInt(originalDuration, 10) + 2);
+		await setFieldValue(page, "shift_duration", newDuration);
+		await shiftPage.saveDraft();
+		await page.waitForFunction(() => window.cur_frm?.doc, { timeout: 10000 });
+
+		const updatedDuration = await shiftPage.getFieldValue("shift_duration");
+		expect(updatedDuration).toBe(newDuration);
+
+		const updatedPlannedEndTime = await shiftPage.getFieldValue("planned_end_time");
+		expect(updatedPlannedEndTime).not.toBe(originalPlannedEndTime);
+
+		// Issue 1: Verify summary sections are rendered after save
+		await page.waitForFunction(() => {
+			const summaryField = window.cur_frm?.fields_dict?.shift_metrics;
+			const text = (summaryField?.$wrapper?.text?.() || "").replace(/\s+/g, " ").trim();
+			return text.includes("Planned Shift Mins") || text.includes("No production entries");
+		});
+		await page.waitForFunction(() => {
+			const aggregateField = window.cur_frm?.fields_dict?.aggregate_production_entries;
+			const text = (aggregateField?.$wrapper?.text?.() || "").replace(/\s+/g, " ").trim();
+			return text.includes("BOM Used") || text.includes("No production entries");
+		});
+
+		// Issue 2: Verify Stock Entry creation path sees the revised planned end
+		await shiftPage.createProductionEntryFromShift();
+		const stockEntryPage = new StockEntryPage(page);
+		await stockEntryPage.waitForShiftAutoFill({
+			plannedEndIncludes: updatedPlannedEndTime.slice(-8),
+		});
+		const stockEntryPlannedEnd = await stockEntryPage.getFieldValues([
+			"custom_planned_start_date",
+			"custom_planned_end_date",
+		]);
+		expect(String(stockEntryPlannedEnd.custom_planned_end_date || "")).toContain(
+			updatedPlannedEndTime.slice(-8)
+		);
+	});
 });

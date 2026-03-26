@@ -78,6 +78,20 @@ def _ensure_shift_duration_options() -> None:
 	frappe.clear_cache(doctype="Shift")
 
 
+def _to_time_str(val) -> str:
+	"""Normalize a time-like value (datetime.time, timedelta, or str) to HH:MM:SS."""
+	if hasattr(val, "strftime"):
+		return val.strftime("%H:%M:%S")
+	return str(val)
+
+
+def _to_date_str(val) -> str:
+	"""Normalize a date-like value (datetime.date or str) to YYYY-MM-DD."""
+	if hasattr(val, "isoformat"):
+		return val.isoformat()
+	return str(val)
+
+
 class TestShift(FrappeTestCase):
 	def setUp(self) -> None:
 		bootstrap_manufacturing_test_context("SHIFT-CORE")
@@ -676,18 +690,17 @@ class TestShift(FrappeTestCase):
 
 		self.assertEqual(len(doc.planned_losses), 3)
 
-		startup, jh_activity, tea = doc.planned_losses[0], doc.planned_losses[1], doc.planned_losses[2]
-		self.assertEqual(startup.downtime_reason, "Shift Start Up")
-		self.assertEqual(startup.start_time, "08:00:00")
-		self.assertEqual(startup.end_time, "08:10:00")
-
-		self.assertEqual(jh_activity.downtime_reason, "JH Activity")
-		self.assertEqual(jh_activity.start_time, "08:10:00")
-		self.assertEqual(jh_activity.end_time, "08:20:00")
-
-		self.assertEqual(tea.downtime_reason, "Tea Break")
-		self.assertEqual(tea.start_time, "09:00:00")
-		self.assertEqual(tea.end_time, "09:10:00")
+		# Chronological order: Startup(08:00), Tea Break(09:00), JH Activity(10:00)
+		rows = [(row.downtime_reason, row.start_time, row.end_time) for row in doc.planned_losses]
+		self.assertEqual(
+			rows,
+			[
+				("Shift Start Up", "08:00:00", "08:10:00"),
+				("Tea Break", "09:00:00", "09:10:00"),
+				# JH Activity is fixed at 10:00-10:10 when the shift window overlaps it (08:00-16:00)
+				("JH Activity", "10:00:00", "10:10:00"),
+			],
+		)
 
 	def test_planned_losses_auto_populate_10_hour_shift(self) -> None:
 		name = self._expected_name(self._test_department, "2026-02-12", "2")
@@ -713,8 +726,9 @@ class TestShift(FrappeTestCase):
 			rows,
 			[
 				("Shift Start Up", "08:00:00", "08:10:00"),
-				("JH Activity", "08:10:00", "08:20:00"),
 				("Tea Break", "09:00:00", "09:10:00"),
+				# JH Activity is fixed at 10:00-10:10 (shift window 08:00-18:00 overlaps)
+				("JH Activity", "10:00:00", "10:10:00"),
 				("Lunch Break", "12:00:00", "12:30:00"),
 				("Tea Break", "17:00:00", "17:10:00"),
 			],
@@ -742,8 +756,9 @@ class TestShift(FrappeTestCase):
 			rows,
 			[
 				("Shift Start Up", "06:00:00", "06:10:00"),
-				("JH Activity", "06:10:00", "06:20:00"),
 				("Tea Break", "09:00:00", "09:10:00"),
+				# JH Activity is fixed at 10:00-10:10 (shift window 06:00-18:00 overlaps)
+				("JH Activity", "10:00:00", "10:10:00"),
 				("Lunch Break", "12:00:00", "12:30:00"),
 				("Tea Break", "17:00:00", "17:20:00"),
 			],
@@ -769,8 +784,9 @@ class TestShift(FrappeTestCase):
 			rows,
 			[
 				("Shift Start Up", "08:00:00", "08:10:00"),
-				("JH Activity", "08:10:00", "08:20:00"),
 				("Tea Break", "09:00:00", "09:10:00"),
+				# JH Activity is fixed at 10:00-10:10 (shift window 08:00-22:00 overlaps)
+				("JH Activity", "10:00:00", "10:10:00"),
 				("Lunch Break", "12:00:00", "12:30:00"),
 				("Tea Break", "17:00:00", "17:20:00"),
 				("Tea Break", "20:00:00", "20:10:00"),
@@ -798,8 +814,9 @@ class TestShift(FrappeTestCase):
 			rows,
 			[
 				("Shift Start Up", "08:00:00", "08:10:00"),
-				("JH Activity", "08:10:00", "08:20:00"),
 				("Tea Break", "09:00:00", "09:10:00"),
+				# JH Activity is fixed at 10:00-10:10 (shift window 08:00-24:00 overlaps)
+				("JH Activity", "10:00:00", "10:10:00"),
 				("Lunch Break", "12:00:00", "12:30:00"),
 				("Tea Break", "17:00:00", "17:20:00"),
 				("Tea Break", "20:00:00", "20:10:00"),
@@ -1545,6 +1562,213 @@ class TestShift(FrappeTestCase):
 			}
 		).insert()
 		self.assertEqual(doc.name, "SHIFT-2026-03-14.1.0002")
+
+	def test_running_shift_allows_shift_duration_change_and_recomputes_end_fields(self) -> None:
+		"""Changing shift_duration on a Running shift recalculates planned_end_time and shift_end_date."""
+		name = self._expected_name(self._test_department, "2026-02-17", "1")
+		self._delete_shift_if_exists(name)
+
+		doc = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"department": self._test_department,
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": "2026-02-17",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+		doc.start_shift()
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so Running state is visible to recalculation
+
+		running_doc = frappe.get_doc("Shift", name)
+		self.assertEqual(_to_time_str(running_doc.planned_end_time), "16:00:00")
+		self.assertEqual(_to_date_str(running_doc.shift_end_date), "2026-02-17")
+
+		running_doc.shift_duration = "10"
+		running_doc.save()
+		running_doc.reload()
+
+		self.assertEqual(_to_time_str(running_doc.planned_end_time), "18:00:00")
+		self.assertEqual(_to_date_str(running_doc.shift_end_date), "2026-02-17")
+
+		# End shift so it does not leak into subsequent tests
+		frappe.get_doc("Shift", name).end_shift()
+
+	def test_running_shift_duration_change_regenerates_planned_losses(self) -> None:
+		"""Changing shift_duration on a Running shift regenerates planned_losses to match new duration."""
+		name = self._expected_name(self._test_department, "2026-02-18", "1")
+		self._delete_shift_if_exists(name)
+
+		doc = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"department": self._test_department,
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": "2026-02-18",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+		self.assertEqual(len(doc.planned_losses), 3)
+
+		doc.start_shift()
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so Running state is visible
+
+		running_doc = frappe.get_doc("Shift", name)
+		self.assertEqual(len(running_doc.planned_losses), 3)
+
+		running_doc.shift_duration = "10"
+		running_doc.save()
+		running_doc.reload()
+
+		# 10-hour shift should have 5 planned losses: Startup, JH Activity, Tea, Lunch, Tea
+		self.assertEqual(len(running_doc.planned_losses), 5)
+		loss_reasons = [row.downtime_reason for row in running_doc.planned_losses]
+		self.assertIn("Lunch Break", loss_reasons)
+
+		# End shift so it does not leak into subsequent tests
+		frappe.get_doc("Shift", name).end_shift()
+
+	def test_jh_activity_is_fixed_at_10am_when_window_includes_it(self) -> None:
+		"""JH Activity is scheduled at 10:00-10:10 when the shift window overlaps that time."""
+		# 8-hour shift starting at 06:00 (06:00-14:00) overlaps 10:00-10:10
+		name = self._expected_name(self._test_department, "2026-03-15", "1")
+		self._delete_shift_if_exists(name)
+
+		doc = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"department": self._test_department,
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": "2026-03-15",
+				"planned_start_time": "06:00:00",
+			}
+		).insert()
+
+		jh_activity = next((row for row in doc.planned_losses if row.downtime_reason == "JH Activity"), None)
+		self.assertIsNotNone(jh_activity, "JH Activity should be present")
+		self.assertEqual(jh_activity.start_time, "10:00:00")
+		self.assertEqual(jh_activity.end_time, "10:10:00")
+
+	def test_overnight_shift_does_not_generate_jh_activity_when_10am_is_outside_window(self) -> None:
+		"""JH Activity is not created when the fixed 10:00-10:10 window falls outside the shift."""
+		# Overnight shift 22:00-06:00 does not overlap 10:00-10:10
+		name = self._expected_name(self._test_department, "2026-03-16", "1")
+		self._delete_shift_if_exists(name)
+
+		doc = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"department": self._test_department,
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": "2026-03-16",
+				"planned_start_time": "22:00:00",
+			}
+		).insert()
+
+		jh_activity = next((row for row in doc.planned_losses if row.downtime_reason == "JH Activity"), None)
+		self.assertIsNone(jh_activity, "JH Activity should NOT be present for overnight shift")
+
+	def test_cross_midnight_shift_generates_jh_activity_on_next_day(self) -> None:
+		"""A cross-midnight shift spanning 10:00 on day+1 should include JH Activity at 10:00-10:10."""
+		# 16-hour shift 20:00 → 12:00 next day spans 10:00 AM on day+1
+		name = self._expected_name(self._test_department, "2026-03-20", "1")
+		self._delete_shift_if_exists(name)
+
+		doc = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"department": self._test_department,
+				"shift_label": "1",
+				"shift_duration": "16",
+				"shift_date": "2026-03-20",
+				"planned_start_time": "20:00:00",
+			}
+		).insert()
+
+		jh_activity = next((row for row in doc.planned_losses if row.downtime_reason == "JH Activity"), None)
+		self.assertIsNotNone(
+			jh_activity, "JH Activity should be present for cross-midnight shift spanning 10:00 AM next day"
+		)
+		self.assertEqual(jh_activity.start_time, "10:00:00")
+		self.assertEqual(jh_activity.end_time, "10:10:00")
+
+	def test_running_shift_allows_duration_reduction(self) -> None:
+		"""Reducing shift_duration on a Running shift recalculates end fields and planned losses."""
+		self._delete_shifts_for_date("2026-03-19")
+
+		doc = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"department": self._test_department,
+				"shift_label": "1",
+				"shift_duration": "10",
+				"shift_date": "2026-03-19",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+		# 10-hour shift: 5 planned losses (Startup, Tea, JH Activity, Lunch, Tea)
+		self.assertEqual(len(doc.planned_losses), 5)
+
+		doc.start_shift()
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so Running state is visible
+
+		running_doc = frappe.get_doc("Shift", doc.name)
+		running_doc.shift_duration = "8"
+		running_doc.save()
+		running_doc.reload()
+
+		# 8-hour shift: 3 planned losses (Startup, Tea, JH Activity)
+		self.assertEqual(len(running_doc.planned_losses), 3)
+		# End time should now be 16:00 instead of 18:00
+		self.assertEqual(_to_time_str(running_doc.planned_end_time), "16:00:00")
+
+		frappe.get_doc("Shift", doc.name).end_shift()
+
+	def test_running_shift_extension_rejects_overlap_with_another_shift(self) -> None:
+		"""Extending a Running shift's duration that would cause overlap with another shift is rejected."""
+		self._delete_shifts_for_date("2026-03-17")
+
+		# First shift: 08:00-16:00 (8 hours)
+		doc1 = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"department": self._test_department,
+				"branch": self._test_branch,
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": "2026-03-17",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+		doc1.start_shift()
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit
+
+		# Second shift: 16:00-24:00 (8 hours), starts right after first ends
+		frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"department": self._test_department,
+				"branch": self._test_branch,
+				"shift_label": "2",
+				"shift_duration": "8",
+				"shift_date": "2026-03-17",
+				"planned_start_time": "16:00:00",
+			}
+		).insert()
+
+		# Extend Running shift from 8 to 10 hours (would end at 18:00, overlapping with Shift 2 starting at 16:00)
+		running_doc = frappe.get_doc("Shift", doc1.name)
+		running_doc.shift_duration = "10"
+		with self.assertRaises(ValidationError) as cm:
+			running_doc.save()
+		self.assertIn("overlap", str(cm.exception).lower())
+
+		# End shift 1 so it does not leak
+		frappe.get_doc("Shift", doc1.name).end_shift()
 
 	def _expected_name(self, department: str, shift_date: str, shift_label: str) -> str:
 		sequence = frappe.db.count("Shift", {"shift_date": shift_date}) + 1

@@ -786,6 +786,47 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(len(rows), 1)
 		self.assertEqual(float(rows[0]["std_spm"]), 2.0)
 
+	def test_production_oee_report_availability_changes_after_running_shift_extension(self) -> None:
+		"""Extending a Running shift's duration changes report availability and planned-loss deduction."""
+		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
+			execute,
+		)
+
+		shift = self._create_shift_for_label("2026-07-01", "1")
+		self._create_mock_submitted_entry(
+			posting_date="2026-07-01",
+			planned_start="2026-07-01 08:00:00",
+			planned_end="2026-07-01 09:00:00",
+			actual_start="2026-07-01 08:00:00",
+			actual_end="2026-07-01 09:00:00",
+			fg_qty=120,
+			rejection_qty=0,
+			shift_name=shift.name,
+		)
+
+		_, rows = execute({"from_date": "2026-07-01", "to_date": "2026-07-01"})
+		self.assertEqual(len(rows), 1)
+		initial_avl_time_hrs = float(rows[0]["avl_time_hrs"])
+
+		running_doc = frappe.get_doc("Shift", shift.name)
+		running_doc.shift_duration = "10"
+		running_doc.flags.ignore_links = True
+		running_doc.save()
+		running_doc.reload()
+
+		_, rows = execute({"from_date": "2026-07-01", "to_date": "2026-07-01"})
+		self.assertEqual(len(rows), 1)
+		extended_avl_time_hrs = float(rows[0]["avl_time_hrs"])
+
+		self.assertNotEqual(
+			initial_avl_time_hrs,
+			extended_avl_time_hrs,
+			"Availability hours must change after shift extension",
+		)
+		self.assertGreater(
+			extended_avl_time_hrs, initial_avl_time_hrs, "Extended shift should have more availability hours"
+		)
+
 	def test_production_oee_shift_label_cache_reuses_loaded_shift_labels(self) -> None:
 		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
 			_get_shift_labels,
@@ -2495,9 +2536,9 @@ class TestProductionReports(FrappeTestCase):
 		self.assertAlmostEqual(float(totals["total_strokes"]), 300.0, places=2)
 		self.assertAlmostEqual(float(totals["rejection"]), 30.0, places=2)
 		self.assertAlmostEqual(float(totals["rework"]), 0.0, places=2)
-		self.assertAlmostEqual(float(totals["prod_time_hrs"]), 1.334, places=2)
-		# Shift start planned losses are deducted from production time.
-		self.assertAlmostEqual(float(totals["spm"]), 3.75, places=2)
+		self.assertAlmostEqual(float(totals["prod_time_hrs"]), 100 / 60, places=2)
+		# Only Shift Start Up (10 min) overlaps each 08:00-09:00 entry; JH Activity (10:00) is outside.
+		self.assertAlmostEqual(float(totals["spm"]), 3.0, places=2)
 
 	def test_daily_strokes_spm_monitor_empty(self) -> None:
 		from production_entry_app.production_entry_app.report.daily_strokes_spm_monitor.daily_strokes_spm_monitor import (
@@ -2647,9 +2688,10 @@ class TestProductionReports(FrappeTestCase):
 		self.assertAlmostEqual(float(row["working_hours"]), 8.0, places=3)
 		self.assertAlmostEqual(float(row["setting_time_hrs"]), 0.5, places=3)
 		self.assertAlmostEqual(float(row["loss_time_hrs"]), 1.0, places=3)
-		self.assertAlmostEqual(float(row["production_time_hrs"]), 2.5, places=3)
+		# 240 min - 100 min deducted (setup 30 + maint 60 + JH Activity 10) = 140 min
+		self.assertAlmostEqual(float(row["production_time_hrs"]), 140 / 60, places=3)
 		self.assertAlmostEqual(float(row["total_strokes"]), 100.0, places=3)
-		expected_spm = 100 / (2.5 * 60)
+		expected_spm = 100 / (140 / 60 * 60)
 		derived_abs_tol = 1e-6
 		self.assertAlmostEqual(float(row["spm"]), expected_spm, delta=derived_abs_tol)
 
@@ -2766,8 +2808,9 @@ class TestProductionReports(FrappeTestCase):
 		_, rows = execute({"from_date": "2026-08-04", "to_date": "2026-08-04"})
 		self.assertEqual(len(rows), 1)
 		row = rows[0]
-		# Sum per-entry durations and deduct shift planned losses where overlapped.
-		expected_production_time_hrs = 100 / 60
+		# Sum per-entry durations and deduct planned losses where overlapped.
+		# Only Shift Start Up (08:00-08:10) overlaps; JH Activity (10:00) is outside both entries.
+		expected_production_time_hrs = 110 / 60
 		derived_abs_tol = 1e-6
 		self.assertAlmostEqual(
 			float(row["production_time_hrs"]), expected_production_time_hrs, delta=derived_abs_tol
@@ -2775,6 +2818,45 @@ class TestProductionReports(FrappeTestCase):
 		self.assertAlmostEqual(float(row["total_strokes"]), 200.0, places=3)
 		expected_spm = 200 / (expected_production_time_hrs * 60)
 		self.assertAlmostEqual(float(row["spm"]), expected_spm, delta=derived_abs_tol)
+
+	def test_operator_daily_spm_report_working_hours_change_after_running_shift_extension(self) -> None:
+		"""Extending a Running shift's duration changes the working_hours denominator in the operator report."""
+		from production_entry_app.production_entry_app.report.operator_daily_spm_report.operator_daily_spm_report import (
+			execute,
+		)
+
+		shift = self._create_shift_for_label("2026-08-06", "1")
+		self._create_mock_submitted_entry(
+			posting_date="2026-08-06",
+			planned_start="2026-08-06 08:00:00",
+			planned_end="2026-08-06 12:00:00",
+			actual_start="2026-08-06 08:00:00",
+			actual_end="2026-08-06 12:00:00",
+			fg_qty=120,
+			rejection_qty=0,
+			shift_name=shift.name,
+		)
+
+		_, rows = execute({"from_date": "2026-08-06", "to_date": "2026-08-06"})
+		self.assertEqual(len(rows), 1)
+		initial_working_hours = float(rows[0]["working_hours"])
+
+		running_doc = frappe.get_doc("Shift", shift.name)
+		running_doc.shift_duration = "10"
+		running_doc.flags.ignore_links = True
+		running_doc.save()
+		running_doc.reload()
+
+		_, rows = execute({"from_date": "2026-08-06", "to_date": "2026-08-06"})
+		self.assertEqual(len(rows), 1)
+		extended_working_hours = float(rows[0]["working_hours"])
+
+		self.assertNotEqual(
+			initial_working_hours, extended_working_hours, "Working hours must change after shift extension"
+		)
+		self.assertGreater(
+			extended_working_hours, initial_working_hours, "Extended shift should have more working hours"
+		)
 
 	def _create_mock_submitted_entry(
 		self,
