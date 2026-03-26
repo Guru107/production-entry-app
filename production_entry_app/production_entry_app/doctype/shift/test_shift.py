@@ -1680,6 +1680,65 @@ class TestShift(FrappeTestCase):
 		jh_activity = next((row for row in doc.planned_losses if row.downtime_reason == "JH Activity"), None)
 		self.assertIsNone(jh_activity, "JH Activity should NOT be present for overnight shift")
 
+	def test_cross_midnight_shift_generates_jh_activity_on_next_day(self) -> None:
+		"""A cross-midnight shift spanning 10:00 on day+1 should include JH Activity at 10:00-10:10."""
+		# 16-hour shift 20:00 → 12:00 next day spans 10:00 AM on day+1
+		name = self._expected_name(self._test_department, "2026-03-20", "1")
+		self._delete_shift_if_exists(name)
+
+		doc = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"department": self._test_department,
+				"shift_label": "1",
+				"shift_duration": "16",
+				"shift_date": "2026-03-20",
+				"planned_start_time": "20:00:00",
+			}
+		).insert()
+
+		jh_activity = next((row for row in doc.planned_losses if row.downtime_reason == "JH Activity"), None)
+		self.assertIsNotNone(
+			jh_activity, "JH Activity should be present for cross-midnight shift spanning 10:00 AM next day"
+		)
+		self.assertEqual(jh_activity.start_time, "10:00:00")
+		self.assertEqual(jh_activity.end_time, "10:10:00")
+
+	def test_running_shift_allows_duration_reduction(self) -> None:
+		"""Reducing shift_duration on a Running shift recalculates end fields and planned losses."""
+		self._delete_shifts_for_date("2026-03-19")
+
+		doc = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"department": self._test_department,
+				"shift_label": "1",
+				"shift_duration": "10",
+				"shift_date": "2026-03-19",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+		# 10-hour shift: 5 planned losses (Startup, Tea, JH Activity, Lunch, Tea)
+		self.assertEqual(len(doc.planned_losses), 5)
+
+		doc.start_shift()
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so Running state is visible
+
+		running_doc = frappe.get_doc("Shift", doc.name)
+		running_doc.shift_duration = "8"
+		running_doc.save()
+		running_doc.reload()
+
+		# 8-hour shift: 3 planned losses (Startup, Tea, JH Activity)
+		self.assertEqual(len(running_doc.planned_losses), 3)
+		# End time should now be 16:00 instead of 18:00
+		end_time = running_doc.planned_end_time
+		if hasattr(end_time, "strftime"):
+			end_time = end_time.strftime("%H:%M:%S")
+		self.assertEqual(str(end_time), "16:00:00")
+
+		frappe.get_doc("Shift", doc.name).end_shift()
+
 	def test_running_shift_extension_rejects_overlap_with_another_shift(self) -> None:
 		"""Extending a Running shift's duration that would cause overlap with another shift is rejected."""
 		self._delete_shifts_for_date("2026-03-17")

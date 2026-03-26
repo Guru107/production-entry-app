@@ -1018,17 +1018,17 @@ class Shift(Document):
 		curr = self.get("planned_losses") or []
 		if len(prev) != len(curr):
 			return True
+
+		# Normalize time values for comparison (DB stores HH:MM:SS strings, in-memory may be datetime.time)
+		def _norm(v):
+			if hasattr(v, "strftime"):
+				return v.strftime("%H:%M:%S")
+			return str(v) if v is not None else None
+
 		for i, row in enumerate(curr):
 			if i >= len(prev):
 				return True
 			p = prev[i]
-
-			# Normalize time values for comparison (DB stores HH:MM:SS strings, in-memory may be datetime.time)
-			def _norm(v):
-				if hasattr(v, "strftime"):
-					return v.strftime("%H:%M:%S")
-				return str(v) if v is not None else None
-
 			if (
 				getattr(row, "downtime_reason", None) != getattr(p, "downtime_reason", None)
 				or _norm(getattr(row, "start_time", None)) != _norm(getattr(p, "start_time", None))
@@ -1230,21 +1230,26 @@ class Shift(Document):
 				)
 			)
 
-		# JH Activity - fixed absolute 10:00-10:10, only if shift window overlaps
+		# JH Activity - fixed absolute 10:00-10:10, only if shift window overlaps.
+		# Check both day-0 and day+1 candidates for cross-midnight shifts.
 		if is_active_reason("JH Activity"):
-			jh_fixed = datetime.datetime.combine(base.date(), _JH_ACTIVITY_FIXED_START_TIME)
-			jh_end = add_to_date(jh_fixed, minutes=_JH_ACTIVITY_DURATION_MINS)
-			# Check if the 10:00-10:10 window overlaps the active shift window
-			if jh_fixed < shift_end and jh_end > base:
+			jh_candidates = [
+				datetime.datetime.combine(base.date(), _JH_ACTIVITY_FIXED_START_TIME),
+				datetime.datetime.combine(
+					base.date() + datetime.timedelta(days=1), _JH_ACTIVITY_FIXED_START_TIME
+				),
+			]
+			jh_fixed = next((c for c in jh_candidates if base <= c < shift_end), None)
+			if jh_fixed is not None:
+				jh_end = add_to_date(jh_fixed, minutes=_JH_ACTIVITY_DURATION_MINS)
 				# Clip to shift boundaries if needed
-				actual_start = jh_fixed if jh_fixed >= base else base
 				actual_end = jh_end if jh_end <= shift_end else shift_end
 				entries_with_start.append(
 					(
-						actual_start,
+						jh_fixed,
 						{
 							"downtime_reason": "JH Activity",
-							"start_time": actual_start.time().strftime("%H:%M:%S"),
+							"start_time": jh_fixed.time().strftime("%H:%M:%S"),
 							"end_time": actual_end.time().strftime("%H:%M:%S"),
 						},
 					)
