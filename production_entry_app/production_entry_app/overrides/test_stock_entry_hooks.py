@@ -991,20 +991,21 @@ class TestStockEntryHooks(FrappeTestCase):
 		total_strokes = float(se.get("fg_completed_qty") or 0)
 		self.assertEqual(float(se.custom_ok_qty), expected_ok_qty)
 		self.assertEqual(float(se.custom_actual_duration_mins), 100.0)
-		# Shift planned losses include Shift Start Up (10), JH Activity (10), Tea Break (10).
-		self.assertEqual(float(se.custom_production_time_mins), 70.0)
+		# Planned losses overlapping 08:00-09:40: Shift Start Up (10) + Tea Break (10) = 20 min.
+		# JH Activity (10:00-10:10) is outside the entry window.
+		self.assertEqual(float(se.custom_production_time_mins), 80.0)
 		self.assertAlmostEqual(
 			float(se.custom_actual_spm),
-			float(total_strokes / 70.0 if total_strokes > 0 else 0),
+			float(total_strokes / 80.0 if total_strokes > 0 else 0),
 			places=3,
 		)
 		self.assertAlmostEqual(
 			float(se.custom_cycle_time_sec),
-			float((4200.0 / total_strokes) if total_strokes > 0 else 0),
+			float((4800.0 / total_strokes) if total_strokes > 0 else 0),
 			places=3,
 		)
 		self.assertAlmostEqual(
-			float(se.custom_operator_efficiency_pct), float((total_strokes / 70.0) * 100), places=2
+			float(se.custom_operator_efficiency_pct), float((total_strokes / 80.0) * 100), places=2
 		)
 		self.assertNotIsInstance(se.get("custom_actual_spm"), str)
 		self.assertNotIsInstance(se.get("custom_operator_efficiency_pct"), str)
@@ -1166,11 +1167,21 @@ class TestStockEntryHooks(FrappeTestCase):
 		se.save()
 
 		self.assertEqual(float(se.custom_actual_duration_mins), 20.0)
-		self.assertEqual(float(se.custom_production_time_mins), 0.0)
-		self.assertEqual(float(se.custom_actual_spm), 0.0)
-		self.assertEqual(float(se.custom_operator_efficiency_pct), 0.0)
-		self.assertIn("deducted loss time", se.get("custom_metrics_note") or "")
-		self.assertIn("full actual window", se.get("custom_metrics_note") or "")
+		# Planned: Shift Start Up 08:00-08:10. Unplanned: setup 08:00-08:10.
+		# Merged = 10 min deducted. JH Activity (10:00-10:10) outside window.
+		self.assertEqual(float(se.custom_production_time_mins), 10.0)
+		total_strokes = float(se.get("fg_completed_qty") or 0)
+		self.assertAlmostEqual(
+			float(se.custom_actual_spm),
+			float(total_strokes / 10.0 if total_strokes > 0 else 0),
+			places=3,
+		)
+		self.assertAlmostEqual(
+			float(se.custom_operator_efficiency_pct),
+			float((total_strokes / (10.0 * se.custom_standard_spm)) * 100 if se.custom_standard_spm else 0),
+			places=2,
+		)
+		self.assertFalse(se.get("custom_metrics_note"))
 
 	def test_metrics_remain_empty_when_actual_times_missing(self) -> None:
 		shift = _create_test_shift(

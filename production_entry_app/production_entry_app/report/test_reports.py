@@ -2536,9 +2536,9 @@ class TestProductionReports(FrappeTestCase):
 		self.assertAlmostEqual(float(totals["total_strokes"]), 300.0, places=2)
 		self.assertAlmostEqual(float(totals["rejection"]), 30.0, places=2)
 		self.assertAlmostEqual(float(totals["rework"]), 0.0, places=2)
-		self.assertAlmostEqual(float(totals["prod_time_hrs"]), 1.334, places=2)
-		# Shift start planned losses are deducted from production time.
-		self.assertAlmostEqual(float(totals["spm"]), 3.75, places=2)
+		self.assertAlmostEqual(float(totals["prod_time_hrs"]), 100 / 60, places=2)
+		# Only Shift Start Up (10 min) overlaps each 08:00-09:00 entry; JH Activity (10:00) is outside.
+		self.assertAlmostEqual(float(totals["spm"]), 3.0, places=2)
 
 	def test_daily_strokes_spm_monitor_empty(self) -> None:
 		from production_entry_app.production_entry_app.report.daily_strokes_spm_monitor.daily_strokes_spm_monitor import (
@@ -2688,9 +2688,10 @@ class TestProductionReports(FrappeTestCase):
 		self.assertAlmostEqual(float(row["working_hours"]), 8.0, places=3)
 		self.assertAlmostEqual(float(row["setting_time_hrs"]), 0.5, places=3)
 		self.assertAlmostEqual(float(row["loss_time_hrs"]), 1.0, places=3)
-		self.assertAlmostEqual(float(row["production_time_hrs"]), 2.5, places=3)
+		# 240 min - 100 min deducted (setup 30 + maint 60 + JH Activity 10) = 140 min
+		self.assertAlmostEqual(float(row["production_time_hrs"]), 140 / 60, places=3)
 		self.assertAlmostEqual(float(row["total_strokes"]), 100.0, places=3)
-		expected_spm = 100 / (2.5 * 60)
+		expected_spm = 100 / (140 / 60 * 60)
 		derived_abs_tol = 1e-6
 		self.assertAlmostEqual(float(row["spm"]), expected_spm, delta=derived_abs_tol)
 
@@ -2807,8 +2808,9 @@ class TestProductionReports(FrappeTestCase):
 		_, rows = execute({"from_date": "2026-08-04", "to_date": "2026-08-04"})
 		self.assertEqual(len(rows), 1)
 		row = rows[0]
-		# Sum per-entry durations and deduct shift planned losses where overlapped.
-		expected_production_time_hrs = 100 / 60
+		# Sum per-entry durations and deduct planned losses where overlapped.
+		# Only Shift Start Up (08:00-08:10) overlaps; JH Activity (10:00) is outside both entries.
+		expected_production_time_hrs = 110 / 60
 		derived_abs_tol = 1e-6
 		self.assertAlmostEqual(
 			float(row["production_time_hrs"]), expected_production_time_hrs, delta=derived_abs_tol
