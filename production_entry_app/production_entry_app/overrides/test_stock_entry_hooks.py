@@ -2991,11 +2991,24 @@ class TestGetItemsWithRejection(FrappeTestCase):
 			self.assertEqual(int(field.print_hide or 0), 1)
 			self.assertEqual(int(field.search_index or 0), 0)
 
+	def test_manufacture_fields_are_mandatory_only_for_manufacture_purpose(self) -> None:
+		meta = frappe.get_meta("Stock Entry")
+		for fieldname in (
+			"custom_shift",
+			"custom_actual_start_date_input",
+			"custom_actual_start_time_input",
+			"custom_actual_end_date_input",
+			"custom_actual_end_time_input",
+		):
+			field = meta.get_field(fieldname)
+			self.assertTrue(field, f"Expected Stock Entry field {fieldname} to exist")
+			self.assertEqual(field.mandatory_depends_on, "eval:doc.custom_stock_entry_purpose=='Manufacture'")
+
 	def test_actual_datetime_helper_fields_stay_in_operation_details_column(self) -> None:
 		meta = frappe.get_meta("Stock Entry")
 		self.assertEqual(
 			meta.get_field("custom_operation_details_col_break").insert_after,
-			"custom_actual_end_date",
+			"custom_operation_details_section",
 		)
 		self.assertEqual(
 			meta.get_field("custom_actual_start_date_input").insert_after,

@@ -129,6 +129,7 @@
   "label": "Shift",
   "options": "Shift",
   "depends_on": "eval:doc.custom_stock_entry_purpose=='Manufacture'",
+  "mandatory_depends_on": "eval:doc.custom_stock_entry_purpose=='Manufacture'",
   "is_index": 1,
   "insert_after": "custom_stock_entry_purpose",
   "module": "Production Entry App"
@@ -185,7 +186,7 @@
   "dt": "Stock Entry",
   "fieldname": "custom_operation_details_col_break",
   "fieldtype": "Column Break",
-  "insert_after": "custom_actual_end_date",
+  "insert_after": "custom_planned_end_date",
   "module": "Production Entry App"
  },
  {
@@ -195,6 +196,7 @@
   "fieldname": "custom_actual_start_date_input",
   "fieldtype": "Date",
   "label": "Actual Start Date",
+  "mandatory_depends_on": "eval:doc.custom_stock_entry_purpose=='Manufacture'",
   "insert_after": "custom_operation_details_col_break",
   "module": "Production Entry App",
   "no_copy": 1,
@@ -208,6 +210,7 @@
   "fieldname": "custom_actual_start_time_input",
   "fieldtype": "Data",
   "label": "Time",
+  "mandatory_depends_on": "eval:doc.custom_stock_entry_purpose=='Manufacture'",
   "insert_after": "custom_actual_start_date_input",
   "module": "Production Entry App",
   "no_copy": 1,
@@ -237,6 +240,7 @@
   "fieldname": "custom_actual_end_date_input",
   "fieldtype": "Date",
   "label": "Actual End Date",
+  "mandatory_depends_on": "eval:doc.custom_stock_entry_purpose=='Manufacture'",
   "insert_after": "custom_actual_start_time_input",
   "module": "Production Entry App",
   "no_copy": 1,
@@ -250,6 +254,7 @@
   "fieldname": "custom_actual_end_time_input",
   "fieldtype": "Data",
   "label": "Time",
+  "mandatory_depends_on": "eval:doc.custom_stock_entry_purpose=='Manufacture'",
   "insert_after": "custom_actual_end_date_input",
   "module": "Production Entry App",
   "no_copy": 1,
