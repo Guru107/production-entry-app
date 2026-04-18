@@ -3,6 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import frappe
 from frappe.tests.utils import FrappeTestCase
 
 
@@ -31,6 +32,38 @@ def _settings_doc(
 
 
 class TestAccessControl(FrappeTestCase):
+	def test_settings_default_enable_access_control_is_zero(self) -> None:
+		settings = frappe.get_single("Production Entry Settings")
+		self.assertEqual(settings.enable_access_control, 0)
+
+	def test_settings_update_invalidates_access_cache(self) -> None:
+		from production_entry_app.production_entry_app import access_control
+
+		cache = frappe.cache()
+		cache.set_value(
+			access_control.ACCESS_CONTROL_CACHE_KEY,
+			{"enabled": True, "rules": []},
+			expires_in_sec=access_control.ACCESS_CONTROL_CACHE_TTL_SEC,
+		)
+
+		settings = frappe.get_single("Production Entry Settings")
+		settings.enable_access_control = 1 if not settings.enable_access_control else 0
+		settings.save()
+
+		self.assertIsNone(cache.get_value(access_control.ACCESS_CONTROL_CACHE_KEY))
+
+	def test_non_admin_cannot_modify_production_entry_settings(self) -> None:
+		_ensure_user_with_role("test_pea_settings_user@example.com", "Manufacturing User")
+		original_user = frappe.session.user
+		try:
+			frappe.set_user("test_pea_settings_user@example.com")
+			settings = frappe.get_single("Production Entry Settings")
+			settings.enable_access_control = 1
+			with self.assertRaises(frappe.PermissionError):
+				settings.save()
+		finally:
+			frappe.set_user(original_user)
+
 	def test_system_manager_always_allowed(self) -> None:
 		with (
 			patch(
@@ -136,7 +169,9 @@ class TestAccessControl(FrappeTestCase):
 			),
 			patch(
 				"production_entry_app.production_entry_app.access_control.frappe.cache",
-				return_value=SimpleNamespace(get_value=lambda *_: None, set_value=lambda *args, **kwargs: None),
+				return_value=SimpleNamespace(
+					get_value=lambda *_: None, set_value=lambda *args, **kwargs: None
+				),
 			),
 		):
 			from production_entry_app.production_entry_app import access_control
@@ -157,7 +192,9 @@ class TestAccessControl(FrappeTestCase):
 			),
 			patch(
 				"production_entry_app.production_entry_app.access_control.frappe.cache",
-				return_value=SimpleNamespace(get_value=lambda *_: None, set_value=lambda *args, **kwargs: None),
+				return_value=SimpleNamespace(
+					get_value=lambda *_: None, set_value=lambda *args, **kwargs: None
+				),
 			),
 		):
 			from production_entry_app.production_entry_app import access_control
@@ -182,7 +219,9 @@ class TestAccessControl(FrappeTestCase):
 			),
 			patch(
 				"production_entry_app.production_entry_app.access_control.frappe.cache",
-				return_value=SimpleNamespace(get_value=lambda *_: None, set_value=lambda *args, **kwargs: None),
+				return_value=SimpleNamespace(
+					get_value=lambda *_: None, set_value=lambda *args, **kwargs: None
+				),
 			),
 		):
 			from production_entry_app.production_entry_app import access_control
@@ -246,7 +285,9 @@ class TestAccessControl(FrappeTestCase):
 			),
 			patch(
 				"production_entry_app.production_entry_app.access_control.frappe.cache",
-				return_value=SimpleNamespace(get_value=lambda *_: None, set_value=lambda *args, **kwargs: None),
+				return_value=SimpleNamespace(
+					get_value=lambda *_: None, set_value=lambda *args, **kwargs: None
+				),
 			),
 			patch(
 				"production_entry_app.production_entry_app.access_control.frappe.get_roles",
@@ -295,3 +336,18 @@ class TestAccessControl(FrappeTestCase):
 
 			self.assertTrue(access_control.can_use_production_entry_app("manager@example.com"))
 			self.assertTrue(log_error.called)
+
+
+def _ensure_user_with_role(email: str, role: str) -> None:
+	if not frappe.db.exists("Role", role):
+		frappe.get_doc({"doctype": "Role", "role_name": role}).insert(ignore_permissions=True)
+	if frappe.db.exists("User", email):
+		user = frappe.get_doc("User", email)
+	else:
+		user = frappe.new_doc("User")
+		user.email = email
+		user.first_name = email.split("@", 1)[0]
+		user.user_type = "System User"
+	user.add_roles(role)
+	user.save(ignore_permissions=True)
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed for permission tests to see user roles

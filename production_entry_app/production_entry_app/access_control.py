@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 from traceback import format_exc
+from typing import Any
 
 import frappe
 from frappe import _
-
 
 SETTINGS_DOCTYPE: str = "Production Entry Settings"
 ACCESS_CONTROL_CACHE_KEY: str = "pea:access_control:config"
@@ -21,6 +20,10 @@ USER_PERMISSION_DOCTYPE: str = "User Permission"
 class AccessConfiguration:
 	enabled: bool
 	rules: tuple[tuple[str, str], ...]
+
+
+def invalidate_access_control_cache() -> None:
+	frappe.cache().delete_value(ACCESS_CONTROL_CACHE_KEY)
 
 
 def can_use_production_entry_app(user: str | None = None) -> bool:
@@ -100,7 +103,7 @@ def _load_access_configuration() -> AccessConfiguration:
 	raw_rules = _get_field_value(settings, "allowed_access_rules", default=())
 	if raw_rules is None:
 		raw_rules = ()
-	if not isinstance(raw_rules, (list, tuple)):
+	if not isinstance(raw_rules, list | tuple):
 		raise ValueError(f"{SETTINGS_DOCTYPE} access_rules is corrupt.")
 
 	rules: list[tuple[str, str]] = []
@@ -134,7 +137,7 @@ def _normalize_access_configuration(value: Any) -> AccessConfiguration:
 
 	enabled = bool(value.get("enabled", False))
 	raw_rules = value.get("rules", ())
-	if not isinstance(raw_rules, (list, tuple)):
+	if not isinstance(raw_rules, list | tuple):
 		raise ValueError("Cached access configuration is corrupt.")
 
 	rules: list[tuple[str, str]] = []
@@ -142,7 +145,7 @@ def _normalize_access_configuration(value: Any) -> AccessConfiguration:
 		if isinstance(rule, dict):
 			role = rule.get("role")
 			branch = rule.get("branch")
-		elif isinstance(rule, (list, tuple)) and len(rule) == 2:
+		elif isinstance(rule, list | tuple) and len(rule) == 2:
 			role, branch = rule
 		else:
 			raise ValueError("Cached access configuration is corrupt.")
