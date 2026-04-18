@@ -7,67 +7,74 @@ Branch: `feature/feature-flag-role`
 
 Enable Production Entry App only for explicitly allowed role+branch combinations. Example: users with role `Manufacturing User` and branch `Nashik` are allowed; others are denied.
 
-Scope approved:
+Target denied-user behavior:
 
-- hide/show app module entry in Desk navigation
-- enforce DocType-level access blocking
-
-Out of scope for this change:
-
-- API-only feature flags not tied to module/DocType access
-- per-feature granular toggles inside the app UI
+- app appears not installed
+- app doctypes are not accessible
+- ERPNext core flows remain usable as native ERPNext behavior
+- `Stock Entry` remains usable including `Manufacture`, but without Production Entry App custom fields/logic
 
 ## Finalized Decisions
 
 - Configuration location: `Production Entry Settings` (Single DocType)
 - Rule default: deny by default when no matching rule exists
 - `System Manager`: always bypasses this gate
+- Denied users keep native `Stock Entry` experience; app customizations are suppressed
+- Same field-hiding pattern applies to all app-added custom fields on core doctypes
 
 ## Requirements
 
 - Access policy must be admin-configurable without code deployment.
 - Policy must evaluate both user role and branch.
-- Users outside allowed role+branch rules must not see Production Entry module entry.
-- Users outside allowed role+branch rules must be blocked from creating/reading/updating/deleting gated Production Entry doctypes.
-- Enforcement must be server-side (UI hiding alone is insufficient).
-- Permission hook return values must satisfy v16 strict bool semantics (`True` exactly for allow paths where applicable).
+- Users outside allowed role+branch rules must not see Production Entry module/workspace entry points.
+- Users outside allowed role+branch rules must be blocked from creating/reading/updating/deleting Production Entry App doctypes.
+- For denied users, `Stock Entry` must work as native ERPNext (including `Manufacture`) with app-specific custom logic disabled.
+- For denied users, app-added custom fields on ERPNext core doctypes must be hidden in UI.
+- Enforcement must be server-side for app doctypes and `Stock Entry` app logic.
+- Permission hook return values must satisfy v16 strict bool semantics.
 
 ## Approaches Considered
 
-### 1. Settings-driven runtime gate via hooks and permission hooks (recommended)
+### 1. Settings-driven runtime gate with native passthrough for denied users (recommended)
 
 Summary:
 
-- add settings-managed rule table for `(role, branch)`
+- add settings-managed `(role, branch)` policy
 - centralize decision logic in one service
-- reuse same logic for Desk visibility and DocType access checks
+- enforce app visibility + app doctype access + stock-entry passthrough mode
 
 Trade-offs:
 
-- Pros: explicit and auditable policy, strong enforcement, minimal duplication
-- Cons: adds one new settings doc and hook wiring, requires cache invalidation discipline
+- Pros: closest to “app not installed” behavior while preserving ERPNext core usability
+- Cons: more integration points (hooks, JS guards, override guards, field visibility map)
 
-### 2. UI hiding and list filtering only
+### 2. Pure UI hiding only
 
 Summary:
 
-- hide module/workspace and filter list views without strict backend enforcement
+- hide app links and custom fields only
 
 Trade-offs:
 
-- Pros: low effort
-- Cons: weak security; direct URL/API paths can still expose access unless separately blocked
+- Pros: lowest effort
+- Cons: insufficient security; direct API/route paths can still execute app behavior
 
-### 3. ERPNext role permissions + branch user permissions only
+### 3. Full global write-block on all app custom fields now
 
 Summary:
 
-- rely on standard role permission manager and branch-level user permissions
+- add deep server-side write guards across all core doctypes immediately
 
 Trade-offs:
 
-- Pros: reduced custom app code
-- Cons: cannot cleanly express module-specific role+branch gate behavior; lower operational clarity
+- Pros: strongest strictness
+- Cons: significantly higher complexity/risk; larger test matrix
+
+Chosen now:
+
+- implement approach 1
+- include scoped server-side blocking now for app doctypes + `Stock Entry` app logic
+- defer full global custom-field write-block across all core doctypes to a later phase
 
 ## Recommended Architecture
 
@@ -76,22 +83,35 @@ Implement centralized policy service:
 - module: `production_entry_app/production_entry_app/access_control.py`
 - primary API: `can_use_production_entry_app(user: str | None = None) -> bool`
 
-Use this API in two enforcement points:
+Use this API in three enforcement points:
 
 1. App visibility enforcement
 - enable `add_to_apps_screen` in `hooks.py`
-- set `has_permission` to app permission hook that calls centralized policy service
-- denied users do not see module entry
+- hook function contract: `def has_app_permission() -> bool`
+- must return explicit `True` or `False`
 
-2. DocType permission enforcement
-- add `has_permission` guards for gated app doctypes (starting with `Shift`, then other app doctypes in this module)
-- each guard delegates to centralized policy service
-- denied users are blocked on direct routes and CRUD
+2. App doctype permission enforcement
+- gated doctypes in this phase:
+- `Shift`
+- `Loss Entry`
+- `Downtime Reason`
+- `Operator`
+- `Die Tool Counter`
+- `Die Tool Maintenance Log`
+- `Rejection Reason`
+- `Rejection Breakup`
+- each doctype permission path delegates to centralized policy service
+
+3. `Stock Entry` native passthrough enforcement
+- denied users bypass Production Entry App stock-entry behavior
+- app JS custom logic does not run for denied users
+- app stock-entry hooks short-circuit for denied users
+- stock-entry override behavior falls back to native ERPNext semantics for denied users
 
 Design choice:
 
 - server-side checks are authoritative
-- any UI hiding is treated as convenience, not security boundary
+- UI hiding is convenience on top of authoritative checks
 
 ## Configuration Model
 
@@ -101,74 +121,86 @@ Create `Production Entry Settings` (Single DocType) with:
 - `allowed_access_rules` (child table) with fields:
 - `role` (Link `Role`, required)
 - `branch` (Link `Branch`, required)
-- optional `is_active` (Check, default `1`) for row-level toggling
+- optional `is_active` (Check, default `1`)
 - optional `notes` (Small Text)
 
 Rule semantics:
 
 - if user has `System Manager`, allow
-- if `enable_access_control` is disabled, allow (ops safety switch; default install behavior)
+- if `enable_access_control` is disabled, allow
 - otherwise require at least one exact `(role, branch)` match
 - no match => deny
 - empty rules while enabled => deny all non-`System Manager`
 
 ## Branch Resolution Strategy
 
-To evaluate `(role, branch)` robustly:
+To evaluate `(role, branch)` deterministically:
 
-1. primary branch source: user default branch (`frappe.defaults.get_user_default("Branch", user=...)`)
-2. fallback: if exactly one branch is assigned in user permissions for `Branch`, use that single value
-3. if fallback has zero or multiple branches, treat branch as unresolved and deny
+1. primary: user default branch (`frappe.defaults.get_user_default("Branch", user=...)`)
+2. fallback: use user-permission branch only if exactly one branch exists
+3. zero or multiple fallback branches => unresolved branch
 4. unresolved branch for non-System Manager => deny
-
-Rationale:
-
-- keeps runtime checks deterministic and fast
-- avoids ambiguous allow decisions when branch context is missing
 
 Trade-off:
 
 - fail-closed behavior can block users until branch defaults/permissions are fixed
 
-## Data Flow
+## Core DocType Field-Hiding Pattern
 
-1. User enters Desk or opens gated DocType.
-2. Hook invokes `can_use_production_entry_app`.
-3. Service fetches cached settings payload, resolves user roles and branch, evaluates rule membership.
-4. Hook returns allow/deny.
-5. Denied request follows Frappe permission error path for DocTypes.
+For denied users, hide app-added custom fields on core doctypes via reusable client utility.
 
-## Performance and Caching
+Initial core doctypes to include:
 
-- Cache parsed policy snapshot under app key, example: `pea:access_rules:v1`.
-- Store allowed pairs as `set[tuple[str, str]]` for constant-time lookup.
-- Invalidate cache in settings `on_update`.
-- Avoid repeated DB calls in a single request by memoizing per-request decision (optional small optimization).
+- `Stock Entry`
+- `Stock Entry Detail` (where relevant in grid rendering)
+- `Item`
+- `Workstation`
+- `Manufacturing Settings`
+- `Downtime Entry`
+
+Field source of truth:
+
+- derive from app fixtures (`fixtures/custom_field.json`) where `module = "Production Entry App"`
+- maintain a generated/validated doctype->field map used by client scripts
 
 Trade-off:
 
-- cache introduces staleness risk if invalidation is missed
-- explicit invalidation keeps behavior correct with low runtime overhead
+- strong UX isolation now
+- server-side write-block for every listed field is deferred beyond current phase
+
+## Data Flow
+
+1. User enters Desk or opens a doctype form.
+2. Hook/helper invokes `can_use_production_entry_app`.
+3. Service fetches cached policy, resolves user roles and branch, evaluates rule membership.
+4. System returns allow/deny.
+5. Denied outcomes:
+- app visibility hook returns `False` (no reason payload)
+- doctype permission checks deny via standard Frappe permission path
+- `Stock Entry` executes native ERPNext path without app logic
+
+## Performance and Caching
+
+- Cache policy snapshot under key such as `pea:access_rules:v1`.
+- Store allowed pairs as `set[tuple[str, str]]` for constant-time matching.
+- Invalidate cache in settings `on_update`.
+- Optional request-level memoization to avoid repeated checks in one request.
 
 ## Error Handling and Observability
 
 Expected deny behavior:
 
-- do not raise noisy stack traces for normal deny outcomes
-- return permission deny with concise reason class (role/branch not enabled)
+- app-visibility checks: boolean deny only (`False`), no reason string
+- doctype checks: normal Frappe permission deny
+- no noisy stack traces for expected denies
 
 Operational logs:
 
-- structured debug log with user, resolved branch, matched role, and final decision source
+- structured debug logging of user, resolved branch, matched role, and decision source
 
 Failure mode:
 
-- if settings doc is unavailable/corrupt, fail closed for non-System Manager and log error
-
-Trade-off:
-
-- fail-closed increases security
-- temporary admin intervention may be required during misconfiguration
+- if settings are unavailable/corrupt, fail closed for non-System Manager and log error
 
 ## Concrete Change Plan
 
@@ -178,27 +210,26 @@ Files:
 
 - `production_entry_app/hooks.py`
 - `production_entry_app/production_entry_app/access_control.py` (new)
-- `production_entry_app/production_entry_app/lifecycle.py` (if setup/backfill hooks needed)
+- `production_entry_app/production_entry_app/lifecycle.py` (if setup helpers needed)
 
 Changes:
 
-- enable app entry permission callback via `add_to_apps_screen`
-- add shared access policy implementation and cache helpers
+- enable app entry permission callback
+- add centralized policy implementation and cache invalidation helpers
 
-### Settings and fixtures
+### Settings and schema
 
 Files:
 
 - `production_entry_app/production_entry_app/doctype/production_entry_settings/*` (new)
-- `production_entry_app/production_entry_app/doctype/production_entry_access_rule/*` (new child table doctype)
-- fixture wiring if needed in `hooks.py`
+- `production_entry_app/production_entry_app/doctype/production_entry_access_rule/*` (new)
 
 Changes:
 
-- create settings schema for admin-managed role+branch allowlist
-- include permissions only for admin roles to edit settings
+- add admin-managed allowlist schema
+- restrict edit permissions to admin-level roles
 
-### DocType permission integration
+### App doctype permission integration
 
 Files:
 
@@ -213,59 +244,87 @@ Files:
 
 Changes:
 
-- apply centralized permission gate in `has_permission` paths
-- preserve explicit bool semantics required for v16
+- apply centralized permission gate in doctype permission paths
+- preserve explicit bool semantics for v16
+
+### Stock Entry native passthrough
+
+Files:
+
+- `production_entry_app/public/js/stock_entry.js`
+- `production_entry_app/production_entry_app/overrides/stock_entry_hooks.py`
+- `production_entry_app/production_entry_app/overrides/stock_entry.py`
+
+Changes:
+
+- short-circuit app JS behavior for denied users
+- short-circuit app server hooks for denied users
+- preserve native ERPNext manufacture/stock-entry behavior for denied users
+
+### Core doctype custom field hiding
+
+Files:
+
+- client scripts/utilities under `production_entry_app/public/js/*`
+- field map definition derived from fixtures
+
+Changes:
+
+- hide app-owned custom fields on designated core doctypes for denied users
+- keep allowed-user behavior unchanged
 
 ## Test Strategy
 
-### Unit tests (policy service)
+### Unit tests
 
-- allow on exact `(role, branch)` match
-- deny on role match but branch mismatch
-- deny when rules empty and control enabled
-- allow for `System Manager` bypass
-- deny when branch unresolved (non-System Manager)
+- policy service role+branch matrix
+- branch-resolution deterministic fallback behavior
 - cache invalidation on settings update
 
-### Integration tests (permission hooks)
+### Integration tests
 
-- app visibility hook returns expected bool across user matrices
-- `Shift` create/read/write are allowed/denied per rule matrix
+- app visibility hook bool behavior
+- all gated app doctypes deny/allow matrix
+- stock-entry hook/override short-circuit for denied users
 
-### E2E tests (Playwright)
+### E2E tests
 
-- allowed user sees Production Entry app and can access Shift flow
-- denied user does not see module entry and is blocked on direct Shift route
-- `System Manager` retains access regardless of rules
+- denied user cannot see app and cannot access app doctypes
+- denied user can complete native `Stock Entry` manufacture flow
+- denied user does not see app custom fields on core doctypes
+- allowed user retains full current app behavior
+- System Manager bypass works regardless of rules
 
 ## Rollout and Safety
 
-- Default setting is disabled on install (`enable_access_control=0`) to prevent accidental lockout.
-- Rollout sequence:
-- deploy with settings accessible to admins
-- configure initial allow rules before enabling control
-- enable `enable_access_control`
-- verify with pilot users across at least one allowed and one denied branch
+- default install state: `enable_access_control=0`.
+- rollout sequence:
+- deploy
+- configure allow rules
+- validate with pilot allowed and denied users
+- enable access control
 
 Operational fallback:
 
-- admin can disable `enable_access_control` quickly to restore current behavior
+- admin disables `enable_access_control` to restore unrestricted behavior immediately
 
 ## Risks and Mitigations
 
-- Risk: branch resolution ambiguity for users lacking defaults
-- Mitigation: explicit fallback chain + deterministic deny + admin setup checklist
+- Risk: incomplete core doctype field map can leak fields in UI
+- Mitigation: derive map from fixtures and test per doctype/form
 
-- Risk: incomplete doctype coverage can leave gaps
-- Mitigation: maintain explicit gated-doctype list and tests that verify each doctype path
+- Risk: passthrough misses one stock-entry app hook path
+- Mitigation: centralized guard helper and deny-user regression tests for validate/submit/cancel
 
-- Risk: stale cache after rule changes
-- Mitigation: mandatory cache invalidation in settings save hooks + test coverage
+- Risk: cache staleness after settings update
+- Mitigation: strict cache invalidation tests
 
-## Non-Goals
+- Risk: non-StockEntry API/import writes to app custom fields on core doctypes
+- Mitigation: documented as deferred phase with explicit follow-up hardening story
 
-- dynamic per-session branch selector support
-- department-based policy dimensions
-- time-windowed policy rules
+## Non-Goals (Current Phase)
 
-These can be layered later if needed, after baseline role+branch gate is stable.
+- full server-side write-block for every app custom field on every ERPNext core doctype
+- dynamic per-session branch selector
+- department/time-window policy dimensions
+
