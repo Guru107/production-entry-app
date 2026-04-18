@@ -5,6 +5,17 @@ from __future__ import annotations
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+GATED_DOCTYPES: tuple[str, ...] = (
+	"Shift",
+	"Loss Entry",
+	"Downtime Reason",
+	"Operator",
+	"Die Tool Counter",
+	"Die Tool Maintenance Log",
+	"Rejection Reason",
+	"Rejection Breakup",
+)
+
 
 class TestPermissionHooksExplicitReturn(FrappeTestCase):
 	"""Verify permission hooks return exactly True (not just truthy values).
@@ -133,3 +144,23 @@ class TestPermissionHooksExplicitReturn(FrappeTestCase):
 			True,
 			"has_permission must return exactly True, not a truthy value",
 		)
+
+	def test_gated_doctype_hooks_return_explicit_true_for_doctype_level(self) -> None:
+		"""Configured has_permission hooks must return exactly True for doc=None paths."""
+		for doctype in GATED_DOCTYPES:
+			with self.subTest(doctype=doctype):
+				hook = self._get_doctype_hook(doctype)
+				result = hook(doc=None, ptype="read")
+				self.assertIs(
+					result,
+					True,
+					"doctype-level has_permission hook must return exactly True, not a truthy value",
+				)
+
+	def _get_doctype_hook(self, doctype: str):
+		hooks = frappe.get_hooks("has_permission")
+		hook_paths = hooks.get(doctype) or []
+		if isinstance(hook_paths, str):
+			hook_paths = [hook_paths]
+		self.assertTrue(hook_paths, f"No has_permission hook configured for {doctype}")
+		return frappe.get_attr(hook_paths[0])

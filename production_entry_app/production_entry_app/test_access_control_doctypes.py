@@ -72,13 +72,9 @@ class TestAccessControlDoctypes(FrappeTestCase):
 			frappe.set_user(DENIED_USER)
 			for doctype in GATED_DOCTYPES:
 				with self.subTest(doctype=doctype, ptype="read"):
-					self.assertFalse(
-						access_control.has_gated_doctype_permission(doc=None, ptype="read")
-					)
+					self.assertFalse(_call_doctype_permission_hook(doctype, ptype="read"))
 				with self.subTest(doctype=doctype, ptype="create"):
-					self.assertFalse(
-						access_control.has_gated_doctype_permission(doc=None, ptype="create")
-					)
+					self.assertFalse(_call_doctype_permission_hook(doctype, ptype="create"))
 
 	def test_allowed_user_can_access_all_gated_doctypes(self) -> None:
 		with (
@@ -101,13 +97,9 @@ class TestAccessControlDoctypes(FrappeTestCase):
 						)
 					)
 				with self.subTest(doctype=doctype, ptype="read"):
-					self.assertTrue(
-						access_control.has_gated_doctype_permission(doc=None, ptype="read")
-					)
+					self.assertTrue(_call_doctype_permission_hook(doctype, ptype="read"))
 				with self.subTest(doctype=doctype, ptype="create"):
-					self.assertTrue(
-						access_control.has_gated_doctype_permission(doc=None, ptype="create")
-					)
+					self.assertTrue(_call_doctype_permission_hook(doctype, ptype="create"))
 
 	def test_system_manager_bypass_allows_all_gated_doctypes(self) -> None:
 		with (
@@ -130,13 +122,9 @@ class TestAccessControlDoctypes(FrappeTestCase):
 						)
 					)
 				with self.subTest(doctype=doctype, ptype="read"):
-					self.assertTrue(
-						access_control.has_gated_doctype_permission(doc=None, ptype="read")
-					)
+					self.assertTrue(_call_doctype_permission_hook(doctype, ptype="read"))
 				with self.subTest(doctype=doctype, ptype="create"):
-					self.assertTrue(
-						access_control.has_gated_doctype_permission(doc=None, ptype="create")
-					)
+					self.assertTrue(_call_doctype_permission_hook(doctype, ptype="create"))
 
 
 def _access_config(branch: str) -> SimpleNamespace:
@@ -144,6 +132,17 @@ def _access_config(branch: str) -> SimpleNamespace:
 		enabled=True,
 		rules=((USER_ROLE, branch),),
 	)
+
+
+def _call_doctype_permission_hook(doctype: str, ptype: str) -> bool:
+	hooks = frappe.get_hooks("has_permission")
+	hook_paths = hooks.get(doctype) or []
+	if isinstance(hook_paths, str):
+		hook_paths = [hook_paths]
+	if not hook_paths:
+		raise AssertionError(f"No has_permission hook configured for {doctype}")
+	hook = frappe.get_attr(hook_paths[0])
+	return hook(doc=None, ptype=ptype)
 
 
 def _make_doc(doctype: str, branch: str) -> frappe.model.document.Document:
