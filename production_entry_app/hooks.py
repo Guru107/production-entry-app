@@ -129,6 +129,17 @@ before_uninstall = ["production_entry_app.production_entry_app.lifecycle.before_
 # -----------
 # Permissions evaluated in scripted ways
 
+has_permission = {
+	"Shift": "production_entry_app.production_entry_app.access_control.has_gated_doctype_permission",
+	"Loss Entry": "production_entry_app.production_entry_app.access_control.has_gated_doctype_permission",
+	"Downtime Reason": "production_entry_app.production_entry_app.access_control.has_gated_doctype_permission",
+	"Operator": "production_entry_app.production_entry_app.access_control.has_gated_doctype_permission",
+	"Die Tool Counter": "production_entry_app.production_entry_app.access_control.has_gated_doctype_permission",
+	"Die Tool Maintenance Log": "production_entry_app.production_entry_app.access_control.has_gated_doctype_permission",
+	"Rejection Reason": "production_entry_app.production_entry_app.access_control.has_gated_doctype_permission",
+	"Rejection Breakup": "production_entry_app.production_entry_app.access_control.has_gated_doctype_permission",
+}
+
 # permission_query_conditions = {
 # 	"Event": "frappe.desk.doctype.event.event.get_permission_query_conditions",
 # }

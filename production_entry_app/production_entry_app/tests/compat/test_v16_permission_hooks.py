@@ -105,3 +105,31 @@ class TestPermissionHooksExplicitReturn(FrappeTestCase):
 			True,
 			"has_permission must return exactly True, not a truthy value",
 		)
+
+	def test_loss_entry_has_permission_returns_explicit_true(self) -> None:
+		"""Loss Entry's has_permission hook must return exactly True."""
+		from production_entry_app.production_entry_app.doctype.loss_entry.loss_entry import (
+			LossEntry,
+		)
+
+		loss_entry = frappe.get_doc({"doctype": "Loss Entry"})
+		result = loss_entry.has_permission("read")
+		self.assertIs(
+			result,
+			True,
+			"has_permission must return exactly True, not a truthy value",
+		)
+
+	def test_rejection_breakup_has_permission_returns_explicit_true(self) -> None:
+		"""Rejection Breakup's has_permission hook must return exactly True."""
+		from production_entry_app.production_entry_app.doctype.rejection_breakup.rejection_breakup import (
+			RejectionBreakup,
+		)
+
+		breakup = frappe.get_doc({"doctype": "Rejection Breakup"})
+		result = breakup.has_permission("read")
+		self.assertIs(
+			result,
+			True,
+			"has_permission must return exactly True, not a truthy value",
+		)

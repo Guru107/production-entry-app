@@ -9,6 +9,7 @@ from frappe.query_builder import DocType
 from frappe.query_builder.functions import CustomFunction, Sum
 from frappe.utils import add_to_date, cint, flt, get_datetime
 
+from production_entry_app.production_entry_app import access_control
 from production_entry_app.production_entry_app.utils.loss_time import (
 	build_interval_overlap_criterion,
 	build_interval_overlap_filters,
@@ -817,6 +818,9 @@ class Shift(Document):
 			return
 		sequence = _get_next_shift_sequence(self.shift_date)
 		self.name = f"SHIFT-{self.shift_date}.{self.shift_label}.{sequence:04d}"
+
+	def has_permission(self, ptype: str = "read") -> bool:
+		return access_control.has_gated_doctype_permission(self, ptype=ptype)
 
 	def before_insert(self) -> None:
 		self._set_defaults()
