@@ -97,7 +97,7 @@ Design choice:
 
 Create `Production Entry Settings` (Single DocType) with:
 
-- `enable_access_control` (Check, default `1`)
+- `enable_access_control` (Check, default `0`)
 - `allowed_access_rules` (child table) with fields:
 - `role` (Link `Role`, required)
 - `branch` (Link `Branch`, required)
@@ -107,7 +107,7 @@ Create `Production Entry Settings` (Single DocType) with:
 Rule semantics:
 
 - if user has `System Manager`, allow
-- if `enable_access_control` is disabled, allow (ops safety switch)
+- if `enable_access_control` is disabled, allow (ops safety switch; default install behavior)
 - otherwise require at least one exact `(role, branch)` match
 - no match => deny
 - empty rules while enabled => deny all non-`System Manager`
@@ -117,8 +117,9 @@ Rule semantics:
 To evaluate `(role, branch)` robustly:
 
 1. primary branch source: user default branch (`frappe.defaults.get_user_default("Branch", user=...)`)
-2. fallback: branch from user permissions for `Branch` (if default missing)
-3. unresolved branch for non-System Manager => deny
+2. fallback: if exactly one branch is assigned in user permissions for `Branch`, use that single value
+3. if fallback has zero or multiple branches, treat branch as unresolved and deny
+4. unresolved branch for non-System Manager => deny
 
 Rationale:
 
@@ -202,23 +203,18 @@ Changes:
 Files:
 
 - `production_entry_app/production_entry_app/doctype/shift/shift.py`
-- additional gated doctypes in `production_entry_app/production_entry_app/doctype/*`
+- `production_entry_app/production_entry_app/doctype/loss_entry/loss_entry.py`
+- `production_entry_app/production_entry_app/doctype/downtime_reason/downtime_reason.py`
+- `production_entry_app/production_entry_app/doctype/operator/operator.py`
+- `production_entry_app/production_entry_app/doctype/die_tool_counter/die_tool_counter.py`
+- `production_entry_app/production_entry_app/doctype/die_tool_maintenance_log/die_tool_maintenance_log.py`
+- `production_entry_app/production_entry_app/doctype/rejection_reason/rejection_reason.py`
+- `production_entry_app/production_entry_app/doctype/rejection_breakup/rejection_breakup.py`
 
 Changes:
 
 - apply centralized permission gate in `has_permission` paths
 - preserve explicit bool semantics required for v16
-
-### Optional UI fallback messaging
-
-Files:
-
-- `production_entry_app/public/js/*` (only where needed)
-
-Changes:
-
-- avoid exposing action buttons for denied users where practical
-- keep server enforcement as source of truth
 
 ## Test Strategy
 
@@ -244,10 +240,11 @@ Changes:
 
 ## Rollout and Safety
 
-- Default setting enabled with empty rules will deny all non-System Manager users.
+- Default setting is disabled on install (`enable_access_control=0`) to prevent accidental lockout.
 - Rollout sequence:
 - deploy with settings accessible to admins
-- configure initial allow rules before enabling for business users
+- configure initial allow rules before enabling control
+- enable `enable_access_control`
 - verify with pilot users across at least one allowed and one denied branch
 
 Operational fallback:
