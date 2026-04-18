@@ -184,10 +184,15 @@ def _get_user_branch_permissions(user: str) -> list[str]:
 		pluck="for_value",
 	)
 	branches: list[str] = []
+	seen: set[str] = set()
 	for permission in permissions:
 		branch = _get_field_value(permission, "for_value", default=permission)
 		if branch:
-			branches.append(str(branch))
+			branch_name = str(branch)
+			if branch_name in seen:
+				continue
+			seen.add(branch_name)
+			branches.append(branch_name)
 	return branches
 
 

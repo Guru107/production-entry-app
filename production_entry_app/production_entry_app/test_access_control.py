@@ -18,6 +18,18 @@ def _default_branch_or_none(key: str, user: str | None = None) -> str | None:
 	return "Default Branch" if key == "Branch" else None
 
 
+def _settings_doc(
+	enabled: bool,
+	rules: list[dict] | None = None,
+	access_rules: list[dict] | None = None,
+) -> SimpleNamespace:
+	return SimpleNamespace(
+		enable_access_control=1 if enabled else 0,
+		allowed_access_rules=rules or [],
+		access_rules=access_rules or [],
+	)
+
+
 class TestAccessControl(FrappeTestCase):
 	def test_system_manager_always_allowed(self) -> None:
 		with (
@@ -176,6 +188,79 @@ class TestAccessControl(FrappeTestCase):
 			from production_entry_app.production_entry_app import access_control
 
 			self.assertIsNone(access_control._resolve_user_branch("user@example.com"))
+
+	def test_duplicate_user_permission_rows_same_branch_are_treated_as_single_branch(self) -> None:
+		with (
+			patch(
+				"production_entry_app.production_entry_app.access_control._load_access_configuration",
+				return_value=_settings(
+					True,
+					[{"role": "Manufacturing User", "branch": "Nashik", "is_active": 1}],
+				),
+			),
+			patch(
+				"production_entry_app.production_entry_app.access_control.frappe.defaults.get_user_default",
+				return_value=None,
+			),
+			patch(
+				"production_entry_app.production_entry_app.access_control.frappe.get_all",
+				return_value=[
+					{"for_value": "Nashik"},
+					{"for_value": "Nashik"},
+				],
+			),
+			patch(
+				"production_entry_app.production_entry_app.access_control.frappe.get_roles",
+				return_value=["Manufacturing User"],
+			),
+		):
+			from production_entry_app.production_entry_app import access_control
+
+			self.assertTrue(access_control.can_use_production_entry_app("user@example.com"))
+
+	def test_load_access_configuration_normalizes_allowed_access_rules(self) -> None:
+		with patch(
+			"production_entry_app.production_entry_app.access_control.frappe.get_single",
+			return_value=_settings_doc(
+				True,
+				rules=[
+					{"role": "Manufacturing User", "branch": "Nashik", "is_active": 1},
+					{"role": "Manufacturing Manager", "branch": "Pune", "is_active": 0},
+				],
+			),
+		):
+			from production_entry_app.production_entry_app import access_control
+
+			config = access_control._load_access_configuration()
+			self.assertTrue(config.enabled)
+			self.assertEqual(config.rules, (("Manufacturing User", "Nashik"),))
+
+	def test_has_gated_doctype_permission_uses_real_loader_path(self) -> None:
+		with (
+			patch(
+				"production_entry_app.production_entry_app.access_control.frappe.get_single",
+				return_value=_settings_doc(
+					True,
+					rules=[{"role": "Manufacturing User", "branch": "Nashik", "is_active": 1}],
+				),
+			),
+			patch(
+				"production_entry_app.production_entry_app.access_control.frappe.cache",
+				return_value=SimpleNamespace(get_value=lambda *_: None, set_value=lambda *args, **kwargs: None),
+			),
+			patch(
+				"production_entry_app.production_entry_app.access_control.frappe.get_roles",
+				return_value=["Manufacturing User"],
+			),
+		):
+			from production_entry_app.production_entry_app import access_control
+
+			self.assertTrue(
+				access_control.has_gated_doctype_permission(
+					doc=SimpleNamespace(branch="Nashik"),
+					user="user@example.com",
+				)
+			)
 
 	def test_missing_or_corrupt_settings_fail_closed_for_non_manager(self) -> None:
 		with (
