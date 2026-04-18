@@ -7,12 +7,15 @@ from frappe.tests.utils import FrappeTestCase
 
 
 def _settings(enabled: bool, rules: list[dict] | None = None) -> SimpleNamespace:
-	return SimpleNamespace(enable_access_control=1 if enabled else 0, access_rules=rules or [])
+	return SimpleNamespace(
+		enable_access_control=1 if enabled else 0,
+		allowed_access_rules=rules or [],
+	)
 
 
 def _default_branch_or_none(key: str, user: str | None = None) -> str | None:
 	del user
-	return "Default Branch" if key == "branch" else None
+	return "Default Branch" if key == "Branch" else None
 
 
 class TestAccessControl(FrappeTestCase):

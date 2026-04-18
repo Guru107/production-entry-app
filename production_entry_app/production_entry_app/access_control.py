@@ -97,7 +97,7 @@ def _load_access_configuration() -> AccessConfiguration:
 		raise ValueError(f"{SETTINGS_DOCTYPE} is missing.")
 
 	enabled = bool(_get_field_value(settings, "enable_access_control", default=False))
-	raw_rules = _get_field_value(settings, "access_rules", default=())
+	raw_rules = _get_field_value(settings, "allowed_access_rules", default=())
 	if raw_rules is None:
 		raw_rules = ()
 	if not isinstance(raw_rules, (list, tuple)):
@@ -125,7 +125,7 @@ def _normalize_access_configuration(value: Any) -> AccessConfiguration:
 		rules = _get_field_value(value, "rules", default=None)
 		if enabled is None and rules is None:
 			enabled = _get_field_value(value, "enable_access_control", default=None)
-			rules = _get_field_value(value, "access_rules", default=None)
+			rules = _get_field_value(value, "allowed_access_rules", default=None)
 		if enabled is None and rules is None:
 			raise ValueError("Access configuration is corrupt.")
 		return _normalize_access_configuration(
@@ -170,7 +170,7 @@ def _resolve_user_branch(user: str) -> str | None:
 
 
 def _get_user_default_branch(user: str) -> str | None:
-	for key in ("branch", "Branch"):
+	for key in ("Branch", "branch"):
 		default_branch = frappe.defaults.get_user_default(key, user=user)
 		if default_branch:
 			return str(default_branch)
