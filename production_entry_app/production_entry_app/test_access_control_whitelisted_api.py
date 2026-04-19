@@ -207,7 +207,7 @@ class TestAccessControlWhitelistedApi(FrappeTestCase):
 			**kwargs,
 		):
 			del kwargs
-			if doctype == "Shift" and fieldname == "branch":
+			if doctype in {"Workstation", "Shift"} and fieldname == "branch":
 				return "Branch B"
 			if doctype == "Shift" and fieldname == "modified":
 				return "2026-01-01 10:00:00"
@@ -258,9 +258,14 @@ class TestAccessControlWhitelistedApi(FrappeTestCase):
 		):
 			resolve_user_branch.return_value = "Branch B"
 			result = get_shift_timeline_data("Workstation", "WS-00001")
-		guard.assert_has_calls([call(), call(doctype="Shift", docname="SHIFT-B-00001")])
+		guard.assert_has_calls(
+			[
+				call(doctype="Workstation", docname="WS-00001"),
+				call(doctype="Shift", docname="SHIFT-B-00001"),
+			]
+		)
 		self.assertEqual(guard.call_count, 2)
-		resolve_user_branch.assert_called_once()
+		resolve_user_branch.assert_not_called()
 		self.assertEqual(result["shift_name"], "SHIFT-B-00001")
 		self.assertEqual(result["entries"], [])
 		self.assertEqual(result["float_precision"], 3)
@@ -307,7 +312,7 @@ class TestAccessControlWhitelistedApi(FrappeTestCase):
 			**kwargs,
 		):
 			del kwargs
-			if doctype == "Shift" and fieldname == "branch":
+			if doctype in {"Workstation", "Shift"} and fieldname == "branch":
 				return "Branch B"
 			if doctype == "Shift" and fieldname == "modified":
 				return "2026-01-01 10:00:00"
@@ -358,8 +363,8 @@ class TestAccessControlWhitelistedApi(FrappeTestCase):
 		):
 			with self.assertRaises(frappe.PermissionError):
 				get_shift_timeline_data("Workstation", "WS-00001")
-		guard.assert_called_once_with()
-		resolve_user_branch.assert_called_once()
+		guard.assert_called_once_with(doctype="Workstation", docname="WS-00001")
+		resolve_user_branch.assert_not_called()
 
 	def test_allowed_user_can_call_required_whitelisted_apis(self) -> None:
 		with patch.object(access_control, "assert_app_access") as assert_app_access:
@@ -392,7 +397,7 @@ class TestAccessControlWhitelistedApi(FrappeTestCase):
 						return_value=3,
 					):
 						result = get_shift_timeline_data("Workstation", "WS-00001")
-		assert_app_access.assert_called_once_with()
+		assert_app_access.assert_called_once_with(doctype="Workstation", docname="WS-00001")
 		self.assertEqual(
 			result,
 			{"shift_name": None, "entries": [], "float_precision": 3},

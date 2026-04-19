@@ -51,7 +51,7 @@ def get_shift_timeline_data(doctype: str, docname: str) -> dict:
 		frappe.throw(_("Invalid doctype for timeline data."))
 	if not frappe.has_permission(doctype, "read", docname):
 		raise frappe.PermissionError
-	access_control.assert_app_access()
+	access_control.assert_app_access(doctype=doctype, docname=docname)
 
 	running_shift = frappe.get_all(
 		"Shift",
