@@ -96,6 +96,11 @@ if (typeof window !== "undefined" && window.erpnext && erpnext.stock && erpnext.
 		);
 	} else {
 		erpnext.stock.StockEntry.prototype.fg_completed_qty = function () {
+			const accessControl = _get_access_control_api();
+			const state = accessControl?.get_cached_access_control_state?.();
+			if (!state?.enabled) {
+				return originalFgCompletedQty.call(this);
+			}
 			if (_is_manufacture_doc(this.frm.doc) && this.frm.doc.from_bom) {
 				// Skip the standard get_items() call for Manufacture; handled by Fetch Items.
 				return;

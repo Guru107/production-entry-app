@@ -12,6 +12,7 @@ const TEST_PASSWORD = process.env.PLAYWRIGHT_TEST_USER_PASSWORD || "E2eT3st!Pass
 const ROLE = "Manufacturing User";
 const ALLOWED_BRANCH = "E2E Allowed Branch";
 const DENIED_BRANCH = "E2E Denied Branch";
+const ACCESS_BLOCKED_TEXT_RE = /not permitted|permission denied|page not found|does not exist|access denied/i;
 
 function uniqueSuffix() {
 	return `${Date.now()}-${Math.floor(Math.random() * 1000)}`;
@@ -103,6 +104,25 @@ async function ensureSingleBranchPermission(page, email, branch) {
 	});
 }
 
+async function getWorkspaceNameForModule(page, moduleName) {
+	const rows = await callFrappeMethod(page, "frappe.client.get_list", {
+		doctype: "Workspace",
+		fields: JSON.stringify(["name"]),
+		filters: JSON.stringify([["module", "=", moduleName]]),
+		limit_page_length: 20,
+	});
+	return rows?.[0]?.name || null;
+}
+
+async function expectRouteBlocked(page, routePath) {
+	const target = getRoute(routePath);
+	await page.goto(target);
+	await page.waitForLoadState("domcontentloaded");
+	const bodyText = await page.locator("body").innerText();
+	const blocked = ACCESS_BLOCKED_TEXT_RE.test(bodyText);
+	expect(page.url() !== target || blocked).toBe(true);
+}
+
 test.describe("Access control role-branch flow", () => {
 	const lifecycle = registerE2ELifecycle(test);
 	const createdUsers = new Set();
@@ -165,6 +185,44 @@ test.describe("Access control role-branch flow", () => {
 		await expect(stockEntryPage.page.locator('[data-fieldname="get_items"]')).toBeVisible();
 	});
 
+	test("@regression denied user cannot see app entry or open workspace routes", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		await bootstrapE2E(page, lifecycle.getPrefix());
+		await ensureBranch(page, ALLOWED_BRANCH);
+		await ensureBranch(page, DENIED_BRANCH);
+
+		const deniedEmail = userEmail("module-blocked", uniqueSuffix());
+		createdUsers.add(deniedEmail);
+		await ensureUser(page, {
+			email: deniedEmail,
+			firstName: "DeniedModule",
+			password: TEST_PASSWORD,
+			roles: [ROLE],
+		});
+		await ensureSingleBranchPermission(page, deniedEmail, DENIED_BRANCH);
+
+		await loginAsAdmin(page);
+		await ensureAccessRule(page, {
+			enabled: true,
+			branch: ALLOWED_BRANCH,
+			role: ROLE,
+		});
+
+		await loginAs(page, deniedEmail, TEST_PASSWORD);
+		await page.goto("/app");
+		await expect(page.getByText("Production Entry App", { exact: true })).toHaveCount(0);
+
+		await expectRouteBlocked(page, "/production-entry-app");
+
+		const workspaceName = await getWorkspaceNameForModule(page, "Production Entry App");
+		expect(workspaceName).toBeTruthy();
+		if (workspaceName) {
+			await expectRouteBlocked(page, `/workspace/${encodeURIComponent(workspaceName)}`);
+		}
+	});
+
 	test("@regression allowed user sees app custom stock entry UI", async ({ page }) => {
 		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
@@ -212,6 +270,45 @@ test.describe("Access control role-branch flow", () => {
 			.toBe(true);
 		await expect
 			.poll(async () => await stockEntryPage.isFieldVisible("custom_fetch_items"))
+			.toBe(true);
+	});
+
+	test("@regression system manager bypass sees app entry and can open workspace routes", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		await ensureBranch(page, ALLOWED_BRANCH);
+
+		await loginAsAdmin(page);
+		await ensureAccessRule(page, {
+			enabled: true,
+			branch: ALLOWED_BRANCH,
+			role: ROLE,
+		});
+
+		await page.goto("/app");
+		await expect(page.getByText("Production Entry App", { exact: true })).toBeVisible();
+		await page.goto(getRoute("/production-entry-app"));
+		await page.waitForLoadState("domcontentloaded");
+		expect(ACCESS_BLOCKED_TEXT_RE.test(await page.locator("body").innerText())).toBe(false);
+
+		const workspaceName = await getWorkspaceNameForModule(page, "Production Entry App");
+		expect(workspaceName).toBeTruthy();
+		if (workspaceName) {
+			await page.goto(getRoute(`/workspace/${encodeURIComponent(workspaceName)}`));
+			await page.waitForLoadState("domcontentloaded");
+			expect(ACCESS_BLOCKED_TEXT_RE.test(await page.locator("body").innerText())).toBe(false);
+		}
+
+		const stockEntryPage = new StockEntryPage(page);
+		await stockEntryPage.openNew();
+		await stockEntryPage.setManufactureFields(ctx, {
+			fgQty: 100,
+			rejectionQty: 0,
+		});
+		await expect
+			.poll(async () => await stockEntryPage.isFieldVisible("custom_shift"))
 			.toBe(true);
 	});
 });
