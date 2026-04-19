@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -45,13 +45,14 @@ class TestAccessControlWhitelistedApi(FrappeTestCase):
 			("create_e2e_submitted_stock_entry", lambda: create_e2e_submitted_stock_entry()),
 			("create_e2e_full_shift_stock_entries", lambda: create_e2e_full_shift_stock_entries()),
 			("create_e2e_downtime_entry", lambda: create_e2e_downtime_entry()),
+			("get_shift_timeline_data", lambda: get_shift_timeline_data("Workstation", "WS-00001")),
 		]
 
-		for label, call in gated_calls:
+		for label, gated_call in gated_calls:
 			with self.subTest(label=label):
 				with patch.object(access_control, "assert_app_access", side_effect=frappe.PermissionError):
 					with self.assertRaises(frappe.PermissionError):
-						call()
+						gated_call()
 
 	def test_denied_user_cannot_call_shift_specific_gated_apis(self) -> None:
 		gated_calls = [
@@ -70,11 +71,11 @@ class TestAccessControlWhitelistedApi(FrappeTestCase):
 			("cancel_shift", lambda: Shift.cancel_shift(frappe._dict(name="SHIFT-00001"))),
 		]
 
-		for label, call in gated_calls:
+		for label, gated_call in gated_calls:
 			with self.subTest(label=label):
 				with patch.object(access_control, "assert_app_access", side_effect=frappe.PermissionError):
 					with self.assertRaises(frappe.PermissionError):
-						call()
+						gated_call()
 
 	def test_denied_user_not_blocked_by_app_gate_for_core_doctype_delete_path(self) -> None:
 		with patch.object(access_control, "assert_app_access") as assert_app_access:
@@ -255,9 +256,11 @@ class TestAccessControlWhitelistedApi(FrappeTestCase):
 				access_control, "assert_app_access", wraps=access_control.assert_app_access
 			) as guard,
 		):
+			resolve_user_branch.return_value = "Branch B"
 			result = get_shift_timeline_data("Workstation", "WS-00001")
-		guard.assert_called_once_with(doctype="Shift", docname="SHIFT-B-00001")
-		resolve_user_branch.assert_not_called()
+		guard.assert_has_calls([call(), call(doctype="Shift", docname="SHIFT-B-00001")])
+		self.assertEqual(guard.call_count, 2)
+		resolve_user_branch.assert_called_once()
 		self.assertEqual(result["shift_name"], "SHIFT-B-00001")
 		self.assertEqual(result["entries"], [])
 		self.assertEqual(result["float_precision"], 3)
@@ -355,8 +358,8 @@ class TestAccessControlWhitelistedApi(FrappeTestCase):
 		):
 			with self.assertRaises(frappe.PermissionError):
 				get_shift_timeline_data("Workstation", "WS-00001")
-		guard.assert_called_once_with(doctype="Shift", docname="SHIFT-B-00001")
-		resolve_user_branch.assert_not_called()
+		guard.assert_called_once_with()
+		resolve_user_branch.assert_called_once()
 
 	def test_allowed_user_can_call_required_whitelisted_apis(self) -> None:
 		with patch.object(access_control, "assert_app_access") as assert_app_access:
@@ -389,7 +392,7 @@ class TestAccessControlWhitelistedApi(FrappeTestCase):
 						return_value=3,
 					):
 						result = get_shift_timeline_data("Workstation", "WS-00001")
-		assert_app_access.assert_not_called()
+		assert_app_access.assert_called_once_with()
 		self.assertEqual(
 			result,
 			{"shift_name": None, "entries": [], "float_precision": 3},
