@@ -33,6 +33,7 @@ class TestAccessControlWhitelistedApi(FrappeTestCase):
 	def test_denied_user_cannot_call_gated_whitelisted_apis(self) -> None:
 		gated_calls = [
 			("delete", lambda: delete("Shift", "SHIFT-00001")),
+			("get_shift_details_for_stock_entry", lambda: get_shift_details_for_stock_entry("SHIFT-00001")),
 			("get_items_with_rejection", lambda: get_items_with_rejection("{}")),
 			("get_die_tool_counter", lambda: get_die_tool_counter("ITEM-00001")),
 			("reset_die_tool_counter", lambda: reset_die_tool_counter("ITEM-00001")),
@@ -43,6 +44,16 @@ class TestAccessControlWhitelistedApi(FrappeTestCase):
 			("create_e2e_submitted_stock_entry", lambda: create_e2e_submitted_stock_entry()),
 			("create_e2e_full_shift_stock_entries", lambda: create_e2e_full_shift_stock_entries()),
 			("create_e2e_downtime_entry", lambda: create_e2e_downtime_entry()),
+			("get_linked_downtime_entries", lambda: shift_module.get_linked_downtime_entries("SHIFT-00001")),
+			(
+				"check_running_shift_conflict",
+				lambda: shift_module.check_running_shift_conflict("SHIFT-00001"),
+			),
+			("get_shift_summary", lambda: shift_module.get_shift_summary("SHIFT-00001")),
+			(
+				"get_shift_aggregate_production_entries",
+				lambda: shift_module.get_shift_aggregate_production_entries("SHIFT-00001"),
+			),
 			("get_shift_timeline_data", lambda: get_shift_timeline_data("Workstation", "WS-00001")),
 			("start_shift", lambda: Shift.start_shift(frappe._dict(name="SHIFT-00001"))),
 			("end_shift", lambda: Shift.end_shift(frappe._dict(name="SHIFT-00001"))),
@@ -75,15 +86,17 @@ class TestAccessControlWhitelistedApi(FrappeTestCase):
 		shift_doc.shift_end_date = "2026-01-01"
 		shift_doc.work_in_progress_warehouse = "WIP-B"
 
-		with patch("production_entry_app.production_entry_app.api.frappe.get_doc", return_value=shift_doc):
+		with patch.object(access_control, "assert_app_access") as assert_app_access:
 			with patch(
 				"production_entry_app.production_entry_app.api.frappe.has_permission",
 				return_value=False,
 			) as has_permission:
-				with patch.object(access_control, "assert_app_access") as assert_app_access:
+				with patch(
+					"production_entry_app.production_entry_app.api.frappe.get_doc", return_value=shift_doc
+				):
 					with self.assertRaises(frappe.PermissionError):
 						get_shift_details_for_stock_entry("SHIFT-B-00001")
-		assert_app_access.assert_not_called()
+		assert_app_access.assert_called_once_with(doctype="Shift", docname="SHIFT-B-00001")
 		has_permission.assert_called_once_with("Shift", "read", "SHIFT-B-00001")
 
 	def test_shift_specific_endpoints_use_target_shift_read_permission(self) -> None:
@@ -94,7 +107,7 @@ class TestAccessControlWhitelistedApi(FrappeTestCase):
 			) as has_permission:
 				with self.assertRaises(frappe.PermissionError):
 					shift_module.get_linked_downtime_entries("SHIFT-B-00001")
-		assert_app_access.assert_not_called()
+		assert_app_access.assert_called_once_with(doctype="Shift", docname="SHIFT-B-00001")
 		has_permission.assert_called_once_with("Shift", "read", "SHIFT-B-00001")
 
 		with patch.object(access_control, "assert_app_access") as assert_app_access:
@@ -104,7 +117,7 @@ class TestAccessControlWhitelistedApi(FrappeTestCase):
 			) as has_permission:
 				with self.assertRaises(frappe.PermissionError):
 					shift_module.check_running_shift_conflict("SHIFT-B-00001")
-		assert_app_access.assert_not_called()
+		assert_app_access.assert_called_once_with(doctype="Shift", docname="SHIFT-B-00001")
 		has_permission.assert_called_once_with("Shift", "read", "SHIFT-B-00001")
 
 	def test_allowed_user_can_call_required_whitelisted_apis(self) -> None:

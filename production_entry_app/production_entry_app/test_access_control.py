@@ -303,6 +303,59 @@ class TestAccessControl(FrappeTestCase):
 				)
 			)
 
+	def test_assert_app_access_doc_context_uses_target_branch(self) -> None:
+		with (
+			patch(
+				"production_entry_app.production_entry_app.access_control._load_access_configuration",
+				return_value=_settings(
+					True,
+					[{"role": "Manufacturing User", "branch": "Branch B", "is_active": 1}],
+				),
+			),
+			patch(
+				"production_entry_app.production_entry_app.access_control.frappe.db.get_value",
+				return_value="Branch B",
+			),
+			patch(
+				"production_entry_app.production_entry_app.access_control.frappe.get_roles",
+				return_value=["Manufacturing User"],
+			),
+			patch(
+				"production_entry_app.production_entry_app.access_control._resolve_user_branch"
+			) as resolve_user_branch,
+		):
+			from production_entry_app.production_entry_app import access_control
+
+			access_control.assert_app_access(doctype="Shift", docname="SHIFT-B-00001")
+			resolve_user_branch.assert_not_called()
+
+	def test_assert_app_access_doc_context_denies_cross_branch_access(self) -> None:
+		with (
+			patch(
+				"production_entry_app.production_entry_app.access_control._load_access_configuration",
+				return_value=_settings(
+					True,
+					[{"role": "Manufacturing User", "branch": "Branch A", "is_active": 1}],
+				),
+			),
+			patch(
+				"production_entry_app.production_entry_app.access_control.frappe.db.get_value",
+				return_value="Branch B",
+			),
+			patch(
+				"production_entry_app.production_entry_app.access_control.frappe.get_roles",
+				return_value=["Manufacturing User"],
+			),
+			patch(
+				"production_entry_app.production_entry_app.access_control._resolve_user_branch"
+			) as resolve_user_branch,
+		):
+			from production_entry_app.production_entry_app import access_control
+
+			with self.assertRaises(frappe.PermissionError):
+				access_control.assert_app_access(doctype="Shift", docname="SHIFT-B-00001")
+			resolve_user_branch.assert_not_called()
+
 	def test_missing_or_corrupt_settings_fail_closed_for_non_manager(self) -> None:
 		with (
 			patch(

@@ -41,8 +41,25 @@ def has_app_permission() -> bool:
 	return can_use_production_entry_app()
 
 
-def assert_app_access() -> None:
-	"""Raise if the current session user cannot access Production Entry App."""
+def assert_app_access(
+	*, doctype: str | None = None, docname: str | None = None, branch: str | None = None
+) -> None:
+	"""Raise if the current session user cannot access Production Entry App.
+
+	When document context is provided, evaluate access against the target document branch
+	instead of the user's default branch.
+	"""
+	effective_user = _resolve_user(None)
+	if doctype or docname or branch:
+		target_branch = branch
+		if target_branch is None and doctype and docname:
+			target_branch = _get_document_branch(doctype, docname)
+		if target_branch is not None:
+			if _can_access(effective_user, branch=target_branch):
+				return
+		elif has_app_permission():
+			return
+		frappe.throw(_("You do not have access to Production Entry App."), frappe.PermissionError)
 	if has_app_permission():
 		return
 	frappe.throw(_("You do not have access to Production Entry App."), frappe.PermissionError)
@@ -206,6 +223,11 @@ def _extract_branch(doc: Any) -> str | None:
 		branch = doc.get("branch")
 		return str(branch) if branch else None
 	branch = getattr(doc, "branch", None)
+	return str(branch) if branch else None
+
+
+def _get_document_branch(doctype: str, docname: str) -> str | None:
+	branch = frappe.db.get_value(doctype, docname, "branch")
 	return str(branch) if branch else None
 
 
