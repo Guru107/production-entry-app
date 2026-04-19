@@ -87,6 +87,21 @@ class TestAccessControl(FrappeTestCase):
 
 		self.assertIsNone(cache.get_value(access_control.ACCESS_CONTROL_CACHE_KEY))
 
+	def test_legacy_cache_key_payload_is_ignored(self) -> None:
+		from production_entry_app.production_entry_app import access_control
+
+		cache = frappe.cache()
+		cache.set_value(
+			access_control.LEGACY_ACCESS_CONTROL_CACHE_KEY,
+			{"enabled": True, "rules": [("Manufacturing User", "Nashik")]},
+			expires_in_sec=access_control.ACCESS_CONTROL_CACHE_TTL_SEC,
+		)
+		with patch(
+			"production_entry_app.production_entry_app.access_control._load_access_configuration",
+			return_value=_settings(False, DEFAULT_REQUIRED_ROLE),
+		):
+			self.assertTrue(access_control.can_use_production_entry_app("user@example.com"))
+
 	def test_non_admin_cannot_modify_production_entry_settings(self) -> None:
 		_ensure_user_with_role("test_pea_settings_user@example.com", "Manufacturing User")
 		original_user = frappe.session.user

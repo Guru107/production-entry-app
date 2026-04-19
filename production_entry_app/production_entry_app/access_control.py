@@ -8,7 +8,8 @@ import frappe
 from frappe import _
 
 SETTINGS_DOCTYPE: str = "Production Entry Settings"
-ACCESS_CONTROL_CACHE_KEY: str = "pea:access_control:config"
+LEGACY_ACCESS_CONTROL_CACHE_KEY: str = "pea:access_control:config"
+ACCESS_CONTROL_CACHE_KEY: str = "pea:access_control:config:v2"
 ACCESS_CONTROL_CACHE_TTL_SEC: int = 30
 SYSTEM_MANAGER_ROLE: str = "System Manager"
 DEFAULT_REQUIRED_ROLE: str = "PEA User"
@@ -21,7 +22,9 @@ class AccessConfiguration:
 
 
 def invalidate_access_control_cache() -> None:
-	frappe.cache().delete_value(ACCESS_CONTROL_CACHE_KEY)
+	cache = frappe.cache()
+	cache.delete_value(ACCESS_CONTROL_CACHE_KEY)
+	cache.delete_value(LEGACY_ACCESS_CONTROL_CACHE_KEY)
 
 
 def can_use_production_entry_app(user: str | None = None) -> bool:

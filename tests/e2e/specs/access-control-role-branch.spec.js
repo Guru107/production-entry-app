@@ -45,7 +45,6 @@ async function ensureAccessRule(page, { enabled, requiredRole = REQUIRED_ROLE })
 	});
 	settings.enable_access_control = enabled ? 1 : 0;
 	settings.required_role = requiredRole;
-	settings.allowed_access_rules = [];
 	await callFrappeMethod(page, "frappe.client.save", {
 		doc: JSON.stringify(settings),
 	});
