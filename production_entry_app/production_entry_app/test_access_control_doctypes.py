@@ -34,17 +34,17 @@ DOCLEVEL_GATED_DOCTYPES: tuple[str, ...] = (
 	"Rejection Reason",
 )
 
-ALLOWED_BRANCH: str = "Allowed Branch"
-DENIED_BRANCH: str = "Denied Branch"
+TEST_BRANCH: str = "PEA Test Branch"
 ALLOWED_USER: str = "pea_allowed_user@example.com"
 DENIED_USER: str = "pea_denied_user@example.com"
 USER_ROLE: str = "Manufacturing User"
+REQUIRED_ROLE: str = "PEA User"
 
 
 class TestAccessControlDoctypes(FrappeTestCase):
 	def setUp(self) -> None:
-		_ensure_user_with_role(ALLOWED_USER, USER_ROLE)
-		_ensure_user_with_role(DENIED_USER, USER_ROLE)
+		_ensure_user_with_roles(ALLOWED_USER, (USER_ROLE, REQUIRED_ROLE))
+		_ensure_user_with_roles(DENIED_USER, (USER_ROLE,))
 		frappe.set_user("Administrator")
 		access_control.invalidate_access_control_cache()
 
@@ -53,36 +53,24 @@ class TestAccessControlDoctypes(FrappeTestCase):
 		frappe.db.rollback()
 
 	def test_denied_user_cannot_access_all_gated_doctypes_doc_level(self) -> None:
-		with (
-			patch(
-				"production_entry_app.production_entry_app.access_control._load_access_configuration",
-				return_value=_access_config(ALLOWED_BRANCH),
-			),
-			patch(
-				"production_entry_app.production_entry_app.access_control._resolve_user_branch",
-				return_value=DENIED_BRANCH,
-			),
+		with patch(
+			"production_entry_app.production_entry_app.access_control._load_access_configuration",
+			return_value=_access_config(),
 		):
 			frappe.set_user(DENIED_USER)
 			for doctype in DOCLEVEL_GATED_DOCTYPES:
 				with self.subTest(doctype=doctype):
-					self.assertFalse(frappe.has_permission(_make_doc(doctype, DENIED_BRANCH), ptype="read"))
+					self.assertFalse(frappe.has_permission(_make_doc(doctype), ptype="read"))
 
 	def test_denied_user_cannot_access_loss_entry_child_rows_when_shift_parent_is_denied(
 		self,
 	) -> None:
-		with (
-			patch(
-				"production_entry_app.production_entry_app.access_control._load_access_configuration",
-				return_value=_access_config(ALLOWED_BRANCH),
-			),
-			patch(
-				"production_entry_app.production_entry_app.access_control._resolve_user_branch",
-				return_value=DENIED_BRANCH,
-			),
+		with patch(
+			"production_entry_app.production_entry_app.access_control._load_access_configuration",
+			return_value=_access_config(),
 		):
 			frappe.set_user(DENIED_USER)
-			shift, loss_entry = _make_shift_with_loss_entry(DENIED_BRANCH)
+			shift, loss_entry = _make_shift_with_loss_entry()
 			with self.subTest(doctype="Shift"):
 				self.assertFalse(frappe.has_permission(shift, ptype="read"))
 			with self.subTest(doctype="Loss Entry"):
@@ -91,15 +79,9 @@ class TestAccessControlDoctypes(FrappeTestCase):
 	def test_denied_user_can_access_stock_entry_natively_but_is_blocked_on_rejection_breakup(
 		self,
 	) -> None:
-		with (
-			patch(
-				"production_entry_app.production_entry_app.access_control._load_access_configuration",
-				return_value=_access_config(ALLOWED_BRANCH),
-			),
-			patch(
-				"production_entry_app.production_entry_app.access_control._resolve_user_branch",
-				return_value=DENIED_BRANCH,
-			),
+		with patch(
+			"production_entry_app.production_entry_app.access_control._load_access_configuration",
+			return_value=_access_config(),
 		):
 			frappe.set_user(DENIED_USER)
 			stock_entry, rejection_breakup = _make_stock_entry_with_rejection_breakup()
@@ -109,15 +91,9 @@ class TestAccessControlDoctypes(FrappeTestCase):
 				self.assertFalse(rejection_breakup.has_permission("read", user=DENIED_USER))
 
 	def test_denied_user_cannot_access_list_create_routes_for_gated_doctypes(self) -> None:
-		with (
-			patch(
-				"production_entry_app.production_entry_app.access_control._load_access_configuration",
-				return_value=_access_config(ALLOWED_BRANCH),
-			),
-			patch(
-				"production_entry_app.production_entry_app.access_control._resolve_user_branch",
-				return_value=DENIED_BRANCH,
-			),
+		with patch(
+			"production_entry_app.production_entry_app.access_control._load_access_configuration",
+			return_value=_access_config(),
 		):
 			frappe.set_user(DENIED_USER)
 			for doctype in GATED_DOCTYPES:
@@ -127,25 +103,19 @@ class TestAccessControlDoctypes(FrappeTestCase):
 					self.assertFalse(_call_doctype_permission_hook(doctype, ptype="create"))
 
 	def test_allowed_user_can_access_all_gated_doctypes(self) -> None:
-		with (
-			patch(
-				"production_entry_app.production_entry_app.access_control._load_access_configuration",
-				return_value=_access_config(ALLOWED_BRANCH),
-			),
-			patch(
-				"production_entry_app.production_entry_app.access_control._resolve_user_branch",
-				return_value=ALLOWED_BRANCH,
-			),
+		with patch(
+			"production_entry_app.production_entry_app.access_control._load_access_configuration",
+			return_value=_access_config(),
 		):
 			frappe.set_user(ALLOWED_USER)
 			for doctype in DOCLEVEL_GATED_DOCTYPES:
 				with self.subTest(doctype=doctype):
-					self.assertTrue(frappe.has_permission(_make_doc(doctype, ALLOWED_BRANCH), ptype="read"))
+					self.assertTrue(frappe.has_permission(_make_doc(doctype), ptype="read"))
 				with self.subTest(doctype=doctype, ptype="read"):
 					self.assertTrue(_call_doctype_permission_hook(doctype, ptype="read"))
 				with self.subTest(doctype=doctype, ptype="create"):
 					self.assertTrue(_call_doctype_permission_hook(doctype, ptype="create"))
-			shift, loss_entry = _make_shift_with_loss_entry(ALLOWED_BRANCH)
+			shift, loss_entry = _make_shift_with_loss_entry()
 			with self.subTest(doctype="Shift"):
 				self.assertTrue(frappe.has_permission(shift, ptype="read"))
 			with self.subTest(doctype="Loss Entry"):
@@ -157,25 +127,19 @@ class TestAccessControlDoctypes(FrappeTestCase):
 				self.assertTrue(rejection_breakup.has_permission("read", user=ALLOWED_USER))
 
 	def test_system_manager_bypass_allows_all_gated_doctypes(self) -> None:
-		with (
-			patch(
-				"production_entry_app.production_entry_app.access_control._load_access_configuration",
-				return_value=_access_config(ALLOWED_BRANCH),
-			),
-			patch(
-				"production_entry_app.production_entry_app.access_control._resolve_user_branch",
-				return_value=DENIED_BRANCH,
-			),
+		with patch(
+			"production_entry_app.production_entry_app.access_control._load_access_configuration",
+			return_value=_access_config(),
 		):
 			frappe.set_user("Administrator")
 			for doctype in DOCLEVEL_GATED_DOCTYPES:
 				with self.subTest(doctype=doctype):
-					self.assertTrue(frappe.has_permission(_make_doc(doctype, DENIED_BRANCH), ptype="read"))
+					self.assertTrue(frappe.has_permission(_make_doc(doctype), ptype="read"))
 				with self.subTest(doctype=doctype, ptype="read"):
 					self.assertTrue(_call_doctype_permission_hook(doctype, ptype="read"))
 				with self.subTest(doctype=doctype, ptype="create"):
 					self.assertTrue(_call_doctype_permission_hook(doctype, ptype="create"))
-			shift, loss_entry = _make_shift_with_loss_entry(DENIED_BRANCH)
+			shift, loss_entry = _make_shift_with_loss_entry()
 			with self.subTest(doctype="Shift"):
 				self.assertTrue(frappe.has_permission(shift, ptype="read"))
 			with self.subTest(doctype="Loss Entry"):
@@ -187,10 +151,10 @@ class TestAccessControlDoctypes(FrappeTestCase):
 				self.assertTrue(rejection_breakup.has_permission("read", user="Administrator"))
 
 
-def _access_config(branch: str) -> SimpleNamespace:
+def _access_config() -> SimpleNamespace:
 	return SimpleNamespace(
 		enabled=True,
-		rules=((USER_ROLE, branch),),
+		required_role=REQUIRED_ROLE,
 	)
 
 
@@ -205,15 +169,13 @@ def _call_doctype_permission_hook(doctype: str, ptype: str) -> bool:
 	return hook(doc=None, ptype=ptype)
 
 
-def _make_shift_with_loss_entry(
-	branch: str,
-) -> tuple[frappe.model.document.Document, frappe.model.document.Document]:
+def _make_shift_with_loss_entry() -> tuple[frappe.model.document.Document, frappe.model.document.Document]:
 	ensure_department("PEA Test Department")
 	shift = frappe.get_doc(
 		{
 			"doctype": "Shift",
 			"department": "PEA Test Department",
-			"branch": branch,
+			"branch": TEST_BRANCH,
 			"shift_label": "1",
 			"shift_duration": "8",
 			"shift_date": "2026-04-18",
@@ -254,31 +216,32 @@ def _make_stock_entry_with_rejection_breakup() -> (
 	return stock_entry, stock_entry.custom_rejection_breakup[0]
 
 
-def _make_doc(doctype: str, branch: str) -> frappe.model.document.Document:
+def _make_doc(doctype: str) -> frappe.model.document.Document:
 	if doctype == "Loss Entry":
-		return _make_shift_with_loss_entry(branch)[1]
+		return _make_shift_with_loss_entry()[1]
 	if doctype == "Rejection Breakup":
 		return _make_stock_entry_with_rejection_breakup()[1]
 	doc = frappe.get_doc({"doctype": doctype})
-	doc.name = f"{doctype}-TEST-{branch}"
+	doc.name = f"{doctype}-TEST"
 	if doctype == "Shift":
-		doc.branch = branch
+		doc.branch = TEST_BRANCH
 	elif doctype == "Downtime Reason":
-		doc.downtime_reason_name = f"{doctype} {branch}"
+		doc.downtime_reason_name = f"{doctype} Test"
 	elif doctype == "Operator":
-		doc.operator_name = f"{doctype} {branch}"
+		doc.operator_name = f"{doctype} Test"
 	elif doctype == "Die Tool Counter":
-		doc.die_tool_item = f"{doctype} {branch}"
+		doc.die_tool_item = f"{doctype} Test"
 	elif doctype == "Die Tool Maintenance Log":
-		doc.die_tool_item = f"{doctype} {branch}"
+		doc.die_tool_item = f"{doctype} Test"
 	elif doctype == "Rejection Reason":
-		doc.rejection_reason_name = f"{doctype} {branch}"
+		doc.rejection_reason_name = f"{doctype} Test"
 	return doc
 
 
-def _ensure_user_with_role(email: str, role: str) -> None:
-	if not frappe.db.exists("Role", role):
-		frappe.get_doc({"doctype": "Role", "role_name": role}).insert(ignore_permissions=True)
+def _ensure_user_with_roles(email: str, roles: tuple[str, ...]) -> None:
+	for role in roles:
+		if not frappe.db.exists("Role", role):
+			frappe.get_doc({"doctype": "Role", "role_name": role}).insert(ignore_permissions=True)
 	if frappe.db.exists("User", email):
 		user = frappe.get_doc("User", email)
 	else:
@@ -286,6 +249,6 @@ def _ensure_user_with_role(email: str, role: str) -> None:
 		user.email = email
 		user.first_name = email.split("@", 1)[0]
 		user.user_type = "System User"
-	user.add_roles(role)
+	user.add_roles(*roles)
 	user.save(ignore_permissions=True)
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so role changes are visible

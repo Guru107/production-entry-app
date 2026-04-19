@@ -26,6 +26,8 @@ from production_entry_app.production_entry_app.api_timeline import get_shift_tim
 from production_entry_app.production_entry_app.doctype.shift import shift as shift_module
 from production_entry_app.production_entry_app.doctype.shift.shift import Shift
 
+REQUIRED_ROLE: str = "PEA User"
+
 
 class TestAccessControlWhitelistedApi(FrappeTestCase):
 	def tearDown(self) -> None:
@@ -86,27 +88,22 @@ class TestAccessControlWhitelistedApi(FrappeTestCase):
 		assert_app_access.assert_not_called()
 		delete_doc.assert_called_once_with("Stock Entry", "STE-00001")
 
-	def test_shift_delete_allows_doc_scoped_branch_match_without_default_branch(self) -> None:
+	def test_shift_delete_allows_when_user_has_required_role(self) -> None:
 		with (
 			patch(
 				"production_entry_app.production_entry_app.access_control._get_access_configuration",
 				return_value=access_control.AccessConfiguration(
 					enabled=True,
-					rules=(("Manufacturing User", "Branch B"),),
+					required_role=REQUIRED_ROLE,
 				),
 			),
 			patch(
 				"production_entry_app.production_entry_app.access_control.frappe.get_roles",
-				return_value=["Manufacturing User"],
+				return_value=["Manufacturing User", REQUIRED_ROLE],
 			),
 			patch(
-				"production_entry_app.production_entry_app.access_control.frappe.db.get_value",
-				return_value="Branch B",
-			),
-			patch(
-				"production_entry_app.production_entry_app.access_control._resolve_user_branch"
-			) as resolve_user_branch,
-			patch("production_entry_app.production_entry_app.api.frappe_client_delete_doc") as delete_doc,
+				"production_entry_app.production_entry_app.api.frappe_client_delete_doc"
+			) as delete_doc,
 			patch(
 				"production_entry_app.production_entry_app.api._cleanup_orphan_stock_entry_loss_links"
 			) as cleanup_orphans,
@@ -116,7 +113,6 @@ class TestAccessControlWhitelistedApi(FrappeTestCase):
 		):
 			delete("Shift", "SHIFT-B-00001")
 		guard.assert_called_once_with(doctype="Shift", docname="SHIFT-B-00001")
-		resolve_user_branch.assert_not_called()
 		cleanup_orphans.assert_called_once_with("SHIFT-B-00001")
 		delete_doc.assert_called_once_with("Shift", "SHIFT-B-00001")
 
@@ -165,7 +161,7 @@ class TestAccessControlWhitelistedApi(FrappeTestCase):
 		assert_app_access.assert_called_once_with(doctype="Shift", docname="SHIFT-B-00001")
 		has_permission.assert_called_once_with("Shift", "read", "SHIFT-B-00001")
 
-	def test_shift_timeline_data_allows_doc_scoped_branch_match_without_default_branch(self) -> None:
+	def test_shift_timeline_data_allows_when_user_has_required_role(self) -> None:
 		class _FakeQuery:
 			def select(self, *args, **kwargs):
 				return self
@@ -200,38 +196,22 @@ class TestAccessControlWhitelistedApi(FrappeTestCase):
 			}
 		]
 
-		def _get_value(
-			doctype: str,
-			name: str | dict | tuple | None = None,
-			fieldname: str | list | tuple | None = None,
-			**kwargs,
-		):
-			del kwargs
-			if doctype == "Shift" and fieldname == "branch":
-				return "Branch B"
-			if doctype == "Shift" and fieldname == "modified":
-				return "2026-01-01 10:00:00"
-			return None
-
 		with (
 			patch(
 				"production_entry_app.production_entry_app.access_control._get_access_configuration",
 				return_value=access_control.AccessConfiguration(
 					enabled=True,
-					rules=(("Manufacturing User", "Branch B"),),
+					required_role=REQUIRED_ROLE,
 				),
 			),
 			patch(
 				"production_entry_app.production_entry_app.access_control.frappe.get_roles",
-				return_value=["Manufacturing User"],
+				return_value=["Manufacturing User", REQUIRED_ROLE],
 			),
 			patch(
 				"production_entry_app.production_entry_app.api_timeline.frappe.db.get_value",
-				side_effect=_get_value,
+				return_value="2026-01-01 10:00:00",
 			),
-			patch(
-				"production_entry_app.production_entry_app.access_control._resolve_user_branch"
-			) as resolve_user_branch,
 			patch(
 				"production_entry_app.production_entry_app.api_timeline.frappe.get_all",
 				return_value=running_shift,
@@ -256,7 +236,6 @@ class TestAccessControlWhitelistedApi(FrappeTestCase):
 				access_control, "assert_app_access", wraps=access_control.assert_app_access
 			) as guard,
 		):
-			resolve_user_branch.return_value = "Branch B"
 			result = get_shift_timeline_data("Workstation", "WS-00001")
 		guard.assert_has_calls(
 			[
@@ -265,12 +244,11 @@ class TestAccessControlWhitelistedApi(FrappeTestCase):
 			]
 		)
 		self.assertEqual(guard.call_count, 2)
-		resolve_user_branch.assert_not_called()
 		self.assertEqual(result["shift_name"], "SHIFT-B-00001")
 		self.assertEqual(result["entries"], [])
 		self.assertEqual(result["float_precision"], 3)
 
-	def test_shift_timeline_data_denies_doc_scoped_branch_mismatch_without_default_branch(self) -> None:
+	def test_shift_timeline_data_denies_when_user_missing_required_role(self) -> None:
 		class _FakeQuery:
 			def select(self, *args, **kwargs):
 				return self
@@ -305,38 +283,18 @@ class TestAccessControlWhitelistedApi(FrappeTestCase):
 			}
 		]
 
-		def _get_value(
-			doctype: str,
-			name: str | dict | tuple | None = None,
-			fieldname: str | list | tuple | None = None,
-			**kwargs,
-		):
-			del kwargs
-			if doctype == "Shift" and fieldname == "branch":
-				return "Branch B"
-			if doctype == "Shift" and fieldname == "modified":
-				return "2026-01-01 10:00:00"
-			return None
-
 		with (
 			patch(
 				"production_entry_app.production_entry_app.access_control._get_access_configuration",
 				return_value=access_control.AccessConfiguration(
 					enabled=True,
-					rules=(("Sales User", "Branch A"),),
+					required_role=REQUIRED_ROLE,
 				),
 			),
 			patch(
 				"production_entry_app.production_entry_app.access_control.frappe.get_roles",
 				return_value=["Manufacturing User"],
 			),
-			patch(
-				"production_entry_app.production_entry_app.api_timeline.frappe.db.get_value",
-				side_effect=_get_value,
-			),
-			patch(
-				"production_entry_app.production_entry_app.access_control._resolve_user_branch"
-			) as resolve_user_branch,
 			patch(
 				"production_entry_app.production_entry_app.api_timeline.frappe.get_all",
 				return_value=running_shift,
@@ -364,7 +322,6 @@ class TestAccessControlWhitelistedApi(FrappeTestCase):
 			with self.assertRaises(frappe.PermissionError):
 				get_shift_timeline_data("Workstation", "WS-00001")
 		guard.assert_called_once_with(doctype="Workstation", docname="WS-00001")
-		resolve_user_branch.assert_not_called()
 
 	def test_allowed_user_can_call_required_whitelisted_apis(self) -> None:
 		with patch.object(access_control, "assert_app_access") as assert_app_access:
@@ -403,7 +360,7 @@ class TestAccessControlWhitelistedApi(FrappeTestCase):
 			{"shift_name": None, "entries": [], "float_precision": 3},
 		)
 
-	def test_allowlisted_endpoint_returns_current_access_state_without_guard(self) -> None:
+	def test_get_access_control_state_returns_enabled_flag(self) -> None:
 		with patch.object(access_control, "assert_app_access") as assert_app_access:
 			with patch.object(access_control, "has_app_permission", return_value=False):
 				result = get_access_control_state()
