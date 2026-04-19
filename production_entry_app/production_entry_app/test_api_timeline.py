@@ -511,7 +511,11 @@ class TestGetShiftTimelineData(FrappeTestCase):
 		self.assertEqual(result["shift_end"], cached["shift_end"])
 		self.assertEqual(result["entries"], cached["entries"])
 		self.assertEqual(result["float_precision"], 4)
-		qb_from.assert_not_called()
+		# Access control may query settings/shift metadata, but a cache hit must skip Stock Entry reads.
+		self.assertFalse(
+			any("tabStock Entry" in str(call) for call in qb_from.call_args_list),
+			msg=f"Unexpected Stock Entry query calls: {qb_from.call_args_list}",
+		)
 
 	def test_timeline_payload_uses_updated_shift_end_after_duration_change(self) -> None:
 		"""When a Running shift's duration changes, the timeline payload must use the
