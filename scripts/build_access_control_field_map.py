@@ -15,24 +15,34 @@ CORE_DOCTYPES: tuple[str, ...] = (
 	"Manufacturing Settings",
 	"Downtime Entry",
 )
+ALLOWED_CORE_DOCTYPES: frozenset[str] = frozenset(CORE_DOCTYPES)
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_PATH = ROOT / "production_entry_app" / "fixtures" / "custom_field.json"
 OUTPUT_PATH = ROOT / "production_entry_app" / "public" / "js" / "generated_access_control_field_map.js"
 
 
-def build_access_control_field_map() -> OrderedDict[str, list[str]]:
+def build_access_control_field_map(custom_fields: list[dict] | None = None) -> OrderedDict[str, list[str]]:
 	"""Derive the denied-user field-hide map from the app custom-field fixture."""
 	field_map: OrderedDict[str, list[str]] = OrderedDict((doctype, []) for doctype in CORE_DOCTYPES)
-	custom_fields = json.loads(FIXTURE_PATH.read_text())
+	custom_fields = custom_fields if custom_fields is not None else json.loads(FIXTURE_PATH.read_text())
+	unlisted_doctypes: set[str] = set()
 	for row in custom_fields:
 		if row.get("module") != APP_MODULE:
 			continue
 		doctype = row.get("dt")
 		fieldname = row.get("fieldname")
-		if doctype not in field_map or not fieldname:
+		if not fieldname or not doctype:
+			continue
+		if doctype not in ALLOWED_CORE_DOCTYPES:
+			unlisted_doctypes.add(str(doctype))
 			continue
 		field_map[doctype].append(str(fieldname))
+	if unlisted_doctypes:
+		raise ValueError(
+			"App-owned custom fields exist on unlisted doctypes: "
+			+ ", ".join(sorted(unlisted_doctypes))
+		)
 	return field_map
 
 

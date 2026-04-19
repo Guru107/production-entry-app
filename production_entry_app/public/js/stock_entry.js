@@ -85,6 +85,12 @@ function _apply_custom_field_visibility(frm) {
 	);
 }
 
+function _should_override_fg_completed_qty() {
+	const accessControl = _get_access_control_api();
+	const state = accessControl?.get_cached_access_control_state?.();
+	return state?.enabled !== false;
+}
+
 // Suppress ERPNext's auto-populate on fg_completed_qty change for Manufacture
 // entries so the user can set both Qty to Manufacture and Rejection Qty before
 // explicitly clicking "Fetch Items".
@@ -96,9 +102,7 @@ if (typeof window !== "undefined" && window.erpnext && erpnext.stock && erpnext.
 		);
 	} else {
 		erpnext.stock.StockEntry.prototype.fg_completed_qty = function () {
-			const accessControl = _get_access_control_api();
-			const state = accessControl?.get_cached_access_control_state?.();
-			if (!state?.enabled) {
+			if (!_should_override_fg_completed_qty()) {
 				return originalFgCompletedQty.call(this);
 			}
 			if (_is_manufacture_doc(this.frm.doc) && this.frm.doc.from_bom) {
@@ -658,5 +662,6 @@ if (typeof module !== "undefined" && module.exports) {
 		ALWAYS_HIDDEN_FIELDS,
 		ALWAYS_HIDDEN_SECTIONS,
 		MANUFACTURE_CLEAR_TABLE_FIELDS,
+		_should_override_fg_completed_qty,
 	};
 }

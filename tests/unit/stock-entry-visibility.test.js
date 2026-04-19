@@ -5,6 +5,7 @@ const {
 	_normalize_purpose,
 	_is_manufacture_doc,
 	_did_leave_manufacture,
+	_should_override_fg_completed_qty,
 	MANUFACTURE_FIELDS,
 	MANUFACTURE_SECTIONS,
 	ALWAYS_HIDDEN_FIELDS,
@@ -53,4 +54,33 @@ test("leave-manufacture transition detector works", () => {
 	assert.equal(_did_leave_manufacture("Manufacture", "Material Transfer"), true);
 	assert.equal(_did_leave_manufacture("Manufacture", "Manufacture"), false);
 	assert.equal(_did_leave_manufacture("Material Transfer", "Material Transfer"), false);
+});
+
+test("fg completed qty override stays active until access state is explicitly denied", () => {
+	const originalWindow = global.window;
+	global.window = {
+		production_entry_app: {
+			access_control: {
+				get_cached_access_control_state() {
+					return null;
+				},
+			},
+		},
+	};
+
+	try {
+		assert.equal(_should_override_fg_completed_qty(), true);
+
+		global.window.production_entry_app.access_control.get_cached_access_control_state = function () {
+			return { enabled: false };
+		};
+		assert.equal(_should_override_fg_completed_qty(), false);
+
+		global.window.production_entry_app.access_control.get_cached_access_control_state = function () {
+			return { enabled: true };
+		};
+		assert.equal(_should_override_fg_completed_qty(), true);
+	} finally {
+		global.window = originalWindow;
+	}
 });

@@ -31,6 +31,20 @@ class TestAccessControlFieldMap(FrappeTestCase):
 			self.assertIn(doctype, parsed)
 			self.assertGreater(len(parsed[doctype]), 0)
 
+	def test_unlisted_app_owned_doctypes_fail_loudly(self) -> None:
+		from scripts.build_access_control_field_map import build_access_control_field_map
+
+		with self.assertRaisesRegex(ValueError, "unlisted doctypes"):
+			build_access_control_field_map(
+				custom_fields=[
+					{
+						"module": "Production Entry App",
+						"dt": "Core Doctype Not In Allowlist",
+						"fieldname": "custom_field",
+					}
+				]
+			)
+
 
 def _build_expected_map() -> dict[str, list[str]]:
 	rows = json.loads(FIXTURE_PATH.read_text())
