@@ -7,31 +7,36 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 
-def _settings(enabled: bool, rules: list[dict] | None = None) -> SimpleNamespace:
+DEFAULT_REQUIRED_ROLE: str = "PEA User"
+
+
+def _settings(enabled: bool, required_role: str | None = DEFAULT_REQUIRED_ROLE) -> SimpleNamespace:
 	return SimpleNamespace(
 		enable_access_control=1 if enabled else 0,
-		allowed_access_rules=rules or [],
+		required_role=required_role,
 	)
 
 
-def _default_branch_or_none(key: str, user: str | None = None) -> str | None:
-	del user
-	return "Default Branch" if key == "Branch" else None
-
-
-def _settings_doc(
-	enabled: bool,
-	rules: list[dict] | None = None,
-	access_rules: list[dict] | None = None,
-) -> SimpleNamespace:
+def _settings_doc(enabled: bool, required_role: str | None = DEFAULT_REQUIRED_ROLE) -> SimpleNamespace:
 	return SimpleNamespace(
 		enable_access_control=1 if enabled else 0,
-		allowed_access_rules=rules or [],
-		access_rules=access_rules or [],
+		required_role=required_role,
 	)
 
 
 class TestAccessControl(FrappeTestCase):
+	def setUp(self) -> None:
+		super().setUp()
+		from production_entry_app.production_entry_app import access_control
+
+		access_control.invalidate_access_control_cache()
+
+	def tearDown(self) -> None:
+		from production_entry_app.production_entry_app import access_control
+
+		access_control.invalidate_access_control_cache()
+		super().tearDown()
+
 	def test_settings_required_role_field_has_default(self) -> None:
 		meta = frappe.get_meta("Production Entry Settings")
 		field = meta.get_field("required_role")
@@ -39,7 +44,7 @@ class TestAccessControl(FrappeTestCase):
 		self.assertIsNotNone(field)
 		self.assertEqual(field.fieldtype, "Link")
 		self.assertEqual(field.options, "Role")
-		self.assertEqual(field.default, "PEA User")
+		self.assertEqual(field.default, DEFAULT_REQUIRED_ROLE)
 
 	def test_settings_default_enable_access_control_is_zero(self) -> None:
 		settings = frappe.get_single("Production Entry Settings")
@@ -51,7 +56,7 @@ class TestAccessControl(FrappeTestCase):
 		cache = frappe.cache()
 		cache.set_value(
 			access_control.ACCESS_CONTROL_CACHE_KEY,
-			{"enabled": True, "rules": []},
+			{"enabled": True, "required_role": DEFAULT_REQUIRED_ROLE},
 			expires_in_sec=access_control.ACCESS_CONTROL_CACHE_TTL_SEC,
 		)
 
@@ -77,7 +82,7 @@ class TestAccessControl(FrappeTestCase):
 		with (
 			patch(
 				"production_entry_app.production_entry_app.access_control._load_access_configuration",
-				return_value=_settings(True, []),
+				return_value=_settings(True, DEFAULT_REQUIRED_ROLE),
 			),
 			patch(
 				"production_entry_app.production_entry_app.access_control.frappe.get_roles",
@@ -92,7 +97,7 @@ class TestAccessControl(FrappeTestCase):
 		with (
 			patch(
 				"production_entry_app.production_entry_app.access_control._load_access_configuration",
-				return_value=_settings(False, []),
+				return_value=_settings(False, DEFAULT_REQUIRED_ROLE),
 			),
 			patch(
 				"production_entry_app.production_entry_app.access_control.frappe.get_roles",
@@ -103,40 +108,26 @@ class TestAccessControl(FrappeTestCase):
 
 			self.assertTrue(access_control.can_use_production_entry_app("user@example.com"))
 
-	def test_exact_role_branch_match_allows(self) -> None:
+	def test_enabled_allows_when_user_has_required_role(self) -> None:
 		with (
 			patch(
 				"production_entry_app.production_entry_app.access_control._load_access_configuration",
-				return_value=_settings(
-					True,
-					[{"role": "Manufacturing User", "branch": "Nashik", "is_active": 1}],
-				),
-			),
-			patch(
-				"production_entry_app.production_entry_app.access_control._resolve_user_branch",
-				return_value="Nashik",
+				return_value=_settings(True, DEFAULT_REQUIRED_ROLE),
 			),
 			patch(
 				"production_entry_app.production_entry_app.access_control.frappe.get_roles",
-				return_value=["Manufacturing User"],
+				return_value=[DEFAULT_REQUIRED_ROLE],
 			),
 		):
 			from production_entry_app.production_entry_app import access_control
 
 			self.assertTrue(access_control.can_use_production_entry_app("user@example.com"))
 
-	def test_role_match_branch_mismatch_denies(self) -> None:
+	def test_enabled_denies_when_user_missing_required_role(self) -> None:
 		with (
 			patch(
 				"production_entry_app.production_entry_app.access_control._load_access_configuration",
-				return_value=_settings(
-					True,
-					[{"role": "Manufacturing User", "branch": "Nashik", "is_active": 1}],
-				),
-			),
-			patch(
-				"production_entry_app.production_entry_app.access_control._resolve_user_branch",
-				return_value="Pune",
+				return_value=_settings(True, DEFAULT_REQUIRED_ROLE),
 			),
 			patch(
 				"production_entry_app.production_entry_app.access_control.frappe.get_roles",
@@ -147,115 +138,26 @@ class TestAccessControl(FrappeTestCase):
 
 			self.assertFalse(access_control.can_use_production_entry_app("user@example.com"))
 
-	def test_no_rules_enabled_denies_non_manager(self) -> None:
+	def test_enabled_denies_when_required_role_blank(self) -> None:
 		with (
 			patch(
 				"production_entry_app.production_entry_app.access_control._load_access_configuration",
-				return_value=_settings(True, []),
-			),
-			patch(
-				"production_entry_app.production_entry_app.access_control._resolve_user_branch",
-				return_value="Nashik",
+				return_value=_settings(True, ""),
 			),
 			patch(
 				"production_entry_app.production_entry_app.access_control.frappe.get_roles",
-				return_value=["Manufacturing User"],
+				return_value=[DEFAULT_REQUIRED_ROLE],
 			),
 		):
 			from production_entry_app.production_entry_app import access_control
 
 			self.assertFalse(access_control.can_use_production_entry_app("user@example.com"))
 
-	def test_branch_resolution_default_then_single_permission(self) -> None:
-		with (
-			patch(
-				"production_entry_app.production_entry_app.access_control.frappe.defaults.get_user_default",
-				side_effect=_default_branch_or_none,
-			),
-			patch(
-				"production_entry_app.production_entry_app.access_control.frappe.get_all",
-				return_value=[{"for_value": "Permission Branch"}],
-			),
-			patch(
-				"production_entry_app.production_entry_app.access_control.frappe.cache",
-				return_value=SimpleNamespace(
-					get_value=lambda *_: None, set_value=lambda *args, **kwargs: None
-				),
-			),
-		):
-			from production_entry_app.production_entry_app import access_control
-
-			self.assertEqual(
-				access_control._resolve_user_branch("user@example.com"),
-				"Default Branch",
-			)
-
-		with (
-			patch(
-				"production_entry_app.production_entry_app.access_control.frappe.defaults.get_user_default",
-				return_value=None,
-			),
-			patch(
-				"production_entry_app.production_entry_app.access_control.frappe.get_all",
-				return_value=[{"for_value": "Permission Branch"}],
-			),
-			patch(
-				"production_entry_app.production_entry_app.access_control.frappe.cache",
-				return_value=SimpleNamespace(
-					get_value=lambda *_: None, set_value=lambda *args, **kwargs: None
-				),
-			),
-		):
-			from production_entry_app.production_entry_app import access_control
-
-			self.assertEqual(
-				access_control._resolve_user_branch("user@example.com"),
-				"Permission Branch",
-			)
-
-	def test_branch_resolution_multiple_permissions_denies(self) -> None:
-		with (
-			patch(
-				"production_entry_app.production_entry_app.access_control.frappe.defaults.get_user_default",
-				return_value=None,
-			),
-			patch(
-				"production_entry_app.production_entry_app.access_control.frappe.get_all",
-				return_value=[
-					{"for_value": "Nashik"},
-					{"for_value": "Pune"},
-				],
-			),
-			patch(
-				"production_entry_app.production_entry_app.access_control.frappe.cache",
-				return_value=SimpleNamespace(
-					get_value=lambda *_: None, set_value=lambda *args, **kwargs: None
-				),
-			),
-		):
-			from production_entry_app.production_entry_app import access_control
-
-			self.assertIsNone(access_control._resolve_user_branch("user@example.com"))
-
-	def test_duplicate_user_permission_rows_same_branch_are_treated_as_single_branch(self) -> None:
+	def test_enabled_allows_when_custom_required_role_matches(self) -> None:
 		with (
 			patch(
 				"production_entry_app.production_entry_app.access_control._load_access_configuration",
-				return_value=_settings(
-					True,
-					[{"role": "Manufacturing User", "branch": "Nashik", "is_active": 1}],
-				),
-			),
-			patch(
-				"production_entry_app.production_entry_app.access_control.frappe.defaults.get_user_default",
-				return_value=None,
-			),
-			patch(
-				"production_entry_app.production_entry_app.access_control.frappe.get_all",
-				return_value=[
-					{"for_value": "Nashik"},
-					{"for_value": "Nashik"},
-				],
+				return_value=_settings(True, "Manufacturing User"),
 			),
 			patch(
 				"production_entry_app.production_entry_app.access_control.frappe.get_roles",
@@ -266,31 +168,44 @@ class TestAccessControl(FrappeTestCase):
 
 			self.assertTrue(access_control.can_use_production_entry_app("user@example.com"))
 
-	def test_load_access_configuration_normalizes_allowed_access_rules(self) -> None:
+	def test_load_access_configuration_reads_required_role(self) -> None:
 		with patch(
 			"production_entry_app.production_entry_app.access_control.frappe.get_single",
-			return_value=_settings_doc(
-				True,
-				rules=[
-					{"role": "Manufacturing User", "branch": "Nashik", "is_active": 1},
-					{"role": "Manufacturing Manager", "branch": "Pune", "is_active": 0},
-				],
-			),
+			return_value=_settings_doc(True, "Manufacturing User"),
 		):
 			from production_entry_app.production_entry_app import access_control
 
 			config = access_control._load_access_configuration()
 			self.assertTrue(config.enabled)
-			self.assertEqual(config.rules, (("Manufacturing User", "Nashik"),))
+			self.assertEqual(config.required_role, "Manufacturing User")
+
+	def test_load_access_configuration_falls_back_to_default_required_role_when_missing(self) -> None:
+		with patch(
+			"production_entry_app.production_entry_app.access_control.frappe.get_single",
+			return_value=SimpleNamespace(enable_access_control=1),
+		):
+			from production_entry_app.production_entry_app import access_control
+
+			config = access_control._load_access_configuration()
+			self.assertTrue(config.enabled)
+			self.assertEqual(config.required_role, DEFAULT_REQUIRED_ROLE)
+
+	def test_load_access_configuration_preserves_blank_required_role(self) -> None:
+		with patch(
+			"production_entry_app.production_entry_app.access_control.frappe.get_single",
+			return_value=_settings_doc(True, ""),
+		):
+			from production_entry_app.production_entry_app import access_control
+
+			config = access_control._load_access_configuration()
+			self.assertTrue(config.enabled)
+			self.assertEqual(config.required_role, "")
 
 	def test_has_gated_doctype_permission_uses_real_loader_path(self) -> None:
 		with (
 			patch(
 				"production_entry_app.production_entry_app.access_control.frappe.get_single",
-				return_value=_settings_doc(
-					True,
-					rules=[{"role": "Manufacturing User", "branch": "Nashik", "is_active": 1}],
-				),
+				return_value=_settings_doc(True, DEFAULT_REQUIRED_ROLE),
 			),
 			patch(
 				"production_entry_app.production_entry_app.access_control.frappe.cache",
@@ -300,123 +215,64 @@ class TestAccessControl(FrappeTestCase):
 			),
 			patch(
 				"production_entry_app.production_entry_app.access_control.frappe.get_roles",
-				return_value=["Manufacturing User"],
+				return_value=[DEFAULT_REQUIRED_ROLE],
 			),
 		):
 			from production_entry_app.production_entry_app import access_control
 
 			self.assertTrue(
 				access_control.has_gated_doctype_permission(
-					doc=SimpleNamespace(branch="Nashik"),
+					doc=SimpleNamespace(branch="Ignored Branch"),
 					user="user@example.com",
 				)
 			)
 
-	def test_assert_app_access_doc_context_uses_target_branch(self) -> None:
+	def test_assert_app_access_doc_context_allows_with_required_role_and_skips_branch_lookup(self) -> None:
 		with (
 			patch(
 				"production_entry_app.production_entry_app.access_control._load_access_configuration",
-				return_value=_settings(
-					True,
-					[{"role": "Manufacturing User", "branch": "Branch B", "is_active": 1}],
-				),
-			),
-			patch(
-				"production_entry_app.production_entry_app.access_control.frappe.db.get_value",
-				return_value="Branch B",
+				return_value=_settings(True, DEFAULT_REQUIRED_ROLE),
 			),
 			patch(
 				"production_entry_app.production_entry_app.access_control.frappe.get_roles",
-				return_value=["Manufacturing User"],
+				return_value=[DEFAULT_REQUIRED_ROLE],
 			),
 			patch(
-				"production_entry_app.production_entry_app.access_control._resolve_user_branch"
-			) as resolve_user_branch,
+				"production_entry_app.production_entry_app.access_control.frappe.db.has_column"
+			) as has_column,
+			patch(
+				"production_entry_app.production_entry_app.access_control.frappe.db.get_value"
+			) as get_value,
 		):
 			from production_entry_app.production_entry_app import access_control
 
-			access_control.assert_app_access(doctype="Shift", docname="SHIFT-B-00001")
-			resolve_user_branch.assert_not_called()
+			access_control.assert_app_access(doctype="Shift", docname="SHIFT-00001")
+			has_column.assert_not_called()
+			get_value.assert_not_called()
 
-	def test_assert_app_access_doc_context_denies_cross_branch_access(self) -> None:
+	def test_assert_app_access_doc_context_denies_when_missing_required_role(self) -> None:
 		with (
 			patch(
 				"production_entry_app.production_entry_app.access_control._load_access_configuration",
-				return_value=_settings(
-					True,
-					[{"role": "Manufacturing User", "branch": "Branch A", "is_active": 1}],
-				),
-			),
-			patch(
-				"production_entry_app.production_entry_app.access_control.frappe.db.get_value",
-				return_value="Branch B",
-			),
-			patch(
-				"production_entry_app.production_entry_app.access_control.frappe.get_roles",
-				return_value=["Manufacturing User"],
-			),
-			patch(
-				"production_entry_app.production_entry_app.access_control._resolve_user_branch"
-			) as resolve_user_branch,
-		):
-			from production_entry_app.production_entry_app import access_control
-
-			with self.assertRaises(frappe.PermissionError):
-				access_control.assert_app_access(doctype="Shift", docname="SHIFT-B-00001")
-			resolve_user_branch.assert_not_called()
-
-	def test_assert_app_access_doc_context_without_branch_falls_back_to_role_match(self) -> None:
-		from production_entry_app.production_entry_app import access_control as access_control_module
-
-		with (
-			patch(
-				"production_entry_app.production_entry_app.access_control._get_access_configuration",
-				return_value=access_control_module.AccessConfiguration(
-					enabled=True,
-					rules=(("Manufacturing User", "Branch B"),),
-				),
-			),
-			patch(
-				"production_entry_app.production_entry_app.access_control.frappe.db.get_value",
-				return_value=None,
-			),
-			patch(
-				"production_entry_app.production_entry_app.access_control.frappe.get_roles",
-				return_value=["Manufacturing User"],
-			),
-			patch(
-				"production_entry_app.production_entry_app.access_control._resolve_user_branch"
-			) as resolve_user_branch,
-		):
-			access_control_module.assert_app_access(doctype="Workstation", docname="WS-00001")
-			resolve_user_branch.assert_not_called()
-
-	def test_assert_app_access_doc_context_without_branch_denies_when_role_missing(self) -> None:
-		from production_entry_app.production_entry_app import access_control as access_control_module
-
-		with (
-			patch(
-				"production_entry_app.production_entry_app.access_control._get_access_configuration",
-				return_value=access_control_module.AccessConfiguration(
-					enabled=True,
-					rules=(("Manufacturing User", "Branch B"),),
-				),
-			),
-			patch(
-				"production_entry_app.production_entry_app.access_control.frappe.db.get_value",
-				return_value=None,
+				return_value=_settings(True, DEFAULT_REQUIRED_ROLE),
 			),
 			patch(
 				"production_entry_app.production_entry_app.access_control.frappe.get_roles",
 				return_value=["Sales User"],
 			),
 			patch(
-				"production_entry_app.production_entry_app.access_control._resolve_user_branch"
-			) as resolve_user_branch,
+				"production_entry_app.production_entry_app.access_control.frappe.db.has_column"
+			) as has_column,
+			patch(
+				"production_entry_app.production_entry_app.access_control.frappe.db.get_value"
+			) as get_value,
 		):
+			from production_entry_app.production_entry_app import access_control
+
 			with self.assertRaises(frappe.PermissionError):
-				access_control_module.assert_app_access(doctype="Workstation", docname="WS-00001")
-			resolve_user_branch.assert_not_called()
+				access_control.assert_app_access(doctype="Shift", docname="SHIFT-00001")
+			has_column.assert_not_called()
+			get_value.assert_not_called()
 
 	def test_missing_or_corrupt_settings_fail_closed_for_non_manager(self) -> None:
 		with (
@@ -451,7 +307,6 @@ class TestAccessControl(FrappeTestCase):
 
 			self.assertTrue(access_control.can_use_production_entry_app("manager@example.com"))
 			self.assertTrue(log_error.called)
-
 
 def _ensure_user_with_role(email: str, role: str) -> None:
 	if not frappe.db.exists("Role", role):
