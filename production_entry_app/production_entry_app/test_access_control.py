@@ -356,6 +356,59 @@ class TestAccessControl(FrappeTestCase):
 				access_control.assert_app_access(doctype="Shift", docname="SHIFT-B-00001")
 			resolve_user_branch.assert_not_called()
 
+	def test_assert_app_access_doc_context_without_branch_falls_back_to_role_match(self) -> None:
+		from production_entry_app.production_entry_app import access_control as access_control_module
+
+		with (
+			patch(
+				"production_entry_app.production_entry_app.access_control._get_access_configuration",
+				return_value=access_control_module.AccessConfiguration(
+					enabled=True,
+					rules=(("Manufacturing User", "Branch B"),),
+				),
+			),
+			patch(
+				"production_entry_app.production_entry_app.access_control.frappe.db.get_value",
+				return_value=None,
+			),
+			patch(
+				"production_entry_app.production_entry_app.access_control.frappe.get_roles",
+				return_value=["Manufacturing User"],
+			),
+			patch(
+				"production_entry_app.production_entry_app.access_control._resolve_user_branch"
+			) as resolve_user_branch,
+		):
+			access_control_module.assert_app_access(doctype="Workstation", docname="WS-00001")
+			resolve_user_branch.assert_not_called()
+
+	def test_assert_app_access_doc_context_without_branch_denies_when_role_missing(self) -> None:
+		from production_entry_app.production_entry_app import access_control as access_control_module
+
+		with (
+			patch(
+				"production_entry_app.production_entry_app.access_control._get_access_configuration",
+				return_value=access_control_module.AccessConfiguration(
+					enabled=True,
+					rules=(("Manufacturing User", "Branch B"),),
+				),
+			),
+			patch(
+				"production_entry_app.production_entry_app.access_control.frappe.db.get_value",
+				return_value=None,
+			),
+			patch(
+				"production_entry_app.production_entry_app.access_control.frappe.get_roles",
+				return_value=["Sales User"],
+			),
+			patch(
+				"production_entry_app.production_entry_app.access_control._resolve_user_branch"
+			) as resolve_user_branch,
+		):
+			with self.assertRaises(frappe.PermissionError):
+				access_control_module.assert_app_access(doctype="Workstation", docname="WS-00001")
+			resolve_user_branch.assert_not_called()
+
 	def test_missing_or_corrupt_settings_fail_closed_for_non_manager(self) -> None:
 		with (
 			patch(

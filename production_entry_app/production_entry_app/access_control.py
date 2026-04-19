@@ -47,7 +47,8 @@ def assert_app_access(
 	"""Raise if the current session user cannot access Production Entry App.
 
 	When document context is provided, evaluate access against the target document branch
-	instead of the user's default branch.
+	instead of the user's default branch. If the target document has no branch field,
+	fall back to role-only access evaluation.
 	"""
 	effective_user = _resolve_user(None)
 	if doctype or docname or branch:
@@ -57,7 +58,7 @@ def assert_app_access(
 		if target_branch is not None:
 			if _can_access(effective_user, branch=target_branch):
 				return
-		elif has_app_permission():
+		elif _has_allowed_role(effective_user):
 			return
 		frappe.throw(_("You do not have access to Production Entry App."), frappe.PermissionError)
 	if has_app_permission():
@@ -91,6 +92,21 @@ def _can_access(user: str, branch: str | None = None) -> bool:
 	user_roles = set(frappe.get_roles(user))
 	for role, allowed_branch in config.rules:
 		if allowed_branch == effective_branch and role in user_roles:
+			return True
+	return False
+
+
+def _has_allowed_role(user: str) -> bool:
+	config = _get_access_configuration()
+	if _is_system_manager(user):
+		return True
+	if not config.enabled:
+		return True
+
+	user_roles = set(frappe.get_roles(user))
+	for role, allowed_branch in config.rules:
+		del allowed_branch
+		if role in user_roles:
 			return True
 	return False
 

@@ -207,7 +207,7 @@ class TestAccessControlWhitelistedApi(FrappeTestCase):
 			**kwargs,
 		):
 			del kwargs
-			if doctype in {"Workstation", "Shift"} and fieldname == "branch":
+			if doctype == "Shift" and fieldname == "branch":
 				return "Branch B"
 			if doctype == "Shift" and fieldname == "modified":
 				return "2026-01-01 10:00:00"
@@ -312,7 +312,7 @@ class TestAccessControlWhitelistedApi(FrappeTestCase):
 			**kwargs,
 		):
 			del kwargs
-			if doctype in {"Workstation", "Shift"} and fieldname == "branch":
+			if doctype == "Shift" and fieldname == "branch":
 				return "Branch B"
 			if doctype == "Shift" and fieldname == "modified":
 				return "2026-01-01 10:00:00"
@@ -323,7 +323,7 @@ class TestAccessControlWhitelistedApi(FrappeTestCase):
 				"production_entry_app.production_entry_app.access_control._get_access_configuration",
 				return_value=access_control.AccessConfiguration(
 					enabled=True,
-					rules=(("Manufacturing User", "Branch A"),),
+					rules=(("Sales User", "Branch A"),),
 				),
 			),
 			patch(
