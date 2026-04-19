@@ -48,6 +48,18 @@ _E2E_SYSTEM_SETTINGS_FIELDS: tuple[str, ...] = ("float_precision",)
 _E2E_RESERVED_USER_EMAIL_PREFIX: str = "e2e-user-"
 _E2E_RESERVED_ROLE_PREFIX: str = "E2E ROLE "
 _E2E_RESERVED_DOWNTIME_PREFIX: str = "E2E-DOWNTIME-"
+_APP_GATED_DOCTYPES: frozenset[str] = frozenset(
+	{
+		"Shift",
+		"Loss Entry",
+		"Downtime Reason",
+		"Operator",
+		"Die Tool Counter",
+		"Die Tool Maintenance Log",
+		"Rejection Reason",
+		"Rejection Breakup",
+	}
+)
 
 
 @frappe.whitelist()
@@ -88,7 +100,8 @@ def _cleanup_orphan_stock_entry_loss_links(shift_name: str) -> None:
 @frappe.whitelist(methods=["DELETE", "POST"])
 def delete(doctype: str, name: str) -> None:
 	"""Delete wrapper that cleans orphan Shift loss links before link validation."""
-	access_control.assert_app_access()
+	if doctype in _APP_GATED_DOCTYPES:
+		access_control.assert_app_access()
 	if doctype == "Shift":
 		_cleanup_orphan_stock_entry_loss_links(name)
 	frappe_client_delete_doc(doctype, name)

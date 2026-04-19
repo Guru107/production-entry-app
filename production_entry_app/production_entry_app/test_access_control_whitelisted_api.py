@@ -40,7 +40,7 @@ class TestAccessControlWhitelistedApi(FrappeTestCase):
 
 	def test_denied_user_cannot_call_gated_whitelisted_apis(self) -> None:
 		gated_calls = [
-			("delete", lambda: delete("Stock Entry", "STE-00001")),
+			("delete", lambda: delete("Shift", "SHIFT-00001")),
 			("get_shift_details_for_stock_entry", lambda: get_shift_details_for_stock_entry("SHIFT-00001")),
 			("get_items_with_rejection", lambda: get_items_with_rejection("{}")),
 			("get_die_tool_counter", lambda: get_die_tool_counter("ITEM-00001")),
@@ -69,14 +69,21 @@ class TestAccessControlWhitelistedApi(FrappeTestCase):
 					with self.assertRaises(frappe.PermissionError):
 						call()
 
-	def test_allowed_user_can_call_required_whitelisted_apis(self) -> None:
+	def test_denied_user_not_blocked_by_app_gate_for_core_doctype_delete_path(self) -> None:
 		with patch.object(access_control, "assert_app_access") as assert_app_access:
 			with patch(
 				"production_entry_app.production_entry_app.api.frappe_client_delete_doc"
 			) as delete_doc:
 				delete("Stock Entry", "STE-00001")
-		assert_app_access.assert_called_once()
+		assert_app_access.assert_not_called()
 		delete_doc.assert_called_once_with("Stock Entry", "STE-00001")
+
+	def test_allowed_user_can_call_required_whitelisted_apis(self) -> None:
+		with patch.object(access_control, "assert_app_access") as assert_app_access:
+			with patch("production_entry_app.production_entry_app.api.frappe_client_delete_doc") as delete_doc:
+				delete("Shift", "SHIFT-00001")
+		assert_app_access.assert_called_once()
+		delete_doc.assert_called_once_with("Shift", "SHIFT-00001")
 
 		shift_doc = MagicMock()
 		shift_doc.name = "SHIFT-00001"
