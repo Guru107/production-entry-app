@@ -6,6 +6,7 @@ const {
 	_is_manufacture_doc,
 	_did_leave_manufacture,
 	_should_override_fg_completed_qty,
+	_sync_native_get_items_access,
 	MANUFACTURE_FIELDS,
 	MANUFACTURE_SECTIONS,
 	ALWAYS_HIDDEN_FIELDS,
@@ -80,6 +81,55 @@ test("fg completed qty override stays active until access state is explicitly de
 			return { enabled: true };
 		};
 		assert.equal(_should_override_fg_completed_qty(), true);
+	} finally {
+		global.window = originalWindow;
+	}
+});
+
+test("native get_items stays hidden while access state is unresolved and only reappears for denied users", async () => {
+	const originalWindow = global.window;
+	let resolveReady;
+	const readyPromise = new Promise((resolve) => {
+		resolveReady = resolve;
+	});
+	const calls = [];
+	const frm = {
+		toggle_display(fieldname, visible) {
+			calls.push(["toggle_display", fieldname, visible]);
+		},
+		set_df_property(fieldname, property, value) {
+			calls.push(["set_df_property", fieldname, property, value]);
+		},
+	};
+	global.window = {
+		production_entry_app: {
+			access_control: {
+				get_cached_access_control_state() {
+					return null;
+				},
+				when_ready() {
+					return readyPromise;
+				},
+			},
+		},
+	};
+
+	try {
+		_sync_native_get_items_access(frm);
+		assert.deepEqual(calls.slice(0, 3), [
+			["toggle_display", "get_items", false],
+			["set_df_property", "get_items", "hidden", 1],
+			["set_df_property", "get_items", "read_only", 1],
+		]);
+
+		resolveReady({ enabled: false });
+		await readyPromise;
+		await Promise.resolve();
+		assert.deepEqual(calls.slice(-3), [
+			["toggle_display", "get_items", true],
+			["set_df_property", "get_items", "hidden", 0],
+			["set_df_property", "get_items", "read_only", 0],
+		]);
 	} finally {
 		global.window = originalWindow;
 	}

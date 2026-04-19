@@ -91,6 +91,44 @@ function _should_override_fg_completed_qty() {
 	return state?.enabled !== false;
 }
 
+function _hide_native_get_items(frm) {
+	frm.toggle_display("get_items", false);
+	frm.set_df_property("get_items", "hidden", 1);
+	frm.set_df_property("get_items", "read_only", 1);
+}
+
+function _show_native_get_items(frm) {
+	frm.toggle_display("get_items", true);
+	frm.set_df_property("get_items", "hidden", 0);
+	frm.set_df_property("get_items", "read_only", 0);
+}
+
+function _sync_native_get_items_access(frm) {
+	const accessControl = _get_access_control_api();
+	_hide_native_get_items(frm);
+	if (!accessControl) {
+		return;
+	}
+	const cached = accessControl.get_cached_access_control_state?.();
+	if (cached?.enabled === false) {
+		_show_native_get_items(frm);
+		return;
+	}
+	if (cached?.enabled === true) {
+		return;
+	}
+	const ready = accessControl.when_ready?.();
+	if (ready?.then) {
+		void ready.then((state) => {
+			if (state?.enabled === false) {
+				_show_native_get_items(frm);
+				return;
+			}
+			_hide_native_get_items(frm);
+		});
+	}
+}
+
 // Suppress ERPNext's auto-populate on fg_completed_qty change for Manufacture
 // entries so the user can set both Qty to Manufacture and Rejection Qty before
 // explicitly clicking "Fetch Items".
@@ -119,14 +157,15 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 	frappe.ui.form.on("Stock Entry", {
 		onload(frm) {
 			_set_prev_purpose(frm);
+			_sync_native_get_items_access(frm);
 			_apply_custom_field_visibility(frm);
 			_run_when_app_enabled(() => {
-				_hide_standard_get_items(frm);
 				_apply_manufacture_visibility(frm);
 			});
 		},
 		refresh(frm) {
 			_set_prev_purpose(frm);
+			_sync_native_get_items_access(frm);
 			_apply_custom_field_visibility(frm);
 			_run_when_app_enabled(() => {
 				// Set filter to only show Running shifts
@@ -306,9 +345,8 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 }
 
 function _hide_standard_get_items(frm) {
-	// Hide the standard "Get Items" button field — our "Fetch Items" replaces it
-	frm.toggle_display("get_items", false);
-	frm.set_df_property("get_items", "hidden", 1);
+	// Hide the standard "Get Items" button field — our "Fetch Items" replaces it.
+	_hide_native_get_items(frm);
 }
 
 function _apply_manufacture_visibility(frm) {
@@ -663,5 +701,8 @@ if (typeof module !== "undefined" && module.exports) {
 		ALWAYS_HIDDEN_SECTIONS,
 		MANUFACTURE_CLEAR_TABLE_FIELDS,
 		_should_override_fg_completed_qty,
+		_sync_native_get_items_access,
+		_hide_native_get_items,
+		_show_native_get_items,
 	};
 }

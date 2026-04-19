@@ -271,6 +271,7 @@ test.describe("Access control role-branch flow", () => {
 		await expect
 			.poll(async () => await stockEntryPage.isFieldVisible("custom_fetch_items"))
 			.toBe(true);
+		await expect(stockEntryPage.page.locator('[data-fieldname="get_items"]')).not.toBeVisible();
 	});
 
 	test("@regression system manager bypass sees app entry and can open workspace routes", async ({
