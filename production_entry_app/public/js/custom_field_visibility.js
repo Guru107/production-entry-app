@@ -6,7 +6,9 @@
 		(typeof module !== "undefined" && module.exports ? module.exports : {});
 
 	function _getAccessControlApi() {
-		return (typeof window !== "undefined" && window.production_entry_app?.access_control) || null;
+		return (
+			(typeof window !== "undefined" && window.production_entry_app?.access_control) || null
+		);
 	}
 
 	function _getParentTableFieldname(frm, childDoctype) {

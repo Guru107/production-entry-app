@@ -251,7 +251,11 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 						if (!r.message || !r.message.length) return;
 						frm.clear_table("items");
 						r.message.forEach(function (item) {
-							const d = frappe.model.add_child(frm.doc, "Stock Entry Detail", "items");
+							const d = frappe.model.add_child(
+								frm.doc,
+								"Stock Entry Detail",
+								"items"
+							);
 							Object.keys(item).forEach(function (key) {
 								d[key] = item[key];
 							});
@@ -305,7 +309,9 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 									);
 								}
 								if (data.from_warehouse) {
-									updates.push(frm.set_value("from_warehouse", data.from_warehouse));
+									updates.push(
+										frm.set_value("from_warehouse", data.from_warehouse)
+									);
 								}
 								if (data.to_warehouse) {
 									updates.push(frm.set_value("to_warehouse", data.to_warehouse));

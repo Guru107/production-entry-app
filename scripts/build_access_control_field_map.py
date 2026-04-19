@@ -40,8 +40,7 @@ def build_access_control_field_map(custom_fields: list[dict] | None = None) -> O
 		field_map[doctype].append(str(fieldname))
 	if unlisted_doctypes:
 		raise ValueError(
-			"App-owned custom fields exist on unlisted doctypes: "
-			+ ", ".join(sorted(unlisted_doctypes))
+			"App-owned custom fields exist on unlisted doctypes: " + ", ".join(sorted(unlisted_doctypes))
 		)
 	return field_map
 
@@ -55,11 +54,11 @@ def render_js(field_map: OrderedDict[str, list[str]]) -> str:
 		"(function () {\n"
 		f"\tconst GENERATED_ACCESS_CONTROL_FIELD_MAP = {payload};\n"
 		"\tconst api = GENERATED_ACCESS_CONTROL_FIELD_MAP;\n"
-		"\tif (typeof window !== \"undefined\") {\n"
+		'\tif (typeof window !== "undefined") {\n'
 		"\t\tconst PEA = (window.production_entry_app = window.production_entry_app || {});\n"
 		"\t\tPEA.generated_access_control_field_map = api;\n"
 		"\t}\n"
-		"\tif (typeof module !== \"undefined\" && module.exports) {\n"
+		'\tif (typeof module !== "undefined" && module.exports) {\n'
 		"\t\tmodule.exports = api;\n"
 		"\t}\n"
 		"})();\n"
