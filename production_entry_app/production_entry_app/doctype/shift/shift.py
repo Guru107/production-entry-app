@@ -162,6 +162,7 @@ def get_planned_losses_for_duration(
 
 	Used by client script to populate the grid when shift_duration (or related fields) changes.
 	"""
+	access_control.assert_app_access()
 	if not shift_duration or not planned_start_time or not shift_date:
 		return []
 
@@ -184,6 +185,7 @@ def get_linked_downtime_entries(shift_name: str) -> list[dict]:
 	Downtime Entries are fetched by time overlap, not by shift link.
 	A downtime spanning multiple shifts appears in each overlapping shift.
 	"""
+	access_control.assert_app_access()
 	if not shift_name:
 		return []
 
@@ -218,6 +220,7 @@ def check_running_shift_conflict(shift_name: str) -> dict:
 	Used by client to show a warning dialog before starting a shift.
 	Returns: {"has_conflict": bool, "conflicting_shifts": [{"name": str, "shift_label": str, ...}]}
 	"""
+	access_control.assert_app_access()
 	if not shift_name:
 		return {"has_conflict": False, "conflicting_shifts": []}
 
@@ -526,6 +529,7 @@ def _build_completeness_state(
 @frappe.whitelist()
 def get_shift_summary(shift_name: str) -> dict:
 	"""Return structured summary data for the Shift summary tab."""
+	access_control.assert_app_access()
 	if not shift_name:
 		return _empty_shift_summary()
 	if not frappe.has_permission("Shift", "read", shift_name):
@@ -713,6 +717,7 @@ def get_shift_summary(shift_name: str) -> dict:
 @frappe.whitelist()
 def get_shift_aggregate_production_entries(shift_name: str) -> list[dict]:
 	"""Return per-BOM aggregate production values for submitted manufacture entries in a shift."""
+	access_control.assert_app_access()
 	if not shift_name:
 		return []
 	if not frappe.has_permission("Shift", "read", shift_name):
@@ -843,6 +848,7 @@ class Shift(Document):
 		Status is system-managed; use this action instead of editing the Status field.
 		Blocked if another shift in the same department and branch is already Running.
 		"""
+		access_control.assert_app_access()
 		self._validate_no_other_running_shift()
 		self._transition_status(to_status="Running", allowed_from=("Draft",))
 
@@ -877,6 +883,7 @@ class Shift(Document):
 
 		Status is system-managed; use this action instead of editing the Status field.
 		"""
+		access_control.assert_app_access()
 		self._transition_status(to_status="Completed", allowed_from=("Running",))
 
 	@frappe.whitelist()
@@ -885,6 +892,7 @@ class Shift(Document):
 
 		Status is system-managed; use this action instead of editing the Status field.
 		"""
+		access_control.assert_app_access()
 		self._transition_status(to_status="Cancelled", allowed_from=("Draft",))
 
 	def _set_defaults(self) -> None:

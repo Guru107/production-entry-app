@@ -10,6 +10,7 @@ from frappe.query_builder import DocType
 from frappe.utils import add_to_date, cint, get_datetime, get_time, now_datetime
 from pypika import Order
 
+from production_entry_app.production_entry_app import access_control
 from production_entry_app.production_entry_app.utils.die_tool_counter import (
 	_get_or_create_counter,
 	get_counter_health,
@@ -49,6 +50,12 @@ _E2E_RESERVED_ROLE_PREFIX: str = "E2E ROLE "
 _E2E_RESERVED_DOWNTIME_PREFIX: str = "E2E-DOWNTIME-"
 
 
+@frappe.whitelist()
+def get_access_control_state() -> dict[str, bool]:
+	"""Return whether the current user can access Production Entry App."""
+	return {"enabled": access_control.has_app_permission()}
+
+
 def _cleanup_orphan_stock_entry_loss_links(shift_name: str) -> None:
 	"""Delete Loss Entry rows linked to deleted Stock Entry parents for a Shift."""
 	if not shift_name:
@@ -81,6 +88,7 @@ def _cleanup_orphan_stock_entry_loss_links(shift_name: str) -> None:
 @frappe.whitelist(methods=["DELETE", "POST"])
 def delete(doctype: str, name: str) -> None:
 	"""Delete wrapper that cleans orphan Shift loss links before link validation."""
+	access_control.assert_app_access()
 	if doctype == "Shift":
 		_cleanup_orphan_stock_entry_loss_links(name)
 	frappe_client_delete_doc(doctype, name)
@@ -92,6 +100,7 @@ def get_shift_details_for_stock_entry(shift_name: str) -> dict:
 
 	Called from the Stock Entry client script when custom_shift is set.
 	"""
+	access_control.assert_app_access()
 	if not shift_name:
 		return {}
 
@@ -138,6 +147,7 @@ def get_items_with_rejection(doc: str) -> list[dict]:
 	so the user sees the final items (including the rejection row) *before*
 	saving.
 	"""
+	access_control.assert_app_access()
 	from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
 		_apply_rejection_entries,
 	)
@@ -192,6 +202,7 @@ def get_items_with_rejection(doc: str) -> list[dict]:
 
 @frappe.whitelist()
 def get_die_tool_counter(die_tool_code: str) -> dict:
+	access_control.assert_app_access()
 	if not die_tool_code or not frappe.db.exists("Item", die_tool_code):
 		return _empty_die_tool_payload(die_tool_code)
 	if not is_die_tool_enabled(die_tool_code):
@@ -244,6 +255,7 @@ def _empty_die_tool_payload(die_tool_code: str | None) -> dict:
 
 @frappe.whitelist()
 def reset_die_tool_counter(die_tool_code: str, maintenance_date: str | None = None) -> dict:
+	access_control.assert_app_access()
 	if not die_tool_code:
 		frappe.throw(_("Die Tool Item is required."))
 	if not is_die_tool_enabled(die_tool_code):
@@ -594,6 +606,7 @@ def _get_or_create_e2e_shift(
 @frappe.whitelist()
 def bootstrap_e2e_context(prefix: str = "E2E") -> dict:
 	"""Create deterministic test masters for Playwright E2E tests."""
+	access_control.assert_app_access()
 	_assert_e2e_api_allowed()
 	cleanup_running_shifts()
 	_cache_e2e_settings_snapshot(prefix)
@@ -673,6 +686,7 @@ def bootstrap_e2e_context(prefix: str = "E2E") -> dict:
 @frappe.whitelist()
 def set_e2e_system_float_precision(prefix: str = "E2E", precision: int = 3) -> dict:
 	"""Set System Settings float precision for a specific E2E context."""
+	access_control.assert_app_access()
 	_assert_e2e_api_allowed()
 	_cache_e2e_settings_snapshot(prefix)
 	frappe.db.set_single_value("System Settings", "float_precision", cint(precision))
@@ -809,6 +823,7 @@ def _cleanup_e2e_context(prefix: str = "E2E") -> dict:
 @frappe.whitelist()
 def cleanup_e2e_context(prefix: str = "E2E") -> dict:
 	"""Remove seeded E2E docs and end running shifts created for E2E."""
+	access_control.assert_app_access()
 	_assert_e2e_api_allowed()
 	return _cleanup_e2e_context(prefix=prefix)
 
@@ -855,6 +870,7 @@ def _cleanup_reserved_e2e_artifacts() -> dict[str, object]:
 
 @frappe.whitelist()
 def cleanup_reserved_e2e_artifacts() -> dict[str, object]:
+	access_control.assert_app_access()
 	_assert_e2e_api_allowed()
 	return _cleanup_reserved_e2e_artifacts()
 
@@ -862,6 +878,7 @@ def cleanup_reserved_e2e_artifacts() -> dict[str, object]:
 @frappe.whitelist()
 def create_e2e_submitted_stock_entry(prefix: str = "E2E", rejection_qty: float = 0) -> dict:
 	"""Create and submit one manufacture stock entry for E2E report coverage."""
+	access_control.assert_app_access()
 	_assert_e2e_api_allowed()
 	ctx = bootstrap_e2e_context(prefix=prefix)
 	shift = frappe.get_doc("Shift", ctx["shift_name"])
@@ -909,6 +926,7 @@ def create_e2e_full_shift_stock_entries(
 	prefix: str = "E2E", slot_minutes: int = 60, rejection_qty: float = 0
 ) -> dict:
 	"""Create contiguous submitted manufacture entries spanning the entire planned shift duration."""
+	access_control.assert_app_access()
 	_assert_e2e_api_allowed()
 	slot_mins = max(1, cint(slot_minutes or 60))
 	ctx = bootstrap_e2e_context(prefix=prefix)
@@ -986,6 +1004,7 @@ def create_e2e_downtime_entry(
 	stop_reason: str = "Other",
 ) -> dict:
 	"""Create one downtime entry for E2E timeline coverage."""
+	access_control.assert_app_access()
 	_assert_e2e_api_allowed()
 	ctx = bootstrap_e2e_context(prefix=prefix)
 	shift = frappe.get_doc("Shift", ctx["shift_name"])

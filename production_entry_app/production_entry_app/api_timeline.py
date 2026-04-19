@@ -6,6 +6,7 @@ from frappe.query_builder import DocType
 from frappe.query_builder.functions import Sum
 from frappe.utils import flt
 
+from production_entry_app.production_entry_app import access_control
 from production_entry_app.production_entry_app.utils.loss_time import build_interval_overlap_criterion
 from production_entry_app.production_entry_app.utils.shift_time import combine_date_time
 from production_entry_app.production_entry_app.utils.system_precision import (
@@ -46,6 +47,7 @@ def _with_float_precision(payload: dict) -> dict:
 @frappe.whitelist()
 def get_shift_timeline_data(doctype: str, docname: str) -> dict:
 	"""Return running shift timeline data for Workstation/Operator forms."""
+	access_control.assert_app_access()
 	if doctype not in ("Workstation", "Operator"):
 		frappe.throw(_("Invalid doctype for timeline data."))
 	if not frappe.has_permission(doctype, "read", docname):
