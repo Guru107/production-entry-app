@@ -88,7 +88,7 @@ function _apply_custom_field_visibility(frm) {
 function _should_override_fg_completed_qty() {
 	const accessControl = _get_access_control_api();
 	const state = accessControl?.get_cached_access_control_state?.();
-	return state?.enabled !== false;
+	return state?.enabled === true;
 }
 
 function _hide_native_get_items(frm) {

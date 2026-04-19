@@ -57,7 +57,7 @@ test("leave-manufacture transition detector works", () => {
 	assert.equal(_did_leave_manufacture("Material Transfer", "Material Transfer"), false);
 });
 
-test("fg completed qty override stays active until required-role access is explicitly denied", () => {
+test("fg completed qty override is disabled until required-role access is explicitly allowed", () => {
 	const originalWindow = global.window;
 	global.window = {
 		production_entry_app: {
@@ -70,7 +70,7 @@ test("fg completed qty override stays active until required-role access is expli
 	};
 
 	try {
-		assert.equal(_should_override_fg_completed_qty(), true);
+		assert.equal(_should_override_fg_completed_qty(), false);
 
 		global.window.production_entry_app.access_control.get_cached_access_control_state =
 			function () {
