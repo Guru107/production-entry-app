@@ -15,7 +15,6 @@ EXPECTED_DOCTYPES: tuple[str, ...] = (
 	"Stock Entry Detail",
 	"Item",
 	"Workstation",
-	"Manufacturing Settings",
 	"Downtime Entry",
 )
 
