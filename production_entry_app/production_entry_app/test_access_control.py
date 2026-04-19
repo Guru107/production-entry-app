@@ -91,6 +91,11 @@ class TestAccessControl(FrappeTestCase):
 	def test_settings_update_invalidates_access_cache(self) -> None:
 		from production_entry_app.production_entry_app import access_control
 
+		if not frappe.db.exists("Role", DEFAULT_REQUIRED_ROLE):
+			frappe.get_doc({"doctype": "Role", "role_name": DEFAULT_REQUIRED_ROLE}).insert(
+				ignore_permissions=True
+			)
+
 		cache = frappe.cache()
 		cache.set_value(
 			access_control.ACCESS_CONTROL_CACHE_KEY,

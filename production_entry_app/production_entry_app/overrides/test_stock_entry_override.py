@@ -156,6 +156,8 @@ class TestStockEntryOverride(FrappeTestCase):
 
 		rejection_sle = sle_rows[0]
 		fg_sle = fg_sle_rows[0]
+		currency_precision = int(frappe.db.get_single_value("System Settings", "currency_precision") or 2)
+		currency_places = max(currency_precision, 0)
 		self.assertAlmostEqual(
 			float(rejection_sle["valuation_rate"] or 0),
 			float(fg_sle["valuation_rate"] or 0),
@@ -165,5 +167,5 @@ class TestStockEntryOverride(FrappeTestCase):
 			float(rejection_sle["stock_value_difference"] or 0),
 			float(rejection_sle["actual_qty"] or rejection_rows[0].qty)
 			* float(fg_sle["valuation_rate"] or 0),
-			places=6,
+			places=currency_places,
 		)

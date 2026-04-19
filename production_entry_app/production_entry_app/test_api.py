@@ -255,11 +255,6 @@ class TestE2EApi(FrappeTestCase):
 		shift_doc.shift_duration = "8"
 		shift_doc.work_in_progress_warehouse = "WIP Warehouse"
 
-		def mock_get_doc(doctype, name):
-			if doctype == "Shift":
-				return shift_doc
-			return frappe.get_doc(doctype, name)
-
 		self.assertEqual(str(shift_doc.shift_end_date), "2026-03-01")
 		self.assertEqual(str(shift_doc.planned_end_time), "16:00:00")
 
@@ -268,8 +263,12 @@ class TestE2EApi(FrappeTestCase):
 		shift_doc.planned_end_time = "18:00:00"
 		shift_doc.shift_end_date = "2026-03-01"
 
-		with patch("production_entry_app.production_entry_app.api.frappe.get_doc", side_effect=mock_get_doc):
-			updated_result = get_shift_details_for_stock_entry("SHIFT-RUNNING-001")
+		with (
+			patch("production_entry_app.production_entry_app.api.access_control.assert_app_access"),
+			patch("production_entry_app.production_entry_app.api.frappe.has_permission", return_value=True),
+			patch("production_entry_app.production_entry_app.api.frappe.get_doc", return_value=shift_doc),
+		):
+			updated_result = get_shift_details_for_stock_entry(shift_doc.name)
 
 		# The updated planned_end must reflect the new 10-hour duration ending at 18:00
 		self.assertIn("18:00", updated_result.get("custom_planned_end_date", ""))
@@ -405,29 +404,31 @@ class TestE2EApi(FrappeTestCase):
 			"production_entry_app.production_entry_app.api._get_candidate_e2e_stock_entries",
 			return_value=[row1, row2],
 		):
-			with patch("production_entry_app.production_entry_app.api._assert_e2e_api_allowed"):
-				with patch(
-					"production_entry_app.production_entry_app.api._e2e_base_date",
-					return_value="2099-01-10",
-				):
+			with patch("production_entry_app.production_entry_app.api.access_control.assert_app_access"):
+				with patch("production_entry_app.production_entry_app.api._assert_e2e_api_allowed"):
 					with patch(
-						"production_entry_app.production_entry_app.api.frappe.db.exists", return_value=False
+						"production_entry_app.production_entry_app.api._e2e_base_date",
+						return_value="2099-01-10",
 					):
 						with patch(
-							"production_entry_app.production_entry_app.api.frappe.get_doc",
-							side_effect=[se1, se2],
+							"production_entry_app.production_entry_app.api.frappe.db.exists",
+							return_value=False,
 						):
 							with patch(
-								"production_entry_app.production_entry_app.api.frappe.delete_doc",
-								side_effect=[Exception("delete failed"), None],
-							) as delete_doc:
+								"production_entry_app.production_entry_app.api.frappe.get_doc",
+								side_effect=[se1, se2],
+							):
 								with patch(
-									"production_entry_app.production_entry_app.api.frappe.log_error"
-								) as log_error:
+									"production_entry_app.production_entry_app.api.frappe.delete_doc",
+									side_effect=[Exception("delete failed"), None],
+								) as delete_doc:
 									with patch(
-										"production_entry_app.production_entry_app.api.frappe.db.commit"
-									):
-										cleanup_e2e_context(prefix="E2E")
+										"production_entry_app.production_entry_app.api.frappe.log_error"
+									) as log_error:
+										with patch(
+											"production_entry_app.production_entry_app.api.frappe.db.commit"
+										):
+											cleanup_e2e_context(prefix="E2E")
 
 		self.assertEqual(delete_doc.call_count, 2)
 		log_error.assert_called_once()
@@ -638,9 +639,15 @@ class TestE2EApi(FrappeTestCase):
 
 		with ExitStack() as stack:
 			stack.enter_context(
+				patch("production_entry_app.production_entry_app.api.access_control.assert_app_access")
+			)
+			stack.enter_context(
 				patch("production_entry_app.production_entry_app.api._assert_e2e_api_allowed")
 			)
 			stack.enter_context(patch("production_entry_app.production_entry_app.api.cleanup_running_shifts"))
+			stack.enter_context(
+				patch("production_entry_app.production_entry_app.api._ensure_e2e_settings_fields_loaded")
+			)
 			stack.enter_context(
 				patch(
 					"production_entry_app.production_entry_app.api.resolve_test_company",
@@ -728,9 +735,15 @@ class TestE2EApi(FrappeTestCase):
 
 		with ExitStack() as stack:
 			stack.enter_context(
+				patch("production_entry_app.production_entry_app.api.access_control.assert_app_access")
+			)
+			stack.enter_context(
 				patch("production_entry_app.production_entry_app.api._assert_e2e_api_allowed")
 			)
 			stack.enter_context(patch("production_entry_app.production_entry_app.api.cleanup_running_shifts"))
+			stack.enter_context(
+				patch("production_entry_app.production_entry_app.api._ensure_e2e_settings_fields_loaded")
+			)
 			stack.enter_context(
 				patch(
 					"production_entry_app.production_entry_app.api.resolve_test_company",
@@ -807,7 +820,6 @@ class TestE2EApi(FrappeTestCase):
 				)
 			)
 			stack.enter_context(patch("production_entry_app.production_entry_app.api.frappe.db.commit"))
-
 			bootstrap_e2e_context(prefix="E2E")
 
 		complete_other.assert_called_once_with(keep_department="E2E Department - TC")
