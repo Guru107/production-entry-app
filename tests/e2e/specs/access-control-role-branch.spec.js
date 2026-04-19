@@ -1,6 +1,6 @@
 const { test, expect } = require("@playwright/test");
 const { bootstrapE2E } = require("../fixtures/test-data");
-const { ensureUser, deleteUserIfExists } = require("../fixtures/users");
+const { ensureRole, ensureUser, deleteUserIfExists } = require("../fixtures/users");
 const { callFrappeMethod, setFieldValue } = require("../fixtures/frappe");
 const { StockEntryPage } = require("../pages/stock-entry-page");
 const { registerE2ELifecycle } = require("../fixtures/lifecycle");
@@ -39,6 +39,7 @@ async function loginAsAdmin(page) {
 }
 
 async function ensureAccessRule(page, { enabled, requiredRole = REQUIRED_ROLE }) {
+	await ensureRole(page, requiredRole);
 	const settings = await callFrappeMethod(page, "frappe.client.get", {
 		doctype: "Production Entry Settings",
 		name: "Production Entry Settings",

@@ -116,7 +116,7 @@ class TestStockEntryAccessControl(FrappeTestCase):
 		)
 		self.assertEqual(frappe_mod.cache.return_value.delete_value.call_count, 2)
 
-	def test_denied_finished_item_row_uses_native_behavior(self) -> None:
+	def test_denied_finished_item_row_remains_actor_invariant(self) -> None:
 		se = frappe.get_doc(
 			{
 				"doctype": "Stock Entry",
