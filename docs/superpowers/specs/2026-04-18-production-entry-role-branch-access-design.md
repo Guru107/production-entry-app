@@ -86,11 +86,13 @@ Implement centralized policy service:
 Use this API in three enforcement points:
 
 1. App visibility enforcement
+
 - enable `add_to_apps_screen` in `hooks.py`
 - hook function contract: `def has_app_permission() -> bool`
 - must return explicit `True` or `False`
 
-2. App doctype permission enforcement
+1. App doctype permission enforcement
+
 - gated doctypes in this phase:
 - `Shift`
 - `Loss Entry`
@@ -102,7 +104,8 @@ Use this API in three enforcement points:
 - `Rejection Breakup`
 - each doctype permission path delegates to centralized policy service
 
-3. `Stock Entry` native passthrough enforcement
+1. `Stock Entry` native passthrough enforcement
+
 - denied users bypass Production Entry App stock-entry behavior
 - app JS custom logic does not run for denied users
 - app stock-entry hooks short-circuit for denied users
@@ -175,6 +178,7 @@ Trade-off:
 3. Service fetches cached policy, resolves user roles and branch, evaluates rule membership.
 4. System returns allow/deny.
 5. Denied outcomes:
+
 - app visibility hook returns `False` (no reason payload)
 - doctype permission checks deny via standard Frappe permission path
 - `Stock Entry` executes native ERPNext path without app logic
@@ -312,13 +316,10 @@ Operational fallback:
 
 - Risk: incomplete core doctype field map can leak fields in UI
 - Mitigation: derive map from fixtures and test per doctype/form
-
 - Risk: passthrough misses one stock-entry app hook path
 - Mitigation: centralized guard helper and deny-user regression tests for validate/submit/cancel
-
 - Risk: cache staleness after settings update
 - Mitigation: strict cache invalidation tests
-
 - Risk: non-StockEntry API/import writes to app custom fields on core doctypes
 - Mitigation: documented as deferred phase with explicit follow-up hardening story
 
@@ -328,3 +329,8 @@ Operational fallback:
 - dynamic per-session branch selector
 - department/time-window policy dimensions
 
+## Superseded
+
+Superseded on 2026-04-19 by the role-only access design:
+- `docs/superpowers/specs/2026-04-19-production-entry-pea-role-access-design.md`
+- `docs/superpowers/plans/2026-04-19-production-entry-pea-role-access-control.md`

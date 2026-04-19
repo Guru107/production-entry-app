@@ -6,8 +6,7 @@
  "engine": "InnoDB",
  "field_order": [
   "enable_access_control",
-  "required_role",
-  "allowed_access_rules"
+  "required_role"
  ],
  "fields": [
   {
@@ -17,17 +16,10 @@
    "label": "Enable Access Control"
   },
   {
-   "default": "PEA User",
    "fieldname": "required_role",
    "fieldtype": "Link",
    "label": "Required Role",
    "options": "Role"
-  },
-  {
-   "fieldname": "allowed_access_rules",
-   "fieldtype": "Table",
-   "label": "Allowed Access Rules",
-   "options": "Production Entry Access Rule"
   }
  ],
  "hide_toolbar": 1,

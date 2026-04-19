@@ -12,7 +12,7 @@ DEFAULT_REQUIRED_ROLE: str = "PEA User"
 
 def _settings(enabled: bool, required_role: str | None = DEFAULT_REQUIRED_ROLE) -> SimpleNamespace:
 	return SimpleNamespace(
-		enable_access_control=1 if enabled else 0,
+		enabled=enabled,
 		required_role=required_role,
 	)
 
@@ -37,18 +37,22 @@ class TestAccessControl(FrappeTestCase):
 		access_control.invalidate_access_control_cache()
 		super().tearDown()
 
-	def test_settings_required_role_field_has_default(self) -> None:
+	def test_settings_metadata_is_install_safe_and_role_only(self) -> None:
 		meta = frappe.get_meta("Production Entry Settings")
 		field = meta.get_field("required_role")
 
 		self.assertIsNotNone(field)
 		self.assertEqual(field.fieldtype, "Link")
 		self.assertEqual(field.options, "Role")
-		self.assertEqual(field.default, DEFAULT_REQUIRED_ROLE)
+		self.assertFalse(field.default)
+		self.assertIsNone(meta.get_field("allowed_access_rules"))
 
 	def test_settings_default_enable_access_control_is_zero(self) -> None:
-		settings = frappe.get_single("Production Entry Settings")
-		self.assertEqual(settings.enable_access_control, 0)
+		meta = frappe.get_meta("Production Entry Settings")
+		field = meta.get_field("enable_access_control")
+
+		self.assertIsNotNone(field)
+		self.assertEqual(field.default, "0")
 
 	def test_settings_update_invalidates_access_cache(self) -> None:
 		from production_entry_app.production_entry_app import access_control
@@ -237,18 +241,10 @@ class TestAccessControl(FrappeTestCase):
 				"production_entry_app.production_entry_app.access_control.frappe.get_roles",
 				return_value=[DEFAULT_REQUIRED_ROLE],
 			),
-			patch(
-				"production_entry_app.production_entry_app.access_control.frappe.db.has_column"
-			) as has_column,
-			patch(
-				"production_entry_app.production_entry_app.access_control.frappe.db.get_value"
-			) as get_value,
 		):
 			from production_entry_app.production_entry_app import access_control
 
 			access_control.assert_app_access(doctype="Shift", docname="SHIFT-00001")
-			has_column.assert_not_called()
-			get_value.assert_not_called()
 
 	def test_assert_app_access_doc_context_denies_when_missing_required_role(self) -> None:
 		with (
@@ -260,19 +256,11 @@ class TestAccessControl(FrappeTestCase):
 				"production_entry_app.production_entry_app.access_control.frappe.get_roles",
 				return_value=["Sales User"],
 			),
-			patch(
-				"production_entry_app.production_entry_app.access_control.frappe.db.has_column"
-			) as has_column,
-			patch(
-				"production_entry_app.production_entry_app.access_control.frappe.db.get_value"
-			) as get_value,
 		):
 			from production_entry_app.production_entry_app import access_control
 
 			with self.assertRaises(frappe.PermissionError):
 				access_control.assert_app_access(doctype="Shift", docname="SHIFT-00001")
-			has_column.assert_not_called()
-			get_value.assert_not_called()
 
 	def test_missing_or_corrupt_settings_fail_closed_for_non_manager(self) -> None:
 		with (
