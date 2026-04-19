@@ -1,0 +1,217 @@
+const { test, expect } = require("@playwright/test");
+const { bootstrapE2E } = require("../fixtures/test-data");
+const { ensureUser, deleteUserIfExists } = require("../fixtures/users");
+const { callFrappeMethod, setFieldValue } = require("../fixtures/frappe");
+const { StockEntryPage } = require("../pages/stock-entry-page");
+const { registerE2ELifecycle } = require("../fixtures/lifecycle");
+const { getRoute, getRouteRegex } = require("../utils/routing");
+
+const ADMIN_USERNAME = process.env.PLAYWRIGHT_USERNAME || "Administrator";
+const ADMIN_PASSWORD = process.env.PLAYWRIGHT_PASSWORD || "123";
+const TEST_PASSWORD = process.env.PLAYWRIGHT_TEST_USER_PASSWORD || "E2eT3st!Pass#2026";
+const ROLE = "Manufacturing User";
+const ALLOWED_BRANCH = "E2E Allowed Branch";
+const DENIED_BRANCH = "E2E Denied Branch";
+
+function uniqueSuffix() {
+	return `${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+}
+
+function userEmail(label, suffix) {
+	return `e2e-user-${label}-${suffix}@example.com`;
+}
+
+async function loginAs(page, username, password) {
+	const response = await page.request.post("/api/method/login", {
+		form: {
+			usr: username,
+			pwd: password,
+		},
+	});
+	expect(response.ok()).toBeTruthy();
+	await page.goto(getRoute("/home"));
+	await expect(page).toHaveURL(getRouteRegex("/home"));
+}
+
+async function loginAsAdmin(page) {
+	await loginAs(page, ADMIN_USERNAME, ADMIN_PASSWORD);
+}
+
+async function ensureBranch(page, branchName) {
+	const existing = await callFrappeMethod(page, "frappe.client.get_list", {
+		doctype: "Branch",
+		fields: JSON.stringify(["name"]),
+		filters: JSON.stringify([["name", "=", branchName]]),
+		limit_page_length: 1,
+	});
+	if (existing?.[0]?.name) {
+		return existing[0].name;
+	}
+	const created = await callFrappeMethod(page, "frappe.client.insert", {
+		doc: JSON.stringify({
+			doctype: "Branch",
+			branch: branchName,
+		}),
+	});
+	return created.name;
+}
+
+async function ensureAccessRule(page, { enabled, branch, role }) {
+	const settings = await callFrappeMethod(page, "frappe.client.get", {
+		doctype: "Production Entry Settings",
+		name: "Production Entry Settings",
+	});
+	settings.enable_access_control = enabled ? 1 : 0;
+	settings.allowed_access_rules = enabled
+		? [
+				{
+					doctype: "Production Entry Access Rule",
+					role,
+					branch,
+					is_active: 1,
+				},
+			]
+		: [];
+	await callFrappeMethod(page, "frappe.client.save", {
+		doc: JSON.stringify(settings),
+	});
+}
+
+async function ensureSingleBranchPermission(page, email, branch) {
+	const rows = await callFrappeMethod(page, "frappe.client.get_list", {
+		doctype: "User Permission",
+		fields: JSON.stringify(["name"]),
+		filters: JSON.stringify([
+			["user", "=", email],
+			["allow", "=", "Branch"],
+		]),
+		limit_page_length: 20,
+	});
+	for (const row of rows || []) {
+		await callFrappeMethod(page, "frappe.client.delete", {
+			doctype: "User Permission",
+			name: row.name,
+		});
+	}
+	await callFrappeMethod(page, "frappe.client.insert", {
+		doc: JSON.stringify({
+			doctype: "User Permission",
+			user: email,
+			allow: "Branch",
+			for_value: branch,
+		}),
+	});
+}
+
+test.describe("Access control role-branch flow", () => {
+	const lifecycle = registerE2ELifecycle(test);
+	const createdUsers = new Set();
+
+	test.afterEach(async ({ page }) => {
+		await loginAsAdmin(page);
+		for (const email of createdUsers) {
+			await deleteUserIfExists(page, email);
+		}
+		createdUsers.clear();
+		await ensureAccessRule(page, { enabled: false });
+	});
+
+	test("@smoke denied user gets native stock entry UI without app custom fields", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		await ensureBranch(page, ALLOWED_BRANCH);
+		await ensureBranch(page, DENIED_BRANCH);
+
+		const deniedEmail = userEmail("denied", uniqueSuffix());
+		createdUsers.add(deniedEmail);
+		await ensureUser(page, {
+			email: deniedEmail,
+			firstName: "Denied",
+			password: TEST_PASSWORD,
+			roles: [ROLE],
+		});
+		await ensureSingleBranchPermission(page, deniedEmail, DENIED_BRANCH);
+
+		await loginAsAdmin(page);
+		await ensureAccessRule(page, {
+			enabled: true,
+			branch: ALLOWED_BRANCH,
+			role: ROLE,
+		});
+
+		await loginAs(page, deniedEmail, TEST_PASSWORD);
+		await expect
+			.poll(async () => {
+				return await callFrappeMethod(page, "production_entry_app.production_entry_app.api.get_access_control_state");
+			})
+			.toEqual({ enabled: false });
+
+		const stockEntryPage = new StockEntryPage(page);
+		await stockEntryPage.openNew();
+		await setFieldValue(page, "stock_entry_type", "Manufacture");
+		await setFieldValue(page, "company", ctx.company);
+		await setFieldValue(page, "from_bom", 1);
+		await setFieldValue(page, "bom_no", ctx.bom);
+		await setFieldValue(page, "fg_completed_qty", 100);
+
+		expect(await stockEntryPage.isFieldVisible("custom_shift")).toBe(false);
+		expect(await stockEntryPage.isFieldVisible("custom_workstation")).toBe(false);
+		expect(await stockEntryPage.isFieldVisible("custom_operator")).toBe(false);
+		expect(await stockEntryPage.isFieldVisible("custom_fetch_items")).toBe(false);
+		expect(await stockEntryPage.isFieldVisible("custom_rejection_breakup")).toBe(false);
+
+		await expect(stockEntryPage.page.locator('[data-fieldname="get_items"]')).toBeVisible();
+	});
+
+	test("@regression allowed user sees app custom stock entry UI", async ({ page }) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		await ensureBranch(page, ALLOWED_BRANCH);
+
+		const allowedEmail = userEmail("allowed", uniqueSuffix());
+		createdUsers.add(allowedEmail);
+		await ensureUser(page, {
+			email: allowedEmail,
+			firstName: "Allowed",
+			password: TEST_PASSWORD,
+			roles: [ROLE],
+		});
+		await ensureSingleBranchPermission(page, allowedEmail, ALLOWED_BRANCH);
+
+		await loginAsAdmin(page);
+		await ensureAccessRule(page, {
+			enabled: true,
+			branch: ALLOWED_BRANCH,
+			role: ROLE,
+		});
+
+		await loginAs(page, allowedEmail, TEST_PASSWORD);
+		await expect
+			.poll(async () => {
+				return await callFrappeMethod(page, "production_entry_app.production_entry_app.api.get_access_control_state");
+			})
+			.toEqual({ enabled: true });
+
+		const stockEntryPage = new StockEntryPage(page);
+		await stockEntryPage.openNew();
+		await stockEntryPage.setManufactureFields(ctx, {
+			fgQty: 100,
+			rejectionQty: 0,
+		});
+
+		await expect
+			.poll(async () => await stockEntryPage.isFieldVisible("custom_shift"))
+			.toBe(true);
+		await expect
+			.poll(async () => await stockEntryPage.isFieldVisible("custom_workstation"))
+			.toBe(true);
+		await expect
+			.poll(async () => await stockEntryPage.isFieldVisible("custom_operator"))
+			.toBe(true);
+		await expect
+			.poll(async () => await stockEntryPage.isFieldVisible("custom_fetch_items"))
+			.toBe(true);
+	});
+});

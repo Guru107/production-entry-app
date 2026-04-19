@@ -28,6 +28,9 @@ add_to_apps_screen = [
 app_include_js = [
 	"/assets/production_entry_app/js/report_filter_utils.js",
 	"/assets/production_entry_app/js/timeline_renderer.js",
+	"/assets/production_entry_app/js/access_control.js",
+	"/assets/production_entry_app/js/generated_access_control_field_map.js",
+	"/assets/production_entry_app/js/custom_field_visibility.js",
 	"/assets/production_entry_app/js/time_entry_fields.js",
 ]
 app_include_css = ["/assets/production_entry_app/css/time_entry_fields.css"]

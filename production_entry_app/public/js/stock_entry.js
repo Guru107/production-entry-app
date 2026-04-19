@@ -50,6 +50,41 @@ const MANUFACTURE_CLEAR_TABLE_FIELDS = [
 let _dieToolRequestId = 0;
 let _shiftDetailsRequestId = 0;
 
+function _get_access_control_api() {
+	return window.production_entry_app?.access_control || null;
+}
+
+function _run_when_app_enabled(fn) {
+	const accessControl = _get_access_control_api();
+	if (!accessControl) {
+		fn();
+		return;
+	}
+	const cached = accessControl.get_cached_access_control_state?.();
+	if (cached && cached.enabled === false) {
+		return;
+	}
+	if (cached && cached.enabled === true) {
+		fn();
+		return;
+	}
+	const ready = accessControl.when_ready?.();
+	if (ready?.then) {
+		void ready.then((state) => {
+			if (state?.enabled) {
+				fn();
+			}
+		});
+	}
+}
+
+function _apply_custom_field_visibility(frm) {
+	window.production_entry_app?.custom_field_visibility?.apply_field_visibility?.(
+		frm,
+		"Stock Entry"
+	);
+}
+
 // Suppress ERPNext's auto-populate on fg_completed_qty change for Manufacture
 // entries so the user can set both Qty to Manufacture and Rejection Qty before
 // explicitly clicking "Fetch Items".
@@ -75,164 +110,188 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 	frappe.ui.form.on("Stock Entry", {
 		onload(frm) {
 			_set_prev_purpose(frm);
-			_hide_standard_get_items(frm);
-			_apply_manufacture_visibility(frm);
+			_apply_custom_field_visibility(frm);
+			_run_when_app_enabled(() => {
+				_hide_standard_get_items(frm);
+				_apply_manufacture_visibility(frm);
+			});
 		},
 		refresh(frm) {
-			// Set filter to only show Running shifts
-			frm.set_query("custom_shift", function () {
-				return {
-					filters: [["Shift", "status", "=", "Running"]],
-				};
-			});
-
-			_ensure_use_multi_level_bom_unchecked(frm);
-			_apply_manufacture_visibility(frm);
-			_hide_standard_get_items(frm);
 			_set_prev_purpose(frm);
-			_sync_stock_entry_helper_fields(frm);
-			_setup_stock_entry_quick_entry(frm);
+			_apply_custom_field_visibility(frm);
+			_run_when_app_enabled(() => {
+				// Set filter to only show Running shifts
+				frm.set_query("custom_shift", function () {
+					return {
+						filters: [["Shift", "status", "=", "Running"]],
+					};
+				});
+
+				_ensure_use_multi_level_bom_unchecked(frm);
+				_apply_manufacture_visibility(frm);
+				_hide_standard_get_items(frm);
+				_sync_stock_entry_helper_fields(frm);
+				_setup_stock_entry_quick_entry(frm);
+			});
 		},
 		stock_entry_type(frm) {
-			// custom_stock_entry_purpose is fetched via fetch_from and will re-trigger visibility.
-			_apply_manufacture_visibility(frm);
-			_sync_stock_entry_helper_fields(frm);
-			_setup_stock_entry_quick_entry(frm);
+			_run_when_app_enabled(() => {
+				// custom_stock_entry_purpose is fetched via fetch_from and will re-trigger visibility.
+				_apply_manufacture_visibility(frm);
+				_sync_stock_entry_helper_fields(frm);
+				_setup_stock_entry_quick_entry(frm);
+			});
 		},
 		custom_stock_entry_purpose(frm) {
-			_clear_manufacture_data_on_leave(frm);
-			_apply_manufacture_visibility(frm);
-			_set_prev_purpose(frm);
-			_sync_stock_entry_helper_fields(frm);
-			_setup_stock_entry_quick_entry(frm);
+			_run_when_app_enabled(() => {
+				_clear_manufacture_data_on_leave(frm);
+				_apply_manufacture_visibility(frm);
+				_set_prev_purpose(frm);
+				_sync_stock_entry_helper_fields(frm);
+				_setup_stock_entry_quick_entry(frm);
+			});
 		},
 		from_bom(frm) {
-			_ensure_use_multi_level_bom_unchecked(frm);
-			_hide_standard_get_items(frm);
-			_apply_manufacture_visibility(frm);
+			_run_when_app_enabled(() => {
+				_ensure_use_multi_level_bom_unchecked(frm);
+				_hide_standard_get_items(frm);
+				_apply_manufacture_visibility(frm);
+			});
 		},
 		bom_no(frm) {
-			_hide_standard_get_items(frm);
-			_apply_manufacture_visibility(frm);
+			_run_when_app_enabled(() => {
+				_hide_standard_get_items(frm);
+				_apply_manufacture_visibility(frm);
+			});
 		},
 		custom_actual_start_date_input(frm) {
-			_combine_actual_datetime(frm, {
-				date_fieldname: "custom_actual_start_date_input",
-				time_fieldname: "custom_actual_start_time_input",
-				canonical_fieldname: "custom_actual_start_date",
+			_run_when_app_enabled(() => {
+				_combine_actual_datetime(frm, {
+					date_fieldname: "custom_actual_start_date_input",
+					time_fieldname: "custom_actual_start_time_input",
+					canonical_fieldname: "custom_actual_start_date",
+				});
 			});
 		},
 		custom_actual_end_date_input(frm) {
-			_combine_actual_datetime(frm, {
-				date_fieldname: "custom_actual_end_date_input",
-				time_fieldname: "custom_actual_end_time_input",
-				canonical_fieldname: "custom_actual_end_date",
+			_run_when_app_enabled(() => {
+				_combine_actual_datetime(frm, {
+					date_fieldname: "custom_actual_end_date_input",
+					time_fieldname: "custom_actual_end_time_input",
+					canonical_fieldname: "custom_actual_end_date",
+				});
 			});
 		},
 		custom_rejection_qty(frm) {
-			_toggle_rejection_breakup(frm);
-			_update_die_tool_metrics(frm);
+			_run_when_app_enabled(() => {
+				_toggle_rejection_breakup(frm);
+				_update_die_tool_metrics(frm);
+			});
 		},
 		custom_fetch_items(frm) {
-			if (!frm.doc.fg_completed_qty) {
-				frappe.msgprint(__("Please set Qty to Manufacture before fetching items."));
-				return;
-			}
-			frappe.call({
-				method: "production_entry_app.production_entry_app.api.get_items_with_rejection",
-				args: { doc: frm.doc },
-				freeze: true,
-				freeze_message: __("Fetching items..."),
-				callback(r) {
-					if (!r.message || !r.message.length) return;
-					frm.clear_table("items");
-					r.message.forEach(function (item) {
-						const d = frappe.model.add_child(frm.doc, "Stock Entry Detail", "items");
-						Object.keys(item).forEach(function (key) {
-							d[key] = item[key];
+			_run_when_app_enabled(() => {
+				if (!frm.doc.fg_completed_qty) {
+					frappe.msgprint(__("Please set Qty to Manufacture before fetching items."));
+					return;
+				}
+				frappe.call({
+					method: "production_entry_app.production_entry_app.api.get_items_with_rejection",
+					args: { doc: frm.doc },
+					freeze: true,
+					freeze_message: __("Fetching items..."),
+					callback(r) {
+						if (!r.message || !r.message.length) return;
+						frm.clear_table("items");
+						r.message.forEach(function (item) {
+							const d = frappe.model.add_child(frm.doc, "Stock Entry Detail", "items");
+							Object.keys(item).forEach(function (key) {
+								d[key] = item[key];
+							});
 						});
-					});
-					frm.refresh_field("items");
-					frm.dirty();
-					_apply_manufacture_visibility(frm);
-					_update_die_tool_metrics(frm);
-				},
-				error(error) {
-					console.warn("Failed to fetch stock entry items.", error);
-				},
+						frm.refresh_field("items");
+						frm.dirty();
+						_apply_manufacture_visibility(frm);
+						_update_die_tool_metrics(frm);
+					},
+					error(error) {
+						console.warn("Failed to fetch stock entry items.", error);
+					},
+				});
 			});
 		},
 		custom_shift(frm) {
-			if (frm.doc.custom_shift) {
-				const selectedShift = frm.doc.custom_shift;
-				const reqId = ++_shiftDetailsRequestId;
-				frappe.call({
-					method: "production_entry_app.production_entry_app.api.get_shift_details_for_stock_entry",
-					args: { shift_name: selectedShift },
-					callback(r) {
-						if (
-							reqId !== _shiftDetailsRequestId ||
-							frm.doc.custom_shift !== selectedShift
-						) {
-							return;
-						}
-						if (r.message) {
-							const data = r.message;
-							const updates = [];
-							if (data.branch) {
-								updates.push(frm.set_value("branch", data.branch));
+			_run_when_app_enabled(() => {
+				if (frm.doc.custom_shift) {
+					const selectedShift = frm.doc.custom_shift;
+					const reqId = ++_shiftDetailsRequestId;
+					frappe.call({
+						method: "production_entry_app.production_entry_app.api.get_shift_details_for_stock_entry",
+						args: { shift_name: selectedShift },
+						callback(r) {
+							if (
+								reqId !== _shiftDetailsRequestId ||
+								frm.doc.custom_shift !== selectedShift
+							) {
+								return;
 							}
-							if (data.custom_planned_start_date) {
-								updates.push(
-									frm.set_value(
-										"custom_planned_start_date",
-										data.custom_planned_start_date
-									)
-								);
+							if (r.message) {
+								const data = r.message;
+								const updates = [];
+								if (data.branch) {
+									updates.push(frm.set_value("branch", data.branch));
+								}
+								if (data.custom_planned_start_date) {
+									updates.push(
+										frm.set_value(
+											"custom_planned_start_date",
+											data.custom_planned_start_date
+										)
+									);
+								}
+								if (data.custom_planned_end_date) {
+									updates.push(
+										frm.set_value(
+											"custom_planned_end_date",
+											data.custom_planned_end_date
+										)
+									);
+								}
+								if (data.from_warehouse) {
+									updates.push(frm.set_value("from_warehouse", data.from_warehouse));
+								}
+								if (data.to_warehouse) {
+									updates.push(frm.set_value("to_warehouse", data.to_warehouse));
+								}
+								Promise.all(updates).finally(() => {
+									_sync_stock_entry_helper_fields(frm);
+									_setup_stock_entry_quick_entry(frm);
+								});
+								return;
 							}
-							if (data.custom_planned_end_date) {
-								updates.push(
-									frm.set_value(
-										"custom_planned_end_date",
-										data.custom_planned_end_date
-									)
-								);
-							}
-							if (data.from_warehouse) {
-								updates.push(frm.set_value("from_warehouse", data.from_warehouse));
-							}
-							if (data.to_warehouse) {
-								updates.push(frm.set_value("to_warehouse", data.to_warehouse));
-							}
-							Promise.all(updates).finally(() => {
-								_sync_stock_entry_helper_fields(frm);
-								_setup_stock_entry_quick_entry(frm);
-							});
-							return;
-						}
+							_sync_stock_entry_helper_fields(frm);
+							_setup_stock_entry_quick_entry(frm);
+						},
+						error(error) {
+							if (reqId !== _shiftDetailsRequestId) return;
+							console.warn("Failed to fetch shift details for stock entry.", error);
+							_sync_stock_entry_helper_fields(frm);
+							_setup_stock_entry_quick_entry(frm);
+						},
+					});
+				} else {
+					_shiftDetailsRequestId++;
+					Promise.all([
+						frm.set_value("branch", ""),
+						frm.set_value("custom_planned_start_date", ""),
+						frm.set_value("custom_planned_end_date", ""),
+						frm.set_value("from_warehouse", ""),
+						frm.set_value("to_warehouse", ""),
+					]).finally(() => {
 						_sync_stock_entry_helper_fields(frm);
 						_setup_stock_entry_quick_entry(frm);
-					},
-					error(error) {
-						if (reqId !== _shiftDetailsRequestId) return;
-						console.warn("Failed to fetch shift details for stock entry.", error);
-						_sync_stock_entry_helper_fields(frm);
-						_setup_stock_entry_quick_entry(frm);
-					},
-				});
-			} else {
-				_shiftDetailsRequestId++;
-				Promise.all([
-					frm.set_value("branch", ""),
-					frm.set_value("custom_planned_start_date", ""),
-					frm.set_value("custom_planned_end_date", ""),
-					frm.set_value("from_warehouse", ""),
-					frm.set_value("to_warehouse", ""),
-				]).finally(() => {
-					_sync_stock_entry_helper_fields(frm);
-					_setup_stock_entry_quick_entry(frm);
-				});
-			}
+					});
+				}
+			});
 		},
 	});
 }
