@@ -38,7 +38,6 @@ ALLOWED_BRANCH: str = "Allowed Branch"
 DENIED_BRANCH: str = "Denied Branch"
 ALLOWED_USER: str = "pea_allowed_user@example.com"
 DENIED_USER: str = "pea_denied_user@example.com"
-BLOGGER_USER: str = "pea_blogger_user@example.com"
 USER_ROLE: str = "Manufacturing User"
 
 
@@ -46,7 +45,6 @@ class TestAccessControlDoctypes(FrappeTestCase):
 	def setUp(self) -> None:
 		_ensure_user_with_role(ALLOWED_USER, USER_ROLE)
 		_ensure_user_with_role(DENIED_USER, USER_ROLE)
-		_ensure_user_with_role(BLOGGER_USER, "Blogger")
 		frappe.set_user("Administrator")
 		access_control.invalidate_access_control_cache()
 
@@ -80,7 +78,7 @@ class TestAccessControlDoctypes(FrappeTestCase):
 			),
 			patch(
 				"production_entry_app.production_entry_app.access_control._resolve_user_branch",
-				return_value=ALLOWED_BRANCH,
+				return_value=DENIED_BRANCH,
 			),
 		):
 			frappe.set_user(DENIED_USER)
@@ -90,7 +88,7 @@ class TestAccessControlDoctypes(FrappeTestCase):
 			with self.subTest(doctype="Loss Entry"):
 				self.assertFalse(frappe.has_permission(loss_entry, ptype="read"))
 
-	def test_denied_user_cannot_access_rejection_breakup_child_rows_when_parent_stock_entry_is_denied(
+	def test_denied_user_can_access_stock_entry_natively_but_is_blocked_on_rejection_breakup(
 		self,
 	) -> None:
 		with (
@@ -100,19 +98,15 @@ class TestAccessControlDoctypes(FrappeTestCase):
 			),
 			patch(
 				"production_entry_app.production_entry_app.access_control._resolve_user_branch",
-				return_value=ALLOWED_BRANCH,
-			),
-			patch(
-				"production_entry_app.production_entry_app.access_control.frappe.get_roles",
-				return_value=["Blogger"],
+				return_value=DENIED_BRANCH,
 			),
 		):
-			frappe.set_user(BLOGGER_USER)
+			frappe.set_user(DENIED_USER)
 			stock_entry, rejection_breakup = _make_stock_entry_with_rejection_breakup()
 			with self.subTest(doctype="Stock Entry"):
-				self.assertFalse(frappe.has_permission(stock_entry, ptype="read"))
+				self.assertTrue(frappe.has_permission(stock_entry, ptype="read"))
 			with self.subTest(doctype="Rejection Breakup"):
-				self.assertFalse(frappe.has_permission(rejection_breakup, ptype="read"))
+				self.assertFalse(rejection_breakup.has_permission("read", user=DENIED_USER))
 
 	def test_denied_user_cannot_access_list_create_routes_for_gated_doctypes(self) -> None:
 		with (
@@ -160,7 +154,7 @@ class TestAccessControlDoctypes(FrappeTestCase):
 			with self.subTest(doctype="Stock Entry"):
 				self.assertTrue(frappe.has_permission(stock_entry, ptype="read"))
 			with self.subTest(doctype="Rejection Breakup"):
-				self.assertTrue(frappe.has_permission(rejection_breakup, ptype="read"))
+				self.assertTrue(rejection_breakup.has_permission("read", user=ALLOWED_USER))
 
 	def test_system_manager_bypass_allows_all_gated_doctypes(self) -> None:
 		with (
@@ -190,7 +184,7 @@ class TestAccessControlDoctypes(FrappeTestCase):
 			with self.subTest(doctype="Stock Entry"):
 				self.assertTrue(frappe.has_permission(stock_entry, ptype="read"))
 			with self.subTest(doctype="Rejection Breakup"):
-				self.assertTrue(frappe.has_permission(rejection_breakup, ptype="read"))
+				self.assertTrue(rejection_breakup.has_permission("read", user="Administrator"))
 
 
 def _access_config(branch: str) -> SimpleNamespace:

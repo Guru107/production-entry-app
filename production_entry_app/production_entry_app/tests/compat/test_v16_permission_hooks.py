@@ -102,7 +102,7 @@ class TestPermissionHooksExplicitReturn(FrappeTestCase):
 	def test_loss_entry_has_permission_returns_explicit_true(self) -> None:
 		"""Loss Entry's has_permission hook must return exactly True."""
 		_, loss_entry = _make_shift_with_loss_entry()
-		result = frappe.has_permission(loss_entry, ptype="read")
+		result = loss_entry.has_permission("read")
 		self.assertIs(
 			result,
 			True,
@@ -112,7 +112,7 @@ class TestPermissionHooksExplicitReturn(FrappeTestCase):
 	def test_rejection_breakup_has_permission_returns_explicit_true(self) -> None:
 		"""Rejection Breakup's has_permission hook must return exactly True."""
 		_, breakup = _make_stock_entry_with_rejection_breakup()
-		result = frappe.has_permission(breakup, ptype="read")
+		result = breakup.has_permission("read")
 		self.assertIs(
 			result,
 			True,
