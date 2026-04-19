@@ -54,6 +54,22 @@ class TestAccessControl(FrappeTestCase):
 		self.assertIsNotNone(field)
 		self.assertEqual(field.default, "0")
 
+	def test_settings_singleton_default_enable_access_control_is_zero(self) -> None:
+		frappe.db.delete("Singles", {"doctype": "Production Entry Settings"})
+		frappe.clear_document_cache("Production Entry Settings")
+
+		settings = frappe.get_single("Production Entry Settings")
+
+		self.assertEqual(settings.enable_access_control, 0)
+
+	def test_settings_validation_rejects_blank_required_role_when_enabled(self) -> None:
+		settings = frappe.get_single("Production Entry Settings")
+		settings.enable_access_control = 1
+		settings.required_role = ""
+
+		with self.assertRaises(frappe.ValidationError):
+			settings.save()
+
 	def test_settings_update_invalidates_access_cache(self) -> None:
 		from production_entry_app.production_entry_app import access_control
 
@@ -66,6 +82,8 @@ class TestAccessControl(FrappeTestCase):
 
 		settings = frappe.get_single("Production Entry Settings")
 		settings.enable_access_control = 1 if not settings.enable_access_control else 0
+		if settings.enable_access_control:
+			settings.required_role = DEFAULT_REQUIRED_ROLE
 		settings.save()
 
 		self.assertIsNone(cache.get_value(access_control.ACCESS_CONTROL_CACHE_KEY))
@@ -77,6 +95,7 @@ class TestAccessControl(FrappeTestCase):
 			frappe.set_user("test_pea_settings_user@example.com")
 			settings = frappe.get_single("Production Entry Settings")
 			settings.enable_access_control = 1
+			settings.required_role = DEFAULT_REQUIRED_ROLE
 			with self.assertRaises(frappe.PermissionError):
 				settings.save()
 		finally:

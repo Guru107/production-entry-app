@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import frappe
+from frappe import _
 from frappe.model.document import Document
 
 from production_entry_app.production_entry_app import access_control
 
 
 class ProductionEntrySettings(Document):
-	pass
+	def validate(self) -> None:
+		if self.enable_access_control and not str(self.required_role or "").strip():
+			frappe.throw(_("Required Role is mandatory when access control is enabled."))
 
 
 def on_update(doc: Document, method: str | None = None) -> None:
