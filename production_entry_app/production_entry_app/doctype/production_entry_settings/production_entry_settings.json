@@ -6,6 +6,7 @@
  "engine": "InnoDB",
  "field_order": [
   "enable_access_control",
+  "required_role",
   "allowed_access_rules"
  ],
  "fields": [
@@ -14,6 +15,13 @@
    "fieldname": "enable_access_control",
    "fieldtype": "Check",
    "label": "Enable Access Control"
+  },
+  {
+   "default": "PEA User",
+   "fieldname": "required_role",
+   "fieldtype": "Link",
+   "label": "Required Role",
+   "options": "Role"
   },
   {
    "fieldname": "allowed_access_rules",

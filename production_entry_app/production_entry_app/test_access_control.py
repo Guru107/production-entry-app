@@ -32,6 +32,15 @@ def _settings_doc(
 
 
 class TestAccessControl(FrappeTestCase):
+	def test_settings_required_role_field_has_default(self) -> None:
+		meta = frappe.get_meta("Production Entry Settings")
+		field = meta.get_field("required_role")
+
+		self.assertIsNotNone(field)
+		self.assertEqual(field.fieldtype, "Link")
+		self.assertEqual(field.options, "Role")
+		self.assertEqual(field.default, "PEA User")
+
 	def test_settings_default_enable_access_control_is_zero(self) -> None:
 		settings = frappe.get_single("Production Entry Settings")
 		self.assertEqual(settings.enable_access_control, 0)
