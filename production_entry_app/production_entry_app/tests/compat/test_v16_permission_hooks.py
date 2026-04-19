@@ -5,6 +5,12 @@ from __future__ import annotations
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from production_entry_app.production_entry_app.overrides.test_stock_entry_hooks import (
+	_append_rejection_breakup_rows,
+	_ensure_rejection_breakup_custom_field,
+	_ensure_rejection_breakup_doctype,
+)
+
 GATED_DOCTYPES: tuple[str, ...] = (
 	"Shift",
 	"Loss Entry",
@@ -27,12 +33,8 @@ class TestPermissionHooksExplicitReturn(FrappeTestCase):
 
 	def test_shift_has_permission_returns_explicit_true(self) -> None:
 		"""Shift's has_permission hook must return exactly True."""
-		from production_entry_app.production_entry_app.doctype.shift.shift import (
-			Shift,
-		)
-
 		shift = frappe.get_doc({"doctype": "Shift", "shift_date": "2026-01-01"})
-		result = shift.has_permission("read")
+		result = frappe.has_permission(shift, ptype="read")
 		self.assertIs(
 			result,
 			True,
@@ -43,12 +45,8 @@ class TestPermissionHooksExplicitReturn(FrappeTestCase):
 		self,
 	) -> None:
 		"""Downtime Reason's has_permission hook must return exactly True."""
-		from production_entry_app.production_entry_app.doctype.downtime_reason.downtime_reason import (
-			DowntimeReason,
-		)
-
 		dt = frappe.get_doc({"doctype": "Downtime Reason", "downtime_reason_name": "Test"})
-		result = dt.has_permission("read")
+		result = frappe.has_permission(dt, ptype="read")
 		self.assertIs(
 			result,
 			True,
@@ -57,12 +55,8 @@ class TestPermissionHooksExplicitReturn(FrappeTestCase):
 
 	def test_operator_has_permission_returns_explicit_true(self) -> None:
 		"""Operator's has_permission hook must return exactly True."""
-		from production_entry_app.production_entry_app.doctype.operator.operator import (
-			Operator,
-		)
-
 		operator = frappe.get_doc({"doctype": "Operator", "operator_name": "Test Operator"})
-		result = operator.has_permission("read")
+		result = frappe.has_permission(operator, ptype="read")
 		self.assertIs(
 			result,
 			True,
@@ -73,12 +67,8 @@ class TestPermissionHooksExplicitReturn(FrappeTestCase):
 		self,
 	) -> None:
 		"""Die Tool Counter's has_permission hook must return exactly True."""
-		from production_entry_app.production_entry_app.doctype.die_tool_counter.die_tool_counter import (
-			DieToolCounter,
-		)
-
 		dtc = frappe.get_doc({"doctype": "Die Tool Counter", "die_tool_item": "Test Item"})
-		result = dtc.has_permission("read")
+		result = frappe.has_permission(dtc, ptype="read")
 		self.assertIs(
 			result,
 			True,
@@ -89,12 +79,8 @@ class TestPermissionHooksExplicitReturn(FrappeTestCase):
 		self,
 	) -> None:
 		"""Die Tool Maintenance Log's has_permission hook must return exactly True."""
-		from production_entry_app.production_entry_app.doctype.die_tool_maintenance_log.die_tool_maintenance_log import (
-			DieToolMaintenanceLog,
-		)
-
 		log = frappe.get_doc({"doctype": "Die Tool Maintenance Log", "die_tool_item": "Test Item"})
-		result = log.has_permission("read")
+		result = frappe.has_permission(log, ptype="read")
 		self.assertIs(
 			result,
 			True,
@@ -105,12 +91,8 @@ class TestPermissionHooksExplicitReturn(FrappeTestCase):
 		self,
 	) -> None:
 		"""Rejection Reason's has_permission hook must return exactly True."""
-		from production_entry_app.production_entry_app.doctype.rejection_reason.rejection_reason import (
-			RejectionReason,
-		)
-
 		rr = frappe.get_doc({"doctype": "Rejection Reason", "rejection_reason_name": "Test"})
-		result = rr.has_permission("read")
+		result = frappe.has_permission(rr, ptype="read")
 		self.assertIs(
 			result,
 			True,
@@ -119,12 +101,8 @@ class TestPermissionHooksExplicitReturn(FrappeTestCase):
 
 	def test_loss_entry_has_permission_returns_explicit_true(self) -> None:
 		"""Loss Entry's has_permission hook must return exactly True."""
-		from production_entry_app.production_entry_app.doctype.loss_entry.loss_entry import (
-			LossEntry,
-		)
-
-		loss_entry = frappe.get_doc({"doctype": "Loss Entry"})
-		result = loss_entry.has_permission("read")
+		_, loss_entry = _make_shift_with_loss_entry()
+		result = frappe.has_permission(loss_entry, ptype="read")
 		self.assertIs(
 			result,
 			True,
@@ -133,12 +111,8 @@ class TestPermissionHooksExplicitReturn(FrappeTestCase):
 
 	def test_rejection_breakup_has_permission_returns_explicit_true(self) -> None:
 		"""Rejection Breakup's has_permission hook must return exactly True."""
-		from production_entry_app.production_entry_app.doctype.rejection_breakup.rejection_breakup import (
-			RejectionBreakup,
-		)
-
-		breakup = frappe.get_doc({"doctype": "Rejection Breakup"})
-		result = breakup.has_permission("read")
+		_, breakup = _make_stock_entry_with_rejection_breakup()
+		result = frappe.has_permission(breakup, ptype="read")
 		self.assertIs(
 			result,
 			True,
@@ -164,3 +138,39 @@ class TestPermissionHooksExplicitReturn(FrappeTestCase):
 			hook_paths = [hook_paths]
 		self.assertTrue(hook_paths, f"No has_permission hook configured for {doctype}")
 		return frappe.get_attr(hook_paths[0])
+
+
+def _make_shift_with_loss_entry() -> tuple[frappe.model.document.Document, frappe.model.document.Document]:
+	shift = frappe.get_doc({"doctype": "Shift", "shift_date": "2026-01-01"})
+	shift.append(
+		"planned_losses",
+		{
+			"downtime_reason": "Tea Break",
+			"start_time": "09:00:00",
+			"end_time": "09:10:00",
+		},
+	)
+	return shift, shift.planned_losses[0]
+
+
+def _make_stock_entry_with_rejection_breakup() -> (
+	tuple[
+		frappe.model.document.Document,
+		frappe.model.document.Document,
+	]
+):
+	_ensure_rejection_breakup_doctype()
+	_ensure_rejection_breakup_custom_field()
+	stock_entry = frappe.get_doc({"doctype": "Stock Entry"})
+	_append_rejection_breakup_rows(
+		stock_entry,
+		[
+			{
+				"rejection_reason": "Burr",
+				"qty": 1,
+				"is_rework": 0,
+				"remark": "Permission test",
+			},
+		],
+	)
+	return stock_entry, stock_entry.custom_rejection_breakup[0]
