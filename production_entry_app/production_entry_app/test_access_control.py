@@ -6,7 +6,6 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-
 DEFAULT_REQUIRED_ROLE: str = "PEA User"
 
 
@@ -314,6 +313,7 @@ class TestAccessControl(FrappeTestCase):
 
 			self.assertTrue(access_control.can_use_production_entry_app("manager@example.com"))
 			self.assertTrue(log_error.called)
+
 
 def _ensure_user_with_role(email: str, role: str) -> None:
 	if not frappe.db.exists("Role", role):

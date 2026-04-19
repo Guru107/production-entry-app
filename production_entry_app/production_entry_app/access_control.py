@@ -115,9 +115,7 @@ def _normalize_access_configuration(value: Any) -> AccessConfiguration:
 			required_role = _get_field_value(value, "required_role", default=DEFAULT_REQUIRED_ROLE)
 		if enabled is None and required_role is None:
 			raise ValueError("Access configuration is corrupt.")
-		return _normalize_access_configuration(
-			{"enabled": enabled, "required_role": required_role}
-		)
+		return _normalize_access_configuration({"enabled": enabled, "required_role": required_role})
 
 	enabled = bool(value.get("enabled", value.get("enable_access_control", False)))
 	required_role = _normalize_required_role(value.get("required_role", DEFAULT_REQUIRED_ROLE))

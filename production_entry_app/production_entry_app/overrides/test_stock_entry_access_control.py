@@ -58,9 +58,7 @@ class TestStockEntryAccessControl(FrappeTestCase):
 			patch.object(
 				hooks.access_control,
 				"_get_access_configuration",
-				return_value=hooks.access_control.AccessConfiguration(
-					enabled=True, required_role="PEA User"
-				),
+				return_value=hooks.access_control.AccessConfiguration(enabled=True, required_role="PEA User"),
 			),
 			patch.object(hooks.access_control.frappe, "get_roles", return_value=["Manufacturing User"]),
 			patch.object(hooks, "_validate_linked_shift_is_running") as validate_shift,
@@ -101,9 +99,7 @@ class TestStockEntryAccessControl(FrappeTestCase):
 			patch.object(
 				hooks.access_control,
 				"_get_access_configuration",
-				return_value=hooks.access_control.AccessConfiguration(
-					enabled=True, required_role="PEA User"
-				),
+				return_value=hooks.access_control.AccessConfiguration(enabled=True, required_role="PEA User"),
 			),
 			patch.object(hooks.access_control.frappe, "get_roles", return_value=["Manufacturing User"]),
 			patch.object(hooks, "update_counter_for_stock_entry") as update_counter,

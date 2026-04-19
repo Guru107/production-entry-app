@@ -101,9 +101,7 @@ class TestAccessControlWhitelistedApi(FrappeTestCase):
 				"production_entry_app.production_entry_app.access_control.frappe.get_roles",
 				return_value=["Manufacturing User", REQUIRED_ROLE],
 			),
-			patch(
-				"production_entry_app.production_entry_app.api.frappe_client_delete_doc"
-			) as delete_doc,
+			patch("production_entry_app.production_entry_app.api.frappe_client_delete_doc") as delete_doc,
 			patch(
 				"production_entry_app.production_entry_app.api._cleanup_orphan_stock_entry_loss_links"
 			) as cleanup_orphans,
