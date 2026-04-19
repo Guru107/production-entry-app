@@ -185,9 +185,10 @@ def get_linked_downtime_entries(shift_name: str) -> list[dict]:
 	Downtime Entries are fetched by time overlap, not by shift link.
 	A downtime spanning multiple shifts appears in each overlapping shift.
 	"""
-	access_control.assert_app_access()
 	if not shift_name:
 		return []
+	if not frappe.has_permission("Shift", "read", shift_name):
+		raise frappe.PermissionError
 
 	shift = frappe.db.get_value(
 		"Shift",
@@ -220,9 +221,10 @@ def check_running_shift_conflict(shift_name: str) -> dict:
 	Used by client to show a warning dialog before starting a shift.
 	Returns: {"has_conflict": bool, "conflicting_shifts": [{"name": str, "shift_label": str, ...}]}
 	"""
-	access_control.assert_app_access()
 	if not shift_name:
 		return {"has_conflict": False, "conflicting_shifts": []}
+	if not frappe.has_permission("Shift", "read", shift_name):
+		raise frappe.PermissionError
 
 	current_shift = frappe.db.get_value(
 		"Shift",

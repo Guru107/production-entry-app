@@ -113,9 +113,10 @@ def get_shift_details_for_stock_entry(shift_name: str) -> dict:
 
 	Called from the Stock Entry client script when custom_shift is set.
 	"""
-	access_control.assert_app_access()
 	if not shift_name:
 		return {}
+	if not frappe.has_permission("Shift", "read", shift_name):
+		raise frappe.PermissionError
 
 	shift = frappe.get_doc("Shift", shift_name)
 	if shift.status != "Running":
