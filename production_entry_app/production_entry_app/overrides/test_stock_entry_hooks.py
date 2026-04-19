@@ -3175,13 +3175,19 @@ class TestDieToolCounter(FrappeTestCase):
 
 		shift_name = "SHIFT-CACHE-TEST-2026-04-20.1"
 		doc = frappe._dict({"custom_shift": shift_name})
-		with patch(
-			"production_entry_app.production_entry_app.overrides.stock_entry_hooks.update_counter_for_stock_entry"
-		):
-			with patch(
+		with (
+			patch(
+				"production_entry_app.production_entry_app.overrides.stock_entry_hooks.access_control.can_use_production_entry_app",
+				return_value=True,
+			),
+			patch(
+				"production_entry_app.production_entry_app.overrides.stock_entry_hooks.update_counter_for_stock_entry"
+			),
+			patch(
 				"production_entry_app.production_entry_app.overrides.stock_entry_hooks.frappe.cache"
-			) as cache_fn:
-				on_submit_stock_entry(doc, "on_submit")
+			) as cache_fn,
+		):
+			on_submit_stock_entry(doc, "on_submit")
 
 		cache_fn.return_value.delete_value.assert_called_once_with(f"pea:shift_summary:{shift_name}")
 
@@ -3192,13 +3198,19 @@ class TestDieToolCounter(FrappeTestCase):
 
 		shift_name = "SHIFT-CACHE-TEST-2026-04-20.1"
 		doc = frappe._dict({"custom_shift": shift_name})
-		with patch(
-			"production_entry_app.production_entry_app.overrides.stock_entry_hooks.update_counter_for_stock_entry"
-		):
-			with patch(
+		with (
+			patch(
+				"production_entry_app.production_entry_app.overrides.stock_entry_hooks.access_control.can_use_production_entry_app",
+				return_value=True,
+			),
+			patch(
+				"production_entry_app.production_entry_app.overrides.stock_entry_hooks.update_counter_for_stock_entry"
+			),
+			patch(
 				"production_entry_app.production_entry_app.overrides.stock_entry_hooks.frappe.cache"
-			) as cache_fn:
-				on_cancel_stock_entry(doc, "on_cancel")
+			) as cache_fn,
+		):
+			on_cancel_stock_entry(doc, "on_cancel")
 
 		cache_fn.return_value.delete_value.assert_called_once_with(f"pea:shift_summary:{shift_name}")
 

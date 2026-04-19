@@ -9,6 +9,7 @@ from frappe.model.meta import get_field_precision
 from frappe.query_builder import DocType
 from frappe.utils import flt, format_datetime, get_datetime, get_time
 
+from production_entry_app.production_entry_app import access_control
 from production_entry_app.production_entry_app.doctype.shift.shift import _get_shift_metrics_cache_key
 from production_entry_app.production_entry_app.utils.die_tool_counter import (
 	get_counter_health,
@@ -45,6 +46,8 @@ def validate_stock_entry(doc, method: str | None = None) -> None:
 	1. Auto-fills fields from linked Shift (if custom_shift is set).
 	2. Handles rejection quantity logic (if custom_rejection_qty > 0).
 	"""
+	if not access_control.can_use_production_entry_app():
+		return
 	if doc.get("custom_shift"):
 		_validate_linked_shift_is_running(doc)
 		_apply_shift_defaults(doc)
@@ -61,11 +64,15 @@ def validate_stock_entry(doc, method: str | None = None) -> None:
 
 
 def on_submit_stock_entry(doc, method: str | None = None) -> None:
+	if not access_control.can_use_production_entry_app():
+		return
 	update_counter_for_stock_entry(doc, direction=1)
 	_invalidate_shift_metrics_cache(doc)
 
 
 def on_cancel_stock_entry(doc, method: str | None = None) -> None:
+	if not access_control.can_use_production_entry_app():
+		return
 	update_counter_for_stock_entry(doc, direction=-1)
 	_invalidate_shift_metrics_cache(doc)
 
