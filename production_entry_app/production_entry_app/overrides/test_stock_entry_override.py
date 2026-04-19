@@ -79,7 +79,6 @@ class TestStockEntryOverride(FrappeTestCase):
 				{"rejection_reason": "Crack", "qty": 4, "remark": "Surface crack"},
 			],
 		)
-		se.save()
 
 		self.assertIsInstance(se, ProductionEntryAppStockEntry)
 		finished_row = se.get_finished_item_row()

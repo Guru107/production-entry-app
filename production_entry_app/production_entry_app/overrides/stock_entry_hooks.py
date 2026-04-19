@@ -64,15 +64,11 @@ def validate_stock_entry(doc, method: str | None = None) -> None:
 
 
 def on_submit_stock_entry(doc, method: str | None = None) -> None:
-	if not access_control.can_use_production_entry_app():
-		return
 	update_counter_for_stock_entry(doc, direction=1)
 	_invalidate_shift_metrics_cache(doc)
 
 
 def on_cancel_stock_entry(doc, method: str | None = None) -> None:
-	if not access_control.can_use_production_entry_app():
-		return
 	update_counter_for_stock_entry(doc, direction=-1)
 	_invalidate_shift_metrics_cache(doc)
 
