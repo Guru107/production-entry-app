@@ -29,6 +29,7 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	ensure_downtime_reason,
 	ensure_item,
 	ensure_operator,
+	ensure_production_entry_settings_shift_fields,
 	ensure_rejection_reason,
 	ensure_stock,
 	ensure_warehouse,
@@ -41,6 +42,7 @@ _E2E_SETTINGS_FIELDS: tuple[str, ...] = (
 	"shift_wip_warehouse",
 	"shift_raw_material_warehouse",
 	"shift_rejection_warehouse",
+	"shift_scrap_warehouse",
 	"shift_start_buffer_mins",
 	"shift_end_buffer_mins",
 )
@@ -311,11 +313,17 @@ def _get_e2e_shift_names_cache_key(prefix: str) -> str:
 	return f"pea:e2e:shift-names:{prefix or 'E2E'}"
 
 
-def _get_manufacturing_settings_snapshot() -> dict[str, str | int | None]:
+def _get_production_entry_settings_snapshot() -> dict[str, str | int | None]:
+	ensure_production_entry_settings_shift_fields()
 	return {
-		fieldname: frappe.db.get_single_value("Manufacturing Settings", fieldname)
+		fieldname: frappe.db.get_single_value("Production Entry Settings", fieldname)
 		for fieldname in _E2E_SETTINGS_FIELDS
 	}
+
+
+def _get_manufacturing_settings_snapshot() -> dict[str, str | int | None]:
+	"""Backward-compatible alias for test helpers still importing the old name."""
+	return _get_production_entry_settings_snapshot()
 
 
 def _get_system_settings_snapshot() -> dict[str, str | int | None]:
@@ -332,7 +340,7 @@ def _cache_e2e_settings_snapshot(prefix: str) -> None:
 	frappe.cache().set_value(
 		cache_key,
 		{
-			"manufacturing_settings": _get_manufacturing_settings_snapshot(),
+			"production_entry_settings": _get_production_entry_settings_snapshot(),
 			"system_settings": _get_system_settings_snapshot(),
 		},
 	)
@@ -348,11 +356,18 @@ def _cache_e2e_shift_name(prefix: str, shift_name: str | None) -> None:
 	frappe.cache().set_value(cache_key, [*cached_names, shift_name])
 
 
-def _restore_manufacturing_settings(snapshot: dict[str, str | int | None] | None) -> None:
+def _restore_production_entry_settings(snapshot: dict[str, str | int | None] | None) -> None:
 	if not snapshot:
 		return
+	ensure_production_entry_settings_shift_fields()
 	for fieldname in _E2E_SETTINGS_FIELDS:
-		frappe.db.set_single_value("Manufacturing Settings", fieldname, snapshot.get(fieldname))
+		frappe.db.set_single_value("Production Entry Settings", fieldname, snapshot.get(fieldname))
+	frappe.clear_document_cache("Production Entry Settings")
+
+
+def _restore_manufacturing_settings(snapshot: dict[str, str | int | None] | None) -> None:
+	"""Backward-compatible alias for test helpers still importing the old name."""
+	_restore_production_entry_settings(snapshot)
 
 
 def _restore_system_settings(snapshot: dict[str, str | int | None] | None) -> None:
@@ -366,7 +381,7 @@ def _restore_cached_e2e_settings(prefix: str) -> None:
 	cache_key = _get_e2e_settings_cache_key(prefix)
 	snapshot = frappe.cache().get_value(cache_key)
 	if snapshot:
-		_restore_manufacturing_settings(snapshot.get("manufacturing_settings"))
+		_restore_production_entry_settings(snapshot.get("production_entry_settings"))
 		_restore_system_settings(snapshot.get("system_settings"))
 		frappe.cache().delete_value(cache_key)
 
@@ -626,6 +641,7 @@ def bootstrap_e2e_context(prefix: str = "E2E") -> dict:
 	access_control.assert_app_access()
 	_assert_e2e_api_allowed()
 	cleanup_running_shifts()
+	ensure_production_entry_settings_shift_fields()
 	_cache_e2e_settings_snapshot(prefix)
 	company = resolve_test_company()
 	abbr = frappe.db.get_value("Company", company, "abbr") or "TC"
@@ -659,11 +675,12 @@ def bootstrap_e2e_context(prefix: str = "E2E") -> dict:
 	ensure_downtime_reason("JH Activity")
 	ensure_downtime_reason("Dinner")
 
-	frappe.db.set_single_value("Manufacturing Settings", "shift_wip_warehouse", wip_warehouse)
-	frappe.db.set_single_value("Manufacturing Settings", "shift_raw_material_warehouse", rm_warehouse)
-	frappe.db.set_single_value("Manufacturing Settings", "shift_rejection_warehouse", rejection_warehouse)
-	frappe.db.set_single_value("Manufacturing Settings", "shift_start_buffer_mins", 60)
-	frappe.db.set_single_value("Manufacturing Settings", "shift_end_buffer_mins", 60)
+	frappe.db.set_single_value("Production Entry Settings", "shift_wip_warehouse", wip_warehouse)
+	frappe.db.set_single_value("Production Entry Settings", "shift_raw_material_warehouse", rm_warehouse)
+	frappe.db.set_single_value("Production Entry Settings", "shift_rejection_warehouse", rejection_warehouse)
+	frappe.db.set_single_value("Production Entry Settings", "shift_start_buffer_mins", 60)
+	frappe.db.set_single_value("Production Entry Settings", "shift_end_buffer_mins", 60)
+	frappe.clear_document_cache("Production Entry Settings")
 
 	bom = ensure_default_bom(fg_item=fg_item, rm_item=rm_item, company=company)
 	ensure_stock(rm_item, wip_warehouse, company, target_qty=1000)

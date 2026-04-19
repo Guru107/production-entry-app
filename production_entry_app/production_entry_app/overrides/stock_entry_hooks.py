@@ -190,20 +190,20 @@ def _validate_actual_times(doc) -> None:
 
 
 def _get_shift_buffer_minutes(fieldname: str, default_value: int) -> int:
-	settings_meta = frappe.get_meta("Manufacturing Settings", cached=True)
+	settings_meta = frappe.get_meta("Production Entry Settings", cached=True)
 	if settings_meta.has_field(fieldname):
-		value = frappe.db.get_single_value("Manufacturing Settings", fieldname)
+		value = frappe.db.get_single_value("Production Entry Settings", fieldname)
 		if value is not None:
 			buffer_mins = int(value)
 			if buffer_mins < 0:
 				frappe.log_error(
-					title="Invalid Manufacturing Settings buffer",
+					title="Invalid Production Entry Settings buffer",
 					message=f"{fieldname} had negative value {buffer_mins}; clamped to 0.",
 				)
 				return 0
 			if buffer_mins > _MAX_BUFFER_MINS:
 				frappe.log_error(
-					title="Invalid Manufacturing Settings buffer",
+					title="Invalid Production Entry Settings buffer",
 					message=f"{fieldname} had oversized value {buffer_mins}; clamped to {_MAX_BUFFER_MINS}.",
 				)
 				return _MAX_BUFFER_MINS
@@ -531,14 +531,14 @@ def _get_rejection_warehouse(doc, preferred_warehouse: str | None = None) -> str
 		if shift_rejection_wh:
 			return shift_rejection_wh
 
-	# Try from Manufacturing Settings
-	settings_meta = frappe.get_meta("Manufacturing Settings", cached=True)
+	# Try from Production Entry Settings
+	settings_meta = frappe.get_meta("Production Entry Settings", cached=True)
 	if settings_meta.has_field("shift_rejection_warehouse"):
-		wh = frappe.db.get_single_value("Manufacturing Settings", "shift_rejection_warehouse")
+		wh = frappe.db.get_single_value("Production Entry Settings", "shift_rejection_warehouse")
 		if wh:
 			return wh
 
-	frappe.throw(_("Please set a Rejection Warehouse on the Shift or in Manufacturing Settings."))
+	frappe.throw(_("Please set a Rejection Warehouse on the Shift or in Production Entry Settings."))
 
 
 def _get_existing_rejection_target_warehouse(doc) -> str | None:

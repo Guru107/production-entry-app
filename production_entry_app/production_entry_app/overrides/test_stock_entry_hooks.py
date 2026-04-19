@@ -14,6 +14,7 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	ensure_department,
 	ensure_item,
 	ensure_operator,
+	ensure_production_entry_settings_shift_fields,
 	ensure_warehouse,
 	ensure_workstation,
 	get_company_abbr,
@@ -411,8 +412,9 @@ def _create_manufacture_stock_entry(
 
 
 def _set_shift_buffers(start_mins: int = 60, end_mins: int = 60) -> None:
-	frappe.db.set_single_value("Manufacturing Settings", "shift_start_buffer_mins", start_mins)
-	frappe.db.set_single_value("Manufacturing Settings", "shift_end_buffer_mins", end_mins)
+	ensure_production_entry_settings_shift_fields()
+	frappe.db.set_single_value("Production Entry Settings", "shift_start_buffer_mins", start_mins)
+	frappe.db.set_single_value("Production Entry Settings", "shift_end_buffer_mins", end_mins)
 
 
 def _get_or_create_employee(employee_number: str = "SE-HOOK-EMP") -> str:
@@ -925,12 +927,14 @@ class TestStockEntryHooks(FrappeTestCase):
 			with patch(
 				"production_entry_app.production_entry_app.overrides.stock_entry_hooks.frappe.db.get_single_value",
 				return_value=-12,
-			):
+			) as get_single_value:
 				with patch(
 					"production_entry_app.production_entry_app.overrides.stock_entry_hooks.frappe.log_error"
 				) as log_error:
 					value = _get_shift_buffer_minutes("shift_start_buffer_mins", 60)
 		self.assertEqual(value, 0)
+		get_meta.assert_called_once_with("Production Entry Settings", cached=True)
+		get_single_value.assert_called_once_with("Production Entry Settings", "shift_start_buffer_mins")
 		log_error.assert_called_once()
 
 	def test_shift_end_buffer_clamps_overflow_to_max(self) -> None:
@@ -946,12 +950,14 @@ class TestStockEntryHooks(FrappeTestCase):
 			with patch(
 				"production_entry_app.production_entry_app.overrides.stock_entry_hooks.frappe.db.get_single_value",
 				return_value=9999,
-			):
+			) as get_single_value:
 				with patch(
 					"production_entry_app.production_entry_app.overrides.stock_entry_hooks.frappe.log_error"
 				) as log_error:
 					value = _get_shift_buffer_minutes("shift_end_buffer_mins", 60)
 		self.assertEqual(value, _MAX_BUFFER_MINS)
+		get_meta.assert_called_once_with("Production Entry Settings", cached=True)
+		get_single_value.assert_called_once_with("Production Entry Settings", "shift_end_buffer_mins")
 		log_error.assert_called_once()
 
 	def test_metrics_calculated_from_actual_times_and_output(self) -> None:
@@ -1272,9 +1278,27 @@ class TestStockEntryHooks(FrappeTestCase):
 		self.assertEqual(len(rejection_rows), 1)
 		self.assertEqual(rejection_rows[0].project, project_doc_name)
 
-	def test_rejection_warehouse_uses_manufacturing_settings_fallback(self) -> None:
+	def test_shift_defaults_warehouses_from_production_entry_settings(self) -> None:
+		scrap_warehouse = _get_or_create_warehouse("SE Hook Scrap Warehouse", self.company)
 		frappe.db.set_single_value(
-			"Manufacturing Settings", "shift_rejection_warehouse", self.rejection_warehouse
+			"Production Entry Settings", "shift_raw_material_warehouse", self.rm_warehouse
+		)
+		frappe.db.set_single_value("Production Entry Settings", "shift_wip_warehouse", self.wip_warehouse)
+		frappe.db.set_single_value(
+			"Production Entry Settings", "shift_rejection_warehouse", self.rejection_warehouse
+		)
+		frappe.db.set_single_value("Production Entry Settings", "shift_scrap_warehouse", scrap_warehouse)
+
+		shift = _create_test_shift(shift_date="2026-04-18", wip_warehouse=None, rejection_warehouse=None)
+
+		self.assertEqual(shift.raw_material_warehouse, self.rm_warehouse)
+		self.assertEqual(shift.work_in_progress_warehouse, self.wip_warehouse)
+		self.assertEqual(shift.rejection_warehouse, self.rejection_warehouse)
+		self.assertEqual(shift.scrap_warehouse, scrap_warehouse)
+
+	def test_rejection_warehouse_uses_production_entry_settings_fallback(self) -> None:
+		frappe.db.set_single_value(
+			"Production Entry Settings", "shift_rejection_warehouse", self.rejection_warehouse
 		)
 		shift = _create_test_shift(
 			shift_date="2026-04-19",

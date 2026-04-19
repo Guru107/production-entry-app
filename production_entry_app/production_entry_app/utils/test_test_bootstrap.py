@@ -5,6 +5,10 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from production_entry_app.production_entry_app.api import (
+	_cache_e2e_settings_snapshot,
+	_restore_cached_e2e_settings,
+)
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	_resolve_company_from_candidates,
 	bootstrap_manufacturing_test_context,
@@ -13,6 +17,7 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	ensure_downtime_reason,
 	ensure_item,
 	ensure_operator,
+	ensure_production_entry_settings_shift_fields,
 	ensure_rejection_reason,
 	ensure_warehouse,
 	ensure_workstation,
@@ -167,23 +172,84 @@ class TestTestBootstrap(FrappeTestCase):
 		self.assertTrue(frappe.db.exists("Company", context["company"]))
 
 	def test_bootstrap_manufacturing_test_context_resets_shift_warehouse_defaults(self) -> None:
+		ensure_production_entry_settings_shift_fields()
 		company = resolve_test_company()
 		abbr = get_company_abbr(company)
 		stale_wip = ensure_warehouse(f"Bootstrap Stale WIP - {abbr}", company)
 		stale_rejection = ensure_warehouse(f"Bootstrap Stale Rejection - {abbr}", company)
-		frappe.db.set_single_value("Manufacturing Settings", "shift_wip_warehouse", stale_wip)
-		frappe.db.set_single_value("Manufacturing Settings", "shift_rejection_warehouse", stale_rejection)
+		frappe.db.set_single_value("Production Entry Settings", "shift_wip_warehouse", stale_wip)
+		frappe.db.set_single_value("Production Entry Settings", "shift_rejection_warehouse", stale_rejection)
+		frappe.clear_document_cache("Production Entry Settings")
 
 		context = bootstrap_manufacturing_test_context("Bootstrap Fresh")
 
 		self.assertEqual(
-			frappe.db.get_single_value("Manufacturing Settings", "shift_wip_warehouse"),
+			frappe.db.get_single_value("Production Entry Settings", "shift_wip_warehouse"),
 			context["wip_warehouse"],
 		)
 		self.assertEqual(
-			frappe.db.get_single_value("Manufacturing Settings", "shift_rejection_warehouse"),
+			frappe.db.get_single_value("Production Entry Settings", "shift_rejection_warehouse"),
 			context["rejection_warehouse"],
 		)
+
+	def test_cached_e2e_settings_restore_shift_defaults_from_production_entry_settings(self) -> None:
+		prefix = "Bootstrap Snapshot"
+		ensure_production_entry_settings_shift_fields()
+		company = resolve_test_company()
+		abbr = get_company_abbr(company)
+		fieldnames = (
+			"shift_wip_warehouse",
+			"shift_raw_material_warehouse",
+			"shift_rejection_warehouse",
+			"shift_scrap_warehouse",
+			"shift_start_buffer_mins",
+			"shift_end_buffer_mins",
+		)
+		original = {
+			fieldname: frappe.db.get_single_value("Production Entry Settings", fieldname)
+			for fieldname in fieldnames
+		}
+		try:
+			stale_settings = {
+				"shift_wip_warehouse": ensure_warehouse(f"Bootstrap Snapshot WIP - {abbr}", company),
+				"shift_raw_material_warehouse": ensure_warehouse(f"Bootstrap Snapshot RM - {abbr}", company),
+				"shift_rejection_warehouse": ensure_warehouse(
+					f"Bootstrap Snapshot Rejection - {abbr}", company
+				),
+				"shift_scrap_warehouse": ensure_warehouse(f"Bootstrap Snapshot Scrap - {abbr}", company),
+				"shift_start_buffer_mins": 12,
+				"shift_end_buffer_mins": 18,
+			}
+			fresh_settings = {
+				"shift_wip_warehouse": ensure_warehouse(f"Bootstrap Fresh WIP - {abbr}", company),
+				"shift_raw_material_warehouse": ensure_warehouse(f"Bootstrap Fresh RM - {abbr}", company),
+				"shift_rejection_warehouse": ensure_warehouse(f"Bootstrap Fresh Rejection - {abbr}", company),
+				"shift_scrap_warehouse": ensure_warehouse(f"Bootstrap Fresh Scrap - {abbr}", company),
+				"shift_start_buffer_mins": 33,
+				"shift_end_buffer_mins": 44,
+			}
+
+			for fieldname, value in stale_settings.items():
+				frappe.db.set_single_value("Production Entry Settings", fieldname, value)
+			frappe.clear_document_cache("Production Entry Settings")
+
+			_cache_e2e_settings_snapshot(prefix)
+
+			for fieldname, value in fresh_settings.items():
+				frappe.db.set_single_value("Production Entry Settings", fieldname, value)
+			frappe.clear_document_cache("Production Entry Settings")
+
+			_restore_cached_e2e_settings(prefix)
+
+			for fieldname, value in stale_settings.items():
+				self.assertEqual(
+					frappe.db.get_single_value("Production Entry Settings", fieldname),
+					value,
+					msg=f"Expected cached Production Entry Settings value for {fieldname}",
+				)
+		finally:
+			for fieldname, value in original.items():
+				frappe.db.set_single_value("Production Entry Settings", fieldname, value)
 
 	def test_standard_rejection_reason_fixtures_exist(self) -> None:
 		expected = [

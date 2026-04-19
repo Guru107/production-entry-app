@@ -833,7 +833,7 @@ class Shift(Document):
 
 	def before_insert(self) -> None:
 		self._set_defaults()
-		self._set_warehouse_defaults_from_manufacturing_settings()
+		self._set_warehouse_defaults_from_production_entry_settings()
 
 	def validate(self) -> None:
 		self._ensure_company()
@@ -1303,14 +1303,10 @@ class Shift(Document):
 		for row in entries:
 			self.append("planned_losses", row)
 
-	def _set_warehouse_defaults_from_manufacturing_settings(self) -> None:
-		"""Best-effort: fields are added later via fixtures (task 7.0).
+	def _set_warehouse_defaults_from_production_entry_settings(self) -> None:
+		"""Best-effort: populate missing warehouse defaults from Production Entry Settings."""
 
-		If fields don't exist yet, this should be a no-op.
-		"""
-
-		settings_doctype = "Manufacturing Settings"
-		settings_name = settings_doctype
+		settings_doctype = "Production Entry Settings"
 
 		field_map = {
 			"raw_material_warehouse": "shift_raw_material_warehouse",
@@ -1328,6 +1324,6 @@ class Shift(Document):
 			if not settings_meta.has_field(settings_field):
 				continue
 
-			value = frappe.db.get_value(settings_doctype, settings_name, settings_field)
+			value = frappe.db.get_single_value(settings_doctype, settings_field)
 			if value:
 				setattr(self, target_field, value)

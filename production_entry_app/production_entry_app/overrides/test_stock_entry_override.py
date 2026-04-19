@@ -17,14 +17,16 @@ from production_entry_app.production_entry_app.overrides.test_stock_entry_hooks 
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	bootstrap_manufacturing_test_context,
 	cleanup_running_shifts,
+	ensure_production_entry_settings_shift_fields,
 	ensure_stock,
 )
 
 
 def _set_shift_warehouse_defaults(rm_warehouse: str, wip_warehouse: str, rejection_warehouse: str) -> None:
-	frappe.db.set_single_value("Manufacturing Settings", "shift_raw_material_warehouse", rm_warehouse)
-	frappe.db.set_single_value("Manufacturing Settings", "shift_wip_warehouse", wip_warehouse)
-	frappe.db.set_single_value("Manufacturing Settings", "shift_rejection_warehouse", rejection_warehouse)
+	ensure_production_entry_settings_shift_fields()
+	frappe.db.set_single_value("Production Entry Settings", "shift_raw_material_warehouse", rm_warehouse)
+	frappe.db.set_single_value("Production Entry Settings", "shift_wip_warehouse", wip_warehouse)
+	frappe.db.set_single_value("Production Entry Settings", "shift_rejection_warehouse", rejection_warehouse)
 
 
 class TestStockEntryOverride(FrappeTestCase):
