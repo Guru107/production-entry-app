@@ -52,6 +52,16 @@ class TestAccessControlDoctypes(FrappeTestCase):
 		frappe.set_user("Administrator")
 		frappe.db.rollback()
 
+	def test_role_fixture_setup_resets_dedicated_users_to_exact_roles(self) -> None:
+		_ensure_user_with_roles(DENIED_USER, (USER_ROLE, REQUIRED_ROLE, "System Manager"))
+		self.assertEqual(
+			_get_user_roles(DENIED_USER),
+			sorted((USER_ROLE, REQUIRED_ROLE, "System Manager")),
+		)
+
+		_ensure_user_with_roles(DENIED_USER, (USER_ROLE,))
+		self.assertEqual(_get_user_roles(DENIED_USER), [USER_ROLE])
+
 	def test_denied_user_cannot_access_all_gated_doctypes_doc_level(self) -> None:
 		with patch(
 			"production_entry_app.production_entry_app.access_control._load_access_configuration",
@@ -239,7 +249,8 @@ def _make_doc(doctype: str) -> frappe.model.document.Document:
 
 
 def _ensure_user_with_roles(email: str, roles: tuple[str, ...]) -> None:
-	for role in roles:
+	unique_roles = tuple(dict.fromkeys(roles))
+	for role in unique_roles:
 		if not frappe.db.exists("Role", role):
 			frappe.get_doc({"doctype": "Role", "role_name": role}).insert(ignore_permissions=True)
 	if frappe.db.exists("User", email):
@@ -249,6 +260,18 @@ def _ensure_user_with_roles(email: str, roles: tuple[str, ...]) -> None:
 		user.email = email
 		user.first_name = email.split("@", 1)[0]
 		user.user_type = "System User"
-	user.add_roles(*roles)
+	user.set("roles", [])
+	for role in unique_roles:
+		user.append("roles", {"role": role})
 	user.save(ignore_permissions=True)
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so role changes are visible
+
+
+def _get_user_roles(email: str) -> list[str]:
+	return sorted(
+		frappe.get_all(
+			"Has Role",
+			filters={"parent": email, "parenttype": "User"},
+			pluck="role",
+		)
+	)
