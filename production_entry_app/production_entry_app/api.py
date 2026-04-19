@@ -100,7 +100,9 @@ def _cleanup_orphan_stock_entry_loss_links(shift_name: str) -> None:
 @frappe.whitelist(methods=["DELETE", "POST"])
 def delete(doctype: str, name: str) -> None:
 	"""Delete wrapper that cleans orphan Shift loss links before link validation."""
-	if doctype in _APP_GATED_DOCTYPES:
+	if doctype == "Shift":
+		access_control.assert_app_access(doctype="Shift", docname=name)
+	elif doctype in _APP_GATED_DOCTYPES:
 		access_control.assert_app_access()
 	if doctype == "Shift":
 		_cleanup_orphan_stock_entry_loss_links(name)

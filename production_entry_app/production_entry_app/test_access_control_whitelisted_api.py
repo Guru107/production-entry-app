@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import frappe
@@ -44,6 +45,16 @@ class TestAccessControlWhitelistedApi(FrappeTestCase):
 			("create_e2e_submitted_stock_entry", lambda: create_e2e_submitted_stock_entry()),
 			("create_e2e_full_shift_stock_entries", lambda: create_e2e_full_shift_stock_entries()),
 			("create_e2e_downtime_entry", lambda: create_e2e_downtime_entry()),
+		]
+
+		for label, call in gated_calls:
+			with self.subTest(label=label):
+				with patch.object(access_control, "assert_app_access", side_effect=frappe.PermissionError):
+					with self.assertRaises(frappe.PermissionError):
+						call()
+
+	def test_denied_user_cannot_call_shift_specific_gated_apis(self) -> None:
+		gated_calls = [
 			("get_linked_downtime_entries", lambda: shift_module.get_linked_downtime_entries("SHIFT-00001")),
 			(
 				"check_running_shift_conflict",
@@ -54,7 +65,6 @@ class TestAccessControlWhitelistedApi(FrappeTestCase):
 				"get_shift_aggregate_production_entries",
 				lambda: shift_module.get_shift_aggregate_production_entries("SHIFT-00001"),
 			),
-			("get_shift_timeline_data", lambda: get_shift_timeline_data("Workstation", "WS-00001")),
 			("start_shift", lambda: Shift.start_shift(frappe._dict(name="SHIFT-00001"))),
 			("end_shift", lambda: Shift.end_shift(frappe._dict(name="SHIFT-00001"))),
 			("cancel_shift", lambda: Shift.cancel_shift(frappe._dict(name="SHIFT-00001"))),
@@ -74,6 +84,40 @@ class TestAccessControlWhitelistedApi(FrappeTestCase):
 				delete("Stock Entry", "STE-00001")
 		assert_app_access.assert_not_called()
 		delete_doc.assert_called_once_with("Stock Entry", "STE-00001")
+
+	def test_shift_delete_allows_doc_scoped_branch_match_without_default_branch(self) -> None:
+		with (
+			patch(
+				"production_entry_app.production_entry_app.access_control._get_access_configuration",
+				return_value=access_control.AccessConfiguration(
+					enabled=True,
+					rules=(("Manufacturing User", "Branch B"),),
+				),
+			),
+			patch(
+				"production_entry_app.production_entry_app.access_control.frappe.get_roles",
+				return_value=["Manufacturing User"],
+			),
+			patch(
+				"production_entry_app.production_entry_app.access_control.frappe.db.get_value",
+				return_value="Branch B",
+			),
+			patch(
+				"production_entry_app.production_entry_app.access_control._resolve_user_branch"
+			) as resolve_user_branch,
+			patch("production_entry_app.production_entry_app.api.frappe_client_delete_doc") as delete_doc,
+			patch(
+				"production_entry_app.production_entry_app.api._cleanup_orphan_stock_entry_loss_links"
+			) as cleanup_orphans,
+			patch.object(
+				access_control, "assert_app_access", wraps=access_control.assert_app_access
+			) as guard,
+		):
+			delete("Shift", "SHIFT-B-00001")
+		guard.assert_called_once_with(doctype="Shift", docname="SHIFT-B-00001")
+		resolve_user_branch.assert_not_called()
+		cleanup_orphans.assert_called_once_with("SHIFT-B-00001")
+		delete_doc.assert_called_once_with("Shift", "SHIFT-B-00001")
 
 	def test_shift_details_checks_target_shift_read_permission(self) -> None:
 		shift_doc = MagicMock()
@@ -120,13 +164,207 @@ class TestAccessControlWhitelistedApi(FrappeTestCase):
 		assert_app_access.assert_called_once_with(doctype="Shift", docname="SHIFT-B-00001")
 		has_permission.assert_called_once_with("Shift", "read", "SHIFT-B-00001")
 
+	def test_shift_timeline_data_allows_doc_scoped_branch_match_without_default_branch(self) -> None:
+		class _FakeQuery:
+			def select(self, *args, **kwargs):
+				return self
+
+			def where(self, *args, **kwargs):
+				return self
+
+			def orderby(self, *args, **kwargs):
+				return self
+
+			def inner_join(self, *args, **kwargs):
+				return self
+
+			def on(self, *args, **kwargs):
+				return self
+
+			def groupby(self, *args, **kwargs):
+				return self
+
+			def run(self, as_dict: bool = False):
+				del as_dict
+				return []
+
+		fake_query = _FakeQuery()
+		running_shift = [
+			{
+				"name": "SHIFT-B-00001",
+				"shift_date": "2026-01-01",
+				"planned_start_time": "08:00:00",
+				"shift_end_date": "2026-01-01",
+				"planned_end_time": "16:00:00",
+			}
+		]
+
+		def _get_value(
+			doctype: str,
+			name: str | dict | tuple | None = None,
+			fieldname: str | list | tuple | None = None,
+			**kwargs,
+		):
+			del kwargs
+			if doctype == "Shift" and fieldname == "branch":
+				return "Branch B"
+			if doctype == "Shift" and fieldname == "modified":
+				return "2026-01-01 10:00:00"
+			return None
+
+		with (
+			patch(
+				"production_entry_app.production_entry_app.access_control._get_access_configuration",
+				return_value=access_control.AccessConfiguration(
+					enabled=True,
+					rules=(("Manufacturing User", "Branch B"),),
+				),
+			),
+			patch(
+				"production_entry_app.production_entry_app.access_control.frappe.get_roles",
+				return_value=["Manufacturing User"],
+			),
+			patch(
+				"production_entry_app.production_entry_app.api_timeline.frappe.db.get_value",
+				side_effect=_get_value,
+			),
+			patch(
+				"production_entry_app.production_entry_app.access_control._resolve_user_branch"
+			) as resolve_user_branch,
+			patch(
+				"production_entry_app.production_entry_app.api_timeline.frappe.get_all",
+				return_value=running_shift,
+			),
+			patch(
+				"production_entry_app.production_entry_app.api_timeline.frappe.has_permission",
+				return_value=True,
+			),
+			patch(
+				"production_entry_app.production_entry_app.api_timeline.frappe.get_meta",
+				return_value=SimpleNamespace(is_submittable=False),
+			),
+			patch(
+				"production_entry_app.production_entry_app.api_timeline.frappe.qb.from_",
+				return_value=fake_query,
+			),
+			patch(
+				"production_entry_app.production_entry_app.api_timeline.get_system_float_precision",
+				return_value=3,
+			),
+			patch.object(
+				access_control, "assert_app_access", wraps=access_control.assert_app_access
+			) as guard,
+		):
+			result = get_shift_timeline_data("Workstation", "WS-00001")
+		guard.assert_called_once_with(doctype="Shift", docname="SHIFT-B-00001")
+		resolve_user_branch.assert_not_called()
+		self.assertEqual(result["shift_name"], "SHIFT-B-00001")
+		self.assertEqual(result["entries"], [])
+		self.assertEqual(result["float_precision"], 3)
+
+	def test_shift_timeline_data_denies_doc_scoped_branch_mismatch_without_default_branch(self) -> None:
+		class _FakeQuery:
+			def select(self, *args, **kwargs):
+				return self
+
+			def where(self, *args, **kwargs):
+				return self
+
+			def orderby(self, *args, **kwargs):
+				return self
+
+			def inner_join(self, *args, **kwargs):
+				return self
+
+			def on(self, *args, **kwargs):
+				return self
+
+			def groupby(self, *args, **kwargs):
+				return self
+
+			def run(self, as_dict: bool = False):
+				del as_dict
+				return []
+
+		fake_query = _FakeQuery()
+		running_shift = [
+			{
+				"name": "SHIFT-B-00001",
+				"shift_date": "2026-01-01",
+				"planned_start_time": "08:00:00",
+				"shift_end_date": "2026-01-01",
+				"planned_end_time": "16:00:00",
+			}
+		]
+
+		def _get_value(
+			doctype: str,
+			name: str | dict | tuple | None = None,
+			fieldname: str | list | tuple | None = None,
+			**kwargs,
+		):
+			del kwargs
+			if doctype == "Shift" and fieldname == "branch":
+				return "Branch B"
+			if doctype == "Shift" and fieldname == "modified":
+				return "2026-01-01 10:00:00"
+			return None
+
+		with (
+			patch(
+				"production_entry_app.production_entry_app.access_control._get_access_configuration",
+				return_value=access_control.AccessConfiguration(
+					enabled=True,
+					rules=(("Manufacturing User", "Branch A"),),
+				),
+			),
+			patch(
+				"production_entry_app.production_entry_app.access_control.frappe.get_roles",
+				return_value=["Manufacturing User"],
+			),
+			patch(
+				"production_entry_app.production_entry_app.api_timeline.frappe.db.get_value",
+				side_effect=_get_value,
+			),
+			patch(
+				"production_entry_app.production_entry_app.access_control._resolve_user_branch"
+			) as resolve_user_branch,
+			patch(
+				"production_entry_app.production_entry_app.api_timeline.frappe.get_all",
+				return_value=running_shift,
+			),
+			patch(
+				"production_entry_app.production_entry_app.api_timeline.frappe.has_permission",
+				return_value=True,
+			),
+			patch(
+				"production_entry_app.production_entry_app.api_timeline.frappe.get_meta",
+				return_value=SimpleNamespace(is_submittable=False),
+			),
+			patch(
+				"production_entry_app.production_entry_app.api_timeline.frappe.qb.from_",
+				return_value=fake_query,
+			),
+			patch(
+				"production_entry_app.production_entry_app.api_timeline.get_system_float_precision",
+				return_value=3,
+			),
+			patch.object(
+				access_control, "assert_app_access", wraps=access_control.assert_app_access
+			) as guard,
+		):
+			with self.assertRaises(frappe.PermissionError):
+				get_shift_timeline_data("Workstation", "WS-00001")
+		guard.assert_called_once_with(doctype="Shift", docname="SHIFT-B-00001")
+		resolve_user_branch.assert_not_called()
+
 	def test_allowed_user_can_call_required_whitelisted_apis(self) -> None:
 		with patch.object(access_control, "assert_app_access") as assert_app_access:
 			with patch(
 				"production_entry_app.production_entry_app.api.frappe_client_delete_doc"
 			) as delete_doc:
 				delete("Shift", "SHIFT-00001")
-		assert_app_access.assert_called_once()
+		assert_app_access.assert_called_once_with(doctype="Shift", docname="SHIFT-00001")
 		delete_doc.assert_called_once_with("Shift", "SHIFT-00001")
 
 		with patch.object(access_control, "assert_app_access") as assert_app_access:
@@ -151,7 +389,7 @@ class TestAccessControlWhitelistedApi(FrappeTestCase):
 						return_value=3,
 					):
 						result = get_shift_timeline_data("Workstation", "WS-00001")
-		assert_app_access.assert_called_once()
+		assert_app_access.assert_not_called()
 		self.assertEqual(
 			result,
 			{"shift_name": None, "entries": [], "float_precision": 3},
