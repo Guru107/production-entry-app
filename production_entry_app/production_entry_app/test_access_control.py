@@ -53,6 +53,25 @@ class TestAccessControl(FrappeTestCase):
 		self.assertIsNotNone(field)
 		self.assertEqual(field.default, "0")
 
+	def test_shift_settings_fields_exist_with_expected_metadata(self) -> None:
+		meta = frappe.get_meta("Production Entry Settings")
+		expected_fields = {
+			"shift_raw_material_warehouse": ("Link", "Warehouse", None),
+			"shift_wip_warehouse": ("Link", "Warehouse", None),
+			"shift_rejection_warehouse": ("Link", "Warehouse", None),
+			"shift_scrap_warehouse": ("Link", "Warehouse", None),
+			"shift_start_buffer_mins": ("Int", None, "60"),
+			"shift_end_buffer_mins": ("Int", None, "60"),
+		}
+
+		for fieldname, (fieldtype, options, default) in expected_fields.items():
+			with self.subTest(fieldname=fieldname):
+				field = meta.get_field(fieldname)
+				self.assertIsNotNone(field)
+				self.assertEqual(field.fieldtype, fieldtype)
+				self.assertEqual(field.options or None, options)
+				self.assertEqual(field.default or None, default)
+
 	def test_settings_singleton_default_enable_access_control_is_zero(self) -> None:
 		frappe.db.delete("Singles", {"doctype": "Production Entry Settings"})
 		frappe.clear_document_cache("Production Entry Settings")

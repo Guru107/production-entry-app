@@ -6,7 +6,13 @@
  "engine": "InnoDB",
  "field_order": [
   "enable_access_control",
-  "required_role"
+  "required_role",
+  "shift_raw_material_warehouse",
+  "shift_wip_warehouse",
+  "shift_rejection_warehouse",
+  "shift_scrap_warehouse",
+  "shift_start_buffer_mins",
+  "shift_end_buffer_mins"
  ],
  "fields": [
   {
@@ -20,6 +26,42 @@
    "fieldtype": "Link",
    "label": "Required Role",
    "options": "Role"
+  },
+  {
+   "fieldname": "shift_raw_material_warehouse",
+   "fieldtype": "Link",
+   "label": "Raw Material Warehouse",
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "shift_wip_warehouse",
+   "fieldtype": "Link",
+   "label": "Work In Progress Warehouse",
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "shift_rejection_warehouse",
+   "fieldtype": "Link",
+   "label": "Rejection Warehouse",
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "shift_scrap_warehouse",
+   "fieldtype": "Link",
+   "label": "Scrap Warehouse",
+   "options": "Warehouse"
+  },
+  {
+   "default": "60",
+   "fieldname": "shift_start_buffer_mins",
+   "fieldtype": "Int",
+   "label": "Shift Start Buffer (Minutes)"
+  },
+  {
+   "default": "60",
+   "fieldname": "shift_end_buffer_mins",
+   "fieldtype": "Int",
+   "label": "Shift End Buffer (Minutes)"
   }
  ],
  "hide_toolbar": 1,
