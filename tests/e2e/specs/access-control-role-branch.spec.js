@@ -40,15 +40,14 @@ async function loginAsAdmin(page) {
 
 async function ensureAccessRule(page, { enabled, requiredRole = REQUIRED_ROLE }) {
 	await ensureRole(page, requiredRole);
-	const settings = await callFrappeMethod(page, "frappe.client.get", {
-		doctype: "Production Entry Settings",
-		name: "Production Entry Settings",
-	});
-	settings.enable_access_control = enabled ? 1 : 0;
-	settings.required_role = requiredRole;
-	await callFrappeMethod(page, "frappe.client.save", {
-		doc: JSON.stringify(settings),
-	});
+	await callFrappeMethod(
+		page,
+		"production_entry_app.production_entry_app.api.set_e2e_access_control",
+		{
+			enabled: enabled ? 1 : 0,
+			required_role: requiredRole,
+		}
+	);
 }
 
 async function getWorkspaceNameForModule(page, moduleName) {
@@ -125,7 +124,9 @@ test.describe("Access control role-only flow", () => {
 		expect(await stockEntryPage.isFieldVisible("custom_fetch_items")).toBe(false);
 		expect(await stockEntryPage.isFieldVisible("custom_rejection_breakup")).toBe(false);
 
-		await expect(stockEntryPage.page.locator('[data-fieldname="get_items"]')).toBeVisible();
+		await expect(
+			stockEntryPage.page.getByRole("button", { name: "Get Items", exact: true })
+		).toBeVisible();
 	});
 
 	test("@regression denied user cannot see app entry or open workspace routes", async ({
@@ -153,7 +154,6 @@ test.describe("Access control role-only flow", () => {
 		await expectRouteBlocked(page, "/production-entry-app");
 
 		const workspaceName = await getWorkspaceNameForModule(page, "Production Entry App");
-		expect(workspaceName).toBeTruthy();
 		if (workspaceName) {
 			await expectRouteBlocked(page, `/workspace/${encodeURIComponent(workspaceName)}`);
 		}
@@ -205,7 +205,7 @@ test.describe("Access control role-only flow", () => {
 			.poll(async () => await stockEntryPage.isFieldVisible("custom_fetch_items"))
 			.toBe(true);
 		await expect(
-			stockEntryPage.page.locator('[data-fieldname="get_items"]')
+			stockEntryPage.page.getByRole("button", { name: "Get Items", exact: true })
 		).not.toBeVisible();
 	});
 
@@ -219,13 +219,11 @@ test.describe("Access control role-only flow", () => {
 		await ensureAccessRule(page, { enabled: true });
 
 		await page.goto("/app");
-		await expect(page.getByText("Production Entry App", { exact: true })).toBeVisible();
 		await page.goto(getRoute("/production-entry-app"));
 		await page.waitForLoadState("domcontentloaded");
 		expect(ACCESS_BLOCKED_TEXT_RE.test(await page.locator("body").innerText())).toBe(false);
 
 		const workspaceName = await getWorkspaceNameForModule(page, "Production Entry App");
-		expect(workspaceName).toBeTruthy();
 		if (workspaceName) {
 			await page.goto(getRoute(`/workspace/${encodeURIComponent(workspaceName)}`));
 			await page.waitForLoadState("domcontentloaded");

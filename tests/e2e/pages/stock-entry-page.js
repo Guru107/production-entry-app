@@ -39,6 +39,7 @@ class StockEntryPage {
 
 	async fillManufactureEntry(ctx) {
 		await setFieldValue(this.page, "stock_entry_type", "Manufacture");
+		await setFieldValue(this.page, "custom_stock_entry_purpose", "Manufacture");
 		await setFieldValue(this.page, "company", ctx.company);
 		await setFieldValue(this.page, "from_bom", 1);
 		await setFieldValue(this.page, "bom_no", ctx.bom);
@@ -61,6 +62,7 @@ class StockEntryPage {
 		} = options;
 
 		await setFieldValue(this.page, "stock_entry_type", "Manufacture");
+		await setFieldValue(this.page, "custom_stock_entry_purpose", "Manufacture");
 		await setFieldValue(this.page, "company", ctx.company);
 		await setFieldValue(this.page, "from_bom", 1);
 		await setFieldValue(this.page, "bom_no", ctx.bom);

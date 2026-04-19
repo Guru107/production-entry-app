@@ -77,6 +77,21 @@ def get_access_control_state() -> dict[str, bool]:
 	return {"enabled": access_control.has_app_permission()}
 
 
+@frappe.whitelist()
+def set_e2e_access_control(
+	enabled: int = 0, required_role: str = access_control.DEFAULT_REQUIRED_ROLE
+) -> dict:
+	"""Set access-control flags for E2E without full-doc validation side effects."""
+	_assert_e2e_api_allowed()
+	required_role_value = (required_role or access_control.DEFAULT_REQUIRED_ROLE).strip()
+	frappe.db.set_single_value("Production Entry Settings", "enable_access_control", cint(enabled))
+	frappe.db.set_single_value("Production Entry Settings", "required_role", required_role_value)
+	frappe.clear_document_cache("Production Entry Settings")
+	access_control.invalidate_access_control_cache()
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit - E2E state toggle must persist immediately
+	return {"enabled": bool(cint(enabled)), "required_role": required_role_value}
+
+
 def _cleanup_orphan_stock_entry_loss_links(shift_name: str) -> None:
 	"""Delete Loss Entry rows linked to deleted Stock Entry parents for a Shift."""
 	if not shift_name:
