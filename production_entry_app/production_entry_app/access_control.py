@@ -243,6 +243,9 @@ def _extract_branch(doc: Any) -> str | None:
 
 
 def _get_document_branch(doctype: str, docname: str) -> str | None:
+	if not frappe.db.has_column(doctype, "branch"):
+		return None
+
 	branch = frappe.db.get_value(doctype, docname, "branch")
 	return str(branch) if branch else None
 
