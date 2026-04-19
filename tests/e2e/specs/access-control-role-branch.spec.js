@@ -9,10 +9,10 @@ const { getRoute, getRouteRegex } = require("../utils/routing");
 const ADMIN_USERNAME = process.env.PLAYWRIGHT_USERNAME || "Administrator";
 const ADMIN_PASSWORD = process.env.PLAYWRIGHT_PASSWORD || "123";
 const TEST_PASSWORD = process.env.PLAYWRIGHT_TEST_USER_PASSWORD || "E2eT3st!Pass#2026";
-const ROLE = "Manufacturing User";
-const ALLOWED_BRANCH = "E2E Allowed Branch";
-const DENIED_BRANCH = "E2E Denied Branch";
-const ACCESS_BLOCKED_TEXT_RE = /not permitted|permission denied|page not found|does not exist|access denied/i;
+const STOCK_ENTRY_ROLE = "Manufacturing User";
+const REQUIRED_ROLE = "PEA User";
+const ACCESS_BLOCKED_TEXT_RE =
+	/not permitted|permission denied|page not found|does not exist|access denied/i;
 
 function uniqueSuffix() {
 	return `${Date.now()}-${Math.floor(Math.random() * 1000)}`;
@@ -38,69 +38,16 @@ async function loginAsAdmin(page) {
 	await loginAs(page, ADMIN_USERNAME, ADMIN_PASSWORD);
 }
 
-async function ensureBranch(page, branchName) {
-	const existing = await callFrappeMethod(page, "frappe.client.get_list", {
-		doctype: "Branch",
-		fields: JSON.stringify(["name"]),
-		filters: JSON.stringify([["name", "=", branchName]]),
-		limit_page_length: 1,
-	});
-	if (existing?.[0]?.name) {
-		return existing[0].name;
-	}
-	const created = await callFrappeMethod(page, "frappe.client.insert", {
-		doc: JSON.stringify({
-			doctype: "Branch",
-			branch: branchName,
-		}),
-	});
-	return created.name;
-}
-
-async function ensureAccessRule(page, { enabled, branch, role }) {
+async function ensureAccessRule(page, { enabled, requiredRole = REQUIRED_ROLE }) {
 	const settings = await callFrappeMethod(page, "frappe.client.get", {
 		doctype: "Production Entry Settings",
 		name: "Production Entry Settings",
 	});
 	settings.enable_access_control = enabled ? 1 : 0;
-	settings.allowed_access_rules = enabled
-		? [
-				{
-					doctype: "Production Entry Access Rule",
-					role,
-					branch,
-					is_active: 1,
-				},
-			]
-		: [];
+	settings.required_role = requiredRole;
+	settings.allowed_access_rules = [];
 	await callFrappeMethod(page, "frappe.client.save", {
 		doc: JSON.stringify(settings),
-	});
-}
-
-async function ensureSingleBranchPermission(page, email, branch) {
-	const rows = await callFrappeMethod(page, "frappe.client.get_list", {
-		doctype: "User Permission",
-		fields: JSON.stringify(["name"]),
-		filters: JSON.stringify([
-			["user", "=", email],
-			["allow", "=", "Branch"],
-		]),
-		limit_page_length: 20,
-	});
-	for (const row of rows || []) {
-		await callFrappeMethod(page, "frappe.client.delete", {
-			doctype: "User Permission",
-			name: row.name,
-		});
-	}
-	await callFrappeMethod(page, "frappe.client.insert", {
-		doc: JSON.stringify({
-			doctype: "User Permission",
-			user: email,
-			allow: "Branch",
-			for_value: branch,
-		}),
 	});
 }
 
@@ -123,7 +70,7 @@ async function expectRouteBlocked(page, routePath) {
 	expect(page.url() !== target || blocked).toBe(true);
 }
 
-test.describe("Access control role-branch flow", () => {
+test.describe("Access control role-only flow", () => {
 	const lifecycle = registerE2ELifecycle(test);
 	const createdUsers = new Set();
 
@@ -141,8 +88,6 @@ test.describe("Access control role-branch flow", () => {
 	}) => {
 		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
-		await ensureBranch(page, ALLOWED_BRANCH);
-		await ensureBranch(page, DENIED_BRANCH);
 
 		const deniedEmail = userEmail("denied", uniqueSuffix());
 		createdUsers.add(deniedEmail);
@@ -150,21 +95,19 @@ test.describe("Access control role-branch flow", () => {
 			email: deniedEmail,
 			firstName: "Denied",
 			password: TEST_PASSWORD,
-			roles: [ROLE],
+			roles: [STOCK_ENTRY_ROLE],
 		});
-		await ensureSingleBranchPermission(page, deniedEmail, DENIED_BRANCH);
 
 		await loginAsAdmin(page);
-		await ensureAccessRule(page, {
-			enabled: true,
-			branch: ALLOWED_BRANCH,
-			role: ROLE,
-		});
+		await ensureAccessRule(page, { enabled: true });
 
 		await loginAs(page, deniedEmail, TEST_PASSWORD);
 		await expect
 			.poll(async () => {
-				return await callFrappeMethod(page, "production_entry_app.production_entry_app.api.get_access_control_state");
+				return await callFrappeMethod(
+					page,
+					"production_entry_app.production_entry_app.api.get_access_control_state"
+				);
 			})
 			.toEqual({ enabled: false });
 
@@ -190,8 +133,6 @@ test.describe("Access control role-branch flow", () => {
 	}) => {
 		await page.goto(getRoute("/home"));
 		await bootstrapE2E(page, lifecycle.getPrefix());
-		await ensureBranch(page, ALLOWED_BRANCH);
-		await ensureBranch(page, DENIED_BRANCH);
 
 		const deniedEmail = userEmail("module-blocked", uniqueSuffix());
 		createdUsers.add(deniedEmail);
@@ -199,16 +140,11 @@ test.describe("Access control role-branch flow", () => {
 			email: deniedEmail,
 			firstName: "DeniedModule",
 			password: TEST_PASSWORD,
-			roles: [ROLE],
+			roles: [STOCK_ENTRY_ROLE],
 		});
-		await ensureSingleBranchPermission(page, deniedEmail, DENIED_BRANCH);
 
 		await loginAsAdmin(page);
-		await ensureAccessRule(page, {
-			enabled: true,
-			branch: ALLOWED_BRANCH,
-			role: ROLE,
-		});
+		await ensureAccessRule(page, { enabled: true });
 
 		await loginAs(page, deniedEmail, TEST_PASSWORD);
 		await page.goto("/app");
@@ -226,7 +162,6 @@ test.describe("Access control role-branch flow", () => {
 	test("@regression allowed user sees app custom stock entry UI", async ({ page }) => {
 		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
-		await ensureBranch(page, ALLOWED_BRANCH);
 
 		const allowedEmail = userEmail("allowed", uniqueSuffix());
 		createdUsers.add(allowedEmail);
@@ -234,21 +169,19 @@ test.describe("Access control role-branch flow", () => {
 			email: allowedEmail,
 			firstName: "Allowed",
 			password: TEST_PASSWORD,
-			roles: [ROLE],
+			roles: [STOCK_ENTRY_ROLE, REQUIRED_ROLE],
 		});
-		await ensureSingleBranchPermission(page, allowedEmail, ALLOWED_BRANCH);
 
 		await loginAsAdmin(page);
-		await ensureAccessRule(page, {
-			enabled: true,
-			branch: ALLOWED_BRANCH,
-			role: ROLE,
-		});
+		await ensureAccessRule(page, { enabled: true });
 
 		await loginAs(page, allowedEmail, TEST_PASSWORD);
 		await expect
 			.poll(async () => {
-				return await callFrappeMethod(page, "production_entry_app.production_entry_app.api.get_access_control_state");
+				return await callFrappeMethod(
+					page,
+					"production_entry_app.production_entry_app.api.get_access_control_state"
+				);
 			})
 			.toEqual({ enabled: true });
 
@@ -271,7 +204,9 @@ test.describe("Access control role-branch flow", () => {
 		await expect
 			.poll(async () => await stockEntryPage.isFieldVisible("custom_fetch_items"))
 			.toBe(true);
-		await expect(stockEntryPage.page.locator('[data-fieldname="get_items"]')).not.toBeVisible();
+		await expect(
+			stockEntryPage.page.locator('[data-fieldname="get_items"]')
+		).not.toBeVisible();
 	});
 
 	test("@regression system manager bypass sees app entry and can open workspace routes", async ({
@@ -279,14 +214,9 @@ test.describe("Access control role-branch flow", () => {
 	}) => {
 		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
-		await ensureBranch(page, ALLOWED_BRANCH);
 
 		await loginAsAdmin(page);
-		await ensureAccessRule(page, {
-			enabled: true,
-			branch: ALLOWED_BRANCH,
-			role: ROLE,
-		});
+		await ensureAccessRule(page, { enabled: true });
 
 		await page.goto("/app");
 		await expect(page.getByText("Production Entry App", { exact: true })).toBeVisible();
@@ -299,7 +229,9 @@ test.describe("Access control role-branch flow", () => {
 		if (workspaceName) {
 			await page.goto(getRoute(`/workspace/${encodeURIComponent(workspaceName)}`));
 			await page.waitForLoadState("domcontentloaded");
-			expect(ACCESS_BLOCKED_TEXT_RE.test(await page.locator("body").innerText())).toBe(false);
+			expect(ACCESS_BLOCKED_TEXT_RE.test(await page.locator("body").innerText())).toBe(
+				false
+			);
 		}
 
 		const stockEntryPage = new StockEntryPage(page);

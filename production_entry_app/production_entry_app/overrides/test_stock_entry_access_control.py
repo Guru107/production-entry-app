@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from unittest.mock import call
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -44,7 +43,7 @@ class TestStockEntryAccessControl(FrappeTestCase):
 	def tearDown(self) -> None:
 		frappe.db.rollback()
 
-	def test_denied_validate_hook_skips_app_logic(self) -> None:
+	def test_validate_returns_early_without_required_role(self) -> None:
 		from production_entry_app.production_entry_app.overrides import stock_entry_hooks as hooks
 
 		doc = frappe._dict(
@@ -56,7 +55,14 @@ class TestStockEntryAccessControl(FrappeTestCase):
 		)
 
 		with (
-			patch.object(hooks.access_control, "can_use_production_entry_app", return_value=False),
+			patch.object(
+				hooks.access_control,
+				"_get_access_configuration",
+				return_value=hooks.access_control.AccessConfiguration(
+					enabled=True, required_role="PEA User"
+				),
+			),
+			patch.object(hooks.access_control.frappe, "get_roles", return_value=["Manufacturing User"]),
 			patch.object(hooks, "_validate_linked_shift_is_running") as validate_shift,
 			patch.object(hooks, "_apply_shift_defaults") as apply_shift_defaults,
 			patch.object(hooks, "_sync_unplanned_loss_shift_links") as sync_loss_links,
@@ -92,10 +98,18 @@ class TestStockEntryAccessControl(FrappeTestCase):
 		doc = frappe._dict({"doctype": "Stock Entry", "custom_shift": "SHIFT-ACCESS-CONTROL"})
 
 		with (
-			patch.object(hooks.access_control, "can_use_production_entry_app", return_value=False),
+			patch.object(
+				hooks.access_control,
+				"_get_access_configuration",
+				return_value=hooks.access_control.AccessConfiguration(
+					enabled=True, required_role="PEA User"
+				),
+			),
+			patch.object(hooks.access_control.frappe, "get_roles", return_value=["Manufacturing User"]),
 			patch.object(hooks, "update_counter_for_stock_entry") as update_counter,
 			patch.object(hooks, "frappe") as frappe_mod,
 		):
+			self.assertFalse(hooks.access_control.can_use_production_entry_app())
 			hooks.on_submit_stock_entry(doc, "on_submit")
 			hooks.on_cancel_stock_entry(doc, "on_cancel")
 

@@ -57,7 +57,7 @@ test("leave-manufacture transition detector works", () => {
 	assert.equal(_did_leave_manufacture("Material Transfer", "Material Transfer"), false);
 });
 
-test("fg completed qty override stays active until access state is explicitly denied", () => {
+test("fg completed qty override stays active until required-role access is explicitly denied", () => {
 	const originalWindow = global.window;
 	global.window = {
 		production_entry_app: {
@@ -72,21 +72,23 @@ test("fg completed qty override stays active until access state is explicitly de
 	try {
 		assert.equal(_should_override_fg_completed_qty(), true);
 
-		global.window.production_entry_app.access_control.get_cached_access_control_state = function () {
-			return { enabled: false };
-		};
+		global.window.production_entry_app.access_control.get_cached_access_control_state =
+			function () {
+				return { enabled: false };
+			};
 		assert.equal(_should_override_fg_completed_qty(), false);
 
-		global.window.production_entry_app.access_control.get_cached_access_control_state = function () {
-			return { enabled: true };
-		};
+		global.window.production_entry_app.access_control.get_cached_access_control_state =
+			function () {
+				return { enabled: true };
+			};
 		assert.equal(_should_override_fg_completed_qty(), true);
 	} finally {
 		global.window = originalWindow;
 	}
 });
 
-test("native get_items stays hidden while access state is unresolved and only reappears for denied users", async () => {
+test("native get_items stays hidden while required-role access is unresolved and only reappears for denied users", async () => {
 	const originalWindow = global.window;
 	let resolveReady;
 	const readyPromise = new Promise((resolve) => {
