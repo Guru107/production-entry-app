@@ -27,6 +27,7 @@ from production_entry_app.production_entry_app.utils.shift_time import (
 	combine_date_time,
 	get_shift_planned_end_datetime,
 )
+from production_entry_app.production_entry_app.utils.system_precision import get_system_float_precision
 
 _DEFAULT_START_BUFFER_MINS: int = 60
 _DEFAULT_END_BUFFER_MINS: int = 60
@@ -407,6 +408,8 @@ def _get_docfield_precision(doctype: str, fieldname: str, row) -> int:
 	df = frappe.get_meta(doctype, cached=True).get_field(fieldname)
 	if not df:
 		return 3
+	if df.fieldtype == "Float" and not df.precision:
+		return max(int(get_system_float_precision()), 0)
 	return max(int(get_field_precision(df, row) or 3), 0)
 
 
