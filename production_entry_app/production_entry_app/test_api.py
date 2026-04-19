@@ -111,7 +111,7 @@ class TestE2EApi(FrappeTestCase):
 	def test_stock_entry_matches_cleanup_target_by_operator_or_fg_item(self) -> None:
 		operator_only_match = frappe._dict(
 			{
-				"custom_operator": "E2E Operator",
+				"custom_pea_operator": "E2E Operator",
 				"items": [{"is_finished_item": 1, "item_code": "_Another_Item"}],
 			}
 		)
@@ -123,7 +123,7 @@ class TestE2EApi(FrappeTestCase):
 
 		fg_item_only_match = frappe._dict(
 			{
-				"custom_operator": "Other Operator",
+				"custom_pea_operator": "Other Operator",
 				"items": [{"is_finished_item": 1, "item_code": "_E2E_FG_Item"}],
 			}
 		)
@@ -135,7 +135,7 @@ class TestE2EApi(FrappeTestCase):
 
 		no_match = frappe._dict(
 			{
-				"custom_operator": "Other Operator",
+				"custom_pea_operator": "Other Operator",
 				"items": [{"is_finished_item": 1, "item_code": "_Another_Item"}],
 			}
 		)
@@ -271,7 +271,7 @@ class TestE2EApi(FrappeTestCase):
 			updated_result = get_shift_details_for_stock_entry(shift_doc.name)
 
 		# The updated planned_end must reflect the new 10-hour duration ending at 18:00
-		self.assertIn("18:00", updated_result.get("custom_planned_end_date", ""))
+		self.assertIn("18:00", updated_result.get("custom_pea_planned_end_date", ""))
 
 	def test_cleanup_stock_entry_query_uses_single_qb_run(self) -> None:
 		with patch(
@@ -396,9 +396,11 @@ class TestE2EApi(FrappeTestCase):
 		row1 = frappe._dict({"name": "STE-FAIL", "docstatus": 0})
 		row2 = frappe._dict({"name": "STE-OK", "docstatus": 0})
 		se1 = frappe._dict(
-			{"name": "STE-FAIL", "docstatus": 0, "custom_operator": "E2E Operator", "items": []}
+			{"name": "STE-FAIL", "docstatus": 0, "custom_pea_operator": "E2E Operator", "items": []}
 		)
-		se2 = frappe._dict({"name": "STE-OK", "docstatus": 0, "custom_operator": "E2E Operator", "items": []})
+		se2 = frappe._dict(
+			{"name": "STE-OK", "docstatus": 0, "custom_pea_operator": "E2E Operator", "items": []}
+		)
 
 		with patch(
 			"production_entry_app.production_entry_app.api._get_candidate_e2e_stock_entries",
@@ -722,7 +724,7 @@ class TestE2EApi(FrappeTestCase):
 			stack.enter_context(patch("production_entry_app.production_entry_app.api.frappe.db.commit"))
 			bootstrap_e2e_context(prefix="E2E-DIE")
 
-		set_value.assert_any_call("Item", "_FG_ITEM", "custom_has_die_tool", 1, update_modified=False)
+		set_value.assert_any_call("Item", "_FG_ITEM", "custom_pea_has_die_tool", 1, update_modified=False)
 
 	def test_bootstrap_e2e_context_passes_branch_to_shift_creation(self) -> None:
 		shift = MagicMock()

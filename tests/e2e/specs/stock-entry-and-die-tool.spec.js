@@ -25,10 +25,10 @@ test.describe("Stock Entry integration", () => {
 		const stockEntry = await getDoc(page, "Stock Entry", stockEntryName);
 
 		expect(stockEntry.docstatus).toBe(1);
-		expect(Number(stockEntry.custom_actual_duration_mins)).toBeGreaterThan(0);
-		expect(Number(stockEntry.custom_production_time_mins)).toBeGreaterThan(0);
-		expect(Number(stockEntry.custom_actual_spm)).toBeGreaterThan(0);
-		expect(Number(stockEntry.custom_operator_efficiency_pct)).toBeGreaterThan(0);
+		expect(Number(stockEntry.custom_pea_actual_duration_mins)).toBeGreaterThan(0);
+		expect(Number(stockEntry.custom_pea_production_time_mins)).toBeGreaterThan(0);
+		expect(Number(stockEntry.custom_pea_actual_spm)).toBeGreaterThan(0);
+		expect(Number(stockEntry.custom_pea_operator_efficiency_pct)).toBeGreaterThan(0);
 
 		const dieCounter = await callFrappeMethod(
 			page,
@@ -47,7 +47,7 @@ test.describe("Stock Entry integration", () => {
 		await callFrappeMethod(page, "frappe.client.set_value", {
 			doctype: "Item",
 			name: ctx.fg_item,
-			fieldname: "custom_has_die_tool",
+			fieldname: "custom_pea_has_die_tool",
 			value: 0,
 		});
 
@@ -60,8 +60,8 @@ test.describe("Stock Entry integration", () => {
 
 		const stockEntryName = await page.evaluate(() => cur_frm.doc.name);
 		const stockEntry = await getDoc(page, "Stock Entry", stockEntryName);
-		expect(Number(stockEntry.custom_die_tool_utilization_pct || 0)).toBe(0);
-		expect(Number(stockEntry.custom_die_tool_maintenance_due || 0)).toBe(0);
+		expect(Number(stockEntry.custom_pea_die_tool_utilization_pct || 0)).toBe(0);
+		expect(Number(stockEntry.custom_pea_die_tool_maintenance_due || 0)).toBe(0);
 
 		const dieCounter = await callFrappeMethod(
 			page,

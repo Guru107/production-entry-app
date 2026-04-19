@@ -1169,6 +1169,20 @@ class TestShift(FrappeTestCase):
 		frappe.delete_doc("Downtime Entry", dt_no_overlap.name, force=True)
 		frappe.delete_doc("Shift", name, force=True)
 
+	def test_get_linked_downtime_entries_returns_empty_when_shift_missing(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import (
+			get_linked_downtime_entries,
+		)
+
+		self.assertEqual(get_linked_downtime_entries(), [])
+
+	def test_get_linked_downtime_entries_returns_empty_for_unsaved_shift_name(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import (
+			get_linked_downtime_entries,
+		)
+
+		self.assertEqual(get_linked_downtime_entries("new-shift-njtiroovuu"), [])
+
 	def test_update_shift_can_change_own_times_without_false_overlap(self) -> None:
 		"""Updating a shift (e.g. duration) should not falsely overlap with itself."""
 		name = self._expected_name(self._test_department, "2026-02-25", "1")
@@ -1988,13 +2002,13 @@ class TestShiftSummary(FrappeTestCase):
 				"company": self.ctx["company"],
 				"posting_date": "2026-09-01",
 				"posting_time": "09:00:00",
-				"custom_shift": shift_name,
+				"custom_pea_shift": shift_name,
 				"fg_completed_qty": total_qty,
-				"custom_rejection_qty": rejection_qty,
-				"custom_actual_duration_mins": duration_mins,
-				"custom_production_time_mins": production_minutes,
-				"custom_standard_spm": standard_spm,
-				"custom_workstation": workstation,
+				"custom_pea_rejection_qty": rejection_qty,
+				"custom_pea_actual_duration_mins": duration_mins,
+				"custom_pea_production_time_mins": production_minutes,
+				"custom_pea_standard_spm": standard_spm,
+				"custom_pea_workstation": workstation,
 				"bom_no": bom_no,
 				"docstatus": docstatus,
 			}
@@ -2022,7 +2036,7 @@ class TestShiftSummary(FrappeTestCase):
 					"doctype": "Loss Entry",
 					"parenttype": "Stock Entry",
 					"parent": entry.name,
-					"parentfield": "custom_unplanned_losses",
+					"parentfield": "custom_pea_unplanned_losses",
 					"idx": index,
 					"downtime_reason": row.get("downtime_reason"),
 					"start_time": row.get("start_time"),
@@ -2072,7 +2086,7 @@ class TestShiftSummary(FrappeTestCase):
 					"operator": self._ensure_employee(),
 					"from_time": from_time,
 					"to_time": to_time,
-					"shift": shift_name,
+					"custom_pea_shift": shift_name,
 					"stop_reason": stop_reason,
 				}
 			)
@@ -2096,6 +2110,20 @@ class TestShiftSummary(FrappeTestCase):
 		self.assertEqual(float(summary["logged_downtime"]["total_mins"]), 0.0)
 		self.assertFalse(summary["logged_downtime"]["recorded"])
 		self.assertTrue(summary["completeness"]["show_banner"])
+
+	def test_returns_zeroed_summary_when_shift_name_missing(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
+
+		summary = get_shift_summary()
+		self.assertEqual(summary["snapshot"]["entry_count"], 0)
+		self.assertEqual(float(summary["snapshot"]["total_qty"]), 0.0)
+
+	def test_returns_zeroed_summary_for_unsaved_shift_name(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
+
+		summary = get_shift_summary("new-shift-njtiroovuu")
+		self.assertEqual(summary["snapshot"]["entry_count"], 0)
+		self.assertEqual(float(summary["snapshot"]["total_qty"]), 0.0)
 
 	def test_shift_summary_includes_float_precision_and_numeric_snapshot_metrics(self) -> None:
 		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
@@ -2453,12 +2481,12 @@ class TestShiftAggregateProductionEntries(FrappeTestCase):
 				"company": self.ctx["company"],
 				"posting_date": "2026-10-01",
 				"posting_time": "09:00:00",
-				"custom_shift": shift_name,
+				"custom_pea_shift": shift_name,
 				"bom_no": bom_no,
 				"fg_completed_qty": good_qty,
-				"custom_rejection_qty": rejection_qty,
-				"custom_actual_duration_mins": duration_mins,
-				"custom_production_time_mins": production_minutes,
+				"custom_pea_rejection_qty": rejection_qty,
+				"custom_pea_actual_duration_mins": duration_mins,
+				"custom_pea_production_time_mins": production_minutes,
 				"docstatus": 1,
 			}
 		)
@@ -2473,6 +2501,20 @@ class TestShiftAggregateProductionEntries(FrappeTestCase):
 		shift = self._create_shift("2026-10-01")
 		rows = get_shift_aggregate_production_entries(shift.name)
 		self.assertEqual(rows, [])
+
+	def test_returns_empty_when_shift_name_missing(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import (
+			get_shift_aggregate_production_entries,
+		)
+
+		self.assertEqual(get_shift_aggregate_production_entries(), [])
+
+	def test_returns_empty_when_shift_name_is_unsaved(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import (
+			get_shift_aggregate_production_entries,
+		)
+
+		self.assertEqual(get_shift_aggregate_production_entries("new-shift-njtiroovuu"), [])
 
 	def test_requires_shift_read_permission(self) -> None:
 		from production_entry_app.production_entry_app.doctype.shift.shift import (

@@ -42,7 +42,7 @@ def _get_columns() -> list[dict]:
 def _build_filters(filters: dict) -> dict:
 	return build_stock_entry_filters(
 		filters,
-		filter_keys=("custom_workstation", "custom_shift", "custom_operator", "bom_no"),
+		filter_keys=("custom_pea_workstation", "custom_pea_shift", "custom_pea_operator", "bom_no"),
 	)
 
 
@@ -53,12 +53,14 @@ def _get_rows(filters: dict) -> list[dict]:
 	shift_sets: dict[str, set[str]] = {}
 	total_rejection_qty = 0.0
 
-	for entry_rows in iter_stock_entries_in_chunks(_build_filters(filters), ["name", "custom_shift"]):
+	for entry_rows in iter_stock_entries_in_chunks(_build_filters(filters), ["name", "custom_pea_shift"]):
 		has_entries = True
 		entry_names = [row.get("name") for row in entry_rows if row.get("name")]
 		if not entry_names:
 			continue
-		shift_by_entry = {row.get("name"): row.get("custom_shift") for row in entry_rows if row.get("name")}
+		shift_by_entry = {
+			row.get("name"): row.get("custom_pea_shift") for row in entry_rows if row.get("name")
+		}
 		breakup_rows = get_parent_breakup_reason_rows(entry_names, is_rework=False)
 		for row in breakup_rows:
 			reason = row.get("rejection_reason")

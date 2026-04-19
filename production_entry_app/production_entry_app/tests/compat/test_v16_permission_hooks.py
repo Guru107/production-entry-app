@@ -173,4 +173,4 @@ def _make_stock_entry_with_rejection_breakup() -> (
 			},
 		],
 	)
-	return stock_entry, stock_entry.custom_rejection_breakup[0]
+	return stock_entry, stock_entry.custom_pea_rejection_breakup[0]

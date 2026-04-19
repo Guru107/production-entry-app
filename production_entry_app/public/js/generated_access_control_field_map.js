@@ -5,57 +5,57 @@
 	// prettier-ignore
 	const GENERATED_ACCESS_CONTROL_FIELD_MAP = {
   "Stock Entry": [
-    "custom_stock_entry_purpose",
-    "custom_shift",
+    "custom_pea_stock_entry_purpose",
+    "custom_pea_shift",
     "branch",
-    "custom_operation_details_section",
-    "custom_planned_start_date",
-    "custom_planned_end_date",
-    "custom_operation_details_col_break",
-    "custom_actual_start_date_input",
-    "custom_actual_start_time_input",
-    "custom_actual_start_date",
-    "custom_actual_end_date_input",
-    "custom_actual_end_time_input",
-    "custom_actual_end_date",
-    "custom_workstation_operator_section",
-    "custom_workstation",
-    "custom_standard_spm",
-    "custom_workstation_operator_col_break",
-    "custom_operator",
-    "custom_unplanned_losses_section",
-    "custom_unplanned_losses",
-    "custom_rejection_qty",
-    "custom_ok_qty",
-    "custom_rework_qty",
-    "custom_fetch_items",
-    "custom_rejection_breakup",
-    "custom_metrics_section",
-    "custom_actual_duration_mins",
-    "custom_production_time_mins",
-    "custom_actual_spm",
-    "custom_cycle_time_sec",
-    "custom_metrics_col_break",
-    "custom_operator_efficiency_pct",
-    "custom_metrics_note",
-    "custom_die_tool_utilization_pct",
-    "custom_die_tool_maintenance_due"
+    "custom_pea_operation_details_section",
+    "custom_pea_planned_start_date",
+    "custom_pea_planned_end_date",
+    "custom_pea_operation_details_col_break",
+    "custom_pea_actual_start_date_input",
+    "custom_pea_actual_start_time_input",
+    "custom_pea_actual_start_date",
+    "custom_pea_actual_end_date_input",
+    "custom_pea_actual_end_time_input",
+    "custom_pea_actual_end_date",
+    "custom_pea_workstation_operator_section",
+    "custom_pea_workstation",
+    "custom_pea_standard_spm",
+    "custom_pea_workstation_operator_col_break",
+    "custom_pea_operator",
+    "custom_pea_unplanned_losses_section",
+    "custom_pea_unplanned_losses",
+    "custom_pea_rejection_qty",
+    "custom_pea_ok_qty",
+    "custom_pea_rework_qty",
+    "custom_pea_fetch_items",
+    "custom_pea_rejection_breakup",
+    "custom_pea_metrics_section",
+    "custom_pea_actual_duration_mins",
+    "custom_pea_production_time_mins",
+    "custom_pea_actual_spm",
+    "custom_pea_cycle_time_sec",
+    "custom_pea_metrics_col_break",
+    "custom_pea_operator_efficiency_pct",
+    "custom_pea_metrics_note",
+    "custom_pea_die_tool_utilization_pct",
+    "custom_pea_die_tool_maintenance_due"
   ],
   "Stock Entry Detail": [
-    "custom_is_rejection_item"
+    "custom_pea_is_rejection_item"
   ],
   "Item": [
-    "custom_has_die_tool",
-    "custom_strokes_per_unit",
-    "custom_stroke_capacity"
+    "custom_pea_has_die_tool",
+    "custom_pea_strokes_per_unit",
+    "custom_pea_stroke_capacity"
   ],
   "Workstation": [
-    "custom_standard_spm",
-    "custom_shift_timeline_section",
-    "custom_shift_timeline_html"
+    "custom_pea_standard_spm",
+    "custom_pea_shift_timeline_section",
+    "custom_pea_shift_timeline_html"
   ],
   "Downtime Entry": [
-    "shift"
+    "custom_pea_shift"
   ]
 };
 	const api = GENERATED_ACCESS_CONTROL_FIELD_MAP;

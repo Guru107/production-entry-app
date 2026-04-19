@@ -8,43 +8,43 @@ const MANUFACTURE_FIELDS = [
 	"bom_no",
 	"use_multi_level_bom",
 	"fg_completed_qty",
-	"custom_rejection_qty",
-	"custom_fetch_items",
-	"custom_shift",
-	"custom_planned_start_date",
-	"custom_planned_end_date",
-	"custom_actual_start_date_input",
-	"custom_actual_start_time_input",
-	"custom_actual_start_date",
-	"custom_actual_end_date_input",
-	"custom_actual_end_time_input",
-	"custom_actual_end_date",
-	"custom_workstation",
-	"custom_standard_spm",
-	"custom_operator",
-	"custom_unplanned_losses",
-	"custom_actual_duration_mins",
-	"custom_production_time_mins",
-	"custom_actual_spm",
-	"custom_cycle_time_sec",
-	"custom_operator_efficiency_pct",
-	"custom_die_tool_utilization_pct",
-	"custom_die_tool_maintenance_due",
+	"custom_pea_rejection_qty",
+	"custom_pea_fetch_items",
+	"custom_pea_shift",
+	"custom_pea_planned_start_date",
+	"custom_pea_planned_end_date",
+	"custom_pea_actual_start_date_input",
+	"custom_pea_actual_start_time_input",
+	"custom_pea_actual_start_date",
+	"custom_pea_actual_end_date_input",
+	"custom_pea_actual_end_time_input",
+	"custom_pea_actual_end_date",
+	"custom_pea_workstation",
+	"custom_pea_standard_spm",
+	"custom_pea_operator",
+	"custom_pea_unplanned_losses",
+	"custom_pea_actual_duration_mins",
+	"custom_pea_production_time_mins",
+	"custom_pea_actual_spm",
+	"custom_pea_cycle_time_sec",
+	"custom_pea_operator_efficiency_pct",
+	"custom_pea_die_tool_utilization_pct",
+	"custom_pea_die_tool_maintenance_due",
 ];
 
 const MANUFACTURE_SECTIONS = [
 	"bom_info_section",
-	"custom_operation_details_section",
-	"custom_workstation_operator_section",
-	"custom_unplanned_losses_section",
-	"custom_metrics_section",
+	"custom_pea_operation_details_section",
+	"custom_pea_workstation_operator_section",
+	"custom_pea_unplanned_losses_section",
+	"custom_pea_metrics_section",
 ];
 
 const ALWAYS_HIDDEN_FIELDS = ["process_loss_percentage", "process_loss_qty"];
 const ALWAYS_HIDDEN_SECTIONS = ["section_break_7qsm"];
 const MANUFACTURE_CLEAR_TABLE_FIELDS = [
-	"custom_unplanned_losses",
-	"custom_rejection_breakup",
+	"custom_pea_unplanned_losses",
+	"custom_pea_rejection_breakup",
 	"items",
 ];
 let _dieToolRequestId = 0;
@@ -169,7 +169,7 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 			_apply_custom_field_visibility(frm);
 			_run_when_app_enabled(() => {
 				// Set filter to only show Running shifts
-				frm.set_query("custom_shift", function () {
+				frm.set_query("custom_pea_shift", function () {
 					return {
 						filters: [["Shift", "status", "=", "Running"]],
 					};
@@ -184,13 +184,13 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 		},
 		stock_entry_type(frm) {
 			_run_when_app_enabled(() => {
-				// custom_stock_entry_purpose is fetched via fetch_from and will re-trigger visibility.
+				// custom_pea_stock_entry_purpose is fetched via fetch_from and will re-trigger visibility.
 				_apply_manufacture_visibility(frm);
 				_sync_stock_entry_helper_fields(frm);
 				_setup_stock_entry_quick_entry(frm);
 			});
 		},
-		custom_stock_entry_purpose(frm) {
+		custom_pea_stock_entry_purpose(frm) {
 			_run_when_app_enabled(() => {
 				_clear_manufacture_data_on_leave(frm);
 				_apply_manufacture_visibility(frm);
@@ -212,31 +212,31 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 				_apply_manufacture_visibility(frm);
 			});
 		},
-		custom_actual_start_date_input(frm) {
+		custom_pea_actual_start_date_input(frm) {
 			_run_when_app_enabled(() => {
 				_combine_actual_datetime(frm, {
-					date_fieldname: "custom_actual_start_date_input",
-					time_fieldname: "custom_actual_start_time_input",
-					canonical_fieldname: "custom_actual_start_date",
+					date_fieldname: "custom_pea_actual_start_date_input",
+					time_fieldname: "custom_pea_actual_start_time_input",
+					canonical_fieldname: "custom_pea_actual_start_date",
 				});
 			});
 		},
-		custom_actual_end_date_input(frm) {
+		custom_pea_actual_end_date_input(frm) {
 			_run_when_app_enabled(() => {
 				_combine_actual_datetime(frm, {
-					date_fieldname: "custom_actual_end_date_input",
-					time_fieldname: "custom_actual_end_time_input",
-					canonical_fieldname: "custom_actual_end_date",
+					date_fieldname: "custom_pea_actual_end_date_input",
+					time_fieldname: "custom_pea_actual_end_time_input",
+					canonical_fieldname: "custom_pea_actual_end_date",
 				});
 			});
 		},
-		custom_rejection_qty(frm) {
+		custom_pea_rejection_qty(frm) {
 			_run_when_app_enabled(() => {
 				_toggle_rejection_breakup(frm);
 				_update_die_tool_metrics(frm);
 			});
 		},
-		custom_fetch_items(frm) {
+		custom_pea_fetch_items(frm) {
 			_run_when_app_enabled(() => {
 				if (!frm.doc.fg_completed_qty) {
 					frappe.msgprint(__("Please set Qty to Manufacture before fetching items."));
@@ -271,10 +271,10 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 				});
 			});
 		},
-		custom_shift(frm) {
+		custom_pea_shift(frm) {
 			_run_when_app_enabled(() => {
-				if (frm.doc.custom_shift) {
-					const selectedShift = frm.doc.custom_shift;
+				if (frm.doc.custom_pea_shift) {
+					const selectedShift = frm.doc.custom_pea_shift;
 					const reqId = ++_shiftDetailsRequestId;
 					frappe.call({
 						method: "production_entry_app.production_entry_app.api.get_shift_details_for_stock_entry",
@@ -282,7 +282,7 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 						callback(r) {
 							if (
 								reqId !== _shiftDetailsRequestId ||
-								frm.doc.custom_shift !== selectedShift
+								frm.doc.custom_pea_shift !== selectedShift
 							) {
 								return;
 							}
@@ -292,19 +292,19 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 								if (data.branch) {
 									updates.push(frm.set_value("branch", data.branch));
 								}
-								if (data.custom_planned_start_date) {
+								if (data.custom_pea_planned_start_date) {
 									updates.push(
 										frm.set_value(
-											"custom_planned_start_date",
-											data.custom_planned_start_date
+											"custom_pea_planned_start_date",
+											data.custom_pea_planned_start_date
 										)
 									);
 								}
-								if (data.custom_planned_end_date) {
+								if (data.custom_pea_planned_end_date) {
 									updates.push(
 										frm.set_value(
-											"custom_planned_end_date",
-											data.custom_planned_end_date
+											"custom_pea_planned_end_date",
+											data.custom_pea_planned_end_date
 										)
 									);
 								}
@@ -336,8 +336,8 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 					_shiftDetailsRequestId++;
 					Promise.all([
 						frm.set_value("branch", ""),
-						frm.set_value("custom_planned_start_date", ""),
-						frm.set_value("custom_planned_end_date", ""),
+						frm.set_value("custom_pea_planned_start_date", ""),
+						frm.set_value("custom_pea_planned_end_date", ""),
 						frm.set_value("from_warehouse", ""),
 						frm.set_value("to_warehouse", ""),
 					]).finally(() => {
@@ -371,7 +371,9 @@ function _apply_manufacture_visibility(frm) {
 }
 
 function _set_prev_purpose(frm) {
-	frm.__pea_prev_stock_entry_purpose = _normalize_purpose(frm.doc?.custom_stock_entry_purpose);
+	frm.__pea_prev_stock_entry_purpose = _normalize_purpose(
+		frm.doc?.custom_pea_stock_entry_purpose
+	);
 }
 
 function _did_leave_manufacture(previousPurpose, currentPurpose) {
@@ -383,7 +385,7 @@ function _did_leave_manufacture(previousPurpose, currentPurpose) {
 
 function _clear_manufacture_data_on_leave(frm) {
 	const previousPurpose = frm.__pea_prev_stock_entry_purpose;
-	const currentPurpose = frm.doc?.custom_stock_entry_purpose;
+	const currentPurpose = frm.doc?.custom_pea_stock_entry_purpose;
 	if (!_did_leave_manufacture(previousPurpose, currentPurpose)) {
 		return;
 	}
@@ -449,7 +451,7 @@ function _expand_sections(frm, sectionFieldnames) {
 }
 
 function _is_manufacture_doc(doc) {
-	return _normalize_purpose(doc?.custom_stock_entry_purpose) === "Manufacture";
+	return _normalize_purpose(doc?.custom_pea_stock_entry_purpose) === "Manufacture";
 }
 
 function _get_time_entry_api() {
@@ -462,21 +464,21 @@ function _sync_stock_entry_helper_fields(frm) {
 		return;
 	}
 	const plannedStartDate = timeEntry.format_datetime_display(
-		frm.doc?.custom_planned_start_date || ""
+		frm.doc?.custom_pea_planned_start_date || ""
 	).date;
 	_sync_actual_datetime_helper_fields(frm, {
-		date_fieldname: "custom_actual_start_date_input",
-		time_fieldname: "custom_actual_start_time_input",
-		canonical_fieldname: "custom_actual_start_date",
+		date_fieldname: "custom_pea_actual_start_date_input",
+		time_fieldname: "custom_pea_actual_start_time_input",
+		canonical_fieldname: "custom_pea_actual_start_date",
 		default_date: plannedStartDate,
 	});
 	_sync_actual_datetime_helper_fields(frm, {
-		date_fieldname: "custom_actual_end_date_input",
-		time_fieldname: "custom_actual_end_time_input",
-		canonical_fieldname: "custom_actual_end_date",
+		date_fieldname: "custom_pea_actual_end_date_input",
+		time_fieldname: "custom_pea_actual_end_time_input",
+		canonical_fieldname: "custom_pea_actual_end_date",
 		default_date: plannedStartDate,
 	});
-	timeEntry.sync_loss_entry_rows(frm, "custom_unplanned_losses");
+	timeEntry.sync_loss_entry_rows(frm, "custom_pea_unplanned_losses");
 }
 
 function _sync_actual_datetime_helper_fields(
@@ -515,33 +517,33 @@ function _setup_stock_entry_quick_entry(frm) {
 	const isManufacture = _is_manufacture_doc(frm.doc);
 	timeEntry.attach_datetime_split_chips(
 		frm,
-		"custom_actual_start_date_input",
-		"custom_actual_start_time_input",
-		"custom_actual_start_date",
+		"custom_pea_actual_start_date_input",
+		"custom_pea_actual_start_time_input",
+		"custom_pea_actual_start_date",
 		{ get_shift_ctx: () => _get_shift_ctx(frm), enabled: isManufacture }
 	);
 	timeEntry.attach_datetime_split_chips(
 		frm,
-		"custom_actual_end_date_input",
-		"custom_actual_end_time_input",
-		"custom_actual_end_date",
+		"custom_pea_actual_end_date_input",
+		"custom_pea_actual_end_time_input",
+		"custom_pea_actual_end_date",
 		{ get_shift_ctx: () => _get_shift_ctx(frm), enabled: isManufacture }
 	);
 	if (!isManufacture) {
 		return;
 	}
-	timeEntry.bind_committed_time_input(frm, "custom_actual_start_time_input", () =>
+	timeEntry.bind_committed_time_input(frm, "custom_pea_actual_start_time_input", () =>
 		_combine_actual_datetime(frm, {
-			date_fieldname: "custom_actual_start_date_input",
-			time_fieldname: "custom_actual_start_time_input",
-			canonical_fieldname: "custom_actual_start_date",
+			date_fieldname: "custom_pea_actual_start_date_input",
+			time_fieldname: "custom_pea_actual_start_time_input",
+			canonical_fieldname: "custom_pea_actual_start_date",
 		})
 	);
-	timeEntry.bind_committed_time_input(frm, "custom_actual_end_time_input", () =>
+	timeEntry.bind_committed_time_input(frm, "custom_pea_actual_end_time_input", () =>
 		_combine_actual_datetime(frm, {
-			date_fieldname: "custom_actual_end_date_input",
-			time_fieldname: "custom_actual_end_time_input",
-			canonical_fieldname: "custom_actual_end_date",
+			date_fieldname: "custom_pea_actual_end_date_input",
+			time_fieldname: "custom_pea_actual_end_time_input",
+			canonical_fieldname: "custom_pea_actual_end_date",
 		})
 	);
 }
@@ -572,8 +574,8 @@ function _combine_actual_datetime(frm, { date_fieldname, time_fieldname, canonic
 }
 
 function _get_shift_ctx(frm) {
-	const start = frm.doc?.custom_planned_start_date || "";
-	const end = frm.doc?.custom_planned_end_date || "";
+	const start = frm.doc?.custom_pea_planned_start_date || "";
+	const end = frm.doc?.custom_pea_planned_end_date || "";
 	return { start, end };
 }
 
@@ -583,14 +585,14 @@ function _normalize_purpose(purpose) {
 
 function _toggle_rejection_breakup(frm) {
 	if (!_is_manufacture_doc(frm.doc)) {
-		frm.toggle_display("custom_rejection_breakup", false);
-		frm.toggle_reqd("custom_rejection_breakup", false);
+		frm.toggle_display("custom_pea_rejection_breakup", false);
+		frm.toggle_reqd("custom_pea_rejection_breakup", false);
 		return;
 	}
-	const rejection_qty = typeof flt === "function" ? flt(frm.doc.custom_rejection_qty) : 0;
+	const rejection_qty = typeof flt === "function" ? flt(frm.doc.custom_pea_rejection_qty) : 0;
 	const has_rejection = rejection_qty > 0;
-	frm.toggle_display("custom_rejection_breakup", has_rejection);
-	frm.toggle_reqd("custom_rejection_breakup", has_rejection);
+	frm.toggle_display("custom_pea_rejection_breakup", has_rejection);
+	frm.toggle_reqd("custom_pea_rejection_breakup", has_rejection);
 }
 
 function _update_die_tool_metrics(frm) {
@@ -640,13 +642,16 @@ function _update_die_tool_metrics(frm) {
 }
 
 function _set_die_tool_metric_fields(frm, utilization, due) {
-	if (frm.fields_dict.custom_die_tool_utilization_pct) {
-		frm.doc.custom_die_tool_utilization_pct = utilization;
+	if (frm.fields_dict.custom_pea_die_tool_utilization_pct) {
+		frm.doc.custom_pea_die_tool_utilization_pct = utilization;
 	}
-	if (frm.fields_dict.custom_die_tool_maintenance_due) {
-		frm.doc.custom_die_tool_maintenance_due = due;
+	if (frm.fields_dict.custom_pea_die_tool_maintenance_due) {
+		frm.doc.custom_pea_die_tool_maintenance_due = due;
 	}
-	frm.refresh_fields(["custom_die_tool_utilization_pct", "custom_die_tool_maintenance_due"]);
+	frm.refresh_fields([
+		"custom_pea_die_tool_utilization_pct",
+		"custom_pea_die_tool_maintenance_due",
+	]);
 }
 
 function _formatFloatFragment(value) {

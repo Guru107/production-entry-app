@@ -49,8 +49,8 @@ class TestStockEntryAccessControl(FrappeTestCase):
 		doc = frappe._dict(
 			{
 				"doctype": "Stock Entry",
-				"custom_shift": "SHIFT-ACCESS-CONTROL",
-				"custom_rejection_qty": 5,
+				"custom_pea_shift": "SHIFT-ACCESS-CONTROL",
+				"custom_pea_rejection_qty": 5,
 			}
 		)
 
@@ -93,7 +93,7 @@ class TestStockEntryAccessControl(FrappeTestCase):
 	def test_denied_submit_cancel_still_triggers_app_side_effects(self) -> None:
 		from production_entry_app.production_entry_app.overrides import stock_entry_hooks as hooks
 
-		doc = frappe._dict({"doctype": "Stock Entry", "custom_shift": "SHIFT-ACCESS-CONTROL"})
+		doc = frappe._dict({"doctype": "Stock Entry", "custom_pea_shift": "SHIFT-ACCESS-CONTROL"})
 
 		with (
 			patch.object(
@@ -140,7 +140,7 @@ class TestStockEntryAccessControl(FrappeTestCase):
 				"item_code": self.fg_item,
 				"qty": 5,
 				"is_finished_item": 1,
-				"custom_is_rejection_item": 1,
+				"custom_pea_is_rejection_item": 1,
 				"t_warehouse": self.rejection_warehouse,
 			},
 		)
@@ -148,6 +148,6 @@ class TestStockEntryAccessControl(FrappeTestCase):
 		self.assertIsInstance(se, ProductionEntryAppStockEntry)
 		finished_row = se.get_finished_item_row()
 		self.assertIsNotNone(finished_row)
-		self.assertFalse(finished_row.custom_is_rejection_item)
+		self.assertFalse(finished_row.custom_pea_is_rejection_item)
 		self.assertEqual(finished_row.item_code, self.fg_item)
 		self.assertEqual(finished_row.t_warehouse, self.fg_warehouse)

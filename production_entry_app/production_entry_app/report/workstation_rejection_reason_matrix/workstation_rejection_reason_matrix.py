@@ -34,7 +34,7 @@ def _normalize_top_n(value) -> int:
 def _build_filters(filters: dict) -> dict:
 	return build_stock_entry_filters(
 		filters,
-		filter_keys=("custom_workstation", "custom_shift", "custom_operator", "bom_no"),
+		filter_keys=("custom_pea_workstation", "custom_pea_shift", "custom_pea_operator", "bom_no"),
 	)
 
 
@@ -78,13 +78,15 @@ def _get_rows(filters: dict, top_n: int) -> tuple[list[dict], list[str]]:
 	matrix: dict[str, dict[str, float]] = {}
 	entry_sets: dict[str, set[str]] = {}
 	has_entries = False
-	for entry_rows in iter_stock_entries_in_chunks(_build_filters(filters), ["name", "custom_workstation"]):
+	for entry_rows in iter_stock_entries_in_chunks(
+		_build_filters(filters), ["name", "custom_pea_workstation"]
+	):
 		has_entries = True
 		entry_names = [row.get("name") for row in entry_rows if row.get("name")]
 		if not entry_names:
 			continue
 		workstation_by_entry = {
-			row.get("name"): (row.get("custom_workstation") or "Unassigned")
+			row.get("name"): (row.get("custom_pea_workstation") or "Unassigned")
 			for row in entry_rows
 			if row.get("name")
 		}

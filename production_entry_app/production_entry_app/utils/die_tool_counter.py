@@ -20,7 +20,7 @@ def update_counter_for_stock_entry(doc, direction: int = 1) -> None:
 	if not is_die_tool_enabled(item_code):
 		return
 
-	strokes_per_unit = float(frappe.db.get_value("Item", item_code, "custom_strokes_per_unit") or 0)
+	strokes_per_unit = float(frappe.db.get_value("Item", item_code, "custom_pea_strokes_per_unit") or 0)
 	if strokes_per_unit <= 0:
 		return
 
@@ -47,7 +47,7 @@ def update_counter_for_stock_entry(doc, direction: int = 1) -> None:
 		"Die Tool Counter",
 		counter_name,
 		"stroke_capacity",
-		float(frappe.db.get_value("Item", item_code, "custom_stroke_capacity") or 0),
+		float(frappe.db.get_value("Item", item_code, "custom_pea_stroke_capacity") or 0),
 		update_modified=False,
 	)
 
@@ -128,10 +128,10 @@ def is_die_tool_enabled(item_code: str | None) -> bool:
 		return False
 
 	item_meta = frappe.get_meta("Item", cached=True)
-	if not item_meta.has_field("custom_has_die_tool"):
+	if not item_meta.has_field("custom_pea_has_die_tool"):
 		return True
 
-	has_die_tool = frappe.db.get_value("Item", item_code, "custom_has_die_tool")
+	has_die_tool = frappe.db.get_value("Item", item_code, "custom_pea_has_die_tool")
 	if has_die_tool is None:
 		return True
 	return cint(has_die_tool) == 1
@@ -147,7 +147,7 @@ def _get_fg_item_code(doc) -> str | None:
 
 
 def _get_total_units(doc) -> float:
-	rejection_qty = float(doc.get("custom_rejection_qty") or 0)
+	rejection_qty = float(doc.get("custom_pea_rejection_qty") or 0)
 	if doc.get("fg_completed_qty"):
 		return float(doc.get("fg_completed_qty") or 0) + rejection_qty
 	fg_row = _get_fg_row(doc)

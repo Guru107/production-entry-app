@@ -118,11 +118,11 @@ test.describe("Access control role-only flow", () => {
 		await setFieldValue(page, "bom_no", ctx.bom);
 		await setFieldValue(page, "fg_completed_qty", 100);
 
-		expect(await stockEntryPage.isFieldVisible("custom_shift")).toBe(false);
-		expect(await stockEntryPage.isFieldVisible("custom_workstation")).toBe(false);
-		expect(await stockEntryPage.isFieldVisible("custom_operator")).toBe(false);
-		expect(await stockEntryPage.isFieldVisible("custom_fetch_items")).toBe(false);
-		expect(await stockEntryPage.isFieldVisible("custom_rejection_breakup")).toBe(false);
+		expect(await stockEntryPage.isFieldVisible("custom_pea_shift")).toBe(false);
+		expect(await stockEntryPage.isFieldVisible("custom_pea_workstation")).toBe(false);
+		expect(await stockEntryPage.isFieldVisible("custom_pea_operator")).toBe(false);
+		expect(await stockEntryPage.isFieldVisible("custom_pea_fetch_items")).toBe(false);
+		expect(await stockEntryPage.isFieldVisible("custom_pea_rejection_breakup")).toBe(false);
 
 		await expect(
 			stockEntryPage.page.getByRole("button", { name: "Get Items", exact: true })
@@ -193,16 +193,16 @@ test.describe("Access control role-only flow", () => {
 		});
 
 		await expect
-			.poll(async () => await stockEntryPage.isFieldVisible("custom_shift"))
+			.poll(async () => await stockEntryPage.isFieldVisible("custom_pea_shift"))
 			.toBe(true);
 		await expect
-			.poll(async () => await stockEntryPage.isFieldVisible("custom_workstation"))
+			.poll(async () => await stockEntryPage.isFieldVisible("custom_pea_workstation"))
 			.toBe(true);
 		await expect
-			.poll(async () => await stockEntryPage.isFieldVisible("custom_operator"))
+			.poll(async () => await stockEntryPage.isFieldVisible("custom_pea_operator"))
 			.toBe(true);
 		await expect
-			.poll(async () => await stockEntryPage.isFieldVisible("custom_fetch_items"))
+			.poll(async () => await stockEntryPage.isFieldVisible("custom_pea_fetch_items"))
 			.toBe(true);
 		await expect(
 			stockEntryPage.page.getByRole("button", { name: "Get Items", exact: true })
@@ -239,7 +239,7 @@ test.describe("Access control role-only flow", () => {
 			rejectionQty: 0,
 		});
 		await expect
-			.poll(async () => await stockEntryPage.isFieldVisible("custom_shift"))
+			.poll(async () => await stockEntryPage.isFieldVisible("custom_pea_shift"))
 			.toBe(true);
 	});
 });

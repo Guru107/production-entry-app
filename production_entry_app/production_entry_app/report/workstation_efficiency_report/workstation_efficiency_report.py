@@ -60,16 +60,16 @@ def _get_rows(filters: dict, timeout_guard) -> list[dict]:
 	stock_entry_filters = _build_filters(filters)
 	entry_fields = [
 		"name",
-		"custom_workstation",
+		"custom_pea_workstation",
 		"fg_completed_qty",
-		"custom_rejection_qty",
-		"custom_rework_qty",
-		"custom_actual_spm",
-		"custom_actual_duration_mins",
-		"custom_production_time_mins",
-		"custom_actual_start_date",
-		"custom_actual_end_date",
-		"custom_standard_spm",
+		"custom_pea_rejection_qty",
+		"custom_pea_rework_qty",
+		"custom_pea_actual_spm",
+		"custom_pea_actual_duration_mins",
+		"custom_pea_production_time_mins",
+		"custom_pea_actual_start_date",
+		"custom_pea_actual_end_date",
+		"custom_pea_standard_spm",
 	]
 	aggregates = new_efficiency_aggregates()
 	for chunk in iter_stock_entries_in_chunks(stock_entry_filters, entry_fields):
@@ -99,7 +99,7 @@ def _get_rows(filters: dict, timeout_guard) -> list[dict]:
 				total_rejected_qty_map=total_rejected_qty_map,
 			)
 			good_qty = flt(max(total_strokes - rejection_qty, 0))
-			rework_qty = flt(entry.get("custom_rework_qty") or entry_metrics.get("rework_qty") or 0)
+			rework_qty = flt(entry.get("custom_pea_rework_qty") or entry_metrics.get("rework_qty") or 0)
 			production_time_mins = get_entry_production_minutes(
 				entry,
 				setup_mins=flt(loss_metrics.get("setup_mins") or 0),
@@ -111,7 +111,7 @@ def _get_rows(filters: dict, timeout_guard) -> list[dict]:
 			entry["_rework_qty"] = rework_qty
 			entry["_duration_mins"] = raw_duration_mins
 			entry["_production_time_mins"] = production_time_mins
-			accumulate_efficiency_aggregate(aggregates, entry, "custom_workstation")
+			accumulate_efficiency_aggregate(aggregates, entry, "custom_pea_workstation")
 
 	return build_efficiency_rows(
 		aggregates=aggregates,
@@ -123,5 +123,5 @@ def _get_rows(filters: dict, timeout_guard) -> list[dict]:
 def _build_filters(filters: dict) -> dict:
 	return build_stock_entry_filters(
 		filters,
-		filter_keys=("custom_workstation", "custom_shift", "custom_operator"),
+		filter_keys=("custom_pea_workstation", "custom_pea_shift", "custom_pea_operator"),
 	)

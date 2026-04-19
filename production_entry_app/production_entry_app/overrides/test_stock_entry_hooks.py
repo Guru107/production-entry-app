@@ -51,19 +51,19 @@ def _ensure_rejection_reasons() -> None:
 
 
 def _ensure_rejection_breakup_custom_field() -> None:
-	if frappe.db.exists("Custom Field", "Stock Entry-custom_rejection_breakup"):
+	if frappe.db.exists("Custom Field", "Stock Entry-custom_pea_rejection_breakup"):
 		return
 	frappe.get_doc(
 		{
 			"doctype": "Custom Field",
 			"dt": "Stock Entry",
-			"fieldname": "custom_rejection_breakup",
+			"fieldname": "custom_pea_rejection_breakup",
 			"fieldtype": "Table",
 			"label": "Rejection Breakup",
 			"options": "Rejection Breakup",
-			"insert_after": "custom_fetch_items",
-			"depends_on": "eval:doc.custom_rejection_qty > 0",
-			"mandatory_depends_on": "eval:doc.custom_rejection_qty > 0",
+			"insert_after": "custom_pea_fetch_items",
+			"depends_on": "eval:doc.custom_pea_rejection_qty > 0",
+			"mandatory_depends_on": "eval:doc.custom_pea_rejection_qty > 0",
 			"module": "Production Entry App",
 		}
 	).insert(ignore_permissions=True)
@@ -88,12 +88,12 @@ def _ensure_loss_entry_shift_field() -> None:
 
 def _ensure_item_die_tool_fields() -> None:
 	created = False
-	if not frappe.db.exists("Custom Field", "Item-custom_strokes_per_unit"):
+	if not frappe.db.exists("Custom Field", "Item-custom_pea_strokes_per_unit"):
 		frappe.get_doc(
 			{
 				"doctype": "Custom Field",
 				"dt": "Item",
-				"fieldname": "custom_strokes_per_unit",
+				"fieldname": "custom_pea_strokes_per_unit",
 				"fieldtype": "Float",
 				"label": "Strokes Per Unit",
 				"insert_after": "item_name",
@@ -102,30 +102,30 @@ def _ensure_item_die_tool_fields() -> None:
 		).insert(ignore_permissions=True)
 		created = True
 
-	if not frappe.db.exists("Custom Field", "Item-custom_stroke_capacity"):
+	if not frappe.db.exists("Custom Field", "Item-custom_pea_stroke_capacity"):
 		frappe.get_doc(
 			{
 				"doctype": "Custom Field",
 				"dt": "Item",
-				"fieldname": "custom_stroke_capacity",
+				"fieldname": "custom_pea_stroke_capacity",
 				"fieldtype": "Float",
 				"label": "Max Stroke Count",
-				"insert_after": "custom_strokes_per_unit",
+				"insert_after": "custom_pea_strokes_per_unit",
 				"module": "Production Entry App",
 			}
 		).insert(ignore_permissions=True)
 		created = True
 
-	if not frappe.db.exists("Custom Field", "Item-custom_has_die_tool"):
+	if not frappe.db.exists("Custom Field", "Item-custom_pea_has_die_tool"):
 		frappe.get_doc(
 			{
 				"doctype": "Custom Field",
 				"dt": "Item",
-				"fieldname": "custom_has_die_tool",
+				"fieldname": "custom_pea_has_die_tool",
 				"fieldtype": "Check",
 				"label": "Has Die Tool",
 				"default": "1",
-				"insert_after": "custom_stroke_capacity",
+				"insert_after": "custom_pea_stroke_capacity",
 				"module": "Production Entry App",
 			}
 		).insert(ignore_permissions=True)
@@ -139,77 +139,77 @@ def _ensure_item_die_tool_fields() -> None:
 def _ensure_stock_entry_metric_fields() -> None:
 	metric_fields = [
 		{
-			"name": "Stock Entry-custom_ok_qty",
-			"fieldname": "custom_ok_qty",
+			"name": "Stock Entry-custom_pea_ok_qty",
+			"fieldname": "custom_pea_ok_qty",
 			"fieldtype": "Float",
 			"label": "OK Qty",
 			"insert_after": "bom_no",
 		},
 		{
-			"name": "Stock Entry-custom_rework_qty",
-			"fieldname": "custom_rework_qty",
+			"name": "Stock Entry-custom_pea_rework_qty",
+			"fieldname": "custom_pea_rework_qty",
 			"fieldtype": "Float",
 			"label": "Rework Quantity",
-			"insert_after": "custom_ok_qty",
+			"insert_after": "custom_pea_ok_qty",
 		},
 		{
-			"name": "Stock Entry-custom_actual_duration_mins",
-			"fieldname": "custom_actual_duration_mins",
+			"name": "Stock Entry-custom_pea_actual_duration_mins",
+			"fieldname": "custom_pea_actual_duration_mins",
 			"fieldtype": "Float",
 			"label": "Actual Duration (Minutes)",
-			"insert_after": "custom_rejection_breakup",
+			"insert_after": "custom_pea_rejection_breakup",
 		},
 		{
-			"name": "Stock Entry-custom_production_time_mins",
-			"fieldname": "custom_production_time_mins",
+			"name": "Stock Entry-custom_pea_production_time_mins",
+			"fieldname": "custom_pea_production_time_mins",
 			"fieldtype": "Float",
 			"label": "Production Time (Minutes)",
-			"insert_after": "custom_actual_duration_mins",
+			"insert_after": "custom_pea_actual_duration_mins",
 		},
 		{
-			"name": "Stock Entry-custom_actual_spm",
-			"fieldname": "custom_actual_spm",
+			"name": "Stock Entry-custom_pea_actual_spm",
+			"fieldname": "custom_pea_actual_spm",
 			"fieldtype": "Float",
 			"label": "Actual SPM",
-			"insert_after": "custom_production_time_mins",
+			"insert_after": "custom_pea_production_time_mins",
 		},
 		{
-			"name": "Stock Entry-custom_cycle_time_sec",
-			"fieldname": "custom_cycle_time_sec",
+			"name": "Stock Entry-custom_pea_cycle_time_sec",
+			"fieldname": "custom_pea_cycle_time_sec",
 			"fieldtype": "Float",
 			"label": "Cycle Time (sec/unit)",
-			"insert_after": "custom_actual_spm",
+			"insert_after": "custom_pea_actual_spm",
 		},
 		{
-			"name": "Stock Entry-custom_operator_efficiency_pct",
-			"fieldname": "custom_operator_efficiency_pct",
+			"name": "Stock Entry-custom_pea_operator_efficiency_pct",
+			"fieldname": "custom_pea_operator_efficiency_pct",
 			"fieldtype": "Float",
 			"label": "Operator Efficiency (%)",
 			"read_only": 1,
-			"insert_after": "custom_cycle_time_sec",
+			"insert_after": "custom_pea_cycle_time_sec",
 		},
 		{
-			"name": "Stock Entry-custom_metrics_note",
-			"fieldname": "custom_metrics_note",
+			"name": "Stock Entry-custom_pea_metrics_note",
+			"fieldname": "custom_pea_metrics_note",
 			"fieldtype": "Small Text",
 			"label": "Metrics Note",
 			"read_only": 1,
-			"insert_after": "custom_operator_efficiency_pct",
+			"insert_after": "custom_pea_operator_efficiency_pct",
 		},
 		{
-			"name": "Stock Entry-custom_die_tool_utilization_pct",
-			"fieldname": "custom_die_tool_utilization_pct",
+			"name": "Stock Entry-custom_pea_die_tool_utilization_pct",
+			"fieldname": "custom_pea_die_tool_utilization_pct",
 			"fieldtype": "Float",
 			"label": "Die Tool Utilization (%)",
 			"read_only": 1,
-			"insert_after": "custom_metrics_note",
+			"insert_after": "custom_pea_metrics_note",
 		},
 		{
-			"name": "Stock Entry-custom_die_tool_maintenance_due",
-			"fieldname": "custom_die_tool_maintenance_due",
+			"name": "Stock Entry-custom_pea_die_tool_maintenance_due",
+			"fieldname": "custom_pea_die_tool_maintenance_due",
 			"fieldtype": "Check",
 			"label": "Die Tool Maintenance Due",
-			"insert_after": "custom_die_tool_utilization_pct",
+			"insert_after": "custom_pea_die_tool_utilization_pct",
 		},
 	]
 
@@ -235,7 +235,7 @@ def _ensure_stock_entry_metric_fields() -> None:
 
 def _append_rejection_breakup_rows(doc, rows: list[dict]) -> None:
 	for row in rows:
-		doc.append("custom_rejection_breakup", row)
+		doc.append("custom_pea_rejection_breakup", row)
 
 
 def _get_or_create_warehouse(name: str, company: str) -> str:
@@ -249,9 +249,9 @@ def _get_or_create_item(item_code: str) -> str:
 def _set_item_die_tool_fields(
 	item_code: str, strokes_per_unit: float, stroke_capacity: float, has_die_tool: int = 1
 ) -> None:
-	frappe.db.set_value("Item", item_code, "custom_strokes_per_unit", strokes_per_unit)
-	frappe.db.set_value("Item", item_code, "custom_stroke_capacity", stroke_capacity)
-	frappe.db.set_value("Item", item_code, "custom_has_die_tool", has_die_tool)
+	frappe.db.set_value("Item", item_code, "custom_pea_strokes_per_unit", strokes_per_unit)
+	frappe.db.set_value("Item", item_code, "custom_pea_stroke_capacity", stroke_capacity)
+	frappe.db.set_value("Item", item_code, "custom_pea_has_die_tool", has_die_tool)
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit - ensure custom fields are persisted
 
 
@@ -290,7 +290,7 @@ def _create_test_shift(
 		doc_data["rejection_warehouse"] = rejection_warehouse
 
 	shift = frappe.get_doc(doc_data).insert()
-	# Start the shift to set status to "Running" so it appears in custom_shift filter
+	# Start the shift to set status to "Running" so it appears in custom_pea_shift filter
 	shift.start_shift()
 	return shift
 
@@ -329,8 +329,8 @@ def _create_bom_stock_entry(
 	company: str,
 	bom_no: str,
 	fg_completed_qty: float = 100,
-	custom_rejection_qty: float = 0,
-	custom_shift: str | None = None,
+	custom_pea_rejection_qty: float = 0,
+	custom_pea_shift: str | None = None,
 	from_warehouse: str | None = None,
 	to_warehouse: str | None = None,
 ) -> frappe.Document:
@@ -344,13 +344,13 @@ def _create_bom_stock_entry(
 			"from_bom": 1,
 			"bom_no": bom_no,
 			"fg_completed_qty": fg_completed_qty,
-			"custom_rejection_qty": custom_rejection_qty,
+			"custom_pea_rejection_qty": custom_pea_rejection_qty,
 			"posting_date": frappe.utils.nowdate(),
 			"posting_time": frappe.utils.nowtime(),
 		}
 	)
-	if custom_shift:
-		se.custom_shift = custom_shift
+	if custom_pea_shift:
+		se.custom_pea_shift = custom_pea_shift
 	if from_warehouse:
 		se.from_warehouse = from_warehouse
 	if to_warehouse:
@@ -365,8 +365,8 @@ def _create_manufacture_stock_entry(
 	rm_item: str,
 	fg_qty: float = 100,
 	rm_qty: float = 100,
-	custom_shift: str | None = None,
-	custom_rejection_qty: float = 0,
+	custom_pea_shift: str | None = None,
+	custom_pea_rejection_qty: float = 0,
 	fg_warehouse: str | None = None,
 	rm_warehouse: str | None = None,
 ) -> frappe.Document:
@@ -381,10 +381,10 @@ def _create_manufacture_stock_entry(
 		}
 	)
 
-	if custom_shift:
-		se.custom_shift = custom_shift
-	if custom_rejection_qty:
-		se.custom_rejection_qty = custom_rejection_qty
+	if custom_pea_shift:
+		se.custom_pea_shift = custom_pea_shift
+	if custom_pea_rejection_qty:
+		se.custom_pea_rejection_qty = custom_pea_rejection_qty
 
 	# Raw material row
 	se.append(
@@ -527,7 +527,7 @@ class TestStockEntryHooks(FrappeTestCase):
 			company=self.company,
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
-			custom_shift=shift.name,
+			custom_pea_shift=shift.name,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
@@ -545,15 +545,15 @@ class TestStockEntryHooks(FrappeTestCase):
 			company=self.company,
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
-			custom_shift=shift.name,
+			custom_pea_shift=shift.name,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
 		se.save()
 
-		self.assertIn("2026-04-11", str(se.custom_planned_start_date))
-		self.assertIn("08:00:00", str(se.custom_planned_start_date))
-		self.assertIn("16:00:00", str(se.custom_planned_end_date))
+		self.assertIn("2026-04-11", str(se.custom_pea_planned_start_date))
+		self.assertIn("08:00:00", str(se.custom_pea_planned_start_date))
+		self.assertIn("16:00:00", str(se.custom_pea_planned_end_date))
 
 	def test_rejection_breakup_required_when_rejection_qty_positive(self) -> None:
 		shift = _create_test_shift(
@@ -567,8 +567,8 @@ class TestStockEntryHooks(FrappeTestCase):
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
 			fg_qty=100,
-			custom_shift=shift.name,
-			custom_rejection_qty=5,
+			custom_pea_shift=shift.name,
+			custom_pea_rejection_qty=5,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
@@ -588,8 +588,8 @@ class TestStockEntryHooks(FrappeTestCase):
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
 			fg_qty=100,
-			custom_shift=shift.name,
-			custom_rejection_qty=5,
+			custom_pea_shift=shift.name,
+			custom_pea_rejection_qty=5,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
@@ -616,8 +616,8 @@ class TestStockEntryHooks(FrappeTestCase):
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
 			fg_qty=100,
-			custom_shift=shift.name,
-			custom_rejection_qty=5,
+			custom_pea_shift=shift.name,
+			custom_pea_rejection_qty=5,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
@@ -644,8 +644,8 @@ class TestStockEntryHooks(FrappeTestCase):
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
 			fg_qty=100,
-			custom_shift=shift.name,
-			custom_rejection_qty=5,
+			custom_pea_shift=shift.name,
+			custom_pea_rejection_qty=5,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
@@ -666,8 +666,8 @@ class TestStockEntryHooks(FrappeTestCase):
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
 			fg_qty=100,
-			custom_shift=shift.name,
-			custom_rejection_qty=5,
+			custom_pea_shift=shift.name,
+			custom_pea_rejection_qty=5,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
@@ -681,7 +681,7 @@ class TestStockEntryHooks(FrappeTestCase):
 
 		se.save()
 
-		self.assertEqual(len(se.custom_rejection_breakup), 2)
+		self.assertEqual(len(se.custom_pea_rejection_breakup), 2)
 
 	def test_rework_qty_is_computed_from_rework_rows(self) -> None:
 		shift = _create_test_shift(
@@ -695,8 +695,8 @@ class TestStockEntryHooks(FrappeTestCase):
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
 			fg_qty=100,
-			custom_shift=shift.name,
-			custom_rejection_qty=5,
+			custom_pea_shift=shift.name,
+			custom_pea_rejection_qty=5,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
@@ -709,7 +709,7 @@ class TestStockEntryHooks(FrappeTestCase):
 		)
 
 		se.save()
-		self.assertEqual(float(se.custom_rework_qty or 0), 3.0)
+		self.assertEqual(float(se.custom_pea_rework_qty or 0), 3.0)
 
 	def test_rejection_breakup_allows_difference_within_precision_tolerance(self) -> None:
 		shift = _create_test_shift(
@@ -725,8 +725,8 @@ class TestStockEntryHooks(FrappeTestCase):
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
 			fg_qty=100,
-			custom_shift=shift.name,
-			custom_rejection_qty=5.00049,
+			custom_pea_shift=shift.name,
+			custom_pea_rejection_qty=5.00049,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
@@ -753,8 +753,8 @@ class TestStockEntryHooks(FrappeTestCase):
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
 			fg_qty=100,
-			custom_shift=shift.name,
-			custom_rejection_qty=5.00049,
+			custom_pea_shift=shift.name,
+			custom_pea_rejection_qty=5.00049,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
@@ -781,8 +781,8 @@ class TestStockEntryHooks(FrappeTestCase):
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
 			fg_qty=100,
-			custom_shift=shift.name,
-			custom_rejection_qty=4,
+			custom_pea_shift=shift.name,
+			custom_pea_rejection_qty=4,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
@@ -795,7 +795,7 @@ class TestStockEntryHooks(FrappeTestCase):
 		)
 
 		se.save()
-		self.assertEqual(float(se.custom_rework_qty or 0), 0.0)
+		self.assertEqual(float(se.custom_pea_rework_qty or 0), 0.0)
 
 	def test_rework_qty_resets_to_zero_when_rejection_qty_zero(self) -> None:
 		shift = _create_test_shift(
@@ -810,8 +810,8 @@ class TestStockEntryHooks(FrappeTestCase):
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
 			fg_qty=100,
-			custom_shift=shift.name,
-			custom_rejection_qty=4,
+			custom_pea_shift=shift.name,
+			custom_pea_rejection_qty=4,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
@@ -823,12 +823,12 @@ class TestStockEntryHooks(FrappeTestCase):
 			],
 		)
 		se.save()
-		self.assertEqual(float(se.custom_rework_qty or 0), 4.0)
+		self.assertEqual(float(se.custom_pea_rework_qty or 0), 4.0)
 
-		se.custom_rejection_qty = 0
-		se.custom_rejection_breakup = []
+		se.custom_pea_rejection_qty = 0
+		se.custom_pea_rejection_breakup = []
 		se.save()
-		self.assertEqual(float(se.custom_rework_qty or 0), 0.0)
+		self.assertEqual(float(se.custom_pea_rework_qty or 0), 0.0)
 
 	def test_actual_times_within_buffer_pass(self) -> None:
 		_set_shift_buffers()
@@ -841,16 +841,16 @@ class TestStockEntryHooks(FrappeTestCase):
 			company=self.company,
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
-			custom_shift=shift.name,
+			custom_pea_shift=shift.name,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
-		se.custom_actual_start_date = "2026-04-12 07:30:00"
-		se.custom_actual_end_date = "2026-04-12 16:30:00"
+		se.custom_pea_actual_start_date = "2026-04-12 07:30:00"
+		se.custom_pea_actual_end_date = "2026-04-12 16:30:00"
 		se.save()
 
-		self.assertEqual(str(se.custom_actual_start_date), "2026-04-12 07:30:00")
-		self.assertEqual(str(se.custom_actual_end_date), "2026-04-12 16:30:00")
+		self.assertEqual(str(se.custom_pea_actual_start_date), "2026-04-12 07:30:00")
+		self.assertEqual(str(se.custom_pea_actual_end_date), "2026-04-12 16:30:00")
 
 	def test_actual_start_before_allowed_range_throws(self) -> None:
 		_set_shift_buffers()
@@ -863,12 +863,12 @@ class TestStockEntryHooks(FrappeTestCase):
 			company=self.company,
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
-			custom_shift=shift.name,
+			custom_pea_shift=shift.name,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
-		se.custom_actual_start_date = "2026-04-13 06:59:00"
-		se.custom_actual_end_date = "2026-04-13 16:00:00"
+		se.custom_pea_actual_start_date = "2026-04-13 06:59:00"
+		se.custom_pea_actual_end_date = "2026-04-13 16:00:00"
 
 		with self.assertRaises(ValidationError):
 			se.save()
@@ -884,12 +884,12 @@ class TestStockEntryHooks(FrappeTestCase):
 			company=self.company,
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
-			custom_shift=shift.name,
+			custom_pea_shift=shift.name,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
-		se.custom_actual_start_date = "2026-04-14 08:00:00"
-		se.custom_actual_end_date = "2026-04-14 17:01:00"
+		se.custom_pea_actual_start_date = "2026-04-14 08:00:00"
+		se.custom_pea_actual_end_date = "2026-04-14 17:01:00"
 
 		with self.assertRaises(ValidationError):
 			se.save()
@@ -905,12 +905,12 @@ class TestStockEntryHooks(FrappeTestCase):
 			company=self.company,
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
-			custom_shift=shift.name,
+			custom_pea_shift=shift.name,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
-		se.custom_actual_start_date = "2026-04-15 09:00:00"
-		se.custom_actual_end_date = "2026-04-15 08:59:00"
+		se.custom_pea_actual_start_date = "2026-04-15 09:00:00"
+		se.custom_pea_actual_end_date = "2026-04-15 08:59:00"
 
 		with self.assertRaises(ValidationError):
 			se.save()
@@ -972,14 +972,14 @@ class TestStockEntryHooks(FrappeTestCase):
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
 			fg_qty=100,
-			custom_shift=shift.name,
-			custom_rejection_qty=10,
+			custom_pea_shift=shift.name,
+			custom_pea_rejection_qty=10,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
-		se.custom_standard_spm = 1
-		se.custom_actual_start_date = "2026-04-16 08:00:00"
-		se.custom_actual_end_date = "2026-04-16 09:40:00"
+		se.custom_pea_standard_spm = 1
+		se.custom_pea_actual_start_date = "2026-04-16 08:00:00"
+		se.custom_pea_actual_end_date = "2026-04-16 09:40:00"
 		_append_rejection_breakup_rows(
 			se,
 			[
@@ -991,30 +991,30 @@ class TestStockEntryHooks(FrappeTestCase):
 		se.save()
 
 		expected_ok_qty = max(
-			float(se.get("fg_completed_qty") or 0) - float(se.get("custom_rejection_qty") or 0),
+			float(se.get("fg_completed_qty") or 0) - float(se.get("custom_pea_rejection_qty") or 0),
 			0,
 		)
 		total_strokes = float(se.get("fg_completed_qty") or 0)
-		self.assertEqual(float(se.custom_ok_qty), expected_ok_qty)
-		self.assertEqual(float(se.custom_actual_duration_mins), 100.0)
+		self.assertEqual(float(se.custom_pea_ok_qty), expected_ok_qty)
+		self.assertEqual(float(se.custom_pea_actual_duration_mins), 100.0)
 		# Planned losses overlapping 08:00-09:40: Shift Start Up (10) + Tea Break (10) = 20 min.
 		# JH Activity (10:00-10:10) is outside the entry window.
-		self.assertEqual(float(se.custom_production_time_mins), 80.0)
+		self.assertEqual(float(se.custom_pea_production_time_mins), 80.0)
 		self.assertAlmostEqual(
-			float(se.custom_actual_spm),
+			float(se.custom_pea_actual_spm),
 			float(total_strokes / 80.0 if total_strokes > 0 else 0),
 			places=3,
 		)
 		self.assertAlmostEqual(
-			float(se.custom_cycle_time_sec),
+			float(se.custom_pea_cycle_time_sec),
 			float((4800.0 / total_strokes) if total_strokes > 0 else 0),
 			places=3,
 		)
 		self.assertAlmostEqual(
-			float(se.custom_operator_efficiency_pct), float((total_strokes / 80.0) * 100), places=2
+			float(se.custom_pea_operator_efficiency_pct), float((total_strokes / 80.0) * 100), places=2
 		)
-		self.assertNotIsInstance(se.get("custom_actual_spm"), str)
-		self.assertNotIsInstance(se.get("custom_operator_efficiency_pct"), str)
+		self.assertNotIsInstance(se.get("custom_pea_actual_spm"), str)
+		self.assertNotIsInstance(se.get("custom_pea_operator_efficiency_pct"), str)
 
 	def test_metrics_use_production_time_after_setup_and_loss(self) -> None:
 		shift = _create_test_shift(
@@ -1028,14 +1028,14 @@ class TestStockEntryHooks(FrappeTestCase):
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
 			fg_qty=120,
-			custom_shift=shift.name,
-			custom_rejection_qty=20,
+			custom_pea_shift=shift.name,
+			custom_pea_rejection_qty=20,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
-		se.custom_standard_spm = 2
-		se.custom_actual_start_date = "2026-04-16 08:00:00"
-		se.custom_actual_end_date = "2026-04-16 09:00:00"
+		se.custom_pea_standard_spm = 2
+		se.custom_pea_actual_start_date = "2026-04-16 08:00:00"
+		se.custom_pea_actual_end_date = "2026-04-16 09:00:00"
 		_append_rejection_breakup_rows(
 			se,
 			[
@@ -1044,7 +1044,7 @@ class TestStockEntryHooks(FrappeTestCase):
 			],
 		)
 		se.append(
-			"custom_unplanned_losses",
+			"custom_pea_unplanned_losses",
 			{
 				"downtime_reason": "Setup Time",
 				"start_time": "08:00:00",
@@ -1054,7 +1054,7 @@ class TestStockEntryHooks(FrappeTestCase):
 			},
 		)
 		se.append(
-			"custom_unplanned_losses",
+			"custom_pea_unplanned_losses",
 			{
 				"downtime_reason": "Maint",
 				"start_time": "08:20:00",
@@ -1068,17 +1068,19 @@ class TestStockEntryHooks(FrappeTestCase):
 
 		# Wall-clock duration remains 60 mins, but production time is 30 mins after losses.
 		total_strokes = float(se.get("fg_completed_qty") or 0)
-		ok_qty = max(total_strokes - float(se.get("custom_rejection_qty") or 0), 0)
+		ok_qty = max(total_strokes - float(se.get("custom_pea_rejection_qty") or 0), 0)
 		expected_spm = (total_strokes / 30.0) if total_strokes > 0 else 0.0
 		expected_cycle_time = (1800.0 / total_strokes) if total_strokes > 0 else 0.0
-		self.assertEqual(float(se.custom_actual_duration_mins), 60.0)
-		self.assertEqual(float(se.custom_production_time_mins), 30.0)
-		self.assertEqual(float(se.custom_ok_qty), ok_qty)
-		self.assertAlmostEqual(float(se.custom_actual_spm), expected_spm, places=3)
-		self.assertAlmostEqual(float(se.custom_cycle_time_sec), expected_cycle_time, places=3)
-		self.assertAlmostEqual(float(se.custom_operator_efficiency_pct), float(expected_spm * 50.0), places=2)
+		self.assertEqual(float(se.custom_pea_actual_duration_mins), 60.0)
+		self.assertEqual(float(se.custom_pea_production_time_mins), 30.0)
+		self.assertEqual(float(se.custom_pea_ok_qty), ok_qty)
+		self.assertAlmostEqual(float(se.custom_pea_actual_spm), expected_spm, places=3)
+		self.assertAlmostEqual(float(se.custom_pea_cycle_time_sec), expected_cycle_time, places=3)
+		self.assertAlmostEqual(
+			float(se.custom_pea_operator_efficiency_pct), float(expected_spm * 50.0), places=2
+		)
 		if total_strokes != ok_qty and ok_qty > 0:
-			self.assertNotAlmostEqual(float(se.custom_actual_spm), float(ok_qty / 30.0), places=3)
+			self.assertNotAlmostEqual(float(se.custom_pea_actual_spm), float(ok_qty / 30.0), places=3)
 
 	def test_metrics_deduct_shift_planned_break_overlap(self) -> None:
 		shift = _create_test_shift(
@@ -1092,18 +1094,18 @@ class TestStockEntryHooks(FrappeTestCase):
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
 			fg_qty=30,
-			custom_shift=shift.name,
+			custom_pea_shift=shift.name,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
-		se.custom_standard_spm = 1
-		se.custom_actual_start_date = "2026-04-16 08:50:00"
-		se.custom_actual_end_date = "2026-04-16 09:20:00"
+		se.custom_pea_standard_spm = 1
+		se.custom_pea_actual_start_date = "2026-04-16 08:50:00"
+		se.custom_pea_actual_end_date = "2026-04-16 09:20:00"
 		se.save()
 
-		self.assertEqual(float(se.custom_actual_duration_mins), 30.0)
+		self.assertEqual(float(se.custom_pea_actual_duration_mins), 30.0)
 		# Shift has Tea Break 09:00-09:10; overlap should be auto-deducted.
-		self.assertEqual(float(se.custom_production_time_mins), 20.0)
+		self.assertEqual(float(se.custom_pea_production_time_mins), 20.0)
 
 	def test_metrics_deduplicate_overlapping_planned_and_unplanned_breaks(self) -> None:
 		shift = _create_test_shift(
@@ -1117,15 +1119,15 @@ class TestStockEntryHooks(FrappeTestCase):
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
 			fg_qty=30,
-			custom_shift=shift.name,
+			custom_pea_shift=shift.name,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
-		se.custom_standard_spm = 1
-		se.custom_actual_start_date = "2026-04-16 08:50:00"
-		se.custom_actual_end_date = "2026-04-16 09:20:00"
+		se.custom_pea_standard_spm = 1
+		se.custom_pea_actual_start_date = "2026-04-16 08:50:00"
+		se.custom_pea_actual_end_date = "2026-04-16 09:20:00"
 		se.append(
-			"custom_unplanned_losses",
+			"custom_pea_unplanned_losses",
 			{
 				"downtime_reason": "Tea Break",
 				"start_time": "09:00:00",
@@ -1136,10 +1138,10 @@ class TestStockEntryHooks(FrappeTestCase):
 		)
 		se.save()
 
-		self.assertEqual(float(se.custom_actual_duration_mins), 30.0)
+		self.assertEqual(float(se.custom_pea_actual_duration_mins), 30.0)
 		# Planned + unplanned overlap the same interval; subtract once (10 mins), not twice.
-		self.assertEqual(float(se.custom_production_time_mins), 20.0)
-		self.assertFalse(se.get("custom_metrics_note"))
+		self.assertEqual(float(se.custom_pea_production_time_mins), 20.0)
+		self.assertFalse(se.get("custom_pea_metrics_note"))
 
 	def test_metrics_note_explains_when_deducted_losses_consume_full_window(self) -> None:
 		shift = _create_test_shift(
@@ -1153,15 +1155,15 @@ class TestStockEntryHooks(FrappeTestCase):
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
 			fg_qty=120,
-			custom_shift=shift.name,
+			custom_pea_shift=shift.name,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
-		se.custom_standard_spm = 2
-		se.custom_actual_start_date = "2026-04-16 08:00:00"
-		se.custom_actual_end_date = "2026-04-16 08:20:00"
+		se.custom_pea_standard_spm = 2
+		se.custom_pea_actual_start_date = "2026-04-16 08:00:00"
+		se.custom_pea_actual_end_date = "2026-04-16 08:20:00"
 		se.append(
-			"custom_unplanned_losses",
+			"custom_pea_unplanned_losses",
 			{
 				"downtime_reason": "Setup Time",
 				"start_time": "08:00:00",
@@ -1172,22 +1174,26 @@ class TestStockEntryHooks(FrappeTestCase):
 		)
 		se.save()
 
-		self.assertEqual(float(se.custom_actual_duration_mins), 20.0)
+		self.assertEqual(float(se.custom_pea_actual_duration_mins), 20.0)
 		# Planned: Shift Start Up 08:00-08:10. Unplanned: setup 08:00-08:10.
 		# Merged = 10 min deducted. JH Activity (10:00-10:10) outside window.
-		self.assertEqual(float(se.custom_production_time_mins), 10.0)
+		self.assertEqual(float(se.custom_pea_production_time_mins), 10.0)
 		total_strokes = float(se.get("fg_completed_qty") or 0)
 		self.assertAlmostEqual(
-			float(se.custom_actual_spm),
+			float(se.custom_pea_actual_spm),
 			float(total_strokes / 10.0 if total_strokes > 0 else 0),
 			places=3,
 		)
 		self.assertAlmostEqual(
-			float(se.custom_operator_efficiency_pct),
-			float((total_strokes / (10.0 * se.custom_standard_spm)) * 100 if se.custom_standard_spm else 0),
+			float(se.custom_pea_operator_efficiency_pct),
+			float(
+				(total_strokes / (10.0 * se.custom_pea_standard_spm)) * 100
+				if se.custom_pea_standard_spm
+				else 0
+			),
 			places=2,
 		)
-		self.assertFalse(se.get("custom_metrics_note"))
+		self.assertFalse(se.get("custom_pea_metrics_note"))
 
 	def test_metrics_remain_empty_when_actual_times_missing(self) -> None:
 		shift = _create_test_shift(
@@ -1200,19 +1206,19 @@ class TestStockEntryHooks(FrappeTestCase):
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
 			fg_qty=50,
-			custom_shift=shift.name,
+			custom_pea_shift=shift.name,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
-		se.custom_actual_start_date = "2026-04-17 08:00:00"
-		se.custom_actual_end_date = None
+		se.custom_pea_actual_start_date = "2026-04-17 08:00:00"
+		se.custom_pea_actual_end_date = None
 		se.save()
 
-		self.assertFalse(se.get("custom_actual_duration_mins"))
-		self.assertFalse(se.get("custom_production_time_mins"))
-		self.assertFalse(se.get("custom_actual_spm"))
-		self.assertFalse(se.get("custom_cycle_time_sec"))
-		self.assertFalse(se.get("custom_operator_efficiency_pct"))
+		self.assertFalse(se.get("custom_pea_actual_duration_mins"))
+		self.assertFalse(se.get("custom_pea_production_time_mins"))
+		self.assertFalse(se.get("custom_pea_actual_spm"))
+		self.assertFalse(se.get("custom_pea_cycle_time_sec"))
+		self.assertFalse(se.get("custom_pea_operator_efficiency_pct"))
 
 	def test_metrics_zero_duration_clears_metric_fields(self) -> None:
 		shift = _create_test_shift(
@@ -1225,19 +1231,19 @@ class TestStockEntryHooks(FrappeTestCase):
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
 			fg_qty=50,
-			custom_shift=shift.name,
+			custom_pea_shift=shift.name,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
-		se.custom_actual_start_date = "2026-04-18 08:00:00"
-		se.custom_actual_end_date = "2026-04-18 08:00:00"
+		se.custom_pea_actual_start_date = "2026-04-18 08:00:00"
+		se.custom_pea_actual_end_date = "2026-04-18 08:00:00"
 		se.save()
 
-		self.assertFalse(se.get("custom_actual_duration_mins"))
-		self.assertFalse(se.get("custom_production_time_mins"))
-		self.assertFalse(se.get("custom_actual_spm"))
-		self.assertFalse(se.get("custom_cycle_time_sec"))
-		self.assertFalse(se.get("custom_operator_efficiency_pct"))
+		self.assertFalse(se.get("custom_pea_actual_duration_mins"))
+		self.assertFalse(se.get("custom_pea_production_time_mins"))
+		self.assertFalse(se.get("custom_pea_actual_spm"))
+		self.assertFalse(se.get("custom_pea_cycle_time_sec"))
+		self.assertFalse(se.get("custom_pea_operator_efficiency_pct"))
 
 	def test_rejection_row_copies_project_from_fg_row(self) -> None:
 		shift = _create_test_shift(
@@ -1257,8 +1263,8 @@ class TestStockEntryHooks(FrappeTestCase):
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
 			fg_qty=100,
-			custom_shift=shift.name,
-			custom_rejection_qty=5,
+			custom_pea_shift=shift.name,
+			custom_pea_rejection_qty=5,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
@@ -1274,7 +1280,7 @@ class TestStockEntryHooks(FrappeTestCase):
 		)
 		se.save()
 
-		rejection_rows = [r for r in se.items if r.custom_is_rejection_item]
+		rejection_rows = [r for r in se.items if r.custom_pea_is_rejection_item]
 		self.assertEqual(len(rejection_rows), 1)
 		self.assertEqual(rejection_rows[0].project, project_doc_name)
 
@@ -1311,8 +1317,8 @@ class TestStockEntryHooks(FrappeTestCase):
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
 			fg_qty=100,
-			custom_shift=shift.name,
-			custom_rejection_qty=5,
+			custom_pea_shift=shift.name,
+			custom_pea_rejection_qty=5,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
@@ -1324,7 +1330,7 @@ class TestStockEntryHooks(FrappeTestCase):
 		)
 		se.save()
 
-		rejection_rows = [r for r in se.items if r.custom_is_rejection_item]
+		rejection_rows = [r for r in se.items if r.custom_pea_is_rejection_item]
 		self.assertEqual(len(rejection_rows), 1)
 		self.assertEqual(rejection_rows[0].t_warehouse, self.rejection_warehouse)
 
@@ -1344,8 +1350,8 @@ class TestStockEntryHooks(FrappeTestCase):
 				"purpose": "Manufacture",
 				"stock_entry_type": "Manufacture",
 				"company": self.company,
-				"custom_shift": shift.name,
-				"custom_rejection_qty": 5,
+				"custom_pea_shift": shift.name,
+				"custom_pea_rejection_qty": 5,
 			}
 		)
 		se.append(
@@ -1364,7 +1370,7 @@ class TestStockEntryHooks(FrappeTestCase):
 		)
 		_apply_rejection_entries(se)
 
-		rejection_rows = [r for r in se.items if r.get("custom_is_rejection_item")]
+		rejection_rows = [r for r in se.items if r.get("custom_pea_is_rejection_item")]
 		self.assertEqual(len(rejection_rows), 0)
 
 	def test_get_shift_details_for_stock_entry_api(self) -> None:
@@ -1379,8 +1385,8 @@ class TestStockEntryHooks(FrappeTestCase):
 			wip_warehouse=self.wip_warehouse,
 		)
 		result = get_shift_details_for_stock_entry(shift.name)
-		self.assertIn("2026-04-21 16:00:00", result.get("custom_planned_start_date") or "")
-		self.assertIn("2026-04-22 00:00:00", result.get("custom_planned_end_date") or "")
+		self.assertIn("2026-04-21 16:00:00", result.get("custom_pea_planned_start_date") or "")
+		self.assertIn("2026-04-22 00:00:00", result.get("custom_pea_planned_end_date") or "")
 		self.assertEqual(result.get("from_warehouse"), self.wip_warehouse)
 
 	def test_get_shift_details_for_stock_entry_api_blocks_non_running_shift(self) -> None:
@@ -1436,7 +1442,7 @@ class TestStockEntryHooks(FrappeTestCase):
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
-		se.custom_shift = draft_shift.name
+		se.custom_pea_shift = draft_shift.name
 
 		with self.assertRaisesRegex(ValidationError, "Only Running shifts can be linked"):
 			se.save()
@@ -1451,8 +1457,8 @@ class TestStockEntryHooks(FrappeTestCase):
 
 		_set_entry_metrics(se)
 
-		self.assertEqual(float(se.get("custom_die_tool_utilization_pct") or 0), 0.0)
-		self.assertEqual(int(se.get("custom_die_tool_maintenance_due") or 0), 0)
+		self.assertEqual(float(se.get("custom_pea_die_tool_utilization_pct") or 0), 0.0)
+		self.assertEqual(int(se.get("custom_pea_die_tool_maintenance_due") or 0), 0)
 
 	def test_entry_metrics_with_die_tool_disabled_sets_die_tool_fields_to_zero(self) -> None:
 		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import _set_entry_metrics
@@ -1467,8 +1473,8 @@ class TestStockEntryHooks(FrappeTestCase):
 
 		_set_entry_metrics(se)
 
-		self.assertEqual(float(se.get("custom_die_tool_utilization_pct") or 0), 0.0)
-		self.assertEqual(int(se.get("custom_die_tool_maintenance_due") or 0), 0)
+		self.assertEqual(float(se.get("custom_pea_die_tool_utilization_pct") or 0), 0.0)
+		self.assertEqual(int(se.get("custom_pea_die_tool_maintenance_due") or 0), 0)
 
 	def test_die_tool_warning_metrics_populated_from_counter(self) -> None:
 		_set_item_die_tool_fields(self.fg_item, strokes_per_unit=12, stroke_capacity=1000, has_die_tool=1)
@@ -1504,14 +1510,14 @@ class TestStockEntryHooks(FrappeTestCase):
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
 			fg_qty=50,
-			custom_shift=shift.name,
+			custom_pea_shift=shift.name,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
 		se.save()
 
-		self.assertEqual(float(se.get("custom_die_tool_utilization_pct") or 0), 90.0)
-		self.assertEqual(int(se.get("custom_die_tool_maintenance_due") or 0), 1)
+		self.assertEqual(float(se.get("custom_pea_die_tool_utilization_pct") or 0), 90.0)
+		self.assertEqual(int(se.get("custom_pea_die_tool_maintenance_due") or 0), 1)
 
 	def test_shift_reference_planned_dates_for_evening_shift_label_2(self) -> None:
 		shift = _create_test_shift(
@@ -1525,16 +1531,16 @@ class TestStockEntryHooks(FrappeTestCase):
 			company=self.company,
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
-			custom_shift=shift.name,
+			custom_pea_shift=shift.name,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
 		se.save()
 
-		self.assertIn("2026-04-20", str(se.custom_planned_start_date))
-		self.assertIn("16:00:00", str(se.custom_planned_start_date))
-		self.assertIn("2026-04-21", str(se.custom_planned_end_date))
-		self.assertIn("00:00:00", str(se.custom_planned_end_date))
+		self.assertIn("2026-04-20", str(se.custom_pea_planned_start_date))
+		self.assertIn("16:00:00", str(se.custom_pea_planned_start_date))
+		self.assertIn("2026-04-21", str(se.custom_pea_planned_end_date))
+		self.assertIn("00:00:00", str(se.custom_pea_planned_end_date))
 
 	def test_shift_reference_planned_end_rolls_over_when_shift_end_date_missing(self) -> None:
 		shift = _create_test_shift(
@@ -1548,14 +1554,14 @@ class TestStockEntryHooks(FrappeTestCase):
 			company=self.company,
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
-			custom_shift=shift.name,
+			custom_pea_shift=shift.name,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
 		se.save()
 
-		self.assertIn("2026-04-16", str(se.custom_planned_end_date))
-		self.assertIn("04:00:00", str(se.custom_planned_end_date))
+		self.assertIn("2026-04-16", str(se.custom_pea_planned_end_date))
+		self.assertIn("04:00:00", str(se.custom_pea_planned_end_date))
 
 	def test_shift_reference_auto_fills_warehouses(self) -> None:
 		shift = _create_test_shift(
@@ -1567,7 +1573,7 @@ class TestStockEntryHooks(FrappeTestCase):
 			company=self.company,
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
-			custom_shift=shift.name,
+			custom_pea_shift=shift.name,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
@@ -1588,7 +1594,7 @@ class TestStockEntryHooks(FrappeTestCase):
 			company=self.company,
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
-			custom_shift=shift.name,
+			custom_pea_shift=shift.name,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
@@ -1611,8 +1617,8 @@ class TestStockEntryHooks(FrappeTestCase):
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
 			fg_qty=100,
-			custom_shift=shift.name,
-			custom_rejection_qty=5,
+			custom_pea_shift=shift.name,
+			custom_pea_rejection_qty=5,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
@@ -1626,7 +1632,7 @@ class TestStockEntryHooks(FrappeTestCase):
 		se.save()
 
 		# Find the true FG row (exclude rejection row flagged as finished item)
-		fg_rows = [r for r in se.items if r.is_finished_item and not r.custom_is_rejection_item]
+		fg_rows = [r for r in se.items if r.is_finished_item and not r.custom_pea_is_rejection_item]
 		self.assertEqual(len(fg_rows), 1)
 		self.assertEqual(fg_rows[0].qty, 95)
 
@@ -1642,8 +1648,8 @@ class TestStockEntryHooks(FrappeTestCase):
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
 			fg_qty=100,
-			custom_shift=shift.name,
-			custom_rejection_qty=5,
+			custom_pea_shift=shift.name,
+			custom_pea_rejection_qty=5,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
@@ -1656,7 +1662,7 @@ class TestStockEntryHooks(FrappeTestCase):
 		)
 		se.save()
 
-		rejection_rows = [r for r in se.items if r.custom_is_rejection_item]
+		rejection_rows = [r for r in se.items if r.custom_pea_is_rejection_item]
 		self.assertEqual(len(rejection_rows), 1)
 		self.assertEqual(rejection_rows[0].qty, 5)
 		self.assertEqual(rejection_rows[0].item_code, self.fg_item)
@@ -1674,8 +1680,8 @@ class TestStockEntryHooks(FrappeTestCase):
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
 			fg_qty=100,
-			custom_shift=shift.name,
-			custom_rejection_qty=150,
+			custom_pea_shift=shift.name,
+			custom_pea_rejection_qty=150,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
@@ -1701,8 +1707,8 @@ class TestStockEntryHooks(FrappeTestCase):
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
 			fg_qty=100,
-			custom_shift=shift.name,
-			custom_rejection_qty=10,
+			custom_pea_shift=shift.name,
+			custom_pea_rejection_qty=10,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
@@ -1717,14 +1723,14 @@ class TestStockEntryHooks(FrappeTestCase):
 
 		# First save: 3 items (RM, FG@90, Rejection@10)
 		self.assertEqual(len(se.items), 3)
-		fg_rows = [r for r in se.items if r.is_finished_item and not r.custom_is_rejection_item]
+		fg_rows = [r for r in se.items if r.is_finished_item and not r.custom_pea_is_rejection_item]
 		self.assertEqual(fg_rows[0].qty, 90)
 
 		# Re-save should produce the same result
 		se.save()
 		self.assertEqual(len(se.items), 3)
-		fg_rows = [r for r in se.items if r.is_finished_item and not r.custom_is_rejection_item]
-		rejection_rows = [r for r in se.items if r.custom_is_rejection_item]
+		fg_rows = [r for r in se.items if r.is_finished_item and not r.custom_pea_is_rejection_item]
+		rejection_rows = [r for r in se.items if r.custom_pea_is_rejection_item]
 		self.assertEqual(fg_rows[0].qty, 90)
 		self.assertEqual(len(rejection_rows), 1)
 		self.assertEqual(rejection_rows[0].qty, 10)
@@ -1745,8 +1751,8 @@ class TestStockEntryHooks(FrappeTestCase):
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
 			fg_qty=100,
-			custom_shift=shift.name,
-			custom_rejection_qty=10,
+			custom_pea_shift=shift.name,
+			custom_pea_rejection_qty=10,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
@@ -1758,12 +1764,12 @@ class TestStockEntryHooks(FrappeTestCase):
 			],
 		)
 		se.save()
-		rejection_rows = [r for r in se.items if r.custom_is_rejection_item]
+		rejection_rows = [r for r in se.items if r.custom_pea_is_rejection_item]
 		self.assertEqual(len(rejection_rows), 1)
 		rejection_rows[0].t_warehouse = explicit_rejection_warehouse
 
 		se.save()
-		rejection_rows = [r for r in se.items if r.custom_is_rejection_item]
+		rejection_rows = [r for r in se.items if r.custom_pea_is_rejection_item]
 		self.assertEqual(len(rejection_rows), 1)
 		self.assertEqual(rejection_rows[0].t_warehouse, explicit_rejection_warehouse)
 
@@ -1783,8 +1789,8 @@ class TestStockEntryHooks(FrappeTestCase):
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
 			fg_qty=100,
-			custom_shift=shift.name,
-			custom_rejection_qty=10,
+			custom_pea_shift=shift.name,
+			custom_pea_rejection_qty=10,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
@@ -1810,14 +1816,14 @@ class TestStockEntryHooks(FrappeTestCase):
 				"conversion_factor": fg_rows[0].conversion_factor,
 				"t_warehouse": explicit_rejection_warehouse,
 				"s_warehouse": fg_rows[0].s_warehouse,
-				"custom_is_rejection_item": 1,
+				"custom_pea_is_rejection_item": 1,
 				"is_finished_item": 1,
 				"is_scrap_item": 0,
 			},
 		)
 
 		se.save()
-		rejection_rows = [r for r in se.items if r.custom_is_rejection_item]
+		rejection_rows = [r for r in se.items if r.custom_pea_is_rejection_item]
 		self.assertEqual(len(rejection_rows), 1)
 		self.assertEqual(rejection_rows[0].t_warehouse, explicit_rejection_warehouse)
 
@@ -1837,8 +1843,8 @@ class TestStockEntryHooks(FrappeTestCase):
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
 			fg_qty=100,
-			custom_shift=shift.name,
-			custom_rejection_qty=10,
+			custom_pea_shift=shift.name,
+			custom_pea_rejection_qty=10,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
@@ -1850,7 +1856,7 @@ class TestStockEntryHooks(FrappeTestCase):
 			],
 		)
 		se.save()
-		rejection_rows = [r for r in se.items if r.custom_is_rejection_item]
+		rejection_rows = [r for r in se.items if r.custom_pea_is_rejection_item]
 		self.assertEqual(len(rejection_rows), 1)
 		rejection_rows[0].t_warehouse = non_rejected_warehouse
 
@@ -1877,8 +1883,8 @@ class TestStockEntryHooks(FrappeTestCase):
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
 			fg_qty=100,
-			custom_shift=shift.name,
-			custom_rejection_qty=10,
+			custom_pea_shift=shift.name,
+			custom_pea_rejection_qty=10,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
@@ -1892,7 +1898,7 @@ class TestStockEntryHooks(FrappeTestCase):
 		se.save()
 
 		# Legacy/bad state simulation: two rejection rows where last edited row is valid.
-		rejection_rows = [r for r in se.items if r.custom_is_rejection_item]
+		rejection_rows = [r for r in se.items if r.custom_pea_is_rejection_item]
 		self.assertEqual(len(rejection_rows), 1)
 		rejection_rows[0].t_warehouse = non_rejected_warehouse
 		se.append(
@@ -1904,14 +1910,14 @@ class TestStockEntryHooks(FrappeTestCase):
 				"stock_uom": "Nos",
 				"conversion_factor": 1,
 				"t_warehouse": valid_rejected_warehouse,
-				"custom_is_rejection_item": 1,
+				"custom_pea_is_rejection_item": 1,
 				"is_finished_item": 1,
 				"is_scrap_item": 0,
 			},
 		)
 
 		se.save()
-		rejection_rows = [r for r in se.items if r.custom_is_rejection_item]
+		rejection_rows = [r for r in se.items if r.custom_pea_is_rejection_item]
 		self.assertEqual(len(rejection_rows), 1)
 		self.assertEqual(rejection_rows[0].t_warehouse, valid_rejected_warehouse)
 
@@ -1935,8 +1941,8 @@ class TestStockEntryHooks(FrappeTestCase):
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
 			fg_qty=100,
-			custom_shift=shift.name,
-			custom_rejection_qty=10,
+			custom_pea_shift=shift.name,
+			custom_pea_rejection_qty=10,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
@@ -1950,7 +1956,7 @@ class TestStockEntryHooks(FrappeTestCase):
 		se.save()
 
 		# Duplicate-row simulation where the latest row is invalid but an earlier row is valid.
-		rejection_rows = [r for r in se.items if r.custom_is_rejection_item]
+		rejection_rows = [r for r in se.items if r.custom_pea_is_rejection_item]
 		self.assertEqual(len(rejection_rows), 1)
 		rejection_rows[0].t_warehouse = valid_rejected_warehouse
 		se.append(
@@ -1962,14 +1968,14 @@ class TestStockEntryHooks(FrappeTestCase):
 				"stock_uom": "Nos",
 				"conversion_factor": 1,
 				"t_warehouse": non_rejected_warehouse,
-				"custom_is_rejection_item": 1,
+				"custom_pea_is_rejection_item": 1,
 				"is_finished_item": 1,
 				"is_scrap_item": 0,
 			},
 		)
 
 		se.save()
-		rejection_rows = [r for r in se.items if r.custom_is_rejection_item]
+		rejection_rows = [r for r in se.items if r.custom_pea_is_rejection_item]
 		self.assertEqual(len(rejection_rows), 1)
 		self.assertEqual(rejection_rows[0].t_warehouse, valid_rejected_warehouse)
 
@@ -2005,14 +2011,14 @@ class TestStockEntryHooks(FrappeTestCase):
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
 			fg_qty=100,
-			custom_shift=shift.name,
-			custom_rejection_qty=0,
+			custom_pea_shift=shift.name,
+			custom_pea_rejection_qty=0,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
 		se.save()
 
-		rejection_rows = [r for r in se.items if r.get("custom_is_rejection_item")]
+		rejection_rows = [r for r in se.items if r.get("custom_pea_is_rejection_item")]
 		self.assertEqual(len(rejection_rows), 0)
 
 	def test_unplanned_losses_can_be_added_to_stock_entry(self) -> None:
@@ -2026,13 +2032,13 @@ class TestStockEntryHooks(FrappeTestCase):
 			company=self.company,
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
-			custom_shift=shift.name,
+			custom_pea_shift=shift.name,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
 
 		se.append(
-			"custom_unplanned_losses",
+			"custom_pea_unplanned_losses",
 			{
 				"downtime_reason": "Tea Break",
 				"start_time": "10:00:00",
@@ -2041,9 +2047,9 @@ class TestStockEntryHooks(FrappeTestCase):
 		)
 		se.save()
 
-		self.assertEqual(len(se.custom_unplanned_losses), 1)
-		self.assertEqual(se.custom_unplanned_losses[0].downtime_reason, "Tea Break")
-		self.assertEqual(se.custom_unplanned_losses[0].shift, shift.name)
+		self.assertEqual(len(se.custom_pea_unplanned_losses), 1)
+		self.assertEqual(se.custom_pea_unplanned_losses[0].downtime_reason, "Tea Break")
+		self.assertEqual(se.custom_pea_unplanned_losses[0].shift, shift.name)
 
 	def test_unplanned_loss_shift_link_clears_when_shift_is_removed(self) -> None:
 		_ensure_downtime_reasons()
@@ -2055,12 +2061,12 @@ class TestStockEntryHooks(FrappeTestCase):
 			company=self.company,
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
-			custom_shift=shift.name,
+			custom_pea_shift=shift.name,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
 		se.append(
-			"custom_unplanned_losses",
+			"custom_pea_unplanned_losses",
 			{
 				"downtime_reason": "Tea Break",
 				"start_time": "10:00:00",
@@ -2068,11 +2074,11 @@ class TestStockEntryHooks(FrappeTestCase):
 			},
 		)
 		se.save()
-		self.assertEqual(se.custom_unplanned_losses[0].shift, shift.name)
+		self.assertEqual(se.custom_pea_unplanned_losses[0].shift, shift.name)
 
-		se.custom_shift = ""
+		se.custom_pea_shift = ""
 		se.save()
-		self.assertEqual(se.custom_unplanned_losses[0].shift, "")
+		self.assertEqual(se.custom_pea_unplanned_losses[0].shift, "")
 
 	def test_draft_stock_entry_rehydrates_updated_planned_end_from_running_shift(self) -> None:
 		"""When a Running shift's duration is changed, a new (draft) Stock Entry
@@ -2088,7 +2094,7 @@ class TestStockEntryHooks(FrappeTestCase):
 			company=self.company,
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
-			custom_shift=shift.name,
+			custom_pea_shift=shift.name,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
@@ -2098,7 +2104,7 @@ class TestStockEntryHooks(FrappeTestCase):
 		)
 
 		validate_stock_entry(se)
-		original_planned_end = se.custom_planned_end_date
+		original_planned_end = se.custom_pea_planned_end_date
 
 		# Change shift duration to 10 hours (shift end becomes 18:00)
 		frappe.db.set_value(
@@ -2113,12 +2119,12 @@ class TestStockEntryHooks(FrappeTestCase):
 			company=self.company,
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
-			custom_shift=shift.name,
+			custom_pea_shift=shift.name,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
 		validate_stock_entry(se2)
-		updated_planned_end = se2.custom_planned_end_date
+		updated_planned_end = se2.custom_pea_planned_end_date
 
 		# The updated planned end should be later than the original
 		self.assertGreater(updated_planned_end, original_planned_end)
@@ -2137,16 +2143,16 @@ class TestStockEntryHooks(FrappeTestCase):
 			company=self.company,
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
-			custom_shift=shift.name,
+			custom_pea_shift=shift.name,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
-		se.custom_actual_start_date = "2026-04-21 08:00:00"
-		se.custom_actual_end_date = "2026-04-21 09:00:00"
+		se.custom_pea_actual_start_date = "2026-04-21 08:00:00"
+		se.custom_pea_actual_end_date = "2026-04-21 09:00:00"
 		se.save()
 		frappe.db.set_value("Stock Entry", se.name, "docstatus", 1, update_modified=False)
-		submitted_planned_start = se.custom_planned_start_date
-		submitted_planned_end = se.custom_planned_end_date
+		submitted_planned_start = se.custom_pea_planned_start_date
+		submitted_planned_end = se.custom_pea_planned_end_date
 
 		# Change shift duration to 10 hours (now ends at 18:00)
 		frappe.db.set_value(
@@ -2165,8 +2171,8 @@ class TestStockEntryHooks(FrappeTestCase):
 		validate_stock_entry(se_reloaded)
 
 		# The submitted doc's planned dates must remain unchanged
-		self.assertEqual(se_reloaded.custom_planned_start_date, submitted_planned_start)
-		self.assertEqual(se_reloaded.custom_planned_end_date, submitted_planned_end)
+		self.assertEqual(se_reloaded.custom_pea_planned_start_date, submitted_planned_start)
+		self.assertEqual(se_reloaded.custom_pea_planned_end_date, submitted_planned_end)
 
 
 class TestOverlapValidation(FrappeTestCase):
@@ -2236,7 +2242,7 @@ class TestOverlapValidation(FrappeTestCase):
 				company=self.company,
 				fg_item=self.fg_item,
 				rm_item=self.rm_item,
-				custom_shift=shift_name,
+				custom_pea_shift=shift_name,
 				fg_warehouse=self.fg_warehouse,
 				rm_warehouse=self.rm_warehouse,
 			)
@@ -2259,16 +2265,16 @@ class TestOverlapValidation(FrappeTestCase):
 				}
 			)
 			if shift_name:
-				se.custom_shift = shift_name
+				se.custom_pea_shift = shift_name
 
 		if start:
-			se.custom_actual_start_date = start
+			se.custom_pea_actual_start_date = start
 		if end:
-			se.custom_actual_end_date = end
+			se.custom_pea_actual_end_date = end
 		if workstation:
-			se.custom_workstation = workstation
+			se.custom_pea_workstation = workstation
 		if operator:
-			se.custom_operator = operator
+			se.custom_pea_operator = operator
 		return se
 
 	def test_workstation_overlap_blocks_overlapping_entry(self) -> None:
@@ -2388,7 +2394,7 @@ class TestOverlapValidation(FrappeTestCase):
 			workstation=self.workstation_1,
 		)
 		se.save()
-		se.custom_actual_end_date = "2026-05-05 13:15:00"
+		se.custom_pea_actual_end_date = "2026-05-05 13:15:00"
 
 		with patch(
 			"production_entry_app.production_entry_app.overrides.stock_entry_hooks._find_overlapping_stock_entry",
@@ -2396,7 +2402,7 @@ class TestOverlapValidation(FrappeTestCase):
 		) as find_overlap:
 			se.save()
 
-		find_overlap.assert_called_once_with(se, "custom_workstation", self.workstation_1)
+		find_overlap.assert_called_once_with(se, "custom_pea_workstation", self.workstation_1)
 
 	def test_workstation_overlap_skipped_without_actual_times(self) -> None:
 		shift = _create_test_shift(shift_date="2026-05-06", wip_warehouse=self.wip_warehouse)
@@ -2576,7 +2582,7 @@ class TestOverlapValidation(FrappeTestCase):
 			operator=self.operator_1,
 		)
 		se.save()
-		se.custom_operator = self.operator_2
+		se.custom_pea_operator = self.operator_2
 
 		with patch(
 			"production_entry_app.production_entry_app.overrides.stock_entry_hooks._find_overlapping_stock_entry",
@@ -2584,7 +2590,7 @@ class TestOverlapValidation(FrappeTestCase):
 		) as find_overlap:
 			se.save()
 
-		find_overlap.assert_called_once_with(se, "custom_operator", self.operator_2)
+		find_overlap.assert_called_once_with(se, "custom_pea_operator", self.operator_2)
 
 	def test_operator_overlap_skipped_without_operator(self) -> None:
 		shift = _create_test_shift(
@@ -2739,7 +2745,7 @@ class TestOverlapValidation(FrappeTestCase):
 			workstation=self.workstation_1,
 		)
 		se.save()
-		se.custom_workstation = self.workstation_2
+		se.custom_pea_workstation = self.workstation_2
 
 		with patch(
 			"production_entry_app.production_entry_app.overrides.stock_entry_hooks._find_overlapping_downtime_entry",
@@ -2861,7 +2867,7 @@ class TestGetItemsWithRejection(FrappeTestCase):
 			"from_bom": 1,
 			"bom_no": self.bom_no,
 			"fg_completed_qty": 100,
-			"custom_rejection_qty": 0,
+			"custom_pea_rejection_qty": 0,
 			"from_warehouse": self.rm_warehouse,
 			"to_warehouse": self.fg_warehouse,
 		}
@@ -2883,10 +2889,12 @@ class TestGetItemsWithRejection(FrappeTestCase):
 			rejection_warehouse=self.rejection_warehouse,
 		)
 		items = self._call_api(
-			custom_rejection_qty=10,
-			custom_shift=shift.name,
+			custom_pea_rejection_qty=10,
+			custom_pea_shift=shift.name,
 		)
-		fg_rows = [r for r in items if r.get("is_finished_item") and not r.get("custom_is_rejection_item")]
+		fg_rows = [
+			r for r in items if r.get("is_finished_item") and not r.get("custom_pea_is_rejection_item")
+		]
 		self.assertEqual(len(fg_rows), 1)
 		self.assertEqual(fg_rows[0]["qty"], 90)
 
@@ -2898,11 +2906,13 @@ class TestGetItemsWithRejection(FrappeTestCase):
 			rejection_warehouse=self.rejection_warehouse,
 		)
 		items = self._call_api(
-			custom_rejection_qty=10,
-			custom_shift=shift.name,
+			custom_pea_rejection_qty=10,
+			custom_pea_shift=shift.name,
 		)
-		fg_rows = [r for r in items if r.get("is_finished_item") and not r.get("custom_is_rejection_item")]
-		rejection_rows = [r for r in items if r.get("custom_is_rejection_item")]
+		fg_rows = [
+			r for r in items if r.get("is_finished_item") and not r.get("custom_pea_is_rejection_item")
+		]
+		rejection_rows = [r for r in items if r.get("custom_pea_is_rejection_item")]
 		self.assertEqual(len(rejection_rows), 1)
 		rr = rejection_rows[0]
 		self.assertEqual(rr["qty"], 10)
@@ -2927,8 +2937,8 @@ class TestGetItemsWithRejection(FrappeTestCase):
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
 			fg_qty=100,
-			custom_shift=shift.name,
-			custom_rejection_qty=10,
+			custom_pea_shift=shift.name,
+			custom_pea_rejection_qty=10,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
@@ -2945,20 +2955,22 @@ class TestGetItemsWithRejection(FrappeTestCase):
 				row.basic_rate = 200
 		se.save()
 
-		fg_rows = [r for r in se.items if r.is_finished_item and not r.custom_is_rejection_item]
-		rejection_rows = [r for r in se.items if r.custom_is_rejection_item]
+		fg_rows = [r for r in se.items if r.is_finished_item and not r.custom_pea_is_rejection_item]
+		rejection_rows = [r for r in se.items if r.custom_pea_is_rejection_item]
 		self.assertEqual(len(rejection_rows), 1)
 		self.assertEqual(rejection_rows[0].basic_rate, fg_rows[0].basic_rate)
 
 	def test_custom_is_rejection_item_field_is_visible(self) -> None:
-		"""The custom_is_rejection_item Custom Field must not be hidden."""
-		hidden = frappe.db.get_value("Custom Field", "Stock Entry Detail-custom_is_rejection_item", "hidden")
-		self.assertFalse(hidden, "custom_is_rejection_item must be visible (hidden=0)")
+		"""The custom_pea_is_rejection_item Custom Field must not be hidden."""
+		hidden = frappe.db.get_value(
+			"Custom Field", "Stock Entry Detail-custom_pea_is_rejection_item", "hidden"
+		)
+		self.assertFalse(hidden, "custom_pea_is_rejection_item must be visible (hidden=0)")
 
 	def test_get_items_with_rejection_zero_rejection(self) -> None:
 		"""No rejection row when rejection_qty is 0."""
-		items = self._call_api(custom_rejection_qty=0)
-		rejection_rows = [r for r in items if r.get("custom_is_rejection_item")]
+		items = self._call_api(custom_pea_rejection_qty=0)
+		rejection_rows = [r for r in items if r.get("custom_pea_is_rejection_item")]
 		self.assertEqual(len(rejection_rows), 0)
 
 	def test_get_items_with_rejection_mirrors_browser_flow(self) -> None:
@@ -2978,15 +2990,17 @@ class TestGetItemsWithRejection(FrappeTestCase):
 		)
 		# Now build the dict the browser would send (includes existing items)
 		doc_dict = se.as_dict()
-		doc_dict["custom_rejection_qty"] = 15
-		doc_dict["custom_shift"] = shift.name
+		doc_dict["custom_pea_rejection_qty"] = 15
+		doc_dict["custom_pea_shift"] = shift.name
 
 		from production_entry_app.production_entry_app.api import get_items_with_rejection
 
 		items = get_items_with_rejection(json.dumps(doc_dict, default=str))
 
-		fg_rows = [r for r in items if r.get("is_finished_item") and not r.get("custom_is_rejection_item")]
-		rejection_rows = [r for r in items if r.get("custom_is_rejection_item")]
+		fg_rows = [
+			r for r in items if r.get("is_finished_item") and not r.get("custom_pea_is_rejection_item")
+		]
+		rejection_rows = [r for r in items if r.get("custom_pea_is_rejection_item")]
 		self.assertEqual(len(fg_rows), 1)
 		self.assertEqual(fg_rows[0]["qty"], 85)
 		self.assertEqual(len(rejection_rows), 1)
@@ -2996,17 +3010,17 @@ class TestGetItemsWithRejection(FrappeTestCase):
 		self.assertEqual(rejection_rows[0]["t_warehouse"], self.rejection_warehouse)
 
 	def test_rejection_qty_field_depends_on_from_bom(self) -> None:
-		"""The custom_rejection_qty Custom Field should have depends_on set."""
-		depends_on = frappe.db.get_value("Custom Field", "Stock Entry-custom_rejection_qty", "depends_on")
+		"""The custom_pea_rejection_qty Custom Field should have depends_on set."""
+		depends_on = frappe.db.get_value("Custom Field", "Stock Entry-custom_pea_rejection_qty", "depends_on")
 		self.assertEqual(depends_on, "eval:doc.from_bom")
 
 	def test_actual_datetime_helper_fields_exist(self) -> None:
 		meta = frappe.get_meta("Stock Entry")
 		for fieldname, fieldtype in (
-			("custom_actual_start_date_input", "Date"),
-			("custom_actual_start_time_input", "Data"),
-			("custom_actual_end_date_input", "Date"),
-			("custom_actual_end_time_input", "Data"),
+			("custom_pea_actual_start_date_input", "Date"),
+			("custom_pea_actual_start_time_input", "Data"),
+			("custom_pea_actual_end_date_input", "Date"),
+			("custom_pea_actual_end_time_input", "Data"),
 		):
 			field = meta.get_field(fieldname)
 			self.assertTrue(field, f"Expected Stock Entry field {fieldname} to exist")
@@ -3018,46 +3032,46 @@ class TestGetItemsWithRejection(FrappeTestCase):
 	def test_actual_datetime_helper_fields_stay_in_operation_details_column(self) -> None:
 		meta = frappe.get_meta("Stock Entry")
 		self.assertEqual(
-			meta.get_field("custom_operation_details_col_break").insert_after,
-			"custom_actual_end_date",
+			meta.get_field("custom_pea_operation_details_col_break").insert_after,
+			"custom_pea_actual_end_date",
 		)
 		self.assertEqual(
-			meta.get_field("custom_actual_start_date_input").insert_after,
-			"custom_operation_details_col_break",
+			meta.get_field("custom_pea_actual_start_date_input").insert_after,
+			"custom_pea_operation_details_col_break",
 		)
 		self.assertEqual(
-			meta.get_field("custom_actual_start_time_input").insert_after,
-			"custom_actual_start_date_input",
+			meta.get_field("custom_pea_actual_start_time_input").insert_after,
+			"custom_pea_actual_start_date_input",
 		)
 		self.assertEqual(
-			meta.get_field("custom_actual_end_date_input").insert_after,
-			"custom_actual_start_time_input",
+			meta.get_field("custom_pea_actual_end_date_input").insert_after,
+			"custom_pea_actual_start_time_input",
 		)
 		self.assertEqual(
-			meta.get_field("custom_actual_end_time_input").insert_after,
-			"custom_actual_end_date_input",
+			meta.get_field("custom_pea_actual_end_time_input").insert_after,
+			"custom_pea_actual_end_date_input",
 		)
 
 	def test_canonical_actual_datetime_fields_are_visible_below_planned_end_date(self) -> None:
 		meta = frappe.get_meta("Stock Entry")
-		start_field = meta.get_field("custom_actual_start_date")
-		end_field = meta.get_field("custom_actual_end_date")
+		start_field = meta.get_field("custom_pea_actual_start_date")
+		end_field = meta.get_field("custom_pea_actual_end_date")
 		self.assertTrue(start_field)
 		self.assertTrue(end_field)
 		self.assertEqual(int(start_field.hidden or 0), 0)
 		self.assertEqual(int(end_field.hidden or 0), 0)
 		self.assertEqual(int(start_field.read_only or 0), 1)
 		self.assertEqual(int(end_field.read_only or 0), 1)
-		self.assertEqual(start_field.insert_after, "custom_planned_end_date")
-		self.assertEqual(end_field.insert_after, "custom_actual_start_date")
+		self.assertEqual(start_field.insert_after, "custom_pea_planned_end_date")
+		self.assertEqual(end_field.insert_after, "custom_pea_actual_start_date")
 
 	def test_metrics_note_field_exists_below_operator_efficiency(self) -> None:
 		meta = frappe.get_meta("Stock Entry")
-		field = meta.get_field("custom_metrics_note")
+		field = meta.get_field("custom_pea_metrics_note")
 		self.assertTrue(field)
 		self.assertEqual(field.fieldtype, "Small Text")
 		self.assertEqual(int(field.read_only or 0), 1)
-		self.assertEqual(field.insert_after, "custom_operator_efficiency_pct")
+		self.assertEqual(field.insert_after, "custom_pea_operator_efficiency_pct")
 
 	@classmethod
 	def tearDownClass(cls) -> None:
@@ -3089,9 +3103,9 @@ class TestDieToolCounter(FrappeTestCase):
 		cls.rm_item = _get_or_create_item(f"_Test Die Tool RM {suffix}")
 		cls.fg_item = _get_or_create_item(f"_Test Die Tool FG {suffix}")
 		_set_item_die_tool_fields(cls.fg_item, strokes_per_unit=12, stroke_capacity=1000)
-		strokes = frappe.db.get_value("Item", cls.fg_item, "custom_strokes_per_unit")
+		strokes = frappe.db.get_value("Item", cls.fg_item, "custom_pea_strokes_per_unit")
 		if not strokes:
-			frappe.db.set_value("Item", cls.fg_item, "custom_strokes_per_unit", 12)
+			frappe.db.set_value("Item", cls.fg_item, "custom_pea_strokes_per_unit", 12)
 			frappe.db.commit()  # nosemgrep: frappe-manual-commit - persist stroke config
 		frappe.db.delete("Die Tool Maintenance Log", {"die_tool_item": cls.fg_item})
 		frappe.db.delete("Die Tool Counter", {"die_tool_item": cls.fg_item})
@@ -3129,7 +3143,7 @@ class TestDieToolCounter(FrappeTestCase):
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
-		se.custom_rejection_qty = 2
+		se.custom_pea_rejection_qty = 2
 
 		on_submit_stock_entry(se, "on_submit")
 
@@ -3184,7 +3198,7 @@ class TestDieToolCounter(FrappeTestCase):
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
-		se.custom_rejection_qty = 1
+		se.custom_pea_rejection_qty = 1
 
 		on_submit_stock_entry(se, "on_submit")
 		on_cancel_stock_entry(se, "on_cancel")
@@ -3198,7 +3212,7 @@ class TestDieToolCounter(FrappeTestCase):
 		)
 
 		shift_name = "SHIFT-CACHE-TEST-2026-04-20.1"
-		doc = frappe._dict({"custom_shift": shift_name})
+		doc = frappe._dict({"custom_pea_shift": shift_name})
 		with (
 			patch(
 				"production_entry_app.production_entry_app.overrides.stock_entry_hooks.access_control.can_use_production_entry_app",
@@ -3221,7 +3235,7 @@ class TestDieToolCounter(FrappeTestCase):
 		)
 
 		shift_name = "SHIFT-CACHE-TEST-2026-04-20.1"
-		doc = frappe._dict({"custom_shift": shift_name})
+		doc = frappe._dict({"custom_pea_shift": shift_name})
 		with (
 			patch(
 				"production_entry_app.production_entry_app.overrides.stock_entry_hooks.access_control.can_use_production_entry_app",
@@ -3471,7 +3485,7 @@ class TestDieToolCounter(FrappeTestCase):
 			update_counter_for_stock_entry,
 		)
 
-		frappe.db.set_value("Item", self.fg_item, "custom_strokes_per_unit", 0)
+		frappe.db.set_value("Item", self.fg_item, "custom_pea_strokes_per_unit", 0)
 		doc = frappe._dict(
 			{
 				"purpose": "Manufacture",
@@ -3493,7 +3507,7 @@ class TestDieToolCounter(FrappeTestCase):
 				"purpose": "Manufacture",
 				"fg_item": self.fg_item,
 				"fg_completed_qty": 0,
-				"custom_rejection_qty": 0,
+				"custom_pea_rejection_qty": 0,
 				"items": [],
 			}
 		)
@@ -3553,7 +3567,7 @@ class TestDieToolCounter(FrappeTestCase):
 					{"item_code": self.rm_item, "qty": 2},
 					{"item_code": self.fg_item, "qty": 5, "is_finished_item": 1},
 				],
-				"custom_rejection_qty": 2,
+				"custom_pea_rejection_qty": 2,
 			}
 		)
 		self.assertEqual(_get_fg_item_code(doc_with_fg_row), self.fg_item)

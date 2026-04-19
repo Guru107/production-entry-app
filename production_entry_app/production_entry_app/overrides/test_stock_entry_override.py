@@ -69,8 +69,8 @@ class TestStockEntryOverride(FrappeTestCase):
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
 			fg_qty=100,
-			custom_shift=shift.name,
-			custom_rejection_qty=10,
+			custom_pea_shift=shift.name,
+			custom_pea_rejection_qty=10,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
@@ -86,7 +86,7 @@ class TestStockEntryOverride(FrappeTestCase):
 		finished_row = se.get_finished_item_row()
 		self.assertIsNotNone(finished_row)
 		self.assertTrue(finished_row.is_finished_item)
-		self.assertFalse(finished_row.custom_is_rejection_item)
+		self.assertFalse(finished_row.custom_pea_is_rejection_item)
 		self.assertEqual(finished_row.t_warehouse, self.fg_warehouse)
 
 	def test_rejection_row_posts_non_zero_valuation_on_submit(self) -> None:
@@ -100,8 +100,8 @@ class TestStockEntryOverride(FrappeTestCase):
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
 			fg_qty=100,
-			custom_shift=shift.name,
-			custom_rejection_qty=10,
+			custom_pea_shift=shift.name,
+			custom_pea_rejection_qty=10,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
@@ -114,16 +114,16 @@ class TestStockEntryOverride(FrappeTestCase):
 		)
 		se.insert(ignore_permissions=True)
 
-		fg_rows = [row for row in se.items if row.is_finished_item and not row.custom_is_rejection_item]
-		rejection_rows = [row for row in se.items if row.custom_is_rejection_item]
+		fg_rows = [row for row in se.items if row.is_finished_item and not row.custom_pea_is_rejection_item]
+		rejection_rows = [row for row in se.items if row.custom_pea_is_rejection_item]
 		self.assertEqual(len(fg_rows), 1)
 		self.assertEqual(len(rejection_rows), 1)
 		self.assertAlmostEqual(rejection_rows[0].basic_rate, fg_rows[0].basic_rate, places=6)
 
 		se.submit()
 
-		fg_rows = [row for row in se.items if row.is_finished_item and not row.custom_is_rejection_item]
-		rejection_rows = [row for row in se.items if row.custom_is_rejection_item]
+		fg_rows = [row for row in se.items if row.is_finished_item and not row.custom_pea_is_rejection_item]
+		rejection_rows = [row for row in se.items if row.custom_pea_is_rejection_item]
 		self.assertEqual(len(fg_rows), 1)
 		self.assertEqual(len(rejection_rows), 1)
 

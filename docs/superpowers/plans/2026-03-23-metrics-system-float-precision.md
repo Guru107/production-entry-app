@@ -348,7 +348,7 @@ with patch(
 	self.assertEqual(columns_by_field["running_time"]["precision"], 4)
 ```
 
-Also add a hook regression that keeps `custom_actual_spm` and `custom_operator_efficiency_pct`
+Also add a hook regression that keeps `custom_pea_actual_spm` and `custom_pea_operator_efficiency_pct`
 raw numeric values, not preformatted strings.
 
 - [ ] **Step 2: Run the focused Python modules and confirm they fail**

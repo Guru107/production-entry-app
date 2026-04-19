@@ -161,7 +161,9 @@ def ensure_operator(name: str) -> None:
 
 def ensure_workstation(name: str, standard_spm: float) -> None:
 	if frappe.db.exists("Workstation", name):
-		frappe.db.set_value("Workstation", name, "custom_standard_spm", standard_spm, update_modified=False)
+		frappe.db.set_value(
+			"Workstation", name, "custom_pea_standard_spm", standard_spm, update_modified=False
+		)
 		return
 	frappe.get_doc(
 		{
@@ -169,7 +171,7 @@ def ensure_workstation(name: str, standard_spm: float) -> None:
 			"workstation_name": name,
 			"production_capacity": 1,
 			"hour_rate": 100,
-			"custom_standard_spm": standard_spm,
+			"custom_pea_standard_spm": standard_spm,
 		}
 	).insert(ignore_permissions=True)
 

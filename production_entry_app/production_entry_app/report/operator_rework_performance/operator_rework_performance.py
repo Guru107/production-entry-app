@@ -42,7 +42,7 @@ def _get_columns() -> list[dict]:
 def _build_filters(filters: dict) -> dict:
 	return build_stock_entry_filters(
 		filters,
-		filter_keys=("custom_workstation", "custom_shift", "custom_operator", "bom_no"),
+		filter_keys=("custom_pea_workstation", "custom_pea_shift", "custom_pea_operator", "bom_no"),
 	)
 
 
@@ -64,11 +64,11 @@ def _get_rows(filters: dict) -> list[dict]:
 		_build_filters(filters),
 		[
 			"name",
-			"custom_operator",
+			"custom_pea_operator",
 			"fg_completed_qty",
-			"custom_rejection_qty",
-			"custom_rework_qty",
-			"custom_actual_spm",
+			"custom_pea_rejection_qty",
+			"custom_pea_rework_qty",
+			"custom_pea_actual_spm",
 		],
 	):
 		has_entries = True
@@ -84,24 +84,24 @@ def _get_rows(filters: dict) -> list[dict]:
 		for entry in entries:
 			entry_name = entry.get("name")
 			entry_metrics = parent_quantity_metrics.get(entry_name or "", {})
-			operator = entry.get("custom_operator") or "Unassigned"
+			operator = entry.get("custom_pea_operator") or "Unassigned"
 			total_qty = flt(entry.get("fg_completed_qty") or 0)
 			if total_qty <= 0 and entry_name:
 				total_qty = flt(entry_metrics.get("good_qty") or 0) + flt(
 					entry_metrics.get("total_rejected_qty") or 0
 				)
-			rework_qty = flt(entry.get("custom_rework_qty") or entry_metrics.get("rework_qty") or 0)
+			rework_qty = flt(entry.get("custom_pea_rework_qty") or entry_metrics.get("rework_qty") or 0)
 			agg = agg_by_operator.setdefault(operator, _empty_agg())
 			agg["entries"] += 1
 			agg["total_qty"] += total_qty
 			agg["rework_qty"] += rework_qty
-			actual_spm = flt(entry.get("custom_actual_spm") or 0)
+			actual_spm = flt(entry.get("custom_pea_actual_spm") or 0)
 			if actual_spm > 0:
 				agg["actual_spm_sum"] += actual_spm
 				agg["actual_spm_count"] += 1
 
 		operator_by_entry = {
-			entry.get("name"): (entry.get("custom_operator") or "Unassigned")
+			entry.get("name"): (entry.get("custom_pea_operator") or "Unassigned")
 			for entry in entries
 			if entry.get("name")
 		}

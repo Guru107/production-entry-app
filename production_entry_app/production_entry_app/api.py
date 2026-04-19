@@ -137,7 +137,7 @@ def delete(doctype: str, name: str) -> None:
 def get_shift_details_for_stock_entry(shift_name: str) -> dict:
 	"""Return shift details to auto-populate Stock Entry fields.
 
-	Called from the Stock Entry client script when custom_shift is set.
+	Called from the Stock Entry client script when custom_pea_shift is set.
 	"""
 	access_control.assert_app_access(doctype="Shift", docname=shift_name)
 	if not shift_name:
@@ -171,8 +171,8 @@ def get_shift_details_for_stock_entry(shift_name: str) -> dict:
 
 	return {
 		"branch": shift.branch,
-		"custom_planned_start_date": str(planned_start) if planned_start else None,
-		"custom_planned_end_date": str(planned_end) if planned_end else None,
+		"custom_pea_planned_start_date": str(planned_start) if planned_start else None,
+		"custom_pea_planned_end_date": str(planned_end) if planned_end else None,
 		"from_warehouse": shift.work_in_progress_warehouse,
 		"to_warehouse": shift.work_in_progress_warehouse,
 	}
@@ -210,8 +210,8 @@ def get_items_with_rejection(doc: str) -> list[dict]:
 	se.to_warehouse = doc_dict.get("to_warehouse")
 	se.posting_date = doc_dict.get("posting_date") or frappe.utils.nowdate()
 	se.posting_time = doc_dict.get("posting_time") or frappe.utils.nowtime()
-	se.custom_rejection_qty = float(doc_dict.get("custom_rejection_qty") or 0)
-	se.custom_shift = doc_dict.get("custom_shift")
+	se.custom_pea_rejection_qty = float(doc_dict.get("custom_pea_rejection_qty") or 0)
+	se.custom_pea_shift = doc_dict.get("custom_pea_shift")
 	se.work_order = doc_dict.get("work_order")
 
 	se.get_items()
@@ -434,7 +434,7 @@ def _assert_e2e_api_allowed() -> None:
 
 
 def _stock_entry_matches_cleanup_target(se, target_operator: str, target_fg_item: str) -> bool:
-	operator_match = se.get("custom_operator") == target_operator
+	operator_match = se.get("custom_pea_operator") == target_operator
 	fg_item_match = any(
 		(row.get("is_finished_item") == 1) and (row.get("item_code") == target_fg_item)
 		for row in (se.get("items") or [])
@@ -455,8 +455,8 @@ def _get_candidate_e2e_stock_entries(
 		item_code_filters.append(stock_entry_detail.item_code == target_fg_item)
 	if target_rm_item:
 		item_code_filters.append(stock_entry_detail.item_code == target_rm_item)
-	match_criteria = (stock_entry.custom_operator == target_operator) | (
-		stock_entry.custom_workstation == target_workstation
+	match_criteria = (stock_entry.custom_pea_operator == target_operator) | (
+		stock_entry.custom_pea_workstation == target_workstation
 	)
 	item_code_match = item_code_filters[0] if item_code_filters else None
 	for condition in item_code_filters[1:]:
@@ -683,10 +683,10 @@ def bootstrap_e2e_context(prefix: str = "E2E") -> dict:
 
 	fg_item = ensure_item(f"_{prefix}_FG_Item")
 	rm_item = ensure_item(f"_{prefix}_RM_Item")
-	frappe.db.set_value("Item", fg_item, "custom_strokes_per_unit", 5, update_modified=False)
-	frappe.db.set_value("Item", fg_item, "custom_stroke_capacity", 10000, update_modified=False)
-	if frappe.get_meta("Item", cached=True).has_field("custom_has_die_tool"):
-		frappe.db.set_value("Item", fg_item, "custom_has_die_tool", 1, update_modified=False)
+	frappe.db.set_value("Item", fg_item, "custom_pea_strokes_per_unit", 5, update_modified=False)
+	frappe.db.set_value("Item", fg_item, "custom_pea_stroke_capacity", 10000, update_modified=False)
+	if frappe.get_meta("Item", cached=True).has_field("custom_pea_has_die_tool"):
+		frappe.db.set_value("Item", fg_item, "custom_pea_has_die_tool", 1, update_modified=False)
 
 	operator_name = f"{prefix} Operator"
 	workstation_name = f"{prefix} Workstation"
@@ -954,12 +954,12 @@ def create_e2e_submitted_stock_entry(prefix: str = "E2E", rejection_qty: float =
 			"from_warehouse": ctx["wip_warehouse"],
 			"to_warehouse": ctx["fg_warehouse"],
 			"fg_completed_qty": 100,
-			"custom_shift": ctx["shift_name"],
-			"custom_operator": ctx["operator"],
-			"custom_workstation": ctx["workstation"],
-			"custom_rejection_qty": float(rejection_qty or 0),
-			"custom_actual_start_date": f"{shift_date} 08:00:00",
-			"custom_actual_end_date": f"{shift_date} 09:00:00",
+			"custom_pea_shift": ctx["shift_name"],
+			"custom_pea_operator": ctx["operator"],
+			"custom_pea_workstation": ctx["workstation"],
+			"custom_pea_rejection_qty": float(rejection_qty or 0),
+			"custom_pea_actual_start_date": f"{shift_date} 08:00:00",
+			"custom_pea_actual_end_date": f"{shift_date} 09:00:00",
 			"posting_date": shift_date,
 			"posting_time": "09:00:00",
 		}
@@ -971,7 +971,9 @@ def create_e2e_submitted_stock_entry(prefix: str = "E2E", rejection_qty: float =
 		if row.get("is_finished_item") and not row.get("t_warehouse"):
 			row.t_warehouse = ctx["fg_warehouse"]
 	if float(rejection_qty or 0) > 0:
-		doc.append("custom_rejection_breakup", {"rejection_reason": "Burr", "qty": float(rejection_qty or 0)})
+		doc.append(
+			"custom_pea_rejection_breakup", {"rejection_reason": "Burr", "qty": float(rejection_qty or 0)}
+		)
 	doc.insert(ignore_permissions=True)
 	doc.submit()
 	_clear_timeline_cache_for_context(ctx, ctx["shift_name"])
@@ -1017,12 +1019,12 @@ def create_e2e_full_shift_stock_entries(
 				"from_warehouse": ctx["wip_warehouse"],
 				"to_warehouse": ctx["fg_warehouse"],
 				"fg_completed_qty": 100,
-				"custom_shift": ctx["shift_name"],
-				"custom_operator": ctx["operator"],
-				"custom_workstation": ctx["workstation"],
-				"custom_rejection_qty": float(rejection_qty or 0),
-				"custom_actual_start_date": str(current_start),
-				"custom_actual_end_date": str(current_end),
+				"custom_pea_shift": ctx["shift_name"],
+				"custom_pea_operator": ctx["operator"],
+				"custom_pea_workstation": ctx["workstation"],
+				"custom_pea_rejection_qty": float(rejection_qty or 0),
+				"custom_pea_actual_start_date": str(current_start),
+				"custom_pea_actual_end_date": str(current_end),
 				"posting_date": str(current_end.date()),
 				"posting_time": str(current_end.time()),
 			}
@@ -1035,7 +1037,7 @@ def create_e2e_full_shift_stock_entries(
 				row.t_warehouse = ctx["fg_warehouse"]
 		if float(rejection_qty or 0) > 0:
 			doc.append(
-				"custom_rejection_breakup",
+				"custom_pea_rejection_breakup",
 				{"rejection_reason": "Burr", "qty": float(rejection_qty or 0)},
 			)
 		doc.insert(ignore_permissions=True)

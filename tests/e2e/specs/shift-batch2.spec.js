@@ -315,17 +315,17 @@ test.describe("Batch 2 shift UX", () => {
 
 		await openForm(page, "workstation", ctx.workstation);
 		await page.waitForFunction(() => {
-			const field = window.cur_frm?.fields_dict?.custom_shift_timeline_html;
+			const field = window.cur_frm?.fields_dict?.custom_pea_shift_timeline_html;
 			return Boolean(field?.$wrapper?.[0]?.querySelector(".pea-shift-timeline-canvas"));
 		});
 		const workstationCanvas = await getTimelineCanvasDetails(
 			page,
-			"custom_shift_timeline_html"
+			"custom_pea_shift_timeline_html"
 		);
 		expect(workstationCanvas?.hasCanvas).toBe(true);
 		expect(workstationCanvas?.blockCount).toBeGreaterThan(0);
 		const workstationTimelineText = await page.evaluate(() => {
-			const field = window.cur_frm?.fields_dict?.custom_shift_timeline_html;
+			const field = window.cur_frm?.fields_dict?.custom_pea_shift_timeline_html;
 			return (field?.$wrapper?.text?.() || "").replace(/\s+/g, " ").trim();
 		});
 		expect(workstationTimelineText).toContain(ctx.shift_name);
@@ -353,11 +353,11 @@ test.describe("Batch 2 shift UX", () => {
 
 		await openForm(page, "workstation", ctx.workstation);
 		await page.waitForFunction(() => {
-			const field = window.cur_frm?.fields_dict?.custom_shift_timeline_html;
+			const field = window.cur_frm?.fields_dict?.custom_pea_shift_timeline_html;
 			const canvas = field?.$wrapper?.[0]?.querySelector(".pea-shift-timeline-canvas");
 			return Boolean(canvas && (canvas.__peaHitBoxes || []).length === 0);
 		});
-		const workstationText = await getFieldText(page, "custom_shift_timeline_html");
+		const workstationText = await getFieldText(page, "custom_pea_shift_timeline_html");
 		expect(workstationText).toContain("Running Shift Timeline");
 
 		await openForm(page, "operator", ctx.operator);
@@ -385,16 +385,16 @@ test.describe("Batch 2 shift UX", () => {
 
 		await openForm(page, "workstation", ctx.workstation);
 		await page.waitForFunction(() => {
-			const field = window.cur_frm?.fields_dict?.custom_shift_timeline_html;
+			const field = window.cur_frm?.fields_dict?.custom_pea_shift_timeline_html;
 			const canvas = field?.$wrapper?.[0]?.querySelector(".pea-shift-timeline-canvas");
 			return Boolean(canvas && (canvas.__peaHitBoxes || []).length > 0);
 		});
 
-		const canvasData = await getTimelineCanvasDetails(page, "custom_shift_timeline_html");
+		const canvasData = await getTimelineCanvasDetails(page, "custom_pea_shift_timeline_html");
 		expect(canvasData?.firstCenter).toBeTruthy();
 		const hovered = await dispatchTimelineCanvasEvent(
 			page,
-			"custom_shift_timeline_html",
+			"custom_pea_shift_timeline_html",
 			"mousemove",
 			canvasData.firstCenter
 		);
@@ -408,7 +408,7 @@ test.describe("Batch 2 shift UX", () => {
 		});
 		const clicked = await dispatchTimelineCanvasEvent(
 			page,
-			"custom_shift_timeline_html",
+			"custom_pea_shift_timeline_html",
 			"click",
 			canvasData.firstCenter
 		);
@@ -440,7 +440,7 @@ test.describe("Batch 2 shift UX", () => {
 
 		await openForm(page, "workstation", ctx.workstation);
 		await page.waitForFunction(() => {
-			const field = window.cur_frm?.fields_dict?.custom_shift_timeline_html;
+			const field = window.cur_frm?.fields_dict?.custom_pea_shift_timeline_html;
 			const canvas = field?.$wrapper?.[0]?.querySelector(".pea-shift-timeline-canvas");
 			return Boolean(canvas && (canvas.__peaHitBoxes || []).length > 0);
 		});
@@ -455,11 +455,11 @@ test.describe("Batch 2 shift UX", () => {
 		);
 		expect(productionEntry).toBeTruthy();
 
-		const canvasData = await getTimelineCanvasDetails(page, "custom_shift_timeline_html");
+		const canvasData = await getTimelineCanvasDetails(page, "custom_pea_shift_timeline_html");
 		expect(canvasData?.firstCenter).toBeTruthy();
 		const hovered = await dispatchTimelineCanvasEvent(
 			page,
-			"custom_shift_timeline_html",
+			"custom_pea_shift_timeline_html",
 			"mousemove",
 			canvasData.firstCenter
 		);
@@ -497,14 +497,14 @@ test.describe("Batch 2 shift UX", () => {
 
 		await openForm(page, "workstation", ctx.workstation);
 		await page.waitForFunction(() => {
-			const field = window.cur_frm?.fields_dict?.custom_shift_timeline_html;
+			const field = window.cur_frm?.fields_dict?.custom_pea_shift_timeline_html;
 			const canvas = field?.$wrapper?.[0]?.querySelector(".pea-shift-timeline-canvas");
 			return Boolean(canvas && (canvas.__peaHitBoxes || []).length > 0);
 		});
 
 		const workstationCoverage = await getTimelineCoverageDetails(
 			page,
-			"custom_shift_timeline_html"
+			"custom_pea_shift_timeline_html"
 		);
 		expect(workstationCoverage?.blockCount).toBe(result.count);
 		expect(workstationCoverage?.coveragePct).toBeGreaterThan(95);
@@ -546,17 +546,17 @@ test.describe("Batch 2 shift UX", () => {
 
 		await openForm(page, "workstation", ctx.workstation);
 		await page.waitForFunction(() => {
-			const field = window.cur_frm?.fields_dict?.custom_shift_timeline_html;
+			const field = window.cur_frm?.fields_dict?.custom_pea_shift_timeline_html;
 			const canvas = field?.$wrapper?.[0]?.querySelector(".pea-shift-timeline-canvas");
 			const boxes = canvas?.__peaHitBoxes || [];
 			return boxes.some((box) => box?.entry?.entry_type === "downtime");
 		});
 
-		const canvasData = await getTimelineCanvasDetails(page, "custom_shift_timeline_html");
+		const canvasData = await getTimelineCanvasDetails(page, "custom_pea_shift_timeline_html");
 		expect(canvasData?.downtimeCenter).toBeTruthy();
 		const hovered = await dispatchTimelineCanvasEvent(
 			page,
-			"custom_shift_timeline_html",
+			"custom_pea_shift_timeline_html",
 			"mousemove",
 			canvasData.downtimeCenter
 		);
@@ -572,7 +572,7 @@ test.describe("Batch 2 shift UX", () => {
 
 		const clicked = await dispatchTimelineCanvasEvent(
 			page,
-			"custom_shift_timeline_html",
+			"custom_pea_shift_timeline_html",
 			"click",
 			canvasData.downtimeCenter
 		);

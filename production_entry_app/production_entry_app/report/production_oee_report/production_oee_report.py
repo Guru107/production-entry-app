@@ -220,21 +220,21 @@ def _get_stock_entry_groups(
 	elif to_date:
 		stock_entry_filters["posting_date"] = ["<=", to_date]
 
-	if filters.get("custom_workstation"):
-		stock_entry_filters["custom_workstation"] = filters.get("custom_workstation")
+	if filters.get("custom_pea_workstation"):
+		stock_entry_filters["custom_pea_workstation"] = filters.get("custom_pea_workstation")
 
 	entry_fields = [
 		"name",
 		"posting_date",
-		"custom_shift",
-		"custom_workstation",
+		"custom_pea_shift",
+		"custom_pea_workstation",
 		"fg_completed_qty",
-		"custom_rejection_qty",
-		"custom_standard_spm",
-		"custom_actual_duration_mins",
-		"custom_production_time_mins",
-		"custom_actual_start_date",
-		"custom_actual_end_date",
+		"custom_pea_rejection_qty",
+		"custom_pea_standard_spm",
+		"custom_pea_actual_duration_mins",
+		"custom_pea_production_time_mins",
+		"custom_pea_actual_start_date",
+		"custom_pea_actual_end_date",
 	]
 	groups: dict[tuple[str, str], dict] = {}
 	has_rows = False
@@ -259,7 +259,7 @@ def _get_stock_entry_groups(
 			filters={"parenttype": "Stock Entry", "parent": ["in", entry_names]},
 			fields=["parent", "downtime_reason", "shift", "start_time", "end_time"],
 		)
-		shift_names = {entry.get("custom_shift") for entry in chunk if entry.get("custom_shift")} | {
+		shift_names = {entry.get("custom_pea_shift") for entry in chunk if entry.get("custom_pea_shift")} | {
 			row.get("shift") for row in loss_rows if row.get("shift")
 		}
 		shift_labels = _get_shift_labels(shift_names, shift_label_cache)
@@ -267,13 +267,13 @@ def _get_stock_entry_groups(
 
 		for entry in chunk:
 			day = str(entry.get("posting_date") or "")
-			workstation = entry.get("custom_workstation") or "Unassigned"
+			workstation = entry.get("custom_pea_workstation") or "Unassigned"
 			entry_name = entry.get("name")
 			if entry_name:
 				entry_meta_by_name[entry_name] = {
 					"day": day,
 					"workstation": workstation,
-					"shift": entry.get("custom_shift") or "",
+					"shift": entry.get("custom_pea_shift") or "",
 				}
 			group_key = (day, workstation)
 			if group_key not in groups:
@@ -289,7 +289,7 @@ def _get_stock_entry_groups(
 			group["total_strokes"] += total_strokes
 			group["rejection"] += rejection_qty
 
-			shift_name = entry.get("custom_shift")
+			shift_name = entry.get("custom_pea_shift")
 			if shift_name:
 				group["shift_names"].add(shift_name)
 			shift_label = shift_labels.get(shift_name)
@@ -298,7 +298,7 @@ def _get_stock_entry_groups(
 			elif shift_label == "2":
 				group["second_shift_strokes"] += total_strokes
 
-			standard_spm = flt(entry.get("custom_standard_spm") or 0)
+			standard_spm = flt(entry.get("custom_pea_standard_spm") or 0)
 			if standard_spm > 0 and group["standard_spm"] <= 0:
 				group["standard_spm"] = standard_spm
 
@@ -378,7 +378,9 @@ def _get_shift_label_map(
 	entries: list[frappe._dict],
 	shift_label_cache: dict[str, str],
 ) -> dict[str, str]:
-	shift_names = sorted({entry.get("custom_shift") for entry in entries if entry.get("custom_shift")})
+	shift_names = sorted(
+		{entry.get("custom_pea_shift") for entry in entries if entry.get("custom_pea_shift")}
+	)
 	return _get_shift_labels(shift_names, shift_label_cache)
 
 

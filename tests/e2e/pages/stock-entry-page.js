@@ -39,17 +39,21 @@ class StockEntryPage {
 
 	async fillManufactureEntry(ctx) {
 		await setFieldValue(this.page, "stock_entry_type", "Manufacture");
-		await setFieldValue(this.page, "custom_stock_entry_purpose", "Manufacture");
+		await setFieldValue(this.page, "custom_pea_stock_entry_purpose", "Manufacture");
 		await setFieldValue(this.page, "company", ctx.company);
 		await setFieldValue(this.page, "from_bom", 1);
 		await setFieldValue(this.page, "bom_no", ctx.bom);
 		await setFieldValue(this.page, "fg_completed_qty", 100);
-		await setFieldValue(this.page, "custom_rejection_qty", 5);
-		await setFieldValue(this.page, "custom_shift", ctx.shift_name);
-		await setFieldValue(this.page, "custom_workstation", ctx.workstation);
-		await setFieldValue(this.page, "custom_operator", ctx.operator);
-		await setFieldValue(this.page, "custom_actual_start_date", `${ctx.shift_date} 08:00:00`);
-		await setFieldValue(this.page, "custom_actual_end_date", `${ctx.shift_date} 09:00:00`);
+		await setFieldValue(this.page, "custom_pea_rejection_qty", 5);
+		await setFieldValue(this.page, "custom_pea_shift", ctx.shift_name);
+		await setFieldValue(this.page, "custom_pea_workstation", ctx.workstation);
+		await setFieldValue(this.page, "custom_pea_operator", ctx.operator);
+		await setFieldValue(
+			this.page,
+			"custom_pea_actual_start_date",
+			`${ctx.shift_date} 08:00:00`
+		);
+		await setFieldValue(this.page, "custom_pea_actual_end_date", `${ctx.shift_date} 09:00:00`);
 	}
 
 	async setManufactureFields(ctx, options = {}) {
@@ -62,30 +66,30 @@ class StockEntryPage {
 		} = options;
 
 		await setFieldValue(this.page, "stock_entry_type", "Manufacture");
-		await setFieldValue(this.page, "custom_stock_entry_purpose", "Manufacture");
+		await setFieldValue(this.page, "custom_pea_stock_entry_purpose", "Manufacture");
 		await setFieldValue(this.page, "company", ctx.company);
 		await setFieldValue(this.page, "from_bom", 1);
 		await setFieldValue(this.page, "bom_no", ctx.bom);
 		await setFieldValue(this.page, "fg_completed_qty", fgQty);
-		await setFieldValue(this.page, "custom_rejection_qty", rejectionQty);
-		await setFieldValue(this.page, "custom_shift", shiftName);
-		await setFieldValue(this.page, "custom_workstation", ctx.workstation);
-		await setFieldValue(this.page, "custom_operator", ctx.operator);
+		await setFieldValue(this.page, "custom_pea_rejection_qty", rejectionQty);
+		await setFieldValue(this.page, "custom_pea_shift", shiftName);
+		await setFieldValue(this.page, "custom_pea_workstation", ctx.workstation);
+		await setFieldValue(this.page, "custom_pea_operator", ctx.operator);
 		if (actualStart != null) {
-			await setFieldValue(this.page, "custom_actual_start_date", actualStart);
+			await setFieldValue(this.page, "custom_pea_actual_start_date", actualStart);
 		}
 		if (actualEnd != null) {
-			await setFieldValue(this.page, "custom_actual_end_date", actualEnd);
+			await setFieldValue(this.page, "custom_pea_actual_end_date", actualEnd);
 		}
 	}
 
 	async setShift(shiftName) {
-		await setFieldValue(this.page, "custom_shift", shiftName);
+		await setFieldValue(this.page, "custom_pea_shift", shiftName);
 	}
 
 	async clearShift() {
 		await this.page.evaluate(async () => {
-			await cur_frm.set_value("custom_shift", null);
+			await cur_frm.set_value("custom_pea_shift", null);
 		});
 	}
 
@@ -106,8 +110,8 @@ class StockEntryPage {
 				endSnippet,
 			}) => {
 				const doc = window.cur_frm?.doc || {};
-				const plannedStart = String(doc.custom_planned_start_date || "");
-				const plannedEnd = String(doc.custom_planned_end_date || "");
+				const plannedStart = String(doc.custom_pea_planned_start_date || "");
+				const plannedEnd = String(doc.custom_pea_planned_end_date || "");
 				const branchMatch = expectedBranch ? doc.branch === expectedBranch : true;
 				const fromWarehouseMatch = expectedFromWarehouse
 					? doc.from_warehouse === expectedFromWarehouse
@@ -135,9 +139,9 @@ class StockEntryPage {
 		await this.page.waitForFunction(() => {
 			const doc = window.cur_frm?.doc || {};
 			return (
-				!doc.custom_shift &&
-				!doc.custom_planned_start_date &&
-				!doc.custom_planned_end_date &&
+				!doc.custom_pea_shift &&
+				!doc.custom_pea_planned_start_date &&
+				!doc.custom_pea_planned_end_date &&
 				!doc.from_warehouse &&
 				!doc.to_warehouse
 			);
@@ -181,18 +185,18 @@ class StockEntryPage {
 
 	async setRejectionBreakupRows(rows) {
 		await this.page.evaluate((dataRows) => {
-			cur_frm.clear_table("custom_rejection_breakup");
+			cur_frm.clear_table("custom_pea_rejection_breakup");
 			for (const row of dataRows) {
-				cur_frm.add_child("custom_rejection_breakup", row);
+				cur_frm.add_child("custom_pea_rejection_breakup", row);
 			}
-			cur_frm.refresh_field("custom_rejection_breakup");
+			cur_frm.refresh_field("custom_pea_rejection_breakup");
 		}, rows);
 	}
 
 	async addUnplannedLossRow(row) {
 		await this.page.evaluate((data) => {
-			cur_frm.add_child("custom_unplanned_losses", data);
-			cur_frm.refresh_field("custom_unplanned_losses");
+			cur_frm.add_child("custom_pea_unplanned_losses", data);
+			cur_frm.refresh_field("custom_pea_unplanned_losses");
 		}, row);
 	}
 
@@ -200,14 +204,14 @@ class StockEntryPage {
 		await this.page.evaluate(
 			async ({ index, updates }) => {
 				const frm = window.cur_frm;
-				const row = frm?.doc?.custom_unplanned_losses?.[index];
+				const row = frm?.doc?.custom_pea_unplanned_losses?.[index];
 				if (!frm || !row) {
 					throw new Error("Unplanned loss row not found.");
 				}
 				for (const [fieldname, value] of Object.entries(updates)) {
 					await frappe.model.set_value(row.doctype, row.name, fieldname, value);
 				}
-				frm.refresh_field("custom_unplanned_losses");
+				frm.refresh_field("custom_pea_unplanned_losses");
 			},
 			{ index: rowIndex, updates: values }
 		);
@@ -227,7 +231,7 @@ class StockEntryPage {
 
 	async searchShiftLinkResults(text) {
 		return await this.page.evaluate(async (searchText) => {
-			const query = window.cur_frm?.fields_dict?.custom_shift?.get_query?.() || {};
+			const query = window.cur_frm?.fields_dict?.custom_pea_shift?.get_query?.() || {};
 			return await new Promise((resolve, reject) => {
 				frappe.call({
 					method: "frappe.desk.search.search_link",
@@ -247,7 +251,7 @@ class StockEntryPage {
 
 	async fetchItems() {
 		await this.page.evaluate(async () => {
-			await cur_frm.script_manager.trigger("custom_fetch_items");
+			await cur_frm.script_manager.trigger("custom_pea_fetch_items");
 		});
 		await this.page.waitForFunction(() => (window.cur_frm?.doc?.items || []).length > 0);
 	}
@@ -282,9 +286,12 @@ class StockEntryPage {
 
 	async setRejectionBreakup() {
 		await this.page.evaluate(() => {
-			cur_frm.clear_table("custom_rejection_breakup");
-			cur_frm.add_child("custom_rejection_breakup", { rejection_reason: "Burr", qty: 5 });
-			cur_frm.refresh_field("custom_rejection_breakup");
+			cur_frm.clear_table("custom_pea_rejection_breakup");
+			cur_frm.add_child("custom_pea_rejection_breakup", {
+				rejection_reason: "Burr",
+				qty: 5,
+			});
+			cur_frm.refresh_field("custom_pea_rejection_breakup");
 		});
 	}
 

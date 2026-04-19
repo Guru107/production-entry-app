@@ -31,7 +31,7 @@ class TestLifecycle(FrappeTestCase):
 			if doctype == "Property Setter":
 				return ["Stock Entry-use_multi_level_bom-default"]
 			if doctype == "Custom Field":
-				return ["Stock Entry-custom_shift", "Workstation-custom_standard_spm"]
+				return ["Stock Entry-custom_pea_shift", "Workstation-custom_pea_standard_spm"]
 			return []
 
 		with (
@@ -57,13 +57,13 @@ class TestLifecycle(FrappeTestCase):
 				),
 				call(
 					"Custom Field",
-					"Stock Entry-custom_shift",
+					"Stock Entry-custom_pea_shift",
 					ignore_permissions=True,
 					force=True,
 				),
 				call(
 					"Custom Field",
-					"Workstation-custom_standard_spm",
+					"Workstation-custom_pea_standard_spm",
 					ignore_permissions=True,
 					force=True,
 				),

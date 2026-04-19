@@ -147,7 +147,7 @@ class TestTestBootstrap(FrappeTestCase):
 		name = "Bootstrap Workstation"
 		ensure_workstation(name, standard_spm=2)
 		ensure_workstation(name, standard_spm=7)
-		standard_spm = frappe.db.get_value("Workstation", name, "custom_standard_spm")
+		standard_spm = frappe.db.get_value("Workstation", name, "custom_pea_standard_spm")
 		self.assertEqual(float(standard_spm), 7.0)
 
 	def test_reason_helpers_are_idempotent(self) -> None:

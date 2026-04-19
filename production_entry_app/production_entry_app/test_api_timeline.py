@@ -98,15 +98,15 @@ class TestGetShiftTimelineData(FrappeTestCase):
 			rm_item=self.rm_item,
 			fg_qty=good_qty,
 			rm_qty=good_qty,
-			custom_shift=shift_name,
-			custom_rejection_qty=rejection_qty,
+			custom_pea_shift=shift_name,
+			custom_pea_rejection_qty=rejection_qty,
 			fg_warehouse=self.ctx["fg_warehouse"],
 			rm_warehouse=self.ctx["rm_warehouse"],
 		)
-		entry.custom_workstation = workstation
-		entry.custom_operator = operator
-		entry.custom_actual_start_date = actual_start
-		entry.custom_actual_end_date = actual_end
+		entry.custom_pea_workstation = workstation
+		entry.custom_pea_operator = operator
+		entry.custom_pea_actual_start_date = actual_start
+		entry.custom_pea_actual_end_date = actual_end
 		entry.save()
 		frappe.db.set_value("Stock Entry", entry.name, "docstatus", docstatus, update_modified=False)
 		return entry.name
@@ -303,15 +303,15 @@ class TestGetShiftTimelineData(FrappeTestCase):
 			rm_item=self.rm_item,
 			fg_qty=total_finished_qty_before_rejection,
 			rm_qty=total_finished_qty_before_rejection,
-			custom_shift=shift.name,
-			custom_rejection_qty=rejection_qty,
+			custom_pea_shift=shift.name,
+			custom_pea_rejection_qty=rejection_qty,
 			fg_warehouse=self.ctx["fg_warehouse"],
 			rm_warehouse=self.ctx["rm_warehouse"],
 		)
-		entry.custom_workstation = self.workstation_a
-		entry.custom_operator = self.operator_a
-		entry.custom_actual_start_date = "2026-10-14 09:00:00"
-		entry.custom_actual_end_date = "2026-10-14 10:00:00"
+		entry.custom_pea_workstation = self.workstation_a
+		entry.custom_pea_operator = self.operator_a
+		entry.custom_pea_actual_start_date = "2026-10-14 09:00:00"
+		entry.custom_pea_actual_end_date = "2026-10-14 10:00:00"
 		_append_rejection_breakup_rows(
 			entry,
 			[

@@ -49,7 +49,7 @@ async function getOrCreateEmployee(page, ctx, employeeNumber) {
 test.describe("Stock Entry validation matrix", () => {
 	const lifecycle = registerE2ELifecycle(test);
 
-	test("@smoke custom_fetch_items requires qty before fetching", async ({ page }) => {
+	test("@smoke custom_pea_fetch_items requires qty before fetching", async ({ page }) => {
 		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 
@@ -71,13 +71,13 @@ test.describe("Stock Entry validation matrix", () => {
 			fgQty: 100,
 			rejectionQty: 0,
 		});
-		await stockEntryPage.waitForFieldValue("custom_stock_entry_purpose", "Manufacture");
+		await stockEntryPage.waitForFieldValue("custom_pea_stock_entry_purpose", "Manufacture");
 		const values = await stockEntryPage.getFieldValues([
 			"stock_entry_type",
-			"custom_stock_entry_purpose",
+			"custom_pea_stock_entry_purpose",
 		]);
 		expect(values.stock_entry_type).toBe("Manufacture");
-		expect(values.custom_stock_entry_purpose).toBe("Manufacture");
+		expect(values.custom_pea_stock_entry_purpose).toBe("Manufacture");
 	});
 
 	test("@regression manufacture sections are visible for manufacture stock entry type", async ({
@@ -92,11 +92,11 @@ test.describe("Stock Entry validation matrix", () => {
 		});
 		await stockEntryPage.waitForSectionVisible("bom_info_section");
 		expect(await stockEntryPage.isSectionVisible("bom_info_section")).toBe(true);
-		expect(await stockEntryPage.isSectionVisible("custom_operation_details_section")).toBe(
+		expect(await stockEntryPage.isSectionVisible("custom_pea_operation_details_section")).toBe(
 			true
 		);
-		expect(await stockEntryPage.isFieldVisible("custom_shift")).toBe(true);
-		expect(await stockEntryPage.isFieldVisible("custom_workstation")).toBe(true);
+		expect(await stockEntryPage.isFieldVisible("custom_pea_shift")).toBe(true);
+		expect(await stockEntryPage.isFieldVisible("custom_pea_workstation")).toBe(true);
 	});
 
 	test("@regression manufacture sections hide for non-manufacture stock entry type", async ({
@@ -107,22 +107,33 @@ test.describe("Stock Entry validation matrix", () => {
 		const stockEntryPage = new StockEntryPage(page);
 		await stockEntryPage.openNew();
 		await setFieldValue(page, "stock_entry_type", "Material Transfer");
-		await stockEntryPage.waitForFieldValue("custom_stock_entry_purpose", "Material Transfer");
+		await stockEntryPage.waitForFieldValue(
+			"custom_pea_stock_entry_purpose",
+			"Material Transfer"
+		);
 
-		const values = await stockEntryPage.getFieldValues(["custom_stock_entry_purpose"]);
-		expect(values.custom_stock_entry_purpose).toBe("Material Transfer");
+		const values = await stockEntryPage.getFieldValues(["custom_pea_stock_entry_purpose"]);
+		expect(values.custom_pea_stock_entry_purpose).toBe("Material Transfer");
 		expect(await stockEntryPage.isSectionVisible("bom_info_section")).toBe(false);
 		expect(await stockEntryPage.isSectionVisible("section_break_7qsm")).toBe(false);
-		expect(await stockEntryPage.isSectionVisible("custom_operation_details_section")).toBe(
+		expect(await stockEntryPage.isSectionVisible("custom_pea_operation_details_section")).toBe(
 			false
 		);
-		expect(await stockEntryPage.isFieldVisible("custom_shift")).toBe(false);
-		expect(await stockEntryPage.isFieldVisible("custom_actual_start_date_input")).toBe(false);
-		expect(await stockEntryPage.isFieldVisible("custom_actual_start_time_input")).toBe(false);
-		expect(await stockEntryPage.isFieldVisible("custom_actual_end_date_input")).toBe(false);
-		expect(await stockEntryPage.isFieldVisible("custom_actual_end_time_input")).toBe(false);
-		expect(await stockEntryPage.isFieldVisible("custom_workstation")).toBe(false);
-		expect(await stockEntryPage.isFieldVisible("custom_fetch_items")).toBe(false);
+		expect(await stockEntryPage.isFieldVisible("custom_pea_shift")).toBe(false);
+		expect(await stockEntryPage.isFieldVisible("custom_pea_actual_start_date_input")).toBe(
+			false
+		);
+		expect(await stockEntryPage.isFieldVisible("custom_pea_actual_start_time_input")).toBe(
+			false
+		);
+		expect(await stockEntryPage.isFieldVisible("custom_pea_actual_end_date_input")).toBe(
+			false
+		);
+		expect(await stockEntryPage.isFieldVisible("custom_pea_actual_end_time_input")).toBe(
+			false
+		);
+		expect(await stockEntryPage.isFieldVisible("custom_pea_workstation")).toBe(false);
+		expect(await stockEntryPage.isFieldVisible("custom_pea_fetch_items")).toBe(false);
 	});
 
 	test("@regression helper chips populate actual start and end datetimes", async ({ page }) => {
@@ -140,32 +151,32 @@ test.describe("Stock Entry validation matrix", () => {
 			plannedEndIncludes: "16:00:00",
 		});
 
-		await stockEntryPage.clickFieldChip("custom_actual_start_time_input", "Shift Start");
-		await stockEntryPage.clickFieldChip("custom_actual_end_time_input", "Shift End");
+		await stockEntryPage.clickFieldChip("custom_pea_actual_start_time_input", "Shift Start");
+		await stockEntryPage.clickFieldChip("custom_pea_actual_end_time_input", "Shift End");
 		await page.waitForFunction(() => {
 			const doc = window.cur_frm?.doc || {};
 			return (
-				doc.custom_actual_start_date === doc.custom_planned_start_date &&
-				doc.custom_actual_end_date === doc.custom_planned_end_date
+				doc.custom_pea_actual_start_date === doc.custom_pea_planned_start_date &&
+				doc.custom_pea_actual_end_date === doc.custom_pea_planned_end_date
 			);
 		});
 
 		const values = await stockEntryPage.getFieldValues([
-			"custom_actual_start_date_input",
-			"custom_actual_start_time_input",
-			"custom_actual_end_date_input",
-			"custom_actual_end_time_input",
-			"custom_actual_start_date",
-			"custom_actual_end_date",
-			"custom_planned_start_date",
-			"custom_planned_end_date",
+			"custom_pea_actual_start_date_input",
+			"custom_pea_actual_start_time_input",
+			"custom_pea_actual_end_date_input",
+			"custom_pea_actual_end_time_input",
+			"custom_pea_actual_start_date",
+			"custom_pea_actual_end_date",
+			"custom_pea_planned_start_date",
+			"custom_pea_planned_end_date",
 		]);
-		expect(values.custom_actual_start_date_input).toBe(ctx.shift_date);
-		expect(values.custom_actual_end_date_input).toBe(ctx.shift_date);
-		expect(values.custom_actual_start_time_input).toBe("08:00");
-		expect(values.custom_actual_end_time_input).toBe("16:00");
-		expect(values.custom_actual_start_date).toBe(values.custom_planned_start_date);
-		expect(values.custom_actual_end_date).toBe(values.custom_planned_end_date);
+		expect(values.custom_pea_actual_start_date_input).toBe(ctx.shift_date);
+		expect(values.custom_pea_actual_end_date_input).toBe(ctx.shift_date);
+		expect(values.custom_pea_actual_start_time_input).toBe("08:00");
+		expect(values.custom_pea_actual_end_time_input).toBe("16:00");
+		expect(values.custom_pea_actual_start_date).toBe(values.custom_pea_planned_start_date);
+		expect(values.custom_pea_actual_end_date).toBe(values.custom_pea_planned_end_date);
 	});
 
 	test("@regression purpose switch from manufacture clears manufacture fields and tables", async ({
@@ -187,7 +198,10 @@ test.describe("Stock Entry validation matrix", () => {
 		});
 
 		await setFieldValue(page, "stock_entry_type", "Material Transfer");
-		await stockEntryPage.waitForFieldValue("custom_stock_entry_purpose", "Material Transfer");
+		await stockEntryPage.waitForFieldValue(
+			"custom_pea_stock_entry_purpose",
+			"Material Transfer"
+		);
 
 		const state = await page.evaluate(() => {
 			const doc = window.cur_frm?.doc || {};
@@ -195,14 +209,14 @@ test.describe("Stock Entry validation matrix", () => {
 				from_bom: doc.from_bom,
 				bom_no: doc.bom_no,
 				fg_completed_qty: doc.fg_completed_qty,
-				custom_rejection_qty: doc.custom_rejection_qty,
-				custom_shift: doc.custom_shift,
-				custom_workstation: doc.custom_workstation,
-				custom_operator: doc.custom_operator,
-				custom_actual_start_date: doc.custom_actual_start_date,
-				custom_actual_end_date: doc.custom_actual_end_date,
-				custom_unplanned_losses_len: (doc.custom_unplanned_losses || []).length,
-				custom_rejection_breakup_len: (doc.custom_rejection_breakup || []).length,
+				custom_pea_rejection_qty: doc.custom_pea_rejection_qty,
+				custom_pea_shift: doc.custom_pea_shift,
+				custom_pea_workstation: doc.custom_pea_workstation,
+				custom_pea_operator: doc.custom_pea_operator,
+				custom_pea_actual_start_date: doc.custom_pea_actual_start_date,
+				custom_pea_actual_end_date: doc.custom_pea_actual_end_date,
+				custom_unplanned_losses_len: (doc.custom_pea_unplanned_losses || []).length,
+				custom_rejection_breakup_len: (doc.custom_pea_rejection_breakup || []).length,
 				items_len: (doc.items || []).length,
 			};
 		});
@@ -210,12 +224,12 @@ test.describe("Stock Entry validation matrix", () => {
 		expect(state.from_bom).toBe(0);
 		expect(state.bom_no).toBeFalsy();
 		expect(state.fg_completed_qty).toBeFalsy();
-		expect(state.custom_rejection_qty).toBeFalsy();
-		expect(state.custom_shift).toBeFalsy();
-		expect(state.custom_workstation).toBeFalsy();
-		expect(state.custom_operator).toBeFalsy();
-		expect(state.custom_actual_start_date).toBeFalsy();
-		expect(state.custom_actual_end_date).toBeFalsy();
+		expect(state.custom_pea_rejection_qty).toBeFalsy();
+		expect(state.custom_pea_shift).toBeFalsy();
+		expect(state.custom_pea_workstation).toBeFalsy();
+		expect(state.custom_pea_operator).toBeFalsy();
+		expect(state.custom_pea_actual_start_date).toBeFalsy();
+		expect(state.custom_pea_actual_end_date).toBeFalsy();
 		expect(state.custom_unplanned_losses_len).toBe(0);
 		expect(state.custom_rejection_breakup_len).toBe(0);
 		expect(state.items_len).toBe(0);
@@ -232,7 +246,7 @@ test.describe("Stock Entry validation matrix", () => {
 		await stockEntryPage.fetchItems();
 		await stockEntryPage.waitForSectionVisible("bom_info_section");
 		expect(await stockEntryPage.isSectionVisible("bom_info_section")).toBe(true);
-		expect(await stockEntryPage.isFieldVisible("custom_workstation")).toBe(true);
+		expect(await stockEntryPage.isFieldVisible("custom_pea_workstation")).toBe(true);
 	});
 
 	test("@regression rejection qty with empty breakup blocks save", async ({ page }) => {
@@ -355,10 +369,10 @@ test.describe("Stock Entry validation matrix", () => {
 		const stockEntryName = await page.evaluate(() => window.cur_frm?.doc?.name);
 		const savedStockEntry = await getDoc(page, "Stock Entry", stockEntryName);
 
-		expect(savedStockEntry.custom_unplanned_losses || []).toHaveLength(1);
-		expect(savedStockEntry.custom_unplanned_losses[0].downtime_reason).toBe("Tea Break");
-		expect(savedStockEntry.custom_unplanned_losses[0].start_time).toBe("10:00:00");
-		expect(savedStockEntry.custom_unplanned_losses[0].end_time).toBe("10:15:00");
+		expect(savedStockEntry.custom_pea_unplanned_losses || []).toHaveLength(1);
+		expect(savedStockEntry.custom_pea_unplanned_losses[0].downtime_reason).toBe("Tea Break");
+		expect(savedStockEntry.custom_pea_unplanned_losses[0].start_time).toBe("10:00:00");
+		expect(savedStockEntry.custom_pea_unplanned_losses[0].end_time).toBe("10:15:00");
 	});
 
 	test("@regression re-save remains idempotent for rejection row and finished good qty", async ({
@@ -389,7 +403,7 @@ test.describe("Stock Entry validation matrix", () => {
 
 		const savedStockEntry = await getDoc(page, "Stock Entry", stockEntryName);
 		const rejectionRows = (savedStockEntry.items || []).filter((row) =>
-			Boolean(row.custom_is_rejection_item)
+			Boolean(row.custom_pea_is_rejection_item)
 		);
 		const fgRows = (savedStockEntry.items || []).filter((row) =>
 			Boolean(row.is_finished_item)
@@ -424,7 +438,7 @@ test.describe("Stock Entry validation matrix", () => {
 		expect(savedAfterFirstSave.to_warehouse).toBe(ctx.fg_warehouse);
 
 		const rejectionRows = (savedAfterFirstSave.items || []).filter((row) =>
-			Boolean(row.custom_is_rejection_item)
+			Boolean(row.custom_pea_is_rejection_item)
 		);
 		expect(rejectionRows).toHaveLength(1);
 		rejectionRows[0].t_warehouse = ctx.rejection_warehouse;
@@ -437,7 +451,7 @@ test.describe("Stock Entry validation matrix", () => {
 		expect(savedAfterResave.from_warehouse).toBe(ctx.rm_warehouse);
 		expect(savedAfterResave.to_warehouse).toBe(ctx.fg_warehouse);
 		const rejectionRowsAfterResave = (savedAfterResave.items || []).filter((row) =>
-			Boolean(row.custom_is_rejection_item)
+			Boolean(row.custom_pea_is_rejection_item)
 		);
 		expect(rejectionRowsAfterResave).toHaveLength(1);
 		expect(rejectionRowsAfterResave[0].t_warehouse).toBe(ctx.rejection_warehouse);
@@ -463,7 +477,7 @@ test.describe("Stock Entry validation matrix", () => {
 		const stockEntryName = await page.evaluate(() => window.cur_frm?.doc?.name);
 		const saved = await getDoc(page, "Stock Entry", stockEntryName);
 		const rejectionRows = (saved.items || []).filter((row) =>
-			Boolean(row.custom_is_rejection_item)
+			Boolean(row.custom_pea_is_rejection_item)
 		);
 		expect(rejectionRows).toHaveLength(1);
 
@@ -481,7 +495,7 @@ test.describe("Stock Entry validation matrix", () => {
 
 		const reloaded = await getDoc(page, "Stock Entry", stockEntryName);
 		const reloadedRejectionRows = (reloaded.items || []).filter((row) =>
-			Boolean(row.custom_is_rejection_item)
+			Boolean(row.custom_pea_is_rejection_item)
 		);
 		expect(reloadedRejectionRows).toHaveLength(1);
 		expect(reloadedRejectionRows[0].t_warehouse).toBe(ctx.rejection_warehouse);
@@ -507,8 +521,8 @@ test.describe("Stock Entry validation matrix", () => {
 		const stockEntryName = await page.evaluate(() => window.cur_frm?.doc?.name);
 		const savedStockEntry = await getDoc(page, "Stock Entry", stockEntryName);
 		expect(Number(savedStockEntry.fg_completed_qty || 0)).toBe(100);
-		expect(Number(savedStockEntry.custom_rejection_qty || 0)).toBe(10);
-		expect(Number(savedStockEntry.custom_ok_qty || 0)).toBe(90);
+		expect(Number(savedStockEntry.custom_pea_rejection_qty || 0)).toBe(10);
+		expect(Number(savedStockEntry.custom_pea_ok_qty || 0)).toBe(90);
 	});
 
 	test("@regression blocks overlapping stock entry when workstation is already in use", async ({
@@ -524,7 +538,7 @@ test.describe("Stock Entry validation matrix", () => {
 			actualEnd: `${ctx.shift_date} 09:00:00`,
 		});
 		await firstStockEntryPage.fetchItems();
-		await setFieldValue(page, "custom_operator", null);
+		await setFieldValue(page, "custom_pea_operator", null);
 		await firstStockEntryPage.saveDraft();
 
 		const stockEntryPage = await openManufactureEntry(page, ctx, {
@@ -534,7 +548,7 @@ test.describe("Stock Entry validation matrix", () => {
 			actualEnd: `${ctx.shift_date} 09:30:00`,
 		});
 		await stockEntryPage.fetchItems();
-		await setFieldValue(page, "custom_operator", null);
+		await setFieldValue(page, "custom_pea_operator", null);
 		await stockEntryPage.attemptSaveDraft();
 		await expectValidationError(page, /Workstation .* already in use/i);
 	});
@@ -552,7 +566,7 @@ test.describe("Stock Entry validation matrix", () => {
 			actualEnd: `${ctx.shift_date} 09:00:00`,
 		});
 		await firstStockEntryPage.fetchItems();
-		await setFieldValue(page, "custom_workstation", null);
+		await setFieldValue(page, "custom_pea_workstation", null);
 		await firstStockEntryPage.saveDraft();
 
 		const stockEntryPage = await openManufactureEntry(page, ctx, {
@@ -562,7 +576,7 @@ test.describe("Stock Entry validation matrix", () => {
 			actualEnd: `${ctx.shift_date} 09:30:00`,
 		});
 		await stockEntryPage.fetchItems();
-		await setFieldValue(page, "custom_workstation", null);
+		await setFieldValue(page, "custom_pea_workstation", null);
 		await stockEntryPage.attemptSaveDraft();
 		await expectValidationError(page, /Operator .* already assigned/i);
 	});
@@ -596,7 +610,7 @@ test.describe("Stock Entry validation matrix", () => {
 				actualEnd: `${ctx.shift_date} 09:30:00`,
 			});
 			await stockEntryPage.fetchItems();
-			await setFieldValue(page, "custom_operator", null);
+			await setFieldValue(page, "custom_pea_operator", null);
 			await stockEntryPage.attemptSaveDraft();
 			await expectValidationError(page, /downtime entry/i);
 		} finally {

@@ -34,22 +34,24 @@ _DEFAULT_END_BUFFER_MINS: int = 60
 _MAX_BUFFER_MINS: int = 480
 _COMMON_OVERLAP_FIELDS: tuple[str, ...] = (
 	"purpose",
-	"custom_shift",
-	"custom_actual_start_date",
-	"custom_actual_end_date",
+	"custom_pea_shift",
+	"custom_pea_actual_start_date",
+	"custom_pea_actual_end_date",
 )
-_OVERLAP_DATETIME_FIELDS: frozenset[str] = frozenset({"custom_actual_start_date", "custom_actual_end_date"})
+_OVERLAP_DATETIME_FIELDS: frozenset[str] = frozenset(
+	{"custom_pea_actual_start_date", "custom_pea_actual_end_date"}
+)
 
 
 def validate_stock_entry(doc, method: str | None = None) -> None:
 	"""Hook called on Stock Entry validate event.
 
-	1. Auto-fills fields from linked Shift (if custom_shift is set).
-	2. Handles rejection quantity logic (if custom_rejection_qty > 0).
+	1. Auto-fills fields from linked Shift (if custom_pea_shift is set).
+	2. Handles rejection quantity logic (if custom_pea_rejection_qty > 0).
 	"""
 	if not access_control.can_use_production_entry_app():
 		return
-	if doc.get("custom_shift"):
+	if doc.get("custom_pea_shift"):
 		_validate_linked_shift_is_running(doc)
 		_apply_shift_defaults(doc)
 	_sync_unplanned_loss_shift_links(doc)
@@ -86,7 +88,7 @@ def on_trash_stock_entry(doc, method: str | None = None) -> None:
 
 
 def _invalidate_shift_metrics_cache(doc) -> None:
-	shift_name = doc.get("custom_shift")
+	shift_name = doc.get("custom_pea_shift")
 	if not shift_name:
 		return
 	frappe.cache().delete_value(_get_shift_metrics_cache_key(shift_name))
@@ -99,7 +101,7 @@ def _apply_shift_defaults(doc) -> None:
 	For submitted Stock Entries, only applies warehouse defaults (not planned dates),
 	preserving the immutable planned dates that were locked at submission time.
 	"""
-	shift = frappe.get_doc("Shift", doc.custom_shift)
+	shift = frappe.get_doc("Shift", doc.custom_pea_shift)
 
 	if shift.branch:
 		doc.branch = shift.branch
@@ -110,7 +112,7 @@ def _apply_shift_defaults(doc) -> None:
 	is_submitted = doc.docstatus == 1
 	if not is_submitted:
 		if shift.shift_date and shift.planned_start_time:
-			doc.custom_planned_start_date = datetime.datetime.combine(
+			doc.custom_pea_planned_start_date = datetime.datetime.combine(
 				frappe.utils.getdate(shift.shift_date),
 				get_time(shift.planned_start_time),
 			)
@@ -123,7 +125,7 @@ def _apply_shift_defaults(doc) -> None:
 			shift_duration=shift.shift_duration,
 		)
 		if planned_end:
-			doc.custom_planned_end_date = planned_end
+			doc.custom_pea_planned_end_date = planned_end
 
 	if shift.work_in_progress_warehouse:
 		# Shift warehouse values are defaults only; preserve explicit user choices.
@@ -135,7 +137,7 @@ def _apply_shift_defaults(doc) -> None:
 
 def _validate_linked_shift_is_running(doc) -> None:
 	"""Allow linking only Running shifts on Stock Entry."""
-	shift_name = doc.get("custom_shift")
+	shift_name = doc.get("custom_pea_shift")
 	if not shift_name:
 		return
 
@@ -151,17 +153,17 @@ def _validate_linked_shift_is_running(doc) -> None:
 
 def _sync_unplanned_loss_shift_links(doc) -> None:
 	"""Keep unplanned loss rows linked to the currently selected shift."""
-	shift_name = doc.get("custom_shift") or ""
-	for row in doc.get("custom_unplanned_losses") or []:
+	shift_name = doc.get("custom_pea_shift") or ""
+	for row in doc.get("custom_pea_unplanned_losses") or []:
 		row.shift = shift_name
 
 
 def _validate_actual_times(doc) -> None:
 	"""Validate that actual start/end are within planned window plus configured buffers."""
-	planned_start = _as_datetime(doc.get("custom_planned_start_date"))
-	planned_end = _as_datetime(doc.get("custom_planned_end_date"))
-	actual_start = _as_datetime(doc.get("custom_actual_start_date"))
-	actual_end = _as_datetime(doc.get("custom_actual_end_date"))
+	planned_start = _as_datetime(doc.get("custom_pea_planned_start_date"))
+	planned_end = _as_datetime(doc.get("custom_pea_planned_end_date"))
+	actual_start = _as_datetime(doc.get("custom_pea_actual_start_date"))
+	actual_end = _as_datetime(doc.get("custom_pea_actual_end_date"))
 
 	if not planned_start or not planned_end:
 		return
@@ -225,9 +227,9 @@ def _as_datetime(value) -> datetime.datetime | None:
 def _should_check_overlap(doc) -> bool:
 	return bool(
 		doc.get("purpose") == "Manufacture"
-		and doc.get("custom_shift")
-		and doc.get("custom_actual_start_date")
-		and doc.get("custom_actual_end_date")
+		and doc.get("custom_pea_shift")
+		and doc.get("custom_pea_actual_start_date")
+		and doc.get("custom_pea_actual_end_date")
 	)
 
 
@@ -251,12 +253,12 @@ def _did_overlap_inputs_change(doc, fieldnames: tuple[str, ...]) -> bool:
 
 
 def _validate_workstation_overlap(doc) -> None:
-	workstation = doc.get("custom_workstation")
+	workstation = doc.get("custom_pea_workstation")
 	if not workstation:
 		return
-	if not _did_overlap_inputs_change(doc, (*_COMMON_OVERLAP_FIELDS, "custom_workstation")):
+	if not _did_overlap_inputs_change(doc, (*_COMMON_OVERLAP_FIELDS, "custom_pea_workstation")):
 		return
-	conflict = _find_overlapping_stock_entry(doc, "custom_workstation", workstation)
+	conflict = _find_overlapping_stock_entry(doc, "custom_pea_workstation", workstation)
 	if not conflict:
 		return
 
@@ -268,12 +270,12 @@ def _validate_workstation_overlap(doc) -> None:
 
 
 def _validate_operator_overlap(doc) -> None:
-	operator = doc.get("custom_operator")
+	operator = doc.get("custom_pea_operator")
 	if not operator:
 		return
-	if not _did_overlap_inputs_change(doc, (*_COMMON_OVERLAP_FIELDS, "custom_operator")):
+	if not _did_overlap_inputs_change(doc, (*_COMMON_OVERLAP_FIELDS, "custom_pea_operator")):
 		return
-	conflict = _find_overlapping_stock_entry(doc, "custom_operator", operator)
+	conflict = _find_overlapping_stock_entry(doc, "custom_pea_operator", operator)
 	if not conflict:
 		return
 
@@ -287,14 +289,14 @@ def _validate_operator_overlap(doc) -> None:
 def _validate_workstation_downtime_overlap(doc) -> None:
 	if not _should_check_overlap(doc):
 		return
-	workstation = doc.get("custom_workstation")
+	workstation = doc.get("custom_pea_workstation")
 	if not workstation:
 		return
-	if not _did_overlap_inputs_change(doc, (*_COMMON_OVERLAP_FIELDS, "custom_workstation")):
+	if not _did_overlap_inputs_change(doc, (*_COMMON_OVERLAP_FIELDS, "custom_pea_workstation")):
 		return
 
-	start = _as_datetime(doc.get("custom_actual_start_date"))
-	end = _as_datetime(doc.get("custom_actual_end_date"))
+	start = _as_datetime(doc.get("custom_pea_actual_start_date"))
+	end = _as_datetime(doc.get("custom_pea_actual_end_date"))
 	conflict = _find_overlapping_downtime_entry(workstation, start, end)
 	if not conflict:
 		return
@@ -315,20 +317,20 @@ def _find_overlapping_stock_entry(doc, fieldname: str, fieldvalue: str | None) -
 	if not _should_check_overlap(doc) or not fieldvalue:
 		return None
 
-	start = _as_datetime(doc.get("custom_actual_start_date"))
-	end = _as_datetime(doc.get("custom_actual_end_date"))
+	start = _as_datetime(doc.get("custom_pea_actual_start_date"))
+	end = _as_datetime(doc.get("custom_pea_actual_end_date"))
 	stock_entry = DocType("Stock Entry")
 	query = (
 		frappe.qb.from_(stock_entry)
 		.select(stock_entry.name)
 		.where(stock_entry.docstatus != 2)
 		.where(stock_entry.purpose == "Manufacture")
-		.where(stock_entry.custom_shift.isnotnull())
+		.where(stock_entry.custom_pea_shift.isnotnull())
 		.where(stock_entry[fieldname] == fieldvalue)
 		.where(
 			build_interval_overlap_criterion(
-				stock_entry.custom_actual_start_date,
-				stock_entry.custom_actual_end_date,
+				stock_entry.custom_pea_actual_start_date,
+				stock_entry.custom_pea_actual_end_date,
 				start,
 				end,
 			)
@@ -364,12 +366,12 @@ def _find_overlapping_downtime_entry(
 
 
 def _validate_rejection_breakup(doc) -> None:
-	rejection_qty = float(doc.get("custom_rejection_qty") or 0)
+	rejection_qty = float(doc.get("custom_pea_rejection_qty") or 0)
 	if rejection_qty <= 0:
-		doc.custom_rework_qty = 0
+		doc.custom_pea_rework_qty = 0
 		return
 
-	breakup_rows = doc.get("custom_rejection_breakup") or []
+	breakup_rows = doc.get("custom_pea_rejection_breakup") or []
 	if not breakup_rows:
 		frappe.throw(_("Rejection Breakup is mandatory when Rejection Quantity is greater than 0."))
 
@@ -392,11 +394,11 @@ def _validate_rejection_breakup(doc) -> None:
 				total_qty, rejection_qty
 			)
 		)
-	doc.custom_rework_qty = flt(rework_qty)
+	doc.custom_pea_rework_qty = flt(rework_qty)
 
 
 def _get_rejection_breakup_abs_tol(doc, breakup_rows: list) -> float:
-	parent_precision = _get_docfield_precision("Stock Entry", "custom_rejection_qty", doc)
+	parent_precision = _get_docfield_precision("Stock Entry", "custom_pea_rejection_qty", doc)
 	child_precision = (
 		_get_docfield_precision("Rejection Breakup", "qty", breakup_rows[0]) if breakup_rows else 3
 	)
@@ -415,7 +417,7 @@ def _get_docfield_precision(doctype: str, fieldname: str, row) -> int:
 
 def _apply_rejection_entries(doc) -> None:
 	"""Handle rejection quantity: deduct from FG row and add rejection row."""
-	rejection_qty = float(doc.get("custom_rejection_qty") or 0)
+	rejection_qty = float(doc.get("custom_pea_rejection_qty") or 0)
 	existing_rejection_t_warehouse = _get_existing_rejection_target_warehouse(doc)
 
 	# Step 1: Remove any existing rejection rows and restore FG qty
@@ -466,7 +468,7 @@ def _apply_rejection_entries(doc) -> None:
 		rejection_row.cost_center = fg_row.cost_center
 	if hasattr(fg_row, "project") and fg_row.project:
 		rejection_row.project = fg_row.project
-	rejection_row.custom_is_rejection_item = 1
+	rejection_row.custom_pea_is_rejection_item = 1
 	rejection_row.is_scrap_item = 0
 	rejection_row.is_finished_item = 1
 	rejection_row.bom_no = ""
@@ -478,7 +480,7 @@ def _validate_rejection_target_warehouses(doc) -> None:
 		return
 
 	for row in doc.get("items") or []:
-		if not row.get("custom_is_rejection_item"):
+		if not row.get("custom_pea_is_rejection_item"):
 			continue
 		if not row.get("t_warehouse"):
 			frappe.throw(_("Rejection row must have a Target Warehouse."))
@@ -497,7 +499,7 @@ def _remove_existing_rejection_rows(doc) -> None:
 	fg_row = None
 
 	for row in doc.get("items", []):
-		if row.get("custom_is_rejection_item"):
+		if row.get("custom_pea_is_rejection_item"):
 			total_rejection_qty += row.qty
 		else:
 			items_to_keep.append(row)
@@ -529,8 +531,8 @@ def _get_rejection_warehouse(doc, preferred_warehouse: str | None = None) -> str
 		return preferred_warehouse
 
 	# Try from linked Shift
-	if doc.get("custom_shift"):
-		shift_rejection_wh = frappe.db.get_value("Shift", doc.custom_shift, "rejection_warehouse")
+	if doc.get("custom_pea_shift"):
+		shift_rejection_wh = frappe.db.get_value("Shift", doc.custom_pea_shift, "rejection_warehouse")
 		if shift_rejection_wh:
 			return shift_rejection_wh
 
@@ -546,7 +548,9 @@ def _get_rejection_warehouse(doc, preferred_warehouse: str | None = None) -> str
 
 def _get_existing_rejection_target_warehouse(doc) -> str | None:
 	candidates = [
-		row for row in doc.get("items", []) if row.get("custom_is_rejection_item") and row.get("t_warehouse")
+		row
+		for row in doc.get("items", [])
+		if row.get("custom_pea_is_rejection_item") and row.get("t_warehouse")
 	]
 	if not candidates:
 		return None
@@ -579,27 +583,27 @@ def _set_entry_metrics(doc) -> None:
 	meta = frappe.get_meta("Stock Entry", cached=True)
 	_set_die_tool_health_metrics(doc, meta)
 	ok_qty = _get_ok_units_for_metrics(doc)
-	_set_if_field(doc, meta, "custom_ok_qty", flt(ok_qty))
-	actual_start = _as_datetime(doc.get("custom_actual_start_date"))
-	actual_end = _as_datetime(doc.get("custom_actual_end_date"))
+	_set_if_field(doc, meta, "custom_pea_ok_qty", flt(ok_qty))
+	actual_start = _as_datetime(doc.get("custom_pea_actual_start_date"))
+	actual_end = _as_datetime(doc.get("custom_pea_actual_end_date"))
 
 	if not actual_start or not actual_end:
-		_set_if_field(doc, meta, "custom_actual_duration_mins", None)
-		_set_if_field(doc, meta, "custom_production_time_mins", None)
-		_set_if_field(doc, meta, "custom_actual_spm", None)
-		_set_if_field(doc, meta, "custom_cycle_time_sec", None)
-		_set_if_field(doc, meta, "custom_operator_efficiency_pct", None)
-		_set_if_field(doc, meta, "custom_metrics_note", "")
+		_set_if_field(doc, meta, "custom_pea_actual_duration_mins", None)
+		_set_if_field(doc, meta, "custom_pea_production_time_mins", None)
+		_set_if_field(doc, meta, "custom_pea_actual_spm", None)
+		_set_if_field(doc, meta, "custom_pea_cycle_time_sec", None)
+		_set_if_field(doc, meta, "custom_pea_operator_efficiency_pct", None)
+		_set_if_field(doc, meta, "custom_pea_metrics_note", "")
 		return
 
 	duration_mins = (actual_end - actual_start).total_seconds() / 60
 	if duration_mins <= 0:
-		_set_if_field(doc, meta, "custom_actual_duration_mins", None)
-		_set_if_field(doc, meta, "custom_production_time_mins", None)
-		_set_if_field(doc, meta, "custom_actual_spm", None)
-		_set_if_field(doc, meta, "custom_cycle_time_sec", None)
-		_set_if_field(doc, meta, "custom_operator_efficiency_pct", None)
-		_set_if_field(doc, meta, "custom_metrics_note", "")
+		_set_if_field(doc, meta, "custom_pea_actual_duration_mins", None)
+		_set_if_field(doc, meta, "custom_pea_production_time_mins", None)
+		_set_if_field(doc, meta, "custom_pea_actual_spm", None)
+		_set_if_field(doc, meta, "custom_pea_cycle_time_sec", None)
+		_set_if_field(doc, meta, "custom_pea_operator_efficiency_pct", None)
+		_set_if_field(doc, meta, "custom_pea_metrics_note", "")
 		return
 
 	deducted_loss_mins = _get_deducted_loss_minutes_for_entry(doc, actual_start, actual_end)
@@ -611,15 +615,17 @@ def _set_entry_metrics(doc) -> None:
 	cycle_time_sec = (
 		(production_time_mins * 60) / total_strokes if production_time_mins > 0 and total_strokes > 0 else 0
 	)
-	standard_spm = flt(doc.get("custom_standard_spm") or 0)
+	standard_spm = flt(doc.get("custom_pea_standard_spm") or 0)
 	operator_efficiency = ((actual_spm / standard_spm) * 100) if standard_spm > 0 else 0
 
-	_set_if_field(doc, meta, "custom_actual_duration_mins", flt(duration_mins))
-	_set_if_field(doc, meta, "custom_production_time_mins", flt(production_time_mins))
-	_set_if_field(doc, meta, "custom_actual_spm", flt(actual_spm))
-	_set_if_field(doc, meta, "custom_cycle_time_sec", flt(cycle_time_sec))
-	_set_if_field(doc, meta, "custom_operator_efficiency_pct", flt(operator_efficiency))
-	_set_if_field(doc, meta, "custom_metrics_note", _build_metrics_note(duration_mins, deducted_loss_mins))
+	_set_if_field(doc, meta, "custom_pea_actual_duration_mins", flt(duration_mins))
+	_set_if_field(doc, meta, "custom_pea_production_time_mins", flt(production_time_mins))
+	_set_if_field(doc, meta, "custom_pea_actual_spm", flt(actual_spm))
+	_set_if_field(doc, meta, "custom_pea_cycle_time_sec", flt(cycle_time_sec))
+	_set_if_field(doc, meta, "custom_pea_operator_efficiency_pct", flt(operator_efficiency))
+	_set_if_field(
+		doc, meta, "custom_pea_metrics_note", _build_metrics_note(duration_mins, deducted_loss_mins)
+	)
 
 
 def _build_metrics_note(duration_mins: float, deducted_loss_mins: float) -> str:
@@ -640,7 +646,7 @@ def _get_deducted_loss_minutes_for_entry(
 	"""Return total deduplicated loss minutes that overlap the actual entry window."""
 	overlap_intervals: list[tuple[datetime.datetime, datetime.datetime]] = []
 
-	for row in doc.get("custom_unplanned_losses") or []:
+	for row in doc.get("custom_pea_unplanned_losses") or []:
 		interval = resolve_time_interval_in_window(
 			row.get("start_time"),
 			row.get("end_time"),
@@ -679,7 +685,7 @@ def _get_deducted_loss_minutes_for_entry(
 def _get_shift_planned_losses_for_metrics(
 	doc,
 ) -> tuple[list[dict], datetime.datetime | None, datetime.datetime | None]:
-	shift_name = doc.get("custom_shift")
+	shift_name = doc.get("custom_pea_shift")
 	if not shift_name:
 		return [], None, None
 	shift = frappe.db.get_value(
@@ -716,7 +722,7 @@ def _get_shift_planned_losses_for_metrics(
 
 def _get_ok_units_for_metrics(doc) -> float:
 	fg_completed_qty = flt(doc.get("fg_completed_qty") or 0)
-	rejection_qty_field = flt(doc.get("custom_rejection_qty") or 0)
+	rejection_qty_field = flt(doc.get("custom_pea_rejection_qty") or 0)
 	return max(fg_completed_qty - rejection_qty_field, 0)
 
 
@@ -728,8 +734,8 @@ def _set_if_field(doc, meta, fieldname: str, value) -> None:
 def _set_die_tool_health_metrics(doc, meta) -> None:
 	item_code = _get_fg_item_code_for_metrics(doc)
 	if not item_code or not is_die_tool_enabled(item_code):
-		_set_if_field(doc, meta, "custom_die_tool_utilization_pct", 0)
-		_set_if_field(doc, meta, "custom_die_tool_maintenance_due", 0)
+		_set_if_field(doc, meta, "custom_pea_die_tool_utilization_pct", 0)
+		_set_if_field(doc, meta, "custom_pea_die_tool_maintenance_due", 0)
 		return
 
 	counter = frappe.db.get_value(
@@ -748,8 +754,8 @@ def _set_die_tool_health_metrics(doc, meta) -> None:
 		warning_threshold_pct=warning_threshold,
 	)
 
-	_set_if_field(doc, meta, "custom_die_tool_utilization_pct", utilization_pct)
-	_set_if_field(doc, meta, "custom_die_tool_maintenance_due", maintenance_due)
+	_set_if_field(doc, meta, "custom_pea_die_tool_utilization_pct", utilization_pct)
+	_set_if_field(doc, meta, "custom_pea_die_tool_maintenance_due", maintenance_due)
 
 
 def _get_fg_item_code_for_metrics(doc) -> str | None:

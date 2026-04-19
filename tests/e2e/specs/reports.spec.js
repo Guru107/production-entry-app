@@ -69,7 +69,7 @@ test.describe("Production reports", () => {
 		const reportsPage = new ReportsPage(page);
 		await reportsPage.open("Production OEE Report");
 		await reportsPage.runWithDateRange(seeded.posting_date, seeded.posting_date);
-		await reportsPage.setFilterByFieldname("custom_workstation", ctx.workstation);
+		await reportsPage.setFilterByFieldname("custom_pea_workstation", ctx.workstation);
 		await reportsPage.clickRefresh();
 		await reportsPage.waitForRows(1);
 
@@ -108,7 +108,7 @@ test.describe("Production reports", () => {
 		const reportsPage = new ReportsPage(page);
 		await reportsPage.open("Production OEE Report");
 		await reportsPage.runWithDateRange(seeded.posting_date, seeded.posting_date);
-		await reportsPage.setFilterByFieldname("custom_workstation", ctx.workstation);
+		await reportsPage.setFilterByFieldname("custom_pea_workstation", ctx.workstation);
 		await reportsPage.clickRefresh();
 		await reportsPage.waitForRows(1);
 		const filters = await reportsPage.getFilterValues();
@@ -142,7 +142,7 @@ test.describe("Production reports", () => {
 		const reportsPage = new ReportsPage(page);
 		await reportsPage.open("Production OEE Report");
 		await reportsPage.runWithDateRange(seeded.posting_date, seeded.posting_date);
-		await reportsPage.setFilterByFieldname("custom_workstation", ctx.workstation);
+		await reportsPage.setFilterByFieldname("custom_pea_workstation", ctx.workstation);
 		await reportsPage.clickRefresh();
 		await reportsPage.waitForRows(1);
 		const rows = await reportsPage.getRows();
@@ -161,14 +161,14 @@ test.describe("Production reports", () => {
 		const reportsPage = new ReportsPage(page);
 		await reportsPage.open("Operator Efficiency Report");
 		await reportsPage.runWithDateRange(seeded.posting_date, seeded.posting_date);
-		await reportsPage.setFilterByFieldname("custom_operator", ctx.operator);
-		await reportsPage.setFilterByFieldname("custom_shift", ctx.shift_name);
+		await reportsPage.setFilterByFieldname("custom_pea_operator", ctx.operator);
+		await reportsPage.setFilterByFieldname("custom_pea_shift", ctx.shift_name);
 		await reportsPage.clickRefresh();
 		await reportsPage.waitForRows(1);
 
 		const filters = await reportsPage.getFilterValues();
-		expect(filters.custom_operator).toBe(ctx.operator);
-		expect(filters.custom_shift).toBe(ctx.shift_name);
+		expect(filters.custom_pea_operator).toBe(ctx.operator);
+		expect(filters.custom_pea_shift).toBe(ctx.shift_name);
 
 		const rows = await reportsPage.getRows();
 		expect(rows.some((row) => row.operator === ctx.operator)).toBeTruthy();
@@ -187,9 +187,9 @@ test.describe("Production reports", () => {
 		const reportsPage = new ReportsPage(page);
 		await reportsPage.open("Operator Daily SPM Report");
 		await reportsPage.runWithDateRange(ctx.shift_date, ctx.shift_date);
-		await reportsPage.setFilterByFieldname("custom_operator", ctx.operator);
-		await reportsPage.setFilterByFieldname("custom_workstation", ctx.workstation);
-		await reportsPage.setFilterByFieldname("custom_shift", ctx.shift_name);
+		await reportsPage.setFilterByFieldname("custom_pea_operator", ctx.operator);
+		await reportsPage.setFilterByFieldname("custom_pea_workstation", ctx.workstation);
+		await reportsPage.setFilterByFieldname("custom_pea_shift", ctx.shift_name);
 		await reportsPage.clickRefresh();
 		await reportsPage.waitForRows(1);
 
@@ -214,14 +214,14 @@ test.describe("Production reports", () => {
 		const reportsPage = new ReportsPage(page);
 		await reportsPage.open("Workstation Efficiency Report");
 		await reportsPage.runWithDateRange(seeded.posting_date, seeded.posting_date);
-		await reportsPage.setFilterByFieldname("custom_workstation", ctx.workstation);
-		await reportsPage.setFilterByFieldname("custom_shift", ctx.shift_name);
+		await reportsPage.setFilterByFieldname("custom_pea_workstation", ctx.workstation);
+		await reportsPage.setFilterByFieldname("custom_pea_shift", ctx.shift_name);
 		await reportsPage.clickRefresh();
 		await reportsPage.waitForRows(1);
 
 		const filters = await reportsPage.getFilterValues();
-		expect(filters.custom_workstation).toBe(ctx.workstation);
-		expect(filters.custom_shift).toBe(ctx.shift_name);
+		expect(filters.custom_pea_workstation).toBe(ctx.workstation);
+		expect(filters.custom_pea_shift).toBe(ctx.shift_name);
 
 		const rows = await reportsPage.getRows();
 		expect(rows.some((row) => row.workstation === ctx.workstation)).toBeTruthy();
@@ -272,7 +272,7 @@ test.describe("Production reports", () => {
 		const reportsPage = new ReportsPage(page);
 		await reportsPage.open("Rejection Pareto Report");
 		await reportsPage.runWithDateRange(seeded.posting_date, seeded.posting_date);
-		await reportsPage.setFilterByFieldname("custom_workstation", ctx.workstation);
+		await reportsPage.setFilterByFieldname("custom_pea_workstation", ctx.workstation);
 		await reportsPage.clickRefresh();
 		await reportsPage.waitForRows(1);
 
@@ -337,7 +337,7 @@ test.describe("Production reports", () => {
 		const reportsPage = new ReportsPage(page);
 		await reportsPage.open("Workstation Rejection Reason Matrix");
 		await reportsPage.runWithDateRange(seeded.posting_date, seeded.posting_date);
-		await reportsPage.setFilterByFieldname("custom_workstation", ctx.workstation);
+		await reportsPage.setFilterByFieldname("custom_pea_workstation", ctx.workstation);
 		await reportsPage.setFilterByFieldname("top_n_reasons", 2);
 		await reportsPage.clickRefresh();
 		await reportsPage.waitForRows(1);
@@ -366,7 +366,7 @@ test.describe("Production reports", () => {
 		const reportsPage = new ReportsPage(page);
 		await reportsPage.open("Operator Rejection Performance");
 		await reportsPage.runWithDateRange(seeded.posting_date, seeded.posting_date);
-		await reportsPage.setFilterByFieldname("custom_operator", ctx.operator);
+		await reportsPage.setFilterByFieldname("custom_pea_operator", ctx.operator);
 		await reportsPage.clickRefresh();
 		await reportsPage.waitForRows(1);
 
@@ -396,8 +396,8 @@ test.describe("Production reports", () => {
 		await reportsPage.open("Item BOM Rejection Hotspots");
 		await reportsPage.runWithDateRange(seeded.posting_date, seeded.posting_date);
 		await reportsPage.setFilterByFieldname("fg_item", ctx.fg_item);
-		await reportsPage.setFilterByFieldname("custom_shift", ctx.shift_name);
-		await reportsPage.setFilterByFieldname("custom_workstation", ctx.workstation);
+		await reportsPage.setFilterByFieldname("custom_pea_shift", ctx.shift_name);
+		await reportsPage.setFilterByFieldname("custom_pea_workstation", ctx.workstation);
 		await reportsPage.clickRefresh();
 		await reportsPage.waitForRows(1);
 
@@ -427,8 +427,8 @@ test.describe("Production reports", () => {
 		const reportsPage = new ReportsPage(page);
 		await reportsPage.open("Rework Pareto Report");
 		await reportsPage.runWithDateRange(seeded.posting_date, seeded.posting_date);
-		await reportsPage.setFilterByFieldname("custom_workstation", ctx.workstation);
-		await reportsPage.setFilterByFieldname("custom_shift", ctx.shift_name);
+		await reportsPage.setFilterByFieldname("custom_pea_workstation", ctx.workstation);
+		await reportsPage.setFilterByFieldname("custom_pea_shift", ctx.shift_name);
 		await reportsPage.clickRefresh();
 		await reportsPage.waitForRows(1);
 		const rows = await reportsPage.getRows();
@@ -457,8 +457,8 @@ test.describe("Production reports", () => {
 		const reportsPage = new ReportsPage(page);
 		await reportsPage.open("Rework Trend Report");
 		await reportsPage.runWithDateRange(ctx.shift_date, ctx.shift_date);
-		await reportsPage.setFilterByFieldname("custom_workstation", ctx.workstation);
-		await reportsPage.setFilterByFieldname("custom_shift", ctx.shift_name);
+		await reportsPage.setFilterByFieldname("custom_pea_workstation", ctx.workstation);
+		await reportsPage.setFilterByFieldname("custom_pea_shift", ctx.shift_name);
 		await reportsPage.clickRefresh();
 		await reportsPage.waitForRows(1);
 		const trendRows = await reportsPage.getRows();
@@ -469,8 +469,8 @@ test.describe("Production reports", () => {
 
 		await reportsPage.open("Rework PPM Report");
 		await reportsPage.runWithDateRange(ctx.shift_date, ctx.shift_date);
-		await reportsPage.setFilterByFieldname("custom_workstation", ctx.workstation);
-		await reportsPage.setFilterByFieldname("custom_shift", ctx.shift_name);
+		await reportsPage.setFilterByFieldname("custom_pea_workstation", ctx.workstation);
+		await reportsPage.setFilterByFieldname("custom_pea_shift", ctx.shift_name);
 		await reportsPage.clickRefresh();
 		await reportsPage.waitForRows(1);
 		const ppmRows = await reportsPage.getRows();
@@ -499,8 +499,8 @@ test.describe("Production reports", () => {
 		const reportsPage = new ReportsPage(page);
 		await reportsPage.open("Operator Rework Performance");
 		await reportsPage.runWithDateRange(ctx.shift_date, ctx.shift_date);
-		await reportsPage.setFilterByFieldname("custom_operator", ctx.operator);
-		await reportsPage.setFilterByFieldname("custom_shift", ctx.shift_name);
+		await reportsPage.setFilterByFieldname("custom_pea_operator", ctx.operator);
+		await reportsPage.setFilterByFieldname("custom_pea_shift", ctx.shift_name);
 		await reportsPage.clickRefresh();
 		await reportsPage.waitForRows(1);
 		const operatorRows = await reportsPage.getRows();
@@ -511,7 +511,7 @@ test.describe("Production reports", () => {
 		await reportsPage.open("Item BOM Rework Hotspots");
 		await reportsPage.runWithDateRange(ctx.shift_date, ctx.shift_date);
 		await reportsPage.setFilterByFieldname("fg_item", ctx.fg_item);
-		await reportsPage.setFilterByFieldname("custom_shift", ctx.shift_name);
+		await reportsPage.setFilterByFieldname("custom_pea_shift", ctx.shift_name);
 		await reportsPage.clickRefresh();
 		await reportsPage.waitForRows(1);
 		const itemRows = await reportsPage.getRows();
@@ -519,8 +519,8 @@ test.describe("Production reports", () => {
 
 		await reportsPage.open("Workstation Rework Reason Matrix");
 		await reportsPage.runWithDateRange(ctx.shift_date, ctx.shift_date);
-		await reportsPage.setFilterByFieldname("custom_workstation", ctx.workstation);
-		await reportsPage.setFilterByFieldname("custom_shift", ctx.shift_name);
+		await reportsPage.setFilterByFieldname("custom_pea_workstation", ctx.workstation);
+		await reportsPage.setFilterByFieldname("custom_pea_shift", ctx.shift_name);
 		await reportsPage.clickRefresh();
 		await reportsPage.waitForRows(1);
 		const workstationRows = await reportsPage.getRows();

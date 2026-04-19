@@ -49,7 +49,7 @@ def _get_columns() -> list[dict]:
 def _build_filters(filters: dict) -> dict:
 	return build_stock_entry_filters(
 		filters,
-		filter_keys=("custom_workstation", "custom_shift", "custom_operator", "bom_no"),
+		filter_keys=("custom_pea_workstation", "custom_pea_shift", "custom_pea_operator", "bom_no"),
 	)
 
 
@@ -78,7 +78,7 @@ def _get_rows(filters: dict) -> list[dict]:
 	has_entries = False
 	for entries in iter_stock_entries_in_chunks(
 		_build_filters(filters),
-		["name", "posting_date", "fg_completed_qty", "custom_rejection_qty", "custom_rework_qty"],
+		["name", "posting_date", "fg_completed_qty", "custom_pea_rejection_qty", "custom_pea_rework_qty"],
 		order_by="posting_date asc, name asc",
 	):
 		has_entries = True
@@ -90,7 +90,7 @@ def _get_rows(filters: dict) -> list[dict]:
 				continue
 			entry_name = entry.get("name")
 			entry_metrics = parent_quantity_metrics.get(entry_name or "", {})
-			rework_qty = flt(entry.get("custom_rework_qty") or entry_metrics.get("rework_qty") or 0)
+			rework_qty = flt(entry.get("custom_pea_rework_qty") or entry_metrics.get("rework_qty") or 0)
 			non_rework_rejection_qty = flt(entry_metrics.get("rejection_qty") or 0)
 			total_qty = flt(entry.get("fg_completed_qty") or 0)
 			if total_qty <= 0 and entry_name:

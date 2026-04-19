@@ -185,10 +185,10 @@ def _get_existing_benchmark_context(
 		"Stock Entry",
 		filters={
 			"purpose": "Manufacture",
-			"custom_operator": operator,
-			"custom_workstation": workstation,
+			"custom_pea_operator": operator,
+			"custom_pea_workstation": workstation,
 		},
-		fields=["name", "company", "custom_shift", "posting_date", "from_warehouse", "to_warehouse"],
+		fields=["name", "company", "custom_pea_shift", "posting_date", "from_warehouse", "to_warehouse"],
 		order_by="posting_date desc, name desc",
 		limit=1,
 	)
@@ -207,7 +207,9 @@ def _get_existing_benchmark_context(
 	if not fg_row or not rm_row:
 		return None, None
 
-	rejection_warehouse = frappe.db.get_value("Shift", entry_row.get("custom_shift"), "rejection_warehouse")
+	rejection_warehouse = frappe.db.get_value(
+		"Shift", entry_row.get("custom_pea_shift"), "rejection_warehouse"
+	)
 	context = report_benchmark.BenchmarkContext(
 		company=entry_row["company"],
 		fg_item=fg_row["item_code"],
@@ -265,14 +267,14 @@ def _save_candidate_entry(
 		fg_warehouse=context.fg_warehouse,
 		rm_warehouse=context.rm_warehouse,
 	)
-	stock_entry.custom_operator = context.operator
-	stock_entry.custom_workstation = context.workstation
-	stock_entry.custom_shift = shift_name
-	stock_entry.custom_standard_spm = 2
-	stock_entry.custom_planned_start_date = start_time
-	stock_entry.custom_planned_end_date = end_time
-	stock_entry.custom_actual_start_date = start_time
-	stock_entry.custom_actual_end_date = end_time
+	stock_entry.custom_pea_operator = context.operator
+	stock_entry.custom_pea_workstation = context.workstation
+	stock_entry.custom_pea_shift = shift_name
+	stock_entry.custom_pea_standard_spm = 2
+	stock_entry.custom_pea_planned_start_date = start_time
+	stock_entry.custom_pea_planned_end_date = end_time
+	stock_entry.custom_pea_actual_start_date = start_time
+	stock_entry.custom_pea_actual_end_date = end_time
 	stock_entry.posting_date = posting_date
 	stock_entry.posting_time = "08:00:00"
 	stock_entry.save(ignore_permissions=True)
