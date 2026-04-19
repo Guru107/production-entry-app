@@ -251,6 +251,73 @@ class TestTestBootstrap(FrappeTestCase):
 			for fieldname, value in original.items():
 				frappe.db.set_single_value("Production Entry Settings", fieldname, value)
 
+	def test_cached_e2e_settings_restore_shift_defaults_from_legacy_snapshot_key(self) -> None:
+		prefix = "Bootstrap Legacy Snapshot"
+		ensure_production_entry_settings_shift_fields()
+		company = resolve_test_company()
+		abbr = get_company_abbr(company)
+		fieldnames = (
+			"shift_wip_warehouse",
+			"shift_raw_material_warehouse",
+			"shift_rejection_warehouse",
+			"shift_scrap_warehouse",
+			"shift_start_buffer_mins",
+			"shift_end_buffer_mins",
+		)
+		original = {
+			fieldname: frappe.db.get_single_value("Production Entry Settings", fieldname)
+			for fieldname in fieldnames
+		}
+		cache_key = "pea:e2e:settings:Bootstrap Legacy Snapshot"
+		try:
+			legacy_settings = {
+				"shift_wip_warehouse": ensure_warehouse(f"Bootstrap Legacy WIP - {abbr}", company),
+				"shift_raw_material_warehouse": ensure_warehouse(f"Bootstrap Legacy RM - {abbr}", company),
+				"shift_rejection_warehouse": ensure_warehouse(
+					f"Bootstrap Legacy Rejection - {abbr}", company
+				),
+				"shift_scrap_warehouse": ensure_warehouse(f"Bootstrap Legacy Scrap - {abbr}", company),
+				"shift_start_buffer_mins": 21,
+				"shift_end_buffer_mins": 27,
+			}
+			fresh_settings = {
+				"shift_wip_warehouse": ensure_warehouse(f"Bootstrap Legacy Fresh WIP - {abbr}", company),
+				"shift_raw_material_warehouse": ensure_warehouse(
+					f"Bootstrap Legacy Fresh RM - {abbr}", company
+				),
+				"shift_rejection_warehouse": ensure_warehouse(
+					f"Bootstrap Legacy Fresh Rejection - {abbr}", company
+				),
+				"shift_scrap_warehouse": ensure_warehouse(f"Bootstrap Legacy Fresh Scrap - {abbr}", company),
+				"shift_start_buffer_mins": 42,
+				"shift_end_buffer_mins": 48,
+			}
+
+			frappe.cache().set_value(
+				cache_key,
+				{
+					"manufacturing_settings": legacy_settings,
+					"system_settings": {},
+				},
+			)
+
+			for fieldname, value in fresh_settings.items():
+				frappe.db.set_single_value("Production Entry Settings", fieldname, value)
+			frappe.clear_document_cache("Production Entry Settings")
+
+			_restore_cached_e2e_settings(prefix)
+
+			for fieldname, value in legacy_settings.items():
+				self.assertEqual(
+					frappe.db.get_single_value("Production Entry Settings", fieldname),
+					value,
+					msg=f"Expected legacy snapshot value for {fieldname}",
+				)
+		finally:
+			frappe.cache().delete_value(cache_key)
+			for fieldname, value in original.items():
+				frappe.db.set_single_value("Production Entry Settings", fieldname, value)
+
 	def test_standard_rejection_reason_fixtures_exist(self) -> None:
 		expected = [
 			"Double Stroke",

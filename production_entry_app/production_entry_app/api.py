@@ -29,7 +29,6 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	ensure_downtime_reason,
 	ensure_item,
 	ensure_operator,
-	ensure_production_entry_settings_shift_fields,
 	ensure_rejection_reason,
 	ensure_stock,
 	ensure_warehouse,
@@ -62,6 +61,14 @@ _APP_GATED_DOCTYPES: frozenset[str] = frozenset(
 		"Rejection Breakup",
 	}
 )
+
+
+def _ensure_e2e_settings_fields_loaded() -> None:
+	meta = frappe.get_meta("Production Entry Settings", cached=True)
+	if all(meta.has_field(fieldname) for fieldname in _E2E_SETTINGS_FIELDS):
+		return
+	frappe.reload_doc("production_entry_app", "doctype", "production_entry_settings")
+	frappe.clear_document_cache("Production Entry Settings")
 
 
 @frappe.whitelist()
@@ -314,7 +321,7 @@ def _get_e2e_shift_names_cache_key(prefix: str) -> str:
 
 
 def _get_production_entry_settings_snapshot() -> dict[str, str | int | None]:
-	ensure_production_entry_settings_shift_fields()
+	_ensure_e2e_settings_fields_loaded()
 	return {
 		fieldname: frappe.db.get_single_value("Production Entry Settings", fieldname)
 		for fieldname in _E2E_SETTINGS_FIELDS
@@ -359,7 +366,7 @@ def _cache_e2e_shift_name(prefix: str, shift_name: str | None) -> None:
 def _restore_production_entry_settings(snapshot: dict[str, str | int | None] | None) -> None:
 	if not snapshot:
 		return
-	ensure_production_entry_settings_shift_fields()
+	_ensure_e2e_settings_fields_loaded()
 	for fieldname in _E2E_SETTINGS_FIELDS:
 		frappe.db.set_single_value("Production Entry Settings", fieldname, snapshot.get(fieldname))
 	frappe.clear_document_cache("Production Entry Settings")
@@ -381,7 +388,10 @@ def _restore_cached_e2e_settings(prefix: str) -> None:
 	cache_key = _get_e2e_settings_cache_key(prefix)
 	snapshot = frappe.cache().get_value(cache_key)
 	if snapshot:
-		_restore_production_entry_settings(snapshot.get("production_entry_settings"))
+		settings_snapshot = snapshot.get("production_entry_settings") or snapshot.get(
+			"manufacturing_settings"
+		)
+		_restore_production_entry_settings(settings_snapshot)
 		_restore_system_settings(snapshot.get("system_settings"))
 		frappe.cache().delete_value(cache_key)
 
@@ -641,7 +651,7 @@ def bootstrap_e2e_context(prefix: str = "E2E") -> dict:
 	access_control.assert_app_access()
 	_assert_e2e_api_allowed()
 	cleanup_running_shifts()
-	ensure_production_entry_settings_shift_fields()
+	_ensure_e2e_settings_fields_loaded()
 	_cache_e2e_settings_snapshot(prefix)
 	company = resolve_test_company()
 	abbr = frappe.db.get_value("Company", company, "abbr") or "TC"
