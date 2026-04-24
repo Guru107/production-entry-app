@@ -185,11 +185,16 @@ def get_linked_downtime_entries(shift_name: str | None = None) -> list[dict]:
 	Downtime Entries are fetched by time overlap, not by shift link.
 	A downtime spanning multiple shifts appears in each overlapping shift.
 	"""
-	if not shift_name or not frappe.db.exists("Shift", shift_name):
+	if not shift_name:
 		return []
 	access_control.assert_app_access(doctype="Shift", docname=shift_name)
+	shift_exists = bool(frappe.db.exists("Shift", shift_name))
+	if not shift_exists and shift_name.startswith("new-"):
+		return []
 	if not frappe.has_permission("Shift", "read", shift_name):
 		raise frappe.PermissionError
+	if not shift_exists:
+		return []
 
 	shift = frappe.db.get_value(
 		"Shift",
@@ -533,11 +538,16 @@ def _build_completeness_state(
 @frappe.whitelist()
 def get_shift_summary(shift_name: str | None = None) -> dict:
 	"""Return structured summary data for the Shift summary tab."""
-	if not shift_name or not frappe.db.exists("Shift", shift_name):
+	if not shift_name:
 		return _empty_shift_summary()
 	access_control.assert_app_access(doctype="Shift", docname=shift_name)
+	shift_exists = bool(frappe.db.exists("Shift", shift_name))
+	if not shift_exists and shift_name.startswith("new-"):
+		return _empty_shift_summary()
 	if not frappe.has_permission("Shift", "read", shift_name):
 		raise frappe.PermissionError
+	if not shift_exists:
+		return _empty_shift_summary()
 	cached_summary = _get_cached_shift_summary(shift_name)
 	if cached_summary is not None:
 		return _with_shift_summary_float_precision(cached_summary)
@@ -721,11 +731,16 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 @frappe.whitelist()
 def get_shift_aggregate_production_entries(shift_name: str | None = None) -> list[dict]:
 	"""Return per-BOM aggregate production values for submitted manufacture entries in a shift."""
-	if not shift_name or not frappe.db.exists("Shift", shift_name):
+	if not shift_name:
 		return []
 	access_control.assert_app_access(doctype="Shift", docname=shift_name)
+	shift_exists = bool(frappe.db.exists("Shift", shift_name))
+	if not shift_exists and shift_name.startswith("new-"):
+		return []
 	if not frappe.has_permission("Shift", "read", shift_name):
 		raise frappe.PermissionError
+	if not shift_exists:
+		return []
 	float_precision = get_system_float_precision()
 
 	stock_entry = DocType("Stock Entry")
