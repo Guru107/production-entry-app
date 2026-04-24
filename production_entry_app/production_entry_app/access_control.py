@@ -51,8 +51,13 @@ def assert_app_access(
 	"""
 	del doctype, docname, branch
 	effective_user = _resolve_user(None)
-	if _can_access(effective_user):
-		return
+	try:
+		if _can_access(effective_user):
+			return
+	except Exception:
+		_log_access_error("Unable to evaluate Production Entry App access.", effective_user)
+		if _is_system_manager(effective_user):
+			return
 	frappe.throw(_("You do not have access to Production Entry App."), frappe.PermissionError)
 
 

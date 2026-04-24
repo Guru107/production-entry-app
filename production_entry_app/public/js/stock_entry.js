@@ -70,11 +70,18 @@ function _run_when_app_enabled(fn) {
 	}
 	const ready = accessControl.when_ready?.();
 	if (ready?.then) {
-		void ready.then((state) => {
-			if (state?.enabled) {
-				fn();
-			}
-		});
+		void ready
+			.then((state) => {
+				if (state?.enabled) {
+					fn();
+				}
+			})
+			.catch((error) => {
+				console.warn(
+					"Production Entry App: access control state lookup failed; app flow remains disabled.",
+					error
+				);
+			});
 	}
 }
 
@@ -107,6 +114,7 @@ function _sync_native_get_items_access(frm) {
 	const accessControl = _get_access_control_api();
 	_hide_native_get_items(frm);
 	if (!accessControl) {
+		_show_native_get_items(frm);
 		return;
 	}
 	const cached = accessControl.get_cached_access_control_state?.();
@@ -119,13 +127,21 @@ function _sync_native_get_items_access(frm) {
 	}
 	const ready = accessControl.when_ready?.();
 	if (ready?.then) {
-		void ready.then((state) => {
-			if (state?.enabled === false) {
+		void ready
+			.then((state) => {
+				if (state?.enabled === false) {
+					_show_native_get_items(frm);
+					return;
+				}
+				_hide_native_get_items(frm);
+			})
+			.catch((error) => {
+				console.warn(
+					"Production Entry App: access control state lookup failed; restoring native get_items.",
+					error
+				);
 				_show_native_get_items(frm);
-				return;
-			}
-			_hide_native_get_items(frm);
-		});
+			});
 	}
 }
 
@@ -267,6 +283,7 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 					},
 					error(error) {
 						console.warn("Failed to fetch stock entry items.", error);
+						_notify_call_error(__("Failed to fetch items."), error);
 					},
 				});
 			});
@@ -322,25 +339,24 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 								});
 								return;
 							}
-							_sync_stock_entry_helper_fields(frm);
-							_setup_stock_entry_quick_entry(frm);
+							_clear_shift_derived_fields(frm).finally(() => {
+								_sync_stock_entry_helper_fields(frm);
+								_setup_stock_entry_quick_entry(frm);
+							});
 						},
 						error(error) {
 							if (reqId !== _shiftDetailsRequestId) return;
 							console.warn("Failed to fetch shift details for stock entry.", error);
-							_sync_stock_entry_helper_fields(frm);
-							_setup_stock_entry_quick_entry(frm);
+							_clear_shift_derived_fields(frm).finally(() => {
+								_sync_stock_entry_helper_fields(frm);
+								_setup_stock_entry_quick_entry(frm);
+							});
+							_notify_call_error(__("Failed to fetch shift details."), error);
 						},
 					});
 				} else {
 					_shiftDetailsRequestId++;
-					Promise.all([
-						frm.set_value("branch", ""),
-						frm.set_value("custom_pea_planned_start_date", ""),
-						frm.set_value("custom_pea_planned_end_date", ""),
-						frm.set_value("from_warehouse", ""),
-						frm.set_value("to_warehouse", ""),
-					]).finally(() => {
+					_clear_shift_derived_fields(frm).finally(() => {
 						_sync_stock_entry_helper_fields(frm);
 						_setup_stock_entry_quick_entry(frm);
 					});
@@ -579,6 +595,37 @@ function _get_shift_ctx(frm) {
 	return { start, end };
 }
 
+function _clear_shift_derived_fields(frm) {
+	return Promise.all([
+		frm.set_value("branch", ""),
+		frm.set_value("custom_pea_planned_start_date", ""),
+		frm.set_value("custom_pea_planned_end_date", ""),
+		frm.set_value("from_warehouse", ""),
+		frm.set_value("to_warehouse", ""),
+	]);
+}
+
+function _extract_error_detail(error) {
+	const message = String(error?.message || "").trim();
+	if (message) {
+		return message;
+	}
+	const responseMessage = String(error?.responseJSON?._error_message || "").trim();
+	if (responseMessage) {
+		return responseMessage;
+	}
+	return "";
+}
+
+function _notify_call_error(prefix, error) {
+	const detail = _extract_error_detail(error);
+	if (detail) {
+		frappe.msgprint(__("{0} {1}", [prefix, detail]));
+		return;
+	}
+	frappe.msgprint(prefix);
+}
+
 function _normalize_purpose(purpose) {
 	return (purpose || "").trim();
 }
@@ -712,6 +759,7 @@ if (typeof module !== "undefined" && module.exports) {
 		ALWAYS_HIDDEN_SECTIONS,
 		MANUFACTURE_CLEAR_TABLE_FIELDS,
 		_should_override_fg_completed_qty,
+		_run_when_app_enabled,
 		_sync_native_get_items_access,
 		_hide_native_get_items,
 		_show_native_get_items,

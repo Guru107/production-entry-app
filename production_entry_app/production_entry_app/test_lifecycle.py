@@ -9,19 +9,31 @@ from production_entry_app.production_entry_app import lifecycle
 
 class TestLifecycle(FrappeTestCase):
 	def test_after_sync_runs_idempotent_setup(self) -> None:
-		with patch(
-			"production_entry_app.production_entry_app.lifecycle.performance_indexes.ensure_performance_indexes_with_recovery"
-		) as ensure_indexes:
+		with (
+			patch(
+				"production_entry_app.production_entry_app.lifecycle.access_control.invalidate_access_control_cache"
+			) as invalidate_cache,
+			patch(
+				"production_entry_app.production_entry_app.lifecycle.performance_indexes.ensure_performance_indexes_with_recovery"
+			) as ensure_indexes,
+		):
 			lifecycle.after_sync()
 
+		invalidate_cache.assert_called_once_with()
 		ensure_indexes.assert_called_once_with()
 
 	def test_after_migrate_runs_idempotent_setup(self) -> None:
-		with patch(
-			"production_entry_app.production_entry_app.lifecycle.performance_indexes.ensure_performance_indexes_with_recovery"
-		) as ensure_indexes:
+		with (
+			patch(
+				"production_entry_app.production_entry_app.lifecycle.access_control.invalidate_access_control_cache"
+			) as invalidate_cache,
+			patch(
+				"production_entry_app.production_entry_app.lifecycle.performance_indexes.ensure_performance_indexes_with_recovery"
+			) as ensure_indexes,
+		):
 			lifecycle.after_migrate()
 
+		invalidate_cache.assert_called_once_with()
 		ensure_indexes.assert_called_once_with()
 
 	def test_before_uninstall_drops_indexes_and_deletes_only_app_owned_customizations(self) -> None:

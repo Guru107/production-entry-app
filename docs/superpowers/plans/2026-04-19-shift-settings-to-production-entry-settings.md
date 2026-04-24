@@ -89,12 +89,12 @@
 ```bash
 pre-commit run --all-files
 
-cd /Users/gurudattkulkarni/Workspace/bench15
+cd $BENCH_DIR
 bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.overrides.test_stock_entry_hooks
 bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.overrides.test_stock_entry_override
 bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.utils.test_test_bootstrap
 
-cd /Users/gurudattkulkarni/Workspace/production-entry-app
+cd $APP_DIR
 node --test tests/unit/stock-entry-visibility.test.js
 npx playwright test tests/e2e/specs/access-control-role-branch.spec.js
 ```

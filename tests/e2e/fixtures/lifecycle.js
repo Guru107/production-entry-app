@@ -2,8 +2,8 @@ const { cleanupE2E } = require("./test-data");
 const { e2ePrefix } = require("./prefix");
 const { getRoute } = require("../utils/routing");
 
-const ADMIN_USERNAME = process.env.PLAYWRIGHT_USERNAME || "Administrator";
-const ADMIN_PASSWORD = process.env.PLAYWRIGHT_PASSWORD || "123";
+const ADMIN_USERNAME = process.env.PLAYWRIGHT_ADMIN_USERNAME || "Administrator";
+const ADMIN_PASSWORD = process.env.PLAYWRIGHT_ADMIN_PASSWORD || "123";
 
 async function loginAsAdmin(page) {
 	const response = await page.request.post("/api/method/login", {

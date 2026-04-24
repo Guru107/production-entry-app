@@ -6,7 +6,6 @@
  "engine": "InnoDB",
  "field_order": [
   "role",
-  "branch",
   "is_active"
  ],
  "fields": [
@@ -16,14 +15,6 @@
    "in_list_view": 1,
    "label": "Role",
    "options": "Role",
-   "reqd": 1
-  },
-  {
-   "fieldname": "branch",
-   "fieldtype": "Link",
-   "in_list_view": 1,
-   "label": "Branch",
-   "options": "Branch",
    "reqd": 1
   },
   {

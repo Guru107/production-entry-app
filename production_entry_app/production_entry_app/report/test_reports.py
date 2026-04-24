@@ -2117,6 +2117,37 @@ class TestProductionReports(FrappeTestCase):
 		# PPM = (10 / 100) * 1_000_000 = 100_000
 		self.assertEqual(float(rows[0]["ppm"]), 100_000.0)
 
+	def test_rejection_ppm_report_prefers_parent_rejection_field_when_present(self) -> None:
+		from production_entry_app.production_entry_app.report.rejection_ppm_report.rejection_ppm_report import (
+			_get_rows,
+		)
+
+		entry_rows = [
+			[
+				{
+					"name": "MAT-STE-TEST-0001",
+					"posting_date": "2026-06-30",
+					"fg_completed_qty": 100,
+					"custom_pea_rejection_qty": 9,
+				}
+			]
+		]
+		with (
+			patch(
+				"production_entry_app.production_entry_app.report.rejection_ppm_report.rejection_ppm_report.iter_stock_entries_in_chunks",
+				return_value=entry_rows,
+			),
+			patch(
+				"production_entry_app.production_entry_app.report.rejection_ppm_report.rejection_ppm_report.get_parent_quantity_metrics",
+				return_value={"MAT-STE-TEST-0001": {"rejection_qty": 2}},
+			),
+		):
+			rows = _get_rows({"from_date": "2026-06-30", "to_date": "2026-06-30"})
+
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(float(rows[0]["rejection_qty"]), 9.0)
+		self.assertEqual(float(rows[0]["ppm"]), 90_000.0)
+
 	def test_rejection_ppm_report_chart(self) -> None:
 		from production_entry_app.production_entry_app.report.rejection_ppm_report.rejection_ppm_report import (
 			execute,

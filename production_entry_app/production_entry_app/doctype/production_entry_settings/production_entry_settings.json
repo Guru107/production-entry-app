@@ -55,13 +55,17 @@
    "default": "60",
    "fieldname": "shift_start_buffer_mins",
    "fieldtype": "Int",
-   "label": "Shift Start Buffer (Minutes)"
+   "label": "Shift Start Buffer (Minutes)",
+   "max_value": "480",
+   "min_value": "0"
   },
   {
    "default": "60",
    "fieldname": "shift_end_buffer_mins",
    "fieldtype": "Int",
-   "label": "Shift End Buffer (Minutes)"
+   "label": "Shift End Buffer (Minutes)",
+   "max_value": "480",
+   "min_value": "0"
   }
  ],
  "hide_toolbar": 1,

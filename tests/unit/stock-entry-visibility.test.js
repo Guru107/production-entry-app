@@ -6,6 +6,7 @@ const {
 	_is_manufacture_doc,
 	_did_leave_manufacture,
 	_should_override_fg_completed_qty,
+	_run_when_app_enabled,
 	_sync_native_get_items_access,
 	MANUFACTURE_FIELDS,
 	MANUFACTURE_SECTIONS,
@@ -88,6 +89,39 @@ test("fg completed qty override is disabled until required-role access is explic
 	}
 });
 
+test("app-enabled callbacks stay fail-closed when access lookup rejects", async () => {
+	const originalWindow = global.window;
+	let rejectReady;
+	const readyPromise = new Promise((_resolve, reject) => {
+		rejectReady = reject;
+	});
+	let runCount = 0;
+	global.window = {
+		production_entry_app: {
+			access_control: {
+				get_cached_access_control_state() {
+					return null;
+				},
+				when_ready() {
+					return readyPromise;
+				},
+			},
+		},
+	};
+
+	try {
+		_run_when_app_enabled(() => {
+			runCount += 1;
+		});
+		rejectReady(new Error("ACL API failed"));
+		await readyPromise.catch(() => {});
+		await Promise.resolve();
+		assert.equal(runCount, 0);
+	} finally {
+		global.window = originalWindow;
+	}
+});
+
 test("native get_items stays hidden while required-role access is unresolved and only reappears for denied users", async () => {
 	const originalWindow = global.window;
 	let resolveReady;
@@ -126,6 +160,49 @@ test("native get_items stays hidden while required-role access is unresolved and
 
 		resolveReady({ enabled: false });
 		await readyPromise;
+		await Promise.resolve();
+		assert.deepEqual(calls.slice(-3), [
+			["toggle_display", "get_items", true],
+			["set_df_property", "get_items", "hidden", 0],
+			["set_df_property", "get_items", "read_only", 0],
+		]);
+	} finally {
+		global.window = originalWindow;
+	}
+});
+
+test("native get_items falls back to visible when access lookup rejects", async () => {
+	const originalWindow = global.window;
+	let rejectReady;
+	const readyPromise = new Promise((_resolve, reject) => {
+		rejectReady = reject;
+	});
+	const calls = [];
+	const frm = {
+		toggle_display(fieldname, visible) {
+			calls.push(["toggle_display", fieldname, visible]);
+		},
+		set_df_property(fieldname, property, value) {
+			calls.push(["set_df_property", fieldname, property, value]);
+		},
+	};
+	global.window = {
+		production_entry_app: {
+			access_control: {
+				get_cached_access_control_state() {
+					return null;
+				},
+				when_ready() {
+					return readyPromise;
+				},
+			},
+		},
+	};
+
+	try {
+		_sync_native_get_items_access(frm);
+		rejectReady(new Error("ACL API failed"));
+		await readyPromise.catch(() => {});
 		await Promise.resolve();
 		assert.deepEqual(calls.slice(-3), [
 			["toggle_display", "get_items", true],

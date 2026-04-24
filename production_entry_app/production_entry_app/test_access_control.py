@@ -319,6 +319,41 @@ class TestAccessControl(FrappeTestCase):
 			with self.assertRaises(frappe.PermissionError):
 				access_control.assert_app_access(doctype="Shift", docname="SHIFT-00001")
 
+	def test_assert_app_access_fails_closed_for_non_manager_when_settings_are_corrupt(self) -> None:
+		with (
+			patch(
+				"production_entry_app.production_entry_app.access_control._load_access_configuration",
+				side_effect=ValueError("corrupt"),
+			),
+			patch(
+				"production_entry_app.production_entry_app.access_control.frappe.get_roles",
+				return_value=["Manufacturing User"],
+			),
+			patch("production_entry_app.production_entry_app.access_control.frappe.log_error") as log_error,
+		):
+			from production_entry_app.production_entry_app import access_control
+
+			with self.assertRaises(frappe.PermissionError):
+				access_control.assert_app_access(doctype="Shift", docname="SHIFT-00001")
+			self.assertTrue(log_error.called)
+
+	def test_assert_app_access_allows_system_manager_when_settings_are_corrupt(self) -> None:
+		with (
+			patch(
+				"production_entry_app.production_entry_app.access_control._load_access_configuration",
+				side_effect=ValueError("corrupt"),
+			),
+			patch(
+				"production_entry_app.production_entry_app.access_control.frappe.get_roles",
+				return_value=["System Manager"],
+			),
+			patch("production_entry_app.production_entry_app.access_control.frappe.log_error") as log_error,
+		):
+			from production_entry_app.production_entry_app import access_control
+
+			access_control.assert_app_access(doctype="Shift", docname="SHIFT-00001")
+			self.assertTrue(log_error.called)
+
 	def test_missing_or_corrupt_settings_fail_closed_for_non_manager(self) -> None:
 		with (
 			patch(
