@@ -10,7 +10,7 @@
 
 ---
 
-### Task 1: Add Shift Fields to Production Entry Settings
+## Task 1: Add Shift Fields to Production Entry Settings
 
 **Files:**
 - Modify: `production_entry_app/production_entry_app/doctype/production_entry_settings/production_entry_settings.json`
@@ -23,7 +23,7 @@
 - [ ] **Step 4: Keep validation coherent** (`required_role` + access-control validation unaffected)
 - [ ] **Step 5: Run focused tests and commit**
 
-### Task 2: Remove Manufacturing Settings Shift Custom Fields
+## Task 2: Remove Manufacturing Settings Shift Custom Fields
 
 **Files:**
 - Modify: `production_entry_app/fixtures/custom_field.json`
@@ -33,7 +33,7 @@
 - [ ] **Step 2: Validate fixture JSON integrity**
 - [ ] **Step 3: Run affected fixture/field-map tests and commit**
 
-### Task 3: Refactor Backend Reads/Writes to Production Entry Settings
+## Task 3: Refactor Backend Reads/Writes to Production Entry Settings
 
 **Files:**
 - Modify: `production_entry_app/production_entry_app/overrides/stock_entry_hooks.py`
@@ -49,7 +49,7 @@
 - [ ] **Step 3: Update user-facing text references to `Production Entry Settings`**
 - [ ] **Step 4: Run targeted Python modules and commit**
 
-### Task 4: Update Frontend Visibility Field Map and Related JS Expectations
+## Task 4: Update Frontend Visibility Field Map and Related JS Expectations
 
 **Files:**
 - Modify: `scripts/build_access_control_field_map.py`
@@ -63,7 +63,7 @@
 - [ ] **Step 3: Update JS tests/assertions as needed**
 - [ ] **Step 4: Run JS unit tests and commit**
 
-### Task 5: Update E2E Setup and Runtime Settings Mutation
+## Task 5: Update E2E Setup and Runtime Settings Mutation
 
 **Files:**
 - Modify: `tests/e2e/specs/access-control-role-branch.spec.js`
@@ -74,7 +74,7 @@
 - [ ] **Step 2: Keep role-only access flow coverage intact**
 - [ ] **Step 3: Run targeted Playwright spec (or capture precise environment blocker) and commit**
 
-### Task 6: Full Verification and Bench Rollout Sanity
+## Task 6: Full Verification and Bench Rollout Sanity
 
 **Files:**
 - No feature files; verification + possible small follow-up fixes.

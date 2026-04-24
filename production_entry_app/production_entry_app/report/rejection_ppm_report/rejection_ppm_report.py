@@ -57,8 +57,11 @@ def _get_rows(filters: dict) -> list[dict]:
 				continue
 			entry_name = entry.get("name")
 			entry_metrics = parent_quantity_metrics.get(entry_name or "", {})
+			parent_rejection_qty = entry.get("custom_pea_rejection_qty")
 			rejection_qty = flt(
-				entry.get("custom_pea_rejection_qty") or entry_metrics.get("rejection_qty") or 0
+				parent_rejection_qty
+				if parent_rejection_qty not in (None, "")
+				else entry_metrics.get("rejection_qty") or 0
 			)
 			total_qty = flt(entry.get("fg_completed_qty") or 0)
 			if total_qty <= 0 and entry_name:

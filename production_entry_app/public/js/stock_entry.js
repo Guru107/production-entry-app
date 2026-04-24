@@ -619,11 +619,7 @@ function _extract_error_detail(error) {
 
 function _notify_call_error(prefix, error) {
 	const detail = _extract_error_detail(error);
-	if (detail) {
-		frappe.msgprint(__("{0} {1}", [prefix, detail]));
-		return;
-	}
-	frappe.msgprint(prefix);
+	frappe.msgprint(prefix + (detail ? ` ${detail}` : ""));
 }
 
 function _normalize_purpose(purpose) {
