@@ -712,6 +712,10 @@ class TestStockEntryHooks(FrappeTestCase):
 		self.assertEqual(float(se.custom_pea_rework_qty or 0), 3.0)
 
 	def test_rejection_breakup_allows_difference_within_precision_tolerance(self) -> None:
+		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
+			_get_rejection_breakup_abs_tol,
+		)
+
 		shift = _create_test_shift(
 			shift_date="2026-04-17",
 			shift_label="2",
@@ -726,20 +730,26 @@ class TestStockEntryHooks(FrappeTestCase):
 			rm_item=self.rm_item,
 			fg_qty=100,
 			custom_pea_shift=shift.name,
-			custom_pea_rejection_qty=5.00049,
+			custom_pea_rejection_qty=5,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
+		abs_tol = _get_rejection_breakup_abs_tol(se, [frappe._dict(qty=5)])
+		within_delta = abs_tol * 0.9
 		_append_rejection_breakup_rows(
 			se,
 			[
-				{"rejection_reason": "Burr", "qty": 5.0005, "remark": "Within precision tolerance"},
+				{"rejection_reason": "Burr", "qty": 5 + within_delta, "remark": "Within precision tolerance"},
 			],
 		)
 
 		se.save()
 
 	def test_rejection_breakup_rejects_difference_beyond_precision_tolerance(self) -> None:
+		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
+			_get_rejection_breakup_abs_tol,
+		)
+
 		shift = _create_test_shift(
 			shift_date="2026-04-20",
 			shift_label="2",
@@ -754,14 +764,16 @@ class TestStockEntryHooks(FrappeTestCase):
 			rm_item=self.rm_item,
 			fg_qty=100,
 			custom_pea_shift=shift.name,
-			custom_pea_rejection_qty=5.00049,
+			custom_pea_rejection_qty=5,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
+		abs_tol = _get_rejection_breakup_abs_tol(se, [frappe._dict(qty=5)])
+		beyond_delta = abs_tol * 1.1
 		_append_rejection_breakup_rows(
 			se,
 			[
-				{"rejection_reason": "Burr", "qty": 4.99951, "remark": "Beyond precision tolerance"},
+				{"rejection_reason": "Burr", "qty": 5 - beyond_delta, "remark": "Beyond precision tolerance"},
 			],
 		)
 

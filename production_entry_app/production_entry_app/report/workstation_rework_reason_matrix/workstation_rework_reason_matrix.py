@@ -86,7 +86,7 @@ def _get_rows(filters: dict, top_n: int) -> tuple[list[dict], list[str]]:
 		if not entry_names:
 			continue
 		workstation_by_entry = {
-			row.get("name"): (row.get("custom_pea_workstation") or "Unassigned")
+			row.get("name"): (row.get("custom_pea_workstation") or _("Unassigned"))
 			for row in entry_rows
 			if row.get("name")
 		}
@@ -97,7 +97,7 @@ def _get_rows(filters: dict, top_n: int) -> tuple[list[dict], list[str]]:
 			qty = flt(row.get("qty") or 0)
 			if not parent or not reason or qty <= 0:
 				continue
-			workstation = workstation_by_entry.get(parent, "Unassigned")
+			workstation = workstation_by_entry.get(parent, _("Unassigned"))
 			reason_totals[reason] = flt(reason_totals.get(reason) or 0) + qty
 			matrix.setdefault(workstation, {})
 			matrix[workstation][reason] = flt(matrix[workstation].get(reason) or 0) + qty

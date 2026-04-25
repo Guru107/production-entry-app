@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import io
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -7,7 +8,20 @@ from unittest.mock import patch
 
 from frappe.tests.utils import FrappeTestCase
 
-from scripts import cleanup_stale_ephemeral_sites
+
+def _load_cleanup_script_module():
+	script_path = Path(__file__).resolve().parents[3] / "scripts" / "cleanup_stale_ephemeral_sites.py"
+	spec = importlib.util.spec_from_file_location(
+		"production_entry_app_cleanup_stale_ephemeral_sites", script_path
+	)
+	if not spec or not spec.loader:
+		raise RuntimeError(f"Unable to load cleanup script module from {script_path}")
+	module = importlib.util.module_from_spec(spec)
+	spec.loader.exec_module(module)
+	return module
+
+
+cleanup_stale_ephemeral_sites = _load_cleanup_script_module()
 
 
 class TestCleanupStaleEphemeralSites(FrappeTestCase):
@@ -43,7 +57,7 @@ class TestCleanupStaleEphemeralSites(FrappeTestCase):
 					{"DB_ROOT_USERNAME": "root", "DB_ROOT_PASSWORD": "secret"},
 					clear=False,
 				),
-				patch("scripts.cleanup_stale_ephemeral_sites.subprocess.run") as run_mock,
+				patch.object(cleanup_stale_ephemeral_sites.subprocess, "run") as run_mock,
 				patch("sys.stdout", stdout),
 			):
 				exit_code = cleanup_stale_ephemeral_sites.main()

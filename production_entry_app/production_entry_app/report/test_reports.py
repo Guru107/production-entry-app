@@ -2401,6 +2401,31 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(float(rows[0]["total_rework_qty"]), 5.0)
 		self.assertEqual(float(rows[0]["reason_crack"]), 5.0)
 
+	def test_workstation_rework_reason_matrix_translates_unassigned_label(self) -> None:
+		from production_entry_app.production_entry_app.report.workstation_rework_reason_matrix import (
+			workstation_rework_reason_matrix as report,
+		)
+
+		with (
+			patch.object(
+				report,
+				"iter_stock_entries_in_chunks",
+				return_value=[[{"name": "STE-UNASSIGNED", "custom_pea_workstation": ""}]],
+			),
+			patch.object(
+				report,
+				"get_parent_breakup_reason_rows",
+				return_value=[
+					{"parent": "STE-UNASSIGNED", "rejection_reason": "Crack", "qty": 4},
+				],
+			),
+			patch.object(report, "apply_system_precision", side_effect=lambda columns: columns),
+			patch.object(report, "_", side_effect=lambda text: f"translated:{text}"),
+		):
+			_rows, rows = report.execute({"from_date": "2026-07-10", "to_date": "2026-07-10"})
+
+		self.assertEqual(rows[0]["workstation"], "translated:Unassigned")
+
 	# ── Daily Strokes SPM Monitor ─────────────────────────────────────
 
 	def _ensure_fiscal_year(self, fy_name: str, start_date: str, end_date: str) -> None:

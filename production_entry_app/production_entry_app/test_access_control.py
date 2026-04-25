@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -37,14 +39,18 @@ class TestAccessControl(FrappeTestCase):
 		super().tearDown()
 
 	def test_settings_metadata_is_install_safe_and_role_only(self) -> None:
-		meta = frappe.get_meta("Production Entry Settings")
-		field = meta.get_field("required_role")
+		settings_path = (
+			Path(__file__).parent / "doctype" / "production_entry_settings" / "production_entry_settings.json"
+		)
+		settings_schema = json.loads(settings_path.read_text())
+		field_by_name = {field["fieldname"]: field for field in settings_schema["fields"]}
+		field = field_by_name["required_role"]
 
-		self.assertIsNotNone(field)
-		self.assertEqual(field.fieldtype, "Link")
-		self.assertEqual(field.options, "Role")
-		self.assertFalse(field.default)
-		self.assertIsNone(meta.get_field("allowed_access_rules"))
+		self.assertEqual(field["fieldtype"], "Link")
+		self.assertEqual(field["options"], "Role")
+		self.assertEqual(field["default"], DEFAULT_REQUIRED_ROLE)
+		self.assertEqual(field["reqd"], 1)
+		self.assertNotIn("allowed_access_rules", field_by_name)
 
 	def test_settings_default_enable_access_control_is_zero(self) -> None:
 		meta = frappe.get_meta("Production Entry Settings")

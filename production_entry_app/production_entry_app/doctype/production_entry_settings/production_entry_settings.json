@@ -22,10 +22,12 @@
    "label": "Enable Access Control"
   },
   {
+   "default": "PEA User",
    "fieldname": "required_role",
    "fieldtype": "Link",
    "label": "Required Role",
-   "options": "Role"
+   "options": "Role",
+   "reqd": 1
   },
   {
    "fieldname": "shift_raw_material_warehouse",
