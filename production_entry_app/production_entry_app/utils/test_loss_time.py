@@ -12,6 +12,10 @@ from production_entry_app.production_entry_app.utils.loss_time import (
 	get_loss_duration_minutes,
 	resolve_time_interval_in_window,
 )
+from production_entry_app.production_entry_app.utils.shift_time import (
+	combine_date_time,
+	get_shift_planned_end_datetime,
+)
 
 
 class TestLossTime(FrappeTestCase):
@@ -94,4 +98,61 @@ class TestLossTime(FrappeTestCase):
 			get_loss_duration_minutes("23:59:40", "00:00:20"),
 			expected_minutes,
 			delta=derived_abs_tol,
+		)
+
+
+class TestShiftTime(FrappeTestCase):
+	def test_combine_date_time_accepts_string_values(self) -> None:
+		self.assertEqual(
+			combine_date_time("2026-03-03", "08:15:00"),
+			datetime.datetime(2026, 3, 3, 8, 15, 0),
+		)
+
+	def test_get_shift_planned_end_datetime_returns_none_for_missing_required_inputs(self) -> None:
+		self.assertIsNone(
+			get_shift_planned_end_datetime(
+				shift_date=None,
+				planned_start_time="08:00:00",
+				planned_end_time="16:00:00",
+				shift_end_date=None,
+			)
+		)
+		self.assertIsNone(
+			get_shift_planned_end_datetime(
+				shift_date="2026-03-03",
+				planned_start_time=None,
+				planned_end_time=None,
+				shift_duration=8,
+				shift_end_date=None,
+			)
+		)
+		self.assertIsNone(
+			get_shift_planned_end_datetime(
+				shift_date="2026-03-03",
+				planned_start_time="08:00:00",
+				planned_end_time=None,
+				shift_duration="invalid",
+				shift_end_date=None,
+			)
+		)
+
+	def test_get_shift_planned_end_datetime_handles_cross_midnight_and_duration_fallback(self) -> None:
+		self.assertEqual(
+			get_shift_planned_end_datetime(
+				shift_date="2026-03-03",
+				planned_start_time="22:00:00",
+				planned_end_time="06:00:00",
+				shift_end_date=None,
+			),
+			datetime.datetime(2026, 3, 4, 6, 0, 0),
+		)
+		self.assertEqual(
+			get_shift_planned_end_datetime(
+				shift_date="2026-03-03",
+				planned_start_time="08:00:00",
+				planned_end_time=None,
+				shift_duration="8",
+				shift_end_date=None,
+			),
+			datetime.datetime(2026, 3, 3, 16, 0, 0),
 		)

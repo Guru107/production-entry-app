@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import datetime
-from unittest.mock import patch
+from contextlib import ExitStack
+from unittest.mock import MagicMock, patch
 
 import frappe
 from frappe.exceptions import ValidationError
 from frappe.tests.utils import FrappeTestCase
 
+from production_entry_app.production_entry_app.doctype.shift import shift as shift_module
 from production_entry_app.production_entry_app.doctype.shift.shift import _resolve_shift_company
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	bootstrap_manufacturing_test_context,
@@ -90,6 +92,542 @@ def _to_date_str(val) -> str:
 	if hasattr(val, "isoformat"):
 		return val.isoformat()
 	return str(val)
+
+
+class TestShiftPureHelpers(FrappeTestCase):
+	def tearDown(self) -> None:
+		frappe.db.rollback()
+
+	def test_send_shift_notification_returns_when_no_recipients(self) -> None:
+		shift_doc = frappe._dict({"name": "SHIFT-UNIT-001", "supervisor": None})
+		with patch(
+			"production_entry_app.production_entry_app.doctype.shift.shift._get_notification_recipients_for_shift",
+			return_value=[],
+		):
+			shift_module._send_shift_notification(
+				shift_doc,
+				event="start",
+				subject="Shift started",
+			)
+
+	def test_resolve_shift_branch_prefers_current_then_default_then_sole_branch(self) -> None:
+		self.assertEqual(
+			shift_module._resolve_shift_branch("Current Branch", "Default Branch"), "Current Branch"
+		)
+		with patch(
+			"production_entry_app.production_entry_app.doctype.shift.shift.frappe.db.exists",
+			return_value=True,
+		):
+			self.assertEqual(shift_module._resolve_shift_branch(None, "Default Branch"), "Default Branch")
+		with patch(
+			"production_entry_app.production_entry_app.doctype.shift.shift.frappe.db.exists",
+			return_value=False,
+		):
+			with patch(
+				"production_entry_app.production_entry_app.doctype.shift.shift.frappe.db.count",
+				return_value=1,
+			):
+				with patch(
+					"production_entry_app.production_entry_app.doctype.shift.shift.frappe.db.get_value",
+					return_value="Only Branch",
+				):
+					self.assertEqual(
+						shift_module._resolve_shift_branch(None, "Missing Branch"), "Only Branch"
+					)
+
+	def test_next_shift_sequence_ignores_unparseable_legacy_names(self) -> None:
+		with patch(
+			"production_entry_app.production_entry_app.doctype.shift.shift.frappe.get_all",
+			return_value=[
+				"SHIFT-2099-01-01.1.0002",
+				"SHIFT-2099-01-01.1.NOT-A-NUMBER",
+				"OTHER-2099-01-01.9",
+			],
+		):
+			self.assertEqual(shift_module._get_next_shift_sequence("2099-01-01"), 3)
+
+	def test_get_planned_losses_for_duration_returns_empty_for_missing_inputs(self) -> None:
+		with patch(
+			"production_entry_app.production_entry_app.doctype.shift.shift.access_control.assert_app_access"
+		):
+			self.assertEqual(shift_module.get_planned_losses_for_duration("", "08:00:00", "2099-01-01"), [])
+
+	def test_get_planned_losses_for_duration_uses_transient_shift_doc(self) -> None:
+		fake_shift = frappe._dict(
+			{
+				"planned_losses": [
+					frappe._dict(
+						{
+							"downtime_reason": "Tea Break",
+							"start_time": "09:00:00",
+							"end_time": "09:10:00",
+						}
+					)
+				]
+			}
+		)
+		fake_shift._populate_planned_losses = MagicMock()
+		with patch(
+			"production_entry_app.production_entry_app.doctype.shift.shift.access_control.assert_app_access"
+		):
+			with patch(
+				"production_entry_app.production_entry_app.doctype.shift.shift.frappe.new_doc",
+				return_value=fake_shift,
+			):
+				result = shift_module.get_planned_losses_for_duration("8", "08:00:00", "2099-01-01")
+
+		self.assertEqual(
+			result,
+			[{"downtime_reason": "Tea Break", "start_time": "09:00:00", "end_time": "09:10:00"}],
+		)
+		self.assertEqual(fake_shift.shift_duration, "8")
+		fake_shift._populate_planned_losses.assert_called_once()
+
+	def test_get_linked_downtime_entries_returns_empty_for_missing_or_incomplete_shift(self) -> None:
+		self.assertEqual(shift_module.get_linked_downtime_entries(None), [])
+		with patch(
+			"production_entry_app.production_entry_app.doctype.shift.shift.access_control.assert_app_access"
+		):
+			with patch(
+				"production_entry_app.production_entry_app.doctype.shift.shift.frappe.db.exists",
+				return_value=False,
+			):
+				self.assertEqual(shift_module.get_linked_downtime_entries("new-shift-1"), [])
+			with patch(
+				"production_entry_app.production_entry_app.doctype.shift.shift.frappe.db.exists",
+				return_value=True,
+			):
+				with patch(
+					"production_entry_app.production_entry_app.doctype.shift.shift.frappe.has_permission",
+					return_value=True,
+				):
+					with patch(
+						"production_entry_app.production_entry_app.doctype.shift.shift.frappe.db.get_value",
+						return_value={"shift_date": "2099-01-01", "planned_start_time": None},
+					):
+						self.assertEqual(shift_module.get_linked_downtime_entries("SHIFT-001"), [])
+			with patch(
+				"production_entry_app.production_entry_app.doctype.shift.shift.frappe.db.exists",
+				return_value=False,
+			):
+				with patch(
+					"production_entry_app.production_entry_app.doctype.shift.shift.frappe.has_permission",
+					return_value=True,
+				):
+					self.assertEqual(shift_module.get_linked_downtime_entries("SHIFT-MISSING"), [])
+
+	def test_check_running_shift_conflict_handles_missing_shift_name_and_missing_context(self) -> None:
+		with patch(
+			"production_entry_app.production_entry_app.doctype.shift.shift.access_control.assert_app_access"
+		):
+			self.assertEqual(
+				shift_module.check_running_shift_conflict(""),
+				{"has_conflict": False, "conflicting_shifts": []},
+			)
+			with patch(
+				"production_entry_app.production_entry_app.doctype.shift.shift.frappe.has_permission",
+				return_value=True,
+			):
+				with patch(
+					"production_entry_app.production_entry_app.doctype.shift.shift.frappe.db.get_value",
+					return_value={"department": None, "branch": "Branch"},
+				):
+					self.assertEqual(
+						shift_module.check_running_shift_conflict("SHIFT-001"),
+						{"has_conflict": False, "conflicting_shifts": []},
+					)
+
+	def test_shift_summary_cache_and_empty_helpers(self) -> None:
+		summary = shift_module._empty_shift_summary()
+		self.assertEqual(summary["snapshot"]["entry_count"], 0)
+		self.assertEqual(
+			shift_module._get_shift_metrics_cache_key("SHIFT-001"), "pea:shift_summary:SHIFT-001"
+		)
+		self.assertEqual(shift_module._with_shift_summary_float_precision({"snapshot": {}})["snapshot"], {})
+		with patch(
+			"production_entry_app.production_entry_app.doctype.shift.shift.frappe.cache"
+		) as cache_factory:
+			shift_module.invalidate_shift_summary_cache(None)
+			shift_module.invalidate_shift_summary_cache("SHIFT-001")
+		cache_factory.return_value.delete_value.assert_called_once_with("pea:shift_summary:SHIFT-001")
+
+	def test_shift_window_and_logged_downtime_helpers_handle_missing_data(self) -> None:
+		with patch(
+			"production_entry_app.production_entry_app.doctype.shift.shift.frappe.db.get_value",
+			return_value={"shift_date": None, "planned_start_time": "08:00:00"},
+		):
+			self.assertIsNone(shift_module._get_shift_window("SHIFT-001"))
+		self.assertEqual(
+			shift_module._get_entry_production_minutes({"custom_pea_production_time_mins": 12}), 12.0
+		)
+		self.assertEqual(
+			shift_module._get_entry_production_minutes({"custom_pea_actual_duration_mins": 9}), 9.0
+		)
+		self.assertEqual(
+			shift_module._get_logged_downtime_minutes(
+				{"from_time": "2099-01-01 10:00:00", "to_time": "2099-01-01 10:30:00"}
+			),
+			30.0,
+		)
+		self.assertEqual(
+			shift_module._get_logged_downtime_minutes(
+				{"from_time": "2099-01-01 10:30:00", "to_time": "2099-01-01 10:00:00"}
+			),
+			0,
+		)
+
+	def test_get_shift_summary_caches_empty_when_window_is_missing(self) -> None:
+		with ExitStack() as stack:
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.doctype.shift.shift.access_control.assert_app_access"
+				)
+			)
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.doctype.shift.shift.frappe.db.exists",
+					return_value=True,
+				)
+			)
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.doctype.shift.shift.frappe.has_permission",
+					return_value=True,
+				)
+			)
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.doctype.shift.shift._get_cached_shift_summary",
+					return_value=None,
+				)
+			)
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.doctype.shift.shift._get_shift_window",
+					return_value=None,
+				)
+			)
+			set_cache = stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.doctype.shift.shift._set_cached_shift_summary"
+				)
+			)
+
+			summary = shift_module.get_shift_summary("SHIFT-001")
+
+		self.assertEqual(summary["snapshot"]["entry_count"], 0)
+		set_cache.assert_called_once()
+
+	def test_summary_and_aggregate_return_empty_when_shift_was_deleted(self) -> None:
+		with patch(
+			"production_entry_app.production_entry_app.doctype.shift.shift.access_control.assert_app_access"
+		):
+			with patch(
+				"production_entry_app.production_entry_app.doctype.shift.shift.frappe.db.exists",
+				return_value=False,
+			):
+				with patch(
+					"production_entry_app.production_entry_app.doctype.shift.shift.frappe.has_permission",
+					return_value=True,
+				):
+					self.assertEqual(
+						shift_module.get_shift_summary("SHIFT-MISSING")["snapshot"]["entry_count"],
+						0,
+					)
+					self.assertEqual(shift_module.get_shift_aggregate_production_entries("SHIFT-MISSING"), [])
+
+	def test_invalidate_shift_summary_for_downtime_entry_includes_previous_shift(self) -> None:
+		doc = frappe._dict({"shift": "SHIFT-NEW"})
+		doc.get_doc_before_save = MagicMock(return_value=frappe._dict({"shift": "SHIFT-OLD"}))
+		with patch(
+			"production_entry_app.production_entry_app.doctype.shift.shift.invalidate_shift_summary_cache"
+		) as invalidate:
+			shift_module.invalidate_shift_summary_for_downtime_entry(doc)
+
+		self.assertEqual({call.args[0] for call in invalidate.call_args_list}, {"SHIFT-NEW", "SHIFT-OLD"})
+
+	def test_summary_row_builders_cover_unassigned_no_bom_and_sort_paths(self) -> None:
+		workstation_rows, best = shift_module._build_workstation_summary_rows(
+			[
+				{
+					"custom_pea_workstation": "",
+					"fg_completed_qty": 100,
+					"custom_pea_rejection_qty": 5,
+					"custom_pea_production_time_mins": 20,
+					"custom_pea_standard_spm": 4,
+				},
+				{
+					"custom_pea_workstation": "WS-SHORT",
+					"fg_completed_qty": 10,
+					"custom_pea_rejection_qty": 0,
+					"custom_pea_production_time_mins": 5,
+					"custom_pea_standard_spm": 0,
+				},
+			]
+		)
+		item_rows = shift_module._build_item_bom_rows(
+			[
+				{"fg_item": "FG-001", "bom_no": "", "fg_completed_qty": 0, "custom_pea_rejection_qty": 3},
+				{
+					"item_code": "FG-002",
+					"bom_no": "BOM-002",
+					"fg_completed_qty": 10,
+					"custom_pea_rejection_qty": 1,
+				},
+			]
+		)
+		completeness = shift_module._build_completeness_state(
+			shift_status="Completed",
+			entry_count=0,
+			recorded_production_mins=10,
+			planned_usable_mins=100,
+		)
+
+		self.assertEqual([row["workstation"] for row in workstation_rows], ["Unassigned", "WS-SHORT"])
+		self.assertEqual(best["workstation"], "Unassigned")
+		self.assertEqual(item_rows[0]["label"], "FG-001 / No BOM")
+		self.assertTrue(completeness["show_banner"])
+		self.assertEqual(len(completeness["messages"]), 2)
+
+	def test_shift_private_methods_cover_guard_and_validation_branches(self) -> None:
+		shift = frappe.new_doc("Shift")
+		self.assertTrue(shift.is_new())
+		with self.assertRaisesRegex(frappe.ValidationError, "Please save"):
+			shift._transition_status(to_status="Running", allowed_from=("Draft",))
+		self.assertEqual(shift._parse_duration_hours(" 8 "), 8)
+		with self.assertRaisesRegex(frappe.ValidationError, "Invalid Shift Duration"):
+			shift._parse_duration_hours("bad")
+		shift.planned_end_time = "unchanged"
+		shift.planned_start_time = ""
+		shift.shift_duration = "8"
+		shift.shift_date = "2099-01-01"
+		shift._calculate_planned_end_time_and_dates()
+		self.assertEqual(shift.planned_end_time, "unchanged")
+		shift._populate_planned_losses_if_needed()
+
+	def test_shift_naming_helpers_and_autoname_guard_branches(self) -> None:
+		with self.assertRaisesRegex(frappe.ValidationError, "Department is required"):
+			shift_module._sanitize_department_for_name("")
+		with self.assertRaisesRegex(frappe.ValidationError, "could not be sanitized"):
+			shift_module._sanitize_department_for_name("///")
+		self.assertEqual(shift_module._sanitize_department_for_name("Press Shop / A"), "Press-Shop---A")
+
+		with self.assertRaisesRegex(frappe.ValidationError, "Department is required"):
+			shift_module._resolve_department_name_for_shift_naming("")
+		with patch(
+			"production_entry_app.production_entry_app.doctype.shift.shift.frappe.db.get_value",
+			return_value=" Press Shop ",
+		):
+			self.assertEqual(shift_module._resolve_department_name_for_shift_naming("DEPT-001"), "Press Shop")
+		with patch(
+			"production_entry_app.production_entry_app.doctype.shift.shift.frappe.db.get_value",
+			return_value="",
+		):
+			self.assertEqual(shift_module._resolve_department_name_for_shift_naming("DEPT-001"), "DEPT-001")
+
+		shift = frappe.new_doc("Shift")
+		shift.shift_date = None
+		shift.shift_label = "1"
+		shift.autoname()
+		self.assertIsNone(shift.name)
+
+	def test_shift_validate_helpers_cover_missing_company_branch_status_and_locking(self) -> None:
+		shift = frappe.new_doc("Shift")
+		shift.company = None
+		with patch(
+			"production_entry_app.production_entry_app.doctype.shift.shift.frappe.db.get_single_value",
+			return_value=None,
+		):
+			with patch(
+				"production_entry_app.production_entry_app.doctype.shift.shift.frappe.db.count",
+				return_value=0,
+			):
+				with self.assertRaisesRegex(frappe.ValidationError, "Company is required"):
+					shift._ensure_company()
+
+		shift = frappe.new_doc("Shift")
+		shift.status = ""
+		shift._validate_status()
+		self.assertEqual(shift.status, "Draft")
+		shift.status = "Paused"
+		with self.assertRaisesRegex(frappe.ValidationError, "Invalid status value"):
+			shift._validate_status()
+
+		shift = frappe.new_doc("Shift")
+		shift.name = "SHIFT-LOCK-001"
+		shift.flags = frappe._dict()
+		with patch.object(shift, "is_new", return_value=False):
+			with patch.object(shift, "get_doc_before_save", return_value=None):
+				with patch(
+					"production_entry_app.production_entry_app.doctype.shift.shift.frappe.db.get_value",
+					return_value=None,
+				):
+					shift._validate_field_locking()
+
+		running_before = frappe._dict({"status": "Running"})
+		shift = frappe.new_doc("Shift")
+		shift.name = "SHIFT-LOCK-002"
+		shift.flags = frappe._dict()
+		with patch.object(shift, "is_new", return_value=False):
+			with patch.object(shift, "get_doc_before_save", return_value=running_before):
+				with patch.object(
+					shift, "has_value_changed", side_effect=lambda fieldname: fieldname == "company"
+				):
+					with patch.object(shift, "_planned_losses_changed", return_value=False):
+						with self.assertRaisesRegex(frappe.ValidationError, "Only shift duration"):
+							shift._validate_field_locking()
+
+		shift = frappe.new_doc("Shift")
+		shift.company = None
+		with patch(
+			"production_entry_app.production_entry_app.doctype.shift.shift.frappe.db.get_single_value",
+			return_value=None,
+		):
+			with patch(
+				"production_entry_app.production_entry_app.doctype.shift.shift.frappe.db.count",
+				return_value=1,
+			):
+				with patch(
+					"production_entry_app.production_entry_app.doctype.shift.shift.frappe.db.get_value",
+					return_value="_Test Company",
+				):
+					with patch(
+						"production_entry_app.production_entry_app.doctype.shift.shift.frappe.db.exists",
+						return_value=False,
+					):
+						shift._ensure_company()
+		self.assertEqual(shift.company, "_Test Company")
+
+	def test_no_other_running_shift_returns_when_scope_is_incomplete(self) -> None:
+		shift = frappe.new_doc("Shift")
+		shift.department = None
+		shift.branch = "Branch"
+		shift._validate_no_other_running_shift()
+
+	def test_shift_overlap_and_unique_guards_return_when_required_fields_missing(self) -> None:
+		shift = frappe.new_doc("Shift")
+		shift.shift_date = "2099-01-01"
+		shift.planned_start_time = "08:00:00"
+		shift.shift_end_date = None
+		shift.planned_end_time = "16:00:00"
+		shift.department = "DEPT-001"
+		shift.branch = "BRANCH-001"
+		shift._validate_no_overlapping_shifts()
+
+		shift.shift_end_date = "2099-01-01"
+		shift.shift_label = None
+		shift._validate_unique_shift_label_per_date()
+
+	def test_populate_planned_losses_skips_inactive_or_missing_reasons(self) -> None:
+		shift = frappe.new_doc("Shift")
+		shift.shift_date = "2099-01-01"
+		shift.planned_start_time = "08:00:00"
+		shift.shift_duration = "8"
+		meta = type("Meta", (), {"has_field": lambda self, fieldname: True})()
+		with patch(
+			"production_entry_app.production_entry_app.doctype.shift.shift.frappe.get_meta",
+			return_value=meta,
+		):
+			with patch(
+				"production_entry_app.production_entry_app.doctype.shift.shift.frappe.db.exists",
+				return_value=False,
+			):
+				shift._populate_planned_losses()
+
+		self.assertEqual(shift.planned_losses, [])
+
+		shift = frappe.new_doc("Shift")
+		shift.shift_date = "2099-01-01"
+		shift.planned_start_time = "08:00:00"
+		shift.shift_duration = "8"
+		original_get_meta = frappe.get_meta
+		meta = type("Meta", (), {"has_field": lambda self, fieldname: False})()
+		with patch(
+			"production_entry_app.production_entry_app.doctype.shift.shift.frappe.get_meta",
+			side_effect=lambda doctype, *args, **kwargs: meta
+			if doctype == "Downtime Reason"
+			else original_get_meta(doctype, *args, **kwargs),
+		):
+			with patch(
+				"production_entry_app.production_entry_app.doctype.shift.shift.frappe.db.exists",
+				return_value=True,
+			):
+				shift._populate_planned_losses()
+
+		self.assertGreater(len(shift.planned_losses), 0)
+
+	def test_planned_losses_changed_detects_missing_before_and_time_differences(self) -> None:
+		shift = frappe.new_doc("Shift")
+		shift.append(
+			"planned_losses",
+			{"downtime_reason": "Tea Break", "start_time": "09:00:00", "end_time": "09:10:00"},
+		)
+		with patch.object(shift, "get_doc_before_save", return_value=None):
+			self.assertTrue(shift._planned_losses_changed())
+
+		before = frappe._dict(
+			{
+				"planned_losses": [
+					frappe._dict(
+						{
+							"downtime_reason": "Tea Break",
+							"start_time": datetime.time(9, 0),
+							"end_time": datetime.time(9, 10),
+						}
+					)
+				]
+			}
+		)
+		shift.planned_losses = []
+		shift.append(
+			"planned_losses",
+			{"downtime_reason": "Lunch Break", "start_time": "09:00:00", "end_time": "09:10:00"},
+		)
+		with patch.object(shift, "get_doc_before_save", return_value=before):
+			self.assertTrue(shift._planned_losses_changed())
+
+		shift.planned_losses = []
+		shift.append(
+			"planned_losses",
+			{"downtime_reason": "Tea Break", "start_time": "09:00:00", "end_time": "09:10:00"},
+		)
+		with patch.object(shift, "get_doc_before_save", return_value=frappe._dict({"planned_losses": []})):
+			self.assertTrue(shift._planned_losses_changed())
+
+		before = frappe._dict(
+			{
+				"planned_losses": [
+					frappe._dict(
+						{
+							"downtime_reason": "Tea Break",
+							"start_time": datetime.time(9, 0),
+							"end_time": datetime.time(9, 10),
+						}
+					)
+				]
+			}
+		)
+		shift.planned_losses = []
+		shift.append(
+			"planned_losses",
+			{
+				"downtime_reason": "Tea Break",
+				"start_time": datetime.time(9, 0),
+				"end_time": datetime.time(9, 10),
+			},
+		)
+		with patch.object(shift, "get_doc_before_save", return_value=before):
+			self.assertFalse(shift._planned_losses_changed())
+
+	def test_warehouse_defaults_skip_existing_values_and_missing_settings_fields(self) -> None:
+		shift = frappe.new_doc("Shift")
+		shift.raw_material_warehouse = "Existing RM"
+		with patch(
+			"production_entry_app.production_entry_app.doctype.shift.shift.frappe.get_meta",
+			return_value=type("Meta", (), {"has_field": lambda self, fieldname: False})(),
+		):
+			shift._set_warehouse_defaults_from_production_entry_settings()
+		self.assertEqual(shift.raw_material_warehouse, "Existing RM")
 
 
 class TestShift(FrappeTestCase):

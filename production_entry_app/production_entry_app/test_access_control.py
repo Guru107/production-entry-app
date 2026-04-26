@@ -52,6 +52,15 @@ class TestAccessControl(FrappeTestCase):
 		self.assertEqual(field["reqd"], 1)
 		self.assertNotIn("allowed_access_rules", field_by_name)
 
+	def test_access_rule_doctype_controller_is_registered(self) -> None:
+		from frappe.model.document import Document
+
+		from production_entry_app.production_entry_app.doctype.production_entry_access_rule.production_entry_access_rule import (
+			ProductionEntryAccessRule,
+		)
+
+		self.assertTrue(issubclass(ProductionEntryAccessRule, Document))
+
 	def test_before_install_creates_default_required_role_when_missing(self) -> None:
 		from production_entry_app import install
 

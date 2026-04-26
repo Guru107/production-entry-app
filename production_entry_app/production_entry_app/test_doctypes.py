@@ -12,6 +12,7 @@ from production_entry_app.production_entry_app.doctype.shift.test_shift import (
 	TestShiftAggregateProductionEntries,
 	TestShiftLayout,
 	TestShiftPermissions,
+	TestShiftPureHelpers,
 	TestShiftSummary,
 )
 
@@ -23,5 +24,6 @@ __all__ = [
 	"TestShiftAggregateProductionEntries",
 	"TestShiftLayout",
 	"TestShiftPermissions",
+	"TestShiftPureHelpers",
 	"TestShiftSummary",
 ]

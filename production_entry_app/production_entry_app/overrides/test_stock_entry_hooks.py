@@ -8,6 +8,7 @@ import frappe
 from frappe.exceptions import ValidationError
 from frappe.tests.utils import FrappeTestCase
 
+from production_entry_app.production_entry_app.overrides import stock_entry_hooks
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	bootstrap_manufacturing_test_context,
 	cleanup_running_shifts,
@@ -134,6 +135,135 @@ def _ensure_item_die_tool_fields() -> None:
 	if created:
 		frappe.reload_doc("core", "doctype", "item")
 		frappe.db.updatedb("Item")
+
+
+class TestStockEntryHookPureHelpers(FrappeTestCase):
+	def test_on_trash_stock_entry_deletes_loss_rows_for_parent(self) -> None:
+		doc = frappe._dict({"name": "MAT-STE-UNIT-001"})
+		with patch(
+			"production_entry_app.production_entry_app.overrides.stock_entry_hooks.frappe.db.delete"
+		) as delete:
+			stock_entry_hooks.on_trash_stock_entry(doc)
+		delete.assert_called_once_with(
+			"Loss Entry",
+			{"parenttype": "Stock Entry", "parent": "MAT-STE-UNIT-001"},
+		)
+
+	def test_validate_linked_shift_is_running_returns_when_shift_missing(self) -> None:
+		stock_entry_hooks._validate_linked_shift_is_running(frappe._dict({}))
+
+	def test_get_shift_buffer_minutes_clamps_default_when_settings_field_missing(self) -> None:
+		meta = type("Meta", (), {"has_field": lambda self, fieldname: False})()
+		with patch(
+			"production_entry_app.production_entry_app.overrides.stock_entry_hooks.frappe.get_meta",
+			return_value=meta,
+		):
+			self.assertEqual(stock_entry_hooks._get_shift_buffer_minutes("shift_start_buffer_mins", -1), 0)
+			self.assertEqual(stock_entry_hooks._get_shift_buffer_minutes("shift_end_buffer_mins", 999), 480)
+
+	def test_find_overlapping_downtime_entry_returns_none_when_inputs_missing(self) -> None:
+		self.assertIsNone(stock_entry_hooks._find_overlapping_downtime_entry("", None, None))
+
+	def test_validate_rejection_breakup_rejects_zero_quantity_row(self) -> None:
+		doc = frappe._dict(
+			{
+				"custom_pea_rejection_qty": 1,
+				"custom_pea_rejection_breakup": [
+					frappe._dict({"rejection_reason": "Burr", "qty": 0, "is_rework": 0})
+				],
+			}
+		)
+		with self.assertRaisesRegex(frappe.ValidationError, "quantity greater than 0"):
+			stock_entry_hooks._validate_rejection_breakup(doc)
+
+	def test_get_docfield_precision_defaults_when_field_missing(self) -> None:
+		meta = type("Meta", (), {"get_field": lambda self, fieldname: None})()
+		with patch(
+			"production_entry_app.production_entry_app.overrides.stock_entry_hooks.frappe.get_meta",
+			return_value=meta,
+		):
+			self.assertEqual(stock_entry_hooks._get_docfield_precision("Stock Entry", "missing", object()), 3)
+
+	def test_validate_rejection_target_warehouses_returns_when_flag_missing_and_requires_target(self) -> None:
+		doc = frappe._dict(
+			{
+				"items": [
+					frappe._dict({"custom_pea_is_rejection_item": 1, "t_warehouse": ""}),
+				]
+			}
+		)
+		with patch(
+			"production_entry_app.production_entry_app.overrides.stock_entry_hooks._has_rejected_warehouse_flag",
+			return_value=False,
+		):
+			stock_entry_hooks._validate_rejection_target_warehouses(doc)
+		with patch(
+			"production_entry_app.production_entry_app.overrides.stock_entry_hooks._has_rejected_warehouse_flag",
+			return_value=True,
+		):
+			with self.assertRaisesRegex(frappe.ValidationError, "Target Warehouse"):
+				stock_entry_hooks._validate_rejection_target_warehouses(doc)
+
+	def test_rejection_warehouse_uses_settings_fallback_and_throws_when_missing(self) -> None:
+		doc = frappe._dict({"custom_pea_shift": ""})
+		meta = type("Meta", (), {"has_field": lambda self, fieldname: True})()
+		with patch(
+			"production_entry_app.production_entry_app.overrides.stock_entry_hooks.frappe.get_meta",
+			return_value=meta,
+		):
+			with patch(
+				"production_entry_app.production_entry_app.overrides.stock_entry_hooks.frappe.db.get_single_value",
+				return_value="Rejected WH",
+			):
+				self.assertEqual(stock_entry_hooks._get_rejection_warehouse(doc), "Rejected WH")
+			with patch(
+				"production_entry_app.production_entry_app.overrides.stock_entry_hooks.frappe.db.get_single_value",
+				return_value=None,
+			):
+				with self.assertRaisesRegex(frappe.ValidationError, "Rejection Warehouse"):
+					stock_entry_hooks._get_rejection_warehouse(doc)
+
+	def test_existing_rejection_target_warehouse_ignores_invalid_new_doc_candidates(self) -> None:
+		doc = frappe._dict(
+			{
+				"items": [
+					frappe._dict({"custom_pea_is_rejection_item": 1, "t_warehouse": "Invalid WH", "idx": 1})
+				],
+				"is_new": lambda: True,
+			}
+		)
+		with patch(
+			"production_entry_app.production_entry_app.overrides.stock_entry_hooks._has_rejected_warehouse_flag",
+			return_value=True,
+		):
+			with patch(
+				"production_entry_app.production_entry_app.overrides.stock_entry_hooks._is_rejected_warehouse",
+				return_value=False,
+			):
+				self.assertIsNone(stock_entry_hooks._get_existing_rejection_target_warehouse(doc))
+
+	def test_build_metrics_note_handles_zero_partial_and_full_loss_windows(self) -> None:
+		self.assertEqual(stock_entry_hooks._build_metrics_note(0, 1), "")
+		self.assertEqual(stock_entry_hooks._build_metrics_note(10, 5), "")
+		self.assertIn("deducted loss time", stock_entry_hooks._build_metrics_note(10, 10))
+
+	def test_get_shift_planned_losses_for_metrics_returns_empty_when_shift_missing_or_incomplete(
+		self,
+	) -> None:
+		self.assertEqual(
+			stock_entry_hooks._get_shift_planned_losses_for_metrics(frappe._dict({})),
+			([], None, None),
+		)
+		with patch(
+			"production_entry_app.production_entry_app.overrides.stock_entry_hooks.frappe.db.get_value",
+			return_value=None,
+		):
+			self.assertEqual(
+				stock_entry_hooks._get_shift_planned_losses_for_metrics(
+					frappe._dict({"custom_pea_shift": "SHIFT-001"})
+				),
+				([], None, None),
+			)
 
 
 def _ensure_stock_entry_metric_fields() -> None:
