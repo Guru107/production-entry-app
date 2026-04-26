@@ -145,6 +145,14 @@ class TestAccessControl(FrappeTestCase):
 		settings.enable_access_control = 1 if not settings.enable_access_control else 0
 		if settings.enable_access_control:
 			settings.required_role = DEFAULT_REQUIRED_ROLE
+		for fieldname in (
+			"shift_raw_material_warehouse",
+			"shift_wip_warehouse",
+			"shift_rejection_warehouse",
+			"shift_scrap_warehouse",
+		):
+			if settings.meta.has_field(fieldname):
+				settings.set(fieldname, None)
 		settings.save()
 
 		self.assertIsNone(cache.get_value(access_control.ACCESS_CONTROL_CACHE_KEY))
