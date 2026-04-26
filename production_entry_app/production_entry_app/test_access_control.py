@@ -52,6 +52,38 @@ class TestAccessControl(FrappeTestCase):
 		self.assertEqual(field["reqd"], 1)
 		self.assertNotIn("allowed_access_rules", field_by_name)
 
+	def test_before_install_creates_default_required_role_when_missing(self) -> None:
+		from production_entry_app import install
+
+		with (
+			patch("production_entry_app.install.frappe.db.exists", return_value=False) as exists,
+			patch("production_entry_app.install.frappe.get_doc") as get_doc,
+		):
+			role_doc = get_doc.return_value
+
+			install.before_install()
+
+		exists.assert_called_once_with("Role", DEFAULT_REQUIRED_ROLE)
+		get_doc.assert_called_once_with({"doctype": "Role", "role_name": DEFAULT_REQUIRED_ROLE})
+		role_doc.insert.assert_called_once_with(ignore_permissions=True)
+
+	def test_before_install_skips_default_required_role_when_present(self) -> None:
+		from production_entry_app import install
+
+		with (
+			patch("production_entry_app.install.frappe.db.exists", return_value=True) as exists,
+			patch("production_entry_app.install.frappe.get_doc") as get_doc,
+		):
+			install.before_install()
+
+		exists.assert_called_once_with("Role", DEFAULT_REQUIRED_ROLE)
+		get_doc.assert_not_called()
+
+	def test_before_install_hook_registers_default_required_role_setup(self) -> None:
+		from production_entry_app import hooks
+
+		self.assertIn("production_entry_app.install.before_install", hooks.before_install)
+
 	def test_settings_default_enable_access_control_is_zero(self) -> None:
 		meta = frappe.get_meta("Production Entry Settings")
 		field = meta.get_field("enable_access_control")

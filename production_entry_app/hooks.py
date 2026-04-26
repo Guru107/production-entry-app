@@ -58,6 +58,7 @@ doctype_js = {
 
 after_sync = ["production_entry_app.production_entry_app.lifecycle.after_sync"]
 after_migrate = ["production_entry_app.production_entry_app.lifecycle.after_migrate"]
+before_install = ["production_entry_app.install.before_install"]
 
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
