@@ -1,5 +1,3 @@
-from frappe import _
-
 app_name = "production_entry_app"
 app_title = "Production Entry App"
 app_publisher = "Gurudatt Kulkarni"
@@ -16,7 +14,7 @@ app_license = "mit"
 add_to_apps_screen = [
 	{
 		"name": "production_entry_app",
-		"title": _("Production Entry App"),
+		"title": "Production Entry App",
 		"route": "/app",
 		"has_permission": "production_entry_app.production_entry_app.access_control.has_app_permission",
 	}
