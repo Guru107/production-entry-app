@@ -1428,6 +1428,7 @@ class TestStockEntryHooks(FrappeTestCase):
 
 	def test_shift_defaults_warehouses_from_production_entry_settings(self) -> None:
 		scrap_warehouse = _get_or_create_warehouse("SE Hook Scrap Warehouse", self.company)
+		ensure_production_entry_settings_shift_fields()
 		frappe.db.set_single_value(
 			"Production Entry Settings", "shift_raw_material_warehouse", self.rm_warehouse
 		)
@@ -1445,6 +1446,7 @@ class TestStockEntryHooks(FrappeTestCase):
 		self.assertEqual(shift.scrap_warehouse, scrap_warehouse)
 
 	def test_rejection_warehouse_uses_production_entry_settings_fallback(self) -> None:
+		ensure_production_entry_settings_shift_fields()
 		frappe.db.set_single_value(
 			"Production Entry Settings", "shift_rejection_warehouse", self.rejection_warehouse
 		)

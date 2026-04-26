@@ -332,12 +332,14 @@ def invalidate_shift_summary_for_shift(doc, method: str | None = None) -> None:
 
 
 def invalidate_shift_summary_for_downtime_entry(doc, method: str | None = None) -> None:
-	shift_names = {getattr(doc, "shift", None)}
+	shift_names = {getattr(doc, "custom_pea_shift", None) or getattr(doc, "shift", None)}
 	get_before_save = getattr(doc, "get_doc_before_save", None)
 	if callable(get_before_save):
 		before_doc = get_before_save()
 		if before_doc:
-			shift_names.add(getattr(before_doc, "shift", None))
+			shift_names.add(
+				getattr(before_doc, "custom_pea_shift", None) or getattr(before_doc, "shift", None)
+			)
 	for shift_name in shift_names:
 		invalidate_shift_summary_cache(shift_name)
 

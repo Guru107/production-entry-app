@@ -69,12 +69,11 @@ class TestAccessControl(FrappeTestCase):
 			patch("production_entry_app.install.frappe.get_doc") as get_doc,
 		):
 			role_doc = get_doc.return_value
-
 			install.before_install()
 
 		exists.assert_called_once_with("Role", DEFAULT_REQUIRED_ROLE)
 		get_doc.assert_called_once_with({"doctype": "Role", "role_name": DEFAULT_REQUIRED_ROLE})
-		role_doc.insert.assert_called_once_with(ignore_permissions=True)
+		role_doc.insert.assert_called_once_with()
 
 	def test_before_install_skips_default_required_role_when_present(self) -> None:
 		from production_entry_app import install
@@ -182,10 +181,11 @@ class TestAccessControl(FrappeTestCase):
 			self.assertTrue(access_control.can_use_production_entry_app("user@example.com"))
 
 	def test_non_admin_cannot_modify_production_entry_settings(self) -> None:
-		_ensure_user_with_role("test_pea_settings_user@example.com", "Manufacturing User")
+		user_email = f"test_pea_settings_user_{frappe.generate_hash(length=8)}@example.com"
+		_ensure_user_with_role(user_email, "Manufacturing User")
 		original_user = frappe.session.user
 		try:
-			frappe.set_user("test_pea_settings_user@example.com")
+			frappe.set_user(user_email)
 			settings = frappe.get_single("Production Entry Settings")
 			settings.enable_access_control = 1
 			settings.required_role = DEFAULT_REQUIRED_ROLE
@@ -456,4 +456,4 @@ def _ensure_user_with_role(email: str, role: str) -> None:
 		user.user_type = "System User"
 	user.add_roles(role)
 	user.save(ignore_permissions=True)
-	frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed for permission tests to see user roles
+	frappe.clear_cache(user=email)

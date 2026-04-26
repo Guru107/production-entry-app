@@ -337,8 +337,8 @@ class TestShiftPureHelpers(FrappeTestCase):
 					self.assertEqual(shift_module.get_shift_aggregate_production_entries("SHIFT-MISSING"), [])
 
 	def test_invalidate_shift_summary_for_downtime_entry_includes_previous_shift(self) -> None:
-		doc = frappe._dict({"shift": "SHIFT-NEW"})
-		doc.get_doc_before_save = MagicMock(return_value=frappe._dict({"shift": "SHIFT-OLD"}))
+		doc = frappe._dict({"custom_pea_shift": "SHIFT-NEW"})
+		doc.get_doc_before_save = MagicMock(return_value=frappe._dict({"custom_pea_shift": "SHIFT-OLD"}))
 		with patch(
 			"production_entry_app.production_entry_app.doctype.shift.shift.invalidate_shift_summary_cache"
 		) as invalidate:

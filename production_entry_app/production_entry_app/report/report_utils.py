@@ -24,6 +24,11 @@ _DEFAULT_REPORT_CHUNK_SIZE = 1000
 _DEFAULT_MAX_STOCK_ENTRY_ROWS = 100000
 _DEFAULT_INTERACTIVE_REPORT_TIMEOUT_SEC = 5.0
 _SUPPORTED_STOCK_ENTRY_ORDER_BY = frozenset({"name asc", "posting_date asc, name asc"})
+_STOCK_ENTRY_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
+	"custom_pea_workstation": ("custom_pea_workstation", "custom_workstation"),
+	"custom_pea_shift": ("custom_pea_shift", "custom_shift"),
+	"custom_pea_operator": ("custom_pea_operator", "custom_operator"),
+}
 
 
 def build_stock_entry_filters(filters: dict, filter_keys: tuple[str, ...]) -> dict:
@@ -48,6 +53,40 @@ def build_stock_entry_filters(filters: dict, filter_keys: tuple[str, ...]) -> di
 		db_filters["name"] = ["in", parent_names or [""]]
 
 	return db_filters
+
+
+def get_stock_entry_alias_fields(base_fields: list[str], alias_keys: tuple[str, ...]) -> list[str]:
+	meta = frappe.get_meta("Stock Entry")
+	fields = list(base_fields)
+	for key in alias_keys:
+		for fieldname in _STOCK_ENTRY_FIELD_ALIASES.get(key, (key,)):
+			if fieldname == key or meta.has_field(fieldname):
+				fields.append(fieldname)
+	return list(dict.fromkeys(fields))
+
+
+def row_matches_stock_entry_alias_filters(row: dict, filters: dict, alias_keys: tuple[str, ...]) -> bool:
+	for key in alias_keys:
+		filter_value = get_stock_entry_alias_filter_value(filters, key)
+		if filter_value and get_stock_entry_alias_value(row, key) != filter_value:
+			return False
+	return True
+
+
+def get_stock_entry_alias_filter_value(filters: dict, key: str) -> str | None:
+	for fieldname in _STOCK_ENTRY_FIELD_ALIASES.get(key, (key,)):
+		value = filters.get(fieldname)
+		if value:
+			return value
+	return None
+
+
+def get_stock_entry_alias_value(row: dict, key: str, default: str | None = None) -> str | None:
+	for fieldname in _STOCK_ENTRY_FIELD_ALIASES.get(key, (key,)):
+		value = row.get(fieldname)
+		if value:
+			return value
+	return default
 
 
 def new_interactive_report_timeout_guard(

@@ -4,12 +4,13 @@ import importlib.util
 import io
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import ModuleType
 from unittest.mock import patch
 
 from frappe.tests.utils import FrappeTestCase
 
 
-def _load_cleanup_script_module():
+def _load_cleanup_script_module() -> ModuleType:
 	script_path = Path(__file__).resolve().parents[3] / "scripts" / "cleanup_stale_ephemeral_sites.py"
 	spec = importlib.util.spec_from_file_location(
 		"production_entry_app_cleanup_stale_ephemeral_sites", script_path
@@ -21,7 +22,7 @@ def _load_cleanup_script_module():
 	return module
 
 
-cleanup_stale_ephemeral_sites = _load_cleanup_script_module()
+cleanup_stale_ephemeral_sites: ModuleType = _load_cleanup_script_module()
 
 
 class TestCleanupStaleEphemeralSites(FrappeTestCase):

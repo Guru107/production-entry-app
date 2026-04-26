@@ -2426,6 +2426,43 @@ class TestProductionReports(FrappeTestCase):
 
 		self.assertEqual(rows[0]["workstation"], "translated:Unassigned")
 
+	def test_workstation_rework_reason_matrix_uses_legacy_workstation_fallback(self) -> None:
+		from production_entry_app.production_entry_app.report.workstation_rework_reason_matrix import (
+			workstation_rework_reason_matrix as report,
+		)
+
+		with (
+			patch.object(
+				report,
+				"iter_stock_entries_in_chunks",
+				return_value=[
+					[
+						{
+							"name": "STE-LEGACY",
+							"custom_pea_workstation": "",
+							"custom_workstation": "Legacy Workstation",
+						},
+						{
+							"name": "STE-OTHER",
+							"custom_pea_workstation": "Other Workstation",
+							"custom_workstation": "",
+						},
+					]
+				],
+			),
+			patch.object(
+				report,
+				"get_parent_breakup_reason_rows",
+				return_value=[{"parent": "STE-LEGACY", "rejection_reason": "Crack", "qty": 4}],
+			),
+			patch.object(report, "apply_system_precision", side_effect=lambda columns: columns),
+		):
+			_columns, rows = report.execute({"custom_pea_workstation": "Legacy Workstation"})
+
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(rows[0]["workstation"], "Legacy Workstation")
+		self.assertEqual(float(rows[0]["total_rework_qty"]), 4.0)
+
 	# ── Daily Strokes SPM Monitor ─────────────────────────────────────
 
 	def _ensure_fiscal_year(self, fy_name: str, start_date: str, end_date: str) -> None:

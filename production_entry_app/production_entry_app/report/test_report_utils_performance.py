@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import patch
 
 import frappe
@@ -25,6 +26,33 @@ class TestReportUtilsPerformance(FrappeTestCase):
 		self.assertEqual(from_filters["name"], ["in", ["STE-001"]])
 		self.assertEqual(to_filters["posting_date"], ["<=", "2026-01-31"])
 
+	def test_stock_entry_alias_helpers_match_legacy_and_new_fields(self) -> None:
+		row = {
+			"name": "STE-001",
+			"custom_pea_workstation": "",
+			"custom_workstation": "Legacy WS",
+			"custom_operator": "Legacy Operator",
+		}
+
+		self.assertEqual(
+			report_utils.get_stock_entry_alias_value(row, "custom_pea_workstation", "Unassigned"),
+			"Legacy WS",
+		)
+		self.assertTrue(
+			report_utils.row_matches_stock_entry_alias_filters(
+				row,
+				{"custom_pea_workstation": "Legacy WS", "custom_pea_operator": "Legacy Operator"},
+				("custom_pea_workstation", "custom_pea_operator"),
+			)
+		)
+		self.assertFalse(
+			report_utils.row_matches_stock_entry_alias_filters(
+				row,
+				{"custom_pea_workstation": "Other WS"},
+				("custom_pea_workstation",),
+			)
+		)
+
 	def test_new_interactive_report_timeout_guard_allows_within_budget(self) -> None:
 		frappe.local.request = object()
 		frappe.local.form_dict = frappe._dict(ignore_prepared_report=1)
@@ -44,25 +72,25 @@ class TestReportUtilsPerformance(FrappeTestCase):
 
 	def test_get_stock_entries_for_fg_item_throws_when_match_limit_exceeded(self) -> None:
 		class _Query:
-			def inner_join(self, *_args, **_kwargs):
+			def inner_join(self, *_args: Any, **_kwargs: Any) -> _Query:
 				return self
 
-			def on(self, *_args, **_kwargs):
+			def on(self, *_args: Any, **_kwargs: Any) -> _Query:
 				return self
 
-			def select(self, *_args, **_kwargs):
+			def select(self, *_args: Any, **_kwargs: Any) -> _Query:
 				return self
 
-			def distinct(self):
+			def distinct(self) -> _Query:
 				return self
 
-			def where(self, *_args, **_kwargs):
+			def where(self, *_args: Any, **_kwargs: Any) -> _Query:
 				return self
 
-			def limit(self, *_args, **_kwargs):
+			def limit(self, *_args: Any, **_kwargs: Any) -> _Query:
 				return self
 
-			def run(self, **_kwargs):
+			def run(self, **_kwargs: Any) -> list[dict[str, str]]:
 				return [
 					{"parent": f"STE-{index}"}
 					for index in range(report_utils._MAX_FG_ITEM_PARENT_MATCHES + 1)
@@ -87,13 +115,13 @@ class TestReportUtilsPerformance(FrappeTestCase):
 
 	def test_fetch_stock_entry_chunk_validates_last_row_keyset_fields(self) -> None:
 		class _Query:
-			def where(self, *_args, **_kwargs):
+			def where(self, *_args: Any, **_kwargs: Any) -> _Query:
 				return self
 
-			def orderby(self, *_args, **_kwargs):
+			def orderby(self, *_args: Any, **_kwargs: Any) -> _Query:
 				return self
 
-			def run(self, **_kwargs):
+			def run(self, **_kwargs: Any) -> list[dict]:
 				return []
 
 		with patch(
@@ -119,16 +147,16 @@ class TestReportUtilsPerformance(FrappeTestCase):
 
 	def test_get_entry_qty_maps_includes_finished_item_map(self) -> None:
 		class _Query:
-			def select(self, *_args, **_kwargs):
+			def select(self, *_args: Any, **_kwargs: Any) -> _Query:
 				return self
 
-			def where(self, *_args, **_kwargs):
+			def where(self, *_args: Any, **_kwargs: Any) -> _Query:
 				return self
 
-			def groupby(self, *_args, **_kwargs):
+			def groupby(self, *_args: Any, **_kwargs: Any) -> _Query:
 				return self
 
-			def run(self, **_kwargs):
+			def run(self, **_kwargs: Any) -> list[dict[str, str | int]]:
 				return [
 					{"parent": "STE-001", "item_code": "FG-001", "qty": 10},
 					{"parent": "", "item_code": "FG-SKIP", "qty": 1},
