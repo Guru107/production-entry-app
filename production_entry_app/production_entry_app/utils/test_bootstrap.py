@@ -111,6 +111,8 @@ def ensure_item(item_code: str, *, item_group: str = "Products", stock_uom: str 
 			"item_group": item_group,
 		}
 	)
+	if frappe.get_meta("Item", cached=True).has_field("gst_hsn_code"):
+		doc.gst_hsn_code = "998314"
 	doc.insert(ignore_permissions=True)
 	return doc.name
 
