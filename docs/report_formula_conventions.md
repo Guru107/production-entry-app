@@ -15,19 +15,19 @@ This document defines shared rules used across script reports under `production_
 - If `fg_completed_qty <= 0`, fallback reconstruction is used:
   - `total_strokes = good_qty_map + rejection_qty`
 - `rejection_qty` fallback:
-  - use `custom_rejection_qty` when `> 0`
+  - use `custom_pea_rejection_qty` when `> 0`
   - else aggregate from `Stock Entry Detail` rejection rows
 - `rework_qty` fallback:
-  - use `custom_rework_qty` when `> 0`
+  - use `custom_pea_rework_qty` when `> 0`
   - else aggregate from `Rejection Breakup` rows where `is_rework = 1`
 
 ## Time Semantics
 
-- `custom_actual_duration_mins` = wall-clock interval duration.
-- `custom_production_time_mins` = effective production time after loss deductions.
-- Preferred denominator for SPM-style metrics is `custom_production_time_mins` when present.
+- `custom_pea_actual_duration_mins` = wall-clock interval duration.
+- `custom_pea_production_time_mins` = effective production time after loss deductions.
+- Preferred denominator for SPM-style metrics is `custom_pea_production_time_mins` when present.
 - Shared fallback for production minutes:
-  1. If `custom_production_time_mins is not None`, use `max(custom_production_time_mins, 0)`.
+  1. If `custom_pea_production_time_mins is not None`, use `max(custom_pea_production_time_mins, 0)`.
   2. Else compute `max(actual_duration_mins - setup_mins - loss_mins, 0)`.
   3. `actual_duration_mins` itself falls back to datetime delta if required.
 

@@ -6,6 +6,7 @@ from frappe.query_builder import DocType
 from frappe.query_builder.functions import Sum
 from frappe.utils import flt
 
+from production_entry_app.production_entry_app import access_control
 from production_entry_app.production_entry_app.utils.loss_time import build_interval_overlap_criterion
 from production_entry_app.production_entry_app.utils.shift_time import combine_date_time
 from production_entry_app.production_entry_app.utils.system_precision import (
@@ -50,6 +51,7 @@ def get_shift_timeline_data(doctype: str, docname: str) -> dict:
 		frappe.throw(_("Invalid doctype for timeline data."))
 	if not frappe.has_permission(doctype, "read", docname):
 		raise frappe.PermissionError
+	access_control.assert_app_access(doctype=doctype, docname=docname)
 
 	running_shift = frappe.get_all(
 		"Shift",
@@ -62,6 +64,7 @@ def get_shift_timeline_data(doctype: str, docname: str) -> dict:
 		return {"shift_name": None, "entries": [], "float_precision": get_system_float_precision()}
 
 	shift = running_shift[0]
+	access_control.assert_app_access(doctype="Shift", docname=shift.get("name"))
 	if not frappe.has_permission("Shift", "read", shift.get("name")):
 		raise frappe.PermissionError
 	cached_data = _get_cached_timeline_data(doctype, docname, shift.get("name"))
@@ -74,26 +77,26 @@ def get_shift_timeline_data(doctype: str, docname: str) -> dict:
 		shift.get("planned_end_time") or "23:59:59",
 	)
 
-	filter_field = "custom_workstation" if doctype == "Workstation" else "custom_operator"
+	filter_field = "custom_pea_workstation" if doctype == "Workstation" else "custom_pea_operator"
 	stock_entry = DocType("Stock Entry")
 	rows = (
 		frappe.qb.from_(stock_entry)
 		.select(
 			stock_entry.name,
-			stock_entry.custom_actual_start_date.as_("actual_start"),
-			stock_entry.custom_actual_end_date.as_("actual_end"),
+			stock_entry.custom_pea_actual_start_date.as_("actual_start"),
+			stock_entry.custom_pea_actual_end_date.as_("actual_end"),
 			stock_entry.fg_completed_qty.as_("fg_qty"),
-			stock_entry.custom_rejection_qty.as_("rejection_qty"),
+			stock_entry.custom_pea_rejection_qty.as_("rejection_qty"),
 		)
 		.where(
 			(stock_entry.docstatus == 1)
 			& (stock_entry.purpose == "Manufacture")
-			& (stock_entry.custom_shift == shift.get("name"))
+			& (stock_entry.custom_pea_shift == shift.get("name"))
 			& (stock_entry[filter_field] == docname)
-			& stock_entry.custom_actual_start_date.isnotnull()
-			& stock_entry.custom_actual_end_date.isnotnull()
+			& stock_entry.custom_pea_actual_start_date.isnotnull()
+			& stock_entry.custom_pea_actual_end_date.isnotnull()
 		)
-		.orderby(stock_entry.custom_actual_start_date)
+		.orderby(stock_entry.custom_pea_actual_start_date)
 	).run(as_dict=True)
 
 	stock_entry_detail = DocType("Stock Entry Detail")
@@ -111,8 +114,8 @@ def get_shift_timeline_data(doctype: str, docname: str) -> dict:
 				(stock_entry_detail.parent.isin(names))
 				& (stock_entry_detail.is_finished_item == 1)
 				& (
-					stock_entry_detail.custom_is_rejection_item.isnull()
-					| (stock_entry_detail.custom_is_rejection_item == 0)
+					stock_entry_detail.custom_pea_is_rejection_item.isnull()
+					| (stock_entry_detail.custom_pea_is_rejection_item == 0)
 				)
 			)
 			.groupby(stock_entry_detail.parent, stock_entry_detail.item_code)

@@ -92,7 +92,7 @@ class TestProductionReports(FrappeTestCase):
 					"workstation_name": "Report Workstation",
 					"production_capacity": 1,
 					"hour_rate": 100,
-					"custom_standard_spm": 2,
+					"custom_pea_standard_spm": 2,
 				}
 			).insert(ignore_permissions=True)
 
@@ -110,7 +110,7 @@ class TestProductionReports(FrappeTestCase):
 
 	def setUp(self) -> None:
 		self._ensure_base_fixtures()
-		frappe.db.set_value("Workstation", "Report Workstation", "custom_standard_spm", 2)
+		frappe.db.set_value("Workstation", "Report Workstation", "custom_pea_standard_spm", 2)
 		_set_shift_buffers(start_mins=60, end_mins=60)
 
 	def test_production_oee_report_columns_match_v2_schema(self) -> None:
@@ -606,7 +606,7 @@ class TestProductionReports(FrappeTestCase):
 					"workstation_name": other_workstation,
 					"production_capacity": 1,
 					"hour_rate": 100,
-					"custom_standard_spm": 2,
+					"custom_pea_standard_spm": 2,
 				}
 			).insert(ignore_permissions=True)
 
@@ -890,7 +890,7 @@ class TestProductionReports(FrappeTestCase):
 			execute,
 		)
 
-		frappe.db.set_value("Workstation", "Report Workstation", "custom_standard_spm", 4)
+		frappe.db.set_value("Workstation", "Report Workstation", "custom_pea_standard_spm", 4)
 
 		self._create_mock_submitted_entry(
 			posting_date="2026-06-02",
@@ -998,7 +998,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		self._create_shift_for_label("2026-06-15", "1")
-		frappe.db.set_value("Workstation", "Report Workstation", "custom_standard_spm", 3)
+		frappe.db.set_value("Workstation", "Report Workstation", "custom_pea_standard_spm", 3)
 		self._create_mock_submitted_entry(
 			posting_date="2026-06-15",
 			planned_start="2026-06-15 08:00:00",
@@ -1026,7 +1026,7 @@ class TestProductionReports(FrappeTestCase):
 			execute,
 		)
 
-		frappe.db.set_value("Workstation", "Report Workstation", "custom_standard_spm", 4)
+		frappe.db.set_value("Workstation", "Report Workstation", "custom_pea_standard_spm", 4)
 		self._create_mock_submitted_entry(
 			posting_date="2026-06-15",
 			planned_start="2026-06-15 08:00:00",
@@ -1062,28 +1062,28 @@ class TestProductionReports(FrappeTestCase):
 
 		entries = [
 			{
-				"custom_operator": "Report Operator",
+				"custom_pea_operator": "Report Operator",
 				"_good_qty": 0,
 				"_rejection_qty": 0,
 				"_rework_qty": 0,
 				"_production_time_mins": 0,
 				"_duration_mins": 60,
-				"custom_standard_spm": 2,
-				"custom_actual_spm": 0,
+				"custom_pea_standard_spm": 2,
+				"custom_pea_actual_spm": 0,
 			},
 			{
-				"custom_operator": "Report Operator",
+				"custom_pea_operator": "Report Operator",
 				"_good_qty": 60,
 				"_rejection_qty": 0,
 				"_rework_qty": 0,
 				"_production_time_mins": 30,
 				"_duration_mins": 30,
-				"custom_standard_spm": 2,
-				"custom_actual_spm": 2,
+				"custom_pea_standard_spm": 2,
+				"custom_pea_actual_spm": 2,
 			},
 		]
 
-		aggregates = aggregate_efficiency_by_field(entries, "custom_operator")
+		aggregates = aggregate_efficiency_by_field(entries, "custom_pea_operator")
 		self.assertEqual(flt(aggregates["Report Operator"]["duration_mins"]), 30.0)
 
 		rows = build_efficiency_rows(aggregates, "operator", "operator_efficiency_pct")
@@ -1099,28 +1099,28 @@ class TestProductionReports(FrappeTestCase):
 
 		entries = [
 			{
-				"custom_operator": "Report Operator",
+				"custom_pea_operator": "Report Operator",
 				"_good_qty": 40,
 				"_rejection_qty": 0,
 				"_rework_qty": 0,
 				"_production_time_mins": 10,
 				"_duration_mins": 10,
-				"custom_standard_spm": 4,
-				"custom_actual_spm": 4,
+				"custom_pea_standard_spm": 4,
+				"custom_pea_actual_spm": 4,
 			},
 			{
-				"custom_operator": "Report Operator",
+				"custom_pea_operator": "Report Operator",
 				"_good_qty": 200,
 				"_rejection_qty": 0,
 				"_rework_qty": 0,
 				"_production_time_mins": 50,
 				"_duration_mins": 50,
-				"custom_standard_spm": 9,
-				"custom_actual_spm": 4,
+				"custom_pea_standard_spm": 9,
+				"custom_pea_actual_spm": 4,
 			},
 		]
 
-		aggregates = aggregate_efficiency_by_field(entries, "custom_operator")
+		aggregates = aggregate_efficiency_by_field(entries, "custom_pea_operator")
 		rows = build_efficiency_rows(aggregates, "operator", "operator_efficiency_pct")
 		self.assertEqual(len(rows), 1)
 		self.assertAlmostEqual(float(rows[0]["standard_spm"]), 4.0, places=3)
@@ -1156,9 +1156,9 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		entry = {
-			"custom_actual_duration_mins": 0,
-			"custom_actual_start_date": "2026-08-20 08:00:00",
-			"custom_actual_end_date": "2026-08-20 08:45:00",
+			"custom_pea_actual_duration_mins": 0,
+			"custom_pea_actual_start_date": "2026-08-20 08:00:00",
+			"custom_pea_actual_end_date": "2026-08-20 08:45:00",
 		}
 		self.assertEqual(float(get_entry_raw_duration_minutes(entry)), 45.0)
 
@@ -1200,7 +1200,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 		_, oee_rows = oee_execute({"from_date": "2094-06-07", "to_date": "2094-06-07"})
 		daily_columns, daily_rows = daily_execute(
-			{"fiscal_year": "2094", "month": "June", "custom_operator": "Report Operator"}
+			{"fiscal_year": "2094", "month": "June", "custom_pea_operator": "Report Operator"}
 		)
 
 		self.assertIn("rework_qty", [c.get("fieldname") for c in operator_columns])
@@ -1452,7 +1452,7 @@ class TestProductionReports(FrappeTestCase):
 					"workstation_name": other_workstation,
 					"production_capacity": 1,
 					"hour_rate": 100,
-					"custom_standard_spm": 2,
+					"custom_pea_standard_spm": 2,
 				}
 			).insert(ignore_permissions=True)
 		self._create_mock_submitted_entry_with_breakup(
@@ -1471,7 +1471,7 @@ class TestProductionReports(FrappeTestCase):
 			{
 				"from_date": "2026-06-11",
 				"to_date": "2026-06-11",
-				"custom_workstation": "Report Workstation",
+				"custom_pea_workstation": "Report Workstation",
 			}
 		)
 		self.assertEqual(len(rows), 1)
@@ -1788,7 +1788,7 @@ class TestProductionReports(FrappeTestCase):
 					"workstation_name": workstation_2,
 					"production_capacity": 1,
 					"hour_rate": 100,
-					"custom_standard_spm": 2,
+					"custom_pea_standard_spm": 2,
 				}
 			).insert(ignore_permissions=True)
 
@@ -1867,7 +1867,7 @@ class TestProductionReports(FrappeTestCase):
 			{
 				"from_date": "2026-06-24",
 				"to_date": "2026-06-24",
-				"custom_operator": "Report Operator",
+				"custom_pea_operator": "Report Operator",
 			}
 		)
 		self.assertEqual(len(rows), 1)
@@ -1944,7 +1944,7 @@ class TestProductionReports(FrappeTestCase):
 			{
 				"from_date": "2026-06-25",
 				"to_date": "2026-06-25",
-				"custom_operator": "Report Operator",
+				"custom_pea_operator": "Report Operator",
 			}
 		)
 		self.assertEqual(len(rows), 1)
@@ -1966,7 +1966,7 @@ class TestProductionReports(FrappeTestCase):
 					"workstation_name": workstation_2,
 					"production_capacity": 1,
 					"hour_rate": 100,
-					"custom_standard_spm": 2,
+					"custom_pea_standard_spm": 2,
 				}
 			).insert(ignore_permissions=True)
 		shift = self._create_shift_for_label("2026-06-26", "1")
@@ -1998,7 +1998,7 @@ class TestProductionReports(FrappeTestCase):
 			{
 				"from_date": "2026-06-26",
 				"to_date": "2026-06-26",
-				"custom_workstation": workstation_2,
+				"custom_pea_workstation": workstation_2,
 			}
 		)
 		self.assertEqual(len(rows), 1)
@@ -2116,6 +2116,68 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(float(rows[0]["rejection_qty"]), 10.0)
 		# PPM = (10 / 100) * 1_000_000 = 100_000
 		self.assertEqual(float(rows[0]["ppm"]), 100_000.0)
+
+	def test_rejection_ppm_report_prefers_parent_rejection_field_when_present(self) -> None:
+		from production_entry_app.production_entry_app.report.rejection_ppm_report.rejection_ppm_report import (
+			_get_rows,
+		)
+
+		entry_rows = [
+			[
+				{
+					"name": "MAT-STE-TEST-0001",
+					"posting_date": "2026-06-30",
+					"fg_completed_qty": 100,
+					"custom_pea_rejection_qty": 9,
+				}
+			]
+		]
+		with (
+			patch(
+				"production_entry_app.production_entry_app.report.rejection_ppm_report.rejection_ppm_report.iter_stock_entries_in_chunks",
+				return_value=entry_rows,
+			),
+			patch(
+				"production_entry_app.production_entry_app.report.rejection_ppm_report.rejection_ppm_report.get_parent_quantity_metrics",
+				return_value={"MAT-STE-TEST-0001": {"rejection_qty": 2}},
+			),
+		):
+			rows = _get_rows({"from_date": "2026-06-30", "to_date": "2026-06-30"})
+
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(float(rows[0]["rejection_qty"]), 9.0)
+		self.assertEqual(float(rows[0]["ppm"]), 90_000.0)
+
+	def test_rejection_ppm_report_keeps_parent_zero_rejection_qty(self) -> None:
+		from production_entry_app.production_entry_app.report.rejection_ppm_report.rejection_ppm_report import (
+			_get_rows,
+		)
+
+		entry_rows = [
+			[
+				{
+					"name": "MAT-STE-TEST-0002",
+					"posting_date": "2026-06-30",
+					"fg_completed_qty": 100,
+					"custom_pea_rejection_qty": 0,
+				}
+			]
+		]
+		with (
+			patch(
+				"production_entry_app.production_entry_app.report.rejection_ppm_report.rejection_ppm_report.iter_stock_entries_in_chunks",
+				return_value=entry_rows,
+			),
+			patch(
+				"production_entry_app.production_entry_app.report.rejection_ppm_report.rejection_ppm_report.get_parent_quantity_metrics",
+				return_value={"MAT-STE-TEST-0002": {"rejection_qty": 7}},
+			),
+		):
+			rows = _get_rows({"from_date": "2026-06-30", "to_date": "2026-06-30"})
+
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(float(rows[0]["rejection_qty"]), 0.0)
+		self.assertEqual(float(rows[0]["ppm"]), 0.0)
 
 	def test_rejection_ppm_report_chart(self) -> None:
 		from production_entry_app.production_entry_app.report.rejection_ppm_report.rejection_ppm_report import (
@@ -2276,7 +2338,7 @@ class TestProductionReports(FrappeTestCase):
 			{
 				"from_date": "2026-07-07",
 				"to_date": "2026-07-07",
-				"custom_operator": "Report Operator",
+				"custom_pea_operator": "Report Operator",
 			}
 		)
 		self.assertEqual(len(rows), 1)
@@ -2339,6 +2401,68 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(float(rows[0]["total_rework_qty"]), 5.0)
 		self.assertEqual(float(rows[0]["reason_crack"]), 5.0)
 
+	def test_workstation_rework_reason_matrix_translates_unassigned_label(self) -> None:
+		from production_entry_app.production_entry_app.report.workstation_rework_reason_matrix import (
+			workstation_rework_reason_matrix as report,
+		)
+
+		with (
+			patch.object(
+				report,
+				"iter_stock_entries_in_chunks",
+				return_value=[[{"name": "STE-UNASSIGNED", "custom_pea_workstation": ""}]],
+			),
+			patch.object(
+				report,
+				"get_parent_breakup_reason_rows",
+				return_value=[
+					{"parent": "STE-UNASSIGNED", "rejection_reason": "Crack", "qty": 4},
+				],
+			),
+			patch.object(report, "apply_system_precision", side_effect=lambda columns: columns),
+			patch.object(report, "_", side_effect=lambda text: f"translated:{text}"),
+		):
+			_rows, rows = report.execute({"from_date": "2026-07-10", "to_date": "2026-07-10"})
+
+		self.assertEqual(rows[0]["workstation"], "translated:Unassigned")
+
+	def test_workstation_rework_reason_matrix_uses_legacy_workstation_fallback(self) -> None:
+		from production_entry_app.production_entry_app.report.workstation_rework_reason_matrix import (
+			workstation_rework_reason_matrix as report,
+		)
+
+		with (
+			patch.object(
+				report,
+				"iter_stock_entries_in_chunks",
+				return_value=[
+					[
+						{
+							"name": "STE-LEGACY",
+							"custom_pea_workstation": "",
+							"custom_workstation": "Legacy Workstation",
+						},
+						{
+							"name": "STE-OTHER",
+							"custom_pea_workstation": "Other Workstation",
+							"custom_workstation": "",
+						},
+					]
+				],
+			),
+			patch.object(
+				report,
+				"get_parent_breakup_reason_rows",
+				return_value=[{"parent": "STE-LEGACY", "rejection_reason": "Crack", "qty": 4}],
+			),
+			patch.object(report, "apply_system_precision", side_effect=lambda columns: columns),
+		):
+			_columns, rows = report.execute({"custom_pea_workstation": "Legacy Workstation"})
+
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(rows[0]["workstation"], "Legacy Workstation")
+		self.assertEqual(float(rows[0]["total_rework_qty"]), 4.0)
+
 	# ── Daily Strokes SPM Monitor ─────────────────────────────────────
 
 	def _ensure_fiscal_year(self, fy_name: str, start_date: str, end_date: str) -> None:
@@ -2383,7 +2507,7 @@ class TestProductionReports(FrappeTestCase):
 
 		self._ensure_fiscal_year("2090-2091", "2090-04-01", "2091-03-31")
 		columns, _ = execute(
-			{"fiscal_year": "2090-2091", "month": "April", "custom_operator": "Report Operator"}
+			{"fiscal_year": "2090-2091", "month": "April", "custom_pea_operator": "Report Operator"}
 		)
 		fieldnames = [c["fieldname"] for c in columns]
 		self.assertNotIn("operator", fieldnames)
@@ -2437,7 +2561,9 @@ class TestProductionReports(FrappeTestCase):
 			],
 		)
 
-		_, rows = execute({"fiscal_year": "2080-2081", "month": "May", "custom_operator": "Report Operator"})
+		_, rows = execute(
+			{"fiscal_year": "2080-2081", "month": "May", "custom_pea_operator": "Report Operator"}
+		)
 		# Should have 1 data row + 1 totals row
 		self.assertEqual(len(rows), 2)
 		data_row = rows[0]
@@ -2486,7 +2612,9 @@ class TestProductionReports(FrappeTestCase):
 			],
 		)
 
-		_, rows = execute({"fiscal_year": "2082-2083", "month": "May", "custom_operator": "Report Operator"})
+		_, rows = execute(
+			{"fiscal_year": "2082-2083", "month": "May", "custom_pea_operator": "Report Operator"}
+		)
 		self.assertEqual(len(rows), 2)
 		data_row = rows[0]
 		expected_setup = 20 / 3600
@@ -2528,7 +2656,9 @@ class TestProductionReports(FrappeTestCase):
 			shift_name=shift2.name,
 		)
 
-		_, rows = execute({"fiscal_year": "2081-2082", "month": "June", "custom_operator": "Report Operator"})
+		_, rows = execute(
+			{"fiscal_year": "2081-2082", "month": "June", "custom_pea_operator": "Report Operator"}
+		)
 		# 2 data rows + 1 totals
 		self.assertEqual(len(rows), 3)
 		totals = rows[-1]
@@ -2592,7 +2722,9 @@ class TestProductionReports(FrappeTestCase):
 			shift_name=shift.name,
 		)
 
-		_, rows = execute({"fiscal_year": "2092", "month": "January", "custom_operator": "Report Operator"})
+		_, rows = execute(
+			{"fiscal_year": "2092", "month": "January", "custom_pea_operator": "Report Operator"}
+		)
 		self.assertEqual(rows[0]["date"], "2092-01-10")
 
 	def test_daily_strokes_spm_monitor_date_range_supports_non_april_cross_year_fiscal_year(self) -> None:
@@ -2614,7 +2746,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute(
-			{"fiscal_year": "2092-2093", "month": "September", "custom_operator": "Report Operator"}
+			{"fiscal_year": "2092-2093", "month": "September", "custom_pea_operator": "Report Operator"}
 		)
 		self.assertEqual(rows[0]["date"], "2093-09-15")
 
@@ -2741,7 +2873,7 @@ class TestProductionReports(FrappeTestCase):
 					"workstation_name": "Report Workstation 2",
 					"production_capacity": 1,
 					"hour_rate": 100,
-					"custom_standard_spm": 2,
+					"custom_pea_standard_spm": 2,
 				}
 			).insert(ignore_permissions=True)
 
@@ -2881,18 +3013,18 @@ class TestProductionReports(FrappeTestCase):
 			rm_item=self.rm_item,
 			fg_qty=fg_qty,
 			rm_qty=fg_qty,
-			custom_rejection_qty=rejection_qty,
+			custom_pea_rejection_qty=rejection_qty,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
-		stock_entry.custom_operator = operator
-		stock_entry.custom_workstation = workstation
-		stock_entry.custom_shift = shift_name
-		stock_entry.custom_standard_spm = standard_spm
-		stock_entry.custom_planned_start_date = planned_start
-		stock_entry.custom_planned_end_date = planned_end
-		stock_entry.custom_actual_start_date = actual_start
-		stock_entry.custom_actual_end_date = actual_end
+		stock_entry.custom_pea_operator = operator
+		stock_entry.custom_pea_workstation = workstation
+		stock_entry.custom_pea_shift = shift_name
+		stock_entry.custom_pea_standard_spm = standard_spm
+		stock_entry.custom_pea_planned_start_date = planned_start
+		stock_entry.custom_pea_planned_end_date = planned_end
+		stock_entry.custom_pea_actual_start_date = actual_start
+		stock_entry.custom_pea_actual_end_date = actual_end
 		stock_entry.posting_date = posting_date
 		stock_entry.posting_time = "09:00:00"
 
@@ -2903,7 +3035,7 @@ class TestProductionReports(FrappeTestCase):
 			)
 		for row in unplanned_losses or []:
 			stock_entry.append(
-				"custom_unplanned_losses",
+				"custom_pea_unplanned_losses",
 				{
 					"downtime_reason": row.get("downtime_reason"),
 					"start_time": row.get("start_time"),
@@ -2945,18 +3077,18 @@ class TestProductionReports(FrappeTestCase):
 			rm_item=self.rm_item,
 			fg_qty=fg_qty,
 			rm_qty=fg_qty,
-			custom_rejection_qty=rejection_qty,
+			custom_pea_rejection_qty=rejection_qty,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
-		stock_entry.custom_operator = operator
-		stock_entry.custom_workstation = workstation
-		stock_entry.custom_shift = shift_name
-		stock_entry.custom_standard_spm = 2
-		stock_entry.custom_planned_start_date = planned_start
-		stock_entry.custom_planned_end_date = planned_end
-		stock_entry.custom_actual_start_date = actual_start
-		stock_entry.custom_actual_end_date = actual_end
+		stock_entry.custom_pea_operator = operator
+		stock_entry.custom_pea_workstation = workstation
+		stock_entry.custom_pea_shift = shift_name
+		stock_entry.custom_pea_standard_spm = 2
+		stock_entry.custom_pea_planned_start_date = planned_start
+		stock_entry.custom_pea_planned_end_date = planned_end
+		stock_entry.custom_pea_actual_start_date = actual_start
+		stock_entry.custom_pea_actual_end_date = actual_end
 		stock_entry.posting_date = posting_date
 		stock_entry.posting_time = "09:00:00"
 		_append_rejection_breakup_rows(stock_entry, breakup_rows)
@@ -3049,7 +3181,7 @@ class TestProductionReports(FrappeTestCase):
 					"operator": operator,
 					"from_time": from_time,
 					"to_time": to_time,
-					"shift": shift_name,
+					"custom_pea_shift": shift_name,
 					"stop_reason": stop_reason,
 				}
 			)

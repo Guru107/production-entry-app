@@ -492,7 +492,7 @@ Never commit human-input.md and PLAN.md and shift_losses.csv files to git
 
 ## Application Specific Considerations
 
-- `fg_completed_qty`  is the total production quantity. So by that we can come to a conclusion that `custom_ok_qty` = `fg_completed_qty` - `custom_rejection_qty`.
-- User only enters `fg_completed_qty` and `custom_rejection_qty` in the Stock Entry document when `from_bom` is checked.
-- It is mandatory for the user to enter `fg_completed_qty` and `custom_rejection_qty` if available for Manufacturing entries.
+- `fg_completed_qty`  is the total production quantity. So by that we can come to a conclusion that `custom_pea_ok_qty` = `fg_completed_qty` - `custom_pea_rejection_qty`.
+- User only enters `fg_completed_qty` and `custom_pea_rejection_qty` in the Stock Entry document when `from_bom` is checked.
+- It is mandatory for the user to enter `fg_completed_qty` and `custom_pea_rejection_qty` if available for Manufacturing entries.
 - This is a new application under development. So migration and backfilling cases will not occour.

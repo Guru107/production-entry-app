@@ -1,7 +1,7 @@
 const { request } = require("@playwright/test");
 
-const ADMIN_USERNAME = process.env.PLAYWRIGHT_USERNAME || "Administrator";
-const ADMIN_PASSWORD = process.env.PLAYWRIGHT_PASSWORD || "123";
+const ADMIN_USERNAME = process.env.PLAYWRIGHT_ADMIN_USERNAME || "Administrator";
+const ADMIN_PASSWORD = process.env.PLAYWRIGHT_ADMIN_PASSWORD || "123";
 
 module.exports = async () => {
 	if (process.env.PLAYWRIGHT_EPHEMERAL_SITE === "1") {

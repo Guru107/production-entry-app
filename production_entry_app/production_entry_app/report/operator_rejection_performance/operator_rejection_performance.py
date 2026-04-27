@@ -42,7 +42,7 @@ def _get_columns() -> list[dict]:
 def _build_filters(filters: dict) -> dict:
 	return build_stock_entry_filters(
 		filters,
-		filter_keys=("custom_workstation", "custom_shift", "custom_operator", "bom_no"),
+		filter_keys=("custom_pea_workstation", "custom_pea_shift", "custom_pea_operator", "bom_no"),
 	)
 
 
@@ -51,7 +51,13 @@ def _get_rows(filters: dict) -> list[dict]:
 	has_entries = False
 	for entries in iter_stock_entries_in_chunks(
 		_build_filters(filters),
-		["name", "custom_operator", "fg_completed_qty", "custom_rejection_qty", "custom_actual_spm"],
+		[
+			"name",
+			"custom_pea_operator",
+			"fg_completed_qty",
+			"custom_pea_rejection_qty",
+			"custom_pea_actual_spm",
+		],
 	):
 		has_entries = True
 		entry_names = [entry.get("name") for entry in entries if entry.get("name")]
@@ -62,7 +68,7 @@ def _get_rows(filters: dict) -> list[dict]:
 		for entry in entries:
 			entry_name = entry.get("name")
 			entry_metrics = parent_quantity_metrics.get(entry_name or "", {})
-			operator = entry.get("custom_operator") or "Unassigned"
+			operator = entry.get("custom_pea_operator") or "Unassigned"
 			rejection_qty = flt(entry_metrics.get("rejection_qty") or 0)
 			total_qty = flt(entry.get("fg_completed_qty") or 0)
 			if total_qty <= 0 and entry_name:
@@ -83,13 +89,13 @@ def _get_rows(filters: dict) -> list[dict]:
 			agg["entries"] += 1
 			agg["total_qty"] += total_qty
 			agg["rejection_qty"] += rejection_qty
-			actual_spm = flt(entry.get("custom_actual_spm") or 0)
+			actual_spm = flt(entry.get("custom_pea_actual_spm") or 0)
 			if actual_spm > 0:
 				agg["actual_spm_sum"] += actual_spm
 				agg["actual_spm_count"] += 1
 
 		operator_by_entry = {
-			entry.get("name"): (entry.get("custom_operator") or "Unassigned")
+			entry.get("name"): (entry.get("custom_pea_operator") or "Unassigned")
 			for entry in entries
 			if entry.get("name")
 		}

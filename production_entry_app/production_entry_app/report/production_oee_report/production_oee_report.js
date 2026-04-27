@@ -25,7 +25,7 @@ frappe.query_reports["Production OEE Report"] = {
 			},
 		},
 		{
-			fieldname: "custom_workstation",
+			fieldname: "custom_pea_workstation",
 			label: __("Workstation"),
 			fieldtype: "Link",
 			options: "Workstation",

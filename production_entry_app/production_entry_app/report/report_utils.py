@@ -24,6 +24,11 @@ _DEFAULT_REPORT_CHUNK_SIZE = 1000
 _DEFAULT_MAX_STOCK_ENTRY_ROWS = 100000
 _DEFAULT_INTERACTIVE_REPORT_TIMEOUT_SEC = 5.0
 _SUPPORTED_STOCK_ENTRY_ORDER_BY = frozenset({"name asc", "posting_date asc, name asc"})
+_STOCK_ENTRY_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
+	"custom_pea_workstation": ("custom_pea_workstation", "custom_workstation"),
+	"custom_pea_shift": ("custom_pea_shift", "custom_shift"),
+	"custom_pea_operator": ("custom_pea_operator", "custom_operator"),
+}
 
 
 def build_stock_entry_filters(filters: dict, filter_keys: tuple[str, ...]) -> dict:
@@ -48,6 +53,40 @@ def build_stock_entry_filters(filters: dict, filter_keys: tuple[str, ...]) -> di
 		db_filters["name"] = ["in", parent_names or [""]]
 
 	return db_filters
+
+
+def get_stock_entry_alias_fields(base_fields: list[str], alias_keys: tuple[str, ...]) -> list[str]:
+	meta = frappe.get_meta("Stock Entry")
+	fields = list(base_fields)
+	for key in alias_keys:
+		for fieldname in _STOCK_ENTRY_FIELD_ALIASES.get(key, (key,)):
+			if fieldname == key or meta.has_field(fieldname):
+				fields.append(fieldname)
+	return list(dict.fromkeys(fields))
+
+
+def row_matches_stock_entry_alias_filters(row: dict, filters: dict, alias_keys: tuple[str, ...]) -> bool:
+	for key in alias_keys:
+		filter_value = get_stock_entry_alias_filter_value(filters, key)
+		if filter_value and get_stock_entry_alias_value(row, key) != filter_value:
+			return False
+	return True
+
+
+def get_stock_entry_alias_filter_value(filters: dict, key: str) -> str | None:
+	for fieldname in _STOCK_ENTRY_FIELD_ALIASES.get(key, (key,)):
+		value = filters.get(fieldname)
+		if value:
+			return value
+	return None
+
+
+def get_stock_entry_alias_value(row: dict, key: str, default: str | None = None) -> str | None:
+	for fieldname in _STOCK_ENTRY_FIELD_ALIASES.get(key, (key,)):
+		value = row.get(fieldname)
+		if value:
+			return value
+	return default
 
 
 def new_interactive_report_timeout_guard(
@@ -96,8 +135,8 @@ def get_stock_entries_for_fg_item(item_code: str) -> list[str]:
 			(stock_entry_detail.item_code == item_code)
 			& (stock_entry_detail.is_finished_item == 1)
 			& (
-				stock_entry_detail.custom_is_rejection_item.isnull()
-				| (stock_entry_detail.custom_is_rejection_item == 0)
+				stock_entry_detail.custom_pea_is_rejection_item.isnull()
+				| (stock_entry_detail.custom_pea_is_rejection_item == 0)
 			)
 			& (stock_entry.docstatus == 1)
 			& (stock_entry.purpose == "Manufacture")
@@ -234,8 +273,8 @@ def get_entry_qty_maps(
 			.where(stock_entry_detail.parent.isin(stock_entry_names))
 			.where(stock_entry_detail.is_finished_item == 1)
 			.where(
-				stock_entry_detail.custom_is_rejection_item.isnull()
-				| (stock_entry_detail.custom_is_rejection_item == 0)
+				stock_entry_detail.custom_pea_is_rejection_item.isnull()
+				| (stock_entry_detail.custom_pea_is_rejection_item == 0)
 			)
 			.groupby(stock_entry_detail.parent, stock_entry_detail.item_code)
 		).run(as_dict=True)
@@ -267,8 +306,8 @@ def get_parent_quantity_metrics(
 		.when(
 			(stock_entry_detail.is_finished_item == 1)
 			& (
-				stock_entry_detail.custom_is_rejection_item.isnull()
-				| (stock_entry_detail.custom_is_rejection_item == 0)
+				stock_entry_detail.custom_pea_is_rejection_item.isnull()
+				| (stock_entry_detail.custom_pea_is_rejection_item == 0)
 			),
 			stock_entry_detail.qty,
 		)
@@ -377,8 +416,8 @@ def get_finished_item_map(stock_entry_names: list[str]) -> dict[str, str]:
 		.where(stock_entry_detail.parent.isin(stock_entry_names))
 		.where(stock_entry_detail.is_finished_item == 1)
 		.where(
-			stock_entry_detail.custom_is_rejection_item.isnull()
-			| (stock_entry_detail.custom_is_rejection_item == 0)
+			stock_entry_detail.custom_pea_is_rejection_item.isnull()
+			| (stock_entry_detail.custom_pea_is_rejection_item == 0)
 		)
 	).run(as_dict=True)
 	return {
@@ -453,7 +492,7 @@ def get_entry_total_strokes(
 	rejection_qty = 0.0
 	if entry_name and rejection_qty_map is not None:
 		rejection_qty = flt(rejection_qty_map.get(entry_name) or 0)
-	total_rejected_qty = flt(entry.get("custom_rejection_qty") or 0)
+	total_rejected_qty = flt(entry.get("custom_pea_rejection_qty") or 0)
 	if entry_name and total_rejected_qty_map is not None:
 		total_rejected_qty = flt(total_rejected_qty_map.get(entry_name) or 0)
 
@@ -470,8 +509,8 @@ def get_entry_production_minutes(
 	setup_mins: float = 0.0,
 	loss_mins: float = 0.0,
 ) -> float:
-	"""Return production minutes using custom_production_time_mins when present."""
-	production_time_value = entry.get("custom_production_time_mins")
+	"""Return production minutes using custom_pea_production_time_mins when present."""
+	production_time_value = entry.get("custom_pea_production_time_mins")
 	if production_time_value is not None:
 		return flt(max(production_time_value, 0))
 
@@ -481,12 +520,12 @@ def get_entry_production_minutes(
 
 def get_entry_raw_duration_minutes(entry: dict) -> float:
 	"""Return wall-clock duration minutes from stored field or start/end fallback."""
-	duration_mins = flt(entry.get("custom_actual_duration_mins") or 0)
+	duration_mins = flt(entry.get("custom_pea_actual_duration_mins") or 0)
 	if duration_mins > 0:
 		return duration_mins
 	return get_duration_minutes(
-		entry.get("custom_actual_start_date"),
-		entry.get("custom_actual_end_date"),
+		entry.get("custom_pea_actual_start_date"),
+		entry.get("custom_pea_actual_end_date"),
 	)
 
 
@@ -544,7 +583,7 @@ def accumulate_efficiency_aggregate(
 	duration_mins = flt(
 		production_time_mins if production_time_mins is not None else (entry.get("_duration_mins") or 0),
 	)
-	standard_spm = flt(entry.get("custom_standard_spm") or 0)
+	standard_spm = flt(entry.get("custom_pea_standard_spm") or 0)
 
 	agg = aggregates[group_value]
 	agg["entries"] += 1
@@ -553,7 +592,7 @@ def accumulate_efficiency_aggregate(
 	agg["rework_qty"] += rework_qty
 	agg["total_units"] += total_units
 	agg["duration_mins"] += duration_mins
-	agg["actual_spm_sum"] += flt(entry.get("custom_actual_spm") or 0)
+	agg["actual_spm_sum"] += flt(entry.get("custom_pea_actual_spm") or 0)
 	if standard_spm > 0 and agg["standard_spm"] <= 0:
 		agg["standard_spm"] = standard_spm
 

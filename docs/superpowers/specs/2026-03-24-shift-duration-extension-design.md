@@ -201,7 +201,7 @@ Expected behavior:
 
 ### Mostly filter-only reports
 
-The following families use `custom_shift` mostly as a filter or grouping key and are not expected to change numerically just because a Shift is extended:
+The following families use `custom_pea_shift` mostly as a filter or grouping key and are not expected to change numerically just because a Shift is extended:
 
 - rejection/rework pareto reports
 - rejection/rework trend reports

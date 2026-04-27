@@ -61,7 +61,7 @@ def _get_columns() -> list[dict]:
 def _build_filters(filters: dict) -> dict:
 	return build_stock_entry_filters(
 		filters,
-		filter_keys=("custom_operator", "custom_workstation", "custom_shift"),
+		filter_keys=("custom_pea_operator", "custom_pea_workstation", "custom_pea_shift"),
 	)
 
 
@@ -85,14 +85,14 @@ def _get_rows(filters: dict) -> list[dict]:
 		[
 			"name",
 			"posting_date",
-			"custom_operator",
-			"custom_workstation",
-			"custom_shift",
+			"custom_pea_operator",
+			"custom_pea_workstation",
+			"custom_pea_shift",
 			"fg_completed_qty",
-			"custom_rejection_qty",
-			"custom_actual_start_date",
-			"custom_actual_end_date",
-			"custom_production_time_mins",
+			"custom_pea_rejection_qty",
+			"custom_pea_actual_start_date",
+			"custom_pea_actual_end_date",
+			"custom_pea_production_time_mins",
 		],
 		order_by="posting_date asc, name asc",
 	):
@@ -116,8 +116,8 @@ def _get_rows(filters: dict) -> list[dict]:
 			entry_name = entry.get("name")
 			loss_metrics = parent_loss_metrics.get(entry_name or "", {})
 			posting_date = str(entry.get("posting_date") or "")
-			operator = entry.get("custom_operator") or "Unassigned"
-			workstation = entry.get("custom_workstation") or "Unassigned"
+			operator = entry.get("custom_pea_operator") or "Unassigned"
+			workstation = entry.get("custom_pea_workstation") or "Unassigned"
 			group_key = (posting_date, operator, workstation)
 			agg = aggregates.setdefault(
 				group_key,
@@ -133,7 +133,7 @@ def _get_rows(filters: dict) -> list[dict]:
 				},
 			)
 
-			shift_name = entry.get("custom_shift")
+			shift_name = entry.get("custom_pea_shift")
 			if shift_name:
 				agg["shift_names"].add(shift_name)
 				shift_names.add(shift_name)

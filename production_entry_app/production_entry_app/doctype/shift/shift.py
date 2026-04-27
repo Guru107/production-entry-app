@@ -9,6 +9,7 @@ from frappe.query_builder import DocType
 from frappe.query_builder.functions import CustomFunction, Sum
 from frappe.utils import add_to_date, cint, flt, get_datetime
 
+from production_entry_app.production_entry_app import access_control
 from production_entry_app.production_entry_app.utils.loss_time import (
 	build_interval_overlap_criterion,
 	build_interval_overlap_filters,
@@ -161,6 +162,7 @@ def get_planned_losses_for_duration(
 
 	Used by client script to populate the grid when shift_duration (or related fields) changes.
 	"""
+	access_control.assert_app_access()
 	if not shift_duration or not planned_start_time or not shift_date:
 		return []
 
@@ -177,13 +179,21 @@ def get_planned_losses_for_duration(
 
 
 @frappe.whitelist()
-def get_linked_downtime_entries(shift_name: str) -> list[dict]:
+def get_linked_downtime_entries(shift_name: str | None = None) -> list[dict]:
 	"""Return Downtime Entries whose time range overlaps with the given Shift.
 
 	Downtime Entries are fetched by time overlap, not by shift link.
 	A downtime spanning multiple shifts appears in each overlapping shift.
 	"""
 	if not shift_name:
+		return []
+	access_control.assert_app_access(doctype="Shift", docname=shift_name)
+	shift_exists = bool(frappe.db.exists("Shift", shift_name))
+	if not shift_exists and shift_name.startswith("new-"):
+		return []
+	if not frappe.has_permission("Shift", "read", shift_name):
+		raise frappe.PermissionError
+	if not shift_exists:
 		return []
 
 	shift = frappe.db.get_value(
@@ -217,8 +227,11 @@ def check_running_shift_conflict(shift_name: str) -> dict:
 	Used by client to show a warning dialog before starting a shift.
 	Returns: {"has_conflict": bool, "conflicting_shifts": [{"name": str, "shift_label": str, ...}]}
 	"""
+	access_control.assert_app_access(doctype="Shift", docname=shift_name)
 	if not shift_name:
 		return {"has_conflict": False, "conflicting_shifts": []}
+	if not frappe.has_permission("Shift", "read", shift_name):
+		raise frappe.PermissionError
 
 	current_shift = frappe.db.get_value(
 		"Shift",
@@ -319,12 +332,14 @@ def invalidate_shift_summary_for_shift(doc, method: str | None = None) -> None:
 
 
 def invalidate_shift_summary_for_downtime_entry(doc, method: str | None = None) -> None:
-	shift_names = {getattr(doc, "shift", None)}
+	shift_names = {getattr(doc, "custom_pea_shift", None) or getattr(doc, "shift", None)}
 	get_before_save = getattr(doc, "get_doc_before_save", None)
 	if callable(get_before_save):
 		before_doc = get_before_save()
 		if before_doc:
-			shift_names.add(getattr(before_doc, "shift", None))
+			shift_names.add(
+				getattr(before_doc, "custom_pea_shift", None) or getattr(before_doc, "shift", None)
+			)
 	for shift_name in shift_names:
 		invalidate_shift_summary_cache(shift_name)
 
@@ -355,10 +370,10 @@ def _get_shift_window(shift_name: str) -> tuple[dict, datetime.datetime, datetim
 
 
 def _get_entry_production_minutes(entry: dict) -> float:
-	production_time_mins = entry.get("custom_production_time_mins")
+	production_time_mins = entry.get("custom_pea_production_time_mins")
 	if production_time_mins is not None:
 		return flt(production_time_mins)
-	return flt(entry.get("custom_actual_duration_mins") or 0)
+	return flt(entry.get("custom_pea_actual_duration_mins") or 0)
 
 
 def _get_logged_downtime_minutes(row: dict) -> float:
@@ -384,7 +399,7 @@ def _top_reason_rows(reason_totals: dict[str, float], key_name: str = "reason") 
 def _build_workstation_summary_rows(entries: list[dict]) -> tuple[list[dict], dict | None]:
 	aggregates: dict[str, dict] = {}
 	for entry in entries:
-		workstation = entry.get("custom_workstation") or "Unassigned"
+		workstation = entry.get("custom_pea_workstation") or "Unassigned"
 		aggregate = aggregates.setdefault(
 			workstation,
 			{
@@ -398,10 +413,10 @@ def _build_workstation_summary_rows(entries: list[dict]) -> tuple[list[dict], di
 			},
 		)
 		total_qty = flt(entry.get("fg_completed_qty") or 0)
-		rejection_qty = flt(entry.get("custom_rejection_qty") or 0)
+		rejection_qty = flt(entry.get("custom_pea_rejection_qty") or 0)
 		ok_qty = max(total_qty - rejection_qty, 0)
 		production_mins = _get_entry_production_minutes(entry)
-		standard_spm = flt(entry.get("custom_standard_spm") or 0)
+		standard_spm = flt(entry.get("custom_pea_standard_spm") or 0)
 		aggregate["total_qty"] += total_qty
 		aggregate["ok_qty"] += ok_qty
 		aggregate["rejection_qty"] += rejection_qty
@@ -472,7 +487,7 @@ def _build_item_bom_rows(entries: list[dict]) -> list[dict]:
 			},
 		)
 		total_qty = flt(entry.get("fg_completed_qty") or 0)
-		rejection_qty = flt(entry.get("custom_rejection_qty") or 0)
+		rejection_qty = flt(entry.get("custom_pea_rejection_qty") or 0)
 		aggregate["total_qty"] += total_qty
 		aggregate["ok_qty"] += max(total_qty - rejection_qty, 0)
 		aggregate["rejection_qty"] += rejection_qty
@@ -523,12 +538,18 @@ def _build_completeness_state(
 
 
 @frappe.whitelist()
-def get_shift_summary(shift_name: str) -> dict:
+def get_shift_summary(shift_name: str | None = None) -> dict:
 	"""Return structured summary data for the Shift summary tab."""
 	if not shift_name:
 		return _empty_shift_summary()
+	access_control.assert_app_access(doctype="Shift", docname=shift_name)
+	shift_exists = bool(frappe.db.exists("Shift", shift_name))
+	if not shift_exists and shift_name.startswith("new-"):
+		return _empty_shift_summary()
 	if not frappe.has_permission("Shift", "read", shift_name):
 		raise frappe.PermissionError
+	if not shift_exists:
+		return _empty_shift_summary()
 	cached_summary = _get_cached_shift_summary(shift_name)
 	if cached_summary is not None:
 		return _with_shift_summary_float_precision(cached_summary)
@@ -542,15 +563,15 @@ def get_shift_summary(shift_name: str) -> dict:
 
 	entry_rows = frappe.get_all(
 		"Stock Entry",
-		filters={"docstatus": 1, "purpose": "Manufacture", "custom_shift": shift_name},
+		filters={"docstatus": 1, "purpose": "Manufacture", "custom_pea_shift": shift_name},
 		fields=[
 			"name",
 			"fg_completed_qty",
-			"custom_rejection_qty",
-			"custom_actual_duration_mins",
-			"custom_production_time_mins",
-			"custom_standard_spm",
-			"custom_workstation",
+			"custom_pea_rejection_qty",
+			"custom_pea_actual_duration_mins",
+			"custom_pea_production_time_mins",
+			"custom_pea_standard_spm",
+			"custom_pea_workstation",
 			"bom_no",
 		],
 		order_by="name asc",
@@ -592,7 +613,7 @@ def get_shift_summary(shift_name: str) -> dict:
 	logged_downtime_rows = frappe.get_all(
 		"Downtime Entry",
 		filters=[
-			["shift", "=", shift_name],
+			["custom_pea_shift", "=", shift_name],
 			*build_interval_overlap_filters("from_time", "to_time", start_dt, end_dt),
 		],
 		fields=["name", "downtime", "from_time", "to_time", "stop_reason"],
@@ -612,10 +633,10 @@ def get_shift_summary(shift_name: str) -> dict:
 	weighted_target_sum = 0.0
 	for row in entry_rows:
 		total_qty += flt(row.get("fg_completed_qty") or 0)
-		rejection_qty += flt(row.get("custom_rejection_qty") or 0)
+		rejection_qty += flt(row.get("custom_pea_rejection_qty") or 0)
 		production_mins = _get_entry_production_minutes(row)
 		recorded_production_mins += production_mins
-		standard_spm = flt(row.get("custom_standard_spm") or 0)
+		standard_spm = flt(row.get("custom_pea_standard_spm") or 0)
 		if standard_spm > 0 and production_mins > 0:
 			target_covered_mins += production_mins
 			weighted_target_sum += standard_spm * production_mins
@@ -710,30 +731,36 @@ def get_shift_summary(shift_name: str) -> dict:
 
 
 @frappe.whitelist()
-def get_shift_aggregate_production_entries(shift_name: str) -> list[dict]:
+def get_shift_aggregate_production_entries(shift_name: str | None = None) -> list[dict]:
 	"""Return per-BOM aggregate production values for submitted manufacture entries in a shift."""
 	if not shift_name:
 		return []
+	access_control.assert_app_access(doctype="Shift", docname=shift_name)
+	shift_exists = bool(frappe.db.exists("Shift", shift_name))
+	if not shift_exists and shift_name.startswith("new-"):
+		return []
 	if not frappe.has_permission("Shift", "read", shift_name):
 		raise frappe.PermissionError
+	if not shift_exists:
+		return []
 	float_precision = get_system_float_precision()
 
 	stock_entry = DocType("Stock Entry")
 	bom = DocType("BOM")
 	has_production_time_field = frappe.get_meta("Stock Entry", cached=True).has_field(
-		"custom_production_time_mins"
+		"custom_pea_production_time_mins"
 	)
 	production_time_expr = (
 		frappe.qb.terms.Case()
-		.when(stock_entry.custom_production_time_mins > 0, stock_entry.custom_production_time_mins)
-		.else_(stock_entry.custom_actual_duration_mins)
+		.when(stock_entry.custom_pea_production_time_mins > 0, stock_entry.custom_pea_production_time_mins)
+		.else_(stock_entry.custom_pea_actual_duration_mins)
 	)
 	select_fields = [
 		stock_entry.bom_no.as_("bom_used"),
 		bom.item.as_("item_code"),
 		Sum(stock_entry.fg_completed_qty).as_("total_qty"),
-		Sum(stock_entry.custom_rejection_qty).as_("total_reject_qty"),
-		Sum(stock_entry.custom_actual_duration_mins).as_("total_duration_mins"),
+		Sum(stock_entry.custom_pea_rejection_qty).as_("total_reject_qty"),
+		Sum(stock_entry.custom_pea_actual_duration_mins).as_("total_duration_mins"),
 	]
 	if has_production_time_field:
 		select_fields.insert(
@@ -748,7 +775,7 @@ def get_shift_aggregate_production_entries(shift_name: str) -> list[dict]:
 		.where(
 			(stock_entry.docstatus == 1)
 			& (stock_entry.purpose == "Manufacture")
-			& (stock_entry.custom_shift == shift_name)
+			& (stock_entry.custom_pea_shift == shift_name)
 			& stock_entry.bom_no.isnotnull()
 			& (stock_entry.bom_no != "")
 		)
@@ -818,9 +845,12 @@ class Shift(Document):
 		sequence = _get_next_shift_sequence(self.shift_date)
 		self.name = f"SHIFT-{self.shift_date}.{self.shift_label}.{sequence:04d}"
 
+	def has_permission(self, ptype: str = "read") -> bool:
+		return access_control.has_gated_doctype_permission(self, ptype=ptype)
+
 	def before_insert(self) -> None:
 		self._set_defaults()
-		self._set_warehouse_defaults_from_manufacturing_settings()
+		self._set_warehouse_defaults_from_production_entry_settings()
 
 	def validate(self) -> None:
 		self._ensure_company()
@@ -839,6 +869,7 @@ class Shift(Document):
 		Status is system-managed; use this action instead of editing the Status field.
 		Blocked if another shift in the same department and branch is already Running.
 		"""
+		access_control.assert_app_access(doctype="Shift", docname=self.name)
 		self._validate_no_other_running_shift()
 		self._transition_status(to_status="Running", allowed_from=("Draft",))
 
@@ -873,6 +904,7 @@ class Shift(Document):
 
 		Status is system-managed; use this action instead of editing the Status field.
 		"""
+		access_control.assert_app_access(doctype="Shift", docname=self.name)
 		self._transition_status(to_status="Completed", allowed_from=("Running",))
 
 	@frappe.whitelist()
@@ -881,6 +913,7 @@ class Shift(Document):
 
 		Status is system-managed; use this action instead of editing the Status field.
 		"""
+		access_control.assert_app_access(doctype="Shift", docname=self.name)
 		self._transition_status(to_status="Cancelled", allowed_from=("Draft",))
 
 	def _set_defaults(self) -> None:
@@ -1287,14 +1320,10 @@ class Shift(Document):
 		for row in entries:
 			self.append("planned_losses", row)
 
-	def _set_warehouse_defaults_from_manufacturing_settings(self) -> None:
-		"""Best-effort: fields are added later via fixtures (task 7.0).
+	def _set_warehouse_defaults_from_production_entry_settings(self) -> None:
+		"""Best-effort: populate missing warehouse defaults from Production Entry Settings."""
 
-		If fields don't exist yet, this should be a no-op.
-		"""
-
-		settings_doctype = "Manufacturing Settings"
-		settings_name = settings_doctype
+		settings_doctype = "Production Entry Settings"
 
 		field_map = {
 			"raw_material_warehouse": "shift_raw_material_warehouse",
@@ -1312,6 +1341,6 @@ class Shift(Document):
 			if not settings_meta.has_field(settings_field):
 				continue
 
-			value = frappe.db.get_value(settings_doctype, settings_name, settings_field)
+			value = frappe.db.get_single_value(settings_doctype, settings_field)
 			if value:
 				setattr(self, target_field, value)

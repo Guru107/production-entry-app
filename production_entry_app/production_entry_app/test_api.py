@@ -9,20 +9,31 @@ from frappe.tests.utils import FrappeTestCase
 from production_entry_app.production_entry_app.api import (
 	_assert_e2e_api_allowed,
 	_build_e2e_shift_doc,
+	_cache_e2e_settings_snapshot,
+	_cache_e2e_shift_name,
 	_cleanup_e2e_context,
 	_cleanup_orphan_stock_entry_loss_links,
 	_cleanup_reserved_e2e_artifacts,
 	_collect_reserved_e2e_prefixes,
 	_e2e_base_date,
+	_ensure_e2e_settings_fields_loaded,
 	_get_candidate_e2e_stock_entries,
 	_get_e2e_shift_names_cache_key,
+	_get_or_create_e2e_employee,
 	_get_or_create_e2e_shift,
+	_item_has_live_stock_entry_references,
+	_restore_cached_e2e_settings,
+	_safe_cancel_and_delete,
 	_stock_entry_matches_cleanup_target,
 	bootstrap_e2e_context,
 	cleanup_e2e_context,
+	create_e2e_downtime_entry,
+	create_e2e_full_shift_stock_entries,
 	create_e2e_submitted_stock_entry,
 	delete,
 	get_die_tool_counter,
+	set_e2e_access_control,
+	set_e2e_system_float_precision,
 )
 
 
@@ -96,6 +107,94 @@ class TestE2EApi(FrappeTestCase):
 					with self.assertRaises(frappe.PermissionError):
 						_assert_e2e_api_allowed()
 
+	def test_ensure_e2e_settings_fields_loaded_reloads_when_meta_is_stale(self) -> None:
+		with patch(
+			"production_entry_app.production_entry_app.api.frappe.get_meta",
+			return_value=_meta_stub(False),
+		):
+			with patch("production_entry_app.production_entry_app.api.frappe.reload_doc") as reload_doc:
+				with patch(
+					"production_entry_app.production_entry_app.api.frappe.clear_document_cache"
+				) as clear_cache:
+					_ensure_e2e_settings_fields_loaded()
+
+		reload_doc.assert_called_once_with(
+			"production_entry_app",
+			"doctype",
+			"production_entry_settings",
+		)
+		clear_cache.assert_called_once_with("Production Entry Settings")
+
+	def test_set_e2e_access_control_persists_normalized_settings(self) -> None:
+		with ExitStack() as stack:
+			stack.enter_context(
+				patch("production_entry_app.production_entry_app.api._assert_e2e_api_allowed")
+			)
+			set_single_value = stack.enter_context(
+				patch("production_entry_app.production_entry_app.api.frappe.db.set_single_value")
+			)
+			stack.enter_context(
+				patch("production_entry_app.production_entry_app.api.frappe.clear_document_cache")
+			)
+			invalidate = stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.api.access_control.invalidate_access_control_cache"
+				)
+			)
+			commit = stack.enter_context(
+				patch("production_entry_app.production_entry_app.api.frappe.db.commit")
+			)
+
+			result = set_e2e_access_control(enabled=1, required_role=" Manufacturing User ")
+
+		self.assertEqual(result, {"enabled": True, "required_role": "Manufacturing User"})
+		set_single_value.assert_any_call("Production Entry Settings", "enable_access_control", 1)
+		set_single_value.assert_any_call("Production Entry Settings", "required_role", "Manufacturing User")
+		invalidate.assert_called_once()
+		commit.assert_called_once()
+
+	def test_cache_e2e_settings_snapshot_skips_existing_cache(self) -> None:
+		cache = MagicMock()
+		cache.get_value.return_value = {"production_entry_settings": {}}
+		with patch("production_entry_app.production_entry_app.api.frappe.cache", return_value=cache):
+			with patch(
+				"production_entry_app.production_entry_app.api._get_production_entry_settings_snapshot"
+			) as get_settings:
+				_cache_e2e_settings_snapshot("E2E-CACHED")
+
+		get_settings.assert_not_called()
+		cache.set_value.assert_not_called()
+
+	def test_cache_e2e_shift_name_skips_empty_and_duplicate_names(self) -> None:
+		cache = MagicMock()
+		cache.get_value.return_value = ["SHIFT-001"]
+		with patch("production_entry_app.production_entry_app.api.frappe.cache", return_value=cache):
+			_cache_e2e_shift_name("E2E", None)
+			_cache_e2e_shift_name("E2E", "SHIFT-001")
+			_cache_e2e_shift_name("E2E", "SHIFT-002")
+
+		cache.set_value.assert_called_once_with("pea:e2e:shift-names:E2E", ["SHIFT-001", "SHIFT-002"])
+
+	def test_restore_cached_e2e_settings_restores_modern_snapshot_and_deletes_cache(self) -> None:
+		cache = MagicMock()
+		cache.get_value.return_value = {
+			"production_entry_settings": {"shift_start_buffer_mins": 60},
+			"system_settings": {"float_precision": 3},
+		}
+		with patch("production_entry_app.production_entry_app.api.frappe.cache", return_value=cache):
+			with patch(
+				"production_entry_app.production_entry_app.api._restore_production_entry_settings"
+			) as restore_pea:
+				with patch(
+					"production_entry_app.production_entry_app.api._restore_system_settings"
+				) as restore_system:
+					_restore_cached_e2e_settings("E2E")
+
+		restore_pea.assert_called_once_with({"shift_start_buffer_mins": 60})
+		restore_system.assert_called_once_with({"float_precision": 3})
+		cache.delete_value.assert_any_call("pea:e2e:settings:E2E")
+		cache.delete_value.assert_any_call("pea:e2e:shift-names:E2E")
+
 	def test_all_e2e_endpoints_fail_closed_when_guard_raises(self) -> None:
 		with patch(
 			"production_entry_app.production_entry_app.api._assert_e2e_api_allowed",
@@ -111,7 +210,7 @@ class TestE2EApi(FrappeTestCase):
 	def test_stock_entry_matches_cleanup_target_by_operator_or_fg_item(self) -> None:
 		operator_only_match = frappe._dict(
 			{
-				"custom_operator": "E2E Operator",
+				"custom_pea_operator": "E2E Operator",
 				"items": [{"is_finished_item": 1, "item_code": "_Another_Item"}],
 			}
 		)
@@ -123,7 +222,7 @@ class TestE2EApi(FrappeTestCase):
 
 		fg_item_only_match = frappe._dict(
 			{
-				"custom_operator": "Other Operator",
+				"custom_pea_operator": "Other Operator",
 				"items": [{"is_finished_item": 1, "item_code": "_E2E_FG_Item"}],
 			}
 		)
@@ -135,7 +234,7 @@ class TestE2EApi(FrappeTestCase):
 
 		no_match = frappe._dict(
 			{
-				"custom_operator": "Other Operator",
+				"custom_pea_operator": "Other Operator",
 				"items": [{"is_finished_item": 1, "item_code": "_Another_Item"}],
 			}
 		)
@@ -255,11 +354,6 @@ class TestE2EApi(FrappeTestCase):
 		shift_doc.shift_duration = "8"
 		shift_doc.work_in_progress_warehouse = "WIP Warehouse"
 
-		def mock_get_doc(doctype, name):
-			if doctype == "Shift":
-				return shift_doc
-			return frappe.get_doc(doctype, name)
-
 		self.assertEqual(str(shift_doc.shift_end_date), "2026-03-01")
 		self.assertEqual(str(shift_doc.planned_end_time), "16:00:00")
 
@@ -268,11 +362,15 @@ class TestE2EApi(FrappeTestCase):
 		shift_doc.planned_end_time = "18:00:00"
 		shift_doc.shift_end_date = "2026-03-01"
 
-		with patch("production_entry_app.production_entry_app.api.frappe.get_doc", side_effect=mock_get_doc):
-			updated_result = get_shift_details_for_stock_entry("SHIFT-RUNNING-001")
+		with (
+			patch("production_entry_app.production_entry_app.api.access_control.assert_app_access"),
+			patch("production_entry_app.production_entry_app.api.frappe.has_permission", return_value=True),
+			patch("production_entry_app.production_entry_app.api.frappe.get_doc", return_value=shift_doc),
+		):
+			updated_result = get_shift_details_for_stock_entry(shift_doc.name)
 
 		# The updated planned_end must reflect the new 10-hour duration ending at 18:00
-		self.assertIn("18:00", updated_result.get("custom_planned_end_date", ""))
+		self.assertIn("18:00", updated_result.get("custom_pea_planned_end_date", ""))
 
 	def test_cleanup_stock_entry_query_uses_single_qb_run(self) -> None:
 		with patch(
@@ -393,41 +491,91 @@ class TestE2EApi(FrappeTestCase):
 		self.assertEqual(query.where.call_count, 2)
 		self.assertIn("stock_entry_type", str(query.where.call_args_list[0].args[0]))
 
+	def test_item_has_live_stock_entry_references_returns_false_for_blank_and_true_for_query_hit(
+		self,
+	) -> None:
+		self.assertFalse(_item_has_live_stock_entry_references(""))
+
+		class _Query:
+			def inner_join(self, *_args, **_kwargs):
+				return self
+
+			def on(self, *_args, **_kwargs):
+				return self
+
+			def select(self, *_args, **_kwargs):
+				return self
+
+			def where(self, *_args, **_kwargs):
+				return self
+
+			def limit(self, *_args, **_kwargs):
+				return self
+
+			def run(self):
+				return [["STE-001"]]
+
+		with patch("production_entry_app.production_entry_app.api.frappe.qb.from_", return_value=_Query()):
+			self.assertTrue(_item_has_live_stock_entry_references("_E2E_FG_Item"))
+
+	def test_clear_timeline_cache_deletes_workstation_and_operator_keys(self) -> None:
+		from production_entry_app.production_entry_app.api import _clear_timeline_cache_for_context
+
+		cache = MagicMock()
+		previous_user = frappe.session.user
+		frappe.session.user = "Administrator"
+		try:
+			with patch("production_entry_app.production_entry_app.api.frappe.cache", return_value=cache):
+				_clear_timeline_cache_for_context(
+					{"workstation": "E2E Workstation", "operator": "E2E Operator"},
+					"SHIFT-001",
+				)
+		finally:
+			frappe.session.user = previous_user
+
+		self.assertEqual(cache.delete_value.call_count, 2)
+		cache.delete_value.assert_any_call("pea:timeline:Administrator:Workstation:E2E Workstation:SHIFT-001")
+		cache.delete_value.assert_any_call("pea:timeline:Administrator:Operator:E2E Operator:SHIFT-001")
+
 	def test_cleanup_continues_when_one_stock_entry_delete_fails(self) -> None:
 		row1 = frappe._dict({"name": "STE-FAIL", "docstatus": 0})
 		row2 = frappe._dict({"name": "STE-OK", "docstatus": 0})
 		se1 = frappe._dict(
-			{"name": "STE-FAIL", "docstatus": 0, "custom_operator": "E2E Operator", "items": []}
+			{"name": "STE-FAIL", "docstatus": 0, "custom_pea_operator": "E2E Operator", "items": []}
 		)
-		se2 = frappe._dict({"name": "STE-OK", "docstatus": 0, "custom_operator": "E2E Operator", "items": []})
+		se2 = frappe._dict(
+			{"name": "STE-OK", "docstatus": 0, "custom_pea_operator": "E2E Operator", "items": []}
+		)
 
 		with patch(
 			"production_entry_app.production_entry_app.api._get_candidate_e2e_stock_entries",
 			return_value=[row1, row2],
 		):
-			with patch("production_entry_app.production_entry_app.api._assert_e2e_api_allowed"):
-				with patch(
-					"production_entry_app.production_entry_app.api._e2e_base_date",
-					return_value="2099-01-10",
-				):
+			with patch("production_entry_app.production_entry_app.api.access_control.assert_app_access"):
+				with patch("production_entry_app.production_entry_app.api._assert_e2e_api_allowed"):
 					with patch(
-						"production_entry_app.production_entry_app.api.frappe.db.exists", return_value=False
+						"production_entry_app.production_entry_app.api._e2e_base_date",
+						return_value="2099-01-10",
 					):
 						with patch(
-							"production_entry_app.production_entry_app.api.frappe.get_doc",
-							side_effect=[se1, se2],
+							"production_entry_app.production_entry_app.api.frappe.db.exists",
+							return_value=False,
 						):
 							with patch(
-								"production_entry_app.production_entry_app.api.frappe.delete_doc",
-								side_effect=[Exception("delete failed"), None],
-							) as delete_doc:
+								"production_entry_app.production_entry_app.api.frappe.get_doc",
+								side_effect=[se1, se2],
+							):
 								with patch(
-									"production_entry_app.production_entry_app.api.frappe.log_error"
-								) as log_error:
+									"production_entry_app.production_entry_app.api.frappe.delete_doc",
+									side_effect=[Exception("delete failed"), None],
+								) as delete_doc:
 									with patch(
-										"production_entry_app.production_entry_app.api.frappe.db.commit"
-									):
-										cleanup_e2e_context(prefix="E2E")
+										"production_entry_app.production_entry_app.api.frappe.log_error"
+									) as log_error:
+										with patch(
+											"production_entry_app.production_entry_app.api.frappe.db.commit"
+										):
+											cleanup_e2e_context(prefix="E2E")
 
 		self.assertEqual(delete_doc.call_count, 2)
 		log_error.assert_called_once()
@@ -477,6 +625,141 @@ class TestE2EApi(FrappeTestCase):
 		]
 		self.assertEqual(deleted_items, ["_E2E_RM_Item"])
 
+	def test_cleanup_e2e_context_covers_running_shift_and_related_submitted_docs(self) -> None:
+		running_shift = MagicMock()
+		running_shift.status = "Running"
+		running_shift.reload.side_effect = lambda: setattr(running_shift, "status", "Completed")
+		submitted_stock_entry = frappe._dict(
+			{
+				"name": "STE-SUBMITTED",
+				"docstatus": 1,
+				"custom_pea_operator": "Other Operator",
+				"items": [frappe._dict({"item_code": "_E2E_RM_Item", "is_finished_item": 0})],
+			}
+		)
+		submitted_stock_entry.cancel = MagicMock(
+			side_effect=lambda: submitted_stock_entry.update(docstatus=2)
+		)
+		failing_stock_entry = frappe._dict(
+			{"name": "STE-FAIL-CANCEL", "docstatus": 1, "custom_pea_operator": "E2E Operator", "items": []}
+		)
+		failing_stock_entry.cancel = MagicMock(side_effect=Exception("cancel failed"))
+		skipped_stock_entry = frappe._dict(
+			{
+				"name": "STE-SKIP",
+				"docstatus": 0,
+				"custom_pea_operator": "Other Operator",
+				"items": [frappe._dict({"item_code": "OTHER", "is_finished_item": 0})],
+			}
+		)
+		maintenance_log = frappe._dict({"name": "LOG-001", "docstatus": 1})
+		maintenance_log.cancel = MagicMock(side_effect=lambda: maintenance_log.update(docstatus=2))
+		failing_maintenance_log = frappe._dict({"name": "LOG-FAIL", "docstatus": 1})
+		failing_maintenance_log.cancel = MagicMock(side_effect=Exception("cancel failed"))
+		bom = frappe._dict({"name": "BOM-001", "docstatus": 1})
+		bom.cancel = MagicMock(side_effect=lambda: bom.update(docstatus=2))
+		failing_bom = frappe._dict({"name": "BOM-FAIL", "docstatus": 1})
+		failing_bom.cancel = MagicMock(side_effect=Exception("cancel failed"))
+
+		def _get_all(doctype: str, *args, **kwargs):
+			if doctype == "Department":
+				return ["E2E Department - TC"]
+			if doctype == "Shift":
+				return ["SHIFT-RUNNING-001"]
+			if doctype == "Die Tool Counter":
+				return ["DTC-001"]
+			if doctype == "Die Tool Maintenance Log":
+				return ["LOG-001", "LOG-FAIL"]
+			if doctype == "BOM":
+				return ["BOM-001", "BOM-FAIL"]
+			return []
+
+		def _exists(doctype: str, name=None, *args, **kwargs):
+			if doctype == "Shift":
+				return name == "SHIFT-RUNNING-001"
+			if doctype in {"Workstation", "Operator", "Item", "Warehouse", "Die Tool Counter"}:
+				return True
+			return False
+
+		def _get_doc(doctype: str, name=None):
+			if doctype == "Shift":
+				return running_shift
+			if doctype == "Stock Entry":
+				return {
+					"STE-SUBMITTED": submitted_stock_entry,
+					"STE-FAIL-CANCEL": failing_stock_entry,
+					"STE-SKIP": skipped_stock_entry,
+				}[name]
+			if doctype == "Die Tool Maintenance Log":
+				return {"LOG-001": maintenance_log, "LOG-FAIL": failing_maintenance_log}[name]
+			if doctype == "BOM":
+				return {"BOM-001": bom, "BOM-FAIL": failing_bom}[name]
+			raise AssertionError(f"Unexpected get_doc: {doctype} {name}")
+
+		with ExitStack() as stack:
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.api._get_candidate_e2e_stock_entries",
+					return_value=[
+						frappe._dict({"name": "STE-SUBMITTED", "docstatus": 1}),
+						frappe._dict({"name": "STE-SUBMITTED", "docstatus": 1}),
+						frappe._dict({"name": "STE-FAIL-CANCEL", "docstatus": 1}),
+						frappe._dict({"name": "STE-SKIP", "docstatus": 0}),
+					],
+				)
+			)
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.api._e2e_base_date", return_value="2099-01-10"
+				)
+			)
+			stack.enter_context(
+				patch("production_entry_app.production_entry_app.api.frappe.get_all", side_effect=_get_all)
+			)
+			stack.enter_context(
+				patch("production_entry_app.production_entry_app.api.frappe.db.exists", side_effect=_exists)
+			)
+			stack.enter_context(
+				patch("production_entry_app.production_entry_app.api.frappe.get_doc", side_effect=_get_doc)
+			)
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.api._item_has_live_stock_entry_references",
+					return_value=False,
+				)
+			)
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.api.resolve_test_company",
+					return_value="_Test Company",
+				)
+			)
+			stack.enter_context(
+				patch("production_entry_app.production_entry_app.api.frappe.db.get_value", return_value="TC")
+			)
+			safe_force_delete = stack.enter_context(
+				patch("production_entry_app.production_entry_app.api._safe_force_delete")
+			)
+			log_error = stack.enter_context(
+				patch("production_entry_app.production_entry_app.api.frappe.log_error")
+			)
+			stack.enter_context(
+				patch("production_entry_app.production_entry_app.api._restore_cached_e2e_settings")
+			)
+			stack.enter_context(patch("production_entry_app.production_entry_app.api.frappe.db.commit"))
+
+			result = _cleanup_e2e_context(prefix="E2E")
+
+		self.assertEqual(result, {"ok": True})
+		running_shift.end_shift.assert_called_once()
+		running_shift.reload.assert_called_once()
+		submitted_stock_entry.cancel.assert_called_once()
+		failing_stock_entry.cancel.assert_called_once()
+		maintenance_log.cancel.assert_called_once()
+		bom.cancel.assert_called_once()
+		self.assertGreaterEqual(safe_force_delete.call_count, 8)
+		self.assertGreaterEqual(log_error.call_count, 3)
+
 	def test_collect_reserved_e2e_prefixes_derives_item_and_workstation_names(self) -> None:
 		with patch(
 			"production_entry_app.production_entry_app.api.frappe.get_all",
@@ -518,6 +801,68 @@ class TestE2EApi(FrappeTestCase):
 		self.assertEqual(result, {"ok": True, "prefixes": ["E2E_SAMPLE_W0"]})
 		cleanup_prefix.assert_called_once_with(prefix="E2E_SAMPLE_W0")
 		self.assertEqual(delete_doc.call_count, 3)
+
+	def test_cleanup_reserved_e2e_artifacts_wrapper_checks_access_and_guard(self) -> None:
+		from production_entry_app.production_entry_app.api import cleanup_reserved_e2e_artifacts
+
+		with ExitStack() as stack:
+			app_access = stack.enter_context(
+				patch("production_entry_app.production_entry_app.api.access_control.assert_app_access")
+			)
+			guard = stack.enter_context(
+				patch("production_entry_app.production_entry_app.api._assert_e2e_api_allowed")
+			)
+			cleanup = stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.api._cleanup_reserved_e2e_artifacts",
+					return_value={"ok": True, "prefixes": []},
+				)
+			)
+
+			result = cleanup_reserved_e2e_artifacts()
+
+		self.assertEqual(result, {"ok": True, "prefixes": []})
+		app_access.assert_called_once()
+		guard.assert_called_once()
+		cleanup.assert_called_once()
+
+	def test_safe_cancel_and_delete_handles_missing_submitted_and_exception_paths(self) -> None:
+		submitted_doc = MagicMock()
+		submitted_doc.name = "DOC-001"
+		with ExitStack() as stack:
+			exists = stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.api.frappe.db.exists",
+					side_effect=[False, True, True],
+				)
+			)
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.api.frappe.db.get_value",
+					side_effect=[1, 1],
+				)
+			)
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.api.frappe.get_doc",
+					side_effect=[submitted_doc, Exception("read failed")],
+				)
+			)
+			force_delete = stack.enter_context(
+				patch("production_entry_app.production_entry_app.api._safe_force_delete")
+			)
+			log_error = stack.enter_context(
+				patch("production_entry_app.production_entry_app.api.frappe.log_error")
+			)
+
+			_safe_cancel_and_delete("BOM", "MISSING", context="unit-test")
+			_safe_cancel_and_delete("BOM", "BOM-001", context="unit-test")
+			_safe_cancel_and_delete("BOM", "BOM-ERR", context="unit-test")
+
+		self.assertEqual(exists.call_count, 3)
+		submitted_doc.cancel.assert_called_once()
+		force_delete.assert_called_once_with("BOM", "BOM-001", context="unit-test")
+		log_error.assert_called_once()
 
 	def test_build_e2e_shift_doc_contains_expected_fields(self) -> None:
 		doc = _build_e2e_shift_doc(
@@ -625,6 +970,89 @@ class TestE2EApi(FrappeTestCase):
 		self.assertIs(result, recreated)
 		recreated.start_shift.assert_called_once()
 
+	def test_get_or_create_e2e_shift_creates_when_missing_and_rejects_unexpected_status(self) -> None:
+		created = MagicMock()
+		created.status = "Draft"
+		builder = MagicMock()
+		builder.insert.return_value = created
+
+		with patch("production_entry_app.production_entry_app.api.frappe.get_all", return_value=[]):
+			with patch("production_entry_app.production_entry_app.api.frappe.get_doc", return_value=builder):
+				result = _get_or_create_e2e_shift(
+					base_date="2099-01-20",
+					department="E2E Department - TC",
+					branch="_Test Branch",
+					wip_warehouse="WIP",
+					rm_warehouse="RM",
+					rejection_warehouse="REJ",
+				)
+
+		self.assertIs(result, created)
+		created.start_shift.assert_called_once()
+
+		invalid = MagicMock()
+		invalid.status = "Paused"
+		with patch(
+			"production_entry_app.production_entry_app.api.frappe.get_all",
+			return_value=["SHIFT-2099-01-20.1.0001"],
+		):
+			with patch("production_entry_app.production_entry_app.api.frappe.get_doc", return_value=invalid):
+				with self.assertRaisesRegex(frappe.ValidationError, "Unexpected Shift status"):
+					_get_or_create_e2e_shift(
+						base_date="2099-01-20",
+						department="E2E Department - TC",
+						branch="_Test Branch",
+						wip_warehouse="WIP",
+						rm_warehouse="RM",
+						rejection_warehouse="REJ",
+					)
+
+	def test_get_or_create_e2e_employee_reuses_existing_employee(self) -> None:
+		with patch(
+			"production_entry_app.production_entry_app.api.frappe.db.get_value",
+			return_value="HR-EMP-001",
+		):
+			self.assertEqual(_get_or_create_e2e_employee("E2E", "_Test Company"), "HR-EMP-001")
+
+	def test_get_or_create_e2e_employee_inserts_missing_employee(self) -> None:
+		inserted = MagicMock()
+		inserted.name = "HR-EMP-NEW"
+		doc_builder = MagicMock()
+		doc_builder.insert.return_value = inserted
+
+		with patch("production_entry_app.production_entry_app.api.frappe.db.get_value", return_value=None):
+			with patch(
+				"production_entry_app.production_entry_app.api.frappe.get_doc",
+				return_value=doc_builder,
+			) as get_doc:
+				result = _get_or_create_e2e_employee("E2E", "_Test Company")
+
+		self.assertEqual(result, "HR-EMP-NEW")
+		get_doc.assert_called_once()
+		self.assertEqual(get_doc.call_args.args[0]["employee_number"], "E2E-EMP")
+		doc_builder.insert.assert_called_once_with(ignore_permissions=True)
+
+	def test_complete_other_running_e2e_shifts_marks_only_other_reserved_departments_completed(self) -> None:
+		with patch(
+			"production_entry_app.production_entry_app.api.frappe.get_all",
+			side_effect=[
+				["E2E Department - TC", "E2E Other Department - TC"],
+				["SHIFT-OTHER-001"],
+			],
+		):
+			with patch("production_entry_app.production_entry_app.api.frappe.db.set_value") as set_value:
+				from production_entry_app.production_entry_app.api import _complete_other_running_e2e_shifts
+
+				_complete_other_running_e2e_shifts(keep_department="E2E Department - TC")
+
+		set_value.assert_called_once_with(
+			"Shift",
+			"SHIFT-OTHER-001",
+			"status",
+			"Completed",
+			update_modified=False,
+		)
+
 	def test_bootstrap_e2e_context_re_enables_die_tool_flag_for_fg_item(self) -> None:
 		shift = MagicMock()
 		shift.name = "SHIFT-2099-01-20.1.0001"
@@ -638,9 +1066,15 @@ class TestE2EApi(FrappeTestCase):
 
 		with ExitStack() as stack:
 			stack.enter_context(
+				patch("production_entry_app.production_entry_app.api.access_control.assert_app_access")
+			)
+			stack.enter_context(
 				patch("production_entry_app.production_entry_app.api._assert_e2e_api_allowed")
 			)
 			stack.enter_context(patch("production_entry_app.production_entry_app.api.cleanup_running_shifts"))
+			stack.enter_context(
+				patch("production_entry_app.production_entry_app.api._ensure_e2e_settings_fields_loaded")
+			)
 			stack.enter_context(
 				patch(
 					"production_entry_app.production_entry_app.api.resolve_test_company",
@@ -715,7 +1149,7 @@ class TestE2EApi(FrappeTestCase):
 			stack.enter_context(patch("production_entry_app.production_entry_app.api.frappe.db.commit"))
 			bootstrap_e2e_context(prefix="E2E-DIE")
 
-		set_value.assert_any_call("Item", "_FG_ITEM", "custom_has_die_tool", 1, update_modified=False)
+		set_value.assert_any_call("Item", "_FG_ITEM", "custom_pea_has_die_tool", 1, update_modified=False)
 
 	def test_bootstrap_e2e_context_passes_branch_to_shift_creation(self) -> None:
 		shift = MagicMock()
@@ -728,9 +1162,15 @@ class TestE2EApi(FrappeTestCase):
 
 		with ExitStack() as stack:
 			stack.enter_context(
+				patch("production_entry_app.production_entry_app.api.access_control.assert_app_access")
+			)
+			stack.enter_context(
 				patch("production_entry_app.production_entry_app.api._assert_e2e_api_allowed")
 			)
 			stack.enter_context(patch("production_entry_app.production_entry_app.api.cleanup_running_shifts"))
+			stack.enter_context(
+				patch("production_entry_app.production_entry_app.api._ensure_e2e_settings_fields_loaded")
+			)
 			stack.enter_context(
 				patch(
 					"production_entry_app.production_entry_app.api.resolve_test_company",
@@ -807,7 +1247,6 @@ class TestE2EApi(FrappeTestCase):
 				)
 			)
 			stack.enter_context(patch("production_entry_app.production_entry_app.api.frappe.db.commit"))
-
 			bootstrap_e2e_context(prefix="E2E")
 
 		complete_other.assert_called_once_with(keep_department="E2E Department - TC")
@@ -819,3 +1258,224 @@ class TestE2EApi(FrappeTestCase):
 			rm_warehouse="RM",
 			rejection_warehouse="REJ",
 		)
+
+	def test_set_e2e_system_float_precision_updates_settings_and_commits(self) -> None:
+		with ExitStack() as stack:
+			stack.enter_context(
+				patch("production_entry_app.production_entry_app.api.access_control.assert_app_access")
+			)
+			stack.enter_context(
+				patch("production_entry_app.production_entry_app.api._assert_e2e_api_allowed")
+			)
+			cache_snapshot = stack.enter_context(
+				patch("production_entry_app.production_entry_app.api._cache_e2e_settings_snapshot")
+			)
+			set_single_value = stack.enter_context(
+				patch("production_entry_app.production_entry_app.api.frappe.db.set_single_value")
+			)
+			clear_cache = stack.enter_context(
+				patch("production_entry_app.production_entry_app.api.frappe.clear_cache")
+			)
+			commit = stack.enter_context(
+				patch("production_entry_app.production_entry_app.api.frappe.db.commit")
+			)
+
+			result = set_e2e_system_float_precision(prefix="E2E-FLOAT", precision="4")
+
+		self.assertEqual(result, {"float_precision": 4})
+		cache_snapshot.assert_called_once_with("E2E-FLOAT")
+		set_single_value.assert_called_once_with("System Settings", "float_precision", 4)
+		clear_cache.assert_called_once()
+		commit.assert_called_once()
+
+	def test_create_e2e_submitted_stock_entry_appends_rejection_breakup_and_returns_doc(self) -> None:
+		shift = MagicMock()
+		shift.shift_date = "2099-01-20"
+		doc = MagicMock()
+		doc.name = "MAT-STE-001"
+		doc.docstatus = 1
+		doc.get.return_value = [
+			frappe._dict({"is_finished_item": 0, "s_warehouse": None, "t_warehouse": None}),
+			frappe._dict({"is_finished_item": 1, "s_warehouse": None, "t_warehouse": None}),
+		]
+		with ExitStack() as stack:
+			stack.enter_context(
+				patch("production_entry_app.production_entry_app.api.access_control.assert_app_access")
+			)
+			stack.enter_context(
+				patch("production_entry_app.production_entry_app.api._assert_e2e_api_allowed")
+			)
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.api.bootstrap_e2e_context",
+					return_value={
+						"company": "_Test Company",
+						"bom": "BOM-001",
+						"wip_warehouse": "WIP",
+						"fg_warehouse": "FG",
+						"shift_name": "SHIFT-001",
+						"operator": "E2E Operator",
+						"workstation": "E2E Workstation",
+					},
+				)
+			)
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.api.frappe.get_doc", side_effect=[shift, doc]
+				)
+			)
+			stack.enter_context(
+				patch("production_entry_app.production_entry_app.api._clear_timeline_cache_for_context")
+			)
+			stack.enter_context(patch("production_entry_app.production_entry_app.api.frappe.db.commit"))
+
+			result = create_e2e_submitted_stock_entry(prefix="E2E", rejection_qty=4)
+
+		self.assertEqual(result, {"name": "MAT-STE-001", "docstatus": 1, "posting_date": "2099-01-20"})
+		doc.get_items.assert_called_once()
+		doc.append.assert_called_once_with(
+			"custom_pea_rejection_breakup", {"rejection_reason": "Burr", "qty": 4.0}
+		)
+		doc.insert.assert_called_once_with(ignore_permissions=True)
+		doc.submit.assert_called_once()
+
+	def test_create_e2e_full_shift_stock_entries_creates_contiguous_entries(self) -> None:
+		shift = MagicMock()
+		shift.shift_date = "2099-01-20"
+		shift.planned_start_time = "08:00:00"
+		shift.planned_end_time = "09:00:00"
+		shift.shift_end_date = "2099-01-20"
+		shift.shift_duration = "8"
+		doc = MagicMock()
+		doc.name = "MAT-STE-FULL-001"
+		doc.get.return_value = [
+			frappe._dict({"is_finished_item": 1, "s_warehouse": None, "t_warehouse": None})
+		]
+		with ExitStack() as stack:
+			stack.enter_context(
+				patch("production_entry_app.production_entry_app.api.access_control.assert_app_access")
+			)
+			stack.enter_context(
+				patch("production_entry_app.production_entry_app.api._assert_e2e_api_allowed")
+			)
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.api.bootstrap_e2e_context",
+					return_value={
+						"company": "_Test Company",
+						"bom": "BOM-001",
+						"wip_warehouse": "WIP",
+						"fg_warehouse": "FG",
+						"shift_name": "SHIFT-001",
+						"operator": "E2E Operator",
+						"workstation": "E2E Workstation",
+					},
+				)
+			)
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.api.frappe.get_doc", side_effect=[shift, doc]
+				)
+			)
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.api.get_shift_planned_end_datetime",
+					return_value=frappe.utils.get_datetime("2099-01-20 09:00:00"),
+				)
+			)
+			stack.enter_context(
+				patch("production_entry_app.production_entry_app.api._clear_timeline_cache_for_context")
+			)
+			stack.enter_context(patch("production_entry_app.production_entry_app.api.frappe.db.commit"))
+
+			result = create_e2e_full_shift_stock_entries(prefix="E2E", slot_minutes=60, rejection_qty=0)
+
+		self.assertEqual(result["count"], 1)
+		self.assertEqual(result["stock_entries"], ["MAT-STE-FULL-001"])
+		self.assertEqual(result["slot_minutes"], 60)
+		doc.get_items.assert_called_once()
+		doc.append.assert_not_called()
+		doc.insert.assert_called_once_with(ignore_permissions=True)
+		doc.submit.assert_called_once()
+
+	def test_create_e2e_full_shift_stock_entries_rejects_invalid_shift_window(self) -> None:
+		shift = MagicMock()
+		shift.shift_date = "2099-01-20"
+		shift.planned_start_time = "08:00:00"
+		shift.planned_end_time = "08:00:00"
+		shift.shift_end_date = "2099-01-20"
+		shift.shift_duration = "8"
+		with ExitStack() as stack:
+			stack.enter_context(
+				patch("production_entry_app.production_entry_app.api.access_control.assert_app_access")
+			)
+			stack.enter_context(
+				patch("production_entry_app.production_entry_app.api._assert_e2e_api_allowed")
+			)
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.api.bootstrap_e2e_context",
+					return_value={"shift_name": "SHIFT-001"},
+				)
+			)
+			stack.enter_context(
+				patch("production_entry_app.production_entry_app.api.frappe.get_doc", return_value=shift)
+			)
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.api.get_shift_planned_end_datetime",
+					return_value=frappe.utils.get_datetime("2099-01-20 08:00:00"),
+				)
+			)
+
+			with self.assertRaisesRegex(frappe.ValidationError, "Invalid shift window"):
+				create_e2e_full_shift_stock_entries(prefix="E2E")
+
+	def test_create_e2e_downtime_entry_normalizes_unknown_stop_reason(self) -> None:
+		shift = MagicMock()
+		shift.shift_date = "2099-01-20"
+		doc = MagicMock()
+		doc.name = "DT-001"
+		builder = MagicMock()
+		builder.insert.return_value = doc
+		with ExitStack() as stack:
+			stack.enter_context(
+				patch("production_entry_app.production_entry_app.api.access_control.assert_app_access")
+			)
+			stack.enter_context(
+				patch("production_entry_app.production_entry_app.api._assert_e2e_api_allowed")
+			)
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.api.bootstrap_e2e_context",
+					return_value={
+						"company": "_Test Company",
+						"shift_name": "SHIFT-001",
+						"workstation": "E2E Workstation",
+					},
+				)
+			)
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.api._get_or_create_e2e_employee",
+					return_value="HR-EMP-001",
+				)
+			)
+			get_doc = stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.api.frappe.get_doc",
+					side_effect=[shift, builder],
+				)
+			)
+			stack.enter_context(
+				patch("production_entry_app.production_entry_app.api._clear_timeline_cache_for_context")
+			)
+			stack.enter_context(patch("production_entry_app.production_entry_app.api.frappe.db.commit"))
+
+			result = create_e2e_downtime_entry(prefix="E2E", stop_reason="Unsupported")
+
+		self.assertEqual(
+			result, {"name": "DT-001", "workstation": "E2E Workstation", "shift_name": "SHIFT-001"}
+		)
+		self.assertEqual(get_doc.call_args_list[1].args[0]["stop_reason"], "Other")
+		builder.insert.assert_called_once_with(ignore_permissions=True)

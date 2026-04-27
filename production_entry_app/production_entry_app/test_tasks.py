@@ -103,10 +103,12 @@ class TestTasks(FrappeTestCase):
 					send_daily_die_tool_maintenance_alerts()
 
 		message = sendmail.call_args.kwargs.get("message") or ""
-		# Frappe default Float formatting decides precision; verify values are present
-		# by checking leading digits (format may truncate trailing decimals).
 		self.assertIn("_Precision FG", message)
-		self.assertIn("95.67", message)
-		self.assertIn("956.78", message)
-		self.assertIn("1,000.12", message)
-		self.assertIn("95.43", message)
+		expected_utilization = frappe.format_value(95.6789, df={"fieldtype": "Float"})
+		expected_current = frappe.format_value(956.7894, df={"fieldtype": "Float"})
+		expected_capacity = frappe.format_value(1000.1234, df={"fieldtype": "Float"})
+		expected_threshold = frappe.format_value(95.4321, df={"fieldtype": "Float"})
+		self.assertIn(expected_utilization, message)
+		self.assertIn(expected_current, message)
+		self.assertIn(expected_capacity, message)
+		self.assertIn(expected_threshold, message)

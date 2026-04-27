@@ -44,7 +44,7 @@ def _get_columns() -> list[dict]:
 def _build_filters(filters: dict) -> dict:
 	return build_stock_entry_filters(
 		filters,
-		filter_keys=("custom_workstation", "custom_shift", "custom_operator", "bom_no"),
+		filter_keys=("custom_pea_workstation", "custom_pea_shift", "custom_pea_operator", "bom_no"),
 	)
 
 
@@ -73,7 +73,7 @@ def _get_rows(filters: dict) -> list[dict]:
 	has_entries = False
 	for entries in iter_stock_entries_in_chunks(
 		_build_filters(filters),
-		["name", "posting_date", "fg_completed_qty", "custom_rejection_qty"],
+		["name", "posting_date", "fg_completed_qty", "custom_pea_rejection_qty"],
 		order_by="posting_date asc, name asc",
 	):
 		has_entries = True

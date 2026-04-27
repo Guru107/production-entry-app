@@ -3,15 +3,15 @@
 Source: `production_oee_report/production_oee_report.py`
 
 - `day`: Stock Entry `posting_date` group key.
-- `workstation`: Stock Entry `custom_workstation` group key (`"Unassigned"` fallback).
+- `workstation`: Stock Entry `custom_pea_workstation` group key (`"Unassigned"` fallback).
 - `first_shift_strokes`: sum of entry `total_strokes` for rows whose linked shift label is `"1"`.
 - `second_shift_strokes`: sum of entry `total_strokes` for rows whose linked shift label is `"2"`.
 - `total_strokes`: sum of per-entry strokes (uses `fg_completed_qty` first; fallback reconstruction).
 - `rejection`: sum of per-entry rejection quantity.
 - `std_spm`: weighted average by production hours:
   - `std_spm = standard_spm_weighted_sum / duration_hours_sum`
-  - `standard_spm_weighted_sum += custom_standard_spm * entry_production_hours`
-- `avl_time_hrs`: `max(linked_shift_hours - linked_shift_planned_loss_hours, 0)`, where linked shifts are the `custom_shift` values of Stock Entries inside the same `(day, workstation)` row.
+  - `standard_spm_weighted_sum += custom_pea_standard_spm * entry_production_hours`
+- `avl_time_hrs`: `max(linked_shift_hours - linked_shift_planned_loss_hours, 0)`, where linked shifts are the `custom_pea_shift` values of Stock Entries inside the same `(day, workstation)` row.
   - Shifts with zero linked Stock Entries for the row are excluded from `avl_time_hrs`.
 - `total_loss_time`: sum of all loss bucket hour columns (`*_1st` + `*_2nd`).
 - `running_time`: `max(avl_time_hrs - total_loss_time, 0)`.

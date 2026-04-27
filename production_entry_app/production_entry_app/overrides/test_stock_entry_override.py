@@ -17,14 +17,16 @@ from production_entry_app.production_entry_app.overrides.test_stock_entry_hooks 
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	bootstrap_manufacturing_test_context,
 	cleanup_running_shifts,
+	ensure_production_entry_settings_shift_fields,
 	ensure_stock,
 )
 
 
 def _set_shift_warehouse_defaults(rm_warehouse: str, wip_warehouse: str, rejection_warehouse: str) -> None:
-	frappe.db.set_single_value("Manufacturing Settings", "shift_raw_material_warehouse", rm_warehouse)
-	frappe.db.set_single_value("Manufacturing Settings", "shift_wip_warehouse", wip_warehouse)
-	frappe.db.set_single_value("Manufacturing Settings", "shift_rejection_warehouse", rejection_warehouse)
+	ensure_production_entry_settings_shift_fields()
+	frappe.db.set_single_value("Production Entry Settings", "shift_raw_material_warehouse", rm_warehouse)
+	frappe.db.set_single_value("Production Entry Settings", "shift_wip_warehouse", wip_warehouse)
+	frappe.db.set_single_value("Production Entry Settings", "shift_rejection_warehouse", rejection_warehouse)
 
 
 class TestStockEntryOverride(FrappeTestCase):
@@ -67,8 +69,8 @@ class TestStockEntryOverride(FrappeTestCase):
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
 			fg_qty=100,
-			custom_shift=shift.name,
-			custom_rejection_qty=10,
+			custom_pea_shift=shift.name,
+			custom_pea_rejection_qty=10,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
@@ -79,13 +81,12 @@ class TestStockEntryOverride(FrappeTestCase):
 				{"rejection_reason": "Crack", "qty": 4, "remark": "Surface crack"},
 			],
 		)
-		se.save()
 
 		self.assertIsInstance(se, ProductionEntryAppStockEntry)
 		finished_row = se.get_finished_item_row()
 		self.assertIsNotNone(finished_row)
 		self.assertTrue(finished_row.is_finished_item)
-		self.assertFalse(finished_row.custom_is_rejection_item)
+		self.assertFalse(finished_row.custom_pea_is_rejection_item)
 		self.assertEqual(finished_row.t_warehouse, self.fg_warehouse)
 
 	def test_rejection_row_posts_non_zero_valuation_on_submit(self) -> None:
@@ -99,8 +100,8 @@ class TestStockEntryOverride(FrappeTestCase):
 			fg_item=self.fg_item,
 			rm_item=self.rm_item,
 			fg_qty=100,
-			custom_shift=shift.name,
-			custom_rejection_qty=10,
+			custom_pea_shift=shift.name,
+			custom_pea_rejection_qty=10,
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
@@ -113,16 +114,16 @@ class TestStockEntryOverride(FrappeTestCase):
 		)
 		se.insert(ignore_permissions=True)
 
-		fg_rows = [row for row in se.items if row.is_finished_item and not row.custom_is_rejection_item]
-		rejection_rows = [row for row in se.items if row.custom_is_rejection_item]
+		fg_rows = [row for row in se.items if row.is_finished_item and not row.custom_pea_is_rejection_item]
+		rejection_rows = [row for row in se.items if row.custom_pea_is_rejection_item]
 		self.assertEqual(len(fg_rows), 1)
 		self.assertEqual(len(rejection_rows), 1)
 		self.assertAlmostEqual(rejection_rows[0].basic_rate, fg_rows[0].basic_rate, places=6)
 
 		se.submit()
 
-		fg_rows = [row for row in se.items if row.is_finished_item and not row.custom_is_rejection_item]
-		rejection_rows = [row for row in se.items if row.custom_is_rejection_item]
+		fg_rows = [row for row in se.items if row.is_finished_item and not row.custom_pea_is_rejection_item]
+		rejection_rows = [row for row in se.items if row.custom_pea_is_rejection_item]
 		self.assertEqual(len(fg_rows), 1)
 		self.assertEqual(len(rejection_rows), 1)
 
@@ -155,6 +156,8 @@ class TestStockEntryOverride(FrappeTestCase):
 
 		rejection_sle = sle_rows[0]
 		fg_sle = fg_sle_rows[0]
+		currency_precision = int(frappe.db.get_single_value("System Settings", "currency_precision") or 2)
+		currency_places = max(currency_precision, 0)
 		self.assertAlmostEqual(
 			float(rejection_sle["valuation_rate"] or 0),
 			float(fg_sle["valuation_rate"] or 0),
@@ -164,5 +167,5 @@ class TestStockEntryOverride(FrappeTestCase):
 			float(rejection_sle["stock_value_difference"] or 0),
 			float(rejection_sle["actual_qty"] or rejection_rows[0].qty)
 			* float(fg_sle["valuation_rate"] or 0),
-			places=6,
+			places=currency_places,
 		)

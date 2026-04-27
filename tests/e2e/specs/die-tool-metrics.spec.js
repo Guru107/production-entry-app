@@ -46,11 +46,11 @@ test.describe("Die tool metrics and counter", () => {
 		const stockEntry = await getDoc(page, "Stock Entry", stockEntryName);
 
 		expect(stockEntry.docstatus).toBe(1);
-		expect(Number(stockEntry.custom_actual_duration_mins || 0)).toBeGreaterThan(0);
-		expect(Number(stockEntry.custom_production_time_mins || 0)).toBeGreaterThan(0);
-		expect(Number(stockEntry.custom_actual_spm || 0)).toBeGreaterThan(0);
-		expect(Number(stockEntry.custom_cycle_time_sec || 0)).toBeGreaterThan(0);
-		expect(Number(stockEntry.custom_operator_efficiency_pct || 0)).toBeGreaterThan(0);
+		expect(Number(stockEntry.custom_pea_actual_duration_mins || 0)).toBeGreaterThan(0);
+		expect(Number(stockEntry.custom_pea_production_time_mins || 0)).toBeGreaterThan(0);
+		expect(Number(stockEntry.custom_pea_actual_spm || 0)).toBeGreaterThan(0);
+		expect(Number(stockEntry.custom_pea_cycle_time_sec || 0)).toBeGreaterThan(0);
+		expect(Number(stockEntry.custom_pea_operator_efficiency_pct || 0)).toBeGreaterThan(0);
 	});
 
 	test("@regression planned break overlap reduces net production time", async ({ page }) => {
@@ -71,9 +71,9 @@ test.describe("Die tool metrics and counter", () => {
 
 		const stockEntryName = await page.evaluate(() => window.cur_frm?.doc?.name);
 		const stockEntry = await getDoc(page, "Stock Entry", stockEntryName);
-		expect(Number(stockEntry.custom_actual_duration_mins || 0)).toBe(30);
+		expect(Number(stockEntry.custom_pea_actual_duration_mins || 0)).toBe(30);
 		// Shift planned Tea Break is 09:00-09:10; overlap should be deducted.
-		expect(Number(stockEntry.custom_production_time_mins || 0)).toBe(20);
+		expect(Number(stockEntry.custom_pea_production_time_mins || 0)).toBe(20);
 	});
 
 	test("@regression missing actual end keeps metrics empty", async ({ page }) => {
@@ -90,11 +90,11 @@ test.describe("Die tool metrics and counter", () => {
 
 		const stockEntryName = await page.evaluate(() => window.cur_frm?.doc?.name);
 		const stockEntry = await getDoc(page, "Stock Entry", stockEntryName);
-		expect(stockEntry.custom_actual_duration_mins).toBeFalsy();
-		expect(stockEntry.custom_production_time_mins).toBeFalsy();
-		expect(stockEntry.custom_actual_spm).toBeFalsy();
-		expect(stockEntry.custom_cycle_time_sec).toBeFalsy();
-		expect(stockEntry.custom_operator_efficiency_pct).toBeFalsy();
+		expect(stockEntry.custom_pea_actual_duration_mins).toBeFalsy();
+		expect(stockEntry.custom_pea_production_time_mins).toBeFalsy();
+		expect(stockEntry.custom_pea_actual_spm).toBeFalsy();
+		expect(stockEntry.custom_pea_cycle_time_sec).toBeFalsy();
+		expect(stockEntry.custom_pea_operator_efficiency_pct).toBeFalsy();
 	});
 
 	test("@regression zero-duration clears metrics", async ({ page }) => {
@@ -111,11 +111,11 @@ test.describe("Die tool metrics and counter", () => {
 
 		const stockEntryName = await page.evaluate(() => window.cur_frm?.doc?.name);
 		const stockEntry = await getDoc(page, "Stock Entry", stockEntryName);
-		expect(stockEntry.custom_actual_duration_mins).toBeFalsy();
-		expect(stockEntry.custom_production_time_mins).toBeFalsy();
-		expect(stockEntry.custom_actual_spm).toBeFalsy();
-		expect(stockEntry.custom_cycle_time_sec).toBeFalsy();
-		expect(stockEntry.custom_operator_efficiency_pct).toBeFalsy();
+		expect(stockEntry.custom_pea_actual_duration_mins).toBeFalsy();
+		expect(stockEntry.custom_pea_production_time_mins).toBeFalsy();
+		expect(stockEntry.custom_pea_actual_spm).toBeFalsy();
+		expect(stockEntry.custom_pea_cycle_time_sec).toBeFalsy();
+		expect(stockEntry.custom_pea_operator_efficiency_pct).toBeFalsy();
 	});
 
 	test("@regression full deducted-loss window shows metrics note on stock entry", async ({
@@ -139,12 +139,12 @@ test.describe("Die tool metrics and counter", () => {
 
 		const stockEntryName = await page.evaluate(() => window.cur_frm?.doc?.name);
 		const stockEntry = await getDoc(page, "Stock Entry", stockEntryName);
-		expect(Number(stockEntry.custom_production_time_mins || 0)).toBe(0);
-		expect(Number(stockEntry.custom_actual_spm || 0)).toBe(0);
-		expect(Number(stockEntry.custom_operator_efficiency_pct || 0)).toBe(0);
-		expect(String(stockEntry.custom_metrics_note || "")).toContain("deducted loss time");
+		expect(Number(stockEntry.custom_pea_production_time_mins || 0)).toBe(0);
+		expect(Number(stockEntry.custom_pea_actual_spm || 0)).toBe(0);
+		expect(Number(stockEntry.custom_pea_operator_efficiency_pct || 0)).toBe(0);
+		expect(String(stockEntry.custom_pea_metrics_note || "")).toContain("deducted loss time");
 
-		const metricsNote = page.locator('[data-fieldname="custom_metrics_note"]');
+		const metricsNote = page.locator('[data-fieldname="custom_pea_metrics_note"]');
 		await expect(metricsNote).toContainText("deducted loss time");
 		await expect(metricsNote).toContainText("full actual window");
 	});
@@ -189,8 +189,10 @@ test.describe("Die tool metrics and counter", () => {
 
 		const stockEntryName = await page.evaluate(() => window.cur_frm?.doc?.name);
 		const stockEntry = await getDoc(page, "Stock Entry", stockEntryName);
-		expect(Number(stockEntry.custom_die_tool_utilization_pct || 0)).toBeGreaterThanOrEqual(90);
-		expect(Number(stockEntry.custom_die_tool_maintenance_due || 0)).toBe(1);
+		expect(Number(stockEntry.custom_pea_die_tool_utilization_pct || 0)).toBeGreaterThanOrEqual(
+			90
+		);
+		expect(Number(stockEntry.custom_pea_die_tool_maintenance_due || 0)).toBe(1);
 		await page.waitForFunction(
 			() =>
 				/needs maintenance/i.test(String(window.cur_frm?.__peaDieToolAlertMessage || "")),
@@ -236,7 +238,7 @@ test.describe("Die tool metrics and counter", () => {
 			};
 		});
 		await page.evaluate(async () => {
-			await window.cur_frm?.script_manager?.trigger("custom_rejection_qty");
+			await window.cur_frm?.script_manager?.trigger("custom_pea_rejection_qty");
 		});
 
 		await stockEntryPage.saveDraft();

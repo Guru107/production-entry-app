@@ -49,14 +49,14 @@ The implementation plan must cover these exact user-visible metric surfaces.
 
 - `Stock Entry` metrics written by
   `production_entry_app/production_entry_app/overrides/stock_entry_hooks.py`
-  - `custom_ok_qty`
-  - `custom_actual_duration_mins`
-  - `custom_production_time_mins`
-  - `custom_actual_spm`
-  - `custom_cycle_time_sec`
-  - `custom_operator_efficiency_pct`
-  - `custom_die_tool_utilization_pct`
-  - `custom_die_tool_maintenance_due`
+  - `custom_pea_ok_qty`
+  - `custom_pea_actual_duration_mins`
+  - `custom_pea_production_time_mins`
+  - `custom_pea_actual_spm`
+  - `custom_pea_cycle_time_sec`
+  - `custom_pea_operator_efficiency_pct`
+  - `custom_pea_die_tool_utilization_pct`
+  - `custom_pea_die_tool_maintenance_due`
 
 #### UI-Facing API Payloads
 

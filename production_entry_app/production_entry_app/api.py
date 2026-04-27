@@ -11,6 +11,7 @@ from frappe.query_builder import DocType
 from frappe.utils import add_to_date, cint, get_datetime, get_time, now_datetime
 from pypika import Order
 
+from production_entry_app.production_entry_app import access_control
 from production_entry_app.production_entry_app.utils.alternative_items import (
 	get_bom_alternative_allowed_items,
 )
@@ -44,6 +45,7 @@ _E2E_SETTINGS_FIELDS: tuple[str, ...] = (
 	"shift_wip_warehouse",
 	"shift_raw_material_warehouse",
 	"shift_rejection_warehouse",
+	"shift_scrap_warehouse",
 	"shift_start_buffer_mins",
 	"shift_end_buffer_mins",
 )
@@ -51,6 +53,47 @@ _E2E_SYSTEM_SETTINGS_FIELDS: tuple[str, ...] = ("float_precision",)
 _E2E_RESERVED_USER_EMAIL_PREFIX: str = "e2e-user-"
 _E2E_RESERVED_ROLE_PREFIX: str = "E2E ROLE "
 _E2E_RESERVED_DOWNTIME_PREFIX: str = "E2E-DOWNTIME-"
+_APP_GATED_DOCTYPES: frozenset[str] = frozenset(
+	{
+		"Shift",
+		"Loss Entry",
+		"Downtime Reason",
+		"Operator",
+		"Die Tool Counter",
+		"Die Tool Maintenance Log",
+		"Rejection Reason",
+		"Rejection Breakup",
+	}
+)
+
+
+def _ensure_e2e_settings_fields_loaded() -> None:
+	meta = frappe.get_meta("Production Entry Settings", cached=True)
+	if all(meta.has_field(fieldname) for fieldname in _E2E_SETTINGS_FIELDS):
+		return
+	frappe.reload_doc("production_entry_app", "doctype", "production_entry_settings")
+	frappe.clear_document_cache("Production Entry Settings")
+
+
+@frappe.whitelist()
+def get_access_control_state() -> dict[str, bool]:
+	"""Return whether the current user can access Production Entry App."""
+	return {"enabled": access_control.has_app_permission()}
+
+
+@frappe.whitelist()
+def set_e2e_access_control(
+	enabled: int = 0, required_role: str = access_control.DEFAULT_REQUIRED_ROLE
+) -> dict:
+	"""Set access-control flags for E2E without full-doc validation side effects."""
+	_assert_e2e_api_allowed()
+	required_role_value = (required_role or access_control.DEFAULT_REQUIRED_ROLE).strip()
+	frappe.db.set_single_value("Production Entry Settings", "enable_access_control", cint(enabled))
+	frappe.db.set_single_value("Production Entry Settings", "required_role", required_role_value)
+	frappe.clear_document_cache("Production Entry Settings")
+	access_control.invalidate_access_control_cache()
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit - E2E state toggle must persist immediately
+	return {"enabled": bool(cint(enabled)), "required_role": required_role_value}
 
 
 def _cleanup_orphan_stock_entry_loss_links(shift_name: str) -> None:
@@ -86,6 +129,10 @@ def _cleanup_orphan_stock_entry_loss_links(shift_name: str) -> None:
 def delete(doctype: str, name: str) -> None:
 	"""Delete wrapper that cleans orphan Shift loss links before link validation."""
 	if doctype == "Shift":
+		access_control.assert_app_access(doctype="Shift", docname=name)
+	elif doctype in _APP_GATED_DOCTYPES:
+		access_control.assert_app_access()
+	if doctype == "Shift":
 		_cleanup_orphan_stock_entry_loss_links(name)
 	frappe_client_delete_doc(doctype, name)
 
@@ -94,10 +141,13 @@ def delete(doctype: str, name: str) -> None:
 def get_shift_details_for_stock_entry(shift_name: str) -> dict:
 	"""Return shift details to auto-populate Stock Entry fields.
 
-	Called from the Stock Entry client script when custom_shift is set.
+	Called from the Stock Entry client script when custom_pea_shift is set.
 	"""
+	access_control.assert_app_access(doctype="Shift", docname=shift_name)
 	if not shift_name:
 		return {}
+	if not frappe.has_permission("Shift", "read", shift_name):
+		raise frappe.PermissionError
 
 	shift = frappe.get_doc("Shift", shift_name)
 	if shift.status != "Running":
@@ -125,8 +175,8 @@ def get_shift_details_for_stock_entry(shift_name: str) -> dict:
 
 	return {
 		"branch": shift.branch,
-		"custom_planned_start_date": str(planned_start) if planned_start else None,
-		"custom_planned_end_date": str(planned_end) if planned_end else None,
+		"custom_pea_planned_start_date": str(planned_start) if planned_start else None,
+		"custom_pea_planned_end_date": str(planned_end) if planned_end else None,
 		"from_warehouse": shift.work_in_progress_warehouse,
 		"to_warehouse": shift.work_in_progress_warehouse,
 	}
@@ -142,6 +192,7 @@ def get_items_with_rejection(doc: str) -> list[dict]:
 	so the user sees the final items (including the rejection row) *before*
 	saving.
 	"""
+	access_control.assert_app_access()
 	from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
 		_apply_rejection_entries,
 	)
@@ -163,8 +214,8 @@ def get_items_with_rejection(doc: str) -> list[dict]:
 	se.to_warehouse = doc_dict.get("to_warehouse")
 	se.posting_date = doc_dict.get("posting_date") or frappe.utils.nowdate()
 	se.posting_time = doc_dict.get("posting_time") or frappe.utils.nowtime()
-	se.custom_rejection_qty = float(doc_dict.get("custom_rejection_qty") or 0)
-	se.custom_shift = doc_dict.get("custom_shift")
+	se.custom_pea_rejection_qty = float(doc_dict.get("custom_pea_rejection_qty") or 0)
+	se.custom_pea_shift = doc_dict.get("custom_pea_shift")
 	se.work_order = doc_dict.get("work_order")
 
 	se.get_items()
@@ -206,7 +257,7 @@ def _apply_direct_manufacture_alternative_flags(doc: Document) -> None:
 		return
 
 	for row in doc.get("items") or []:
-		if row.get("is_finished_item") or row.get("is_scrap_item") or row.get("custom_is_rejection_item"):
+		if row.get("is_finished_item") or row.get("is_scrap_item") or row.get("custom_pea_is_rejection_item"):
 			continue
 		item_code = row.get("original_item") or row.get("item_code")
 		if item_code in allowed_items and not row.get("allow_alternative_item"):
@@ -215,6 +266,7 @@ def _apply_direct_manufacture_alternative_flags(doc: Document) -> None:
 
 @frappe.whitelist()
 def get_die_tool_counter(die_tool_code: str) -> dict:
+	access_control.assert_app_access()
 	if not die_tool_code or not frappe.db.exists("Item", die_tool_code):
 		return _empty_die_tool_payload(die_tool_code)
 	if not is_die_tool_enabled(die_tool_code):
@@ -267,6 +319,7 @@ def _empty_die_tool_payload(die_tool_code: str | None) -> dict:
 
 @frappe.whitelist()
 def reset_die_tool_counter(die_tool_code: str, maintenance_date: str | None = None) -> dict:
+	access_control.assert_app_access()
 	if not die_tool_code:
 		frappe.throw(_("Die Tool Item is required."))
 	if not is_die_tool_enabled(die_tool_code):
@@ -305,11 +358,17 @@ def _get_e2e_shift_names_cache_key(prefix: str) -> str:
 	return f"pea:e2e:shift-names:{prefix or 'E2E'}"
 
 
-def _get_manufacturing_settings_snapshot() -> dict[str, str | int | None]:
+def _get_production_entry_settings_snapshot() -> dict[str, str | int | None]:
+	_ensure_e2e_settings_fields_loaded()
 	return {
-		fieldname: frappe.db.get_single_value("Manufacturing Settings", fieldname)
+		fieldname: frappe.db.get_single_value("Production Entry Settings", fieldname)
 		for fieldname in _E2E_SETTINGS_FIELDS
 	}
+
+
+def _get_manufacturing_settings_snapshot() -> dict[str, str | int | None]:
+	"""Backward-compatible alias for test helpers still importing the old name."""
+	return _get_production_entry_settings_snapshot()
 
 
 def _get_system_settings_snapshot() -> dict[str, str | int | None]:
@@ -326,7 +385,7 @@ def _cache_e2e_settings_snapshot(prefix: str) -> None:
 	frappe.cache().set_value(
 		cache_key,
 		{
-			"manufacturing_settings": _get_manufacturing_settings_snapshot(),
+			"production_entry_settings": _get_production_entry_settings_snapshot(),
 			"system_settings": _get_system_settings_snapshot(),
 		},
 	)
@@ -342,11 +401,18 @@ def _cache_e2e_shift_name(prefix: str, shift_name: str | None) -> None:
 	frappe.cache().set_value(cache_key, [*cached_names, shift_name])
 
 
-def _restore_manufacturing_settings(snapshot: dict[str, str | int | None] | None) -> None:
+def _restore_production_entry_settings(snapshot: dict[str, str | int | None] | None) -> None:
 	if not snapshot:
 		return
+	_ensure_e2e_settings_fields_loaded()
 	for fieldname in _E2E_SETTINGS_FIELDS:
-		frappe.db.set_single_value("Manufacturing Settings", fieldname, snapshot.get(fieldname))
+		frappe.db.set_single_value("Production Entry Settings", fieldname, snapshot.get(fieldname))
+	frappe.clear_document_cache("Production Entry Settings")
+
+
+def _restore_manufacturing_settings(snapshot: dict[str, str | int | None] | None) -> None:
+	"""Backward-compatible alias for test helpers still importing the old name."""
+	_restore_production_entry_settings(snapshot)
 
 
 def _restore_system_settings(snapshot: dict[str, str | int | None] | None) -> None:
@@ -360,7 +426,10 @@ def _restore_cached_e2e_settings(prefix: str) -> None:
 	cache_key = _get_e2e_settings_cache_key(prefix)
 	snapshot = frappe.cache().get_value(cache_key)
 	if snapshot:
-		_restore_manufacturing_settings(snapshot.get("manufacturing_settings"))
+		settings_snapshot = snapshot.get("production_entry_settings") or snapshot.get(
+			"manufacturing_settings"
+		)
+		_restore_production_entry_settings(settings_snapshot)
 		_restore_system_settings(snapshot.get("system_settings"))
 		frappe.cache().delete_value(cache_key)
 
@@ -388,7 +457,7 @@ def _assert_e2e_api_allowed() -> None:
 
 
 def _stock_entry_matches_cleanup_target(se, target_operator: str, target_fg_item: str) -> bool:
-	operator_match = se.get("custom_operator") == target_operator
+	operator_match = se.get("custom_pea_operator") == target_operator
 	fg_item_match = any(
 		(row.get("is_finished_item") == 1) and (row.get("item_code") == target_fg_item)
 		for row in (se.get("items") or [])
@@ -409,8 +478,8 @@ def _get_candidate_e2e_stock_entries(
 		item_code_filters.append(stock_entry_detail.item_code == target_fg_item)
 	if target_rm_item:
 		item_code_filters.append(stock_entry_detail.item_code == target_rm_item)
-	match_criteria = (stock_entry.custom_operator == target_operator) | (
-		stock_entry.custom_workstation == target_workstation
+	match_criteria = (stock_entry.custom_pea_operator == target_operator) | (
+		stock_entry.custom_pea_workstation == target_workstation
 	)
 	item_code_match = item_code_filters[0] if item_code_filters else None
 	for condition in item_code_filters[1:]:
@@ -617,8 +686,10 @@ def _get_or_create_e2e_shift(
 @frappe.whitelist()
 def bootstrap_e2e_context(prefix: str = "E2E") -> dict:
 	"""Create deterministic test masters for Playwright E2E tests."""
+	access_control.assert_app_access()
 	_assert_e2e_api_allowed()
 	cleanup_running_shifts()
+	_ensure_e2e_settings_fields_loaded()
 	_cache_e2e_settings_snapshot(prefix)
 	company = resolve_test_company()
 	abbr = frappe.db.get_value("Company", company, "abbr") or "TC"
@@ -635,10 +706,10 @@ def bootstrap_e2e_context(prefix: str = "E2E") -> dict:
 
 	fg_item = ensure_item(f"_{prefix}_FG_Item")
 	rm_item = ensure_item(f"_{prefix}_RM_Item")
-	frappe.db.set_value("Item", fg_item, "custom_strokes_per_unit", 5, update_modified=False)
-	frappe.db.set_value("Item", fg_item, "custom_stroke_capacity", 10000, update_modified=False)
-	if frappe.get_meta("Item", cached=True).has_field("custom_has_die_tool"):
-		frappe.db.set_value("Item", fg_item, "custom_has_die_tool", 1, update_modified=False)
+	frappe.db.set_value("Item", fg_item, "custom_pea_strokes_per_unit", 5, update_modified=False)
+	frappe.db.set_value("Item", fg_item, "custom_pea_stroke_capacity", 10000, update_modified=False)
+	if frappe.get_meta("Item", cached=True).has_field("custom_pea_has_die_tool"):
+		frappe.db.set_value("Item", fg_item, "custom_pea_has_die_tool", 1, update_modified=False)
 
 	operator_name = f"{prefix} Operator"
 	workstation_name = f"{prefix} Workstation"
@@ -652,11 +723,12 @@ def bootstrap_e2e_context(prefix: str = "E2E") -> dict:
 	ensure_downtime_reason("JH Activity")
 	ensure_downtime_reason("Dinner")
 
-	frappe.db.set_single_value("Manufacturing Settings", "shift_wip_warehouse", wip_warehouse)
-	frappe.db.set_single_value("Manufacturing Settings", "shift_raw_material_warehouse", rm_warehouse)
-	frappe.db.set_single_value("Manufacturing Settings", "shift_rejection_warehouse", rejection_warehouse)
-	frappe.db.set_single_value("Manufacturing Settings", "shift_start_buffer_mins", 60)
-	frappe.db.set_single_value("Manufacturing Settings", "shift_end_buffer_mins", 60)
+	frappe.db.set_single_value("Production Entry Settings", "shift_wip_warehouse", wip_warehouse)
+	frappe.db.set_single_value("Production Entry Settings", "shift_raw_material_warehouse", rm_warehouse)
+	frappe.db.set_single_value("Production Entry Settings", "shift_rejection_warehouse", rejection_warehouse)
+	frappe.db.set_single_value("Production Entry Settings", "shift_start_buffer_mins", 60)
+	frappe.db.set_single_value("Production Entry Settings", "shift_end_buffer_mins", 60)
+	frappe.clear_document_cache("Production Entry Settings")
 
 	bom = ensure_default_bom(fg_item=fg_item, rm_item=rm_item, company=company)
 	ensure_stock(rm_item, wip_warehouse, company, target_qty=1000)
@@ -696,6 +768,7 @@ def bootstrap_e2e_context(prefix: str = "E2E") -> dict:
 @frappe.whitelist()
 def set_e2e_system_float_precision(prefix: str = "E2E", precision: int = 3) -> dict:
 	"""Set System Settings float precision for a specific E2E context."""
+	access_control.assert_app_access()
 	_assert_e2e_api_allowed()
 	_cache_e2e_settings_snapshot(prefix)
 	frappe.db.set_single_value("System Settings", "float_precision", cint(precision))
@@ -832,6 +905,7 @@ def _cleanup_e2e_context(prefix: str = "E2E") -> dict:
 @frappe.whitelist()
 def cleanup_e2e_context(prefix: str = "E2E") -> dict:
 	"""Remove seeded E2E docs and end running shifts created for E2E."""
+	access_control.assert_app_access()
 	_assert_e2e_api_allowed()
 	return _cleanup_e2e_context(prefix=prefix)
 
@@ -878,6 +952,7 @@ def _cleanup_reserved_e2e_artifacts() -> dict[str, object]:
 
 @frappe.whitelist()
 def cleanup_reserved_e2e_artifacts() -> dict[str, object]:
+	access_control.assert_app_access()
 	_assert_e2e_api_allowed()
 	return _cleanup_reserved_e2e_artifacts()
 
@@ -885,6 +960,7 @@ def cleanup_reserved_e2e_artifacts() -> dict[str, object]:
 @frappe.whitelist()
 def create_e2e_submitted_stock_entry(prefix: str = "E2E", rejection_qty: float = 0) -> dict:
 	"""Create and submit one manufacture stock entry for E2E report coverage."""
+	access_control.assert_app_access()
 	_assert_e2e_api_allowed()
 	ctx = bootstrap_e2e_context(prefix=prefix)
 	shift = frappe.get_doc("Shift", ctx["shift_name"])
@@ -901,12 +977,12 @@ def create_e2e_submitted_stock_entry(prefix: str = "E2E", rejection_qty: float =
 			"from_warehouse": ctx["wip_warehouse"],
 			"to_warehouse": ctx["fg_warehouse"],
 			"fg_completed_qty": 100,
-			"custom_shift": ctx["shift_name"],
-			"custom_operator": ctx["operator"],
-			"custom_workstation": ctx["workstation"],
-			"custom_rejection_qty": float(rejection_qty or 0),
-			"custom_actual_start_date": f"{shift_date} 08:00:00",
-			"custom_actual_end_date": f"{shift_date} 09:00:00",
+			"custom_pea_shift": ctx["shift_name"],
+			"custom_pea_operator": ctx["operator"],
+			"custom_pea_workstation": ctx["workstation"],
+			"custom_pea_rejection_qty": float(rejection_qty or 0),
+			"custom_pea_actual_start_date": f"{shift_date} 08:00:00",
+			"custom_pea_actual_end_date": f"{shift_date} 09:00:00",
 			"posting_date": shift_date,
 			"posting_time": "09:00:00",
 		}
@@ -918,7 +994,9 @@ def create_e2e_submitted_stock_entry(prefix: str = "E2E", rejection_qty: float =
 		if row.get("is_finished_item") and not row.get("t_warehouse"):
 			row.t_warehouse = ctx["fg_warehouse"]
 	if float(rejection_qty or 0) > 0:
-		doc.append("custom_rejection_breakup", {"rejection_reason": "Burr", "qty": float(rejection_qty or 0)})
+		doc.append(
+			"custom_pea_rejection_breakup", {"rejection_reason": "Burr", "qty": float(rejection_qty or 0)}
+		)
 	doc.insert(ignore_permissions=True)
 	doc.submit()
 	_clear_timeline_cache_for_context(ctx, ctx["shift_name"])
@@ -932,6 +1010,7 @@ def create_e2e_full_shift_stock_entries(
 	prefix: str = "E2E", slot_minutes: int = 60, rejection_qty: float = 0
 ) -> dict:
 	"""Create contiguous submitted manufacture entries spanning the entire planned shift duration."""
+	access_control.assert_app_access()
 	_assert_e2e_api_allowed()
 	slot_mins = max(1, cint(slot_minutes or 60))
 	ctx = bootstrap_e2e_context(prefix=prefix)
@@ -963,12 +1042,12 @@ def create_e2e_full_shift_stock_entries(
 				"from_warehouse": ctx["wip_warehouse"],
 				"to_warehouse": ctx["fg_warehouse"],
 				"fg_completed_qty": 100,
-				"custom_shift": ctx["shift_name"],
-				"custom_operator": ctx["operator"],
-				"custom_workstation": ctx["workstation"],
-				"custom_rejection_qty": float(rejection_qty or 0),
-				"custom_actual_start_date": str(current_start),
-				"custom_actual_end_date": str(current_end),
+				"custom_pea_shift": ctx["shift_name"],
+				"custom_pea_operator": ctx["operator"],
+				"custom_pea_workstation": ctx["workstation"],
+				"custom_pea_rejection_qty": float(rejection_qty or 0),
+				"custom_pea_actual_start_date": str(current_start),
+				"custom_pea_actual_end_date": str(current_end),
 				"posting_date": str(current_end.date()),
 				"posting_time": str(current_end.time()),
 			}
@@ -981,7 +1060,7 @@ def create_e2e_full_shift_stock_entries(
 				row.t_warehouse = ctx["fg_warehouse"]
 		if float(rejection_qty or 0) > 0:
 			doc.append(
-				"custom_rejection_breakup",
+				"custom_pea_rejection_breakup",
 				{"rejection_reason": "Burr", "qty": float(rejection_qty or 0)},
 			)
 		doc.insert(ignore_permissions=True)
@@ -1009,6 +1088,7 @@ def create_e2e_downtime_entry(
 	stop_reason: str = "Other",
 ) -> dict:
 	"""Create one downtime entry for E2E timeline coverage."""
+	access_control.assert_app_access()
 	_assert_e2e_api_allowed()
 	ctx = bootstrap_e2e_context(prefix=prefix)
 	shift = frappe.get_doc("Shift", ctx["shift_name"])

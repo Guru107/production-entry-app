@@ -59,7 +59,7 @@ def _get_columns(filters: dict) -> list[dict]:
 	columns: list[dict] = [
 		{"label": _("Date"), "fieldname": "date", "fieldtype": "Date", "width": 120},
 	]
-	if not filters.get("custom_operator"):
+	if not filters.get("custom_pea_operator"):
 		columns.append({"label": _("Operator"), "fieldname": "operator", "fieldtype": "Data", "width": 150})
 	columns.extend(
 		[
@@ -145,8 +145,8 @@ def _get_rows(filters: dict) -> list[dict]:
 	filters["from_date"] = from_date
 	filters["to_date"] = to_date
 
-	db_filters = build_stock_entry_filters(filters, filter_keys=("custom_operator",))
-	group_by_operator = not filters.get("custom_operator")
+	db_filters = build_stock_entry_filters(filters, filter_keys=("custom_pea_operator",))
+	group_by_operator = not filters.get("custom_pea_operator")
 
 	# Aggregate by group key
 	aggregates: dict[tuple, dict] = {}
@@ -156,12 +156,12 @@ def _get_rows(filters: dict) -> list[dict]:
 		[
 			"name",
 			"posting_date",
-			"custom_operator",
+			"custom_pea_operator",
 			"fg_completed_qty",
-			"custom_rejection_qty",
-			"custom_rework_qty",
-			"custom_actual_duration_mins",
-			"custom_production_time_mins",
+			"custom_pea_rejection_qty",
+			"custom_pea_rework_qty",
+			"custom_pea_actual_duration_mins",
+			"custom_pea_production_time_mins",
 		],
 		order_by="posting_date asc, name asc",
 	):
@@ -183,7 +183,7 @@ def _get_rows(filters: dict) -> list[dict]:
 
 		for entry in entries:
 			posting_date = str(entry.get("posting_date") or "")
-			operator = entry.get("custom_operator") or "Unassigned"
+			operator = entry.get("custom_pea_operator") or "Unassigned"
 			group_key = (posting_date, operator) if group_by_operator else (posting_date,)
 
 			if group_key not in aggregates:
@@ -208,7 +208,7 @@ def _get_rows(filters: dict) -> list[dict]:
 			loss_mins = float(loss_metrics.get("loss_mins") or 0)
 			setup_hrs = setup_mins / 60
 			loss_hrs = loss_mins / 60
-			rework_qty = float(entry.get("custom_rework_qty") or entry_metrics.get("rework_qty") or 0)
+			rework_qty = float(entry.get("custom_pea_rework_qty") or entry_metrics.get("rework_qty") or 0)
 			total_strokes, rejection_qty = get_entry_total_strokes(
 				entry,
 				good_qty_map=good_qty_map,
@@ -220,7 +220,7 @@ def _get_rows(filters: dict) -> list[dict]:
 				setup_mins=setup_mins,
 				loss_mins=loss_mins,
 			)
-			if production_time_mins <= 0 and entry.get("custom_production_time_mins") is not None:
+			if production_time_mins <= 0 and entry.get("custom_pea_production_time_mins") is not None:
 				raw_duration_mins = get_entry_raw_duration_minutes(entry)
 				production_time_mins = max(raw_duration_mins - setup_mins - loss_mins, 0)
 			production_time_hrs = (production_time_mins / 60) if production_time_mins > 0 else 0.0

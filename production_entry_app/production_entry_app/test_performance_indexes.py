@@ -22,9 +22,9 @@ class TestPerformanceIndexes(FrappeTestCase):
 					"Stock Entry",
 					[
 						"purpose",
-						"custom_workstation",
-						"custom_actual_start_date",
-						"custom_actual_end_date",
+						"custom_pea_workstation",
+						"custom_pea_actual_start_date",
+						"custom_pea_actual_end_date",
 						"docstatus",
 					],
 				),
@@ -35,9 +35,9 @@ class TestPerformanceIndexes(FrappeTestCase):
 					"Stock Entry",
 					[
 						"purpose",
-						"custom_operator",
-						"custom_actual_start_date",
-						"custom_actual_end_date",
+						"custom_pea_operator",
+						"custom_pea_actual_start_date",
+						"custom_pea_actual_end_date",
 						"docstatus",
 					],
 				),
@@ -66,9 +66,9 @@ class TestPerformanceIndexes(FrappeTestCase):
 					"Stock Entry",
 					[
 						"purpose",
-						"custom_workstation",
-						"custom_actual_start_date",
-						"custom_actual_end_date",
+						"custom_pea_workstation",
+						"custom_pea_actual_start_date",
+						"custom_pea_actual_end_date",
 						"docstatus",
 					],
 				),
@@ -79,9 +79,9 @@ class TestPerformanceIndexes(FrappeTestCase):
 					"Stock Entry",
 					[
 						"purpose",
-						"custom_operator",
-						"custom_actual_start_date",
-						"custom_actual_end_date",
+						"custom_pea_operator",
+						"custom_pea_actual_start_date",
+						"custom_pea_actual_end_date",
 						"docstatus",
 					],
 				),
@@ -131,9 +131,9 @@ class TestPerformanceIndexes(FrappeTestCase):
 					"Stock Entry",
 					[
 						"purpose",
-						"custom_workstation",
-						"custom_actual_start_date",
-						"custom_actual_end_date",
+						"custom_pea_workstation",
+						"custom_pea_actual_start_date",
+						"custom_pea_actual_end_date",
 						"docstatus",
 					],
 				),
@@ -144,9 +144,9 @@ class TestPerformanceIndexes(FrappeTestCase):
 					"Stock Entry",
 					[
 						"purpose",
-						"custom_operator",
-						"custom_actual_start_date",
-						"custom_actual_end_date",
+						"custom_pea_operator",
+						"custom_pea_actual_start_date",
+						"custom_pea_actual_end_date",
 						"docstatus",
 					],
 				),
@@ -218,7 +218,7 @@ class TestPerformanceIndexes(FrappeTestCase):
 
 	def test_ensure_performance_indexes_with_recovery_skips_missing_column_failures(self) -> None:
 		missing_column_error = frappe.db.ProgrammingError(
-			1054, "Unknown column 'custom_operator' in 'field list'"
+			1054, "Unknown column 'custom_pea_operator' in 'field list'"
 		)
 		total_index_specs = len(performance_indexes.OVERLAP_INDEX_SPECS) + len(
 			performance_indexes.REPORT_INDEX_SPECS
@@ -262,7 +262,7 @@ class TestPerformanceIndexes(FrappeTestCase):
 
 	def test_ensure_overlap_indexes_reraises_missing_column_failures(self) -> None:
 		missing_column_error = frappe.db.ProgrammingError(
-			1054, "Unknown column 'custom_operator' in 'field list'"
+			1054, "Unknown column 'custom_pea_operator' in 'field list'"
 		)
 
 		with patch(

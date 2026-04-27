@@ -30,7 +30,7 @@ frappe.query_reports["Daily Strokes SPM Monitor"] = {
 			default: moment().format("MMMM"),
 		},
 		{
-			fieldname: "custom_operator",
+			fieldname: "custom_pea_operator",
 			label: __("Operator"),
 			fieldtype: "Link",
 			options: "Operator",

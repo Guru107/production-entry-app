@@ -125,7 +125,7 @@
 
 - [x] Remove explicit runtime rounding from die-tool health/API calculations and any precision arguments that force rounded outputs.
 - [x] In `stock_entry_hooks.py`, add a small local helper that derives `derived_abs_tol` from the effective precision of
-  `doc.custom_rejection_qty` and child-row `custom_rejection_breakup.qty`, using the looser precision when they differ.
+  `doc.custom_pea_rejection_qty` and child-row `custom_pea_rejection_breakup.qty`, using the looser precision when they differ.
 - [x] Replace rounded float equality checks in hooks with `math.isclose(..., rel_tol=0.0, abs_tol=derived_abs_tol)`.
 - [x] In Python string assembly paths such as `production_entry_app/tasks.py`, use `frappe.format_value(...)` for
   embedded numeric fragments instead of `flt(..., n)`.

@@ -1,0 +1,93 @@
+{
+ "actions": [],
+ "creation": "2026-04-18 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "enable_access_control",
+  "required_role",
+  "shift_raw_material_warehouse",
+  "shift_wip_warehouse",
+  "shift_rejection_warehouse",
+  "shift_scrap_warehouse",
+  "shift_start_buffer_mins",
+  "shift_end_buffer_mins"
+ ],
+ "fields": [
+  {
+   "default": "0",
+   "fieldname": "enable_access_control",
+   "fieldtype": "Check",
+   "label": "Enable Access Control"
+  },
+  {
+   "default": "PEA User",
+   "fieldname": "required_role",
+   "fieldtype": "Link",
+   "label": "Required Role",
+   "options": "Role",
+   "reqd": 1
+  },
+  {
+   "fieldname": "shift_raw_material_warehouse",
+   "fieldtype": "Link",
+   "label": "Raw Material Warehouse",
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "shift_wip_warehouse",
+   "fieldtype": "Link",
+   "label": "Work In Progress Warehouse",
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "shift_rejection_warehouse",
+   "fieldtype": "Link",
+   "label": "Rejection Warehouse",
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "shift_scrap_warehouse",
+   "fieldtype": "Link",
+   "label": "Scrap Warehouse",
+   "options": "Warehouse"
+  },
+  {
+   "default": "60",
+   "fieldname": "shift_start_buffer_mins",
+   "fieldtype": "Int",
+   "label": "Shift Start Buffer (Minutes)",
+   "max_value": "480",
+   "min_value": "0"
+  },
+  {
+   "default": "60",
+   "fieldname": "shift_end_buffer_mins",
+   "fieldtype": "Int",
+   "label": "Shift End Buffer (Minutes)",
+   "max_value": "480",
+   "min_value": "0"
+  }
+ ],
+ "hide_toolbar": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-04-18 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Production Entry App",
+ "name": "Production Entry Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "role": "System Manager",
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

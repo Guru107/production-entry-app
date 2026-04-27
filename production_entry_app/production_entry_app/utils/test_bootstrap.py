@@ -5,6 +5,15 @@ from typing import Any
 import frappe
 from frappe import _
 
+_PRODUCTION_ENTRY_SHIFT_SETTINGS_FIELDS: tuple[str, ...] = (
+	"shift_raw_material_warehouse",
+	"shift_wip_warehouse",
+	"shift_rejection_warehouse",
+	"shift_scrap_warehouse",
+	"shift_start_buffer_mins",
+	"shift_end_buffer_mins",
+)
+
 
 def _resolve_company_from_candidates(
 	test_company_exists: bool, default_company: str | None, default_exists: bool, first_company: str | None
@@ -117,6 +126,14 @@ def ensure_item(item_code: str, *, item_group: str = "Products", stock_uom: str 
 	return doc.name
 
 
+def ensure_production_entry_settings_shift_fields() -> None:
+	meta = frappe.get_meta("Production Entry Settings", cached=True)
+	if all(meta.has_field(fieldname) for fieldname in _PRODUCTION_ENTRY_SHIFT_SETTINGS_FIELDS):
+		return
+	frappe.reload_doc("production_entry_app", "doctype", "production_entry_settings")
+	frappe.clear_document_cache("Production Entry Settings")
+
+
 def ensure_rejection_reason(name: str) -> None:
 	if frappe.db.exists("Rejection Reason", name):
 		return
@@ -146,7 +163,9 @@ def ensure_operator(name: str) -> None:
 
 def ensure_workstation(name: str, standard_spm: float) -> None:
 	if frappe.db.exists("Workstation", name):
-		frappe.db.set_value("Workstation", name, "custom_standard_spm", standard_spm, update_modified=False)
+		frappe.db.set_value(
+			"Workstation", name, "custom_pea_standard_spm", standard_spm, update_modified=False
+		)
 		return
 	frappe.get_doc(
 		{
@@ -154,7 +173,7 @@ def ensure_workstation(name: str, standard_spm: float) -> None:
 			"workstation_name": name,
 			"production_capacity": 1,
 			"hour_rate": 100,
-			"custom_standard_spm": standard_spm,
+			"custom_pea_standard_spm": standard_spm,
 		}
 	).insert(ignore_permissions=True)
 
@@ -216,6 +235,7 @@ def cleanup_running_shifts() -> None:
 
 
 def bootstrap_manufacturing_test_context(prefix: str) -> dict[str, Any]:
+	ensure_production_entry_settings_shift_fields()
 	company = resolve_test_company()
 	abbr = get_company_abbr(company)
 	branch = ensure_branch(resolve_test_branch() or "_Test Branch")
@@ -227,9 +247,10 @@ def bootstrap_manufacturing_test_context(prefix: str) -> dict[str, Any]:
 		frappe.db.set_value(
 			"Warehouse", rejection_warehouse, "is_rejected_warehouse", 1, update_modified=False
 		)
-	frappe.db.set_single_value("Manufacturing Settings", "shift_raw_material_warehouse", rm_warehouse)
-	frappe.db.set_single_value("Manufacturing Settings", "shift_wip_warehouse", wip_warehouse)
-	frappe.db.set_single_value("Manufacturing Settings", "shift_rejection_warehouse", rejection_warehouse)
+	frappe.db.set_single_value("Production Entry Settings", "shift_raw_material_warehouse", rm_warehouse)
+	frappe.db.set_single_value("Production Entry Settings", "shift_wip_warehouse", wip_warehouse)
+	frappe.db.set_single_value("Production Entry Settings", "shift_rejection_warehouse", rejection_warehouse)
+	frappe.clear_document_cache("Production Entry Settings")
 	return {
 		"company": company,
 		"branch": branch,

@@ -102,7 +102,7 @@ frappe.ui.form.on("Shift", {
 			frm.add_custom_button(
 				__("Downtime Entry"),
 				function () {
-					frappe.new_doc("Downtime Entry", { shift: frm.doc.name });
+					frappe.new_doc("Downtime Entry", { custom_pea_shift: frm.doc.name });
 				},
 				__("Create")
 			);
@@ -114,7 +114,7 @@ frappe.ui.form.on("Shift", {
 					function () {
 						frappe.new_doc("Stock Entry", {
 							stock_entry_type: "Manufacture",
-							custom_shift: frm.doc.name,
+							custom_pea_shift: frm.doc.name,
 						});
 					},
 					__("Create")
