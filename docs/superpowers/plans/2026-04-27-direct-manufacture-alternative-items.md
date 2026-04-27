@@ -342,7 +342,7 @@ git commit -m "test: cover direct manufacture alternative validation"
 
 - Modify: `production_entry_app/production_entry_app/overrides/stock_entry_hooks.py`
 - Test: `production_entry_app/production_entry_app/overrides/test_stock_entry_hooks.py`
-- [ ] **Step 1: Call validation before rejection row mutation**
+- [x] **Step 1: Call validation before rejection row mutation**
 
 Change `validate_stock_entry()` in `production_entry_app/production_entry_app/overrides/stock_entry_hooks.py` so the validation sequence includes the new call before `_apply_rejection_entries(doc)`:
 
@@ -352,7 +352,7 @@ Change `validate_stock_entry()` in `production_entry_app/production_entry_app/ov
 	_apply_rejection_entries(doc)
 ```
 
-- [ ] **Step 2: Add direct Manufacture validation helper**
+- [x] **Step 2: Add direct Manufacture validation helper**
 
 Add this function above `_validate_rejection_breakup(doc)`:
 
@@ -390,7 +390,7 @@ def _validate_direct_manufacture_alternative_items(doc) -> None:
 			)
 ```
 
-- [ ] **Step 3: Add BOM permission lookup helper**
+- [x] **Step 3: Add BOM permission lookup helper**
 
 Add this function below `_validate_direct_manufacture_alternative_items()`:
 
@@ -404,7 +404,7 @@ def _get_bom_alternative_allowed_items(bom_no: str) -> set[str]:
 	return {item_code for item_code in rows if item_code}
 ```
 
-- [ ] **Step 4: Add Item Alternative lookup helper**
+- [x] **Step 4: Add Item Alternative lookup helper**
 
 Add this function below `_get_bom_alternative_allowed_items()`:
 
@@ -425,7 +425,7 @@ def _is_configured_item_alternative(original_item: str, alternative_item: str) -
 	)
 ```
 
-- [ ] **Step 5: Add missing import for `ValidationError`**
+- [x] **Step 5: Add missing import for `ValidationError`**
 
 At the top of `production_entry_app/production_entry_app/overrides/stock_entry_hooks.py`, update imports to include:
 
@@ -433,7 +433,7 @@ At the top of `production_entry_app/production_entry_app/overrides/stock_entry_h
 from frappe.exceptions import ValidationError
 ```
 
-- [ ] **Step 6: Run validation tests**
+- [x] **Step 6: Run validation tests**
 
 Run from bench16:
 
@@ -448,7 +448,7 @@ bench --site frappe16.localhost run-tests --app production_entry_app \
 
 Expected after implementation: all three tests pass.
 
-- [ ] **Step 7: Commit validation implementation**
+- [x] **Step 7: Commit validation implementation**
 
 ```bash
 git add production_entry_app/production_entry_app/overrides/stock_entry_hooks.py production_entry_app/production_entry_app/overrides/test_stock_entry_hooks.py
