@@ -239,7 +239,7 @@ git commit -m "feat: preserve alternative flags for direct manufacture fetch"
 **Files:**
 
 - Modify: `production_entry_app/production_entry_app/overrides/test_stock_entry_hooks.py`
-- [ ] **Step 1: Add helper for direct Manufacture Stock Entry with substituted RM**
+- [x] **Step 1: Add helper for direct Manufacture Stock Entry with substituted RM**
 
 Add this method inside `TestGetItemsWithRejection`, after `_make_alternative_bom_context()`:
 
@@ -261,7 +261,7 @@ Add this method inside `TestGetItemsWithRejection`, after `_make_alternative_bom
 		return se
 ```
 
-- [ ] **Step 2: Add test for valid direct alternative**
+- [x] **Step 2: Add test for valid direct alternative**
 
 Add this test after the fetch flag tests:
 
@@ -277,7 +277,7 @@ Add this test after the fetch flag tests:
 		self.assertEqual(rm_rows[0].item_code, context["alt_item"])
 ```
 
-- [ ] **Step 3: Add test for BOM row not allowing alternatives**
+- [x] **Step 3: Add test for BOM row not allowing alternatives**
 
 Add this test after the valid alternative test:
 
@@ -290,7 +290,7 @@ Add this test after the valid alternative test:
 			se.run_method("validate")
 ```
 
-- [ ] **Step 4: Add test for missing Item Alternative record**
+- [x] **Step 4: Add test for missing Item Alternative record**
 
 Add this test after the BOM permission test:
 
@@ -312,7 +312,7 @@ Add this test after the BOM permission test:
 			se.run_method("validate")
 ```
 
-- [ ] **Step 5: Run validation tests and verify the invalid tests fail before implementation**
+- [x] **Step 5: Run validation tests and verify the invalid tests fail before implementation**
 
 Run from bench16:
 
@@ -327,7 +327,7 @@ bench --site frappe16.localhost run-tests --app production_entry_app \
 
 Expected before implementation: invalid-substitution tests fail because direct Manufacture validation does not yet reject these rows.
 
-- [ ] **Step 6: Commit failing validation tests**
+- [x] **Step 6: Commit failing validation tests**
 
 ```bash
 git add production_entry_app/production_entry_app/overrides/test_stock_entry_hooks.py
