@@ -3036,6 +3036,35 @@ class TestGetItemsWithRejection(FrappeTestCase):
 		self.assertGreater(fg_rate, 0, "FG row must have a basic_rate")
 		self.assertEqual(rr.get("basic_rate"), fg_rate, "rejection basic_rate must equal FG basic_rate")
 
+	def test_get_items_with_rejection_does_not_mark_rejection_row_as_alternative_allowed(self) -> None:
+		context = self._make_alternative_bom_context("RejectionRow", allow_alternative_item=1)
+		shift = _create_test_shift(
+			shift_date="2026-04-24",
+			wip_warehouse=self.wip_warehouse,
+			rejection_warehouse=self.rejection_warehouse,
+		)
+
+		items = self._call_api(
+			bom_no=context["bom_no"],
+			custom_rejection_qty=10,
+			custom_shift=shift.name,
+		)
+
+		rejection_rows = [row for row in items if row.get("custom_is_rejection_item")]
+		self.assertEqual(len(rejection_rows), 1)
+		self.assertNotEqual(rejection_rows[0].get("allow_alternative_item"), 1)
+
+	def test_get_items_with_rejection_returns_native_alternative_dialog_fields(self) -> None:
+		context = self._make_alternative_bom_context("DialogFields", allow_alternative_item=1)
+
+		items = self._call_api(bom_no=context["bom_no"])
+
+		rm_row = next(row for row in items if row.get("item_code") == context["rm_item"])
+		self.assertEqual(rm_row.get("allow_alternative_item"), 1)
+		self.assertIn("s_warehouse", rm_row)
+		self.assertIn("actual_qty", rm_row)
+		self.assertIn("original_item", rm_row)
+
 	def test_rejection_row_basic_rate_matches_fg_on_save(self) -> None:
 		"""Rejection row basic_rate must match FG row basic_rate when saved via validate hook."""
 		shift = _create_test_shift(
