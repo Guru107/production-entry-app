@@ -2907,12 +2907,15 @@ class TestGetItemsWithRejection(FrappeTestCase):
 			from_warehouse=self.rm_warehouse,
 			to_warehouse=self.fg_warehouse,
 		)
+		replaced = False
 		for row in se.items:
 			if row.item_code == context["rm_item"]:
 				row.item_code = context["alt_item"]
 				row.original_item = context["rm_item"]
 				row.allow_alternative_item = 1
+				replaced = True
 				break
+		self.assertTrue(replaced, "Expected BOM RM row to be replaced with alternative item")
 		return se
 
 	def test_get_items_with_rejection_returns_bom_items(self) -> None:
@@ -2954,7 +2957,7 @@ class TestGetItemsWithRejection(FrappeTestCase):
 		context = self._make_alternative_bom_context("BomDenied", allow_alternative_item=0)
 		se = self._make_direct_manufacture_entry_with_alternative(context)
 
-		with self.assertRaises(ValidationError):
+		with self.assertRaisesRegex(ValidationError, "does not allow alternative items"):
 			se.run_method("validate")
 
 	def test_direct_manufacture_alternative_requires_item_alternative_record(self) -> None:
@@ -2970,7 +2973,7 @@ class TestGetItemsWithRejection(FrappeTestCase):
 		)
 		se = self._make_direct_manufacture_entry_with_alternative(context)
 
-		with self.assertRaises(ValidationError):
+		with self.assertRaisesRegex(ValidationError, "is not configured as an alternative"):
 			se.run_method("validate")
 
 	def test_get_or_create_bom_does_not_reuse_bom_with_different_alternative_flag(self) -> None:
