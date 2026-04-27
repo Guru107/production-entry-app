@@ -90,13 +90,13 @@ def cleanup_report_benchmark(dataset_key: str = "PHASE2") -> dict[str, int | str
 		"Stock Entry",
 		filters={
 			"purpose": "Manufacture",
-			"custom_operator": operator,
-			"custom_workstation": workstation,
+			"custom_pea_operator": operator,
+			"custom_pea_workstation": workstation,
 		},
-		fields=["name", "custom_shift"],
+		fields=["name", "custom_pea_shift"],
 	)
 	entry_names = [row.get("name") for row in rows if row.get("name")]
-	shift_names = sorted({row.get("custom_shift") for row in rows if row.get("custom_shift")})
+	shift_names = sorted({row.get("custom_pea_shift") for row in rows if row.get("custom_pea_shift")})
 	deleted_stock_entries = len(entry_names)
 	deleted_shifts = len(shift_names)
 
@@ -218,8 +218,8 @@ def _seed_benchmark_entries(
 		"Stock Entry",
 		filters={
 			"purpose": "Manufacture",
-			"custom_operator": context.operator,
-			"custom_workstation": context.workstation,
+			"custom_pea_operator": context.operator,
+			"custom_pea_workstation": context.workstation,
 		},
 	)
 	if created >= entry_count:
@@ -346,18 +346,18 @@ def _create_mock_submitted_entry(
 		rm_item=context.rm_item,
 		fg_qty=fg_qty,
 		rm_qty=fg_qty,
-		custom_rejection_qty=rejection_qty,
+		custom_pea_rejection_qty=rejection_qty,
 		fg_warehouse=context.fg_warehouse,
 		rm_warehouse=context.rm_warehouse,
 	)
-	stock_entry.custom_operator = context.operator
-	stock_entry.custom_workstation = context.workstation
-	stock_entry.custom_shift = shift_name
-	stock_entry.custom_standard_spm = 2
-	stock_entry.custom_planned_start_date = planned_start
-	stock_entry.custom_planned_end_date = planned_end
-	stock_entry.custom_actual_start_date = actual_start
-	stock_entry.custom_actual_end_date = actual_end
+	stock_entry.custom_pea_operator = context.operator
+	stock_entry.custom_pea_workstation = context.workstation
+	stock_entry.custom_pea_shift = shift_name
+	stock_entry.custom_pea_standard_spm = 2
+	stock_entry.custom_pea_planned_start_date = planned_start
+	stock_entry.custom_pea_planned_end_date = planned_end
+	stock_entry.custom_pea_actual_start_date = actual_start
+	stock_entry.custom_pea_actual_end_date = actual_end
 	stock_entry.posting_date = posting_date
 	stock_entry.posting_time = "09:00:00"
 
@@ -368,7 +368,7 @@ def _create_mock_submitted_entry(
 		)
 	for row in unplanned_losses or []:
 		stock_entry.append(
-			"custom_unplanned_losses",
+			"custom_pea_unplanned_losses",
 			{
 				"downtime_reason": row.get("downtime_reason"),
 				"start_time": row.get("start_time"),

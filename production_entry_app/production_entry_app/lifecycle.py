@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import frappe
 
-from production_entry_app.production_entry_app import performance_indexes
+from production_entry_app.production_entry_app import access_control, performance_indexes
 
 APP_MODULE = "Production Entry App"
 
@@ -22,6 +22,7 @@ def before_uninstall() -> None:
 
 
 def _setup_app() -> None:
+	access_control.invalidate_access_control_cache()
 	performance_indexes.ensure_performance_indexes_with_recovery()
 
 

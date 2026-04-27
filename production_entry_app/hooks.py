@@ -11,15 +11,14 @@ app_license = "mit"
 # required_apps = []
 
 # Each item in the list will be shown as an app in the apps page
-# add_to_apps_screen = [
-# 	{
-# 		"name": "production_entry_app",
-# 		"logo": "/assets/production_entry_app/logo.png",
-# 		"title": "Production Entry App",
-# 		"route": "/production_entry_app",
-# 		"has_permission": "production_entry_app.api.permission.has_app_permission"
-# 	}
-# ]
+add_to_apps_screen = [
+	{
+		"name": "production_entry_app",
+		"title": "Production Entry App",
+		"route": "/app",
+		"has_permission": "production_entry_app.production_entry_app.access_control.has_app_permission",
+	}
+]
 
 # Includes in <head>
 # ------------------
@@ -29,6 +28,9 @@ app_license = "mit"
 app_include_js = [
 	"/assets/production_entry_app/js/report_filter_utils.js",
 	"/assets/production_entry_app/js/timeline_renderer.js",
+	"/assets/production_entry_app/js/access_control.js",
+	"/assets/production_entry_app/js/generated_access_control_field_map.js",
+	"/assets/production_entry_app/js/custom_field_visibility.js",
 	"/assets/production_entry_app/js/time_entry_fields.js",
 ]
 app_include_css = ["/assets/production_entry_app/css/time_entry_fields.css"]
@@ -56,6 +58,7 @@ doctype_js = {
 
 after_sync = ["production_entry_app.production_entry_app.lifecycle.after_sync"]
 after_migrate = ["production_entry_app.production_entry_app.lifecycle.after_migrate"]
+before_install = ["production_entry_app.install.before_install"]
 
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
@@ -130,6 +133,17 @@ before_uninstall = ["production_entry_app.production_entry_app.lifecycle.before_
 # -----------
 # Permissions evaluated in scripted ways
 
+has_permission = {
+	"Shift": "production_entry_app.production_entry_app.access_control.has_gated_doctype_permission",
+	"Loss Entry": "production_entry_app.production_entry_app.access_control.has_gated_doctype_permission",
+	"Downtime Reason": "production_entry_app.production_entry_app.access_control.has_gated_doctype_permission",
+	"Operator": "production_entry_app.production_entry_app.access_control.has_gated_doctype_permission",
+	"Die Tool Counter": "production_entry_app.production_entry_app.access_control.has_gated_doctype_permission",
+	"Die Tool Maintenance Log": "production_entry_app.production_entry_app.access_control.has_gated_doctype_permission",
+	"Rejection Reason": "production_entry_app.production_entry_app.access_control.has_gated_doctype_permission",
+	"Rejection Breakup": "production_entry_app.production_entry_app.access_control.has_gated_doctype_permission",
+}
+
 # permission_query_conditions = {
 # 	"Event": "frappe.desk.doctype.event.event.get_permission_query_conditions",
 # }
@@ -154,6 +168,9 @@ override_doctype_class = {
 # Hook on document methods and events
 
 doc_events = {
+	"Production Entry Settings": {
+		"on_update": "production_entry_app.production_entry_app.doctype.production_entry_settings.production_entry_settings.on_update",
+	},
 	"Shift": {
 		"on_update": "production_entry_app.production_entry_app.doctype.shift.shift.invalidate_shift_summary_for_shift",
 		"on_trash": "production_entry_app.production_entry_app.doctype.shift.shift.invalidate_shift_summary_for_shift",

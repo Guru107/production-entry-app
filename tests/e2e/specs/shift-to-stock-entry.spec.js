@@ -145,9 +145,12 @@ test.describe("Shift to Stock Entry integration", () => {
 		await shiftPage.createProductionEntryFromShift();
 
 		const stockEntryPage = new StockEntryPage(page);
-		const values = await stockEntryPage.getFieldValues(["stock_entry_type", "custom_shift"]);
+		const values = await stockEntryPage.getFieldValues([
+			"stock_entry_type",
+			"custom_pea_shift",
+		]);
 		expect(values.stock_entry_type).toBe("Manufacture");
-		expect(values.custom_shift).toBe(ctx.shift_name);
+		expect(values.custom_pea_shift).toBe(ctx.shift_name);
 		expect(ctx.shift_name).toBe(`SHIFT-${ctx.shift_date}.1.0001`);
 	});
 
@@ -159,7 +162,7 @@ test.describe("Shift to Stock Entry integration", () => {
 		const stockEntryPage = new StockEntryPage(page);
 		await stockEntryPage.openNew();
 		await setFieldValue(page, "stock_entry_type", "Manufacture");
-		await stockEntryPage.waitForFieldValue("custom_stock_entry_purpose", "Manufacture");
+		await stockEntryPage.waitForFieldValue("custom_pea_stock_entry_purpose", "Manufacture");
 		await stockEntryPage.setShift(ctx.shift_name);
 		await stockEntryPage.waitForShiftAutoFill({
 			branch: shift.branch || null,
@@ -169,16 +172,16 @@ test.describe("Shift to Stock Entry integration", () => {
 
 		const values = await stockEntryPage.getFieldValues([
 			"branch",
-			"custom_planned_start_date",
-			"custom_planned_end_date",
+			"custom_pea_planned_start_date",
+			"custom_pea_planned_end_date",
 		]);
 		if (shift.branch) {
 			expect(values.branch).toBe(shift.branch);
 		}
-		expect(String(values.custom_planned_start_date || "")).toContain(
+		expect(String(values.custom_pea_planned_start_date || "")).toContain(
 			`${ctx.shift_date} 08:00:00`
 		);
-		expect(String(values.custom_planned_end_date || "")).toContain("16:00:00");
+		expect(String(values.custom_pea_planned_end_date || "")).toContain("16:00:00");
 	});
 
 	test("@regression clearing shift clears auto-filled planning and warehouse fields", async ({
@@ -190,7 +193,7 @@ test.describe("Shift to Stock Entry integration", () => {
 		const stockEntryPage = new StockEntryPage(page);
 		await stockEntryPage.openNew();
 		await setFieldValue(page, "stock_entry_type", "Manufacture");
-		await stockEntryPage.waitForFieldValue("custom_stock_entry_purpose", "Manufacture");
+		await stockEntryPage.waitForFieldValue("custom_pea_stock_entry_purpose", "Manufacture");
 		await stockEntryPage.setShift(ctx.shift_name);
 		await stockEntryPage.waitForShiftAutoFill({
 			plannedStartIncludes: `${ctx.shift_date} 08:00:00`,
@@ -202,20 +205,20 @@ test.describe("Shift to Stock Entry integration", () => {
 		await stockEntryPage.waitForShiftCleared();
 
 		const values = await stockEntryPage.getFieldValues([
-			"custom_shift",
-			"custom_planned_start_date",
-			"custom_planned_end_date",
+			"custom_pea_shift",
+			"custom_pea_planned_start_date",
+			"custom_pea_planned_end_date",
 			"from_warehouse",
 			"to_warehouse",
 		]);
-		expect(values.custom_shift).toBeFalsy();
-		expect(values.custom_planned_start_date).toBeFalsy();
-		expect(values.custom_planned_end_date).toBeFalsy();
+		expect(values.custom_pea_shift).toBeFalsy();
+		expect(values.custom_pea_planned_start_date).toBeFalsy();
+		expect(values.custom_pea_planned_end_date).toBeFalsy();
 		expect(values.from_warehouse).toBeFalsy();
 		expect(values.to_warehouse).toBeFalsy();
 	});
 
-	test("@regression custom_shift query returns only running shifts", async ({ page }) => {
+	test("@regression custom_pea_shift query returns only running shifts", async ({ page }) => {
 		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 		const seededShift = await getDoc(page, "Shift", ctx.shift_name);
@@ -258,7 +261,7 @@ test.describe("Shift to Stock Entry integration", () => {
 		}
 	});
 
-	test("@regression save is blocked when custom_shift points to draft shift", async ({
+	test("@regression save is blocked when custom_pea_shift points to draft shift", async ({
 		page,
 	}) => {
 		await page.goto(getRoute("/home"));
@@ -347,7 +350,7 @@ test.describe("Shift to Stock Entry integration", () => {
 
 		await openForm(page, "workstation", ctx.workstation);
 		await page.waitForFunction(() => {
-			const field = window.cur_frm?.fields_dict?.custom_shift_timeline_html;
+			const field = window.cur_frm?.fields_dict?.custom_pea_shift_timeline_html;
 			const canvas = field?.$wrapper?.[0]?.querySelector(".pea-shift-timeline-canvas");
 			return Boolean(canvas && (canvas.__peaHitBoxes || []).length > 0);
 		});
@@ -361,11 +364,11 @@ test.describe("Shift to Stock Entry integration", () => {
 			(row) => row.entry_type === "production"
 		);
 		expect(productionEntry).toBeTruthy();
-		const canvasData = await getTimelineCanvasDetails(page, "custom_shift_timeline_html");
+		const canvasData = await getTimelineCanvasDetails(page, "custom_pea_shift_timeline_html");
 		expect(canvasData?.firstCenter).toBeTruthy();
 		const hovered = await dispatchTimelineCanvasEvent(
 			page,
-			"custom_shift_timeline_html",
+			"custom_pea_shift_timeline_html",
 			"mousemove",
 			canvasData.firstCenter
 		);
@@ -432,10 +435,10 @@ test.describe("Shift to Stock Entry integration", () => {
 			plannedEndIncludes: updatedPlannedEndTime.slice(-8),
 		});
 		const stockEntryPlannedEnd = await stockEntryPage.getFieldValues([
-			"custom_planned_start_date",
-			"custom_planned_end_date",
+			"custom_pea_planned_start_date",
+			"custom_pea_planned_end_date",
 		]);
-		expect(String(stockEntryPlannedEnd.custom_planned_end_date || "")).toContain(
+		expect(String(stockEntryPlannedEnd.custom_pea_planned_end_date || "")).toContain(
 			updatedPlannedEndTime.slice(-8)
 		);
 	});

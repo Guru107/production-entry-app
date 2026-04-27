@@ -9,10 +9,14 @@ from production_entry_app.production_entry_app.report.report_utils import (
 	apply_system_precision,
 	build_stock_entry_filters,
 	get_parent_breakup_reason_rows,
+	get_stock_entry_alias_fields,
+	get_stock_entry_alias_value,
 	iter_stock_entries_in_chunks,
+	row_matches_stock_entry_alias_filters,
 )
 
 _DEFAULT_TOP_N = 10
+_ALIAS_FILTER_KEYS = ("custom_pea_workstation", "custom_pea_shift", "custom_pea_operator")
 
 
 def execute(filters: dict | None = None):
@@ -32,9 +36,11 @@ def _normalize_top_n(value) -> int:
 
 
 def _build_filters(filters: dict) -> dict:
+	# Alias filters are applied after fetching rows so custom_pea_* filters
+	# can still match legacy custom_* values during the field rename window.
 	return build_stock_entry_filters(
 		filters,
-		filter_keys=("custom_workstation", "custom_shift", "custom_operator", "bom_no"),
+		filter_keys=("bom_no",),
 	)
 
 
@@ -78,13 +84,19 @@ def _get_rows(filters: dict, top_n: int) -> tuple[list[dict], list[str]]:
 	matrix: dict[str, dict[str, float]] = {}
 	entry_sets: dict[str, set[str]] = {}
 	has_entries = False
-	for entry_rows in iter_stock_entries_in_chunks(_build_filters(filters), ["name", "custom_workstation"]):
+	fields = get_stock_entry_alias_fields(["name"], _ALIAS_FILTER_KEYS)
+	for entry_rows in iter_stock_entries_in_chunks(_build_filters(filters), fields):
+		entry_rows = [
+			row
+			for row in entry_rows
+			if row_matches_stock_entry_alias_filters(row, filters, _ALIAS_FILTER_KEYS)
+		]
 		has_entries = True
 		entry_names = [row.get("name") for row in entry_rows if row.get("name")]
 		if not entry_names:
 			continue
 		workstation_by_entry = {
-			row.get("name"): (row.get("custom_workstation") or "Unassigned")
+			row.get("name"): get_stock_entry_alias_value(row, "custom_pea_workstation", _("Unassigned"))
 			for row in entry_rows
 			if row.get("name")
 		}
@@ -95,7 +107,7 @@ def _get_rows(filters: dict, top_n: int) -> tuple[list[dict], list[str]]:
 			qty = flt(row.get("qty") or 0)
 			if not parent or not reason or qty <= 0:
 				continue
-			workstation = workstation_by_entry.get(parent, "Unassigned")
+			workstation = workstation_by_entry.get(parent, _("Unassigned"))
 			reason_totals[reason] = flt(reason_totals.get(reason) or 0) + qty
 			matrix.setdefault(workstation, {})
 			matrix[workstation][reason] = flt(matrix[workstation].get(reason) or 0) + qty

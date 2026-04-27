@@ -62,16 +62,16 @@ def _get_rows(filters: dict, timeout_guard) -> list[dict]:
 		_build_filters(filters),
 		[
 			"name",
-			"custom_operator",
+			"custom_pea_operator",
 			"fg_completed_qty",
-			"custom_rejection_qty",
-			"custom_rework_qty",
-			"custom_actual_spm",
-			"custom_actual_duration_mins",
-			"custom_production_time_mins",
-			"custom_actual_start_date",
-			"custom_actual_end_date",
-			"custom_standard_spm",
+			"custom_pea_rejection_qty",
+			"custom_pea_rework_qty",
+			"custom_pea_actual_spm",
+			"custom_pea_actual_duration_mins",
+			"custom_pea_production_time_mins",
+			"custom_pea_actual_start_date",
+			"custom_pea_actual_end_date",
+			"custom_pea_standard_spm",
 		],
 	):
 		timeout_guard()
@@ -100,7 +100,7 @@ def _get_rows(filters: dict, timeout_guard) -> list[dict]:
 				total_rejected_qty_map=total_rejected_qty_map,
 			)
 			good_qty = flt(max(total_strokes - rejection_qty, 0))
-			rework_qty = flt(entry.get("custom_rework_qty") or entry_metrics.get("rework_qty") or 0)
+			rework_qty = flt(entry.get("custom_pea_rework_qty") or entry_metrics.get("rework_qty") or 0)
 			production_time_mins = get_entry_production_minutes(
 				entry,
 				setup_mins=flt(loss_metrics.get("setup_mins") or 0),
@@ -112,7 +112,7 @@ def _get_rows(filters: dict, timeout_guard) -> list[dict]:
 			entry["_rework_qty"] = rework_qty
 			entry["_duration_mins"] = raw_duration_mins
 			entry["_production_time_mins"] = production_time_mins
-			accumulate_efficiency_aggregate(aggregates, entry, "custom_operator")
+			accumulate_efficiency_aggregate(aggregates, entry, "custom_pea_operator")
 
 	return build_efficiency_rows(
 		aggregates=aggregates,
@@ -124,5 +124,5 @@ def _get_rows(filters: dict, timeout_guard) -> list[dict]:
 def _build_filters(filters: dict) -> dict:
 	return build_stock_entry_filters(
 		filters,
-		filter_keys=("custom_operator", "custom_shift", "custom_workstation"),
+		filter_keys=("custom_pea_operator", "custom_pea_shift", "custom_pea_workstation"),
 	)

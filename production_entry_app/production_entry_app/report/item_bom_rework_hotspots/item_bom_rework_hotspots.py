@@ -58,7 +58,7 @@ def _get_columns() -> list[dict]:
 def _build_filters(filters: dict) -> dict:
 	return build_stock_entry_filters(
 		filters,
-		filter_keys=("custom_workstation", "custom_shift", "custom_operator", "bom_no"),
+		filter_keys=("custom_pea_workstation", "custom_pea_shift", "custom_pea_operator", "bom_no"),
 	)
 
 
@@ -71,7 +71,7 @@ def _get_rows(filters: dict, timeout_guard) -> list[dict]:
 	has_entries = False
 	for entries in iter_stock_entries_in_chunks(
 		_build_filters(filters),
-		["name", "fg_completed_qty", "custom_rejection_qty", "custom_rework_qty", "bom_no"],
+		["name", "fg_completed_qty", "custom_pea_rejection_qty", "custom_pea_rework_qty", "bom_no"],
 	):
 		timeout_guard()
 		has_entries = True
@@ -94,7 +94,7 @@ def _get_rows(filters: dict, timeout_guard) -> list[dict]:
 				total_qty = flt(parent_metrics.get(entry_name, {}).get("good_qty") or 0) + flt(
 					parent_metrics.get(entry_name, {}).get("total_rejected_qty") or 0
 				)
-			rework_qty = flt(entry.get("custom_rework_qty") or 0)
+			rework_qty = flt(entry.get("custom_pea_rework_qty") or 0)
 			if rework_qty <= 0:
 				rework_qty = flt(parent_metrics.get(entry_name, {}).get("rework_qty") or 0)
 			row = agg.setdefault(

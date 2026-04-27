@@ -25,19 +25,19 @@ frappe.query_reports["Operator Daily SPM Report"] = {
 			},
 		},
 		{
-			fieldname: "custom_operator",
+			fieldname: "custom_pea_operator",
 			label: __("Operator"),
 			fieldtype: "Link",
 			options: "Operator",
 		},
 		{
-			fieldname: "custom_workstation",
+			fieldname: "custom_pea_workstation",
 			label: __("Workstation"),
 			fieldtype: "Link",
 			options: "Workstation",
 		},
 		{
-			fieldname: "custom_shift",
+			fieldname: "custom_pea_shift",
 			label: __("Shift"),
 			fieldtype: "Link",
 			options: "Shift",

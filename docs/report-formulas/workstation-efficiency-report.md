@@ -2,7 +2,7 @@
 
 Source: `workstation_efficiency_report/workstation_efficiency_report.py`
 
-Same formulas as Operator Efficiency Report, grouped by `custom_workstation`:
+Same formulas as Operator Efficiency Report, grouped by `custom_pea_workstation`:
 
 - `workstation`
 - `entries`
