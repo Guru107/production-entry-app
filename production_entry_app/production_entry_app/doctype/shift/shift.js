@@ -114,6 +114,7 @@ frappe.ui.form.on("Shift", {
 					function () {
 						frappe.new_doc("Stock Entry", {
 							stock_entry_type: "Manufacture",
+							company: frm.doc.company,
 							custom_pea_shift: frm.doc.name,
 						});
 					},

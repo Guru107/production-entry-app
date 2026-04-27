@@ -13,6 +13,7 @@ _PRODUCTION_ENTRY_SHIFT_SETTINGS_FIELDS: tuple[str, ...] = (
 	"shift_start_buffer_mins",
 	"shift_end_buffer_mins",
 )
+TEST_GST_HSN_CODE: str = "998314"
 
 
 def _resolve_company_from_candidates(
@@ -120,6 +121,8 @@ def ensure_item(item_code: str, *, item_group: str = "Products", stock_uom: str 
 			"item_group": item_group,
 		}
 	)
+	if frappe.get_meta("Item", cached=True).has_field("gst_hsn_code"):
+		doc.gst_hsn_code = TEST_GST_HSN_CODE
 	doc.insert(ignore_permissions=True)
 	return doc.name
 

@@ -306,6 +306,9 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 							if (r.message) {
 								const data = r.message;
 								const updates = [];
+								if (data.company) {
+									updates.push(frm.set_value("company", data.company));
+								}
 								if (data.branch) {
 									updates.push(frm.set_value("branch", data.branch));
 								}

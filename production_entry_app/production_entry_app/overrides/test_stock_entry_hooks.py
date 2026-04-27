@@ -9,6 +9,9 @@ from frappe.exceptions import ValidationError
 from frappe.tests.utils import FrappeTestCase
 
 from production_entry_app.production_entry_app.overrides import stock_entry_hooks
+from production_entry_app.production_entry_app.utils.alternative_items import (
+	get_bom_alternative_allowed_items,
+)
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	bootstrap_manufacturing_test_context,
 	cleanup_running_shifts,
@@ -425,13 +428,40 @@ def _create_test_shift(
 	return shift
 
 
-def _get_or_create_bom(fg_item: str, rm_item: str, company: str, rm_qty: float = 1) -> str:
+def _get_or_create_bom(
+	fg_item: str,
+	rm_item: str,
+	company: str,
+	rm_qty: float = 1,
+	allow_alternative_item: int = 0,
+) -> str:
 	"""Return BOM name for fg_item, creating and submitting one if needed."""
-	existing = frappe.db.get_value(
-		"BOM", {"item": fg_item, "is_active": 1, "is_default": 1, "docstatus": 1}, "name"
+	bom_names = frappe.get_all(
+		"BOM",
+		filters={
+			"item": fg_item,
+			"company": company,
+			"is_active": 1,
+			"is_default": 1,
+			"docstatus": 1,
+		},
+		pluck="name",
 	)
-	if existing:
-		return existing
+	if bom_names:
+		matching_items = frappe.get_all(
+			"BOM Item",
+			filters={
+				"parent": ["in", bom_names],
+				"parenttype": "BOM",
+				"item_code": rm_item,
+				"qty": rm_qty,
+				"allow_alternative_item": allow_alternative_item,
+			},
+			fields=["parent"],
+			limit=1,
+		)
+		if matching_items:
+			return matching_items[0].parent
 
 	bom = frappe.get_doc(
 		{
@@ -446,6 +476,7 @@ def _get_or_create_bom(fg_item: str, rm_item: str, company: str, rm_qty: float =
 					"item_code": rm_item,
 					"qty": rm_qty,
 					"rate": 50,
+					"allow_alternative_item": allow_alternative_item,
 				}
 			],
 		}
@@ -1529,6 +1560,7 @@ class TestStockEntryHooks(FrappeTestCase):
 			wip_warehouse=self.wip_warehouse,
 		)
 		result = get_shift_details_for_stock_entry(shift.name)
+		self.assertEqual(result.get("company"), shift.company)
 		self.assertIn("2026-04-21 16:00:00", result.get("custom_pea_planned_start_date") or "")
 		self.assertIn("2026-04-22 00:00:00", result.get("custom_pea_planned_end_date") or "")
 		self.assertEqual(result.get("from_warehouse"), self.wip_warehouse)
@@ -3018,12 +3050,176 @@ class TestGetItemsWithRejection(FrappeTestCase):
 		doc_dict.update(overrides)
 		return get_items_with_rejection(json.dumps(doc_dict))
 
+	def _make_alternative_bom_context(self, suffix: str, allow_alternative_item: int = 1) -> dict:
+		fg_item = _get_or_create_item(f"_Test FG Alt Direct {suffix}")
+		rm_item = _get_or_create_item(f"_Test RM Alt Direct {suffix}")
+		alt_item = _get_or_create_item(f"_Test RM Alt Direct Substitute {suffix}")
+		frappe.db.set_value("Item", rm_item, "allow_alternative_item", 1)
+		frappe.db.set_value("Item", alt_item, "allow_alternative_item", 1)
+		if not frappe.db.exists(
+			"Item Alternative",
+			{"item_code": rm_item, "alternative_item_code": alt_item},
+		):
+			frappe.get_doc(
+				{
+					"doctype": "Item Alternative",
+					"item_code": rm_item,
+					"alternative_item_code": alt_item,
+					"two_way": 1,
+				}
+			).insert(ignore_permissions=True)
+		bom_no = _get_or_create_bom(
+			fg_item,
+			rm_item,
+			self.company,
+			rm_qty=1,
+			allow_alternative_item=allow_alternative_item,
+		)
+		return {"fg_item": fg_item, "rm_item": rm_item, "alt_item": alt_item, "bom_no": bom_no}
+
+	def _make_direct_manufacture_entry_with_alternative(self, context: dict) -> frappe.Document:
+		se = _create_bom_stock_entry(
+			company=self.company,
+			bom_no=context["bom_no"],
+			fg_completed_qty=100,
+			from_warehouse=self.rm_warehouse,
+			to_warehouse=self.fg_warehouse,
+		)
+		replaced = False
+		for row in se.items:
+			if row.item_code == context["rm_item"]:
+				row.item_code = context["alt_item"]
+				row.original_item = context["rm_item"]
+				row.allow_alternative_item = 1
+				replaced = True
+				break
+		self.assertTrue(replaced, "Expected BOM RM row to be replaced with alternative item")
+		return se
+
 	def test_get_items_with_rejection_returns_bom_items(self) -> None:
 		"""API should return at least RM + FG rows from BOM."""
 		items = self._call_api()
 		item_codes = [r["item_code"] for r in items]
 		self.assertIn(self.rm_item, item_codes)
 		self.assertIn(self.fg_item, item_codes)
+
+	def test_get_items_with_rejection_marks_bom_rm_as_alternative_allowed(self) -> None:
+		context = self._make_alternative_bom_context("Allowed", allow_alternative_item=1)
+
+		items = self._call_api(bom_no=context["bom_no"])
+
+		rm_rows = [row for row in items if row.get("item_code") == context["rm_item"]]
+		self.assertEqual(len(rm_rows), 1)
+		self.assertEqual(int(rm_rows[0].get("allow_alternative_item") or 0), 1)
+
+	def test_get_items_with_rejection_does_not_mark_bom_rm_when_alternative_not_allowed(self) -> None:
+		context = self._make_alternative_bom_context("NotAllowed", allow_alternative_item=0)
+
+		items = self._call_api(bom_no=context["bom_no"])
+
+		rm_rows = [row for row in items if row.get("item_code") == context["rm_item"]]
+		self.assertEqual(len(rm_rows), 1)
+		self.assertEqual(int(rm_rows[0].get("allow_alternative_item") or 0), 0)
+
+	def test_direct_manufacture_valid_alternative_item_validates(self) -> None:
+		context = self._make_alternative_bom_context("Valid", allow_alternative_item=1)
+		se = self._make_direct_manufacture_entry_with_alternative(context)
+
+		se.run_method("validate")
+
+		rm_rows = [row for row in se.items if row.get("original_item") == context["rm_item"]]
+		self.assertEqual(len(rm_rows), 1)
+		self.assertEqual(rm_rows[0].item_code, context["alt_item"])
+
+	def test_direct_manufacture_alternative_requires_bom_row_permission(self) -> None:
+		context = self._make_alternative_bom_context("BomDenied", allow_alternative_item=0)
+		se = self._make_direct_manufacture_entry_with_alternative(context)
+
+		with self.assertRaisesRegex(ValidationError, "does not allow alternative items"):
+			se.run_method("validate")
+
+	def test_direct_manufacture_alternative_requires_item_alternative_record(self) -> None:
+		context = self._make_alternative_bom_context("MissingAlternative", allow_alternative_item=1)
+		frappe.delete_doc(
+			"Item Alternative",
+			frappe.db.get_value(
+				"Item Alternative",
+				{"item_code": context["rm_item"], "alternative_item_code": context["alt_item"]},
+				"name",
+			),
+			ignore_permissions=True,
+		)
+		se = self._make_direct_manufacture_entry_with_alternative(context)
+
+		with self.assertRaisesRegex(ValidationError, "is not configured as an alternative"):
+			se.run_method("validate")
+
+	def test_direct_manufacture_alternative_requires_original_item_for_non_bom_item(self) -> None:
+		context = self._make_alternative_bom_context("MissingOriginal", allow_alternative_item=1)
+		se = self._make_direct_manufacture_entry_with_alternative(context)
+		for row in se.items:
+			if row.get("item_code") == context["alt_item"]:
+				row.original_item = ""
+				break
+
+		with self.assertRaisesRegex(ValidationError, "is not part of BOM"):
+			se.run_method("validate")
+
+	def test_alternative_allowed_lookup_includes_child_bom_items(self) -> None:
+		suffix = frappe.generate_hash(length=8)
+		parent_fg = _get_or_create_item(f"_Test Parent FG Alt {suffix}")
+		child_fg = _get_or_create_item(f"_Test Child FG Alt {suffix}")
+		child_rm = _get_or_create_item(f"_Test Child RM Alt {suffix}")
+
+		child_bom = _get_or_create_bom(
+			child_fg,
+			child_rm,
+			self.company,
+			allow_alternative_item=1,
+		)
+		parent_bom = frappe.get_doc(
+			{
+				"doctype": "BOM",
+				"item": parent_fg,
+				"company": self.company,
+				"quantity": 1,
+				"is_active": 1,
+				"is_default": 1,
+				"items": [
+					{
+						"item_code": child_fg,
+						"qty": 1,
+						"rate": 50,
+						"bom_no": child_bom,
+						"allow_alternative_item": 0,
+					}
+				],
+			}
+		)
+		parent_bom.insert(ignore_permissions=True)
+		parent_bom.submit()
+
+		self.assertIn(child_rm, get_bom_alternative_allowed_items(parent_bom.name))
+
+	def test_get_or_create_bom_does_not_reuse_bom_with_different_alternative_flag(self) -> None:
+		suffix = frappe.generate_hash(length=8)
+		fg_item = _get_or_create_item(f"_Test FG Alt Reuse {suffix}")
+		rm_item = _get_or_create_item(f"_Test RM Alt Reuse {suffix}")
+
+		first_bom = _get_or_create_bom(
+			fg_item,
+			rm_item,
+			self.company,
+			allow_alternative_item=0,
+		)
+		second_bom = _get_or_create_bom(
+			fg_item,
+			rm_item,
+			self.company,
+			allow_alternative_item=1,
+		)
+
+		self.assertNotEqual(second_bom, first_bom)
 
 	def test_get_items_with_rejection_deducts_from_fg(self) -> None:
 		"""FG row qty should be reduced by rejection qty."""
@@ -3068,6 +3264,36 @@ class TestGetItemsWithRejection(FrappeTestCase):
 		fg_rate = fg_rows[0].get("basic_rate", 0)
 		self.assertGreater(fg_rate, 0, "FG row must have a basic_rate")
 		self.assertEqual(rr.get("basic_rate"), fg_rate, "rejection basic_rate must equal FG basic_rate")
+
+	def test_get_items_with_rejection_does_not_mark_rejection_row_as_alternative_allowed(self) -> None:
+		context = self._make_alternative_bom_context("RejectionRow", allow_alternative_item=1)
+		shift = _create_test_shift(
+			shift_date="2026-04-24",
+			wip_warehouse=self.wip_warehouse,
+			rejection_warehouse=self.rejection_warehouse,
+		)
+
+		items = self._call_api(
+			bom_no=context["bom_no"],
+			custom_pea_rejection_qty=10,
+			custom_pea_shift=shift.name,
+		)
+
+		rejection_rows = [row for row in items if row.get("custom_pea_is_rejection_item")]
+		self.assertEqual(len(rejection_rows), 1)
+		self.assertEqual(int(rejection_rows[0].get("allow_alternative_item") or 0), 0)
+
+	def test_get_items_with_rejection_returns_native_alternative_dialog_fields(self) -> None:
+		context = self._make_alternative_bom_context("DialogFields", allow_alternative_item=1)
+
+		items = self._call_api(bom_no=context["bom_no"])
+
+		rm_row = next(row for row in items if row.get("item_code") == context["rm_item"])
+		self.assertEqual(int(rm_row.get("allow_alternative_item") or 0), 1)
+		self.assertEqual(rm_row.get("s_warehouse"), self.rm_warehouse)
+		self.assertIsNotNone(rm_row.get("actual_qty"))
+		self.assertIsInstance(float(rm_row.get("actual_qty")), float)
+		self.assertIn("original_item", rm_row)
 
 	def test_rejection_row_basic_rate_matches_fg_on_save(self) -> None:
 		"""Rejection row basic_rate must match FG row basic_rate when saved via validate hook."""

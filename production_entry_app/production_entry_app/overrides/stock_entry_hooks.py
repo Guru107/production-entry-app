@@ -5,12 +5,18 @@ import math
 
 import frappe
 from frappe import _
+from frappe.exceptions import ValidationError
+from frappe.model.document import Document
 from frappe.model.meta import get_field_precision
 from frappe.query_builder import DocType
 from frappe.utils import flt, format_datetime, get_datetime, get_time
 
 from production_entry_app.production_entry_app import access_control
 from production_entry_app.production_entry_app.doctype.shift.shift import _get_shift_metrics_cache_key
+from production_entry_app.production_entry_app.utils.alternative_items import (
+	get_bom_alternative_allowed_items,
+	get_bom_item_codes,
+)
 from production_entry_app.production_entry_app.utils.die_tool_counter import (
 	get_counter_health,
 	is_die_tool_enabled,
@@ -43,7 +49,7 @@ _OVERLAP_DATETIME_FIELDS: frozenset[str] = frozenset(
 )
 
 
-def validate_stock_entry(doc, method: str | None = None) -> None:
+def validate_stock_entry(doc: Document, method: str | None = None) -> None:
 	"""Hook called on Stock Entry validate event.
 
 	1. Auto-fills fields from linked Shift (if custom_pea_shift is set).
@@ -61,6 +67,7 @@ def validate_stock_entry(doc, method: str | None = None) -> None:
 	_validate_operator_overlap(doc)
 	_validate_workstation_downtime_overlap(doc)
 	_validate_rejection_breakup(doc)
+	_validate_direct_manufacture_alternative_items(doc)
 	_apply_rejection_entries(doc)
 	_validate_rejection_target_warehouses(doc)
 	_set_entry_metrics(doc)
@@ -363,6 +370,68 @@ def _find_overlapping_downtime_entry(
 
 	conflict = query.limit(1).run(as_dict=True)
 	return conflict[0] if conflict else None
+
+
+def _validate_direct_manufacture_alternative_items(doc: Document) -> None:
+	if doc.get("purpose") != "Manufacture" or not doc.get("from_bom") or doc.get("work_order"):
+		return
+	if not doc.get("bom_no"):
+		return
+
+	bom_no = doc.get("bom_no")
+	bom_item_codes = get_bom_item_codes(bom_no)
+	bom_allowed_items = get_bom_alternative_allowed_items(bom_no)
+	for row in doc.get("items") or []:
+		if row.get("is_finished_item") or row.get("is_scrap_item") or row.get("custom_pea_is_rejection_item"):
+			continue
+		original_item = row.get("original_item")
+		item_code = row.get("item_code")
+		if not original_item:
+			if item_code and item_code not in bom_item_codes:
+				frappe.throw(
+					_("Row {0}: Item {1} is not part of BOM {2}.").format(
+						row.idx,
+						frappe.bold(item_code),
+						frappe.bold(bom_no),
+					),
+					ValidationError,
+				)
+			continue
+		if original_item == item_code:
+			continue
+		if original_item not in bom_allowed_items:
+			frappe.throw(
+				_("Row {0}: BOM item {1} does not allow alternative items.").format(
+					row.idx,
+					frappe.bold(original_item),
+				),
+				ValidationError,
+			)
+		if not _is_configured_item_alternative(original_item, item_code):
+			frappe.throw(
+				_("Row {0}: Item {1} is not configured as an alternative for BOM item {2}.").format(
+					row.idx,
+					frappe.bold(item_code),
+					frappe.bold(original_item),
+				),
+				ValidationError,
+			)
+
+
+def _is_configured_item_alternative(original_item: str, alternative_item: str) -> bool:
+	if not original_item or not alternative_item:
+		return False
+	if frappe.db.exists(
+		"Item Alternative",
+		{"item_code": original_item, "alternative_item_code": alternative_item},
+	):
+		return True
+	return bool(
+		frappe.db.exists(
+			"Item Alternative",
+			{"item_code": alternative_item, "alternative_item_code": original_item, "two_way": 1},
+		)
+	)
 
 
 def _validate_rejection_breakup(doc) -> None:

@@ -6,11 +6,15 @@ import json
 import frappe
 from frappe import _
 from frappe.client import delete_doc as frappe_client_delete_doc
+from frappe.model.document import Document
 from frappe.query_builder import DocType
 from frappe.utils import add_to_date, cint, get_datetime, get_time, now_datetime
 from pypika import Order
 
 from production_entry_app.production_entry_app import access_control
+from production_entry_app.production_entry_app.utils.alternative_items import (
+	get_bom_alternative_allowed_items,
+)
 from production_entry_app.production_entry_app.utils.die_tool_counter import (
 	_get_or_create_counter,
 	get_counter_health,
@@ -170,6 +174,7 @@ def get_shift_details_for_stock_entry(shift_name: str) -> dict:
 	)
 
 	return {
+		"company": shift.company,
 		"branch": shift.branch,
 		"custom_pea_planned_start_date": str(planned_start) if planned_start else None,
 		"custom_pea_planned_end_date": str(planned_end) if planned_end else None,
@@ -215,6 +220,7 @@ def get_items_with_rejection(doc: str) -> list[dict]:
 	se.work_order = doc_dict.get("work_order")
 
 	se.get_items()
+	_apply_direct_manufacture_alternative_flags(se)
 	_apply_rejection_entries(se)
 
 	# Return only data fields — exclude Frappe metadata that would corrupt
@@ -239,6 +245,24 @@ def get_items_with_rejection(doc: str) -> list[dict]:
 		d = {k: v for k, v in row.as_dict().items() if k not in _meta_fields}
 		items.append(d)
 	return items
+
+
+def _apply_direct_manufacture_alternative_flags(doc: Document) -> None:
+	if doc.get("purpose") != "Manufacture" or not doc.get("from_bom") or doc.get("work_order"):
+		return
+	if not doc.get("bom_no"):
+		return
+
+	allowed_items = get_bom_alternative_allowed_items(doc.get("bom_no"))
+	if not allowed_items:
+		return
+
+	for row in doc.get("items") or []:
+		if row.get("is_finished_item") or row.get("is_scrap_item") or row.get("custom_pea_is_rejection_item"):
+			continue
+		item_code = row.get("original_item") or row.get("item_code")
+		if item_code in allowed_items and not row.get("allow_alternative_item"):
+			row.allow_alternative_item = 1
 
 
 @frappe.whitelist()

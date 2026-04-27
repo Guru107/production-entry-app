@@ -345,6 +345,7 @@ class TestE2EApi(FrappeTestCase):
 		shift_doc = MagicMock()
 		shift_doc.name = "SHIFT-RUNNING-001"
 		shift_doc.status = "Running"
+		shift_doc.company = "Test Company"
 		shift_doc.branch = "Test Branch"
 		shift_doc.shift_date = "2026-03-01"
 		shift_doc.planned_start_time = "08:00:00"
@@ -370,6 +371,7 @@ class TestE2EApi(FrappeTestCase):
 			updated_result = get_shift_details_for_stock_entry(shift_doc.name)
 
 		# The updated planned_end must reflect the new 10-hour duration ending at 18:00
+		self.assertEqual(updated_result.get("company"), "Test Company")
 		self.assertIn("18:00", updated_result.get("custom_pea_planned_end_date", ""))
 
 	def test_cleanup_stock_entry_query_uses_single_qb_run(self) -> None:

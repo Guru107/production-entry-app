@@ -10,6 +10,7 @@ from production_entry_app.production_entry_app.api import (
 	_restore_cached_e2e_settings,
 )
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
+	TEST_GST_HSN_CODE,
 	_resolve_company_from_candidates,
 	bootstrap_manufacturing_test_context,
 	ensure_default_bom,
@@ -88,6 +89,15 @@ class TestTestBootstrap(FrappeTestCase):
 		second = ensure_item(item_code)
 		self.assertEqual(first, second)
 		self.assertTrue(frappe.db.exists("Item", first))
+
+	def test_ensure_item_sets_gst_hsn_code_when_field_exists(self) -> None:
+		if not frappe.get_meta("Item", cached=True).has_field("gst_hsn_code"):
+			self.skipTest("Item.gst_hsn_code is not available on this ERPNext version")
+
+		item_code = f"_Test Bootstrap HSN {frappe.generate_hash(length=8)}"
+		item_name = ensure_item(item_code)
+
+		self.assertEqual(frappe.db.get_value("Item", item_name, "gst_hsn_code"), TEST_GST_HSN_CODE)
 
 	def test_ensure_department_filters_existing_by_company(self) -> None:
 		class _Meta:
