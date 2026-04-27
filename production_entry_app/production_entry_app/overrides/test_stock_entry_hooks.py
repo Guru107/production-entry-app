@@ -294,7 +294,13 @@ def _create_test_shift(
 	return shift
 
 
-def _get_or_create_bom(fg_item: str, rm_item: str, company: str, rm_qty: float = 1) -> str:
+def _get_or_create_bom(
+	fg_item: str,
+	rm_item: str,
+	company: str,
+	rm_qty: float = 1,
+	allow_alternative_item: int = 0,
+) -> str:
 	"""Return BOM name for fg_item, creating and submitting one if needed."""
 	existing = frappe.db.get_value(
 		"BOM", {"item": fg_item, "is_active": 1, "is_default": 1, "docstatus": 1}, "name"
@@ -315,6 +321,7 @@ def _get_or_create_bom(fg_item: str, rm_item: str, company: str, rm_qty: float =
 					"item_code": rm_item,
 					"qty": rm_qty,
 					"rate": 50,
+					"allow_alternative_item": allow_alternative_item,
 				}
 			],
 		}
@@ -2844,12 +2851,57 @@ class TestGetItemsWithRejection(FrappeTestCase):
 		doc_dict.update(overrides)
 		return get_items_with_rejection(json.dumps(doc_dict))
 
+	def _make_alternative_bom_context(self, suffix: str, allow_alternative_item: int = 1) -> dict:
+		fg_item = _get_or_create_item(f"_Test FG Alt Direct {suffix}")
+		rm_item = _get_or_create_item(f"_Test RM Alt Direct {suffix}")
+		alt_item = _get_or_create_item(f"_Test RM Alt Direct Substitute {suffix}")
+		frappe.db.set_value("Item", rm_item, "allow_alternative_item", 1)
+		frappe.db.set_value("Item", alt_item, "allow_alternative_item", 1)
+		if not frappe.db.exists(
+			"Item Alternative",
+			{"item_code": rm_item, "alternative_item_code": alt_item},
+		):
+			frappe.get_doc(
+				{
+					"doctype": "Item Alternative",
+					"item_code": rm_item,
+					"alternative_item_code": alt_item,
+					"two_way": 1,
+				}
+			).insert(ignore_permissions=True)
+		bom_no = _get_or_create_bom(
+			fg_item,
+			rm_item,
+			self.company,
+			rm_qty=1,
+			allow_alternative_item=allow_alternative_item,
+		)
+		return {"fg_item": fg_item, "rm_item": rm_item, "alt_item": alt_item, "bom_no": bom_no}
+
 	def test_get_items_with_rejection_returns_bom_items(self) -> None:
 		"""API should return at least RM + FG rows from BOM."""
 		items = self._call_api()
 		item_codes = [r["item_code"] for r in items]
 		self.assertIn(self.rm_item, item_codes)
 		self.assertIn(self.fg_item, item_codes)
+
+	def test_get_items_with_rejection_marks_bom_rm_as_alternative_allowed(self) -> None:
+		context = self._make_alternative_bom_context("Allowed", allow_alternative_item=1)
+
+		items = self._call_api(bom_no=context["bom_no"])
+
+		rm_rows = [row for row in items if row.get("item_code") == context["rm_item"]]
+		self.assertEqual(len(rm_rows), 1)
+		self.assertEqual(rm_rows[0].get("allow_alternative_item"), 1)
+
+	def test_get_items_with_rejection_does_not_mark_bom_rm_when_alternative_not_allowed(self) -> None:
+		context = self._make_alternative_bom_context("NotAllowed", allow_alternative_item=0)
+
+		items = self._call_api(bom_no=context["bom_no"])
+
+		rm_rows = [row for row in items if row.get("item_code") == context["rm_item"]]
+		self.assertEqual(len(rm_rows), 1)
+		self.assertNotEqual(rm_rows[0].get("allow_alternative_item"), 1)
 
 	def test_get_items_with_rejection_deducts_from_fg(self) -> None:
 		"""FG row qty should be reduced by rejection qty."""
