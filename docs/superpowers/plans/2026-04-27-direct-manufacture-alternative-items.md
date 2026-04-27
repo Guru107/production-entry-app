@@ -532,7 +532,7 @@ git commit -m "test: cover alternative dialog row state"
 
 - No code changes expected.
 - Modify implementation files only to fix failures found by these commands.
-- [ ] **Step 1: Run full Stock Entry hook/API tests on v16**
+- [x] **Step 1: Run full Stock Entry hook/API tests on v16**
 
 ```bash
 cd /Users/gurudattkulkarni/Workspace/bench16
@@ -542,7 +542,7 @@ bench --site frappe16.localhost run-tests --app production_entry_app \
 
 Expected: all tests in the module pass.
 
-- [ ] **Step 2: Run full Stock Entry hook/API tests on v15**
+- [x] **Step 2: Run full Stock Entry hook/API tests on v15**
 
 ```bash
 cd /Users/gurudattkulkarni/Workspace/bench15
@@ -552,7 +552,7 @@ bench --site development.localhost run-tests --app production_entry_app \
 
 Expected: all tests in the module pass on ERPNext v15.
 
-- [ ] **Step 3: Run pre-commit**
+- [x] **Step 3: Run pre-commit**
 
 ```bash
 cd /Users/gurudattkulkarni/Workspace/production-entry-app
@@ -561,7 +561,7 @@ pre-commit run --all-files
 
 Expected: all hooks pass. If a formatter modifies files, rerun `pre-commit run --all-files` until it exits `0`.
 
-- [ ] **Step 4: Check final git state**
+- [x] **Step 4: Check final git state**
 
 ```bash
 cd /Users/gurudattkulkarni/Workspace/production-entry-app
@@ -570,7 +570,7 @@ git status --short --branch
 
 Expected: branch is `feature/alternative-item-selection-manufacturing-entry` with no unstaged changes after the final commit.
 
-- [ ] **Step 5: Commit final fixes if verification changed files**
+- [x] **Step 5: Commit final fixes if verification changed files**
 
 Only run this if Step 1, Step 2, or Step 3 required code changes:
 
