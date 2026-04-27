@@ -3052,7 +3052,7 @@ class TestGetItemsWithRejection(FrappeTestCase):
 
 		rejection_rows = [row for row in items if row.get("custom_is_rejection_item")]
 		self.assertEqual(len(rejection_rows), 1)
-		self.assertNotEqual(rejection_rows[0].get("allow_alternative_item"), 1)
+		self.assertFalse(bool(rejection_rows[0].get("allow_alternative_item")))
 
 	def test_get_items_with_rejection_returns_native_alternative_dialog_fields(self) -> None:
 		context = self._make_alternative_bom_context("DialogFields", allow_alternative_item=1)
@@ -3061,8 +3061,9 @@ class TestGetItemsWithRejection(FrappeTestCase):
 
 		rm_row = next(row for row in items if row.get("item_code") == context["rm_item"])
 		self.assertEqual(rm_row.get("allow_alternative_item"), 1)
-		self.assertIn("s_warehouse", rm_row)
-		self.assertIn("actual_qty", rm_row)
+		self.assertEqual(rm_row.get("s_warehouse"), self.rm_warehouse)
+		self.assertIsNotNone(rm_row.get("actual_qty"))
+		self.assertIsInstance(float(rm_row.get("actual_qty")), float)
 		self.assertIn("original_item", rm_row)
 
 	def test_rejection_row_basic_rate_matches_fg_on_save(self) -> None:
