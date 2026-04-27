@@ -164,6 +164,7 @@ def get_items_with_rejection(doc: str) -> list[dict]:
 	se.work_order = doc_dict.get("work_order")
 
 	se.get_items()
+	_apply_direct_manufacture_alternative_flags(se)
 	_apply_rejection_entries(se)
 
 	# Return only data fields — exclude Frappe metadata that would corrupt
@@ -188,6 +189,33 @@ def get_items_with_rejection(doc: str) -> list[dict]:
 		d = {k: v for k, v in row.as_dict().items() if k not in _meta_fields}
 		items.append(d)
 	return items
+
+
+def _apply_direct_manufacture_alternative_flags(doc) -> None:
+	if doc.get("purpose") != "Manufacture" or not doc.get("from_bom") or doc.get("work_order"):
+		return
+	if not doc.get("bom_no"):
+		return
+
+	allowed_items = _get_bom_alternative_allowed_items(doc.get("bom_no"))
+	if not allowed_items:
+		return
+
+	for row in doc.get("items") or []:
+		if row.get("is_finished_item") or row.get("is_scrap_item") or row.get("custom_is_rejection_item"):
+			continue
+		item_code = row.get("original_item") or row.get("item_code")
+		if item_code in allowed_items and not row.get("allow_alternative_item"):
+			row.allow_alternative_item = 1
+
+
+def _get_bom_alternative_allowed_items(bom_no: str) -> set[str]:
+	rows = frappe.get_all(
+		"BOM Item",
+		filters={"parent": bom_no, "allow_alternative_item": 1},
+		pluck="item_code",
+	)
+	return {item_code for item_code in rows if item_code}
 
 
 @frappe.whitelist()
