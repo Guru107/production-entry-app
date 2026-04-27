@@ -9,6 +9,9 @@ from frappe.exceptions import ValidationError
 from frappe.tests.utils import FrappeTestCase
 
 from production_entry_app.production_entry_app.overrides import stock_entry_hooks
+from production_entry_app.production_entry_app.utils.alternative_items import (
+	get_bom_alternative_allowed_items,
+)
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	bootstrap_manufacturing_test_context,
 	cleanup_running_shifts,
@@ -3107,7 +3110,7 @@ class TestGetItemsWithRejection(FrappeTestCase):
 
 		rm_rows = [row for row in items if row.get("item_code") == context["rm_item"]]
 		self.assertEqual(len(rm_rows), 1)
-		self.assertEqual(rm_rows[0].get("allow_alternative_item"), 1)
+		self.assertEqual(int(rm_rows[0].get("allow_alternative_item") or 0), 1)
 
 	def test_get_items_with_rejection_does_not_mark_bom_rm_when_alternative_not_allowed(self) -> None:
 		context = self._make_alternative_bom_context("NotAllowed", allow_alternative_item=0)
@@ -3116,7 +3119,7 @@ class TestGetItemsWithRejection(FrappeTestCase):
 
 		rm_rows = [row for row in items if row.get("item_code") == context["rm_item"]]
 		self.assertEqual(len(rm_rows), 1)
-		self.assertNotEqual(rm_rows[0].get("allow_alternative_item"), 1)
+		self.assertEqual(int(rm_rows[0].get("allow_alternative_item") or 0), 0)
 
 	def test_direct_manufacture_valid_alternative_item_validates(self) -> None:
 		context = self._make_alternative_bom_context("Valid", allow_alternative_item=1)
@@ -3150,6 +3153,53 @@ class TestGetItemsWithRejection(FrappeTestCase):
 
 		with self.assertRaisesRegex(ValidationError, "is not configured as an alternative"):
 			se.run_method("validate")
+
+	def test_direct_manufacture_alternative_requires_original_item_for_non_bom_item(self) -> None:
+		context = self._make_alternative_bom_context("MissingOriginal", allow_alternative_item=1)
+		se = self._make_direct_manufacture_entry_with_alternative(context)
+		for row in se.items:
+			if row.get("item_code") == context["alt_item"]:
+				row.original_item = ""
+				break
+
+		with self.assertRaisesRegex(ValidationError, "is not part of BOM"):
+			se.run_method("validate")
+
+	def test_alternative_allowed_lookup_includes_child_bom_items(self) -> None:
+		suffix = frappe.generate_hash(length=8)
+		parent_fg = _get_or_create_item(f"_Test Parent FG Alt {suffix}")
+		child_fg = _get_or_create_item(f"_Test Child FG Alt {suffix}")
+		child_rm = _get_or_create_item(f"_Test Child RM Alt {suffix}")
+
+		child_bom = _get_or_create_bom(
+			child_fg,
+			child_rm,
+			self.company,
+			allow_alternative_item=1,
+		)
+		parent_bom = frappe.get_doc(
+			{
+				"doctype": "BOM",
+				"item": parent_fg,
+				"company": self.company,
+				"quantity": 1,
+				"is_active": 1,
+				"is_default": 1,
+				"items": [
+					{
+						"item_code": child_fg,
+						"qty": 1,
+						"rate": 50,
+						"bom_no": child_bom,
+						"allow_alternative_item": 0,
+					}
+				],
+			}
+		)
+		parent_bom.insert(ignore_permissions=True)
+		parent_bom.submit()
+
+		self.assertIn(child_rm, get_bom_alternative_allowed_items(parent_bom.name))
 
 	def test_get_or_create_bom_does_not_reuse_bom_with_different_alternative_flag(self) -> None:
 		suffix = frappe.generate_hash(length=8)
@@ -3231,7 +3281,7 @@ class TestGetItemsWithRejection(FrappeTestCase):
 
 		rejection_rows = [row for row in items if row.get("custom_pea_is_rejection_item")]
 		self.assertEqual(len(rejection_rows), 1)
-		self.assertFalse(bool(rejection_rows[0].get("allow_alternative_item")))
+		self.assertEqual(int(rejection_rows[0].get("allow_alternative_item") or 0), 0)
 
 	def test_get_items_with_rejection_returns_native_alternative_dialog_fields(self) -> None:
 		context = self._make_alternative_bom_context("DialogFields", allow_alternative_item=1)
@@ -3239,7 +3289,7 @@ class TestGetItemsWithRejection(FrappeTestCase):
 		items = self._call_api(bom_no=context["bom_no"])
 
 		rm_row = next(row for row in items if row.get("item_code") == context["rm_item"])
-		self.assertEqual(rm_row.get("allow_alternative_item"), 1)
+		self.assertEqual(int(rm_row.get("allow_alternative_item") or 0), 1)
 		self.assertEqual(rm_row.get("s_warehouse"), self.rm_warehouse)
 		self.assertIsNotNone(rm_row.get("actual_qty"))
 		self.assertIsInstance(float(rm_row.get("actual_qty")), float)
