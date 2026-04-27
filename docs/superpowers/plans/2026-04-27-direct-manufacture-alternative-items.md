@@ -462,7 +462,7 @@ git commit -m "feat: validate direct manufacture alternative items"
 **Files:**
 
 - Modify: `production_entry_app/production_entry_app/overrides/test_stock_entry_hooks.py`
-- [ ] **Step 1: Add test that rejection rows are not alternative-selectable**
+- [x] **Step 1: Add test that rejection rows are not alternative-selectable**
 
 Add this test inside `TestGetItemsWithRejection`, after `test_get_items_with_rejection_adds_rejection_row`:
 
@@ -486,7 +486,7 @@ Add this test inside `TestGetItemsWithRejection`, after `test_get_items_with_rej
 		self.assertNotEqual(rejection_rows[0].get("allow_alternative_item"), 1)
 ```
 
-- [ ] **Step 2: Add test that fetched row has native dialog fields**
+- [x] **Step 2: Add test that fetched row has native dialog fields**
 
 Add this test after the rejection-row test:
 
@@ -503,7 +503,7 @@ Add this test after the rejection-row test:
 		self.assertIn("original_item", rm_row)
 ```
 
-- [ ] **Step 3: Run the targeted fetch/API tests**
+- [x] **Step 3: Run the targeted fetch/API tests**
 
 Run from bench16:
 
@@ -517,7 +517,7 @@ bench --site frappe16.localhost run-tests --app production_entry_app \
 
 Expected: both tests pass.
 
-- [ ] **Step 4: Commit coverage tests**
+- [x] **Step 4: Commit coverage tests**
 
 ```bash
 git add production_entry_app/production_entry_app/overrides/test_stock_entry_hooks.py
