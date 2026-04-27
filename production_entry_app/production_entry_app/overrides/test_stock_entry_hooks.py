@@ -1557,6 +1557,7 @@ class TestStockEntryHooks(FrappeTestCase):
 			wip_warehouse=self.wip_warehouse,
 		)
 		result = get_shift_details_for_stock_entry(shift.name)
+		self.assertEqual(result.get("company"), self.company)
 		self.assertIn("2026-04-21 16:00:00", result.get("custom_pea_planned_start_date") or "")
 		self.assertIn("2026-04-22 00:00:00", result.get("custom_pea_planned_end_date") or "")
 		self.assertEqual(result.get("from_warehouse"), self.wip_warehouse)
