@@ -164,7 +164,7 @@ git commit -m "test: cover direct manufacture alternative fetch flags"
 
 - Modify: `production_entry_app/production_entry_app/api.py`
 - Test: `production_entry_app/production_entry_app/overrides/test_stock_entry_hooks.py`
-- [ ] **Step 1: Add helper call after `se.get_items()`**
+- [x] **Step 1: Add helper call after `se.get_items()`**
 
 Change `get_items_with_rejection()` in `production_entry_app/production_entry_app/api.py` so the fetch section reads:
 
@@ -174,7 +174,7 @@ Change `get_items_with_rejection()` in `production_entry_app/production_entry_ap
 	_apply_rejection_entries(se)
 ```
 
-- [ ] **Step 2: Add the direct Manufacture scope helper**
+- [x] **Step 2: Add the direct Manufacture scope helper**
 
 Add this function below `get_items_with_rejection()` and above `get_die_tool_counter()`:
 
@@ -197,7 +197,7 @@ def _apply_direct_manufacture_alternative_flags(doc) -> None:
 			row.allow_alternative_item = 1
 ```
 
-- [ ] **Step 3: Add BOM lookup helper**
+- [x] **Step 3: Add BOM lookup helper**
 
 Add this function below `_apply_direct_manufacture_alternative_flags()`:
 
@@ -211,7 +211,7 @@ def _get_bom_alternative_allowed_items(bom_no: str) -> set[str]:
 	return {item_code for item_code in rows if item_code}
 ```
 
-- [ ] **Step 4: Run the fetch tests**
+- [x] **Step 4: Run the fetch tests**
 
 Run from bench16:
 
@@ -225,7 +225,7 @@ bench --site frappe16.localhost run-tests --app production_entry_app \
 
 Expected after implementation: both tests pass.
 
-- [ ] **Step 5: Commit fetch implementation**
+- [x] **Step 5: Commit fetch implementation**
 
 ```bash
 git add production_entry_app/production_entry_app/api.py production_entry_app/production_entry_app/overrides/test_stock_entry_hooks.py
