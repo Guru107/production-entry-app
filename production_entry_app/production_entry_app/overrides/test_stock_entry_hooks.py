@@ -302,11 +302,32 @@ def _get_or_create_bom(
 	allow_alternative_item: int = 0,
 ) -> str:
 	"""Return BOM name for fg_item, creating and submitting one if needed."""
-	existing = frappe.db.get_value(
-		"BOM", {"item": fg_item, "is_active": 1, "is_default": 1, "docstatus": 1}, "name"
+	bom_names = frappe.get_all(
+		"BOM",
+		filters={
+			"item": fg_item,
+			"company": company,
+			"is_active": 1,
+			"is_default": 1,
+			"docstatus": 1,
+		},
+		pluck="name",
 	)
-	if existing:
-		return existing
+	if bom_names:
+		matching_items = frappe.get_all(
+			"BOM Item",
+			filters={
+				"parent": ["in", bom_names],
+				"parenttype": "BOM",
+				"item_code": rm_item,
+				"qty": rm_qty,
+				"allow_alternative_item": allow_alternative_item,
+			},
+			fields=["parent"],
+			limit=1,
+		)
+		if matching_items:
+			return matching_items[0].parent
 
 	bom = frappe.get_doc(
 		{
@@ -2902,6 +2923,26 @@ class TestGetItemsWithRejection(FrappeTestCase):
 		rm_rows = [row for row in items if row.get("item_code") == context["rm_item"]]
 		self.assertEqual(len(rm_rows), 1)
 		self.assertNotEqual(rm_rows[0].get("allow_alternative_item"), 1)
+
+	def test_get_or_create_bom_does_not_reuse_bom_with_different_alternative_flag(self) -> None:
+		suffix = frappe.generate_hash(length=8)
+		fg_item = _get_or_create_item(f"_Test FG Alt Reuse {suffix}")
+		rm_item = _get_or_create_item(f"_Test RM Alt Reuse {suffix}")
+
+		first_bom = _get_or_create_bom(
+			fg_item,
+			rm_item,
+			self.company,
+			allow_alternative_item=0,
+		)
+		second_bom = _get_or_create_bom(
+			fg_item,
+			rm_item,
+			self.company,
+			allow_alternative_item=1,
+		)
+
+		self.assertNotEqual(second_bom, first_bom)
 
 	def test_get_items_with_rejection_deducts_from_fg(self) -> None:
 		"""FG row qty should be reduced by rejection qty."""
