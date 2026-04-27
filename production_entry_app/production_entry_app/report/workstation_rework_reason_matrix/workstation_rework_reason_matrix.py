@@ -36,6 +36,8 @@ def _normalize_top_n(value) -> int:
 
 
 def _build_filters(filters: dict) -> dict:
+	# Alias filters are applied after fetching rows so custom_pea_* filters
+	# can still match legacy custom_* values during the field rename window.
 	return build_stock_entry_filters(
 		filters,
 		filter_keys=("bom_no",),
