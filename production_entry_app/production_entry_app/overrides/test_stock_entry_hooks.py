@@ -766,6 +766,10 @@ class TestStockEntryHooks(FrappeTestCase):
 		se.save()
 
 	def test_rejection_breakup_rejects_difference_beyond_precision_tolerance(self) -> None:
+		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
+			_get_rejection_breakup_abs_tol,
+		)
+
 		shift = _create_test_shift(
 			shift_date="2026-04-20",
 			shift_label="2",
@@ -787,9 +791,11 @@ class TestStockEntryHooks(FrappeTestCase):
 		_append_rejection_breakup_rows(
 			se,
 			[
-				{"rejection_reason": "Burr", "qty": 4.99951, "remark": "Beyond precision tolerance"},
+				{"rejection_reason": "Burr", "qty": se.custom_rejection_qty, "remark": "Beyond precision tolerance"},
 			],
 		)
+		abs_tol = _get_rejection_breakup_abs_tol(se, se.custom_rejection_breakup)
+		se.custom_rejection_breakup[0].qty = float(se.custom_rejection_qty) - (abs_tol * 2)
 
 		with self.assertRaises(ValidationError):
 			se.save()
