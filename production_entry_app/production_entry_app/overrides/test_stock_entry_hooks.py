@@ -2899,6 +2899,22 @@ class TestGetItemsWithRejection(FrappeTestCase):
 		)
 		return {"fg_item": fg_item, "rm_item": rm_item, "alt_item": alt_item, "bom_no": bom_no}
 
+	def _make_direct_manufacture_entry_with_alternative(self, context: dict) -> frappe.Document:
+		se = _create_bom_stock_entry(
+			company=self.company,
+			bom_no=context["bom_no"],
+			fg_completed_qty=100,
+			from_warehouse=self.rm_warehouse,
+			to_warehouse=self.fg_warehouse,
+		)
+		for row in se.items:
+			if row.item_code == context["rm_item"]:
+				row.item_code = context["alt_item"]
+				row.original_item = context["rm_item"]
+				row.allow_alternative_item = 1
+				break
+		return se
+
 	def test_get_items_with_rejection_returns_bom_items(self) -> None:
 		"""API should return at least RM + FG rows from BOM."""
 		items = self._call_api()
@@ -2923,6 +2939,39 @@ class TestGetItemsWithRejection(FrappeTestCase):
 		rm_rows = [row for row in items if row.get("item_code") == context["rm_item"]]
 		self.assertEqual(len(rm_rows), 1)
 		self.assertNotEqual(rm_rows[0].get("allow_alternative_item"), 1)
+
+	def test_direct_manufacture_valid_alternative_item_validates(self) -> None:
+		context = self._make_alternative_bom_context("Valid", allow_alternative_item=1)
+		se = self._make_direct_manufacture_entry_with_alternative(context)
+
+		se.run_method("validate")
+
+		rm_rows = [row for row in se.items if row.get("original_item") == context["rm_item"]]
+		self.assertEqual(len(rm_rows), 1)
+		self.assertEqual(rm_rows[0].item_code, context["alt_item"])
+
+	def test_direct_manufacture_alternative_requires_bom_row_permission(self) -> None:
+		context = self._make_alternative_bom_context("BomDenied", allow_alternative_item=0)
+		se = self._make_direct_manufacture_entry_with_alternative(context)
+
+		with self.assertRaises(ValidationError):
+			se.run_method("validate")
+
+	def test_direct_manufacture_alternative_requires_item_alternative_record(self) -> None:
+		context = self._make_alternative_bom_context("MissingAlternative", allow_alternative_item=1)
+		frappe.delete_doc(
+			"Item Alternative",
+			frappe.db.get_value(
+				"Item Alternative",
+				{"item_code": context["rm_item"], "alternative_item_code": context["alt_item"]},
+				"name",
+			),
+			ignore_permissions=True,
+		)
+		se = self._make_direct_manufacture_entry_with_alternative(context)
+
+		with self.assertRaises(ValidationError):
+			se.run_method("validate")
 
 	def test_get_or_create_bom_does_not_reuse_bom_with_different_alternative_flag(self) -> None:
 		suffix = frappe.generate_hash(length=8)
