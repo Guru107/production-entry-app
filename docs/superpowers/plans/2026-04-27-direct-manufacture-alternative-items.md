@@ -15,11 +15,9 @@
 - Modify `production_entry_app/production_entry_app/api.py`
   - Add a focused helper that enriches direct Manufacture RM rows after `se.get_items()` and before rejection rows are applied.
   - Keep the whitelisted API contract unchanged: input is serialized Stock Entry doc, output is a list of child-row dictionaries.
-
 - Modify `production_entry_app/production_entry_app/overrides/stock_entry_hooks.py`
   - Add direct Manufacture alternative validation early in `validate_stock_entry()` before rejection-row mutation.
   - Keep Work Order Stock Entries untouched by scoping validation to `purpose = Manufacture`, `from_bom = 1`, and no `work_order`.
-
 - Modify `production_entry_app/production_entry_app/overrides/test_stock_entry_hooks.py`
   - Add test data helpers for BOMs that allow/disallow alternatives.
   - Add fetch API tests and validation tests in the existing Stock Entry hook/API test module.
@@ -31,9 +29,9 @@ No schema, fixture, or JavaScript changes are planned because ERPNext already sh
 ### Task 1: Add Failing Fetch Tests For BOM Alternative Flags
 
 **Files:**
-- Modify: `production_entry_app/production_entry_app/overrides/test_stock_entry_hooks.py`
 
-- [ ] **Step 1: Extend the BOM helper to accept alternative permission**
+- Modify: `production_entry_app/production_entry_app/overrides/test_stock_entry_hooks.py`
+- [x] **Step 1: Extend the BOM helper to accept alternative permission**
 
 Change the helper signature and BOM row dict at `production_entry_app/production_entry_app/overrides/test_stock_entry_hooks.py:297`:
 
@@ -74,7 +72,7 @@ def _get_or_create_bom(
 	return bom.name
 ```
 
-- [ ] **Step 2: Add unique alternative BOM setup helpers inside `TestGetItemsWithRejection`**
+- [x] **Step 2: Add unique alternative BOM setup helpers inside `TestGetItemsWithRejection`**
 
 Add these methods inside `class TestGetItemsWithRejection`, after `_call_api()`:
 
@@ -107,7 +105,7 @@ Add these methods inside `class TestGetItemsWithRejection`, after `_call_api()`:
 		return {"fg_item": fg_item, "rm_item": rm_item, "alt_item": alt_item, "bom_no": bom_no}
 ```
 
-- [ ] **Step 3: Add failing test for permitted alternative flag**
+- [x] **Step 3: Add failing test for permitted alternative flag**
 
 Add this test inside `TestGetItemsWithRejection` after `test_get_items_with_rejection_returns_bom_items`:
 
@@ -122,7 +120,7 @@ Add this test inside `TestGetItemsWithRejection` after `test_get_items_with_reje
 		self.assertEqual(rm_rows[0].get("allow_alternative_item"), 1)
 ```
 
-- [ ] **Step 4: Add failing test for non-permitted BOM rows**
+- [x] **Step 4: Add failing test for non-permitted BOM rows**
 
 Add this test immediately after the permitted-flag test:
 
@@ -137,7 +135,7 @@ Add this test immediately after the permitted-flag test:
 		self.assertNotEqual(rm_rows[0].get("allow_alternative_item"), 1)
 ```
 
-- [ ] **Step 5: Run the new tests and verify they fail before implementation**
+- [x] **Step 5: Run the new tests and verify they fail before implementation**
 
 Run from bench16:
 
@@ -151,7 +149,7 @@ bench --site frappe16.localhost run-tests --app production_entry_app \
 
 Expected before implementation: the first test fails because the fetched RM row does not reliably carry `allow_alternative_item = 1` for direct Manufacture custom fetch.
 
-- [ ] **Step 6: Commit failing tests**
+- [x] **Step 6: Commit failing tests**
 
 ```bash
 git add production_entry_app/production_entry_app/overrides/test_stock_entry_hooks.py
@@ -163,9 +161,9 @@ git commit -m "test: cover direct manufacture alternative fetch flags"
 ### Task 2: Preserve BOM Alternative Flags In Custom Fetch API
 
 **Files:**
+
 - Modify: `production_entry_app/production_entry_app/api.py`
 - Test: `production_entry_app/production_entry_app/overrides/test_stock_entry_hooks.py`
-
 - [ ] **Step 1: Add helper call after `se.get_items()`**
 
 Change `get_items_with_rejection()` in `production_entry_app/production_entry_app/api.py` so the fetch section reads:
@@ -239,8 +237,8 @@ git commit -m "feat: preserve alternative flags for direct manufacture fetch"
 ### Task 3: Add Failing Validation Tests For Manual Substitution
 
 **Files:**
-- Modify: `production_entry_app/production_entry_app/overrides/test_stock_entry_hooks.py`
 
+- Modify: `production_entry_app/production_entry_app/overrides/test_stock_entry_hooks.py`
 - [ ] **Step 1: Add helper for direct Manufacture Stock Entry with substituted RM**
 
 Add this method inside `TestGetItemsWithRejection`, after `_make_alternative_bom_context()`:
@@ -341,9 +339,9 @@ git commit -m "test: cover direct manufacture alternative validation"
 ### Task 4: Validate Direct Manufacture Alternative Rows Server-Side
 
 **Files:**
+
 - Modify: `production_entry_app/production_entry_app/overrides/stock_entry_hooks.py`
 - Test: `production_entry_app/production_entry_app/overrides/test_stock_entry_hooks.py`
-
 - [ ] **Step 1: Call validation before rejection row mutation**
 
 Change `validate_stock_entry()` in `production_entry_app/production_entry_app/overrides/stock_entry_hooks.py` so the validation sequence includes the new call before `_apply_rejection_entries(doc)`:
@@ -462,8 +460,8 @@ git commit -m "feat: validate direct manufacture alternative items"
 ### Task 5: Verify Rejection Rows And Native Button Eligibility
 
 **Files:**
-- Modify: `production_entry_app/production_entry_app/overrides/test_stock_entry_hooks.py`
 
+- Modify: `production_entry_app/production_entry_app/overrides/test_stock_entry_hooks.py`
 - [ ] **Step 1: Add test that rejection rows are not alternative-selectable**
 
 Add this test inside `TestGetItemsWithRejection`, after `test_get_items_with_rejection_adds_rejection_row`:
@@ -531,9 +529,9 @@ git commit -m "test: cover alternative dialog row state"
 ### Task 6: Run Compatibility And Quality Gates
 
 **Files:**
+
 - No code changes expected.
 - Modify implementation files only to fix failures found by these commands.
-
 - [ ] **Step 1: Run full Stock Entry hook/API tests on v16**
 
 ```bash
@@ -590,3 +588,4 @@ git commit -m "fix: stabilize direct manufacture alternative items"
 - Spec coverage: fetch preservation, native dialog eligibility, direct-only validation, Work Order non-interference, rejection row exclusion, v15/v16 verification, and unchanged quantity behavior are each mapped to a task.
 - Implementation scope stays within `api.py`, `stock_entry_hooks.py`, and existing Stock Entry tests.
 - No schema migration or custom UI is planned.
+
