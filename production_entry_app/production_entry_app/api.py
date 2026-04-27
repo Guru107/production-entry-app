@@ -6,6 +6,7 @@ import json
 import frappe
 from frappe import _
 from frappe.client import delete_doc as frappe_client_delete_doc
+from frappe.model.document import Document
 from frappe.query_builder import DocType
 from frappe.utils import add_to_date, cint, get_datetime, get_time, now_datetime
 from pypika import Order
@@ -191,7 +192,7 @@ def get_items_with_rejection(doc: str) -> list[dict]:
 	return items
 
 
-def _apply_direct_manufacture_alternative_flags(doc) -> None:
+def _apply_direct_manufacture_alternative_flags(doc: Document) -> None:
 	if doc.get("purpose") != "Manufacture" or not doc.get("from_bom") or doc.get("work_order"):
 		return
 	if not doc.get("bom_no"):
