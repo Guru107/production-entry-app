@@ -11,6 +11,9 @@ from frappe.query_builder import DocType
 from frappe.utils import add_to_date, cint, get_datetime, get_time, now_datetime
 from pypika import Order
 
+from production_entry_app.production_entry_app.utils.alternative_items import (
+	get_bom_alternative_allowed_items,
+)
 from production_entry_app.production_entry_app.utils.die_tool_counter import (
 	_get_or_create_counter,
 	get_counter_health,
@@ -198,7 +201,7 @@ def _apply_direct_manufacture_alternative_flags(doc: Document) -> None:
 	if not doc.get("bom_no"):
 		return
 
-	allowed_items = _get_bom_alternative_allowed_items(doc.get("bom_no"))
+	allowed_items = get_bom_alternative_allowed_items(doc.get("bom_no"))
 	if not allowed_items:
 		return
 
@@ -208,15 +211,6 @@ def _apply_direct_manufacture_alternative_flags(doc: Document) -> None:
 		item_code = row.get("original_item") or row.get("item_code")
 		if item_code in allowed_items and not row.get("allow_alternative_item"):
 			row.allow_alternative_item = 1
-
-
-def _get_bom_alternative_allowed_items(bom_no: str) -> set[str]:
-	rows = frappe.get_all(
-		"BOM Item",
-		filters={"parent": bom_no, "allow_alternative_item": 1},
-		pluck="item_code",
-	)
-	return {item_code for item_code in rows if item_code}
 
 
 @frappe.whitelist()

@@ -12,6 +12,9 @@ from frappe.query_builder import DocType
 from frappe.utils import flt, format_datetime, get_datetime, get_time
 
 from production_entry_app.production_entry_app.doctype.shift.shift import _get_shift_metrics_cache_key
+from production_entry_app.production_entry_app.utils.alternative_items import (
+	get_bom_alternative_allowed_items,
+)
 from production_entry_app.production_entry_app.utils.die_tool_counter import (
 	get_counter_health,
 	is_die_tool_enabled,
@@ -368,7 +371,7 @@ def _validate_direct_manufacture_alternative_items(doc: Document) -> None:
 	if not doc.get("bom_no"):
 		return
 
-	bom_allowed_items = _get_bom_alternative_allowed_items(doc.get("bom_no"))
+	bom_allowed_items = get_bom_alternative_allowed_items(doc.get("bom_no"))
 	for row in doc.get("items") or []:
 		if row.get("is_finished_item") or row.get("is_scrap_item") or row.get("custom_is_rejection_item"):
 			continue
@@ -393,15 +396,6 @@ def _validate_direct_manufacture_alternative_items(doc: Document) -> None:
 				),
 				ValidationError,
 			)
-
-
-def _get_bom_alternative_allowed_items(bom_no: str) -> set[str]:
-	rows = frappe.get_all(
-		"BOM Item",
-		filters={"parent": bom_no, "allow_alternative_item": 1},
-		pluck="item_code",
-	)
-	return {item_code for item_code in rows if item_code}
 
 
 def _is_configured_item_alternative(original_item: str, alternative_item: str) -> bool:
