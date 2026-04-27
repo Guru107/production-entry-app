@@ -1,6 +1,6 @@
 # Direct Manufacture Alternative Items Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox syntax for tracking.
 
 **Goal:** Enable ERPNext alternative raw-material selection for direct `Stock Entry` manufacture entries fetched from BOM without changing Work Order behavior.
 
