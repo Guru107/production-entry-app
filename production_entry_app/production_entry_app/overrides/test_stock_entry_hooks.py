@@ -2227,6 +2227,64 @@ class TestStockEntryHooks(FrappeTestCase):
 		self.assertEqual(se.custom_pea_unplanned_losses[0].downtime_reason, "Tea Break")
 		self.assertEqual(se.custom_pea_unplanned_losses[0].shift, shift.name)
 
+	def test_unplanned_loss_outside_actual_window_throws(self) -> None:
+		_ensure_downtime_reasons()
+		shift = _create_test_shift(
+			shift_date="2026-04-18",
+			wip_warehouse=self.wip_warehouse,
+		)
+
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			custom_pea_shift=shift.name,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		se.custom_pea_actual_start_date = "2026-04-18 09:30:00"
+		se.custom_pea_actual_end_date = "2026-04-18 10:30:00"
+		se.append(
+			"custom_pea_unplanned_losses",
+			{
+				"downtime_reason": "Setup Time",
+				"start_time": "09:00:00",
+				"end_time": "09:10:00",
+			},
+		)
+
+		with self.assertRaisesRegex(ValidationError, "within the Stock Entry actual time window"):
+			se.save()
+
+	def test_unplanned_loss_outside_zero_duration_actual_window_throws(self) -> None:
+		_ensure_downtime_reasons()
+		shift = _create_test_shift(
+			shift_date="2026-04-18",
+			wip_warehouse=self.wip_warehouse,
+		)
+
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			custom_pea_shift=shift.name,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		se.custom_pea_actual_start_date = "2026-04-18 09:30:00"
+		se.custom_pea_actual_end_date = "2026-04-18 09:30:00"
+		se.append(
+			"custom_pea_unplanned_losses",
+			{
+				"downtime_reason": "Setup Time",
+				"start_time": "09:00:00",
+				"end_time": "09:10:00",
+			},
+		)
+
+		with self.assertRaisesRegex(ValidationError, "within the Stock Entry actual time window"):
+			se.save()
+
 	def test_unplanned_loss_shift_link_clears_when_shift_is_removed(self) -> None:
 		_ensure_downtime_reasons()
 		shift = _create_test_shift(

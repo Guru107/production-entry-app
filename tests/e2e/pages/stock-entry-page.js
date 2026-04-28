@@ -75,10 +75,10 @@ class StockEntryPage {
 		await setFieldValue(this.page, "custom_pea_shift", shiftName);
 		await setFieldValue(this.page, "custom_pea_workstation", ctx.workstation);
 		await setFieldValue(this.page, "custom_pea_operator", ctx.operator);
-		if (actualStart != null) {
+		if (actualStart !== null && actualStart !== undefined) {
 			await setFieldValue(this.page, "custom_pea_actual_start_date", actualStart);
 		}
-		if (actualEnd != null) {
+		if (actualEnd !== null && actualEnd !== undefined) {
 			await setFieldValue(this.page, "custom_pea_actual_end_date", actualEnd);
 		}
 	}

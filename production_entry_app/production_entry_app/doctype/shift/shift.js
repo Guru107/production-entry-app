@@ -288,7 +288,8 @@ function _render_linked_downtime_entries(frm) {
 					"No Downtime Entries linked to this Shift."
 				)}</p>`;
 			} else {
-				const escape = (s) => (s != null ? frappe.utils.escape_html(String(s)) : "");
+				const escape = (s) =>
+					s !== null && s !== undefined ? frappe.utils.escape_html(String(s)) : "";
 				const rows = list
 					.map(
 						(d) =>
@@ -394,10 +395,15 @@ function _render_shift_summary(frm) {
 					{
 						label: __("Overall Shift Efficiency (%)"),
 						value:
-							snapshot.overall_shift_efficiency_pct == null
+							snapshot.overall_shift_efficiency_pct === null ||
+							snapshot.overall_shift_efficiency_pct === undefined
 								? __("Insufficient target coverage")
 								: snapshot.overall_shift_efficiency_pct,
-						fieldtype: snapshot.overall_shift_efficiency_pct == null ? null : "Float",
+						fieldtype:
+							snapshot.overall_shift_efficiency_pct === null ||
+							snapshot.overall_shift_efficiency_pct === undefined
+								? null
+								: "Float",
 					},
 				];
 				sections.push(
@@ -497,7 +503,10 @@ function _render_shift_summary(frm) {
 
 			const workstationRows = (exceptions.workstations || []).map((row) => ({
 				label: row.workstation || "",
-				value: row.efficiency_pct == null ? row.throughput_spm || 0 : row.efficiency_pct,
+				value:
+					row.efficiency_pct === null || row.efficiency_pct === undefined
+						? row.throughput_spm || 0
+						: row.efficiency_pct,
 				fieldtype: "Float",
 			}));
 			if (workstationRows.length) {
@@ -538,11 +547,13 @@ function _render_shift_summary(frm) {
 							},
 							{
 								label:
-									positiveSignal.efficiency_pct == null
+									positiveSignal.efficiency_pct === null ||
+									positiveSignal.efficiency_pct === undefined
 										? __("Throughput SPM")
 										: __("Efficiency (%)"),
 								value:
-									positiveSignal.efficiency_pct == null
+									positiveSignal.efficiency_pct === null ||
+									positiveSignal.efficiency_pct === undefined
 										? positiveSignal.throughput_spm || 0
 										: positiveSignal.efficiency_pct,
 								fieldtype: "Float",
@@ -595,7 +606,7 @@ function _format_summary_value(row, floatPrecision) {
 		return "";
 	}
 	const value = row.value;
-	if (value == null) {
+	if (value === null || value === undefined) {
 		return "";
 	}
 	if (!row.fieldtype || typeof value !== "number" || !Number.isFinite(value)) {

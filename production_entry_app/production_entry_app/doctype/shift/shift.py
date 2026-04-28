@@ -26,6 +26,25 @@ SHIFT_SUMMARY_TARGET_COVERAGE_PCT_MIN: float = 60.0
 SHIFT_SUMMARY_COMPLETENESS_MIN_RECORDED_RATIO: float = 0.5
 SHIFT_SUMMARY_WORKSTATION_MIN_PRODUCTION_MINS: float = 15.0
 VALID_SHIFT_DURATIONS: frozenset[int] = frozenset({8, 10, 12, 14, 16})
+RUNNING_SHIFT_USER_EDITABLE_FIELDS: frozenset[str] = frozenset(
+	{
+		"shift_duration",
+		"raw_material_warehouse",
+		"work_in_progress_warehouse",
+		"rejection_warehouse",
+		"scrap_warehouse",
+	}
+)
+RUNNING_SHIFT_SERVER_COMPUTED_FIELDS: frozenset[str] = frozenset(
+	{
+		"planned_start_time",
+		"planned_end_time",
+		"shift_end_date",
+	}
+)
+RUNNING_SHIFT_MUTABLE_FIELDS: frozenset[str] = (
+	RUNNING_SHIFT_USER_EDITABLE_FIELDS | RUNNING_SHIFT_SERVER_COMPUTED_FIELDS
+)
 _SHIFT_START_LOSSES: list[tuple[str, int, int]] = [
 	("Shift Start Up", 0, 10),
 ]
@@ -1000,50 +1019,36 @@ class Shift(Document):
 		if self.flags.get("allow_status_change"):
 			return
 
-		before = self.get_doc_before_save()
-		current_status = before.status if before else frappe.db.get_value("Shift", self.name, "status")
+		current_status = self._get_current_status_for_locking()
 		if not current_status:
 			return
 
 		if current_status == "Running":
-			# Fields the user may edit directly on a Running shift.
-			_user_editable: set[str] = {
-				"shift_duration",
-				"raw_material_warehouse",
-				"work_in_progress_warehouse",
-				"rejection_warehouse",
-				"scrap_warehouse",
-			}
-			# Fields recomputed by the server when shift_duration changes.
-			_server_computed: set[str] = {
-				"planned_start_time",
-				"planned_end_time",
-				"shift_end_date",
-			}
-			mutable_fields = _user_editable | _server_computed
-			if self.has_value_changed("shift_duration"):
-				# shift_duration-driven repopulation of planned_losses is allowed.
-				# planned_losses_changed check is skipped intentionally.
-				pass
-			elif self._planned_losses_changed():
-				frappe.throw(_("Planned Losses cannot be edited when shift is Running."))
-			else:
-				# Only check scalar fields via has_value_changed; child tables (e.g. planned_losses)
-				# may report false positives after reload due to object identity vs content equality.
-				changed = {
-					f.fieldname
-					for f in self.meta.get("fields", [])
-					if f.fieldtype != "Table"
-					and self.has_value_changed(f.fieldname)
-					and f.fieldname not in mutable_fields
-				}
-				if changed:
-					frappe.throw(
-						_("Only shift duration and warehouse fields can be edited when shift is Running.")
-					)
+			self._validate_running_shift_edits()
 
 		if current_status in ("Completed", "Cancelled"):
 			frappe.throw(_("Shift in {0} state cannot be modified.").format(frappe.bold(current_status)))
+
+	def _get_current_status_for_locking(self) -> str | None:
+		before = self.get_doc_before_save()
+		return before.status if before else frappe.db.get_value("Shift", self.name, "status")
+
+	def _validate_running_shift_edits(self) -> None:
+		if self._planned_losses_changed():
+			frappe.throw(_("Planned Losses cannot be edited when shift is Running."))
+		if self._get_locked_scalar_field_changes():
+			frappe.throw(_("Only shift duration and warehouse fields can be edited when shift is Running."))
+
+	def _get_locked_scalar_field_changes(self) -> set[str]:
+		# Only check scalar fields via has_value_changed; child tables (e.g. planned_losses)
+		# may report false positives after reload due to object identity vs content equality.
+		return {
+			f.fieldname
+			for f in self.meta.get("fields", [])
+			if f.fieldtype != "Table"
+			and self.has_value_changed(f.fieldname)
+			and f.fieldname not in RUNNING_SHIFT_MUTABLE_FIELDS
+		}
 
 	def _planned_losses_changed(self) -> bool:
 		"""Return True if planned_losses table content has changed."""

@@ -478,6 +478,18 @@ class TestShiftPureHelpers(FrappeTestCase):
 							shift._validate_field_locking()
 
 		shift = frappe.new_doc("Shift")
+		shift.name = "SHIFT-LOCK-003"
+		shift.flags = frappe._dict()
+		with patch.object(
+			shift,
+			"has_value_changed",
+			side_effect=lambda fieldname: fieldname in {"shift_duration", "company"},
+		):
+			with patch.object(shift, "_planned_losses_changed", return_value=False):
+				with self.assertRaisesRegex(frappe.ValidationError, "Only shift duration"):
+					shift._validate_running_shift_edits()
+
+		shift = frappe.new_doc("Shift")
 		shift.company = None
 		with patch(
 			"production_entry_app.production_entry_app.doctype.shift.shift.frappe.db.get_single_value",

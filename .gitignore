@@ -9,8 +9,10 @@ codex-plan.md
 codex-e2e-plan.md
 test-results
 playwright-report
+reports/
 tests/e2e/.auth/*.json
 .npm-cache/
 .npmrc
 .playwright-browsers/
 yarn.lock
+.slop_quarantine.json

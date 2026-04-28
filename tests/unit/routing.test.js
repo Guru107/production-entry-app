@@ -2,7 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 function loadRouting(prefix) {
-	if (prefix == null) {
+	if (prefix === null || prefix === undefined) {
 		delete process.env.PLAYWRIGHT_ROUTE_PREFIX;
 	} else {
 		process.env.PLAYWRIGHT_ROUTE_PREFIX = prefix;

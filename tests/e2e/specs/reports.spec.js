@@ -62,9 +62,17 @@ test.describe("Production reports", () => {
 		await page.goto(getRoute("/home"));
 		const prefix = lifecycle.getPrefix();
 		const ctx = await setupFreshContext(page, prefix);
-		const seeded = await createSubmittedStockEntryForReports(page, ctx, 0, [
-			{ downtime_reason: "Other", start_time: "11:00:00", end_time: "13:00:00" },
-		]);
+		const seeded = await createSubmittedStockEntryForReports(
+			page,
+			ctx,
+			0,
+			[{ downtime_reason: "Other", start_time: "11:00:00", end_time: "13:00:00" }],
+			null,
+			{
+				actualEnd: `${ctx.shift_date} 13:00:00`,
+				plannedEnd: `${ctx.shift_date} 13:00:00`,
+			}
+		);
 
 		const reportsPage = new ReportsPage(page);
 		await reportsPage.open("Production OEE Report");

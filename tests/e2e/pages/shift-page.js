@@ -75,22 +75,22 @@ class ShiftPage {
 	}
 
 	async setDraftFields({ department, branch, date, label, duration, startTime }) {
-		if (department != null) {
+		if (department !== null && department !== undefined) {
 			await setFieldValue(this.page, "department", department);
 		}
-		if (branch != null) {
+		if (branch !== null && branch !== undefined) {
 			await setFieldValue(this.page, "branch", branch);
 		}
-		if (label != null) {
+		if (label !== null && label !== undefined) {
 			await setFieldValue(this.page, "shift_label", String(label));
 		}
-		if (duration != null) {
+		if (duration !== null && duration !== undefined) {
 			await setFieldValue(this.page, "shift_duration", String(duration));
 		}
-		if (date != null) {
+		if (date !== null && date !== undefined) {
 			await setFieldValue(this.page, "shift_date", date);
 		}
-		if (startTime != null) {
+		if (startTime !== null && startTime !== undefined) {
 			await setFieldValue(this.page, "planned_start_time", startTime);
 		}
 	}
