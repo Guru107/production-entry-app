@@ -63,6 +63,7 @@ def validate_stock_entry(doc: Document, method: str | None = None) -> None:
 	_sync_unplanned_loss_shift_links(doc)
 
 	_validate_actual_times(doc)
+	_validate_unplanned_losses_within_actual_window(doc)
 	_validate_workstation_overlap(doc)
 	_validate_operator_overlap(doc)
 	_validate_workstation_downtime_overlap(doc)
@@ -197,6 +198,30 @@ def _validate_actual_times(doc) -> None:
 				format_datetime(allowed_start), format_datetime(allowed_end)
 			)
 		)
+
+
+def _validate_unplanned_losses_within_actual_window(doc: Document) -> None:
+	actual_start = _as_datetime(doc.get("custom_pea_actual_start_date"))
+	actual_end = _as_datetime(doc.get("custom_pea_actual_end_date"))
+	if not actual_start or not actual_end or actual_end <= actual_start:
+		return
+
+	for row in doc.get("custom_pea_unplanned_losses") or []:
+		if not row.get("start_time") or not row.get("end_time"):
+			continue
+		interval = resolve_time_interval_in_window(
+			row.get("start_time"),
+			row.get("end_time"),
+			actual_start,
+			actual_end,
+		)
+		if not interval or interval[0] < actual_start or interval[1] > actual_end:
+			frappe.throw(
+				_("Row {0}: Unplanned loss must be within the Stock Entry actual time window.").format(
+					row.idx
+				),
+				ValidationError,
+			)
 
 
 def _get_shift_buffer_minutes(fieldname: str, default_value: int) -> int:
