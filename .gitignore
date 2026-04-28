@@ -16,3 +16,4 @@ tests/e2e/.auth/*.json
 .playwright-browsers/
 yarn.lock
 .slop_quarantine.json
+.env
