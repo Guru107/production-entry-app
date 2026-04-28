@@ -105,7 +105,12 @@
 	}
 
 	function formatMetricDisplay(value, fieldtype = "Float", rawPrecision) {
-		if (value == null || typeof value !== "number" || !Number.isFinite(value)) {
+		if (
+			value === null ||
+			value === undefined ||
+			typeof value !== "number" ||
+			!Number.isFinite(value)
+		) {
 			return String(value ?? "");
 		}
 		if (typeof frappe !== "undefined" && typeof frappe.format === "function") {
