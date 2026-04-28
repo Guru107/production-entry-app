@@ -28,6 +28,21 @@ Pre-commit is configured to use the following tools for checking and formatting 
 - prettier
 - pyupgrade
 
+Optional AI-SLOP Detector scan:
+
+```bash
+scripts/check_ai_slop.sh
+pre-commit run ai-slop-detector --hook-stage manual
+```
+
+The detector is pinned through `uvx` and configured by `.slopconfig.yaml`. It runs in soft/report
+mode by default, so it is useful for review without blocking normal commits. To enforce the detector
+locally, run:
+
+```bash
+AI_SLOP_CI_MODE=hard scripts/check_ai_slop.sh
+```
+
 ### CI
 
 This app can use GitHub Actions for CI. The following workflows are configured:

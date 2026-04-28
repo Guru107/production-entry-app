@@ -1,0 +1,43 @@
+# AI-SLOP Detector project configuration.
+# Run through scripts/check_ai_slop.sh so the package version and flags stay pinned.
+domain: web/api
+
+weights:
+  ldr: 0.40
+  inflation: 0.20
+  ddc: 0.30
+  purity: 0.10
+
+thresholds:
+  ldr:
+    critical: 0.25
+    warning: 0.50
+  inflation:
+    critical: 1.50
+    warning: 0.80
+  ddc:
+    critical: 0.40
+    warning: 0.60
+
+patterns:
+  disabled:
+    # The project has deliberate deferred-work comments in planning/docs and Frappe integration code.
+    - todo_comment
+    - fixme_comment
+
+ignore:
+  - ".git/**"
+  - "node_modules/**"
+  - ".venv/**"
+  - "env/**"
+  - "__pycache__/**"
+  - "*.egg-info/**"
+  - "production_entry_app/public/dist/**"
+  - "production_entry_app/public/js/lib/**"
+  - "playwright-report/**"
+  - "test-results/**"
+  - "htmlcov/**"
+  - "reports/**"
+  - "docs/superpowers/**"
+  - "*.json"
+  - "*.csv"

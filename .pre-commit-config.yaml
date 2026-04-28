@@ -12,6 +12,13 @@ repos:
         language: system
         pass_filenames: false
 
+      - id: ai-slop-detector
+        name: Run AI-SLOP Detector
+        entry: scripts/check_ai_slop.sh
+        language: system
+        pass_filenames: false
+        stages: [manual]
+
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
