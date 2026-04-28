@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime
 import json
+from typing import Any
 
 import frappe
 from frappe import _
@@ -257,12 +258,23 @@ def _apply_direct_manufacture_alternative_flags(doc: Document) -> None:
 	if not allowed_items:
 		return
 
+	for row in _get_direct_manufacture_alternative_item_rows(doc, allowed_items):
+		_apply_direct_manufacture_alternative_flag(row)
+
+
+def _get_direct_manufacture_alternative_item_rows(doc: Document, allowed_items: set[str]) -> list[Any]:
+	rows = []
 	for row in doc.get("items") or []:
 		if row.get("is_finished_item") or row.get("is_scrap_item") or row.get("custom_pea_is_rejection_item"):
 			continue
 		item_code = row.get("original_item") or row.get("item_code")
 		if item_code in allowed_items and not row.get("allow_alternative_item"):
-			row.allow_alternative_item = 1
+			rows.append(row)
+	return rows
+
+
+def _apply_direct_manufacture_alternative_flag(row: Any) -> None:
+	row.allow_alternative_item = 1
 
 
 @frappe.whitelist()
@@ -778,12 +790,11 @@ def set_e2e_system_float_precision(prefix: str = "E2E", precision: int = 3) -> d
 	return {"float_precision": cint(precision)}
 
 
-def _cleanup_e2e_context(prefix: str = "E2E") -> dict:
+def _get_e2e_cleanup_targets(prefix: str) -> dict[str, object]:
 	target_operator = f"{prefix} Operator"
 	target_workstation = f"{prefix} Workstation"
 	target_fg_item = f"_{prefix}_FG_Item"
 	target_rm_item = f"_{prefix}_RM_Item"
-
 	dept_name = f"{prefix} Department"
 	departments = frappe.get_all("Department", filters={"department_name": dept_name}, pluck="name")
 	if not departments:
@@ -806,7 +817,20 @@ def _cleanup_e2e_context(prefix: str = "E2E") -> dict:
 			if row_name not in e2e_shift_names:
 				e2e_shift_names.append(row_name)
 
-	for name in e2e_shift_names:
+	return {
+		"target_operator": target_operator,
+		"target_workstation": target_workstation,
+		"target_fg_item": target_fg_item,
+		"target_rm_item": target_rm_item,
+		"e2e_shift_names": e2e_shift_names,
+	}
+
+
+def _cleanup_e2e_shifts(
+	prefix: str, result: dict[str, object], targets: dict[str, object] | None = None
+) -> None:
+	targets = targets or _get_e2e_cleanup_targets(prefix)
+	for name in targets["e2e_shift_names"]:
 		if not frappe.db.exists("Shift", name):
 			continue
 		doc = frappe.get_doc("Shift", name)
@@ -816,6 +840,12 @@ def _cleanup_e2e_context(prefix: str = "E2E") -> dict:
 		if doc.status in ("Draft", "Cancelled", "Completed"):
 			_safe_force_delete("Shift", name, context="cleanup_e2e_context")
 
+
+def _cleanup_e2e_stock_entries(targets: dict[str, object], result: dict[str, object]) -> None:
+	target_operator = str(targets["target_operator"])
+	target_workstation = str(targets["target_workstation"])
+	target_fg_item = str(targets["target_fg_item"])
+	target_rm_item = str(targets["target_rm_item"])
 	stock_entries = _get_candidate_e2e_stock_entries(
 		target_operator=target_operator,
 		target_workstation=target_workstation,
@@ -848,6 +878,12 @@ def _cleanup_e2e_context(prefix: str = "E2E") -> dict:
 		if se.docstatus in (0, 2):
 			_safe_force_delete("Stock Entry", se.name, context="cleanup_e2e_context")
 
+
+def _cleanup_e2e_master_data(prefix: str, result: dict[str, object]) -> None:
+	target_operator = f"{prefix} Operator"
+	target_workstation = f"{prefix} Workstation"
+	target_fg_item = f"_{prefix}_FG_Item"
+	target_rm_item = f"_{prefix}_RM_Item"
 	for doctype, name in (("Workstation", target_workstation), ("Operator", target_operator)):
 		if frappe.db.exists(doctype, name):
 			_safe_force_delete(doctype, name, context="cleanup_e2e_context")
@@ -898,9 +934,20 @@ def _cleanup_e2e_context(prefix: str = "E2E") -> dict:
 		if frappe.db.exists("Warehouse", warehouse_name):
 			_safe_force_delete("Warehouse", warehouse_name, context="cleanup_e2e_context")
 
+
+def _finalize_e2e_cleanup(prefix: str, result: dict[str, object]) -> dict[str, object]:
 	_restore_cached_e2e_settings(prefix)
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit - deterministic cleanup for test reruns
-	return {"ok": True}
+	return result
+
+
+def _cleanup_e2e_context(prefix: str = "E2E") -> dict:
+	result: dict[str, object] = {"ok": True}
+	targets = _get_e2e_cleanup_targets(prefix)
+	_cleanup_e2e_shifts(prefix, result, targets)
+	_cleanup_e2e_stock_entries(targets, result)
+	_cleanup_e2e_master_data(prefix, result)
+	return _finalize_e2e_cleanup(prefix, result)
 
 
 @frappe.whitelist()
@@ -1006,6 +1053,63 @@ def create_e2e_submitted_stock_entry(prefix: str = "E2E", rejection_qty: float =
 	return {"name": doc.name, "docstatus": doc.docstatus, "posting_date": shift_date}
 
 
+def _build_e2e_full_shift_entry_payloads(ctx: dict) -> list[dict]:
+	slot_mins = ctx["slot_mins"]
+	shift_end = ctx["shift_end"]
+	current_start = ctx["shift_start"]
+	payloads = []
+	while current_start < shift_end:
+		next_end = add_to_date(current_start, minutes=slot_mins, as_datetime=True)
+		current_end = min(next_end, shift_end)
+		payloads.append(
+			{
+				"doctype": "Stock Entry",
+				"stock_entry_type": "Manufacture",
+				"purpose": "Manufacture",
+				"company": ctx["company"],
+				"from_bom": 1,
+				"bom_no": ctx["bom"],
+				"from_warehouse": ctx["wip_warehouse"],
+				"to_warehouse": ctx["fg_warehouse"],
+				"fg_completed_qty": 100,
+				"custom_pea_shift": ctx["shift_name"],
+				"custom_pea_operator": ctx["operator"],
+				"custom_pea_workstation": ctx["workstation"],
+				"custom_pea_rejection_qty": float(ctx["rejection_qty"] or 0),
+				"custom_pea_actual_start_date": str(current_start),
+				"custom_pea_actual_end_date": str(current_end),
+				"posting_date": str(current_end.date()),
+				"posting_time": str(current_end.time()),
+				"_pea_wip_warehouse": ctx["wip_warehouse"],
+				"_pea_fg_warehouse": ctx["fg_warehouse"],
+				"_pea_rejection_qty": ctx["rejection_qty"],
+			}
+		)
+		current_start = current_end
+	return payloads
+
+
+def _insert_e2e_full_shift_stock_entry(payload: dict) -> str:
+	wip_warehouse = payload.pop("_pea_wip_warehouse")
+	fg_warehouse = payload.pop("_pea_fg_warehouse")
+	rejection_qty = payload.pop("_pea_rejection_qty")
+	doc = frappe.get_doc(payload)
+	doc.get_items()
+	for row in doc.get("items") or []:
+		if not row.get("s_warehouse"):
+			row.s_warehouse = wip_warehouse
+		if row.get("is_finished_item") and not row.get("t_warehouse"):
+			row.t_warehouse = fg_warehouse
+	if float(rejection_qty or 0) > 0:
+		doc.append(
+			"custom_pea_rejection_breakup",
+			{"rejection_reason": "Burr", "qty": float(rejection_qty or 0)},
+		)
+	doc.insert(ignore_permissions=True)
+	doc.submit()
+	return doc.name
+
+
 @frappe.whitelist()
 def create_e2e_full_shift_stock_entries(
 	prefix: str = "E2E", slot_minutes: int = 60, rejection_qty: float = 0
@@ -1027,47 +1131,16 @@ def create_e2e_full_shift_stock_entries(
 	if not shift_end or shift_end <= shift_start:
 		frappe.throw(_("Invalid shift window for E2E stock entry generation."))
 
-	current_start = shift_start
 	created_names = []
-	while current_start < shift_end:
-		next_end = add_to_date(current_start, minutes=slot_mins, as_datetime=True)
-		current_end = min(next_end, shift_end)
-		doc = frappe.get_doc(
-			{
-				"doctype": "Stock Entry",
-				"stock_entry_type": "Manufacture",
-				"purpose": "Manufacture",
-				"company": ctx["company"],
-				"from_bom": 1,
-				"bom_no": ctx["bom"],
-				"from_warehouse": ctx["wip_warehouse"],
-				"to_warehouse": ctx["fg_warehouse"],
-				"fg_completed_qty": 100,
-				"custom_pea_shift": ctx["shift_name"],
-				"custom_pea_operator": ctx["operator"],
-				"custom_pea_workstation": ctx["workstation"],
-				"custom_pea_rejection_qty": float(rejection_qty or 0),
-				"custom_pea_actual_start_date": str(current_start),
-				"custom_pea_actual_end_date": str(current_end),
-				"posting_date": str(current_end.date()),
-				"posting_time": str(current_end.time()),
-			}
-		)
-		doc.get_items()
-		for row in doc.get("items") or []:
-			if not row.get("s_warehouse"):
-				row.s_warehouse = ctx["wip_warehouse"]
-			if row.get("is_finished_item") and not row.get("t_warehouse"):
-				row.t_warehouse = ctx["fg_warehouse"]
-		if float(rejection_qty or 0) > 0:
-			doc.append(
-				"custom_pea_rejection_breakup",
-				{"rejection_reason": "Burr", "qty": float(rejection_qty or 0)},
-			)
-		doc.insert(ignore_permissions=True)
-		doc.submit()
-		created_names.append(doc.name)
-		current_start = current_end
+	full_shift_ctx = {
+		**ctx,
+		"rejection_qty": rejection_qty,
+		"shift_start": shift_start,
+		"shift_end": shift_end,
+		"slot_mins": slot_mins,
+	}
+	for payload in _build_e2e_full_shift_entry_payloads(full_shift_ctx):
+		created_names.append(_insert_e2e_full_shift_stock_entry(payload))
 	_clear_timeline_cache_for_context(ctx, ctx["shift_name"])
 
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit - required for report read-after-write checks

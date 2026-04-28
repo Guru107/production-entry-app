@@ -7,6 +7,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from production_entry_app.production_entry_app.api import (
+	_apply_direct_manufacture_alternative_flags,
 	_assert_e2e_api_allowed,
 	_build_e2e_shift_doc,
 	_cache_e2e_settings_snapshot,
@@ -244,6 +245,62 @@ class TestE2EApi(FrappeTestCase):
 			)
 		)
 
+	def test_apply_direct_manufacture_alternative_flags_preserves_current_row_rules(self) -> None:
+		doc = frappe._dict(
+			{
+				"purpose": "Manufacture",
+				"from_bom": 1,
+				"bom_no": "BOM-001",
+				"work_order": None,
+				"items": [
+					frappe._dict({"item_code": "RM-ALLOWED", "allow_alternative_item": 0}),
+					frappe._dict({"item_code": "RM-EXISTING", "allow_alternative_item": 1}),
+					frappe._dict(
+						{"item_code": "FG-ITEM", "is_finished_item": 1, "allow_alternative_item": 0}
+					),
+					frappe._dict({"item_code": "SCRAP", "is_scrap_item": 1, "allow_alternative_item": 0}),
+					frappe._dict(
+						{
+							"item_code": "REJECTION",
+							"custom_pea_is_rejection_item": 1,
+							"allow_alternative_item": 0,
+						}
+					),
+					frappe._dict(
+						{
+							"item_code": "SUBSTITUTE",
+							"original_item": "RM-ORIGINAL",
+							"allow_alternative_item": 0,
+						}
+					),
+					frappe._dict({"item_code": "RM-BLOCKED", "allow_alternative_item": 0}),
+				],
+			}
+		)
+
+		with patch(
+			"production_entry_app.production_entry_app.api.get_bom_alternative_allowed_items",
+			return_value={"RM-ALLOWED", "RM-EXISTING", "RM-ORIGINAL"},
+		):
+			_apply_direct_manufacture_alternative_flags(doc)
+
+		self.assertEqual(
+			[row.get("item_code") for row in doc.get("items")],
+			[
+				"RM-ALLOWED",
+				"RM-EXISTING",
+				"FG-ITEM",
+				"SCRAP",
+				"REJECTION",
+				"SUBSTITUTE",
+				"RM-BLOCKED",
+			],
+		)
+		self.assertEqual(
+			[row.get("allow_alternative_item") for row in doc.get("items")],
+			[1, 1, 0, 0, 0, 1, 0],
+		)
+
 	def test_cleanup_orphan_stock_entry_loss_links_deletes_only_orphans(self) -> None:
 		with patch(
 			"production_entry_app.production_entry_app.api.frappe.get_all",
@@ -395,6 +452,40 @@ class TestE2EApi(FrappeTestCase):
 			target_fg_item="_E2E_FG_Item",
 			target_rm_item="_E2E_RM_Item",
 		)
+
+	def test_cleanup_e2e_context_returns_ok_and_remains_safe_when_repeated(self) -> None:
+		with ExitStack() as stack:
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.api._get_candidate_e2e_stock_entries",
+					return_value=[],
+				)
+			)
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.api._e2e_base_date", return_value="2099-01-10"
+				)
+			)
+			stack.enter_context(
+				patch("production_entry_app.production_entry_app.api.frappe.get_all", return_value=[])
+			)
+			stack.enter_context(
+				patch("production_entry_app.production_entry_app.api.frappe.db.exists", return_value=False)
+			)
+			restore_settings = stack.enter_context(
+				patch("production_entry_app.production_entry_app.api._restore_cached_e2e_settings")
+			)
+			commit = stack.enter_context(
+				patch("production_entry_app.production_entry_app.api.frappe.db.commit")
+			)
+
+			first_result = _cleanup_e2e_context(prefix="E2E")
+			second_result = _cleanup_e2e_context(prefix="E2E")
+
+		self.assertEqual(first_result, {"ok": True})
+		self.assertEqual(second_result, {"ok": True})
+		self.assertEqual(restore_settings.call_count, 2)
+		self.assertEqual(commit.call_count, 2)
 
 	def test_cleanup_e2e_context_uses_cached_shift_name_before_predicted_names(self) -> None:
 		cache_key = _get_e2e_shift_names_cache_key("E2E")
@@ -1392,6 +1483,9 @@ class TestE2EApi(FrappeTestCase):
 
 			result = create_e2e_full_shift_stock_entries(prefix="E2E", slot_minutes=60, rejection_qty=0)
 
+		self.assertTrue(set(result).issuperset({"shift_name", "stock_entries"}))
+		self.assertTrue(result["shift_name"])
+		self.assertIsInstance(result["stock_entries"], list)
 		self.assertEqual(result["count"], 1)
 		self.assertEqual(result["stock_entries"], ["MAT-STE-FULL-001"])
 		self.assertEqual(result["slot_minutes"], 60)
