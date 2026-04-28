@@ -23,7 +23,7 @@
 - Prefer local helper extraction over new shared abstractions.
 - Add characterization tests before production refactors when branch coverage is missing.
 - Commit each task independently.
-- If a high/critical finding cannot be safely removed, stop and request reviewer/user approval before final completion.
+- If a high/critical finding cannot be safely removed, stop and request reviewer/user approval before final completion. Record approved retained/skipped findings in `docs/superpowers/notes/2026-04-28-ai-slop-retained-findings.md`.
 
 ## Files Expected To Change
 
@@ -46,6 +46,7 @@
 - `production_entry_app/production_entry_app/report/report_utils.py`: quantity/stroke helper extraction.
 - `production_entry_app/production_entry_app/utils/loss_time.py`: loss interval helper extraction.
 - `production_entry_app/production_entry_app/utils/test_loss_time.py`: loss-time characterization if gaps exist.
+- `docs/superpowers/notes/2026-04-28-ai-slop-retained-findings.md`: retained/skipped finding notes and approval evidence if any finding cannot be safely removed.
 
 ## Shared Verification Commands
 
@@ -239,7 +240,7 @@ scripts/check_ai_slop.sh
 pre-commit run --all-files
 ```
 
-Expected: both pass; `api.py` high/critical finding count decreases or does not increase.
+Expected: both pass; the targeted `api.py` high/critical findings are gone. If any target remains, stop for approval and document it in `docs/superpowers/notes/2026-04-28-ai-slop-retained-findings.md`.
 
 - [ ] **Step 9: Commit API refactor**
 
@@ -356,7 +357,7 @@ scripts/check_ai_slop.sh
 pre-commit run --all-files
 ```
 
-Expected: both pass; OEE high/critical finding count decreases or does not increase.
+Expected: both pass; the targeted OEE high/critical findings are gone. If any target remains, stop for approval and document it in `docs/superpowers/notes/2026-04-28-ai-slop-retained-findings.md`.
 
 - [ ] **Step 10: Commit OEE refactor**
 
@@ -536,7 +537,7 @@ Expected: output for `lifecycle.py`.
 
 - [ ] **Step 2: Decide based on output**
 
-If no high/critical finding exists, skip code changes and record in implementation notes:
+If no high/critical finding exists, skip code changes and record in `docs/superpowers/notes/2026-04-28-ai-slop-retained-findings.md`:
 
 ```text
 lifecycle.py skipped: detector marks file suspicious due low logic density only; no high/critical finding in current report.
@@ -570,6 +571,34 @@ Expected: no commit if lifecycle was skipped and utility was already committed.
 
 ---
 
+### Report-Family Task Gate Template
+
+Every report-family task from Task 5 through Task 11 must include these blocking gates before production refactor:
+
+- [ ] **Gate A: Confirm direct tests for every touched report branch**
+
+Use `rg` and the existing `test_reports.py` cases to map each touched `_get_rows` branch to a test. If a branch is not directly covered, add or update a characterization test before editing production code.
+
+- [ ] **Gate B: Run characterization before production changes**
+
+Run bench15 report tests before touching production code. Expected: pass. If tests fail before edits, stop and record the baseline failure.
+
+- [ ] **Gate C: Record query proof path before production changes**
+
+For every query-heavy function touched in the task, record one proof path in `docs/superpowers/notes/2026-04-28-ai-slop-retained-findings.md` or the task commit body:
+
+```text
+Query proof for <file>::<function>: output characterization covers selected fields, aliases, filters, grouping, ordering, and precision via <test names>.
+```
+
+If output characterization is insufficient, add SQL/query-builder selected-field assertions or a local SQL snapshot comparison before refactoring.
+
+- [ ] **Gate D: Target detector closure**
+
+After refactor, the task's target high/critical findings must be gone. If any target remains, stop, document attempted safe extraction and behavior risk in `docs/superpowers/notes/2026-04-28-ai-slop-retained-findings.md`, and get reviewer/user approval before proceeding.
+
+---
+
 ### Task 5: Refactor Pareto And PPM Reports
 
 **Files:**
@@ -599,7 +628,11 @@ cd /Users/gurudattkulkarni/Workspace/bench15 && bench --site development.localho
 
 Expected: pass.
 
-- [ ] **Step 3: Extract local helpers in each report**
+- [ ] **Step 3: Complete report-family gates before production changes**
+
+Complete Gate A, Gate B, and Gate C from the Report-Family Task Gate Template for the Pareto/PPM reports. Add characterization tests first if any touched branch lacks direct coverage.
+
+- [ ] **Step 4: Extract local helpers in each report**
 
 Use local helper names matching each module's behavior:
 
@@ -612,7 +645,7 @@ def _build_ppm_row(row: dict) -> dict: ...
 
 Preserve filters, sorting, cumulative percentages, ppm calculations, chart payloads, and empty result behavior.
 
-- [ ] **Step 4: Run report tests on bench15 and bench16**
+- [ ] **Step 6: Run report tests on bench15 and bench16**
 
 Run:
 
@@ -623,7 +656,7 @@ cd /Users/gurudattkulkarni/Workspace/bench16 && bench --site frappe16.localhost 
 
 Expected: both pass.
 
-- [ ] **Step 5: Run detector and pre-commit**
+- [ ] **Step 7: Run detector and pre-commit**
 
 Run:
 
@@ -634,7 +667,7 @@ pre-commit run --all-files
 
 Expected: both pass.
 
-- [ ] **Step 6: Commit report batch**
+- [ ] **Step 7: Commit report batch**
 
 Run:
 
@@ -668,7 +701,11 @@ Expected: tests exist for daily, weekly, and monthly trend behavior.
 
 Run bench15 report tests. Expected: pass.
 
-- [ ] **Step 3: Extract period aggregation helpers**
+- [ ] **Step 3: Complete report-family gates before production changes**
+
+Complete Gate A, Gate B, and Gate C from the Report-Family Task Gate Template for trend reports. Add characterization tests first if any touched branch lacks direct coverage.
+
+- [ ] **Step 4: Extract period aggregation helpers**
 
 Suggested helpers per module:
 
@@ -679,15 +716,15 @@ def _finalize_trend_rows(aggregates: dict[tuple, dict]) -> list[dict]: ...
 
 Preserve period keys, sorting, chart labels, and rejection/rework quantity split.
 
-- [ ] **Step 4: Run report tests on bench15 and bench16**
+- [ ] **Step 6: Run report tests on bench15 and bench16**
 
 Run same commands as Task 5 Step 4. Expected: both pass.
 
-- [ ] **Step 5: Run detector and pre-commit**
+- [ ] **Step 7: Run detector and pre-commit**
 
 Run shared verification commands. Expected: pass.
 
-- [ ] **Step 6: Commit trend report batch**
+- [ ] **Step 7: Commit trend report batch**
 
 Run:
 
@@ -721,7 +758,11 @@ Expected: tests cover top reasons, filters, and unassigned fallback.
 
 Run bench15 report tests. Expected: pass.
 
-- [ ] **Step 3: Extract top-reason helpers**
+- [ ] **Step 3: Complete report-family gates before production changes**
+
+Complete Gate A, Gate B, and Gate C from the Report-Family Task Gate Template for matrix reports. Add characterization tests first if any touched branch lacks direct coverage.
+
+- [ ] **Step 4: Extract top-reason helpers**
 
 Suggested helpers:
 
@@ -733,15 +774,15 @@ def _build_matrix_rows(rows: list[dict], reason_order: list[str]) -> list[dict]:
 
 Preserve sanitized field names, top-N order, filters, and unassigned labels.
 
-- [ ] **Step 4: Run report tests on bench15 and bench16**
+- [ ] **Step 5: Run report tests on bench15 and bench16**
 
 Run same commands as Task 5 Step 4. Expected: both pass.
 
-- [ ] **Step 5: Run detector and pre-commit**
+- [ ] **Step 6: Run detector and pre-commit**
 
 Run shared verification commands. Expected: pass.
 
-- [ ] **Step 6: Commit matrix report batch**
+- [ ] **Step 7: Commit matrix report batch**
 
 Run:
 
@@ -775,7 +816,11 @@ Expected: tests cover aggregation, sorting, and item filters.
 
 Run bench15 report tests. Expected: pass.
 
-- [ ] **Step 3: Extract item/BOM aggregation helpers**
+- [ ] **Step 3: Complete report-family gates before production changes**
+
+Complete Gate A, Gate B, and Gate C from the Report-Family Task Gate Template for item/BOM hotspot reports. Add characterization tests first if any touched branch lacks direct coverage.
+
+- [ ] **Step 4: Extract item/BOM aggregation helpers**
 
 Suggested helpers:
 
@@ -787,15 +832,15 @@ def _finalize_item_bom_rows(aggregates: dict[tuple[str, str], dict]) -> list[dic
 
 Preserve group keys, sorting, filters, and quantity/rate calculations.
 
-- [ ] **Step 4: Run report tests on bench15 and bench16**
+- [ ] **Step 5: Run report tests on bench15 and bench16**
 
 Run same commands as Task 5 Step 4. Expected: both pass.
 
-- [ ] **Step 5: Run detector and pre-commit**
+- [ ] **Step 6: Run detector and pre-commit**
 
 Run shared verification commands. Expected: pass.
 
-- [ ] **Step 6: Commit hotspot report batch**
+- [ ] **Step 7: Commit hotspot report batch**
 
 Run:
 
@@ -829,7 +874,11 @@ Expected: tests cover metrics, rate preservation, string summaries, and filters.
 
 Run bench15 report tests. Expected: pass.
 
-- [ ] **Step 3: Extract operator aggregation helpers**
+- [ ] **Step 3: Complete report-family gates before production changes**
+
+Complete Gate A, Gate B, and Gate C from the Report-Family Task Gate Template for operator performance reports. Add characterization tests first if any touched branch lacks direct coverage.
+
+- [ ] **Step 4: Extract operator aggregation helpers**
 
 Suggested helpers:
 
@@ -841,15 +890,15 @@ def _finalize_operator_performance_rows(aggregates: dict[str, dict]) -> list[dic
 
 Preserve raw rates, string summary contract, filters, and sorting.
 
-- [ ] **Step 4: Run report tests on bench15 and bench16**
+- [ ] **Step 5: Run report tests on bench15 and bench16**
 
 Run same commands as Task 5 Step 4. Expected: both pass.
 
-- [ ] **Step 5: Run detector and pre-commit**
+- [ ] **Step 6: Run detector and pre-commit**
 
 Run shared verification commands. Expected: pass.
 
-- [ ] **Step 6: Commit operator performance batch**
+- [ ] **Step 7: Commit operator performance batch**
 
 Run:
 
@@ -892,7 +941,11 @@ cd /Users/gurudattkulkarni/Workspace/bench15 && bench --site development.localho
 
 Expected: pass before production refactor.
 
-- [ ] **Step 3: Extract report utility helpers**
+- [ ] **Step 3: Complete report-family gates before production changes**
+
+Complete Gate A, Gate B, and Gate C from the Report-Family Task Gate Template for efficiency reports and shared report utilities. Add characterization tests first if any touched branch lacks direct coverage.
+
+- [ ] **Step 4: Extract report utility helpers**
 
 Suggested helpers:
 
@@ -905,7 +958,7 @@ def _get_entry_stroke_fallback(entry: dict) -> float: ...
 
 Preserve zero handling, fallback order, and raw numeric values.
 
-- [ ] **Step 4: Extract efficiency aggregation helpers**
+- [ ] **Step 5: Extract efficiency aggregation helpers**
 
 Suggested helpers:
 
@@ -933,7 +986,7 @@ Expected: all pass.
 
 Run shared verification commands. Expected: pass.
 
-- [ ] **Step 7: Commit efficiency/report utils batch**
+- [ ] **Step 8: Commit efficiency/report utils batch**
 
 Run:
 
@@ -967,7 +1020,11 @@ Expected: tests cover columns, data, raw group values, totals, empty results, an
 
 Run bench15 report tests. Expected: pass.
 
-- [ ] **Step 3: Extract fiscal-year date range helpers**
+- [ ] **Step 3: Complete report-family gates before production changes**
+
+Complete Gate A, Gate B, and Gate C from the Report-Family Task Gate Template for daily SPM reports. Add characterization tests first if any touched branch lacks direct coverage.
+
+- [ ] **Step 4: Extract fiscal-year date range helpers**
 
 Suggested helpers:
 
@@ -978,7 +1035,7 @@ def _resolve_daily_report_date_range(filters: dict) -> tuple[datetime.date, date
 
 Preserve validation errors and cross-year support.
 
-- [ ] **Step 4: Extract daily row aggregation helpers**
+- [ ] **Step 5: Extract daily row aggregation helpers**
 
 Suggested helpers:
 
@@ -998,7 +1055,7 @@ Run same commands as Task 5 Step 4. Expected: both pass.
 
 Run shared verification commands. Expected: pass.
 
-- [ ] **Step 7: Commit daily SPM batch**
+- [ ] **Step 8: Commit daily SPM batch**
 
 Run:
 
@@ -1313,7 +1370,7 @@ Expected: one utility commit.
 ### Task 16: Final Detector Closure And PR Update
 
 **Files:**
-- Modify: implementation notes only if needed
+- Modify: `docs/superpowers/notes/2026-04-28-ai-slop-retained-findings.md` only if findings are retained/skipped
 
 - [ ] **Step 1: Run final AI-SLOP scan with JSON report**
 
@@ -1325,7 +1382,7 @@ mkdir -p reports
 uvx --from 'ai-slop-detector[js]==3.6.0' slop-detector --project . --config .slopconfig.yaml --js --json --no-history > reports/ai-slop-report.json || true
 ```
 
-Expected: detector passes in soft mode; high/critical finding count is reduced. Any retained high/critical finding has approval and implementation notes.
+Expected: detector passes in soft mode; target high/critical findings are gone. Any retained high/critical finding has approval and is documented in `docs/superpowers/notes/2026-04-28-ai-slop-retained-findings.md`.
 
 - [ ] **Step 2: Parse final finding summary**
 
@@ -1368,7 +1425,18 @@ pre-commit run --all-files
 
 Expected: pass.
 
-- [ ] **Step 4: Check final worktree**
+- [ ] **Step 4: Commit retained/skipped finding notes if present**
+
+Run only if `docs/superpowers/notes/2026-04-28-ai-slop-retained-findings.md` exists or changed:
+
+```bash
+git add docs/superpowers/notes/2026-04-28-ai-slop-retained-findings.md
+git commit -m "docs: record ai slop retained findings"
+```
+
+Expected: notes are committed separately from implementation changes.
+
+- [ ] **Step 5: Check final worktree**
 
 Run:
 
@@ -1378,7 +1446,7 @@ git status --short --branch
 
 Expected: clean worktree after final commit, branch ahead of origin if not yet pushed.
 
-- [ ] **Step 5: Push branch**
+- [ ] **Step 6: Push branch**
 
 Run:
 
