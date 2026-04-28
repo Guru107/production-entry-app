@@ -51,6 +51,7 @@ _SHIFT_START_LOSSES: list[tuple[str, int, int]] = [
 	("Shift Start Up", 0, 10),
 ]
 # JH Activity is scheduled at a fixed absolute time (10:00-10:10) if the shift window overlaps.
+_JH_ACTIVITY_REASON: str = "JH Activity"
 _JH_ACTIVITY_FIXED_START_TIME: datetime.time = datetime.time(10, 0, 0)
 _JH_ACTIVITY_DURATION_MINS: int = 10
 _FIXED_TIME_BREAKS: dict[int, list[tuple[str, str, int]]] = {
@@ -610,13 +611,13 @@ def _get_jh_activity_entries(
 	shift_end: datetime.datetime,
 	is_active_reason: Callable[[str], bool],
 ) -> list[tuple[datetime.datetime, dict[str, str]]]:
-	if not is_active_reason("JH Activity"):
+	if not is_active_reason(_JH_ACTIVITY_REASON):
 		return []
 	start_dt = _find_fixed_time_in_window(base, shift_end, _JH_ACTIVITY_FIXED_START_TIME)
 	if start_dt is None:
 		return []
 	end_dt = add_to_date(start_dt, minutes=_JH_ACTIVITY_DURATION_MINS)
-	return [_planned_loss_entry_with_start("JH Activity", start_dt, min(end_dt, shift_end))]
+	return [_planned_loss_entry_with_start(_JH_ACTIVITY_REASON, start_dt, min(end_dt, shift_end))]
 
 
 def _get_fixed_time_break_entries(
