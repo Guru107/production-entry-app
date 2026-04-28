@@ -502,7 +502,7 @@ scripts/check_ai_slop.sh
 pre-commit run --all-files
 ```
 
-Expected: all pass.
+Expected: all pass; the targeted `stock_entry_hooks.py` high findings are gone. If any target remains, stop for approval and document it in `docs/superpowers/notes/2026-04-28-ai-slop-retained-findings.md`.
 
 - [ ] **Step 11: Commit hook refactor**
 
@@ -1163,7 +1163,7 @@ Expected: both pass or only documented unrelated baseline failures remain.
 
 - [ ] **Step 8: Run detector and pre-commit**
 
-Run shared verification commands. Expected: pass.
+Run shared verification commands. Expected: pass; the targeted `shift.py` high findings are gone. If any target remains, stop for approval and document it in `docs/superpowers/notes/2026-04-28-ai-slop-retained-findings.md`.
 
 - [ ] **Step 9: Commit Shift refactor**
 
@@ -1204,7 +1204,11 @@ cd /Users/gurudattkulkarni/Workspace/bench15 && bench --site development.localho
 
 Expected: pass.
 
-- [ ] **Step 3: Extract timeline helpers**
+- [ ] **Step 3: Add characterization tests before refactor if timeline coverage is missing**
+
+If response-shape, interval sorting, label, timestamp, or loss/downtime branches lack direct tests, add characterization assertions in `production_entry_app/production_entry_app/test_api_timeline.py` before editing `api_timeline.py`. Rerun the bench15 timeline test command and expect pass before production changes.
+
+- [ ] **Step 4: Extract timeline helpers**
 
 Suggested helpers:
 
@@ -1216,7 +1220,7 @@ def _build_timeline_response(source: dict[str, object], intervals: list[dict]) -
 
 Preserve response keys, interval sorting, labels, and timestamps.
 
-- [ ] **Step 4: Run timeline tests on bench15 and bench16**
+- [ ] **Step 5: Run timeline tests on bench15 and bench16**
 
 Run:
 
@@ -1227,11 +1231,11 @@ cd /Users/gurudattkulkarni/Workspace/bench16 && bench --site frappe16.localhost 
 
 Expected: both pass.
 
-- [ ] **Step 5: Run detector and pre-commit**
+- [ ] **Step 6: Run detector and pre-commit**
 
-Run shared verification commands. Expected: pass.
+Run shared verification commands. Expected: pass; the targeted `api_timeline.py` high findings are gone. If any target remains, stop for approval and document it in `docs/superpowers/notes/2026-04-28-ai-slop-retained-findings.md`.
 
-- [ ] **Step 6: Commit timeline refactor**
+- [ ] **Step 7: Commit timeline refactor**
 
 Run:
 
@@ -1263,7 +1267,11 @@ cd /Users/gurudattkulkarni/Workspace/bench15 && bench --site development.localho
 
 Expected: pass.
 
-- [ ] **Step 2: Extract report benchmark loop helpers**
+- [ ] **Step 2: Add characterization tests before refactor if benchmark coverage is missing**
+
+If benchmark output keys, retry behavior, exception handling, or timing result shape lacks direct tests, add characterization tests in `production_entry_app/production_entry_app/report/test_report_benchmark.py` or `production_entry_app/production_entry_app/test_write_benchmark.py` before editing production benchmark code. Rerun the bench15 benchmark test commands and expect pass before production changes.
+
+- [ ] **Step 3: Extract report benchmark loop helpers**
 
 Suggested helpers:
 
@@ -1275,7 +1283,7 @@ def _record_benchmark_result(results: dict, report_name: str, metrics: dict) -> 
 
 Preserve benchmark result keys and timing behavior.
 
-- [ ] **Step 3: Extract write benchmark case helpers**
+- [ ] **Step 4: Extract write benchmark case helpers**
 
 Suggested helpers:
 
@@ -1286,15 +1294,15 @@ def _record_write_case_timing(result: dict[str, object], started_at: float) -> d
 
 Preserve retry/exception behavior and output keys.
 
-- [ ] **Step 4: Run benchmark tests**
+- [ ] **Step 5: Run benchmark tests**
 
 Run same commands as Step 1. Expected: pass.
 
-- [ ] **Step 5: Run detector and pre-commit**
+- [ ] **Step 6: Run detector and pre-commit**
 
-Run shared verification commands. Expected: pass.
+Run shared verification commands. Expected: pass; the targeted benchmark high/critical findings are gone. If any target remains, stop for approval and document it in `docs/superpowers/notes/2026-04-28-ai-slop-retained-findings.md`.
 
-- [ ] **Step 6: Commit benchmark refactor**
+- [ ] **Step 7: Commit benchmark refactor**
 
 Run:
 
@@ -1352,7 +1360,7 @@ Expected: both pass.
 
 - [ ] **Step 5: Run detector and pre-commit**
 
-Run shared verification commands. Expected: pass.
+Run shared verification commands. Expected: pass; the targeted `utils/loss_time.py` high finding is gone. If the target remains, stop for approval and document it in `docs/superpowers/notes/2026-04-28-ai-slop-retained-findings.md`.
 
 - [ ] **Step 6: Commit loss-time refactor**
 
