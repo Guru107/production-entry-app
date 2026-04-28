@@ -826,9 +826,7 @@ def _get_e2e_cleanup_targets(prefix: str) -> dict[str, object]:
 	}
 
 
-def _cleanup_e2e_shifts(
-	prefix: str, result: dict[str, object], targets: dict[str, object] | None = None
-) -> None:
+def _cleanup_e2e_shifts(prefix: str, targets: dict[str, object] | None = None) -> None:
 	targets = targets or _get_e2e_cleanup_targets(prefix)
 	for name in targets["e2e_shift_names"]:
 		if not frappe.db.exists("Shift", name):
@@ -841,7 +839,7 @@ def _cleanup_e2e_shifts(
 			_safe_force_delete("Shift", name, context="cleanup_e2e_context")
 
 
-def _cleanup_e2e_stock_entries(targets: dict[str, object], result: dict[str, object]) -> None:
+def _cleanup_e2e_stock_entries(targets: dict[str, object]) -> None:
 	target_operator = str(targets["target_operator"])
 	target_workstation = str(targets["target_workstation"])
 	target_fg_item = str(targets["target_fg_item"])
@@ -879,7 +877,7 @@ def _cleanup_e2e_stock_entries(targets: dict[str, object], result: dict[str, obj
 			_safe_force_delete("Stock Entry", se.name, context="cleanup_e2e_context")
 
 
-def _cleanup_e2e_master_data(prefix: str, result: dict[str, object]) -> None:
+def _cleanup_e2e_master_data(prefix: str) -> None:
 	target_operator = f"{prefix} Operator"
 	target_workstation = f"{prefix} Workstation"
 	target_fg_item = f"_{prefix}_FG_Item"
@@ -944,9 +942,9 @@ def _finalize_e2e_cleanup(prefix: str, result: dict[str, object]) -> dict[str, o
 def _cleanup_e2e_context(prefix: str = "E2E") -> dict:
 	result: dict[str, object] = {"ok": True}
 	targets = _get_e2e_cleanup_targets(prefix)
-	_cleanup_e2e_shifts(prefix, result, targets)
-	_cleanup_e2e_stock_entries(targets, result)
-	_cleanup_e2e_master_data(prefix, result)
+	_cleanup_e2e_shifts(prefix, targets)
+	_cleanup_e2e_stock_entries(targets)
+	_cleanup_e2e_master_data(prefix)
 	return _finalize_e2e_cleanup(prefix, result)
 
 
@@ -1090,10 +1088,11 @@ def _build_e2e_full_shift_entry_payloads(ctx: dict) -> list[dict]:
 
 
 def _insert_e2e_full_shift_stock_entry(payload: dict) -> str:
-	wip_warehouse = payload.pop("_pea_wip_warehouse")
-	fg_warehouse = payload.pop("_pea_fg_warehouse")
-	rejection_qty = payload.pop("_pea_rejection_qty")
-	doc = frappe.get_doc(payload)
+	wip_warehouse = payload.get("_pea_wip_warehouse")
+	fg_warehouse = payload.get("_pea_fg_warehouse")
+	rejection_qty = payload.get("_pea_rejection_qty")
+	doc_payload = {key: value for key, value in payload.items() if not key.startswith("_pea_")}
+	doc = frappe.get_doc(doc_payload)
 	doc.get_items()
 	for row in doc.get("items") or []:
 		if not row.get("s_warehouse"):

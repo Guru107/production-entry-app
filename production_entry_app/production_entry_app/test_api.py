@@ -22,6 +22,7 @@ from production_entry_app.production_entry_app.api import (
 	_get_e2e_shift_names_cache_key,
 	_get_or_create_e2e_employee,
 	_get_or_create_e2e_shift,
+	_insert_e2e_full_shift_stock_entry,
 	_item_has_live_stock_entry_references,
 	_restore_cached_e2e_settings,
 	_safe_cancel_and_delete,
@@ -1432,6 +1433,51 @@ class TestE2EApi(FrappeTestCase):
 		doc.insert.assert_called_once_with(ignore_permissions=True)
 		doc.submit.assert_called_once()
 
+	def test_insert_e2e_full_shift_stock_entry_does_not_mutate_payload(self) -> None:
+		payload = {
+			"doctype": "Stock Entry",
+			"stock_entry_type": "Manufacture",
+			"purpose": "Manufacture",
+			"company": "_Test Company",
+			"from_bom": 1,
+			"bom_no": "BOM-001",
+			"from_warehouse": "WIP",
+			"to_warehouse": "FG",
+			"fg_completed_qty": 100,
+			"custom_pea_shift": "SHIFT-001",
+			"custom_pea_operator": "E2E Operator",
+			"custom_pea_workstation": "E2E Workstation",
+			"custom_pea_rejection_qty": 0.0,
+			"custom_pea_actual_start_date": "2099-01-20 08:00:00",
+			"custom_pea_actual_end_date": "2099-01-20 08:30:00",
+			"posting_date": "2099-01-20",
+			"posting_time": "08:30:00",
+			"_pea_wip_warehouse": "WIP",
+			"_pea_fg_warehouse": "FG",
+			"_pea_rejection_qty": 0,
+		}
+		original_payload = dict(payload)
+		doc = MagicMock()
+		doc.name = "MAT-STE-FULL-001"
+		doc.get.return_value = [
+			frappe._dict({"is_finished_item": 1, "s_warehouse": None, "t_warehouse": None})
+		]
+
+		with patch(
+			"production_entry_app.production_entry_app.api.frappe.get_doc", return_value=doc
+		) as get_doc:
+			result = _insert_e2e_full_shift_stock_entry(payload)
+
+		self.assertEqual(result, "MAT-STE-FULL-001")
+		self.assertEqual(payload, original_payload)
+		get_doc_payload = get_doc.call_args.args[0]
+		self.assertNotIn("_pea_wip_warehouse", get_doc_payload)
+		self.assertNotIn("_pea_fg_warehouse", get_doc_payload)
+		self.assertNotIn("_pea_rejection_qty", get_doc_payload)
+		doc.get_items.assert_called_once()
+		doc.insert.assert_called_once_with(ignore_permissions=True)
+		doc.submit.assert_called_once()
+
 	def test_create_e2e_full_shift_stock_entries_creates_contiguous_entries(self) -> None:
 		shift = MagicMock()
 		shift.shift_date = "2099-01-20"
@@ -1439,9 +1485,14 @@ class TestE2EApi(FrappeTestCase):
 		shift.planned_end_time = "09:00:00"
 		shift.shift_end_date = "2099-01-20"
 		shift.shift_duration = "8"
-		doc = MagicMock()
-		doc.name = "MAT-STE-FULL-001"
-		doc.get.return_value = [
+		first_doc = MagicMock()
+		first_doc.name = "MAT-STE-FULL-001"
+		first_doc.get.return_value = [
+			frappe._dict({"is_finished_item": 1, "s_warehouse": None, "t_warehouse": None})
+		]
+		second_doc = MagicMock()
+		second_doc.name = "MAT-STE-FULL-002"
+		second_doc.get.return_value = [
 			frappe._dict({"is_finished_item": 1, "s_warehouse": None, "t_warehouse": None})
 		]
 		with ExitStack() as stack:
@@ -1465,9 +1516,10 @@ class TestE2EApi(FrappeTestCase):
 					},
 				)
 			)
-			stack.enter_context(
+			get_doc = stack.enter_context(
 				patch(
-					"production_entry_app.production_entry_app.api.frappe.get_doc", side_effect=[shift, doc]
+					"production_entry_app.production_entry_app.api.frappe.get_doc",
+					side_effect=[shift, first_doc, second_doc],
 				)
 			)
 			stack.enter_context(
@@ -1481,18 +1533,28 @@ class TestE2EApi(FrappeTestCase):
 			)
 			stack.enter_context(patch("production_entry_app.production_entry_app.api.frappe.db.commit"))
 
-			result = create_e2e_full_shift_stock_entries(prefix="E2E", slot_minutes=60, rejection_qty=0)
+			result = create_e2e_full_shift_stock_entries(prefix="E2E", slot_minutes=30, rejection_qty=0)
 
 		self.assertTrue(set(result).issuperset({"shift_name", "stock_entries"}))
 		self.assertTrue(result["shift_name"])
 		self.assertIsInstance(result["stock_entries"], list)
-		self.assertEqual(result["count"], 1)
-		self.assertEqual(result["stock_entries"], ["MAT-STE-FULL-001"])
-		self.assertEqual(result["slot_minutes"], 60)
-		doc.get_items.assert_called_once()
-		doc.append.assert_not_called()
-		doc.insert.assert_called_once_with(ignore_permissions=True)
-		doc.submit.assert_called_once()
+		self.assertEqual(result["count"], 2)
+		self.assertEqual(result["stock_entries"], ["MAT-STE-FULL-001", "MAT-STE-FULL-002"])
+		self.assertEqual(result["slot_minutes"], 30)
+		first_payload = get_doc.call_args_list[1].args[0]
+		second_payload = get_doc.call_args_list[2].args[0]
+		self.assertEqual(first_payload["custom_pea_actual_start_date"], "2099-01-20 08:00:00")
+		self.assertEqual(first_payload["custom_pea_actual_end_date"], "2099-01-20 08:30:00")
+		self.assertEqual(second_payload["custom_pea_actual_start_date"], "2099-01-20 08:30:00")
+		self.assertEqual(second_payload["custom_pea_actual_end_date"], "2099-01-20 09:00:00")
+		first_doc.get_items.assert_called_once()
+		second_doc.get_items.assert_called_once()
+		first_doc.append.assert_not_called()
+		second_doc.append.assert_not_called()
+		first_doc.insert.assert_called_once_with(ignore_permissions=True)
+		second_doc.insert.assert_called_once_with(ignore_permissions=True)
+		first_doc.submit.assert_called_once()
+		second_doc.submit.assert_called_once()
 
 	def test_create_e2e_full_shift_stock_entries_rejects_invalid_shift_window(self) -> None:
 		shift = MagicMock()
