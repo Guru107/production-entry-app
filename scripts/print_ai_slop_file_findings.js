@@ -19,8 +19,10 @@ try {
 	console.error(`Failed to read/parse ${reportPath}: ${error.message}`);
 	process.exit(1);
 }
-const files = [...(report.file_results || []), ...(report.js_file_results || [])];
-const match = files.find((file) => String(file.file_path || file.file || "").includes(target));
+const fileResults = Array.isArray(report?.file_results) ? report.file_results : [];
+const jsFileResults = Array.isArray(report?.js_file_results) ? report.js_file_results : [];
+const files = [...fileResults, ...jsFileResults];
+const match = files.find((file) => String(file?.file_path ?? file?.file ?? "").includes(target));
 if (!match) {
 	console.log(JSON.stringify({ found: false, target }, null, 2));
 	process.exit(0);

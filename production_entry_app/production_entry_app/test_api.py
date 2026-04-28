@@ -363,6 +363,30 @@ class TestE2EApi(FrappeTestCase):
 			"Shift", "SHIFT-2026-02-22.1.0001", context="cleanup_e2e_context"
 		)
 
+	def test_cleanup_e2e_shifts_does_not_delete_when_orphan_cleanup_fails(self) -> None:
+		with patch(
+			"production_entry_app.production_entry_app.api._get_e2e_cleanup_targets",
+			return_value={"e2e_shift_names": ["SHIFT-2026-02-22.1.0001"]},
+		):
+			with patch("production_entry_app.production_entry_app.api.frappe.db.exists", return_value=True):
+				with patch("production_entry_app.production_entry_app.api.frappe.get_doc") as get_doc:
+					with patch(
+						"production_entry_app.production_entry_app.api._cleanup_orphan_stock_entry_loss_links",
+						side_effect=RuntimeError("orphan cleanup failed"),
+					):
+						with patch("production_entry_app.production_entry_app.api.frappe.log_error"):
+							with patch(
+								"production_entry_app.production_entry_app.api._safe_force_delete"
+							) as force_delete:
+								get_doc.return_value = frappe._dict({"status": "Completed"})
+
+								from production_entry_app.production_entry_app.api import _cleanup_e2e_shifts
+
+								with self.assertRaisesRegex(RuntimeError, "orphan cleanup failed"):
+									_cleanup_e2e_shifts("E2E")
+
+		force_delete.assert_not_called()
+
 	def test_cleanup_e2e_context_finalizes_after_cleanup_failure(self) -> None:
 		with patch(
 			"production_entry_app.production_entry_app.api._get_e2e_cleanup_targets",

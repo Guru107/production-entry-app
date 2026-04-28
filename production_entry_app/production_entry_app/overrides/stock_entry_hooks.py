@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime
 import math
+from typing import Any
 
 import frappe
 from frappe import _
@@ -182,7 +183,7 @@ def _validate_actual_times(doc) -> None:
 
 
 def _get_planned_actual_windows(
-	doc,
+	doc: Document,
 ) -> tuple[
 	datetime.datetime | None,
 	datetime.datetime | None,
@@ -235,7 +236,7 @@ def _validate_unplanned_losses_within_actual_window(doc: Document) -> None:
 
 
 def _validate_unplanned_loss_row_within_actual_window(
-	row,
+	row: Any,
 	actual_start: datetime.datetime,
 	actual_end: datetime.datetime,
 ) -> None:
@@ -439,7 +440,7 @@ def _validate_direct_manufacture_alternative_items(doc: Document) -> None:
 
 
 def _validate_direct_manufacture_alternative_row(
-	row,
+	row: Any,
 	bom_no: str,
 	bom_item_codes: set[str],
 	bom_allowed_items: set[str],
@@ -474,7 +475,9 @@ def _validate_direct_manufacture_alternative_row(
 		)
 
 
-def _validate_bom_contains_item(row, item_code: str | None, bom_no: str, bom_item_codes: set[str]) -> None:
+def _validate_bom_contains_item(
+	row: Any, item_code: str | None, bom_no: str, bom_item_codes: set[str]
+) -> None:
 	if not item_code or item_code in bom_item_codes:
 		return
 	frappe.throw(
@@ -531,7 +534,7 @@ def _validate_rejection_breakup(doc) -> None:
 	doc.custom_pea_rework_qty = flt(rework_qty)
 
 
-def _validate_rejection_breakup_row(row) -> float:
+def _validate_rejection_breakup_row(row: Any) -> float:
 	row_qty = float(row.get("qty") or 0)
 	if row_qty <= 0:
 		frappe.throw(_("Rejection Breakup rows must have a quantity greater than 0."))
@@ -540,7 +543,7 @@ def _validate_rejection_breakup_row(row) -> float:
 	return row_qty
 
 
-def _get_rejection_breakup_abs_tol(doc, breakup_rows: list) -> float:
+def _get_rejection_breakup_abs_tol(doc: Document, breakup_rows: list[Any]) -> float:
 	parent_precision = _get_docfield_precision("Stock Entry", "custom_pea_rejection_qty", doc)
 	child_precision = (
 		_get_docfield_precision("Rejection Breakup", "qty", breakup_rows[0]) if breakup_rows else 3
@@ -578,7 +581,7 @@ def _apply_rejection_entries(doc) -> None:
 	_append_rejection_item_row(doc, fg_row, rejection_qty, rejection_warehouse)
 
 
-def _validate_rejection_qty_against_finished_good(rejection_qty: float, fg_row) -> None:
+def _validate_rejection_qty_against_finished_good(rejection_qty: float, fg_row: Any) -> None:
 	if rejection_qty <= fg_row.qty:
 		return
 	frappe.throw(
@@ -588,7 +591,9 @@ def _validate_rejection_qty_against_finished_good(rejection_qty: float, fg_row) 
 	)
 
 
-def _append_rejection_item_row(doc, fg_row, rejection_qty: float, rejection_warehouse: str) -> None:
+def _append_rejection_item_row(
+	doc: Document, fg_row: Any, rejection_qty: float, rejection_warehouse: str
+) -> None:
 	rejection_row = doc.append("items", {})
 	rejection_row.item_code = fg_row.item_code
 	rejection_row.item_name = fg_row.item_name
@@ -617,7 +622,7 @@ def _append_rejection_item_row(doc, fg_row, rejection_qty: float, rejection_ware
 	rejection_row.bom_no = ""
 
 
-def _validate_rejection_target_warehouses(doc) -> None:
+def _validate_rejection_target_warehouses(doc: Document) -> None:
 	"""Ensure rejection rows always target a warehouse marked as rejected."""
 	if not _has_rejected_warehouse_flag():
 		return
@@ -799,7 +804,7 @@ def _get_deducted_loss_minutes_for_entry(
 
 
 def _get_unplanned_loss_overlaps(
-	doc,
+	doc: Document,
 	actual_start: datetime.datetime,
 	actual_end: datetime.datetime,
 ) -> list[tuple[datetime.datetime, datetime.datetime]]:
@@ -820,7 +825,7 @@ def _get_unplanned_loss_overlaps(
 
 
 def _get_planned_loss_overlaps(
-	doc,
+	doc: Document,
 	actual_start: datetime.datetime,
 	actual_end: datetime.datetime,
 ) -> list[tuple[datetime.datetime, datetime.datetime]]:
@@ -845,7 +850,7 @@ def _get_planned_loss_overlaps(
 
 
 def _get_shift_planned_losses_for_metrics(
-	doc,
+	doc: Document,
 ) -> tuple[list[dict], datetime.datetime | None, datetime.datetime | None]:
 	shift_name = doc.get("custom_pea_shift")
 	if not shift_name:

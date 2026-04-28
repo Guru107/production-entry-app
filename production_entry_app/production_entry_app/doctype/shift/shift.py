@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import datetime
+from collections.abc import Callable
+from typing import Any
 
 import frappe
 from frappe import _
@@ -555,13 +557,13 @@ def _build_completeness_state(
 	return {"show_banner": len(messages) > 0, "messages": messages}
 
 
-def _normalize_planned_loss_time(value) -> str | None:
+def _normalize_planned_loss_time(value: Any) -> str | None:
 	if hasattr(value, "strftime"):
 		return value.strftime("%H:%M:%S")
 	return str(value) if value is not None else None
 
 
-def _planned_loss_signature(row) -> tuple[str | None, str | None, str | None]:
+def _planned_loss_signature(row: Any) -> tuple[str | None, str | None, str | None]:
 	return (
 		getattr(row, "downtime_reason", None),
 		_normalize_planned_loss_time(getattr(row, "start_time", None)),
@@ -569,7 +571,7 @@ def _planned_loss_signature(row) -> tuple[str | None, str | None, str | None]:
 	)
 
 
-def _get_active_downtime_reason_checker():
+def _get_active_downtime_reason_checker() -> Callable[[str], bool]:
 	reason_active_cache: dict[str, bool] = {}
 	has_is_active_field = bool(frappe.get_meta("Downtime Reason", cached=True).has_field("is_active"))
 
@@ -592,7 +594,7 @@ def _planned_loss_entry_with_start(
 	reason: str,
 	start_dt: datetime.datetime,
 	end_dt: datetime.datetime,
-) -> tuple[datetime.datetime, dict]:
+) -> tuple[datetime.datetime, dict[str, str]]:
 	return (
 		start_dt,
 		{
@@ -603,7 +605,11 @@ def _planned_loss_entry_with_start(
 	)
 
 
-def _get_jh_activity_entries(base: datetime.datetime, shift_end: datetime.datetime, is_active_reason) -> list:
+def _get_jh_activity_entries(
+	base: datetime.datetime,
+	shift_end: datetime.datetime,
+	is_active_reason: Callable[[str], bool],
+) -> list[tuple[datetime.datetime, dict[str, str]]]:
 	if not is_active_reason("JH Activity"):
 		return []
 	start_dt = _find_fixed_time_in_window(base, shift_end, _JH_ACTIVITY_FIXED_START_TIME)
@@ -617,8 +623,8 @@ def _get_fixed_time_break_entries(
 	base: datetime.datetime,
 	shift_end: datetime.datetime,
 	duration_hours: int,
-	is_active_reason,
-) -> list[tuple[datetime.datetime, dict]]:
+	is_active_reason: Callable[[str], bool],
+) -> list[tuple[datetime.datetime, dict[str, str]]]:
 	entries = []
 	for reason, fixed_time, duration_mins in _FIXED_TIME_BREAKS.get(duration_hours, []):
 		if not is_active_reason(reason):

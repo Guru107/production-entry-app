@@ -843,6 +843,7 @@ def _cleanup_e2e_shifts(prefix: str, targets: dict[str, object] | None = None) -
 					title="E2E cleanup shift orphan cleanup failed",
 					message=f"cleanup_e2e_context: unable to clean Shift orphan links for {name}",
 				)
+				raise
 			_safe_force_delete("Shift", name, context="cleanup_e2e_context")
 
 
