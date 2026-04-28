@@ -48,11 +48,15 @@ The detector can report `overall_status: clean` while still marking individual f
 | --- | --- | --- |
 | `lifecycle.py` | suspicious due low logic density, no parsed high/critical finding | Run file-level detector. If no high/critical finding is present, skip this file and document it as out of high/critical scope. |
 
-Required lifecycle gate:
+Required lifecycle gate uses the same project-level detector invocation as the baseline, then filters the JSON for `lifecycle.py`:
 
 ```bash
-uvx --from 'ai-slop-detector[js]==3.6.0' slop-detector --project production_entry_app/production_entry_app/lifecycle.py --config .slopconfig.yaml --json --no-history
+mkdir -p reports
+uvx --from 'ai-slop-detector[js]==3.6.0' slop-detector --project . --config .slopconfig.yaml --js --json --no-history > reports/ai-slop-report.json
+node scripts/print_ai_slop_file_findings.js production_entry_app/production_entry_app/lifecycle.py
 ```
+
+If `scripts/print_ai_slop_file_findings.js` does not exist yet, create it as a small report-inspection utility before implementation and cover it with a simple fixture test or manual JSON parse check. Do not use a detector command that changes the scan root for this gate.
 
 Skipping `lifecycle.py` after this gate does not fail the goal, because the requested scope is high and critical findings.
 
@@ -112,7 +116,7 @@ For each report module touched:
 - Run the existing report test cases that exercise the module.
 - If a report has no direct test for a touched branch, add a characterization test before refactoring.
 - Capture representative `execute(filters)` outputs in test assertions: columns, row count, key row values, sorting, chart payload where applicable, and precision-sensitive raw values.
-- For query-heavy functions, compare the generated SQL or query-builder-selected fields before and after when feasible. If direct SQL extraction is not feasible, use tests that assert selected fields, aliases, grouping behavior, ordering, and filter effects through report output.
+- For query-heavy functions, use at least one concrete verification path before refactoring and after refactoring: generated SQL snapshot, query-builder selected-field assertion, or output characterization that proves selected fields, aliases, grouping behavior, ordering, and filter effects. This is mandatory for every query-heavy function touched.
 
 ### API And E2E Helpers
 
@@ -166,6 +170,18 @@ Trade-off: improves the metric quickly, but mixes unrelated behavior areas and m
 - Do not optimize queries or alter data structures unless required to preserve behavior after extraction.
 - Do not consolidate report modules into a framework during this cleanup.
 - Leave a finding in place if removing it would require a behavior-risky redesign.
+
+## Per-Batch Work Sequence
+
+Every implementation batch must follow this order:
+
+1. Inspect the current function and identify existing tests for each branch that will be touched.
+2. Add or update characterization tests before refactoring if branch coverage is missing.
+3. Run the characterization tests against unchanged production code and record the passing command.
+4. Refactor by extracting helpers without changing public behavior.
+5. Rerun the same characterization tests and the batch verification commands.
+6. Rerun AI-SLOP and confirm the finding count does not increase.
+7. Commit only the intended batch files.
 
 ## Phase 1: Suspicious High/Critical Files
 
@@ -272,6 +288,7 @@ Required verification:
 
 ```bash
 cd /Users/gurudattkulkarni/Workspace/bench15 && bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.report.test_reports
+cd /Users/gurudattkulkarni/Workspace/bench16 && bench --site frappe16.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.report.test_reports
 scripts/check_ai_slop.sh
 pre-commit run --all-files
 ```
@@ -320,7 +337,7 @@ Files:
 - `operator_efficiency_report.py`
 - `report_utils.py`
 
-Required verification: same as Batch 2A. Run bench16 report tests if `report_utils.py` changes because it is shared.
+Required verification: same as Batch 2A plus bench16 report tests because report utilities are compatibility-sensitive.
 
 ### Batch 2G: Daily SPM Reports
 
@@ -329,7 +346,7 @@ Files:
 - `daily_strokes_spm_monitor.py`
 - `operator_daily_spm_report.py`
 
-Required verification: same as Batch 2A. Include tests for fiscal-year date ranges and totals rows.
+Required verification: same as Batch 2A plus bench16 report tests. Include tests for fiscal-year date ranges and totals rows.
 
 ## Phase 3: Remaining Clean-File High/Critical Findings
 
@@ -403,7 +420,7 @@ Before every implementation commit:
 - Compatibility-sensitive code has targeted tests passing on bench16.
 - `scripts/check_ai_slop.sh` passes and the finding count does not increase.
 - `pre-commit run --all-files` passes.
-- If a high/critical finding remains intentionally, the commit message or implementation note records why behavior-risk outweighed detector cleanup.
+- If a high/critical finding remains intentionally, pause before final completion and get reviewer or user approval. The implementation note must include the attempted safe extraction, the specific behavior risk, the tests/evidence used to evaluate it, and the reason retention is safer than metric-only cleanup.
 
 ## Query Preservation Criteria
 
@@ -414,7 +431,7 @@ For report query refactors:
 - Keep filters and default filter handling unchanged.
 - Keep grouping and sorting unchanged.
 - Preserve query parameter values for representative filters.
-- If query-builder SQL can be captured without large churn, compare before/after SQL in local notes. If not, use existing report tests plus targeted characterization assertions for the same filters.
+- Each query-heavy function must have one explicit proof path recorded in implementation notes: SQL snapshot comparison, query-builder selected-field/alias assertion, or targeted output characterization that covers aliases, filters, grouping, and ordering.
 
 ## Commit Strategy
 
@@ -426,4 +443,4 @@ For report query refactors:
 
 ## Open Risk
 
-Some detector findings may remain if removing them would require behavior-risky redesign. In that case, record the trade-off and leave the code unchanged rather than forcing a metric-only refactor.
+Some detector findings may remain if removing them would require behavior-risky redesign. Retention requires an implementation note with attempted safe extraction, specific behavior risk, test evidence, and reviewer or user approval before final completion.
