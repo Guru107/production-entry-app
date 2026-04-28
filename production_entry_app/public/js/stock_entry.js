@@ -595,7 +595,7 @@ function _get_shift_detail_updates(frm, data) {
 		to_warehouse: "to_warehouse",
 	};
 	return Object.entries(fieldMap)
-		.filter(([sourceField]) => data[sourceField])
+		.filter(([sourceField]) => Object.prototype.hasOwnProperty.call(data, sourceField))
 		.map(([sourceField, targetField]) => frm.set_value(targetField, data[sourceField]));
 }
 
@@ -761,6 +761,7 @@ if (typeof module !== "undefined" && module.exports) {
 		_should_override_fg_completed_qty,
 		_run_when_app_enabled,
 		_sync_native_get_items_access,
+		_get_shift_detail_updates,
 		_hide_native_get_items,
 		_show_native_get_items,
 	};

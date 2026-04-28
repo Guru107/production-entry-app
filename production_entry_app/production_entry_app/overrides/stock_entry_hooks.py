@@ -453,6 +453,7 @@ def _validate_direct_manufacture_alternative_row(
 		_validate_bom_contains_item(row, item_code, bom_no, bom_item_codes)
 		return
 	if original_item == item_code:
+		_validate_bom_contains_item(row, item_code, bom_no, bom_item_codes)
 		return
 	if original_item not in bom_allowed_items:
 		frappe.throw(

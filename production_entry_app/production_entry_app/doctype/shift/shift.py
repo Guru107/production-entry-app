@@ -626,8 +626,9 @@ def _get_fixed_time_break_entries(
 		fixed_time_value = datetime.datetime.strptime(fixed_time, "%H:%M").time()
 		start_dt = _find_fixed_time_in_window(base, shift_end, fixed_time_value)
 		if start_dt:
-			end_dt = add_to_date(start_dt, minutes=duration_mins)
-			entries.append(_planned_loss_entry_with_start(reason, start_dt, end_dt))
+			end_dt = min(add_to_date(start_dt, minutes=duration_mins), shift_end)
+			if end_dt > start_dt:
+				entries.append(_planned_loss_entry_with_start(reason, start_dt, end_dt))
 	return entries
 
 

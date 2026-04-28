@@ -8,6 +8,7 @@ const {
 	_should_override_fg_completed_qty,
 	_run_when_app_enabled,
 	_sync_native_get_items_access,
+	_get_shift_detail_updates,
 	MANUFACTURE_FIELDS,
 	MANUFACTURE_SECTIONS,
 	ALWAYS_HIDDEN_FIELDS,
@@ -87,6 +88,33 @@ test("fg completed qty override is disabled until required-role access is explic
 	} finally {
 		global.window = originalWindow;
 	}
+});
+
+test("shift detail updates clear present empty values instead of leaving stale fields", () => {
+	const updates = [];
+	const frm = {
+		set_value(fieldname, value) {
+			updates.push([fieldname, value]);
+			return Promise.resolve();
+		},
+	};
+
+	const result = _get_shift_detail_updates(frm, {
+		company: "Test Company",
+		branch: "",
+		custom_pea_planned_start_date: null,
+		custom_pea_planned_end_date: "2026-02-22 16:00:00",
+		from_warehouse: undefined,
+	});
+
+	assert.equal(result.length, 5);
+	assert.deepEqual(updates, [
+		["company", "Test Company"],
+		["branch", ""],
+		["custom_pea_planned_start_date", null],
+		["custom_pea_planned_end_date", "2026-02-22 16:00:00"],
+		["from_warehouse", undefined],
+	]);
 });
 
 test("app-enabled callbacks stay fail-closed when access lookup rejects", async () => {

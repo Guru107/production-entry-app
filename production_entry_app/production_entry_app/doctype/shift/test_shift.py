@@ -1252,6 +1252,27 @@ class TestShift(FrappeTestCase):
 			],
 		)
 
+	def test_fixed_time_planned_losses_are_clamped_to_shift_end(self) -> None:
+		name = self._expected_name(self._test_department, "2026-02-10", "1")
+		self._delete_shift_if_exists(name)
+
+		doc = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"department": self._test_department,
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": "2026-02-10",
+				"planned_start_time": "01:05:00",
+				"shift_end_date": "2026-02-10",
+			}
+		).insert()
+
+		tea_break = next((row for row in doc.planned_losses if row.downtime_reason == "Tea Break"), None)
+		self.assertIsNotNone(tea_break)
+		self.assertEqual(tea_break.start_time, "09:00:00")
+		self.assertEqual(tea_break.end_time, "09:05:00")
+
 	def test_planned_losses_auto_populate_10_hour_shift(self) -> None:
 		name = self._expected_name(self._test_department, "2026-02-12", "2")
 		self._delete_shift_if_exists(name)

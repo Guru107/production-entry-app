@@ -339,6 +339,47 @@ class TestE2EApi(FrappeTestCase):
 		cleanup.assert_not_called()
 		delete_doc.assert_called_once_with("Stock Entry", "MAT-STE-2026-00001")
 
+	def test_cleanup_e2e_shifts_cleans_shift_orphans_before_force_delete(self) -> None:
+		with patch(
+			"production_entry_app.production_entry_app.api._get_e2e_cleanup_targets",
+			return_value={"e2e_shift_names": ["SHIFT-2026-02-22.1.0001"]},
+		):
+			with patch("production_entry_app.production_entry_app.api.frappe.db.exists", return_value=True):
+				with patch("production_entry_app.production_entry_app.api.frappe.get_doc") as get_doc:
+					with patch(
+						"production_entry_app.production_entry_app.api._cleanup_orphan_stock_entry_loss_links"
+					) as cleanup:
+						with patch(
+							"production_entry_app.production_entry_app.api._safe_force_delete"
+						) as force_delete:
+							get_doc.return_value = frappe._dict({"status": "Completed"})
+
+							from production_entry_app.production_entry_app.api import _cleanup_e2e_shifts
+
+							_cleanup_e2e_shifts("E2E")
+
+		cleanup.assert_called_once_with("SHIFT-2026-02-22.1.0001")
+		force_delete.assert_called_once_with(
+			"Shift", "SHIFT-2026-02-22.1.0001", context="cleanup_e2e_context"
+		)
+
+	def test_cleanup_e2e_context_finalizes_after_cleanup_failure(self) -> None:
+		with patch(
+			"production_entry_app.production_entry_app.api._get_e2e_cleanup_targets",
+			return_value={"e2e_shift_names": []},
+		):
+			with patch(
+				"production_entry_app.production_entry_app.api._cleanup_e2e_shifts",
+				side_effect=RuntimeError("cleanup failed"),
+			):
+				with patch("production_entry_app.production_entry_app.api._finalize_e2e_cleanup") as finalize:
+					with self.assertRaisesRegex(RuntimeError, "cleanup failed"):
+						_cleanup_e2e_context("E2E")
+
+		finalize.assert_called_once()
+		self.assertEqual(finalize.call_args.args[0], "E2E")
+		self.assertEqual(finalize.call_args.args[1]["ok"], False)
+
 	def test_delete_wrapper_http_methods_match_frappe_client_delete(self) -> None:
 		allowed_methods = frappe.allowed_http_methods_for_whitelisted_func.get(delete, [])
 		self.assertEqual(set(allowed_methods), {"DELETE", "POST"})

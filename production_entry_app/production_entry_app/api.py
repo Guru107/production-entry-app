@@ -836,6 +836,13 @@ def _cleanup_e2e_shifts(prefix: str, targets: dict[str, object] | None = None) -
 			doc.end_shift()
 			doc.reload()
 		if doc.status in ("Draft", "Cancelled", "Completed"):
+			try:
+				_cleanup_orphan_stock_entry_loss_links(name)
+			except Exception:
+				frappe.log_error(
+					title="E2E cleanup shift orphan cleanup failed",
+					message=f"cleanup_e2e_context: unable to clean Shift orphan links for {name}",
+				)
 			_safe_force_delete("Shift", name, context="cleanup_e2e_context")
 
 
@@ -941,11 +948,17 @@ def _finalize_e2e_cleanup(prefix: str, result: dict[str, object]) -> dict[str, o
 
 def _cleanup_e2e_context(prefix: str = "E2E") -> dict:
 	result: dict[str, object] = {"ok": True}
-	targets = _get_e2e_cleanup_targets(prefix)
-	_cleanup_e2e_shifts(prefix, targets)
-	_cleanup_e2e_stock_entries(targets)
-	_cleanup_e2e_master_data(prefix)
-	return _finalize_e2e_cleanup(prefix, result)
+	try:
+		targets = _get_e2e_cleanup_targets(prefix)
+		_cleanup_e2e_shifts(prefix, targets)
+		_cleanup_e2e_stock_entries(targets)
+		_cleanup_e2e_master_data(prefix)
+	except Exception:
+		result["ok"] = False
+		raise
+	finally:
+		_finalize_e2e_cleanup(prefix, result)
+	return result
 
 
 @frappe.whitelist()
@@ -1033,22 +1046,38 @@ def create_e2e_submitted_stock_entry(prefix: str = "E2E", rejection_qty: float =
 			"posting_time": "09:00:00",
 		}
 	)
+	_finalize_e2e_submitted_stock_entry(
+		doc,
+		rejection_qty=rejection_qty,
+		wip_warehouse=ctx["wip_warehouse"],
+		fg_warehouse=ctx["fg_warehouse"],
+	)
+	_clear_timeline_cache_for_context(ctx, ctx["shift_name"])
+
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit - required for report read-after-write checks
+	return {"name": doc.name, "docstatus": doc.docstatus, "posting_date": shift_date}
+
+
+def _finalize_e2e_submitted_stock_entry(
+	doc: Document,
+	*,
+	rejection_qty: float,
+	wip_warehouse: str | None,
+	fg_warehouse: str | None,
+) -> Document:
 	doc.get_items()
 	for row in doc.get("items") or []:
 		if not row.get("s_warehouse"):
-			row.s_warehouse = ctx["wip_warehouse"]
+			row.s_warehouse = wip_warehouse
 		if row.get("is_finished_item") and not row.get("t_warehouse"):
-			row.t_warehouse = ctx["fg_warehouse"]
+			row.t_warehouse = fg_warehouse
 	if float(rejection_qty or 0) > 0:
 		doc.append(
 			"custom_pea_rejection_breakup", {"rejection_reason": "Burr", "qty": float(rejection_qty or 0)}
 		)
 	doc.insert(ignore_permissions=True)
 	doc.submit()
-	_clear_timeline_cache_for_context(ctx, ctx["shift_name"])
-
-	frappe.db.commit()  # nosemgrep: frappe-manual-commit - required for report read-after-write checks
-	return {"name": doc.name, "docstatus": doc.docstatus, "posting_date": shift_date}
+	return doc
 
 
 def _build_e2e_full_shift_entry_payloads(ctx: dict) -> list[dict]:
@@ -1093,19 +1122,12 @@ def _insert_e2e_full_shift_stock_entry(payload: dict) -> str:
 	rejection_qty = payload.get("_pea_rejection_qty")
 	doc_payload = {key: value for key, value in payload.items() if not key.startswith("_pea_")}
 	doc = frappe.get_doc(doc_payload)
-	doc.get_items()
-	for row in doc.get("items") or []:
-		if not row.get("s_warehouse"):
-			row.s_warehouse = wip_warehouse
-		if row.get("is_finished_item") and not row.get("t_warehouse"):
-			row.t_warehouse = fg_warehouse
-	if float(rejection_qty or 0) > 0:
-		doc.append(
-			"custom_pea_rejection_breakup",
-			{"rejection_reason": "Burr", "qty": float(rejection_qty or 0)},
-		)
-	doc.insert(ignore_permissions=True)
-	doc.submit()
+	_finalize_e2e_submitted_stock_entry(
+		doc,
+		rejection_qty=rejection_qty,
+		wip_warehouse=wip_warehouse,
+		fg_warehouse=fg_warehouse,
+	)
 	return doc.name
 
 

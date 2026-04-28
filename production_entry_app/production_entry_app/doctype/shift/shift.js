@@ -52,15 +52,11 @@ function _add_status_action_buttons(frm) {
 	const actionsGroup = __("Actions");
 	if (frm.doc.status === "Draft") {
 		_add_shift_action_button(frm, __("Start Shift"), "start_shift", actionsGroup);
-		frm.add_custom_button(
-			__("Cancel"),
-			() => {
-				frappe.confirm(__("Cancel this shift?"), () => {
-					_call_shift_transition(frm, "cancel_shift");
-				});
-			},
-			actionsGroup
-		);
+		_add_cancel_shift_button(frm, actionsGroup);
+		return;
+	}
+	if (frm.doc.status === "Completed") {
+		_add_cancel_shift_button(frm, actionsGroup);
 		return;
 	}
 	if (frm.doc.status === "Running") {
@@ -77,6 +73,18 @@ function _add_status_action_buttons(frm) {
 			actionsGroup
 		);
 	}
+}
+
+function _add_cancel_shift_button(frm, actionsGroup) {
+	frm.add_custom_button(
+		__("Cancel"),
+		() => {
+			frappe.confirm(__("Cancel this shift?"), () => {
+				_call_shift_transition(frm, "cancel_shift");
+			});
+		},
+		actionsGroup
+	);
 }
 
 function _add_shift_action_button(frm, label, method, group) {
@@ -216,7 +224,8 @@ function _fetch_default_breaks(frm, requestKey) {
 		callback(r) {
 			if (
 				_get_planned_breaks_request_key(frm) !== requestKey ||
-				frm.__plannedBreaksRequestKey !== requestKey
+				frm.__plannedBreaksRequestKey !== requestKey ||
+				!_can_populate_default_breaks(frm)
 			) {
 				return;
 			}
