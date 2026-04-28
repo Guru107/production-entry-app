@@ -5,6 +5,7 @@ import frappe
 from production_entry_app.production_entry_app import access_control, performance_indexes
 
 APP_MODULE = "Production Entry App"
+CUSTOMIZATION_DOCTYPES = ("Property Setter", "Custom Field")
 
 
 def after_sync() -> None:
@@ -17,8 +18,8 @@ def after_migrate() -> None:
 
 def before_uninstall() -> None:
 	performance_indexes.drop_performance_indexes_if_exists()
-	_delete_customizations("Property Setter")
-	_delete_customizations("Custom Field")
+	for doctype in CUSTOMIZATION_DOCTYPES:
+		_delete_customizations(doctype)
 
 
 def _setup_app() -> None:

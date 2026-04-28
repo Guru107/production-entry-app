@@ -3223,6 +3223,17 @@ class TestGetItemsWithRejection(FrappeTestCase):
 		with self.assertRaisesRegex(ValidationError, "is not part of BOM"):
 			se.run_method("validate")
 
+	def test_direct_manufacture_same_original_item_still_requires_bom_membership(self) -> None:
+		context = self._make_alternative_bom_context("SameOriginal", allow_alternative_item=1)
+		se = self._make_direct_manufacture_entry_with_alternative(context)
+		for row in se.items:
+			if row.get("item_code") == context["alt_item"]:
+				row.original_item = context["alt_item"]
+				break
+
+		with self.assertRaisesRegex(ValidationError, "is not part of BOM"):
+			se.run_method("validate")
+
 	def test_alternative_allowed_lookup_includes_child_bom_items(self) -> None:
 		suffix = frappe.generate_hash(length=8)
 		parent_fg = _get_or_create_item(f"_Test Parent FG Alt {suffix}")

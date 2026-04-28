@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import datetime
+from collections.abc import Callable
+from typing import Any
 
 import frappe
 from frappe import _
@@ -49,6 +51,7 @@ _SHIFT_START_LOSSES: list[tuple[str, int, int]] = [
 	("Shift Start Up", 0, 10),
 ]
 # JH Activity is scheduled at a fixed absolute time (10:00-10:10) if the shift window overlaps.
+_JH_ACTIVITY_REASON: str = "JH Activity"
 _JH_ACTIVITY_FIXED_START_TIME: datetime.time = datetime.time(10, 0, 0)
 _JH_ACTIVITY_DURATION_MINS: int = 10
 _FIXED_TIME_BREAKS: dict[int, list[tuple[str, str, int]]] = {
@@ -320,7 +323,6 @@ def _get_shift_summary_cache_key(shift_name: str) -> str:
 
 
 def _get_shift_metrics_cache_key(shift_name: str) -> str:
-	"""Compatibility alias for Stock Entry cache invalidation hooks."""
 	return _get_shift_summary_cache_key(shift_name)
 
 
@@ -554,6 +556,99 @@ def _build_completeness_state(
 	):
 		messages.append(_("Recorded production time looks low relative to planned usable time."))
 	return {"show_banner": len(messages) > 0, "messages": messages}
+
+
+def _normalize_planned_loss_time(value: Any) -> str | None:
+	if hasattr(value, "strftime"):
+		return value.strftime("%H:%M:%S")
+	return str(value) if value is not None else None
+
+
+def _planned_loss_signature(row: Any) -> tuple[str | None, str | None, str | None]:
+	return (
+		getattr(row, "downtime_reason", None),
+		_normalize_planned_loss_time(getattr(row, "start_time", None)),
+		_normalize_planned_loss_time(getattr(row, "end_time", None)),
+	)
+
+
+def _get_active_downtime_reason_checker() -> Callable[[str], bool]:
+	reason_active_cache: dict[str, bool] = {}
+	has_is_active_field = bool(frappe.get_meta("Downtime Reason", cached=True).has_field("is_active"))
+
+	def is_active_reason(reason: str) -> bool:
+		if reason in reason_active_cache:
+			return reason_active_cache[reason]
+		if not frappe.db.exists("Downtime Reason", reason):
+			reason_active_cache[reason] = False
+			return False
+		if not has_is_active_field:
+			reason_active_cache[reason] = True
+			return True
+		reason_active_cache[reason] = bool(frappe.db.get_value("Downtime Reason", reason, "is_active"))
+		return reason_active_cache[reason]
+
+	return is_active_reason
+
+
+def _planned_loss_entry_with_start(
+	reason: str,
+	start_dt: datetime.datetime,
+	end_dt: datetime.datetime,
+) -> tuple[datetime.datetime, dict[str, str]]:
+	return (
+		start_dt,
+		{
+			"downtime_reason": reason,
+			"start_time": start_dt.time().strftime("%H:%M:%S"),
+			"end_time": end_dt.time().strftime("%H:%M:%S"),
+		},
+	)
+
+
+def _get_jh_activity_entries(
+	base: datetime.datetime,
+	shift_end: datetime.datetime,
+	is_active_reason: Callable[[str], bool],
+) -> list[tuple[datetime.datetime, dict[str, str]]]:
+	if not is_active_reason(_JH_ACTIVITY_REASON):
+		return []
+	start_dt = _find_fixed_time_in_window(base, shift_end, _JH_ACTIVITY_FIXED_START_TIME)
+	if start_dt is None:
+		return []
+	end_dt = add_to_date(start_dt, minutes=_JH_ACTIVITY_DURATION_MINS)
+	return [_planned_loss_entry_with_start(_JH_ACTIVITY_REASON, start_dt, min(end_dt, shift_end))]
+
+
+def _get_fixed_time_break_entries(
+	base: datetime.datetime,
+	shift_end: datetime.datetime,
+	duration_hours: int,
+	is_active_reason: Callable[[str], bool],
+) -> list[tuple[datetime.datetime, dict[str, str]]]:
+	entries = []
+	for reason, fixed_time, duration_mins in _FIXED_TIME_BREAKS.get(duration_hours, []):
+		if not is_active_reason(reason):
+			continue
+		fixed_time_value = datetime.datetime.strptime(fixed_time, "%H:%M").time()
+		start_dt = _find_fixed_time_in_window(base, shift_end, fixed_time_value)
+		if start_dt:
+			end_dt = min(add_to_date(start_dt, minutes=duration_mins), shift_end)
+			if end_dt > start_dt:
+				entries.append(_planned_loss_entry_with_start(reason, start_dt, end_dt))
+	return entries
+
+
+def _find_fixed_time_in_window(
+	base: datetime.datetime,
+	shift_end: datetime.datetime,
+	fixed_time_value: datetime.time,
+) -> datetime.datetime | None:
+	candidates = [
+		datetime.datetime.combine(base.date(), fixed_time_value),
+		datetime.datetime.combine(base.date() + datetime.timedelta(days=1), fixed_time_value),
+	]
+	return next((candidate for candidate in candidates if base <= candidate < shift_end), None)
 
 
 @frappe.whitelist()
@@ -883,11 +978,6 @@ class Shift(Document):
 
 	@frappe.whitelist()
 	def start_shift(self) -> None:
-		"""Transition Draft -> Running.
-
-		Status is system-managed; use this action instead of editing the Status field.
-		Blocked if another shift in the same department and branch is already Running.
-		"""
 		access_control.assert_app_access(doctype="Shift", docname=self.name)
 		self._validate_no_other_running_shift()
 		self._transition_status(to_status="Running", allowed_from=("Draft",))
@@ -919,19 +1009,11 @@ class Shift(Document):
 
 	@frappe.whitelist()
 	def end_shift(self) -> None:
-		"""Transition Running -> Completed.
-
-		Status is system-managed; use this action instead of editing the Status field.
-		"""
 		access_control.assert_app_access(doctype="Shift", docname=self.name)
 		self._transition_status(to_status="Completed", allowed_from=("Running",))
 
 	@frappe.whitelist()
 	def cancel_shift(self) -> None:
-		"""Transition Draft -> Cancelled.
-
-		Status is system-managed; use this action instead of editing the Status field.
-		"""
 		access_control.assert_app_access(doctype="Shift", docname=self.name)
 		self._transition_status(to_status="Cancelled", allowed_from=("Draft",))
 
@@ -1059,24 +1141,9 @@ class Shift(Document):
 		curr = self.get("planned_losses") or []
 		if len(prev) != len(curr):
 			return True
-
-		# Normalize time values for comparison (DB stores HH:MM:SS strings, in-memory may be datetime.time)
-		def _norm(v):
-			if hasattr(v, "strftime"):
-				return v.strftime("%H:%M:%S")
-			return str(v) if v is not None else None
-
-		for i, row in enumerate(curr):
-			if i >= len(prev):
-				return True
-			p = prev[i]
-			if (
-				getattr(row, "downtime_reason", None) != getattr(p, "downtime_reason", None)
-				or _norm(getattr(row, "start_time", None)) != _norm(getattr(p, "start_time", None))
-				or _norm(getattr(row, "end_time", None)) != _norm(getattr(p, "end_time", None))
-			):
-				return True
-		return False
+		return any(
+			_planned_loss_signature(row) != _planned_loss_signature(prev[i]) for i, row in enumerate(curr)
+		)
 
 	def _validate_no_overlapping_shifts(self) -> None:
 		"""Prevent overlapping shift time periods (exclude Cancelled)."""
@@ -1236,88 +1303,20 @@ class Shift(Document):
 		base = self._combine_date_time(self.shift_date, self.planned_start_time)
 		duration_hours = self._parse_duration_hours(self.shift_duration)
 		shift_end = add_to_date(base, hours=duration_hours)
-		reason_active_cache: dict[str, bool] = {}
-		downtime_reason_meta = frappe.get_meta("Downtime Reason", cached=True)
-		has_is_active_field = bool(downtime_reason_meta.has_field("is_active"))
-
-		def is_active_reason(reason: str) -> bool:
-			if reason in reason_active_cache:
-				return reason_active_cache[reason]
-			if not frappe.db.exists("Downtime Reason", reason):
-				reason_active_cache[reason] = False
-				return False
-			if not has_is_active_field:
-				reason_active_cache[reason] = True
-				return True
-			reason_active_cache[reason] = bool(frappe.db.get_value("Downtime Reason", reason, "is_active"))
-			return reason_active_cache[reason]
-
+		is_active_reason = _get_active_downtime_reason_checker()
 		entries_with_start: list[tuple[datetime.datetime, dict]] = []
 
-		# Shift Start Up - relative to shift start
 		for reason, offset_mins, duration_mins in _SHIFT_START_LOSSES:
 			if not is_active_reason(reason):
 				continue
 			start_dt = add_to_date(base, minutes=offset_mins)
 			end_dt = add_to_date(start_dt, minutes=duration_mins)
-			entries_with_start.append(
-				(
-					start_dt,
-					{
-						"downtime_reason": reason,
-						"start_time": start_dt.time().strftime("%H:%M:%S"),
-						"end_time": end_dt.time().strftime("%H:%M:%S"),
-					},
-				)
-			)
+			entries_with_start.append(_planned_loss_entry_with_start(reason, start_dt, end_dt))
 
-		# JH Activity - fixed absolute 10:00-10:10, only if shift window overlaps.
-		# Check both day-0 and day+1 candidates for cross-midnight shifts.
-		if is_active_reason("JH Activity"):
-			jh_candidates = [
-				datetime.datetime.combine(base.date(), _JH_ACTIVITY_FIXED_START_TIME),
-				datetime.datetime.combine(
-					base.date() + datetime.timedelta(days=1), _JH_ACTIVITY_FIXED_START_TIME
-				),
-			]
-			jh_fixed = next((c for c in jh_candidates if base <= c < shift_end), None)
-			if jh_fixed is not None:
-				jh_end = add_to_date(jh_fixed, minutes=_JH_ACTIVITY_DURATION_MINS)
-				# Clip to shift boundaries if needed
-				actual_end = jh_end if jh_end <= shift_end else shift_end
-				entries_with_start.append(
-					(
-						jh_fixed,
-						{
-							"downtime_reason": "JH Activity",
-							"start_time": jh_fixed.time().strftime("%H:%M:%S"),
-							"end_time": actual_end.time().strftime("%H:%M:%S"),
-						},
-					)
-				)
-
-		for reason, fixed_time, duration_mins in _FIXED_TIME_BREAKS.get(duration_hours, []):
-			if not is_active_reason(reason):
-				continue
-			fixed_time_value = datetime.datetime.strptime(fixed_time, "%H:%M").time()
-			candidates = [
-				datetime.datetime.combine(base.date(), fixed_time_value),
-				datetime.datetime.combine(base.date() + datetime.timedelta(days=1), fixed_time_value),
-			]
-			start_dt = next((candidate for candidate in candidates if base <= candidate < shift_end), None)
-			if not start_dt:
-				continue
-			end_dt = add_to_date(start_dt, minutes=duration_mins)
-			entries_with_start.append(
-				(
-					start_dt,
-					{
-						"downtime_reason": reason,
-						"start_time": start_dt.time().strftime("%H:%M:%S"),
-						"end_time": end_dt.time().strftime("%H:%M:%S"),
-					},
-				)
-			)
+		entries_with_start.extend(_get_jh_activity_entries(base, shift_end, is_active_reason))
+		entries_with_start.extend(
+			_get_fixed_time_break_entries(base, shift_end, duration_hours, is_active_reason)
+		)
 
 		entries = [row for _, row in sorted(entries_with_start, key=lambda pair: pair[0])]
 

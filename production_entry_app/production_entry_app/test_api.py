@@ -7,6 +7,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from production_entry_app.production_entry_app.api import (
+	_apply_direct_manufacture_alternative_flags,
 	_assert_e2e_api_allowed,
 	_build_e2e_shift_doc,
 	_cache_e2e_settings_snapshot,
@@ -21,6 +22,7 @@ from production_entry_app.production_entry_app.api import (
 	_get_e2e_shift_names_cache_key,
 	_get_or_create_e2e_employee,
 	_get_or_create_e2e_shift,
+	_insert_e2e_full_shift_stock_entry,
 	_item_has_live_stock_entry_references,
 	_restore_cached_e2e_settings,
 	_safe_cancel_and_delete,
@@ -244,6 +246,62 @@ class TestE2EApi(FrappeTestCase):
 			)
 		)
 
+	def test_apply_direct_manufacture_alternative_flags_preserves_current_row_rules(self) -> None:
+		doc = frappe._dict(
+			{
+				"purpose": "Manufacture",
+				"from_bom": 1,
+				"bom_no": "BOM-001",
+				"work_order": None,
+				"items": [
+					frappe._dict({"item_code": "RM-ALLOWED", "allow_alternative_item": 0}),
+					frappe._dict({"item_code": "RM-EXISTING", "allow_alternative_item": 1}),
+					frappe._dict(
+						{"item_code": "FG-ITEM", "is_finished_item": 1, "allow_alternative_item": 0}
+					),
+					frappe._dict({"item_code": "SCRAP", "is_scrap_item": 1, "allow_alternative_item": 0}),
+					frappe._dict(
+						{
+							"item_code": "REJECTION",
+							"custom_pea_is_rejection_item": 1,
+							"allow_alternative_item": 0,
+						}
+					),
+					frappe._dict(
+						{
+							"item_code": "SUBSTITUTE",
+							"original_item": "RM-ORIGINAL",
+							"allow_alternative_item": 0,
+						}
+					),
+					frappe._dict({"item_code": "RM-BLOCKED", "allow_alternative_item": 0}),
+				],
+			}
+		)
+
+		with patch(
+			"production_entry_app.production_entry_app.api.get_bom_alternative_allowed_items",
+			return_value={"RM-ALLOWED", "RM-EXISTING", "RM-ORIGINAL"},
+		):
+			_apply_direct_manufacture_alternative_flags(doc)
+
+		self.assertEqual(
+			[row.get("item_code") for row in doc.get("items")],
+			[
+				"RM-ALLOWED",
+				"RM-EXISTING",
+				"FG-ITEM",
+				"SCRAP",
+				"REJECTION",
+				"SUBSTITUTE",
+				"RM-BLOCKED",
+			],
+		)
+		self.assertEqual(
+			[row.get("allow_alternative_item") for row in doc.get("items")],
+			[1, 1, 0, 0, 0, 1, 0],
+		)
+
 	def test_cleanup_orphan_stock_entry_loss_links_deletes_only_orphans(self) -> None:
 		with patch(
 			"production_entry_app.production_entry_app.api.frappe.get_all",
@@ -280,6 +338,71 @@ class TestE2EApi(FrappeTestCase):
 				delete("Stock Entry", "MAT-STE-2026-00001")
 		cleanup.assert_not_called()
 		delete_doc.assert_called_once_with("Stock Entry", "MAT-STE-2026-00001")
+
+	def test_cleanup_e2e_shifts_cleans_shift_orphans_before_force_delete(self) -> None:
+		with patch(
+			"production_entry_app.production_entry_app.api._get_e2e_cleanup_targets",
+			return_value={"e2e_shift_names": ["SHIFT-2026-02-22.1.0001"]},
+		):
+			with patch("production_entry_app.production_entry_app.api.frappe.db.exists", return_value=True):
+				with patch("production_entry_app.production_entry_app.api.frappe.get_doc") as get_doc:
+					with patch(
+						"production_entry_app.production_entry_app.api._cleanup_orphan_stock_entry_loss_links"
+					) as cleanup:
+						with patch(
+							"production_entry_app.production_entry_app.api._safe_force_delete"
+						) as force_delete:
+							get_doc.return_value = frappe._dict({"status": "Completed"})
+
+							from production_entry_app.production_entry_app.api import _cleanup_e2e_shifts
+
+							_cleanup_e2e_shifts("E2E")
+
+		cleanup.assert_called_once_with("SHIFT-2026-02-22.1.0001")
+		force_delete.assert_called_once_with(
+			"Shift", "SHIFT-2026-02-22.1.0001", context="cleanup_e2e_context"
+		)
+
+	def test_cleanup_e2e_shifts_does_not_delete_when_orphan_cleanup_fails(self) -> None:
+		with patch(
+			"production_entry_app.production_entry_app.api._get_e2e_cleanup_targets",
+			return_value={"e2e_shift_names": ["SHIFT-2026-02-22.1.0001"]},
+		):
+			with patch("production_entry_app.production_entry_app.api.frappe.db.exists", return_value=True):
+				with patch("production_entry_app.production_entry_app.api.frappe.get_doc") as get_doc:
+					with patch(
+						"production_entry_app.production_entry_app.api._cleanup_orphan_stock_entry_loss_links",
+						side_effect=RuntimeError("orphan cleanup failed"),
+					):
+						with patch("production_entry_app.production_entry_app.api.frappe.log_error"):
+							with patch(
+								"production_entry_app.production_entry_app.api._safe_force_delete"
+							) as force_delete:
+								get_doc.return_value = frappe._dict({"status": "Completed"})
+
+								from production_entry_app.production_entry_app.api import _cleanup_e2e_shifts
+
+								with self.assertRaisesRegex(RuntimeError, "orphan cleanup failed"):
+									_cleanup_e2e_shifts("E2E")
+
+		force_delete.assert_not_called()
+
+	def test_cleanup_e2e_context_finalizes_after_cleanup_failure(self) -> None:
+		with patch(
+			"production_entry_app.production_entry_app.api._get_e2e_cleanup_targets",
+			return_value={"e2e_shift_names": []},
+		):
+			with patch(
+				"production_entry_app.production_entry_app.api._cleanup_e2e_shifts",
+				side_effect=RuntimeError("cleanup failed"),
+			):
+				with patch("production_entry_app.production_entry_app.api._finalize_e2e_cleanup") as finalize:
+					with self.assertRaisesRegex(RuntimeError, "cleanup failed"):
+						_cleanup_e2e_context("E2E")
+
+		finalize.assert_called_once()
+		self.assertEqual(finalize.call_args.args[0], "E2E")
+		self.assertEqual(finalize.call_args.args[1]["ok"], False)
 
 	def test_delete_wrapper_http_methods_match_frappe_client_delete(self) -> None:
 		allowed_methods = frappe.allowed_http_methods_for_whitelisted_func.get(delete, [])
@@ -395,6 +518,40 @@ class TestE2EApi(FrappeTestCase):
 			target_fg_item="_E2E_FG_Item",
 			target_rm_item="_E2E_RM_Item",
 		)
+
+	def test_cleanup_e2e_context_returns_ok_and_remains_safe_when_repeated(self) -> None:
+		with ExitStack() as stack:
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.api._get_candidate_e2e_stock_entries",
+					return_value=[],
+				)
+			)
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.api._e2e_base_date", return_value="2099-01-10"
+				)
+			)
+			stack.enter_context(
+				patch("production_entry_app.production_entry_app.api.frappe.get_all", return_value=[])
+			)
+			stack.enter_context(
+				patch("production_entry_app.production_entry_app.api.frappe.db.exists", return_value=False)
+			)
+			restore_settings = stack.enter_context(
+				patch("production_entry_app.production_entry_app.api._restore_cached_e2e_settings")
+			)
+			commit = stack.enter_context(
+				patch("production_entry_app.production_entry_app.api.frappe.db.commit")
+			)
+
+			first_result = _cleanup_e2e_context(prefix="E2E")
+			second_result = _cleanup_e2e_context(prefix="E2E")
+
+		self.assertEqual(first_result, {"ok": True})
+		self.assertEqual(second_result, {"ok": True})
+		self.assertEqual(restore_settings.call_count, 2)
+		self.assertEqual(commit.call_count, 2)
 
 	def test_cleanup_e2e_context_uses_cached_shift_name_before_predicted_names(self) -> None:
 		cache_key = _get_e2e_shift_names_cache_key("E2E")
@@ -1341,6 +1498,51 @@ class TestE2EApi(FrappeTestCase):
 		doc.insert.assert_called_once_with(ignore_permissions=True)
 		doc.submit.assert_called_once()
 
+	def test_insert_e2e_full_shift_stock_entry_does_not_mutate_payload(self) -> None:
+		payload = {
+			"doctype": "Stock Entry",
+			"stock_entry_type": "Manufacture",
+			"purpose": "Manufacture",
+			"company": "_Test Company",
+			"from_bom": 1,
+			"bom_no": "BOM-001",
+			"from_warehouse": "WIP",
+			"to_warehouse": "FG",
+			"fg_completed_qty": 100,
+			"custom_pea_shift": "SHIFT-001",
+			"custom_pea_operator": "E2E Operator",
+			"custom_pea_workstation": "E2E Workstation",
+			"custom_pea_rejection_qty": 0.0,
+			"custom_pea_actual_start_date": "2099-01-20 08:00:00",
+			"custom_pea_actual_end_date": "2099-01-20 08:30:00",
+			"posting_date": "2099-01-20",
+			"posting_time": "08:30:00",
+			"_pea_wip_warehouse": "WIP",
+			"_pea_fg_warehouse": "FG",
+			"_pea_rejection_qty": 0,
+		}
+		original_payload = dict(payload)
+		doc = MagicMock()
+		doc.name = "MAT-STE-FULL-001"
+		doc.get.return_value = [
+			frappe._dict({"is_finished_item": 1, "s_warehouse": None, "t_warehouse": None})
+		]
+
+		with patch(
+			"production_entry_app.production_entry_app.api.frappe.get_doc", return_value=doc
+		) as get_doc:
+			result = _insert_e2e_full_shift_stock_entry(payload)
+
+		self.assertEqual(result, "MAT-STE-FULL-001")
+		self.assertEqual(payload, original_payload)
+		get_doc_payload = get_doc.call_args.args[0]
+		self.assertNotIn("_pea_wip_warehouse", get_doc_payload)
+		self.assertNotIn("_pea_fg_warehouse", get_doc_payload)
+		self.assertNotIn("_pea_rejection_qty", get_doc_payload)
+		doc.get_items.assert_called_once()
+		doc.insert.assert_called_once_with(ignore_permissions=True)
+		doc.submit.assert_called_once()
+
 	def test_create_e2e_full_shift_stock_entries_creates_contiguous_entries(self) -> None:
 		shift = MagicMock()
 		shift.shift_date = "2099-01-20"
@@ -1348,9 +1550,14 @@ class TestE2EApi(FrappeTestCase):
 		shift.planned_end_time = "09:00:00"
 		shift.shift_end_date = "2099-01-20"
 		shift.shift_duration = "8"
-		doc = MagicMock()
-		doc.name = "MAT-STE-FULL-001"
-		doc.get.return_value = [
+		first_doc = MagicMock()
+		first_doc.name = "MAT-STE-FULL-001"
+		first_doc.get.return_value = [
+			frappe._dict({"is_finished_item": 1, "s_warehouse": None, "t_warehouse": None})
+		]
+		second_doc = MagicMock()
+		second_doc.name = "MAT-STE-FULL-002"
+		second_doc.get.return_value = [
 			frappe._dict({"is_finished_item": 1, "s_warehouse": None, "t_warehouse": None})
 		]
 		with ExitStack() as stack:
@@ -1374,9 +1581,10 @@ class TestE2EApi(FrappeTestCase):
 					},
 				)
 			)
-			stack.enter_context(
+			get_doc = stack.enter_context(
 				patch(
-					"production_entry_app.production_entry_app.api.frappe.get_doc", side_effect=[shift, doc]
+					"production_entry_app.production_entry_app.api.frappe.get_doc",
+					side_effect=[shift, first_doc, second_doc],
 				)
 			)
 			stack.enter_context(
@@ -1390,15 +1598,28 @@ class TestE2EApi(FrappeTestCase):
 			)
 			stack.enter_context(patch("production_entry_app.production_entry_app.api.frappe.db.commit"))
 
-			result = create_e2e_full_shift_stock_entries(prefix="E2E", slot_minutes=60, rejection_qty=0)
+			result = create_e2e_full_shift_stock_entries(prefix="E2E", slot_minutes=30, rejection_qty=0)
 
-		self.assertEqual(result["count"], 1)
-		self.assertEqual(result["stock_entries"], ["MAT-STE-FULL-001"])
-		self.assertEqual(result["slot_minutes"], 60)
-		doc.get_items.assert_called_once()
-		doc.append.assert_not_called()
-		doc.insert.assert_called_once_with(ignore_permissions=True)
-		doc.submit.assert_called_once()
+		self.assertTrue(set(result).issuperset({"shift_name", "stock_entries"}))
+		self.assertTrue(result["shift_name"])
+		self.assertIsInstance(result["stock_entries"], list)
+		self.assertEqual(result["count"], 2)
+		self.assertEqual(result["stock_entries"], ["MAT-STE-FULL-001", "MAT-STE-FULL-002"])
+		self.assertEqual(result["slot_minutes"], 30)
+		first_payload = get_doc.call_args_list[1].args[0]
+		second_payload = get_doc.call_args_list[2].args[0]
+		self.assertEqual(first_payload["custom_pea_actual_start_date"], "2099-01-20 08:00:00")
+		self.assertEqual(first_payload["custom_pea_actual_end_date"], "2099-01-20 08:30:00")
+		self.assertEqual(second_payload["custom_pea_actual_start_date"], "2099-01-20 08:30:00")
+		self.assertEqual(second_payload["custom_pea_actual_end_date"], "2099-01-20 09:00:00")
+		first_doc.get_items.assert_called_once()
+		second_doc.get_items.assert_called_once()
+		first_doc.append.assert_not_called()
+		second_doc.append.assert_not_called()
+		first_doc.insert.assert_called_once_with(ignore_permissions=True)
+		second_doc.insert.assert_called_once_with(ignore_permissions=True)
+		first_doc.submit.assert_called_once()
+		second_doc.submit.assert_called_once()
 
 	def test_create_e2e_full_shift_stock_entries_rejects_invalid_shift_window(self) -> None:
 		shift = MagicMock()

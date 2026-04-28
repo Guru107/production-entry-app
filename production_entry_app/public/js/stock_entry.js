@@ -54,6 +54,10 @@ function _get_access_control_api() {
 	return window.production_entry_app?.access_control || null;
 }
 
+function _ignore_access_control_lookup_error() {
+	return false;
+}
+
 function _run_when_app_enabled(fn) {
 	const accessControl = _get_access_control_api();
 	if (!accessControl) {
@@ -76,12 +80,7 @@ function _run_when_app_enabled(fn) {
 					fn();
 				}
 			})
-			.catch((error) => {
-				console.warn(
-					"Production Entry App: access control state lookup failed; app flow remains disabled.",
-					error
-				);
-			});
+			.catch(_ignore_access_control_lookup_error);
 	}
 }
 
@@ -135,11 +134,7 @@ function _sync_native_get_items_access(frm) {
 				}
 				_hide_native_get_items(frm);
 			})
-			.catch((error) => {
-				console.warn(
-					"Production Entry App: access control state lookup failed; restoring native get_items.",
-					error
-				);
+			.catch(() => {
 				_show_native_get_items(frm);
 			});
 	}
@@ -151,9 +146,7 @@ function _sync_native_get_items_access(frm) {
 if (typeof window !== "undefined" && window.erpnext && erpnext.stock && erpnext.stock.StockEntry) {
 	const originalFgCompletedQty = erpnext.stock.StockEntry.prototype.fg_completed_qty;
 	if (typeof originalFgCompletedQty !== "function") {
-		console.warn(
-			"Production Entry App: erpnext.stock.StockEntry.prototype.fg_completed_qty is unavailable; skipping fg_completed_qty override."
-		);
+		// ERPNext changed the client controller surface; leave native behavior untouched.
 	} else {
 		erpnext.stock.StockEntry.prototype.fg_completed_qty = function () {
 			if (!_should_override_fg_completed_qty()) {
@@ -282,7 +275,6 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 						_update_die_tool_metrics(frm);
 					},
 					error(error) {
-						console.warn("Failed to fetch stock entry items.", error);
 						_notify_call_error(__("Failed to fetch items."), error);
 					},
 				});
@@ -290,80 +282,7 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 		},
 		custom_pea_shift(frm) {
 			_run_when_app_enabled(() => {
-				if (frm.doc.custom_pea_shift) {
-					const selectedShift = frm.doc.custom_pea_shift;
-					const reqId = ++_shiftDetailsRequestId;
-					frappe.call({
-						method: "production_entry_app.production_entry_app.api.get_shift_details_for_stock_entry",
-						args: { shift_name: selectedShift },
-						callback(r) {
-							if (
-								reqId !== _shiftDetailsRequestId ||
-								frm.doc.custom_pea_shift !== selectedShift
-							) {
-								return;
-							}
-							if (r.message) {
-								const data = r.message;
-								const updates = [];
-								if (data.company) {
-									updates.push(frm.set_value("company", data.company));
-								}
-								if (data.branch) {
-									updates.push(frm.set_value("branch", data.branch));
-								}
-								if (data.custom_pea_planned_start_date) {
-									updates.push(
-										frm.set_value(
-											"custom_pea_planned_start_date",
-											data.custom_pea_planned_start_date
-										)
-									);
-								}
-								if (data.custom_pea_planned_end_date) {
-									updates.push(
-										frm.set_value(
-											"custom_pea_planned_end_date",
-											data.custom_pea_planned_end_date
-										)
-									);
-								}
-								if (data.from_warehouse) {
-									updates.push(
-										frm.set_value("from_warehouse", data.from_warehouse)
-									);
-								}
-								if (data.to_warehouse) {
-									updates.push(frm.set_value("to_warehouse", data.to_warehouse));
-								}
-								Promise.all(updates).finally(() => {
-									_sync_stock_entry_helper_fields(frm);
-									_setup_stock_entry_quick_entry(frm);
-								});
-								return;
-							}
-							_clear_shift_derived_fields(frm).finally(() => {
-								_sync_stock_entry_helper_fields(frm);
-								_setup_stock_entry_quick_entry(frm);
-							});
-						},
-						error(error) {
-							if (reqId !== _shiftDetailsRequestId) return;
-							console.warn("Failed to fetch shift details for stock entry.", error);
-							_clear_shift_derived_fields(frm).finally(() => {
-								_sync_stock_entry_helper_fields(frm);
-								_setup_stock_entry_quick_entry(frm);
-							});
-							_notify_call_error(__("Failed to fetch shift details."), error);
-						},
-					});
-				} else {
-					_shiftDetailsRequestId++;
-					_clear_shift_derived_fields(frm).finally(() => {
-						_sync_stock_entry_helper_fields(frm);
-						_setup_stock_entry_quick_entry(frm);
-					});
-				}
+				_handle_shift_change(frm);
 			});
 		},
 	});
@@ -413,37 +332,9 @@ function _clear_manufacture_data_on_leave(frm) {
 	_dieToolRequestId++;
 
 	const refreshFieldnames = new Set();
-	let changed = false;
-	for (const fieldname of MANUFACTURE_FIELDS) {
-		const field = frm.get_field(fieldname);
-		const fieldtype = field?.df?.fieldtype || "";
-		if (
-			[
-				"Button",
-				"Section Break",
-				"Column Break",
-				"HTML",
-				"Table",
-				"Table MultiSelect",
-			].includes(fieldtype)
-		) {
-			continue;
-		}
-		const clearValue = fieldtype === "Check" ? 0 : "";
-		if (frm.doc?.[fieldname] === clearValue) continue;
-		frm.doc[fieldname] = clearValue;
-		refreshFieldnames.add(fieldname);
-		changed = true;
-	}
-
-	for (const tableField of MANUFACTURE_CLEAR_TABLE_FIELDS) {
-		const rows = frm.doc?.[tableField] || [];
-		if (Array.isArray(rows) && rows.length > 0) {
-			frm.clear_table(tableField);
-			refreshFieldnames.add(tableField);
-			changed = true;
-		}
-	}
+	const scalarChanged = _clear_manufacture_scalar_fields(frm, refreshFieldnames);
+	const tableChanged = _clear_manufacture_table_fields(frm, refreshFieldnames);
+	const changed = scalarChanged || tableChanged;
 
 	if (refreshFieldnames.size > 0) {
 		frm.refresh_fields(Array.from(refreshFieldnames));
@@ -453,6 +344,54 @@ function _clear_manufacture_data_on_leave(frm) {
 	if (changed) {
 		frm.dirty();
 	}
+}
+
+function _clear_manufacture_scalar_fields(frm, refreshFieldnames) {
+	let changed = false;
+	for (const fieldname of MANUFACTURE_FIELDS) {
+		changed = _clear_manufacture_scalar_field(frm, fieldname, refreshFieldnames) || changed;
+	}
+	return changed;
+}
+
+function _clear_manufacture_scalar_field(frm, fieldname, refreshFieldnames) {
+	const field = frm.get_field(fieldname);
+	const fieldtype = field?.df?.fieldtype || "";
+	if (_is_layout_or_table_field(fieldtype)) {
+		return false;
+	}
+	const clearValue = fieldtype === "Check" ? 0 : "";
+	if (frm.doc?.[fieldname] === clearValue) {
+		return false;
+	}
+	frm.doc[fieldname] = clearValue;
+	refreshFieldnames.add(fieldname);
+	return true;
+}
+
+function _is_layout_or_table_field(fieldtype) {
+	return [
+		"Button",
+		"Section Break",
+		"Column Break",
+		"HTML",
+		"Table",
+		"Table MultiSelect",
+	].includes(fieldtype);
+}
+
+function _clear_manufacture_table_fields(frm, refreshFieldnames) {
+	let changed = false;
+	for (const tableField of MANUFACTURE_CLEAR_TABLE_FIELDS) {
+		const rows = frm.doc?.[tableField] || [];
+		if (!Array.isArray(rows) || rows.length === 0) {
+			continue;
+		}
+		frm.clear_table(tableField);
+		refreshFieldnames.add(tableField);
+		changed = true;
+	}
+	return changed;
 }
 
 function _expand_sections(frm, sectionFieldnames) {
@@ -596,6 +535,68 @@ function _get_shift_ctx(frm) {
 	const start = frm.doc?.custom_pea_planned_start_date || "";
 	const end = frm.doc?.custom_pea_planned_end_date || "";
 	return { start, end };
+}
+
+function _handle_shift_change(frm) {
+	if (!frm.doc.custom_pea_shift) {
+		_shiftDetailsRequestId++;
+		_clear_shift_derived_fields(frm).finally(() => {
+			_sync_stock_entry_helper_fields(frm);
+			_setup_stock_entry_quick_entry(frm);
+		});
+		return;
+	}
+
+	const selectedShift = frm.doc.custom_pea_shift;
+	const reqId = ++_shiftDetailsRequestId;
+	frappe.call({
+		method: "production_entry_app.production_entry_app.api.get_shift_details_for_stock_entry",
+		args: { shift_name: selectedShift },
+		callback(r) {
+			_apply_shift_details_response(frm, selectedShift, reqId, r.message);
+		},
+		error(error) {
+			if (reqId !== _shiftDetailsRequestId) {
+				return;
+			}
+			_clear_shift_derived_fields(frm).finally(() => {
+				_sync_stock_entry_helper_fields(frm);
+				_setup_stock_entry_quick_entry(frm);
+			});
+			_notify_call_error(__("Failed to fetch shift details."), error);
+		},
+	});
+}
+
+function _apply_shift_details_response(frm, selectedShift, reqId, data) {
+	if (reqId !== _shiftDetailsRequestId || frm.doc.custom_pea_shift !== selectedShift) {
+		return;
+	}
+	if (!data) {
+		_clear_shift_derived_fields(frm).finally(() => {
+			_sync_stock_entry_helper_fields(frm);
+			_setup_stock_entry_quick_entry(frm);
+		});
+		return;
+	}
+	Promise.all(_get_shift_detail_updates(frm, data)).finally(() => {
+		_sync_stock_entry_helper_fields(frm);
+		_setup_stock_entry_quick_entry(frm);
+	});
+}
+
+function _get_shift_detail_updates(frm, data) {
+	const fieldMap = {
+		company: "company",
+		branch: "branch",
+		custom_pea_planned_start_date: "custom_pea_planned_start_date",
+		custom_pea_planned_end_date: "custom_pea_planned_end_date",
+		from_warehouse: "from_warehouse",
+		to_warehouse: "to_warehouse",
+	};
+	return Object.entries(fieldMap)
+		.filter(([sourceField]) => Object.prototype.hasOwnProperty.call(data, sourceField))
+		.map(([sourceField, targetField]) => frm.set_value(targetField, data[sourceField]));
 }
 
 function _clear_shift_derived_fields(frm) {
@@ -760,6 +761,7 @@ if (typeof module !== "undefined" && module.exports) {
 		_should_override_fg_completed_qty,
 		_run_when_app_enabled,
 		_sync_native_get_items_access,
+		_get_shift_detail_updates,
 		_hide_native_get_items,
 		_show_native_get_items,
 	};
