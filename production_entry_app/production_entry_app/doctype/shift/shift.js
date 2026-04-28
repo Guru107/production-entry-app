@@ -29,107 +29,111 @@ frappe.ui.form.on("Shift", {
 		_populate_default_breaks_if_draft(frm);
 	},
 	refresh(frm) {
-		// Prevent editing planned losses after shift has started
-		frm.set_df_property("planned_losses", "read_only", frm.doc.status !== "Draft");
-		_set_warehouse_field_editability(frm);
-		_toggle_company_field_visibility(frm);
-		_set_warehouse_queries(frm);
-		_set_department_query(frm);
-
-		// Re-render summary sections after save completes
-		frm.after_save = () => {
-			_render_shift_summary(frm);
-			_render_aggregate_production_entries(frm);
-		};
-
-		const actions_group = __("Actions");
-		if (frm.doc.status === "Draft") {
-			frm.add_custom_button(
-				__("Start Shift"),
-				function () {
-					frm.call({
-						method: "start_shift",
-						doc: frm.doc,
-						freeze: true,
-						callback: function () {
-							frm.reload_doc();
-						},
-					});
-				},
-				actions_group
-			);
-			frm.add_custom_button(
-				__("Cancel"),
-				function () {
-					frappe.confirm(__("Cancel this shift?"), function () {
-						frm.call({
-							method: "cancel_shift",
-							doc: frm.doc,
-							freeze: true,
-							callback: function () {
-								frm.reload_doc();
-							},
-						});
-					});
-				},
-				actions_group
-			);
-		} else if (frm.doc.status === "Running") {
-			frm.add_custom_button(
-				__("End Shift"),
-				function () {
-					frappe.confirm(
-						__(
-							"End this shift? No more production entries can be added after ending."
-						),
-						function () {
-							frm.call({
-								method: "end_shift",
-								doc: frm.doc,
-								freeze: true,
-								callback: function () {
-									frm.reload_doc();
-								},
-							});
-						}
-					);
-				},
-				actions_group
-			);
-		}
-
-		if (!frm.doc.__islocal) {
-			frm.add_custom_button(
-				__("Downtime Entry"),
-				function () {
-					frappe.new_doc("Downtime Entry", { custom_pea_shift: frm.doc.name });
-				},
-				__("Create")
-			);
-
-			// Only show Production Entry button for Running shifts
-			if (frm.doc.status === "Running") {
-				frm.add_custom_button(
-					__("Production Entry"),
-					function () {
-						frappe.new_doc("Stock Entry", {
-							stock_entry_type: "Manufacture",
-							company: frm.doc.company,
-							custom_pea_shift: frm.doc.name,
-						});
-					},
-					__("Create")
-				);
-			}
-		}
-
-		_render_linked_downtime_entries(frm);
-		_render_shift_summary(frm);
-		_render_aggregate_production_entries(frm);
-		_sync_shift_helper_fields(frm);
-		_setup_shift_quick_entry(frm);
+		_prepare_shift_form(frm);
+		_add_status_action_buttons(frm);
+		_add_create_buttons(frm);
+		_render_shift_sections(frm);
 	},
 });
+
+function _prepare_shift_form(frm) {
+	frm.set_df_property("planned_losses", "read_only", frm.doc.status !== "Draft");
+	_set_warehouse_field_editability(frm);
+	_toggle_company_field_visibility(frm);
+	_set_warehouse_queries(frm);
+	_set_department_query(frm);
+	frm.after_save = () => {
+		_render_shift_summary(frm);
+		_render_aggregate_production_entries(frm);
+	};
+}
+
+function _add_status_action_buttons(frm) {
+	const actionsGroup = __("Actions");
+	if (frm.doc.status === "Draft") {
+		_add_shift_action_button(frm, __("Start Shift"), "start_shift", actionsGroup);
+		frm.add_custom_button(
+			__("Cancel"),
+			() => {
+				frappe.confirm(__("Cancel this shift?"), () => {
+					_call_shift_transition(frm, "cancel_shift");
+				});
+			},
+			actionsGroup
+		);
+		return;
+	}
+	if (frm.doc.status === "Running") {
+		frm.add_custom_button(
+			__("End Shift"),
+			() => {
+				frappe.confirm(
+					__("End this shift? No more production entries can be added after ending."),
+					() => {
+						_call_shift_transition(frm, "end_shift");
+					}
+				);
+			},
+			actionsGroup
+		);
+	}
+}
+
+function _add_shift_action_button(frm, label, method, group) {
+	frm.add_custom_button(
+		label,
+		() => {
+			_call_shift_transition(frm, method);
+		},
+		group
+	);
+}
+
+function _call_shift_transition(frm, method) {
+	frm.call({
+		method,
+		doc: frm.doc,
+		freeze: true,
+		callback: () => {
+			frm.reload_doc();
+		},
+	});
+}
+
+function _add_create_buttons(frm) {
+	if (frm.doc.__islocal) {
+		return;
+	}
+	frm.add_custom_button(
+		__("Downtime Entry"),
+		() => {
+			frappe.new_doc("Downtime Entry", { custom_pea_shift: frm.doc.name });
+		},
+		__("Create")
+	);
+	if (frm.doc.status !== "Running") {
+		return;
+	}
+	frm.add_custom_button(
+		__("Production Entry"),
+		() => {
+			frappe.new_doc("Stock Entry", {
+				stock_entry_type: "Manufacture",
+				company: frm.doc.company,
+				custom_pea_shift: frm.doc.name,
+			});
+		},
+		__("Create")
+	);
+}
+
+function _render_shift_sections(frm) {
+	_render_linked_downtime_entries(frm);
+	_render_shift_summary(frm);
+	_render_aggregate_production_entries(frm);
+	_sync_shift_helper_fields(frm);
+	_setup_shift_quick_entry(frm);
+}
 
 function _set_warehouse_field_editability(frm) {
 	const isLockedStatus = ["Completed", "Cancelled"].includes(frm.doc.status || "");
@@ -167,12 +171,7 @@ function _set_warehouse_queries(frm) {
 }
 
 function _populate_default_breaks_if_draft(frm) {
-	if (
-		!_is_draft_or_new(frm) ||
-		!frm.doc.shift_duration ||
-		!frm.doc.planned_start_time ||
-		!frm.doc.shift_date
-	) {
+	if (!_can_populate_default_breaks(frm)) {
 		return;
 	}
 	if (frm.__plannedBreaksDebounceTimer) {
@@ -180,46 +179,56 @@ function _populate_default_breaks_if_draft(frm) {
 	}
 	frm.__plannedBreaksDebounceTimer = setTimeout(() => {
 		frm.__plannedBreaksDebounceTimer = null;
-		if (
-			!_is_draft_or_new(frm) ||
-			!frm.doc.shift_duration ||
-			!frm.doc.planned_start_time ||
-			!frm.doc.shift_date
-		) {
+		if (!_can_populate_default_breaks(frm)) {
 			return;
 		}
-		const requestKey = [
-			String(frm.doc.shift_duration || ""),
-			String(frm.doc.planned_start_time || ""),
-			String(frm.doc.shift_date || ""),
-		].join("|");
+		const requestKey = _get_planned_breaks_request_key(frm);
 		frm.__plannedBreaksRequestKey = requestKey;
-		frappe.call({
-			method: "production_entry_app.production_entry_app.doctype.shift.shift.get_planned_losses_for_duration",
-			args: {
-				shift_duration: frm.doc.shift_duration,
-				planned_start_time: frm.doc.planned_start_time,
-				shift_date: frm.doc.shift_date,
-			},
-			callback(r) {
-				const currentKey = [
-					String(frm.doc.shift_duration || ""),
-					String(frm.doc.planned_start_time || ""),
-					String(frm.doc.shift_date || ""),
-				].join("|");
-				if (currentKey !== requestKey || frm.__plannedBreaksRequestKey !== requestKey) {
-					return;
-				}
-				frm.clear_table("planned_losses");
-				(r.message || []).forEach((row) => frm.add_child("planned_losses", row));
-				frm.refresh_field("planned_losses");
-				_sync_shift_helper_fields(frm);
-			},
-			error() {
-				frappe.msgprint(__("Failed to load planned breaks. Please retry."));
-			},
-		});
+		_fetch_default_breaks(frm, requestKey);
 	}, PLANNED_BREAKS_DEBOUNCE_MS);
+}
+
+function _can_populate_default_breaks(frm) {
+	return Boolean(
+		_is_draft_or_new(frm) &&
+			frm.doc.shift_duration &&
+			frm.doc.planned_start_time &&
+			frm.doc.shift_date
+	);
+}
+
+function _get_planned_breaks_request_key(frm) {
+	return [
+		String(frm.doc.shift_duration || ""),
+		String(frm.doc.planned_start_time || ""),
+		String(frm.doc.shift_date || ""),
+	].join("|");
+}
+
+function _fetch_default_breaks(frm, requestKey) {
+	frappe.call({
+		method: "production_entry_app.production_entry_app.doctype.shift.shift.get_planned_losses_for_duration",
+		args: {
+			shift_duration: frm.doc.shift_duration,
+			planned_start_time: frm.doc.planned_start_time,
+			shift_date: frm.doc.shift_date,
+		},
+		callback(r) {
+			if (
+				_get_planned_breaks_request_key(frm) !== requestKey ||
+				frm.__plannedBreaksRequestKey !== requestKey
+			) {
+				return;
+			}
+			frm.clear_table("planned_losses");
+			(r.message || []).forEach((row) => frm.add_child("planned_losses", row));
+			frm.refresh_field("planned_losses");
+			_sync_shift_helper_fields(frm);
+		},
+		error() {
+			frappe.msgprint(__("Failed to load planned breaks. Please retry."));
+		},
+	});
 }
 
 function _is_draft_or_new(frm) {
@@ -332,240 +341,11 @@ function _render_shift_summary(frm) {
 		method: "production_entry_app.production_entry_app.doctype.shift.shift.get_shift_summary",
 		args: { shift_name: frm.doc.name },
 		callback(r) {
-			const summary = r.message || {};
-			const floatPrecision = _resolve_summary_float_precision(summary);
-			const snapshot = summary.snapshot || {};
-			const losses = summary.losses || {};
-			const exceptions = summary.exceptions || {};
-			const loggedDowntime = summary.logged_downtime || {};
-			const completeness = summary.completeness || {};
-			const positiveSignal = summary.positive_signal || null;
-			const sections = [];
-
-			if (completeness.show_banner && (completeness.messages || []).length) {
-				sections.push(
-					`<div class="alert alert-warning">${(completeness.messages || [])
-						.map((message) => frappe.utils.escape_html(String(message)))
-						.join("<br>")}</div>`
-				);
-			}
-
-			const entryCount = Number(snapshot.entry_count || 0);
-			if (!entryCount) {
-				sections.push(
-					`<p class="text-muted">${__(
-						"No production entries are recorded for this shift yet."
-					)}</p>`
-				);
-			} else {
-				const snapshotRows = [
-					{ label: __("Entries"), value: snapshot.entry_count, fieldtype: "Int" },
-					{ label: __("Total Qty"), value: snapshot.total_qty, fieldtype: "Float" },
-					{ label: __("OK Qty"), value: snapshot.ok_qty, fieldtype: "Float" },
-					{
-						label: __("Rejection Qty"),
-						value: snapshot.rejection_qty,
-						fieldtype: "Float",
-					},
-					{
-						label: __("Rejection (%)"),
-						value: snapshot.rejection_pct,
-						fieldtype: "Float",
-					},
-					{
-						label: __("Recorded Production Mins"),
-						value: snapshot.recorded_production_mins,
-						fieldtype: "Float",
-					},
-					{
-						label: __("Overall Throughput SPM"),
-						value: snapshot.overall_throughput_spm,
-						fieldtype: "Float",
-					},
-					{
-						label: __("Overall OK SPM"),
-						value: snapshot.overall_ok_spm,
-						fieldtype: "Float",
-					},
-					{
-						label: __("Target Coverage (%)"),
-						value: snapshot.target_coverage_pct,
-						fieldtype: "Float",
-					},
-					{
-						label: __("Overall Shift Efficiency (%)"),
-						value:
-							snapshot.overall_shift_efficiency_pct === null ||
-							snapshot.overall_shift_efficiency_pct === undefined
-								? __("Insufficient target coverage")
-								: snapshot.overall_shift_efficiency_pct,
-						fieldtype:
-							snapshot.overall_shift_efficiency_pct === null ||
-							snapshot.overall_shift_efficiency_pct === undefined
-								? null
-								: "Float",
-					},
-				];
-				sections.push(
-					_render_summary_table(
-						__("Outcome Snapshot"),
-						snapshotRows,
-						null,
-						floatPrecision
-					)
-				);
-				sections.push(
-					_render_summary_table(
-						__("Loss And Variance"),
-						[
-							{
-								label: __("Planned Shift Mins"),
-								value: losses.planned_shift_mins,
-								fieldtype: "Float",
-							},
-							{
-								label: __("Planned Loss Mins"),
-								value: losses.planned_loss_mins,
-								fieldtype: "Float",
-							},
-							{
-								label: __("Planned Usable Mins"),
-								value: losses.planned_usable_mins,
-								fieldtype: "Float",
-							},
-							{
-								label: __("Production Loss Mins"),
-								value: losses.unplanned_loss_mins,
-								fieldtype: "Float",
-							},
-						],
-						null,
-						floatPrecision
-					)
-				);
-			}
-
-			sections.push(
-				_render_summary_table(
-					__("Logged Downtime Incidents"),
-					[
-						{
-							label: __("Recorded"),
-							value: loggedDowntime.recorded ? __("Yes") : __("No"),
-						},
-						{
-							label: __("Incident Count"),
-							value: loggedDowntime.entry_count || 0,
-							fieldtype: "Int",
-						},
-						{
-							label: __("Total Logged Mins"),
-							value: loggedDowntime.total_mins || 0,
-							fieldtype: "Float",
-						},
-					],
-					null,
-					floatPrecision
-				)
+			_set_shared_html_field(
+				frm,
+				"shift_metrics",
+				_build_shift_summary_html(r.message || {})
 			);
-
-			const topReasonRows = (loggedDowntime.top_reasons || []).map((row) => ({
-				label: row.reason || "",
-				value: row.mins || 0,
-				fieldtype: "Float",
-			}));
-			if (topReasonRows.length) {
-				sections.push(
-					_render_summary_table(
-						__("Top Logged Downtime Reasons"),
-						topReasonRows,
-						__("Reason"),
-						floatPrecision
-					)
-				);
-			}
-
-			const unplannedLossRows = (exceptions.unplanned_loss_reasons || []).map((row) => ({
-				label: row.reason || "",
-				value: row.mins || 0,
-				fieldtype: "Float",
-			}));
-			if (unplannedLossRows.length) {
-				sections.push(
-					_render_summary_table(
-						__("Top Production Loss Reasons"),
-						unplannedLossRows,
-						__("Reason"),
-						floatPrecision
-					)
-				);
-			}
-
-			const workstationRows = (exceptions.workstations || []).map((row) => ({
-				label: row.workstation || "",
-				value:
-					row.efficiency_pct === null || row.efficiency_pct === undefined
-						? row.throughput_spm || 0
-						: row.efficiency_pct,
-				fieldtype: "Float",
-			}));
-			if (workstationRows.length) {
-				sections.push(
-					_render_summary_table(
-						__("Top Workstation Exceptions"),
-						workstationRows,
-						__("Workstation"),
-						floatPrecision
-					)
-				);
-			}
-
-			const itemBomRows = (exceptions.item_boms || []).map((row) => ({
-				label: row.label || row.bom_no || row.item_code || "",
-				value: row.rejection_qty || 0,
-				fieldtype: "Float",
-			}));
-			if (itemBomRows.length) {
-				sections.push(
-					_render_summary_table(
-						__("Top Item/BOM Exceptions"),
-						itemBomRows,
-						__("Item / BOM"),
-						floatPrecision
-					)
-				);
-			}
-
-			if (positiveSignal) {
-				sections.push(
-					_render_summary_table(
-						__("Positive Signal"),
-						[
-							{
-								label: __("Best Workstation"),
-								value: positiveSignal.workstation || "",
-							},
-							{
-								label:
-									positiveSignal.efficiency_pct === null ||
-									positiveSignal.efficiency_pct === undefined
-										? __("Throughput SPM")
-										: __("Efficiency (%)"),
-								value:
-									positiveSignal.efficiency_pct === null ||
-									positiveSignal.efficiency_pct === undefined
-										? positiveSignal.throughput_spm || 0
-										: positiveSignal.efficiency_pct,
-								fieldtype: "Float",
-							},
-						],
-						null,
-						floatPrecision
-					)
-				);
-			}
-
-			_set_shared_html_field(frm, "shift_metrics", sections.join(""));
 		},
 		error() {
 			_set_shared_html_field(
@@ -575,6 +355,225 @@ function _render_shift_summary(frm) {
 			);
 		},
 	});
+}
+
+function _build_shift_summary_html(summary) {
+	const floatPrecision = _resolve_summary_float_precision(summary);
+	const sections = [];
+	sections.push(..._build_completeness_sections(summary.completeness || {}));
+	sections.push(
+		..._build_outcome_sections(summary.snapshot || {}, summary.losses || {}, floatPrecision)
+	);
+	sections.push(..._build_downtime_sections(summary.logged_downtime || {}, floatPrecision));
+	sections.push(..._build_exception_sections(summary.exceptions || {}, floatPrecision));
+	sections.push(
+		..._build_positive_signal_sections(summary.positive_signal || null, floatPrecision)
+	);
+	return sections.join("");
+}
+
+function _build_completeness_sections(completeness) {
+	if (!completeness.show_banner || !(completeness.messages || []).length) {
+		return [];
+	}
+	return [
+		`<div class="alert alert-warning">${(completeness.messages || [])
+			.map((message) => frappe.utils.escape_html(String(message)))
+			.join("<br>")}</div>`,
+	];
+}
+
+function _build_outcome_sections(snapshot, losses, floatPrecision) {
+	if (!Number(snapshot.entry_count || 0)) {
+		return [
+			`<p class="text-muted">${__(
+				"No production entries are recorded for this shift yet."
+			)}</p>`,
+		];
+	}
+	return [
+		_render_summary_table(
+			__("Outcome Snapshot"),
+			_get_snapshot_rows(snapshot),
+			null,
+			floatPrecision
+		),
+		_render_summary_table(
+			__("Loss And Variance"),
+			_get_loss_rows(losses),
+			null,
+			floatPrecision
+		),
+	];
+}
+
+function _get_snapshot_rows(snapshot) {
+	const efficiencyMissing =
+		snapshot.overall_shift_efficiency_pct === null ||
+		snapshot.overall_shift_efficiency_pct === undefined;
+	return [
+		{ label: __("Entries"), value: snapshot.entry_count, fieldtype: "Int" },
+		{ label: __("Total Qty"), value: snapshot.total_qty, fieldtype: "Float" },
+		{ label: __("OK Qty"), value: snapshot.ok_qty, fieldtype: "Float" },
+		{ label: __("Rejection Qty"), value: snapshot.rejection_qty, fieldtype: "Float" },
+		{ label: __("Rejection (%)"), value: snapshot.rejection_pct, fieldtype: "Float" },
+		{
+			label: __("Recorded Production Mins"),
+			value: snapshot.recorded_production_mins,
+			fieldtype: "Float",
+		},
+		{
+			label: __("Overall Throughput SPM"),
+			value: snapshot.overall_throughput_spm,
+			fieldtype: "Float",
+		},
+		{ label: __("Overall OK SPM"), value: snapshot.overall_ok_spm, fieldtype: "Float" },
+		{
+			label: __("Target Coverage (%)"),
+			value: snapshot.target_coverage_pct,
+			fieldtype: "Float",
+		},
+		{
+			label: __("Overall Shift Efficiency (%)"),
+			value: efficiencyMissing
+				? __("Insufficient target coverage")
+				: snapshot.overall_shift_efficiency_pct,
+			fieldtype: efficiencyMissing ? null : "Float",
+		},
+	];
+}
+
+function _get_loss_rows(losses) {
+	return [
+		{ label: __("Planned Shift Mins"), value: losses.planned_shift_mins, fieldtype: "Float" },
+		{ label: __("Planned Loss Mins"), value: losses.planned_loss_mins, fieldtype: "Float" },
+		{
+			label: __("Planned Usable Mins"),
+			value: losses.planned_usable_mins,
+			fieldtype: "Float",
+		},
+		{
+			label: __("Production Loss Mins"),
+			value: losses.unplanned_loss_mins,
+			fieldtype: "Float",
+		},
+	];
+}
+
+function _build_downtime_sections(loggedDowntime, floatPrecision) {
+	const sections = [
+		_render_summary_table(
+			__("Logged Downtime Incidents"),
+			[
+				{ label: __("Recorded"), value: loggedDowntime.recorded ? __("Yes") : __("No") },
+				{
+					label: __("Incident Count"),
+					value: loggedDowntime.entry_count || 0,
+					fieldtype: "Int",
+				},
+				{
+					label: __("Total Logged Mins"),
+					value: loggedDowntime.total_mins || 0,
+					fieldtype: "Float",
+				},
+			],
+			null,
+			floatPrecision
+		),
+	];
+	const topReasonRows = _map_reason_rows(loggedDowntime.top_reasons || []);
+	if (topReasonRows.length) {
+		sections.push(
+			_render_summary_table(
+				__("Top Logged Downtime Reasons"),
+				topReasonRows,
+				__("Reason"),
+				floatPrecision
+			)
+		);
+	}
+	return sections;
+}
+
+function _build_exception_sections(exceptions, floatPrecision) {
+	return [
+		_optional_summary_table(
+			__("Top Production Loss Reasons"),
+			_map_reason_rows(exceptions.unplanned_loss_reasons || []),
+			__("Reason"),
+			floatPrecision
+		),
+		_optional_summary_table(
+			__("Top Workstation Exceptions"),
+			_map_workstation_rows(exceptions.workstations || []),
+			__("Workstation"),
+			floatPrecision
+		),
+		_optional_summary_table(
+			__("Top Item/BOM Exceptions"),
+			_map_item_bom_rows(exceptions.item_boms || []),
+			__("Item / BOM"),
+			floatPrecision
+		),
+	].filter(Boolean);
+}
+
+function _map_reason_rows(rows) {
+	return rows.map((row) => ({
+		label: row.reason || "",
+		value: row.mins || 0,
+		fieldtype: "Float",
+	}));
+}
+
+function _map_workstation_rows(rows) {
+	return rows.map((row) => ({
+		label: row.workstation || "",
+		value:
+			row.efficiency_pct === null || row.efficiency_pct === undefined
+				? row.throughput_spm || 0
+				: row.efficiency_pct,
+		fieldtype: "Float",
+	}));
+}
+
+function _map_item_bom_rows(rows) {
+	return rows.map((row) => ({
+		label: row.label || row.bom_no || row.item_code || "",
+		value: row.rejection_qty || 0,
+		fieldtype: "Float",
+	}));
+}
+
+function _optional_summary_table(title, rows, firstColumnLabel, floatPrecision) {
+	return rows.length
+		? _render_summary_table(title, rows, firstColumnLabel, floatPrecision)
+		: null;
+}
+
+function _build_positive_signal_sections(positiveSignal, floatPrecision) {
+	if (!positiveSignal) {
+		return [];
+	}
+	const efficiencyMissing =
+		positiveSignal.efficiency_pct === null || positiveSignal.efficiency_pct === undefined;
+	return [
+		_render_summary_table(
+			__("Positive Signal"),
+			[
+				{ label: __("Best Workstation"), value: positiveSignal.workstation || "" },
+				{
+					label: efficiencyMissing ? __("Throughput SPM") : __("Efficiency (%)"),
+					value: efficiencyMissing
+						? positiveSignal.throughput_spm || 0
+						: positiveSignal.efficiency_pct,
+					fieldtype: "Float",
+				},
+			],
+			null,
+			floatPrecision
+		),
+	];
 }
 
 function _render_summary_table(title, rows, firstColumnLabel, floatPrecision) {
@@ -709,7 +708,6 @@ function _render_aggregate_production_entries(frm) {
 function _set_shared_html_field(frm, fieldname, html) {
 	const renderer = window.production_entry_app?.timeline_renderer;
 	if (!renderer?.set_html_field) {
-		console.warn("Production Entry App timeline renderer is not loaded.");
 		return;
 	}
 	renderer.set_html_field(frm, fieldname, html);
