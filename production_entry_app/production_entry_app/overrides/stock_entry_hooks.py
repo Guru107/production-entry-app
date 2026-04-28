@@ -203,7 +203,7 @@ def _validate_actual_times(doc) -> None:
 def _validate_unplanned_losses_within_actual_window(doc: Document) -> None:
 	actual_start = _as_datetime(doc.get("custom_pea_actual_start_date"))
 	actual_end = _as_datetime(doc.get("custom_pea_actual_end_date"))
-	if not actual_start or not actual_end or actual_end <= actual_start:
+	if not actual_start or not actual_end or actual_end < actual_start:
 		return
 
 	for row in doc.get("custom_pea_unplanned_losses") or []:

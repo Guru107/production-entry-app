@@ -199,11 +199,12 @@ Plan:
 - Split alternative-item flag application into row selection and row mutation helpers.
 - Split E2E stock-entry fixture creation only where setup sequence and returned payload stay identical.
 
-Required verification before commit:
+Required verification before commit. Run repository-local commands from the project root; set `BENCH15_PATH`
+and `BENCH16_PATH` if your bench checkouts are not under `~/Workspace`:
 
 ```bash
-cd /Users/gurudattkulkarni/Workspace/bench15 && bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.test_api
-cd /Users/gurudattkulkarni/Workspace/bench16 && bench --site frappe16.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.test_api
+cd ${BENCH15_PATH:-~/Workspace/bench15} && bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.test_api
+cd ${BENCH16_PATH:-~/Workspace/bench16} && bench --site frappe16.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.test_api
 scripts/check_ai_slop.sh
 pre-commit run --all-files
 ```
@@ -225,8 +226,8 @@ Plan:
 Required verification before commit:
 
 ```bash
-cd /Users/gurudattkulkarni/Workspace/bench15 && bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.report.test_reports
-cd /Users/gurudattkulkarni/Workspace/bench16 && bench --site frappe16.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.report.test_reports
+cd ${BENCH15_PATH:-~/Workspace/bench15} && bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.report.test_reports
+cd ${BENCH16_PATH:-~/Workspace/bench16} && bench --site frappe16.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.report.test_reports
 scripts/check_ai_slop.sh
 pre-commit run --all-files
 ```
@@ -253,8 +254,8 @@ Plan:
 Required verification before commit:
 
 ```bash
-cd /Users/gurudattkulkarni/Workspace/bench15 && bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.overrides.test_stock_entry_hooks
-cd /Users/gurudattkulkarni/Workspace/bench16 && bench --site frappe16.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.overrides.test_stock_entry_hooks
+cd ${BENCH15_PATH:-~/Workspace/bench15} && bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.overrides.test_stock_entry_hooks
+cd ${BENCH16_PATH:-~/Workspace/bench16} && bench --site frappe16.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.overrides.test_stock_entry_hooks
 npm run test:unit:js
 scripts/check_ai_slop.sh
 pre-commit run --all-files
@@ -265,8 +266,8 @@ pre-commit run --all-files
 Run the file-level detector command from the lifecycle gate section. If no high or critical finding exists, record the result in the implementation notes and skip code changes. If a high or critical finding exists, create a local extraction plan and run:
 
 ```bash
-cd /Users/gurudattkulkarni/Workspace/bench15 && bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.test_lifecycle
-cd /Users/gurudattkulkarni/Workspace/bench16 && bench --site frappe16.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.test_lifecycle
+cd ${BENCH15_PATH:-~/Workspace/bench15} && bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.test_lifecycle
+cd ${BENCH16_PATH:-~/Workspace/bench16} && bench --site frappe16.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.test_lifecycle
 scripts/check_ai_slop.sh
 pre-commit run --all-files
 ```
@@ -287,8 +288,8 @@ Files:
 Required verification:
 
 ```bash
-cd /Users/gurudattkulkarni/Workspace/bench15 && bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.report.test_reports
-cd /Users/gurudattkulkarni/Workspace/bench16 && bench --site frappe16.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.report.test_reports
+cd ${BENCH15_PATH:-~/Workspace/bench15} && bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.report.test_reports
+cd ${BENCH16_PATH:-~/Workspace/bench16} && bench --site frappe16.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.report.test_reports
 scripts/check_ai_slop.sh
 pre-commit run --all-files
 ```
@@ -359,8 +360,8 @@ File:
 Required verification:
 
 ```bash
-cd /Users/gurudattkulkarni/Workspace/bench15 && bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.doctype.shift.test_shift
-cd /Users/gurudattkulkarni/Workspace/bench16 && bench --site frappe16.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.doctype.shift.test_shift
+cd ${BENCH15_PATH:-~/Workspace/bench15} && bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.doctype.shift.test_shift
+cd ${BENCH16_PATH:-~/Workspace/bench16} && bench --site frappe16.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.doctype.shift.test_shift
 scripts/check_ai_slop.sh
 pre-commit run --all-files
 ```
@@ -374,8 +375,8 @@ File:
 Required verification:
 
 ```bash
-cd /Users/gurudattkulkarni/Workspace/bench15 && bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.test_api_timeline
-cd /Users/gurudattkulkarni/Workspace/bench16 && bench --site frappe16.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.test_api_timeline
+cd ${BENCH15_PATH:-~/Workspace/bench15} && bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.test_api_timeline
+cd ${BENCH16_PATH:-~/Workspace/bench16} && bench --site frappe16.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.test_api_timeline
 scripts/check_ai_slop.sh
 pre-commit run --all-files
 ```
@@ -390,8 +391,8 @@ Files:
 Required verification:
 
 ```bash
-cd /Users/gurudattkulkarni/Workspace/bench15 && bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.report.test_report_benchmark
-cd /Users/gurudattkulkarni/Workspace/bench15 && bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.test_write_benchmark
+cd ${BENCH15_PATH:-~/Workspace/bench15} && bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.report.test_report_benchmark
+cd ${BENCH15_PATH:-~/Workspace/bench15} && bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.test_write_benchmark
 scripts/check_ai_slop.sh
 pre-commit run --all-files
 ```
@@ -405,8 +406,8 @@ File:
 Required verification:
 
 ```bash
-cd /Users/gurudattkulkarni/Workspace/bench15 && bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.utils.test_loss_time
-cd /Users/gurudattkulkarni/Workspace/bench16 && bench --site frappe16.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.utils.test_loss_time
+cd ${BENCH15_PATH:-~/Workspace/bench15} && bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.utils.test_loss_time
+cd ${BENCH16_PATH:-~/Workspace/bench16} && bench --site frappe16.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.utils.test_loss_time
 scripts/check_ai_slop.sh
 pre-commit run --all-files
 ```

@@ -1034,9 +1034,6 @@ class Shift(Document):
 		return before.status if before else frappe.db.get_value("Shift", self.name, "status")
 
 	def _validate_running_shift_edits(self) -> None:
-		if self.has_value_changed("shift_duration"):
-			# shift_duration-driven repopulation of planned_losses is allowed.
-			return
 		if self._planned_losses_changed():
 			frappe.throw(_("Planned Losses cannot be edited when shift is Running."))
 		if self._get_locked_scalar_field_changes():
