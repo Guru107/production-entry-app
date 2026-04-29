@@ -208,6 +208,32 @@ class TestProductionReports(FrappeTestCase):
 		self.assertIn("columns", result)
 		self.assertIn("result", result)
 
+	def test_runtime_role_rotation_removes_stale_native_access(self) -> None:
+		old_role = f"Runtime PEA Old {frappe.generate_hash(length=8)}"
+		new_write_role = f"Runtime PEA New Write {frappe.generate_hash(length=8)}"
+		new_read_role = f"Runtime PEA New Read {frappe.generate_hash(length=8)}"
+		user_email = f"test_pea_report_stale_{frappe.generate_hash(length=8)}@example.com"
+		_ensure_user_with_exact_roles(user_email, (old_role,))
+		frappe.reload_doc("production_entry_app", "doctype", "shift")
+		frappe.reload_doc("production_entry_app", "report", "rejection_pareto_report")
+		_set_runtime_access_roles(write_role=old_role, read_role=old_role)
+		_set_runtime_access_roles(write_role=new_write_role, read_role=new_read_role)
+		frappe.clear_cache(doctype="Shift")
+		frappe.clear_cache(user=user_email)
+		original_user = frappe.session.user
+		try:
+			frappe.set_user(user_email)
+			self.assertFalse(frappe.has_permission("Shift", "read"))
+			with self.assertRaises(frappe.PermissionError):
+				run_query_report(
+					"Rejection Pareto Report",
+					filters={},
+					ignore_prepared_report=True,
+				)
+		finally:
+			frappe.set_user(original_user)
+			_restore_default_access_roles()
+
 	def test_same_runtime_read_write_role_keeps_native_write_permissions(self) -> None:
 		role = f"Runtime PEA Both {frappe.generate_hash(length=8)}"
 		user_email = f"test_pea_report_same_role_{frappe.generate_hash(length=8)}@example.com"

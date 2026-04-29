@@ -159,9 +159,12 @@ class TestAccessControl(FrappeTestCase):
 		self.assertNotIn("Production Entry Settings", hooks.doc_events)
 
 	def test_production_owned_downtime_reason_is_not_pea_gated(self) -> None:
-		from production_entry_app.production_entry_app import access_control
+		from production_entry_app import hooks
+		from production_entry_app.production_entry_app import access_control, api
 
 		self.assertNotIn("Downtime Reason", access_control.GATED_DOCTYPES)
+		self.assertNotIn("Downtime Reason", hooks.has_permission)
+		self.assertNotIn("Downtime Reason", api._APP_GATED_DOCTYPES)
 
 	def test_access_setup_creates_roles_and_migrates_legacy_settings(self) -> None:
 		from production_entry_app.production_entry_app import access_control
@@ -185,6 +188,9 @@ class TestAccessControl(FrappeTestCase):
 			patch.object(access_control.frappe, "get_doc") as get_doc,
 			patch.object(access_control.frappe.db, "get_value", side_effect=fake_get_value),
 			patch.object(access_control.frappe.db, "set_single_value") as set_single_value,
+			patch.object(
+				access_control, "_get_existing_report_access_roles", return_value=()
+			) as get_managed_roles,
 			patch.object(access_control, "_sync_native_doctype_permissions") as sync_doctype_permissions,
 			patch.object(access_control, "_migrate_report_access_metadata") as migrate_reports,
 			patch.object(access_control, "invalidate_access_control_cache") as invalidate_cache,
@@ -215,8 +221,9 @@ class TestAccessControl(FrappeTestCase):
 				call(access_control.SETTINGS_DOCTYPE, "read_role", DEFAULT_READ_ROLE),
 			]
 		)
+		get_managed_roles.assert_called_once_with()
 		sync_doctype_permissions.assert_called_once_with(
-			write_role=DEFAULT_WRITE_ROLE, read_role=DEFAULT_READ_ROLE
+			write_role=DEFAULT_WRITE_ROLE, read_role=DEFAULT_READ_ROLE, managed_roles=()
 		)
 		migrate_reports.assert_called_once_with(write_role=DEFAULT_WRITE_ROLE, read_role=DEFAULT_READ_ROLE)
 		invalidate_cache.assert_called_once_with()
@@ -236,6 +243,11 @@ class TestAccessControl(FrappeTestCase):
 			patch.object(access_control.frappe, "get_doc") as get_doc,
 			patch.object(access_control.frappe.db, "get_value", side_effect=fake_get_value),
 			patch.object(access_control.frappe.db, "set_single_value") as set_single_value,
+			patch.object(
+				access_control,
+				"_get_existing_report_access_roles",
+				return_value=("System Manager", "Custom Write", "Custom Read"),
+			),
 			patch.object(access_control, "_sync_native_doctype_permissions") as sync_doctype_permissions,
 			patch.object(access_control, "_migrate_report_access_metadata") as migrate_reports,
 			patch.object(access_control, "invalidate_access_control_cache") as invalidate_cache,
@@ -244,7 +256,11 @@ class TestAccessControl(FrappeTestCase):
 
 		get_doc.assert_not_called()
 		set_single_value.assert_not_called()
-		sync_doctype_permissions.assert_called_once_with(write_role="Custom Write", read_role="Custom Read")
+		sync_doctype_permissions.assert_called_once_with(
+			write_role="Custom Write",
+			read_role="Custom Read",
+			managed_roles=("System Manager", "Custom Write", "Custom Read"),
+		)
 		migrate_reports.assert_called_once_with(write_role="Custom Write", read_role="Custom Read")
 		invalidate_cache.assert_called_once_with()
 
@@ -302,6 +318,7 @@ class TestAccessControl(FrappeTestCase):
 			),
 			patch.object(access_control, "GATED_DOCTYPES", ("Shift",)),
 			patch.object(access_control, "_get_docperm_template", side_effect=fake_template),
+			patch.object(access_control.frappe, "get_all", return_value=[]),
 			patch.object(access_control, "_sync_docperm") as sync_docperm,
 			patch.object(access_control.frappe, "clear_cache"),
 		):
@@ -315,6 +332,87 @@ class TestAccessControl(FrappeTestCase):
 			role="Runtime PEA Both",
 			template=write_template,
 		)
+
+	def test_native_permission_sync_removes_stale_app_managed_docperms(self) -> None:
+		from production_entry_app.production_entry_app import access_control
+
+		write_template = {"permlevel": 0, "read": 1, "write": 1, "create": 1, "report": 1}
+		read_template = {"permlevel": 0, "read": 1, "write": 0, "create": 0, "report": 1}
+		stale_write = {
+			"name": "stale-default-write",
+			"role": access_control.DEFAULT_WRITE_ROLE,
+			**write_template,
+		}
+		stale_custom = {
+			"name": "stale-custom-read",
+			"role": "Previous PEA Read",
+			**read_template,
+		}
+		active_write = {
+			"name": "active-write",
+			"role": "Runtime PEA Write",
+			**write_template,
+		}
+		unrelated = {
+			"name": "manufacturing-user",
+			"role": "Manufacturing User",
+			**write_template,
+		}
+
+		with (
+			patch.object(
+				access_control.frappe.db,
+				"exists",
+				side_effect=lambda doctype, name=None: doctype == "DocType" and name in ("DocPerm", "Shift"),
+			),
+			patch.object(access_control, "GATED_DOCTYPES", ("Shift",)),
+			patch.object(
+				access_control,
+				"_get_docperm_template",
+				side_effect=lambda _doctype, role: write_template
+				if role == access_control.DEFAULT_WRITE_ROLE
+				else read_template,
+			),
+			patch.object(
+				access_control.frappe,
+				"get_all",
+				return_value=[stale_write, stale_custom, active_write, unrelated],
+			),
+			patch.object(access_control.frappe.db, "delete") as delete,
+			patch.object(access_control, "_sync_docperm"),
+			patch.object(access_control.frappe, "clear_cache"),
+		):
+			access_control._sync_native_doctype_permissions(
+				write_role="Runtime PEA Write",
+				read_role="Runtime PEA Read",
+				managed_roles=(access_control.DEFAULT_WRITE_ROLE, "Previous PEA Read"),
+			)
+
+		delete.assert_called_once_with(
+			"DocPerm",
+			{"name": ("in", ["stale-default-write", "stale-custom-read"])},
+		)
+
+	def test_next_docperm_idx_uses_ordered_lookup_without_sql_function(self) -> None:
+		from production_entry_app.production_entry_app import access_control
+
+		with patch.object(access_control.frappe, "get_all", return_value=[{"idx": 7}]) as get_all:
+			result = access_control._get_next_docperm_idx("Shift")
+
+		self.assertEqual(result, 8)
+		get_all.assert_called_once_with(
+			"DocPerm",
+			filters={"parent": "Shift", "parenttype": "DocType"},
+			fields=["idx"],
+			order_by="idx desc",
+			limit=1,
+		)
+
+	def test_next_docperm_idx_defaults_to_one_without_existing_permissions(self) -> None:
+		from production_entry_app.production_entry_app import access_control
+
+		with patch.object(access_control.frappe, "get_all", return_value=[]):
+			self.assertEqual(access_control._get_next_docperm_idx("Shift"), 1)
 
 	def test_read_only_template_is_not_corrupted_by_same_default_read_role_sync(self) -> None:
 		from production_entry_app.production_entry_app import access_control
@@ -510,7 +608,7 @@ class TestAccessControl(FrappeTestCase):
 			self.assertFalse(access_control.can_read_production_entry_app("user@example.com"))
 			self.assertFalse(access_control.can_write_production_entry_app("user@example.com"))
 
-	def test_disabled_control_allows_read_and_write_for_development(self) -> None:
+	def test_disabled_control_allows_app_level_read_and_write_for_development(self) -> None:
 		from production_entry_app.production_entry_app import access_control
 
 		config = access_control.AccessConfiguration(
@@ -525,7 +623,7 @@ class TestAccessControl(FrappeTestCase):
 			self.assertTrue(access_control.can_read_production_entry_app("user@example.com"))
 			self.assertTrue(access_control.can_write_production_entry_app("user@example.com"))
 
-	def test_disabled_control_allows_non_manager(self) -> None:
+	def test_disabled_control_allows_non_manager_at_app_gate(self) -> None:
 		with (
 			patch(
 				"production_entry_app.production_entry_app.access_control._load_access_configuration",

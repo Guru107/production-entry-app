@@ -138,9 +138,9 @@ class TestE2EApi(FrappeTestCase):
 			stack.enter_context(
 				patch("production_entry_app.production_entry_app.api.frappe.clear_document_cache")
 			)
-			invalidate = stack.enter_context(
+			sync_roles = stack.enter_context(
 				patch(
-					"production_entry_app.production_entry_app.api.access_control.invalidate_access_control_cache"
+					"production_entry_app.production_entry_app.api.access_control.sync_configured_access_roles"
 				)
 			)
 			commit = stack.enter_context(
@@ -156,7 +156,7 @@ class TestE2EApi(FrappeTestCase):
 		set_single_value.assert_any_call("Production Entry Settings", "enable_access_control", 1)
 		set_single_value.assert_any_call("Production Entry Settings", "write_role", "Manufacturing User")
 		set_single_value.assert_any_call("Production Entry Settings", "read_role", "PEA Read Only")
-		invalidate.assert_called_once()
+		sync_roles.assert_called_once_with(write_role="Manufacturing User", read_role="PEA Read Only")
 		commit.assert_called_once()
 
 	def test_set_e2e_access_control_accepts_legacy_required_role_fallback(self) -> None:
@@ -172,7 +172,7 @@ class TestE2EApi(FrappeTestCase):
 			)
 			stack.enter_context(
 				patch(
-					"production_entry_app.production_entry_app.api.access_control.invalidate_access_control_cache"
+					"production_entry_app.production_entry_app.api.access_control.sync_configured_access_roles"
 				)
 			)
 			stack.enter_context(patch("production_entry_app.production_entry_app.api.frappe.db.commit"))

@@ -13,4 +13,10 @@ class LossEntry(Document):
 
 	def has_permission(self, ptype: str = "read", user: str | None = None) -> bool:
 		has_app_permission = access_control.has_gated_doctype_permission(self, ptype=ptype, user=user)
-		return has_app_permission and super().has_permission(ptype, user=user)
+		return has_app_permission and self._has_parent_permission(ptype=ptype, user=user)
+
+	def _has_parent_permission(self, *, ptype: str, user: str | None) -> bool:
+		parent_doc = getattr(self, "parent_doc", None)
+		if parent_doc:
+			return bool(parent_doc.has_permission(ptype))
+		return bool(super().has_permission(ptype, user=user))

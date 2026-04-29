@@ -78,7 +78,12 @@ def sync_configured_access_roles(*, write_role: str | None = None, read_role: st
 	for role in _unique_roles(effective_write_role, effective_read_role):
 		if role not in (DEFAULT_WRITE_ROLE, DEFAULT_READ_ROLE):
 			_ensure_role(role)
-	_sync_native_doctype_permissions(write_role=effective_write_role, read_role=effective_read_role)
+	managed_roles = _get_existing_report_access_roles()
+	_sync_native_doctype_permissions(
+		write_role=effective_write_role,
+		read_role=effective_read_role,
+		managed_roles=managed_roles,
+	)
 	_migrate_report_access_metadata(write_role=effective_write_role, read_role=effective_read_role)
 	invalidate_access_control_cache()
 
@@ -177,6 +182,7 @@ def _can_read(user: str, branch: str | None = None) -> bool:
 	if _is_system_manager(user):
 		return True
 	if not config.enabled:
+		# This disables only PEA's app-level gates; native Frappe DocPerm and Report roles still apply.
 		return True
 	roles = set(frappe.get_roles(user))
 	if config.write_role and config.write_role in roles:
@@ -192,6 +198,7 @@ def _can_write(user: str, branch: str | None = None) -> bool:
 	if _is_system_manager(user):
 		return True
 	if not config.enabled:
+		# This disables only PEA's app-level gates; native Frappe DocPerm and Report roles still apply.
 		return True
 	if not config.write_role:
 		return False
@@ -247,15 +254,24 @@ def _get_setup_access_roles() -> tuple[str, str]:
 	return write_role, read_role
 
 
-def _sync_native_doctype_permissions(*, write_role: str, read_role: str) -> None:
+def _sync_native_doctype_permissions(
+	*, write_role: str, read_role: str, managed_roles: tuple[str, ...] | None = None
+) -> None:
 	if not frappe.db.exists("DocType", "DocPerm"):
 		return
 
+	active_roles = _unique_roles(SYSTEM_MANAGER_ROLE, write_role, read_role)
+	cleanup_roles = tuple(role for role in (managed_roles or ()) if role not in active_roles)
 	for doctype in GATED_DOCTYPES:
 		if not frappe.db.exists("DocType", doctype):
 			continue
 		write_template = _get_docperm_template(doctype, DEFAULT_WRITE_ROLE)
 		read_template = _get_docperm_template(doctype, DEFAULT_READ_ROLE)
+		_remove_stale_docperms(
+			doctype=doctype,
+			candidate_roles=cleanup_roles,
+			templates=tuple(template for template in (write_template, read_template) if template),
+		)
 		if write_template:
 			_sync_docperm(doctype=doctype, role=write_role, template=write_template)
 		if read_template and read_role != write_role:
@@ -302,9 +318,58 @@ def _sync_docperm(*, doctype: str, role: str, template: dict[str, int]) -> None:
 	).insert(ignore_permissions=True)
 
 
+def _remove_stale_docperms(
+	*, doctype: str, candidate_roles: tuple[str, ...], templates: tuple[dict[str, int], ...]
+) -> None:
+	if not candidate_roles or not templates:
+		return
+
+	rows = frappe.get_all(
+		"DocPerm",
+		filters={"parent": doctype, "parenttype": "DocType", "parentfield": "permissions"},
+		fields=["name", "role", "permlevel", *DOCPERM_FIELDS],
+	)
+	stale_names = [
+		row["name"]
+		for row in rows
+		if row.get("role") in candidate_roles and _matches_any_docperm_template(row, templates)
+	]
+	if stale_names:
+		frappe.db.delete("DocPerm", {"name": ("in", stale_names)})
+
+
+def _matches_any_docperm_template(row: dict[str, Any], templates: tuple[dict[str, int], ...]) -> bool:
+	return any(_matches_docperm_template(row, template) for template in templates)
+
+
+def _matches_docperm_template(row: dict[str, Any], template: dict[str, int]) -> bool:
+	return all(
+		int(row.get(field) or 0) == int(template.get(field) or 0) for field in ("permlevel", *DOCPERM_FIELDS)
+	)
+
+
 def _get_next_docperm_idx(doctype: str) -> int:
-	max_idx = frappe.db.get_value("DocPerm", {"parent": doctype, "parenttype": "DocType"}, "max(idx)")
-	return int(max_idx or 0) + 1
+	rows = frappe.get_all(
+		"DocPerm",
+		filters={"parent": doctype, "parenttype": "DocType"},
+		fields=["idx"],
+		order_by="idx desc",
+		limit=1,
+	)
+	if not rows:
+		return 1
+	return int(rows[0].get("idx") or 0) + 1
+
+
+def _get_existing_report_access_roles() -> tuple[str, ...]:
+	if not frappe.db.exists("DocType", "Report"):
+		return ()
+
+	roles: list[str] = []
+	for report_name in frappe.get_all("Report", filters={"module": "Production Entry App"}, pluck="name"):
+		report = frappe.get_doc("Report", report_name)
+		roles.extend(row.role for row in report.get("roles") if row.role)
+	return _unique_roles(*roles)
 
 
 def _migrate_report_access_metadata(*, write_role: str, read_role: str) -> None:

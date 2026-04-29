@@ -136,7 +136,6 @@ before_uninstall = ["production_entry_app.production_entry_app.lifecycle.before_
 has_permission = {
 	"Shift": "production_entry_app.production_entry_app.access_control.has_gated_doctype_permission",
 	"Loss Entry": "production_entry_app.production_entry_app.access_control.has_gated_doctype_permission",
-	"Downtime Reason": "production_entry_app.production_entry_app.access_control.has_gated_doctype_permission",
 	"Operator": "production_entry_app.production_entry_app.access_control.has_gated_doctype_permission",
 	"Die Tool Counter": "production_entry_app.production_entry_app.access_control.has_gated_doctype_permission",
 	"Die Tool Maintenance Log": "production_entry_app.production_entry_app.access_control.has_gated_doctype_permission",

@@ -58,7 +58,6 @@ _APP_GATED_DOCTYPES: frozenset[str] = frozenset(
 	{
 		"Shift",
 		"Loss Entry",
-		"Downtime Reason",
 		"Operator",
 		"Die Tool Counter",
 		"Die Tool Maintenance Log",
@@ -97,7 +96,7 @@ def set_e2e_access_control(
 	frappe.db.set_single_value("Production Entry Settings", "write_role", write_role_value)
 	frappe.db.set_single_value("Production Entry Settings", "read_role", read_role_value)
 	frappe.clear_document_cache("Production Entry Settings")
-	access_control.invalidate_access_control_cache()
+	access_control.sync_configured_access_roles(write_role=write_role_value, read_role=read_role_value)
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit - E2E state toggle must persist immediately
 	return {"enabled": bool(cint(enabled)), "write_role": write_role_value, "read_role": read_role_value}
 

@@ -19,7 +19,6 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import ensur
 GATED_DOCTYPES: tuple[str, ...] = (
 	"Shift",
 	"Loss Entry",
-	"Downtime Reason",
 	"Operator",
 	"Die Tool Counter",
 	"Die Tool Maintenance Log",
@@ -31,7 +30,6 @@ READ_ONLY_DENIED_PERMISSION_KEYS: tuple[str, ...] = ("create", "delete", "write"
 
 DOCLEVEL_GATED_DOCTYPES: tuple[str, ...] = (
 	"Shift",
-	"Downtime Reason",
 	"Operator",
 	"Die Tool Counter",
 	"Die Tool Maintenance Log",
@@ -92,7 +90,7 @@ class TestAccessControlDoctypes(FrappeTestCase):
 			frappe.set_user(DENIED_USER)
 			for doctype in DOCLEVEL_GATED_DOCTYPES:
 				with self.subTest(doctype=doctype):
-					self.assertFalse(frappe.has_permission(_make_doc(doctype), ptype="read"))
+					self.assertFalse(_make_doc(doctype).has_permission("read"))
 
 	def test_denied_user_cannot_access_loss_entry_child_rows_when_shift_parent_is_denied(
 		self,
@@ -104,9 +102,9 @@ class TestAccessControlDoctypes(FrappeTestCase):
 			frappe.set_user(DENIED_USER)
 			shift, loss_entry = _make_shift_with_loss_entry()
 			with self.subTest(doctype="Shift"):
-				self.assertFalse(frappe.has_permission(shift, ptype="read"))
+				self.assertFalse(shift.has_permission("read"))
 			with self.subTest(doctype="Loss Entry"):
-				self.assertFalse(frappe.has_permission(loss_entry, ptype="read"))
+				self.assertFalse(loss_entry.has_permission("read"))
 
 	def test_denied_user_can_access_stock_entry_natively_but_is_blocked_on_rejection_breakup(
 		self,
@@ -142,7 +140,7 @@ class TestAccessControlDoctypes(FrappeTestCase):
 			frappe.set_user(READ_ONLY_USER)
 			for doctype in DOCLEVEL_GATED_DOCTYPES:
 				with self.subTest(doctype=doctype, ptype="doc_read"):
-					self.assertTrue(frappe.has_permission(_make_doc(doctype), ptype="read"))
+					self.assertTrue(_make_doc(doctype).has_permission("read"))
 			for doctype in GATED_DOCTYPES:
 				with self.subTest(doctype=doctype, ptype="read"):
 					self.assertTrue(_call_doctype_permission_hook(doctype, ptype="read"))
@@ -150,9 +148,9 @@ class TestAccessControlDoctypes(FrappeTestCase):
 					self.assertFalse(_call_doctype_permission_hook(doctype, ptype="create"))
 			shift, loss_entry = _make_shift_with_loss_entry()
 			with self.subTest(doctype="Shift", ptype="doc_read"):
-				self.assertTrue(frappe.has_permission(shift, ptype="read"))
+				self.assertTrue(shift.has_permission("read"))
 			with self.subTest(doctype="Loss Entry", ptype="doc_read"):
-				self.assertTrue(frappe.has_permission(loss_entry, ptype="read"))
+				self.assertTrue(loss_entry.has_permission("read"))
 			stock_entry, rejection_breakup = _make_stock_entry_with_rejection_breakup()
 			del stock_entry
 			with self.subTest(doctype="Rejection Breakup", ptype="doc_read"):
@@ -177,16 +175,16 @@ class TestAccessControlDoctypes(FrappeTestCase):
 			frappe.set_user(ALLOWED_USER)
 			for doctype in DOCLEVEL_GATED_DOCTYPES:
 				with self.subTest(doctype=doctype):
-					self.assertTrue(frappe.has_permission(_make_doc(doctype), ptype="read"))
+					self.assertTrue(_make_doc(doctype).has_permission("read"))
 				with self.subTest(doctype=doctype, ptype="read"):
 					self.assertTrue(_call_doctype_permission_hook(doctype, ptype="read"))
 				with self.subTest(doctype=doctype, ptype="create"):
 					self.assertTrue(_call_doctype_permission_hook(doctype, ptype="create"))
 			shift, loss_entry = _make_shift_with_loss_entry()
 			with self.subTest(doctype="Shift"):
-				self.assertTrue(frappe.has_permission(shift, ptype="read"))
+				self.assertTrue(shift.has_permission("read"))
 			with self.subTest(doctype="Loss Entry"):
-				self.assertTrue(frappe.has_permission(loss_entry, ptype="read"))
+				self.assertTrue(loss_entry.has_permission("read"))
 			stock_entry, rejection_breakup = _make_stock_entry_with_rejection_breakup()
 			del stock_entry
 			with self.subTest(doctype="Rejection Breakup"):
@@ -200,16 +198,16 @@ class TestAccessControlDoctypes(FrappeTestCase):
 			frappe.set_user("Administrator")
 			for doctype in DOCLEVEL_GATED_DOCTYPES:
 				with self.subTest(doctype=doctype):
-					self.assertTrue(frappe.has_permission(_make_doc(doctype), ptype="read"))
+					self.assertTrue(_make_doc(doctype).has_permission("read"))
 				with self.subTest(doctype=doctype, ptype="read"):
 					self.assertTrue(_call_doctype_permission_hook(doctype, ptype="read"))
 				with self.subTest(doctype=doctype, ptype="create"):
 					self.assertTrue(_call_doctype_permission_hook(doctype, ptype="create"))
 			shift, loss_entry = _make_shift_with_loss_entry()
 			with self.subTest(doctype="Shift"):
-				self.assertTrue(frappe.has_permission(shift, ptype="read"))
+				self.assertTrue(shift.has_permission("read"))
 			with self.subTest(doctype="Loss Entry"):
-				self.assertTrue(frappe.has_permission(loss_entry, ptype="read"))
+				self.assertTrue(loss_entry.has_permission("read"))
 			stock_entry, rejection_breakup = _make_stock_entry_with_rejection_breakup()
 			with self.subTest(doctype="Stock Entry"):
 				self.assertTrue(frappe.has_permission(stock_entry, ptype="read"))
