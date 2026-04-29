@@ -6,6 +6,7 @@ from frappe.utils import flt, get_time
 
 from production_entry_app.production_entry_app.report.report_utils import (
 	apply_system_precision,
+	assert_report_read_access,
 	get_entry_production_minutes,
 	get_entry_total_strokes,
 	get_loss_duration_minutes,
@@ -45,6 +46,7 @@ LOSS_REASON_TO_BUCKET: dict[str, str] = {
 
 
 def execute(filters: dict | None = None):
+	assert_report_read_access()
 	filters = filters or {}
 	columns = _get_columns()
 	timeout_guard = new_interactive_report_timeout_guard(_("Production OEE Report"))

@@ -79,12 +79,12 @@
   {
    "fieldname": "planned_start_time_input",
    "fieldtype": "Data",
-  "label": "Planned Start Time",
-  "insert_after": "shift_date",
-  "placeholder": "HH:MM e.g. 0630",
-  "no_copy": 1,
-  "print_hide": 1,
-  "search_index": 0
+   "label": "Planned Start Time",
+   "insert_after": "shift_date",
+   "placeholder": "HH:MM e.g. 0630",
+   "no_copy": 1,
+   "print_hide": 1,
+   "search_index": 0
   },
   {
    "fieldname": "shift_end_date",
@@ -260,15 +260,12 @@
    "create": 1,
    "delete": 1,
    "read": 1,
-   "role": "Manufacturing User",
-   "write": 1
+   "write": 1,
+   "role": "PEA User"
   },
   {
-   "create": 1,
-   "delete": 1,
    "read": 1,
-   "role": "Manufacturing Manager",
-   "write": 1
+   "role": "PEA Read Only"
   }
  ],
  "sort_field": "modified",

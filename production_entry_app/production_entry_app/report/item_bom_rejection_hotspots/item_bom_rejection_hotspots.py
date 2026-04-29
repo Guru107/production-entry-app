@@ -5,6 +5,7 @@ from frappe.utils import flt
 
 from production_entry_app.production_entry_app.report.report_utils import (
 	apply_system_precision,
+	assert_report_read_access,
 	build_stock_entry_filters,
 	format_numeric_summary,
 	get_finished_item_map,
@@ -16,6 +17,7 @@ from production_entry_app.production_entry_app.report.report_utils import (
 
 
 def execute(filters: dict | None = None):
+	assert_report_read_access()
 	filters = filters or {}
 	columns = _get_columns()
 	rows = _get_rows(

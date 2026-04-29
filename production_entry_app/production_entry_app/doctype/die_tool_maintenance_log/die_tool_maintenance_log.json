@@ -64,18 +64,14 @@
    "delete": 1,
    "read": 1,
    "submit": 1,
-   "role": "Manufacturing User",
-   "write": 1
+   "write": 1,
+   "role": "PEA User"
   },
   {
-   "create": 1,
-   "delete": 1,
    "read": 1,
-   "submit": 1,
-   "role": "Manufacturing Manager",
-   "write": 1
+   "role": "PEA Read Only"
   }
-],
+ ],
  "row_format": "Dynamic",
  "sort_field": "modified",
  "sort_order": "DESC",

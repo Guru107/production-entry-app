@@ -21,10 +21,10 @@
    "role": "System Manager"
   },
   {
-   "role": "Manufacturing User"
+   "role": "PEA User"
   },
   {
-   "role": "Manufacturing Manager"
+   "role": "PEA Read Only"
   }
  ]
 }

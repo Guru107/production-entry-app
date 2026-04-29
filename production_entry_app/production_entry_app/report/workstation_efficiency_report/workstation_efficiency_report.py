@@ -6,6 +6,7 @@ from frappe.utils import flt
 from production_entry_app.production_entry_app.report.report_utils import (
 	accumulate_efficiency_aggregate,
 	apply_system_precision,
+	assert_report_read_access,
 	build_efficiency_rows,
 	build_stock_entry_filters,
 	get_entry_production_minutes,
@@ -20,6 +21,7 @@ from production_entry_app.production_entry_app.report.report_utils import (
 
 
 def execute(filters: dict | None = None):
+	assert_report_read_access()
 	filters = filters or {}
 	columns = _get_columns()
 	rows = _get_rows(

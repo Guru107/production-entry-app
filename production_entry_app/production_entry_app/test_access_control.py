@@ -11,6 +11,7 @@ from frappe.tests.utils import FrappeTestCase
 DEFAULT_WRITE_ROLE: str = "PEA User"
 DEFAULT_READ_ROLE: str = "PEA Read Only"
 DEFAULT_REQUIRED_ROLE: str = DEFAULT_WRITE_ROLE
+REPORTS_PATH: Path = Path(__file__).parent / "report"
 
 
 def _settings(
@@ -77,6 +78,20 @@ class TestAccessControl(FrappeTestCase):
 		)
 
 		self.assertTrue(issubclass(ProductionEntryAccessRule, Document))
+
+	def test_report_metadata_uses_pea_read_roles(self) -> None:
+		for report_path in REPORTS_PATH.glob("*/*.json"):
+			with self.subTest(report=report_path.parent.name):
+				report_schema = json.loads(report_path.read_text())
+				roles = {role["role"] for role in report_schema.get("roles", [])}
+				self.assertEqual(roles, {"System Manager", DEFAULT_WRITE_ROLE, DEFAULT_READ_ROLE})
+
+	def test_report_execute_paths_assert_pea_read_access(self) -> None:
+		for report_path in REPORTS_PATH.glob("*/*.py"):
+			if report_path.name == "__init__.py":
+				continue
+			with self.subTest(report=report_path.parent.name):
+				self.assertIn("assert_report_read_access()", report_path.read_text())
 
 	def test_before_install_creates_default_access_roles_when_missing(self) -> None:
 		from production_entry_app import install

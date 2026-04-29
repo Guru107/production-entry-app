@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -24,6 +26,8 @@ GATED_DOCTYPES: tuple[str, ...] = (
 	"Rejection Reason",
 	"Rejection Breakup",
 )
+WRITE_PERMISSION_KEYS: tuple[str, ...] = ("create", "read", "write")
+READ_ONLY_DENIED_PERMISSION_KEYS: tuple[str, ...] = ("create", "delete", "write", "submit")
 
 DOCLEVEL_GATED_DOCTYPES: tuple[str, ...] = (
 	"Shift",
@@ -45,8 +49,9 @@ READ_ROLE: str = "PEA Read Only"
 
 class TestAccessControlDoctypes(FrappeTestCase):
 	def setUp(self) -> None:
-		_ensure_user_with_roles(ALLOWED_USER, (USER_ROLE, WRITE_ROLE))
-		_ensure_user_with_roles(READ_ONLY_USER, (USER_ROLE, READ_ROLE))
+		_reload_gated_doctype_metadata()
+		_ensure_user_with_roles(ALLOWED_USER, (WRITE_ROLE,))
+		_ensure_user_with_roles(READ_ONLY_USER, (READ_ROLE,))
 		_ensure_user_with_roles(DENIED_USER, (USER_ROLE,))
 		frappe.set_user("Administrator")
 		access_control.invalidate_access_control_cache()
@@ -56,14 +61,28 @@ class TestAccessControlDoctypes(FrappeTestCase):
 		frappe.db.rollback()
 
 	def test_role_fixture_setup_resets_dedicated_users_to_exact_roles(self) -> None:
-		_ensure_user_with_roles(DENIED_USER, (USER_ROLE, WRITE_ROLE, "System Manager"))
+		_ensure_user_with_roles(DENIED_USER, (WRITE_ROLE, "System Manager"))
 		self.assertEqual(
 			_get_user_roles(DENIED_USER),
-			sorted((USER_ROLE, WRITE_ROLE, "System Manager")),
+			sorted((WRITE_ROLE, "System Manager")),
 		)
 
 		_ensure_user_with_roles(DENIED_USER, (USER_ROLE,))
 		self.assertEqual(_get_user_roles(DENIED_USER), [USER_ROLE])
+
+	def test_gated_doctype_native_permissions_use_pea_roles(self) -> None:
+		for doctype in GATED_DOCTYPES:
+			with self.subTest(doctype=doctype):
+				permission_by_role = _get_json_permissions_by_role(doctype)
+				self.assertIn(WRITE_ROLE, permission_by_role)
+				for key in _write_permission_keys_for_doctype(permission_by_role["System Manager"]):
+					self.assertEqual(permission_by_role[WRITE_ROLE].get(key), 1)
+				self.assertIn(READ_ROLE, permission_by_role)
+				self.assertEqual(permission_by_role[READ_ROLE].get("read"), 1)
+				for key in READ_ONLY_DENIED_PERMISSION_KEYS:
+					self.assertNotEqual(permission_by_role[READ_ROLE].get(key), 1)
+				self.assertNotIn(USER_ROLE, permission_by_role)
+				self.assertNotIn("Manufacturing Manager", permission_by_role)
 
 	def test_denied_user_cannot_access_all_gated_doctypes_doc_level(self) -> None:
 		with patch(
@@ -121,11 +140,22 @@ class TestAccessControlDoctypes(FrappeTestCase):
 			return_value=_access_config(),
 		):
 			frappe.set_user(READ_ONLY_USER)
+			for doctype in DOCLEVEL_GATED_DOCTYPES:
+				with self.subTest(doctype=doctype, ptype="doc_read"):
+					self.assertTrue(frappe.has_permission(_make_doc(doctype), ptype="read"))
 			for doctype in GATED_DOCTYPES:
 				with self.subTest(doctype=doctype, ptype="read"):
 					self.assertTrue(_call_doctype_permission_hook(doctype, ptype="read"))
 				with self.subTest(doctype=doctype, ptype="create"):
 					self.assertFalse(_call_doctype_permission_hook(doctype, ptype="create"))
+			shift, loss_entry = _make_shift_with_loss_entry()
+			with self.subTest(doctype="Shift", ptype="doc_read"):
+				self.assertTrue(frappe.has_permission(shift, ptype="read"))
+			with self.subTest(doctype="Loss Entry", ptype="doc_read"):
+				self.assertTrue(frappe.has_permission(loss_entry, ptype="read"))
+			_, rejection_breakup = _make_stock_entry_with_rejection_breakup()
+			with self.subTest(doctype="Rejection Breakup", ptype="doc_read"):
+				self.assertTrue(rejection_breakup.has_permission("read", user=READ_ONLY_USER))
 
 	def test_allowed_user_can_access_all_gated_doctypes(self) -> None:
 		with patch(
@@ -146,8 +176,7 @@ class TestAccessControlDoctypes(FrappeTestCase):
 			with self.subTest(doctype="Loss Entry"):
 				self.assertTrue(frappe.has_permission(loss_entry, ptype="read"))
 			stock_entry, rejection_breakup = _make_stock_entry_with_rejection_breakup()
-			with self.subTest(doctype="Stock Entry"):
-				self.assertTrue(frappe.has_permission(stock_entry, ptype="read"))
+			del stock_entry
 			with self.subTest(doctype="Rejection Breakup"):
 				self.assertTrue(rejection_breakup.has_permission("read", user=ALLOWED_USER))
 
@@ -182,6 +211,28 @@ def _access_config() -> SimpleNamespace:
 		write_role=WRITE_ROLE,
 		read_role=READ_ROLE,
 	)
+
+
+def _reload_gated_doctype_metadata() -> None:
+	for doctype in GATED_DOCTYPES:
+		frappe.reload_doc("production_entry_app", "doctype", frappe.scrub(doctype))
+		frappe.clear_cache(doctype=doctype)
+
+
+def _get_json_permissions_by_role(doctype: str) -> dict[str, dict]:
+	scrubbed_doctype = frappe.scrub(doctype)
+	path = Path(__file__).parent / "doctype" / scrubbed_doctype / f"{scrubbed_doctype}.json"
+	doctype_schema = json.loads(path.read_text())
+	return {permission["role"]: permission for permission in doctype_schema["permissions"]}
+
+
+def _write_permission_keys_for_doctype(system_manager_permission: dict) -> tuple[str, ...]:
+	keys = list(WRITE_PERMISSION_KEYS)
+	if system_manager_permission.get("delete") == 1:
+		keys.append("delete")
+	if system_manager_permission.get("submit") == 1:
+		keys.append("submit")
+	return tuple(keys)
 
 
 def _call_doctype_permission_hook(doctype: str, ptype: str) -> bool:

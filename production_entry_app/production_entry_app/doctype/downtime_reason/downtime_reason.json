@@ -47,15 +47,12 @@
    "create": 1,
    "delete": 1,
    "read": 1,
-   "role": "Manufacturing User",
-   "write": 1
+   "write": 1,
+   "role": "PEA User"
   },
   {
-   "create": 1,
-   "delete": 1,
    "read": 1,
-   "role": "Manufacturing Manager",
-   "write": 1
+   "role": "PEA Read Only"
   }
  ],
  "sort_field": "modified",
