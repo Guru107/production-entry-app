@@ -6,7 +6,8 @@
  "engine": "InnoDB",
  "field_order": [
   "enable_access_control",
-  "required_role",
+  "write_role",
+  "read_role",
   "shift_raw_material_warehouse",
   "shift_wip_warehouse",
   "shift_rejection_warehouse",
@@ -23,9 +24,17 @@
   },
   {
    "default": "PEA User",
-   "fieldname": "required_role",
+   "fieldname": "write_role",
    "fieldtype": "Link",
-   "label": "Required Role",
+   "label": "Write Role",
+   "options": "Role",
+   "reqd": 1
+  },
+  {
+   "default": "PEA Read Only",
+   "fieldname": "read_role",
+   "fieldtype": "Link",
+   "label": "Read Role",
    "options": "Role",
    "reqd": 1
   },

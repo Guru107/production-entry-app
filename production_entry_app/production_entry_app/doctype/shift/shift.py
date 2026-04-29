@@ -184,7 +184,7 @@ def get_planned_losses_for_duration(
 
 	Used by client script to populate the grid when shift_duration (or related fields) changes.
 	"""
-	access_control.assert_app_access()
+	access_control.assert_app_write_access()
 	if not shift_duration or not planned_start_time or not shift_date:
 		return []
 
@@ -209,7 +209,7 @@ def get_linked_downtime_entries(shift_name: str | None = None) -> list[dict]:
 	"""
 	if not shift_name:
 		return []
-	access_control.assert_app_access(doctype="Shift", docname=shift_name)
+	access_control.assert_app_read_access(doctype="Shift", docname=shift_name)
 	shift_exists = bool(frappe.db.exists("Shift", shift_name))
 	if not shift_exists and shift_name.startswith("new-"):
 		return []
@@ -249,7 +249,7 @@ def check_running_shift_conflict(shift_name: str) -> dict:
 	Used by client to show a warning dialog before starting a shift.
 	Returns: {"has_conflict": bool, "conflicting_shifts": [{"name": str, "shift_label": str, ...}]}
 	"""
-	access_control.assert_app_access(doctype="Shift", docname=shift_name)
+	access_control.assert_app_read_access(doctype="Shift", docname=shift_name)
 	if not shift_name:
 		return {"has_conflict": False, "conflicting_shifts": []}
 	if not frappe.has_permission("Shift", "read", shift_name):
@@ -656,7 +656,7 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 	"""Return structured summary data for the Shift summary tab."""
 	if not shift_name:
 		return _empty_shift_summary()
-	access_control.assert_app_access(doctype="Shift", docname=shift_name)
+	access_control.assert_app_read_access(doctype="Shift", docname=shift_name)
 	shift_exists = bool(frappe.db.exists("Shift", shift_name))
 	if not shift_exists and shift_name.startswith("new-"):
 		return _empty_shift_summary()
@@ -849,7 +849,7 @@ def get_shift_aggregate_production_entries(shift_name: str | None = None) -> lis
 	"""Return per-BOM aggregate production values for submitted manufacture entries in a shift."""
 	if not shift_name:
 		return []
-	access_control.assert_app_access(doctype="Shift", docname=shift_name)
+	access_control.assert_app_read_access(doctype="Shift", docname=shift_name)
 	shift_exists = bool(frappe.db.exists("Shift", shift_name))
 	if not shift_exists and shift_name.startswith("new-"):
 		return []
@@ -978,7 +978,7 @@ class Shift(Document):
 
 	@frappe.whitelist()
 	def start_shift(self) -> None:
-		access_control.assert_app_access(doctype="Shift", docname=self.name)
+		access_control.assert_app_write_access(doctype="Shift", docname=self.name)
 		self._validate_no_other_running_shift()
 		self._transition_status(to_status="Running", allowed_from=("Draft",))
 
@@ -1009,12 +1009,12 @@ class Shift(Document):
 
 	@frappe.whitelist()
 	def end_shift(self) -> None:
-		access_control.assert_app_access(doctype="Shift", docname=self.name)
+		access_control.assert_app_write_access(doctype="Shift", docname=self.name)
 		self._transition_status(to_status="Completed", allowed_from=("Running",))
 
 	@frappe.whitelist()
 	def cancel_shift(self) -> None:
-		access_control.assert_app_access(doctype="Shift", docname=self.name)
+		access_control.assert_app_write_access(doctype="Shift", docname=self.name)
 		self._transition_status(to_status="Cancelled", allowed_from=("Draft",))
 
 	def _set_defaults(self) -> None:

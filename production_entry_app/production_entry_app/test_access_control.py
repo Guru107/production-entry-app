@@ -3,25 +3,37 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-DEFAULT_REQUIRED_ROLE: str = "PEA User"
+DEFAULT_WRITE_ROLE: str = "PEA User"
+DEFAULT_READ_ROLE: str = "PEA Read Only"
+DEFAULT_REQUIRED_ROLE: str = DEFAULT_WRITE_ROLE
 
 
-def _settings(enabled: bool, required_role: str | None = DEFAULT_REQUIRED_ROLE) -> SimpleNamespace:
+def _settings(
+	enabled: bool,
+	write_role: str | None = DEFAULT_WRITE_ROLE,
+	read_role: str | None = DEFAULT_READ_ROLE,
+) -> SimpleNamespace:
 	return SimpleNamespace(
 		enabled=enabled,
-		required_role=required_role,
+		write_role=write_role,
+		read_role=read_role,
 	)
 
 
-def _settings_doc(enabled: bool, required_role: str | None = DEFAULT_REQUIRED_ROLE) -> SimpleNamespace:
+def _settings_doc(
+	enabled: bool,
+	write_role: str | None = DEFAULT_WRITE_ROLE,
+	read_role: str | None = DEFAULT_READ_ROLE,
+) -> SimpleNamespace:
 	return SimpleNamespace(
 		enable_access_control=1 if enabled else 0,
-		required_role=required_role,
+		write_role=write_role,
+		read_role=read_role,
 	)
 
 
@@ -44,12 +56,17 @@ class TestAccessControl(FrappeTestCase):
 		)
 		settings_schema = json.loads(settings_path.read_text())
 		field_by_name = {field["fieldname"]: field for field in settings_schema["fields"]}
-		field = field_by_name["required_role"]
+		write_field = field_by_name["write_role"]
+		read_field = field_by_name["read_role"]
 
-		self.assertEqual(field["fieldtype"], "Link")
-		self.assertEqual(field["options"], "Role")
-		self.assertEqual(field["default"], DEFAULT_REQUIRED_ROLE)
-		self.assertEqual(field["reqd"], 1)
+		self.assertEqual(write_field["fieldtype"], "Link")
+		self.assertEqual(write_field["options"], "Role")
+		self.assertEqual(write_field["default"], DEFAULT_WRITE_ROLE)
+		self.assertEqual(write_field["reqd"], 1)
+		self.assertEqual(read_field["fieldtype"], "Link")
+		self.assertEqual(read_field["options"], "Role")
+		self.assertEqual(read_field["default"], DEFAULT_READ_ROLE)
+		self.assertEqual(read_field["reqd"], 1)
 		self.assertNotIn("allowed_access_rules", field_by_name)
 
 	def test_access_rule_doctype_controller_is_registered(self) -> None:
@@ -61,7 +78,7 @@ class TestAccessControl(FrappeTestCase):
 
 		self.assertTrue(issubclass(ProductionEntryAccessRule, Document))
 
-	def test_before_install_creates_default_required_role_when_missing(self) -> None:
+	def test_before_install_creates_default_access_roles_when_missing(self) -> None:
 		from production_entry_app import install
 
 		with (
@@ -71,11 +88,23 @@ class TestAccessControl(FrappeTestCase):
 			role_doc = get_doc.return_value
 			install.before_install()
 
-		exists.assert_called_once_with("Role", DEFAULT_REQUIRED_ROLE)
-		get_doc.assert_called_once_with({"doctype": "Role", "role_name": DEFAULT_REQUIRED_ROLE})
-		role_doc.insert.assert_called_once_with()
+		self.assertEqual(
+			exists.call_args_list,
+			[
+				call("Role", DEFAULT_WRITE_ROLE),
+				call("Role", DEFAULT_READ_ROLE),
+			],
+		)
+		self.assertEqual(
+			get_doc.call_args_list,
+			[
+				call({"doctype": "Role", "role_name": DEFAULT_WRITE_ROLE}),
+				call({"doctype": "Role", "role_name": DEFAULT_READ_ROLE}),
+			],
+		)
+		self.assertEqual(role_doc.insert.call_count, 2)
 
-	def test_before_install_skips_default_required_role_when_present(self) -> None:
+	def test_before_install_skips_default_access_roles_when_present(self) -> None:
 		from production_entry_app import install
 
 		with (
@@ -84,7 +113,13 @@ class TestAccessControl(FrappeTestCase):
 		):
 			install.before_install()
 
-		exists.assert_called_once_with("Role", DEFAULT_REQUIRED_ROLE)
+		self.assertEqual(
+			exists.call_args_list,
+			[
+				call("Role", DEFAULT_WRITE_ROLE),
+				call("Role", DEFAULT_READ_ROLE),
+			],
+		)
 		get_doc.assert_not_called()
 
 	def test_before_install_hook_registers_default_required_role_setup(self) -> None:
@@ -126,10 +161,17 @@ class TestAccessControl(FrappeTestCase):
 
 		self.assertEqual(settings.enable_access_control, 0)
 
-	def test_settings_validation_rejects_blank_required_role_when_enabled(self) -> None:
+	def test_settings_validation_rejects_blank_access_roles_when_enabled(self) -> None:
 		settings = frappe.get_single("Production Entry Settings")
 		settings.enable_access_control = 1
-		settings.required_role = ""
+		settings.write_role = ""
+		settings.read_role = DEFAULT_READ_ROLE
+
+		with self.assertRaises(frappe.ValidationError):
+			settings.save()
+
+		settings.write_role = DEFAULT_WRITE_ROLE
+		settings.read_role = ""
 
 		with self.assertRaises(frappe.ValidationError):
 			settings.save()
@@ -145,14 +187,15 @@ class TestAccessControl(FrappeTestCase):
 		cache = frappe.cache()
 		cache.set_value(
 			access_control.ACCESS_CONTROL_CACHE_KEY,
-			{"enabled": True, "required_role": DEFAULT_REQUIRED_ROLE},
+			{"enabled": True, "write_role": DEFAULT_WRITE_ROLE, "read_role": DEFAULT_READ_ROLE},
 			expires_in_sec=access_control.ACCESS_CONTROL_CACHE_TTL_SEC,
 		)
 
 		settings = frappe.get_single("Production Entry Settings")
 		settings.enable_access_control = 1 if not settings.enable_access_control else 0
 		if settings.enable_access_control:
-			settings.required_role = DEFAULT_REQUIRED_ROLE
+			settings.write_role = DEFAULT_WRITE_ROLE
+			settings.read_role = DEFAULT_READ_ROLE
 		for fieldname in (
 			"shift_raw_material_warehouse",
 			"shift_wip_warehouse",
@@ -188,26 +231,87 @@ class TestAccessControl(FrappeTestCase):
 			frappe.set_user(user_email)
 			settings = frappe.get_single("Production Entry Settings")
 			settings.enable_access_control = 1
-			settings.required_role = DEFAULT_REQUIRED_ROLE
+			settings.write_role = DEFAULT_WRITE_ROLE
+			settings.read_role = DEFAULT_READ_ROLE
 			with self.assertRaises(frappe.PermissionError):
 				settings.save()
 		finally:
 			frappe.set_user(original_user)
 
 	def test_system_manager_always_allowed(self) -> None:
-		with (
-			patch(
-				"production_entry_app.production_entry_app.access_control._load_access_configuration",
-				return_value=_settings(True, DEFAULT_REQUIRED_ROLE),
-			),
-			patch(
-				"production_entry_app.production_entry_app.access_control.frappe.get_roles",
-				return_value=["System Manager"],
-			),
-		):
-			from production_entry_app.production_entry_app import access_control
+		from production_entry_app.production_entry_app import access_control
 
-			self.assertTrue(access_control.can_use_production_entry_app("manager@example.com"))
+		config = access_control.AccessConfiguration(
+			enabled=True,
+			write_role=DEFAULT_WRITE_ROLE,
+			read_role=DEFAULT_READ_ROLE,
+		)
+		with (
+			patch.object(access_control, "_get_access_configuration", return_value=config),
+			patch.object(access_control.frappe, "get_roles", return_value=["System Manager"]),
+		):
+			self.assertTrue(access_control.can_read_production_entry_app("manager@example.com"))
+			self.assertTrue(access_control.can_write_production_entry_app("manager@example.com"))
+
+	def test_pea_user_has_read_and_write_access(self) -> None:
+		from production_entry_app.production_entry_app import access_control
+
+		config = access_control.AccessConfiguration(
+			enabled=True,
+			write_role=DEFAULT_WRITE_ROLE,
+			read_role=DEFAULT_READ_ROLE,
+		)
+		with (
+			patch.object(access_control, "_get_access_configuration", return_value=config),
+			patch.object(access_control.frappe, "get_roles", return_value=[DEFAULT_WRITE_ROLE]),
+		):
+			self.assertTrue(access_control.can_read_production_entry_app("test@example.com"))
+			self.assertTrue(access_control.can_write_production_entry_app("test@example.com"))
+
+	def test_pea_read_only_has_read_without_write_access(self) -> None:
+		from production_entry_app.production_entry_app import access_control
+
+		config = access_control.AccessConfiguration(
+			enabled=True,
+			write_role=DEFAULT_WRITE_ROLE,
+			read_role=DEFAULT_READ_ROLE,
+		)
+		with (
+			patch.object(access_control, "_get_access_configuration", return_value=config),
+			patch.object(access_control.frappe, "get_roles", return_value=[DEFAULT_READ_ROLE]),
+		):
+			self.assertTrue(access_control.can_read_production_entry_app("readonly@example.com"))
+			self.assertFalse(access_control.can_write_production_entry_app("readonly@example.com"))
+
+	def test_non_pea_user_has_no_read_or_write_access_when_enabled(self) -> None:
+		from production_entry_app.production_entry_app import access_control
+
+		config = access_control.AccessConfiguration(
+			enabled=True,
+			write_role=DEFAULT_WRITE_ROLE,
+			read_role=DEFAULT_READ_ROLE,
+		)
+		with (
+			patch.object(access_control, "_get_access_configuration", return_value=config),
+			patch.object(access_control.frappe, "get_roles", return_value=["Manufacturing User"]),
+		):
+			self.assertFalse(access_control.can_read_production_entry_app("user@example.com"))
+			self.assertFalse(access_control.can_write_production_entry_app("user@example.com"))
+
+	def test_disabled_control_allows_read_and_write_for_development(self) -> None:
+		from production_entry_app.production_entry_app import access_control
+
+		config = access_control.AccessConfiguration(
+			enabled=False,
+			write_role=DEFAULT_WRITE_ROLE,
+			read_role=DEFAULT_READ_ROLE,
+		)
+		with (
+			patch.object(access_control, "_get_access_configuration", return_value=config),
+			patch.object(access_control.frappe, "get_roles", return_value=["Manufacturing User"]),
+		):
+			self.assertTrue(access_control.can_read_production_entry_app("user@example.com"))
+			self.assertTrue(access_control.can_write_production_entry_app("user@example.com"))
 
 	def test_disabled_control_allows_non_manager(self) -> None:
 		with (
@@ -224,7 +328,7 @@ class TestAccessControl(FrappeTestCase):
 
 			self.assertTrue(access_control.can_use_production_entry_app("user@example.com"))
 
-	def test_enabled_allows_when_user_has_required_role(self) -> None:
+	def test_enabled_allows_write_when_user_has_write_role(self) -> None:
 		with (
 			patch(
 				"production_entry_app.production_entry_app.access_control._load_access_configuration",
@@ -232,14 +336,15 @@ class TestAccessControl(FrappeTestCase):
 			),
 			patch(
 				"production_entry_app.production_entry_app.access_control.frappe.get_roles",
-				return_value=[DEFAULT_REQUIRED_ROLE],
+				return_value=[DEFAULT_WRITE_ROLE],
 			),
 		):
 			from production_entry_app.production_entry_app import access_control
 
 			self.assertTrue(access_control.can_use_production_entry_app("user@example.com"))
+			self.assertTrue(access_control.can_write_production_entry_app("user@example.com"))
 
-	def test_enabled_denies_when_user_missing_required_role(self) -> None:
+	def test_enabled_denies_write_when_user_missing_write_role(self) -> None:
 		with (
 			patch(
 				"production_entry_app.production_entry_app.access_control._load_access_configuration",
@@ -253,12 +358,13 @@ class TestAccessControl(FrappeTestCase):
 			from production_entry_app.production_entry_app import access_control
 
 			self.assertFalse(access_control.can_use_production_entry_app("user@example.com"))
+			self.assertFalse(access_control.can_write_production_entry_app("user@example.com"))
 
-	def test_enabled_denies_when_required_role_blank(self) -> None:
+	def test_enabled_denies_when_write_role_blank(self) -> None:
 		with (
 			patch(
 				"production_entry_app.production_entry_app.access_control._load_access_configuration",
-				return_value=_settings(True, ""),
+				return_value=_settings(True, "", DEFAULT_READ_ROLE),
 			),
 			patch(
 				"production_entry_app.production_entry_app.access_control.frappe.get_roles",
@@ -267,9 +373,9 @@ class TestAccessControl(FrappeTestCase):
 		):
 			from production_entry_app.production_entry_app import access_control
 
-			self.assertFalse(access_control.can_use_production_entry_app("user@example.com"))
+			self.assertFalse(access_control.can_write_production_entry_app("user@example.com"))
 
-	def test_enabled_allows_when_custom_required_role_matches(self) -> None:
+	def test_enabled_allows_when_custom_write_role_matches(self) -> None:
 		with (
 			patch(
 				"production_entry_app.production_entry_app.access_control._load_access_configuration",
@@ -284,18 +390,19 @@ class TestAccessControl(FrappeTestCase):
 
 			self.assertTrue(access_control.can_use_production_entry_app("user@example.com"))
 
-	def test_load_access_configuration_reads_required_role(self) -> None:
+	def test_load_access_configuration_reads_access_roles(self) -> None:
 		with patch(
 			"production_entry_app.production_entry_app.access_control.frappe.get_single",
-			return_value=_settings_doc(True, "Manufacturing User"),
+			return_value=_settings_doc(True, "Manufacturing User", "Stock User"),
 		):
 			from production_entry_app.production_entry_app import access_control
 
 			config = access_control._load_access_configuration()
 			self.assertTrue(config.enabled)
-			self.assertEqual(config.required_role, "Manufacturing User")
+			self.assertEqual(config.write_role, "Manufacturing User")
+			self.assertEqual(config.read_role, "Stock User")
 
-	def test_load_access_configuration_falls_back_to_default_required_role_when_missing(self) -> None:
+	def test_load_access_configuration_falls_back_to_defaults_when_missing(self) -> None:
 		with patch(
 			"production_entry_app.production_entry_app.access_control.frappe.get_single",
 			return_value=SimpleNamespace(enable_access_control=1),
@@ -304,18 +411,32 @@ class TestAccessControl(FrappeTestCase):
 
 			config = access_control._load_access_configuration()
 			self.assertTrue(config.enabled)
-			self.assertEqual(config.required_role, DEFAULT_REQUIRED_ROLE)
+			self.assertEqual(config.write_role, DEFAULT_WRITE_ROLE)
+			self.assertEqual(config.read_role, DEFAULT_READ_ROLE)
 
-	def test_load_access_configuration_preserves_blank_required_role(self) -> None:
+	def test_load_access_configuration_preserves_blank_access_roles(self) -> None:
 		with patch(
 			"production_entry_app.production_entry_app.access_control.frappe.get_single",
-			return_value=_settings_doc(True, ""),
+			return_value=_settings_doc(True, "", ""),
 		):
 			from production_entry_app.production_entry_app import access_control
 
 			config = access_control._load_access_configuration()
 			self.assertTrue(config.enabled)
-			self.assertEqual(config.required_role, "")
+			self.assertEqual(config.write_role, "")
+			self.assertEqual(config.read_role, "")
+
+	def test_load_access_configuration_uses_legacy_required_role_for_write_role(self) -> None:
+		with patch(
+			"production_entry_app.production_entry_app.access_control.frappe.get_single",
+			return_value=SimpleNamespace(enable_access_control=1, required_role="Legacy PEA User"),
+		):
+			from production_entry_app.production_entry_app import access_control
+
+			config = access_control._load_access_configuration()
+			self.assertTrue(config.enabled)
+			self.assertEqual(config.write_role, "Legacy PEA User")
+			self.assertEqual(config.read_role, DEFAULT_READ_ROLE)
 
 	def test_has_gated_doctype_permission_uses_real_loader_path(self) -> None:
 		with (

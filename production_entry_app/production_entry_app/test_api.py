@@ -149,9 +149,13 @@ class TestE2EApi(FrappeTestCase):
 
 			result = set_e2e_access_control(enabled=1, required_role=" Manufacturing User ")
 
-		self.assertEqual(result, {"enabled": True, "required_role": "Manufacturing User"})
+		self.assertEqual(
+			result,
+			{"enabled": True, "write_role": "Manufacturing User", "read_role": "PEA Read Only"},
+		)
 		set_single_value.assert_any_call("Production Entry Settings", "enable_access_control", 1)
-		set_single_value.assert_any_call("Production Entry Settings", "required_role", "Manufacturing User")
+		set_single_value.assert_any_call("Production Entry Settings", "write_role", "Manufacturing User")
+		set_single_value.assert_any_call("Production Entry Settings", "read_role", "PEA Read Only")
 		invalidate.assert_called_once()
 		commit.assert_called_once()
 

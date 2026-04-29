@@ -36,14 +36,17 @@ DOCLEVEL_GATED_DOCTYPES: tuple[str, ...] = (
 
 TEST_BRANCH: str = "PEA Test Branch"
 ALLOWED_USER: str = "pea_allowed_user@example.com"
+READ_ONLY_USER: str = "pea_read_only_user@example.com"
 DENIED_USER: str = "pea_denied_user@example.com"
 USER_ROLE: str = "Manufacturing User"
-REQUIRED_ROLE: str = "PEA User"
+WRITE_ROLE: str = "PEA User"
+READ_ROLE: str = "PEA Read Only"
 
 
 class TestAccessControlDoctypes(FrappeTestCase):
 	def setUp(self) -> None:
-		_ensure_user_with_roles(ALLOWED_USER, (USER_ROLE, REQUIRED_ROLE))
+		_ensure_user_with_roles(ALLOWED_USER, (USER_ROLE, WRITE_ROLE))
+		_ensure_user_with_roles(READ_ONLY_USER, (USER_ROLE, READ_ROLE))
 		_ensure_user_with_roles(DENIED_USER, (USER_ROLE,))
 		frappe.set_user("Administrator")
 		access_control.invalidate_access_control_cache()
@@ -53,10 +56,10 @@ class TestAccessControlDoctypes(FrappeTestCase):
 		frappe.db.rollback()
 
 	def test_role_fixture_setup_resets_dedicated_users_to_exact_roles(self) -> None:
-		_ensure_user_with_roles(DENIED_USER, (USER_ROLE, REQUIRED_ROLE, "System Manager"))
+		_ensure_user_with_roles(DENIED_USER, (USER_ROLE, WRITE_ROLE, "System Manager"))
 		self.assertEqual(
 			_get_user_roles(DENIED_USER),
-			sorted((USER_ROLE, REQUIRED_ROLE, "System Manager")),
+			sorted((USER_ROLE, WRITE_ROLE, "System Manager")),
 		)
 
 		_ensure_user_with_roles(DENIED_USER, (USER_ROLE,))
@@ -112,6 +115,18 @@ class TestAccessControlDoctypes(FrappeTestCase):
 				with self.subTest(doctype=doctype, ptype="create"):
 					self.assertFalse(_call_doctype_permission_hook(doctype, ptype="create"))
 
+	def test_read_only_user_can_read_but_cannot_create_gated_doctypes(self) -> None:
+		with patch(
+			"production_entry_app.production_entry_app.access_control._load_access_configuration",
+			return_value=_access_config(),
+		):
+			frappe.set_user(READ_ONLY_USER)
+			for doctype in GATED_DOCTYPES:
+				with self.subTest(doctype=doctype, ptype="read"):
+					self.assertTrue(_call_doctype_permission_hook(doctype, ptype="read"))
+				with self.subTest(doctype=doctype, ptype="create"):
+					self.assertFalse(_call_doctype_permission_hook(doctype, ptype="create"))
+
 	def test_allowed_user_can_access_all_gated_doctypes(self) -> None:
 		with patch(
 			"production_entry_app.production_entry_app.access_control._load_access_configuration",
@@ -164,7 +179,8 @@ class TestAccessControlDoctypes(FrappeTestCase):
 def _access_config() -> SimpleNamespace:
 	return SimpleNamespace(
 		enabled=True,
-		required_role=REQUIRED_ROLE,
+		write_role=WRITE_ROLE,
+		read_role=READ_ROLE,
 	)
 
 
