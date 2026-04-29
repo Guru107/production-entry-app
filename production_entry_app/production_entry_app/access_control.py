@@ -16,6 +16,7 @@ DEFAULT_WRITE_ROLE: str = "PEA User"
 DEFAULT_READ_ROLE: str = "PEA Read Only"
 DEFAULT_REQUIRED_ROLE: str = DEFAULT_WRITE_ROLE
 READ_PERMISSION_TYPES: frozenset[str] = frozenset({"read", "select", "print", "email", "export", "report"})
+REPORT_ROLES: tuple[str, ...] = (SYSTEM_MANAGER_ROLE, DEFAULT_WRITE_ROLE, DEFAULT_READ_ROLE)
 
 
 @dataclass(frozen=True)
@@ -36,6 +37,7 @@ def ensure_access_roles_and_settings() -> None:
 	_ensure_role(DEFAULT_WRITE_ROLE)
 	_ensure_role(DEFAULT_READ_ROLE)
 	_migrate_access_settings()
+	_migrate_report_access_metadata()
 	invalidate_access_control_cache()
 
 
@@ -188,10 +190,21 @@ def _migrate_access_settings() -> None:
 		frappe.db.set_single_value(
 			SETTINGS_DOCTYPE,
 			"write_role",
-			str(legacy_required_role or DEFAULT_WRITE_ROLE).strip(),
+			str(legacy_required_role or "").strip() or DEFAULT_WRITE_ROLE,
 		)
 	if not str(read_role or "").strip():
 		frappe.db.set_single_value(SETTINGS_DOCTYPE, "read_role", DEFAULT_READ_ROLE)
+
+
+def _migrate_report_access_metadata() -> None:
+	if not frappe.db.exists("DocType", "Report"):
+		return
+
+	for report_name in frappe.get_all("Report", filters={"module": "Production Entry App"}, pluck="name"):
+		report = frappe.get_doc("Report", report_name)
+		report.ref_doctype = "Shift"
+		report.set("roles", [{"role": role} for role in REPORT_ROLES])
+		report.save(ignore_permissions=True)
 
 
 def _get_single_value(fieldname: str) -> str | None:
@@ -199,6 +212,7 @@ def _get_single_value(fieldname: str) -> str | None:
 		"Singles",
 		{"doctype": SETTINGS_DOCTYPE, "field": fieldname},
 		"value",
+		order_by=None,
 	)
 
 

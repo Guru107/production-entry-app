@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import call, patch
+from unittest.mock import MagicMock, call, patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -86,6 +86,20 @@ class TestAccessControl(FrappeTestCase):
 				roles = {role["role"] for role in report_schema.get("roles", [])}
 				self.assertEqual(roles, {"System Manager", DEFAULT_WRITE_ROLE, DEFAULT_READ_ROLE})
 
+	def test_report_metadata_uses_pea_owned_ref_doctype(self) -> None:
+		for report_path in REPORTS_PATH.glob("*/*.json"):
+			with self.subTest(report=report_path.parent.name):
+				report_schema = json.loads(report_path.read_text())
+				self.assertEqual(report_schema["ref_doctype"], "Shift")
+
+	def test_shift_native_permissions_include_report_for_pea_read_roles(self) -> None:
+		shift_path = Path(__file__).parent / "doctype" / "shift" / "shift.json"
+		shift_schema = json.loads(shift_path.read_text())
+		permission_by_role = {permission["role"]: permission for permission in shift_schema["permissions"]}
+
+		self.assertEqual(permission_by_role[DEFAULT_WRITE_ROLE].get("report"), 1)
+		self.assertEqual(permission_by_role[DEFAULT_READ_ROLE].get("report"), 1)
+
 	def test_report_execute_paths_assert_pea_read_access(self) -> None:
 		for report_path in REPORTS_PATH.glob("*/*.py"):
 			if report_path.name == "__init__.py":
@@ -131,7 +145,8 @@ class TestAccessControl(FrappeTestCase):
 	def test_access_setup_creates_roles_and_migrates_legacy_settings(self) -> None:
 		from production_entry_app.production_entry_app import access_control
 
-		def fake_get_value(doctype: str, filters: dict, fieldname: str) -> str | None:
+		def fake_get_value(doctype: str, filters: dict, fieldname: str, **kwargs: object) -> str | None:
+			self.assertEqual(kwargs, {"order_by": None})
 			self.assertEqual(doctype, "Singles")
 			self.assertEqual(fieldname, "value")
 			if filters["field"] == "write_role":
@@ -139,11 +154,13 @@ class TestAccessControl(FrappeTestCase):
 			if filters["field"] == "read_role":
 				return None
 			if filters["field"] == "required_role":
-				return "Legacy PEA User"
+				return "   "
 			raise AssertionError(filters)
 
 		with (
-			patch.object(access_control.frappe.db, "exists", side_effect=[False, False, True]) as exists,
+			patch.object(
+				access_control.frappe.db, "exists", side_effect=[False, False, True, False]
+			) as exists,
 			patch.object(access_control.frappe, "get_doc") as get_doc,
 			patch.object(access_control.frappe.db, "get_value", side_effect=fake_get_value),
 			patch.object(access_control.frappe.db, "set_single_value") as set_single_value,
@@ -158,6 +175,7 @@ class TestAccessControl(FrappeTestCase):
 				call("Role", DEFAULT_WRITE_ROLE),
 				call("Role", DEFAULT_READ_ROLE),
 				call("DocType", access_control.SETTINGS_DOCTYPE),
+				call("DocType", "Report"),
 			],
 		)
 		self.assertEqual(
@@ -170,7 +188,7 @@ class TestAccessControl(FrappeTestCase):
 		self.assertEqual(role_doc.insert.call_count, 2)
 		set_single_value.assert_has_calls(
 			[
-				call(access_control.SETTINGS_DOCTYPE, "write_role", "Legacy PEA User"),
+				call(access_control.SETTINGS_DOCTYPE, "write_role", DEFAULT_WRITE_ROLE),
 				call(access_control.SETTINGS_DOCTYPE, "read_role", DEFAULT_READ_ROLE),
 			]
 		)
@@ -179,12 +197,13 @@ class TestAccessControl(FrappeTestCase):
 	def test_access_setup_keeps_existing_split_settings(self) -> None:
 		from production_entry_app.production_entry_app import access_control
 
-		def fake_get_value(doctype: str, filters: dict, fieldname: str) -> str | None:
+		def fake_get_value(doctype: str, filters: dict, fieldname: str, **kwargs: object) -> str | None:
 			del doctype, fieldname
+			self.assertEqual(kwargs, {"order_by": None})
 			return {"write_role": "Custom Write", "read_role": "Custom Read"}.get(filters["field"])
 
 		with (
-			patch.object(access_control.frappe.db, "exists", side_effect=[True, True, True]),
+			patch.object(access_control.frappe.db, "exists", side_effect=[True, True, True, False]),
 			patch.object(access_control.frappe, "get_doc") as get_doc,
 			patch.object(access_control.frappe.db, "get_value", side_effect=fake_get_value),
 			patch.object(access_control.frappe.db, "set_single_value") as set_single_value,
@@ -195,6 +214,38 @@ class TestAccessControl(FrappeTestCase):
 		get_doc.assert_not_called()
 		set_single_value.assert_not_called()
 		invalidate_cache.assert_called_once_with()
+
+	def test_access_setup_migrates_report_metadata_for_existing_sites(self) -> None:
+		from production_entry_app.production_entry_app import access_control
+
+		report = frappe._dict(name="Rejection Pareto Report")
+		report.set = MagicMock()
+		report.save = MagicMock()
+
+		with (
+			patch.object(access_control.frappe.db, "exists", side_effect=[True, True, True, True]),
+			patch.object(access_control.frappe.db, "get_value", return_value="PEA User"),
+			patch.object(access_control.frappe.db, "set_single_value"),
+			patch.object(
+				access_control.frappe, "get_all", return_value=["Rejection Pareto Report"]
+			) as get_all,
+			patch.object(access_control.frappe, "get_doc", return_value=report) as get_doc,
+			patch.object(access_control, "invalidate_access_control_cache"),
+		):
+			access_control.ensure_access_roles_and_settings()
+
+		get_all.assert_called_once_with("Report", filters={"module": "Production Entry App"}, pluck="name")
+		get_doc.assert_called_once_with("Report", "Rejection Pareto Report")
+		self.assertEqual(report.ref_doctype, "Shift")
+		report.set.assert_called_once_with(
+			"roles",
+			[
+				{"role": "System Manager"},
+				{"role": DEFAULT_WRITE_ROLE},
+				{"role": DEFAULT_READ_ROLE},
+			],
+		)
+		report.save.assert_called_once_with(ignore_permissions=True)
 
 	def test_settings_default_enable_access_control_is_zero(self) -> None:
 		meta = frappe.get_meta("Production Entry Settings")

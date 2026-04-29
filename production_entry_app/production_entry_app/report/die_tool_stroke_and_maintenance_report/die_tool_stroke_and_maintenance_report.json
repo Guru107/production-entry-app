@@ -13,7 +13,7 @@
  "name": "Die Tool Stroke and Maintenance Report",
  "owner": "Administrator",
  "prepared_report": 1,
- "ref_doctype": "Die Tool Counter",
+ "ref_doctype": "Shift",
  "report_name": "Die Tool Stroke and Maintenance Report",
  "report_type": "Script Report",
  "roles": [

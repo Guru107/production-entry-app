@@ -261,11 +261,13 @@
    "delete": 1,
    "read": 1,
    "write": 1,
-   "role": "PEA User"
+   "role": "PEA User",
+   "report": 1
   },
   {
    "read": 1,
-   "role": "PEA Read Only"
+   "role": "PEA Read Only",
+   "report": 1
   }
  ],
  "sort_field": "modified",

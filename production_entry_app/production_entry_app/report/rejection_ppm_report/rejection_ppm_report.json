@@ -13,7 +13,7 @@
  "name": "Rejection PPM Report",
  "owner": "Administrator",
  "prepared_report": 1,
- "ref_doctype": "Stock Entry",
+ "ref_doctype": "Shift",
  "report_name": "Rejection PPM Report",
  "report_type": "Script Report",
  "roles": [

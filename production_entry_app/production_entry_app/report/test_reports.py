@@ -5,9 +5,11 @@ from contextlib import ExitStack
 from unittest.mock import patch
 
 import frappe
+from frappe.desk.query_report import run as run_query_report
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import flt
 
+from production_entry_app.production_entry_app import access_control
 from production_entry_app.production_entry_app.overrides.test_stock_entry_hooks import (
 	_append_rejection_breakup_rows,
 	_create_manufacture_stock_entry,
@@ -112,6 +114,46 @@ class TestProductionReports(FrappeTestCase):
 		self._ensure_base_fixtures()
 		frappe.db.set_value("Workstation", "Report Workstation", "custom_pea_standard_spm", 2)
 		_set_shift_buffers(start_mins=60, end_mins=60)
+
+	def test_pea_read_only_can_run_pea_report_through_query_report_runner(self) -> None:
+		user_email = f"test_pea_report_read_only_{frappe.generate_hash(length=8)}@example.com"
+		_ensure_user_with_exact_roles(user_email, ("PEA Read Only",))
+		frappe.reload_doc("production_entry_app", "doctype", "shift")
+		frappe.reload_doc("production_entry_app", "report", "rejection_pareto_report")
+		access_control.ensure_access_roles_and_settings()
+		frappe.clear_cache(doctype="Shift")
+		original_user = frappe.session.user
+		try:
+			frappe.set_user(user_email)
+			result = run_query_report(
+				"Rejection Pareto Report",
+				filters={},
+				ignore_prepared_report=True,
+			)
+		finally:
+			frappe.set_user(original_user)
+
+		self.assertIn("columns", result)
+		self.assertIn("result", result)
+
+	def test_manufacturing_user_cannot_run_pea_report_through_query_report_runner(self) -> None:
+		user_email = f"test_pea_report_mfg_{frappe.generate_hash(length=8)}@example.com"
+		_ensure_user_with_exact_roles(user_email, ("Manufacturing User",))
+		frappe.reload_doc("production_entry_app", "doctype", "shift")
+		frappe.reload_doc("production_entry_app", "report", "rejection_pareto_report")
+		access_control.ensure_access_roles_and_settings()
+		frappe.clear_cache(doctype="Shift")
+		original_user = frappe.session.user
+		try:
+			frappe.set_user(user_email)
+			with self.assertRaises(frappe.PermissionError):
+				run_query_report(
+					"Rejection Pareto Report",
+					filters={},
+					ignore_prepared_report=True,
+				)
+		finally:
+			frappe.set_user(original_user)
 
 	def test_production_oee_report_columns_match_v2_schema(self) -> None:
 		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
@@ -3188,3 +3230,22 @@ class TestProductionReports(FrappeTestCase):
 			.insert(ignore_permissions=True)
 			.name
 		)
+
+
+def _ensure_user_with_exact_roles(email: str, roles: tuple[str, ...]) -> None:
+	for role in roles:
+		if not frappe.db.exists("Role", role):
+			frappe.get_doc({"doctype": "Role", "role_name": role}).insert(ignore_permissions=True)
+	if frappe.db.exists("User", email):
+		user = frappe.get_doc("User", email)
+	else:
+		user = frappe.new_doc("User")
+		user.email = email
+		user.first_name = email.split("@", 1)[0]
+		user.user_type = "System User"
+	user.set("roles", [])
+	for role in roles:
+		user.append("roles", {"role": role})
+	user.save(ignore_permissions=True)
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit - role changes must be visible to permission checks
+	frappe.clear_cache(user=email)

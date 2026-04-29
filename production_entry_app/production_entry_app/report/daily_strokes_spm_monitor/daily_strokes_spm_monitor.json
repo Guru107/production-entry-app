@@ -16,7 +16,7 @@
  "name": "Daily Strokes SPM Monitor",
  "owner": "Administrator",
  "prepared_report": 1,
- "ref_doctype": "Stock Entry",
+ "ref_doctype": "Shift",
  "report_name": "Daily Strokes SPM Monitor",
  "report_type": "Script Report",
  "roles": [
