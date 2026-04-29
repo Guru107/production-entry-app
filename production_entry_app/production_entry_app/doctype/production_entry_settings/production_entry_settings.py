@@ -21,11 +21,3 @@ class ProductionEntrySettings(Document):
 			write_role=str(self.write_role or ""),
 			read_role=str(self.read_role or ""),
 		)
-
-
-def on_update(doc: Document, method: str | None = None) -> None:
-	del method
-	access_control.sync_configured_access_roles(
-		write_role=str(doc.write_role or ""),
-		read_role=str(doc.read_role or ""),
-	)

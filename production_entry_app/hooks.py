@@ -168,9 +168,6 @@ override_doctype_class = {
 # Hook on document methods and events
 
 doc_events = {
-	"Production Entry Settings": {
-		"on_update": "production_entry_app.production_entry_app.doctype.production_entry_settings.production_entry_settings.on_update",
-	},
 	"Shift": {
 		"on_update": "production_entry_app.production_entry_app.doctype.shift.shift.invalidate_shift_summary_for_shift",
 		"on_trash": "production_entry_app.production_entry_app.doctype.shift.shift.invalidate_shift_summary_for_shift",

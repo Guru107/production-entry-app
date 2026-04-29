@@ -142,17 +142,6 @@ class TestAccessControl(FrappeTestCase):
 		setup_access.assert_called_once_with()
 		setup_indexes.assert_called_once_with()
 
-	def test_settings_on_update_syncs_configured_access_roles(self) -> None:
-		from production_entry_app.production_entry_app.doctype.production_entry_settings import (
-			production_entry_settings,
-		)
-
-		settings = SimpleNamespace(write_role="Runtime Write", read_role="Runtime Read")
-		with patch.object(production_entry_settings.access_control, "sync_configured_access_roles") as sync:
-			production_entry_settings.on_update(settings)
-
-		sync.assert_called_once_with(write_role="Runtime Write", read_role="Runtime Read")
-
 	def test_settings_controller_on_update_syncs_configured_access_roles(self) -> None:
 		from production_entry_app.production_entry_app.doctype.production_entry_settings import (
 			production_entry_settings,
@@ -163,6 +152,11 @@ class TestAccessControl(FrappeTestCase):
 			production_entry_settings.ProductionEntrySettings.on_update(settings)
 
 		sync.assert_called_once_with(write_role="Runtime Write", read_role="Runtime Read")
+
+	def test_settings_sync_is_not_registered_twice(self) -> None:
+		from production_entry_app import hooks
+
+		self.assertNotIn("Production Entry Settings", hooks.doc_events)
 
 	def test_access_setup_creates_roles_and_migrates_legacy_settings(self) -> None:
 		from production_entry_app.production_entry_app import access_control
@@ -316,6 +310,27 @@ class TestAccessControl(FrappeTestCase):
 			role="Runtime PEA Both",
 			template=write_template,
 		)
+
+	def test_read_only_template_is_not_corrupted_by_same_default_read_role_sync(self) -> None:
+		from production_entry_app.production_entry_app import access_control
+
+		for doctype in access_control.GATED_DOCTYPES:
+			frappe.reload_doc("production_entry_app", "doctype", frappe.scrub(doctype))
+		access_control.sync_configured_access_roles(
+			write_role=DEFAULT_READ_ROLE,
+			read_role=DEFAULT_READ_ROLE,
+		)
+		access_control.sync_configured_access_roles(
+			write_role=DEFAULT_WRITE_ROLE,
+			read_role=DEFAULT_READ_ROLE,
+		)
+
+		for doctype in access_control.GATED_DOCTYPES:
+			with self.subTest(doctype=doctype):
+				permission = _get_native_docperm(doctype, DEFAULT_READ_ROLE)
+				self.assertEqual(permission.get("read"), 1)
+				for fieldname in ("write", "create", "delete", "submit"):
+					self.assertNotEqual(permission.get(fieldname), 1)
 
 	def test_settings_default_enable_access_control_is_zero(self) -> None:
 		meta = frappe.get_meta("Production Entry Settings")
@@ -770,3 +785,15 @@ def _ensure_user_with_role(email: str, role: str) -> None:
 	user.add_roles(role)
 	user.save(ignore_permissions=True)
 	frappe.clear_cache(user=email)
+
+
+def _get_native_docperm(doctype: str, role: str) -> dict:
+	rows = frappe.get_all(
+		"DocPerm",
+		filters={"parent": doctype, "parenttype": "DocType", "role": role, "permlevel": 0},
+		fields=["read", "write", "create", "delete", "submit", "report"],
+		limit=1,
+	)
+	if not rows:
+		raise AssertionError(f"Missing DocPerm for {doctype} / {role}")
+	return rows[0]

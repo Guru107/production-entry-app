@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from pathlib import Path
 from traceback import format_exc
 from typing import Any
 
@@ -11,6 +13,7 @@ SETTINGS_DOCTYPE: str = "Production Entry Settings"
 LEGACY_ACCESS_CONTROL_CACHE_KEY: str = "pea:access_control:config"
 ACCESS_CONTROL_CACHE_KEY: str = "pea:access_control:config:v2"
 ACCESS_CONTROL_CACHE_TTL_SEC: int = 30
+APP_ROOT: Path = Path(__file__).parent
 SYSTEM_MANAGER_ROLE: str = "System Manager"
 DEFAULT_WRITE_ROLE: str = "PEA User"
 DEFAULT_READ_ROLE: str = "PEA Read Only"
@@ -262,16 +265,12 @@ def _sync_native_doctype_permissions(*, write_role: str, read_role: str) -> None
 
 
 def _get_docperm_template(doctype: str, role: str) -> dict[str, int] | None:
-	rows = frappe.get_all(
-		"DocPerm",
-		filters={"parent": doctype, "parenttype": "DocType", "role": role, "permlevel": 0},
-		fields=["name", "permlevel", *DOCPERM_FIELDS],
-		limit=1,
-	)
-	if not rows:
-		return None
-	row = rows[0]
-	return {field: int(row.get(field) or 0) for field in ("permlevel", *DOCPERM_FIELDS)}
+	doctype_path = APP_ROOT / "doctype" / frappe.scrub(doctype) / f"{frappe.scrub(doctype)}.json"
+	doctype_schema = json.loads(doctype_path.read_text())
+	for permission in doctype_schema.get("permissions", []):
+		if permission.get("role") == role and int(permission.get("permlevel") or 0) == 0:
+			return {field: int(permission.get(field) or 0) for field in ("permlevel", *DOCPERM_FIELDS)}
+	return None
 
 
 def _sync_docperm(*, doctype: str, role: str, template: dict[str, int]) -> None:
