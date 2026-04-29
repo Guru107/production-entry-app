@@ -155,6 +155,32 @@ class TestProductionReports(FrappeTestCase):
 		finally:
 			frappe.set_user(original_user)
 
+	def test_legacy_custom_write_role_can_access_native_doctype_and_report_paths(self) -> None:
+		legacy_role = f"Legacy Production Role {frappe.generate_hash(length=8)}"
+		user_email = f"test_pea_report_legacy_{frappe.generate_hash(length=8)}@example.com"
+		_ensure_user_with_exact_roles(user_email, (legacy_role,))
+		frappe.reload_doc("production_entry_app", "doctype", "shift")
+		frappe.reload_doc("production_entry_app", "report", "rejection_pareto_report")
+		_set_legacy_required_role_only(legacy_role)
+		access_control.ensure_access_roles_and_settings()
+		frappe.clear_cache(doctype="Shift")
+		frappe.clear_cache(user=user_email)
+		original_user = frappe.session.user
+		try:
+			frappe.set_user(user_email)
+			self.assertTrue(frappe.has_permission("Shift", "read"))
+			result = run_query_report(
+				"Rejection Pareto Report",
+				filters={},
+				ignore_prepared_report=True,
+			)
+		finally:
+			frappe.set_user(original_user)
+			_restore_default_access_roles()
+
+		self.assertIn("columns", result)
+		self.assertIn("result", result)
+
 	def test_production_oee_report_columns_match_v2_schema(self) -> None:
 		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
 			execute,
@@ -3249,3 +3275,30 @@ def _ensure_user_with_exact_roles(email: str, roles: tuple[str, ...]) -> None:
 	user.save(ignore_permissions=True)
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit - role changes must be visible to permission checks
 	frappe.clear_cache(user=email)
+
+
+def _set_legacy_required_role_only(role: str) -> None:
+	settings_doctype = "Production Entry Settings"
+	for fieldname in ("write_role", "read_role", "required_role"):
+		frappe.db.delete("Singles", {"doctype": settings_doctype, "field": fieldname})
+	frappe.db.set_single_value(settings_doctype, "enable_access_control", 1)
+	frappe.db.sql(
+		"""
+		insert into `tabSingles` (`doctype`, `field`, `value`)
+		values (%s, %s, %s)
+		""",
+		(settings_doctype, "required_role", role),
+	)
+	frappe.clear_document_cache(settings_doctype)
+	access_control.invalidate_access_control_cache()
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit - legacy Singles row must be visible to setup
+
+
+def _restore_default_access_roles() -> None:
+	settings_doctype = "Production Entry Settings"
+	frappe.db.delete("Singles", {"doctype": settings_doctype, "field": "required_role"})
+	frappe.db.set_single_value(settings_doctype, "write_role", access_control.DEFAULT_WRITE_ROLE)
+	frappe.db.set_single_value(settings_doctype, "read_role", access_control.DEFAULT_READ_ROLE)
+	frappe.clear_document_cache(settings_doctype)
+	access_control.invalidate_access_control_cache()
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit - reset committed legacy setup fixture
