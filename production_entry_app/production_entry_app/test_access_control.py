@@ -142,6 +142,28 @@ class TestAccessControl(FrappeTestCase):
 		setup_access.assert_called_once_with()
 		setup_indexes.assert_called_once_with()
 
+	def test_settings_on_update_syncs_configured_access_roles(self) -> None:
+		from production_entry_app.production_entry_app.doctype.production_entry_settings import (
+			production_entry_settings,
+		)
+
+		settings = SimpleNamespace(write_role="Runtime Write", read_role="Runtime Read")
+		with patch.object(production_entry_settings.access_control, "sync_configured_access_roles") as sync:
+			production_entry_settings.on_update(settings)
+
+		sync.assert_called_once_with(write_role="Runtime Write", read_role="Runtime Read")
+
+	def test_settings_controller_on_update_syncs_configured_access_roles(self) -> None:
+		from production_entry_app.production_entry_app.doctype.production_entry_settings import (
+			production_entry_settings,
+		)
+
+		settings = SimpleNamespace(write_role="Runtime Write", read_role="Runtime Read")
+		with patch.object(production_entry_settings.access_control, "sync_configured_access_roles") as sync:
+			production_entry_settings.ProductionEntrySettings.on_update(settings)
+
+		sync.assert_called_once_with(write_role="Runtime Write", read_role="Runtime Read")
+
 	def test_access_setup_creates_roles_and_migrates_legacy_settings(self) -> None:
 		from production_entry_app.production_entry_app import access_control
 
@@ -259,6 +281,42 @@ class TestAccessControl(FrappeTestCase):
 		)
 		report.save.assert_called_once_with(ignore_permissions=True)
 
+	def test_native_permission_sync_uses_write_template_when_read_and_write_roles_match(self) -> None:
+		from production_entry_app.production_entry_app import access_control
+
+		write_template = {"read": 1, "write": 1, "create": 1, "report": 1}
+		read_template = {"read": 1, "write": 0, "create": 0, "report": 1}
+
+		def fake_template(doctype: str, role: str) -> dict[str, int] | None:
+			del doctype
+			if role == access_control.DEFAULT_WRITE_ROLE:
+				return write_template
+			if role == access_control.DEFAULT_READ_ROLE:
+				return read_template
+			raise AssertionError(role)
+
+		with (
+			patch.object(
+				access_control.frappe.db,
+				"exists",
+				side_effect=lambda doctype, name=None: doctype == "DocType" and name in ("DocPerm", "Shift"),
+			),
+			patch.object(access_control, "GATED_DOCTYPES", ("Shift",)),
+			patch.object(access_control, "_get_docperm_template", side_effect=fake_template),
+			patch.object(access_control, "_sync_docperm") as sync_docperm,
+			patch.object(access_control.frappe, "clear_cache"),
+		):
+			access_control._sync_native_doctype_permissions(
+				write_role="Runtime PEA Both",
+				read_role="Runtime PEA Both",
+			)
+
+		sync_docperm.assert_called_once_with(
+			doctype="Shift",
+			role="Runtime PEA Both",
+			template=write_template,
+		)
+
 	def test_settings_default_enable_access_control_is_zero(self) -> None:
 		meta = frappe.get_meta("Production Entry Settings")
 		field = meta.get_field("enable_access_control")
@@ -325,6 +383,7 @@ class TestAccessControl(FrappeTestCase):
 
 		settings = frappe.get_single("Production Entry Settings")
 		settings.enable_access_control = 1 if not settings.enable_access_control else 0
+		settings.required_role = DEFAULT_WRITE_ROLE
 		if settings.enable_access_control:
 			settings.write_role = DEFAULT_WRITE_ROLE
 			settings.read_role = DEFAULT_READ_ROLE
@@ -336,6 +395,7 @@ class TestAccessControl(FrappeTestCase):
 		):
 			if settings.meta.has_field(fieldname):
 				settings.set(fieldname, None)
+		settings.flags.ignore_links = True
 		settings.save()
 
 		self.assertIsNone(cache.get_value(access_control.ACCESS_CONTROL_CACHE_KEY))

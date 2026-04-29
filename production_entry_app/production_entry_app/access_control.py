@@ -63,12 +63,21 @@ def ensure_access_roles_and_settings() -> None:
 	_ensure_role(DEFAULT_WRITE_ROLE)
 	_ensure_role(DEFAULT_READ_ROLE)
 	_migrate_access_settings()
-	write_role, read_role = _get_setup_access_roles()
-	for role in _unique_roles(write_role, read_role):
+	sync_configured_access_roles()
+
+
+def sync_configured_access_roles(*, write_role: str | None = None, read_role: str | None = None) -> None:
+	"""Sync native permissions and report metadata for the configured access roles."""
+	effective_write_role, effective_read_role = _get_setup_access_roles()
+	if write_role is not None:
+		effective_write_role = _normalize_role(write_role, DEFAULT_WRITE_ROLE)
+	if read_role is not None:
+		effective_read_role = _normalize_role(read_role, DEFAULT_READ_ROLE)
+	for role in _unique_roles(effective_write_role, effective_read_role):
 		if role not in (DEFAULT_WRITE_ROLE, DEFAULT_READ_ROLE):
 			_ensure_role(role)
-	_sync_native_doctype_permissions(write_role=write_role, read_role=read_role)
-	_migrate_report_access_metadata(write_role=write_role, read_role=read_role)
+	_sync_native_doctype_permissions(write_role=effective_write_role, read_role=effective_read_role)
+	_migrate_report_access_metadata(write_role=effective_write_role, read_role=effective_read_role)
 	invalidate_access_control_cache()
 
 
@@ -247,7 +256,7 @@ def _sync_native_doctype_permissions(*, write_role: str, read_role: str) -> None
 		read_template = _get_docperm_template(doctype, DEFAULT_READ_ROLE)
 		if write_template:
 			_sync_docperm(doctype=doctype, role=write_role, template=write_template)
-		if read_template:
+		if read_template and read_role != write_role:
 			_sync_docperm(doctype=doctype, role=read_role, template=read_template)
 		frappe.clear_cache(doctype=doctype)
 
