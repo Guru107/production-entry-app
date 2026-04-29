@@ -85,12 +85,13 @@ def get_access_control_state() -> dict[str, bool]:
 @frappe.whitelist()
 def set_e2e_access_control(
 	enabled: int = 0,
-	required_role: str = access_control.DEFAULT_WRITE_ROLE,
+	write_role: str | None = None,
 	read_role: str = access_control.DEFAULT_READ_ROLE,
+	required_role: str | None = None,
 ) -> dict:
 	"""Set access-control flags for E2E without full-doc validation side effects."""
 	_assert_e2e_api_allowed()
-	write_role_value = (required_role or access_control.DEFAULT_WRITE_ROLE).strip()
+	write_role_value = (write_role or required_role or access_control.DEFAULT_WRITE_ROLE).strip()
 	read_role_value = (read_role or access_control.DEFAULT_READ_ROLE).strip()
 	frappe.db.set_single_value("Production Entry Settings", "enable_access_control", cint(enabled))
 	frappe.db.set_single_value("Production Entry Settings", "write_role", write_role_value)

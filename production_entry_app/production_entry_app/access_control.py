@@ -31,6 +31,14 @@ def invalidate_access_control_cache() -> None:
 	cache.delete_value(LEGACY_ACCESS_CONTROL_CACHE_KEY)
 
 
+def ensure_access_roles_and_settings() -> None:
+	"""Ensure split access roles and migrate legacy singleton settings."""
+	_ensure_role(DEFAULT_WRITE_ROLE)
+	_ensure_role(DEFAULT_READ_ROLE)
+	_migrate_access_settings()
+	invalidate_access_control_cache()
+
+
 def can_use_production_entry_app(user: str | None = None) -> bool:
 	"""Return whether the user can write to Production Entry App.
 
@@ -160,6 +168,38 @@ def _get_access_configuration() -> AccessConfiguration:
 		expires_in_sec=ACCESS_CONTROL_CACHE_TTL_SEC,
 	)
 	return config
+
+
+def _ensure_role(role_name: str) -> None:
+	if frappe.db.exists("Role", role_name):
+		return
+
+	frappe.get_doc({"doctype": "Role", "role_name": role_name}).insert()
+
+
+def _migrate_access_settings() -> None:
+	if not frappe.db.exists("DocType", SETTINGS_DOCTYPE):
+		return
+
+	write_role = _get_single_value("write_role")
+	read_role = _get_single_value("read_role")
+	if not str(write_role or "").strip():
+		legacy_required_role = _get_single_value("required_role")
+		frappe.db.set_single_value(
+			SETTINGS_DOCTYPE,
+			"write_role",
+			str(legacy_required_role or DEFAULT_WRITE_ROLE).strip(),
+		)
+	if not str(read_role or "").strip():
+		frappe.db.set_single_value(SETTINGS_DOCTYPE, "read_role", DEFAULT_READ_ROLE)
+
+
+def _get_single_value(fieldname: str) -> str | None:
+	return frappe.db.get_value(
+		"Singles",
+		{"doctype": SETTINGS_DOCTYPE, "field": fieldname},
+		"value",
+	)
 
 
 def _load_access_configuration() -> AccessConfiguration:

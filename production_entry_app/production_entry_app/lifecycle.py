@@ -23,7 +23,7 @@ def before_uninstall() -> None:
 
 
 def _setup_app() -> None:
-	access_control.invalidate_access_control_cache()
+	access_control.ensure_access_roles_and_settings()
 	performance_indexes.ensure_performance_indexes_with_recovery()
 
 

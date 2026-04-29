@@ -148,7 +148,7 @@ class TestShiftPureHelpers(FrappeTestCase):
 
 	def test_get_planned_losses_for_duration_returns_empty_for_missing_inputs(self) -> None:
 		with patch(
-			"production_entry_app.production_entry_app.doctype.shift.shift.access_control.assert_app_access"
+			"production_entry_app.production_entry_app.doctype.shift.shift.access_control.assert_app_write_access"
 		):
 			self.assertEqual(shift_module.get_planned_losses_for_duration("", "08:00:00", "2099-01-01"), [])
 
@@ -168,7 +168,7 @@ class TestShiftPureHelpers(FrappeTestCase):
 		)
 		fake_shift._populate_planned_losses = MagicMock()
 		with patch(
-			"production_entry_app.production_entry_app.doctype.shift.shift.access_control.assert_app_access"
+			"production_entry_app.production_entry_app.doctype.shift.shift.access_control.assert_app_write_access"
 		):
 			with patch(
 				"production_entry_app.production_entry_app.doctype.shift.shift.frappe.new_doc",
@@ -186,7 +186,7 @@ class TestShiftPureHelpers(FrappeTestCase):
 	def test_get_linked_downtime_entries_returns_empty_for_missing_or_incomplete_shift(self) -> None:
 		self.assertEqual(shift_module.get_linked_downtime_entries(None), [])
 		with patch(
-			"production_entry_app.production_entry_app.doctype.shift.shift.access_control.assert_app_access"
+			"production_entry_app.production_entry_app.doctype.shift.shift.access_control.assert_app_read_access"
 		):
 			with patch(
 				"production_entry_app.production_entry_app.doctype.shift.shift.frappe.db.exists",
@@ -218,7 +218,7 @@ class TestShiftPureHelpers(FrappeTestCase):
 
 	def test_check_running_shift_conflict_handles_missing_shift_name_and_missing_context(self) -> None:
 		with patch(
-			"production_entry_app.production_entry_app.doctype.shift.shift.access_control.assert_app_access"
+			"production_entry_app.production_entry_app.doctype.shift.shift.access_control.assert_app_read_access"
 		):
 			self.assertEqual(
 				shift_module.check_running_shift_conflict(""),
@@ -280,7 +280,7 @@ class TestShiftPureHelpers(FrappeTestCase):
 		with ExitStack() as stack:
 			stack.enter_context(
 				patch(
-					"production_entry_app.production_entry_app.doctype.shift.shift.access_control.assert_app_access"
+					"production_entry_app.production_entry_app.doctype.shift.shift.access_control.assert_app_read_access"
 				)
 			)
 			stack.enter_context(
@@ -320,7 +320,7 @@ class TestShiftPureHelpers(FrappeTestCase):
 
 	def test_summary_and_aggregate_return_empty_when_shift_was_deleted(self) -> None:
 		with patch(
-			"production_entry_app.production_entry_app.doctype.shift.shift.access_control.assert_app_access"
+			"production_entry_app.production_entry_app.doctype.shift.shift.access_control.assert_app_read_access"
 		):
 			with patch(
 				"production_entry_app.production_entry_app.doctype.shift.shift.frappe.db.exists",
@@ -2898,7 +2898,7 @@ class TestShiftSummary(FrappeTestCase):
 		shift = self._create_shift("2026-09-10")
 		_ensure_user_with_role("test_shift_summary_blogger@example.com", "Blogger")
 		user = frappe.get_doc("User", "test_shift_summary_blogger@example.com")
-		for role in ("Manufacturing User", "Manufacturing Manager"):
+		for role in ("PEA User", "PEA Read Only"):
 			if role in frappe.get_roles(user.name):
 				user.remove_roles(role)
 		user.save(ignore_permissions=True)
@@ -3095,7 +3095,7 @@ class TestShiftAggregateProductionEntries(FrappeTestCase):
 		shift = self._create_shift("2026-10-02")
 		_ensure_user_with_role("test_shift_agg_blogger@example.com", "Blogger")
 		user = frappe.get_doc("User", "test_shift_agg_blogger@example.com")
-		for role in ("Manufacturing User", "Manufacturing Manager"):
+		for role in ("PEA User", "PEA Read Only"):
 			if role in frappe.get_roles(user.name):
 				user.remove_roles(role)
 		user.save(ignore_permissions=True)
@@ -3255,27 +3255,25 @@ class TestShiftPermissions(FrappeTestCase):
 		frappe.defaults.set_user_default("branch", self._test_branch)
 		frappe.defaults.set_user_default("Branch", self._test_branch)
 		_ensure_downtime_reasons()
+		frappe.reload_doc("production_entry_app", "doctype", "shift")
+		frappe.reload_doc("production_entry_app", "doctype", "downtime_reason")
 		frappe.reload_doc("production_entry_app", "doctype", "loss_entry")
 		frappe.reload_doc("production_entry_app", "doctype", "rejection_breakup")
+		frappe.clear_cache(doctype="Shift")
+		frappe.clear_cache(doctype="Downtime Reason")
 		frappe.clear_cache(doctype="Loss Entry")
 		frappe.clear_cache(doctype="Rejection Breakup")
-		# Ensure Manufacturing User and Manufacturing Manager roles exist (ERPNext)
-		if not frappe.db.exists("Role", "Manufacturing User"):
-			frappe.get_doc({"doctype": "Role", "role_name": "Manufacturing User"}).insert(
-				ignore_permissions=True
-			)
-		if not frappe.db.exists("Role", "Manufacturing Manager"):
-			frappe.get_doc({"doctype": "Role", "role_name": "Manufacturing Manager"}).insert(
-				ignore_permissions=True
-			)
+		for role in ("PEA User", "PEA Read Only"):
+			if not frappe.db.exists("Role", role):
+				frappe.get_doc({"doctype": "Role", "role_name": role}).insert(ignore_permissions=True)
 
 	def tearDown(self) -> None:
 		frappe.set_user("Administrator")
 		frappe.db.rollback()
 
-	def test_manufacturing_user_can_crud_shift(self) -> None:
-		_ensure_user_with_role("test_shift_mfg_user@example.com", "Manufacturing User")
-		frappe.set_user("test_shift_mfg_user@example.com")
+	def test_pea_user_can_crud_shift(self) -> None:
+		_ensure_user_with_role("test_shift_pea_user@example.com", "PEA User")
+		frappe.set_user("test_shift_pea_user@example.com")
 
 		name = self._expected_name(self._test_department, "2026-03-02", "1")
 		self._delete_shift_if_exists(name)
@@ -3302,9 +3300,9 @@ class TestShiftPermissions(FrappeTestCase):
 		frappe.delete_doc("Shift", doc.name)
 		self.assertFalse(frappe.db.exists("Shift", doc.name))
 
-	def test_manufacturing_manager_can_crud_shift(self) -> None:
-		_ensure_user_with_role("test_shift_mfg_manager@example.com", "Manufacturing Manager")
-		frappe.set_user("test_shift_mfg_manager@example.com")
+	def test_system_manager_can_crud_shift(self) -> None:
+		_ensure_user_with_role("test_shift_system_manager@example.com", "System Manager")
+		frappe.set_user("test_shift_system_manager@example.com")
 
 		name = self._expected_name(self._test_department, "2026-03-03", "2")
 		self._delete_shift_if_exists(name)
@@ -3326,9 +3324,9 @@ class TestShiftPermissions(FrappeTestCase):
 		loaded.delete()
 		self.assertFalse(frappe.db.exists("Shift", doc.name))
 
-	def test_manufacturing_user_can_crud_downtime_reason(self) -> None:
-		_ensure_user_with_role("test_shift_mfg_user@example.com", "Manufacturing User")
-		frappe.set_user("test_shift_mfg_user@example.com")
+	def test_pea_user_can_crud_downtime_reason(self) -> None:
+		_ensure_user_with_role("test_shift_pea_user@example.com", "PEA User")
+		frappe.set_user("test_shift_pea_user@example.com")
 
 		reason_name = f"Test Downtime Reason {frappe.generate_hash(length=6)}"
 		if frappe.db.exists("Downtime Reason", reason_name):
@@ -3341,13 +3339,13 @@ class TestShiftPermissions(FrappeTestCase):
 		loaded.delete()
 		self.assertFalse(frappe.db.exists("Downtime Reason", doc.name))
 
-	def test_user_without_manufacturing_role_cannot_access_shift(self) -> None:
+	def test_user_without_pea_role_cannot_access_shift(self) -> None:
 		"""User with only Blogger role must not have Shift permission."""
 		_ensure_user_with_role("test_shift_blogger@example.com", "Blogger")
 		user = frappe.get_doc("User", "test_shift_blogger@example.com")
-		# Ensure user has only Blogger (remove Manufacturing roles if added elsewhere)
+		# Ensure user has only Blogger (remove PEA roles if added elsewhere)
 		roles = frappe.get_roles(user.name)
-		for role in ("Manufacturing User", "Manufacturing Manager"):
+		for role in ("PEA User", "PEA Read Only"):
 			if role in roles:
 				user.remove_roles(role)
 				user.save(ignore_permissions=True)
@@ -3359,17 +3357,17 @@ class TestShiftPermissions(FrappeTestCase):
 			"User with only Blogger role must not have Shift read permission.",
 		)
 
-	def test_loss_entry_permissions_include_manufacturing_roles(self) -> None:
+	def test_loss_entry_permissions_include_pea_roles(self) -> None:
 		meta = frappe.get_meta("Loss Entry")
 		roles = {perm.role for perm in meta.permissions}
-		self.assertIn("Manufacturing User", roles)
-		self.assertIn("Manufacturing Manager", roles)
+		self.assertIn("PEA User", roles)
+		self.assertIn("PEA Read Only", roles)
 
-	def test_rejection_breakup_permissions_include_manufacturing_roles(self) -> None:
+	def test_rejection_breakup_permissions_include_pea_roles(self) -> None:
 		meta = frappe.get_meta("Rejection Breakup")
 		roles = {perm.role for perm in meta.permissions}
-		self.assertIn("Manufacturing User", roles)
-		self.assertIn("Manufacturing Manager", roles)
+		self.assertIn("PEA User", roles)
+		self.assertIn("PEA Read Only", roles)
 
 	def _expected_name(self, department: str, shift_date: str, shift_label: str) -> str:
 		sequence = frappe.db.count("Shift", {"shift_date": shift_date}) + 1

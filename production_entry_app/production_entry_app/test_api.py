@@ -147,7 +147,7 @@ class TestE2EApi(FrappeTestCase):
 				patch("production_entry_app.production_entry_app.api.frappe.db.commit")
 			)
 
-			result = set_e2e_access_control(enabled=1, required_role=" Manufacturing User ")
+			result = set_e2e_access_control(enabled=1, write_role=" Manufacturing User ")
 
 		self.assertEqual(
 			result,
@@ -158,6 +158,29 @@ class TestE2EApi(FrappeTestCase):
 		set_single_value.assert_any_call("Production Entry Settings", "read_role", "PEA Read Only")
 		invalidate.assert_called_once()
 		commit.assert_called_once()
+
+	def test_set_e2e_access_control_accepts_legacy_required_role_fallback(self) -> None:
+		with ExitStack() as stack:
+			stack.enter_context(
+				patch("production_entry_app.production_entry_app.api._assert_e2e_api_allowed")
+			)
+			set_single_value = stack.enter_context(
+				patch("production_entry_app.production_entry_app.api.frappe.db.set_single_value")
+			)
+			stack.enter_context(
+				patch("production_entry_app.production_entry_app.api.frappe.clear_document_cache")
+			)
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.api.access_control.invalidate_access_control_cache"
+				)
+			)
+			stack.enter_context(patch("production_entry_app.production_entry_app.api.frappe.db.commit"))
+
+			result = set_e2e_access_control(enabled=1, required_role=" Legacy Writer ")
+
+		self.assertEqual(result["write_role"], "Legacy Writer")
+		set_single_value.assert_any_call("Production Entry Settings", "write_role", "Legacy Writer")
 
 	def test_cache_e2e_settings_snapshot_skips_existing_cache(self) -> None:
 		cache = MagicMock()
@@ -491,7 +514,7 @@ class TestE2EApi(FrappeTestCase):
 		shift_doc.shift_end_date = "2026-03-01"
 
 		with (
-			patch("production_entry_app.production_entry_app.api.access_control.assert_app_access"),
+			patch("production_entry_app.production_entry_app.api.access_control.assert_app_read_access"),
 			patch("production_entry_app.production_entry_app.api.frappe.has_permission", return_value=True),
 			patch("production_entry_app.production_entry_app.api.frappe.get_doc", return_value=shift_doc),
 		):
@@ -714,7 +737,9 @@ class TestE2EApi(FrappeTestCase):
 			"production_entry_app.production_entry_app.api._get_candidate_e2e_stock_entries",
 			return_value=[row1, row2],
 		):
-			with patch("production_entry_app.production_entry_app.api.access_control.assert_app_access"):
+			with patch(
+				"production_entry_app.production_entry_app.api.access_control.assert_app_write_access"
+			):
 				with patch("production_entry_app.production_entry_app.api._assert_e2e_api_allowed"):
 					with patch(
 						"production_entry_app.production_entry_app.api._e2e_base_date",
@@ -970,7 +995,7 @@ class TestE2EApi(FrappeTestCase):
 
 		with ExitStack() as stack:
 			app_access = stack.enter_context(
-				patch("production_entry_app.production_entry_app.api.access_control.assert_app_access")
+				patch("production_entry_app.production_entry_app.api.access_control.assert_app_write_access")
 			)
 			guard = stack.enter_context(
 				patch("production_entry_app.production_entry_app.api._assert_e2e_api_allowed")
@@ -1229,7 +1254,7 @@ class TestE2EApi(FrappeTestCase):
 
 		with ExitStack() as stack:
 			stack.enter_context(
-				patch("production_entry_app.production_entry_app.api.access_control.assert_app_access")
+				patch("production_entry_app.production_entry_app.api.access_control.assert_app_write_access")
 			)
 			stack.enter_context(
 				patch("production_entry_app.production_entry_app.api._assert_e2e_api_allowed")
@@ -1325,7 +1350,7 @@ class TestE2EApi(FrappeTestCase):
 
 		with ExitStack() as stack:
 			stack.enter_context(
-				patch("production_entry_app.production_entry_app.api.access_control.assert_app_access")
+				patch("production_entry_app.production_entry_app.api.access_control.assert_app_write_access")
 			)
 			stack.enter_context(
 				patch("production_entry_app.production_entry_app.api._assert_e2e_api_allowed")
@@ -1425,7 +1450,7 @@ class TestE2EApi(FrappeTestCase):
 	def test_set_e2e_system_float_precision_updates_settings_and_commits(self) -> None:
 		with ExitStack() as stack:
 			stack.enter_context(
-				patch("production_entry_app.production_entry_app.api.access_control.assert_app_access")
+				patch("production_entry_app.production_entry_app.api.access_control.assert_app_write_access")
 			)
 			stack.enter_context(
 				patch("production_entry_app.production_entry_app.api._assert_e2e_api_allowed")
@@ -1463,7 +1488,7 @@ class TestE2EApi(FrappeTestCase):
 		]
 		with ExitStack() as stack:
 			stack.enter_context(
-				patch("production_entry_app.production_entry_app.api.access_control.assert_app_access")
+				patch("production_entry_app.production_entry_app.api.access_control.assert_app_write_access")
 			)
 			stack.enter_context(
 				patch("production_entry_app.production_entry_app.api._assert_e2e_api_allowed")
@@ -1566,7 +1591,7 @@ class TestE2EApi(FrappeTestCase):
 		]
 		with ExitStack() as stack:
 			stack.enter_context(
-				patch("production_entry_app.production_entry_app.api.access_control.assert_app_access")
+				patch("production_entry_app.production_entry_app.api.access_control.assert_app_write_access")
 			)
 			stack.enter_context(
 				patch("production_entry_app.production_entry_app.api._assert_e2e_api_allowed")
@@ -1634,7 +1659,7 @@ class TestE2EApi(FrappeTestCase):
 		shift.shift_duration = "8"
 		with ExitStack() as stack:
 			stack.enter_context(
-				patch("production_entry_app.production_entry_app.api.access_control.assert_app_access")
+				patch("production_entry_app.production_entry_app.api.access_control.assert_app_write_access")
 			)
 			stack.enter_context(
 				patch("production_entry_app.production_entry_app.api._assert_e2e_api_allowed")
@@ -1667,7 +1692,7 @@ class TestE2EApi(FrappeTestCase):
 		builder.insert.return_value = doc
 		with ExitStack() as stack:
 			stack.enter_context(
-				patch("production_entry_app.production_entry_app.api.access_control.assert_app_access")
+				patch("production_entry_app.production_entry_app.api.access_control.assert_app_write_access")
 			)
 			stack.enter_context(
 				patch("production_entry_app.production_entry_app.api._assert_e2e_api_allowed")

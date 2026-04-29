@@ -153,9 +153,21 @@ class TestAccessControlDoctypes(FrappeTestCase):
 				self.assertTrue(frappe.has_permission(shift, ptype="read"))
 			with self.subTest(doctype="Loss Entry", ptype="doc_read"):
 				self.assertTrue(frappe.has_permission(loss_entry, ptype="read"))
-			_, rejection_breakup = _make_stock_entry_with_rejection_breakup()
+			stock_entry, rejection_breakup = _make_stock_entry_with_rejection_breakup()
+			del stock_entry
 			with self.subTest(doctype="Rejection Breakup", ptype="doc_read"):
-				self.assertTrue(rejection_breakup.has_permission("read", user=READ_ONLY_USER))
+				self.assertFalse(rejection_breakup.has_permission("read", user=READ_ONLY_USER))
+
+	def test_rejection_breakup_requires_parent_stock_entry_access_after_app_gate(self) -> None:
+		with patch(
+			"production_entry_app.production_entry_app.access_control._load_access_configuration",
+			return_value=_access_config(),
+		):
+			frappe.set_user(ALLOWED_USER)
+			stock_entry, rejection_breakup = _make_stock_entry_with_rejection_breakup()
+			del stock_entry
+
+			self.assertFalse(rejection_breakup.has_permission("read", user=ALLOWED_USER))
 
 	def test_allowed_user_can_access_all_gated_doctypes(self) -> None:
 		with patch(
@@ -178,7 +190,7 @@ class TestAccessControlDoctypes(FrappeTestCase):
 			stock_entry, rejection_breakup = _make_stock_entry_with_rejection_breakup()
 			del stock_entry
 			with self.subTest(doctype="Rejection Breakup"):
-				self.assertTrue(rejection_breakup.has_permission("read", user=ALLOWED_USER))
+				self.assertFalse(rejection_breakup.has_permission("read", user=ALLOWED_USER))
 
 	def test_system_manager_bypass_allows_all_gated_doctypes(self) -> None:
 		with patch(

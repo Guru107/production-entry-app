@@ -93,21 +93,71 @@ class TestAccessControl(FrappeTestCase):
 			with self.subTest(report=report_path.parent.name):
 				self.assertIn("assert_report_read_access()", report_path.read_text())
 
-	def test_before_install_creates_default_access_roles_when_missing(self) -> None:
+	def test_before_install_runs_access_setup(self) -> None:
 		from production_entry_app import install
 
+		with patch("production_entry_app.install.ensure_access_roles_and_settings") as setup:
+			install.before_install()
+
+		setup.assert_called_once_with()
+
+	def test_before_install_hook_registers_default_required_role_setup(self) -> None:
+		from production_entry_app import hooks
+
+		self.assertIn("production_entry_app.install.before_install", hooks.before_install)
+
+	def test_lifecycle_hooks_register_access_setup_for_existing_sites(self) -> None:
+		from production_entry_app import hooks
+
+		self.assertIn("production_entry_app.production_entry_app.lifecycle.after_sync", hooks.after_sync)
+		self.assertIn(
+			"production_entry_app.production_entry_app.lifecycle.after_migrate", hooks.after_migrate
+		)
+
+	def test_lifecycle_setup_runs_access_setup(self) -> None:
+		from production_entry_app.production_entry_app import lifecycle
+
 		with (
-			patch("production_entry_app.install.frappe.db.exists", return_value=False) as exists,
-			patch("production_entry_app.install.frappe.get_doc") as get_doc,
+			patch.object(lifecycle.access_control, "ensure_access_roles_and_settings") as setup_access,
+			patch.object(
+				lifecycle.performance_indexes, "ensure_performance_indexes_with_recovery"
+			) as setup_indexes,
+		):
+			lifecycle.after_migrate()
+
+		setup_access.assert_called_once_with()
+		setup_indexes.assert_called_once_with()
+
+	def test_access_setup_creates_roles_and_migrates_legacy_settings(self) -> None:
+		from production_entry_app.production_entry_app import access_control
+
+		def fake_get_value(doctype: str, filters: dict, fieldname: str) -> str | None:
+			self.assertEqual(doctype, "Singles")
+			self.assertEqual(fieldname, "value")
+			if filters["field"] == "write_role":
+				return None
+			if filters["field"] == "read_role":
+				return None
+			if filters["field"] == "required_role":
+				return "Legacy PEA User"
+			raise AssertionError(filters)
+
+		with (
+			patch.object(access_control.frappe.db, "exists", side_effect=[False, False, True]) as exists,
+			patch.object(access_control.frappe, "get_doc") as get_doc,
+			patch.object(access_control.frappe.db, "get_value", side_effect=fake_get_value),
+			patch.object(access_control.frappe.db, "set_single_value") as set_single_value,
+			patch.object(access_control, "invalidate_access_control_cache") as invalidate_cache,
 		):
 			role_doc = get_doc.return_value
-			install.before_install()
+			access_control.ensure_access_roles_and_settings()
 
 		self.assertEqual(
 			exists.call_args_list,
 			[
 				call("Role", DEFAULT_WRITE_ROLE),
 				call("Role", DEFAULT_READ_ROLE),
+				call("DocType", access_control.SETTINGS_DOCTYPE),
 			],
 		)
 		self.assertEqual(
@@ -118,29 +168,33 @@ class TestAccessControl(FrappeTestCase):
 			],
 		)
 		self.assertEqual(role_doc.insert.call_count, 2)
+		set_single_value.assert_has_calls(
+			[
+				call(access_control.SETTINGS_DOCTYPE, "write_role", "Legacy PEA User"),
+				call(access_control.SETTINGS_DOCTYPE, "read_role", DEFAULT_READ_ROLE),
+			]
+		)
+		invalidate_cache.assert_called_once_with()
 
-	def test_before_install_skips_default_access_roles_when_present(self) -> None:
-		from production_entry_app import install
+	def test_access_setup_keeps_existing_split_settings(self) -> None:
+		from production_entry_app.production_entry_app import access_control
+
+		def fake_get_value(doctype: str, filters: dict, fieldname: str) -> str | None:
+			del doctype, fieldname
+			return {"write_role": "Custom Write", "read_role": "Custom Read"}.get(filters["field"])
 
 		with (
-			patch("production_entry_app.install.frappe.db.exists", return_value=True) as exists,
-			patch("production_entry_app.install.frappe.get_doc") as get_doc,
+			patch.object(access_control.frappe.db, "exists", side_effect=[True, True, True]),
+			patch.object(access_control.frappe, "get_doc") as get_doc,
+			patch.object(access_control.frappe.db, "get_value", side_effect=fake_get_value),
+			patch.object(access_control.frappe.db, "set_single_value") as set_single_value,
+			patch.object(access_control, "invalidate_access_control_cache") as invalidate_cache,
 		):
-			install.before_install()
+			access_control.ensure_access_roles_and_settings()
 
-		self.assertEqual(
-			exists.call_args_list,
-			[
-				call("Role", DEFAULT_WRITE_ROLE),
-				call("Role", DEFAULT_READ_ROLE),
-			],
-		)
 		get_doc.assert_not_called()
-
-	def test_before_install_hook_registers_default_required_role_setup(self) -> None:
-		from production_entry_app import hooks
-
-		self.assertIn("production_entry_app.install.before_install", hooks.before_install)
+		set_single_value.assert_not_called()
+		invalidate_cache.assert_called_once_with()
 
 	def test_settings_default_enable_access_control_is_zero(self) -> None:
 		meta = frappe.get_meta("Production Entry Settings")
