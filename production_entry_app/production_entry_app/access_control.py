@@ -22,7 +22,6 @@ READ_PERMISSION_TYPES: frozenset[str] = frozenset({"read", "select", "print", "e
 GATED_DOCTYPES: tuple[str, ...] = (
 	"Shift",
 	"Loss Entry",
-	"Downtime Reason",
 	"Operator",
 	"Die Tool Counter",
 	"Die Tool Maintenance Log",

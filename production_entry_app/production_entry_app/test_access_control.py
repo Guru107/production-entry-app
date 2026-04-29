@@ -158,6 +158,11 @@ class TestAccessControl(FrappeTestCase):
 
 		self.assertNotIn("Production Entry Settings", hooks.doc_events)
 
+	def test_production_owned_downtime_reason_is_not_pea_gated(self) -> None:
+		from production_entry_app.production_entry_app import access_control
+
+		self.assertNotIn("Downtime Reason", access_control.GATED_DOCTYPES)
+
 	def test_access_setup_creates_roles_and_migrates_legacy_settings(self) -> None:
 		from production_entry_app.production_entry_app import access_control
 
