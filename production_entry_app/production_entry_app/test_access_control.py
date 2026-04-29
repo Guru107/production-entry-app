@@ -134,12 +134,16 @@ class TestAccessControl(FrappeTestCase):
 		with (
 			patch.object(lifecycle.access_control, "ensure_access_roles_and_settings") as setup_access,
 			patch.object(
+				lifecycle.field_permissions, "ensure_pea_field_permissions"
+			) as setup_field_permissions,
+			patch.object(
 				lifecycle.performance_indexes, "ensure_performance_indexes_with_recovery"
 			) as setup_indexes,
 		):
 			lifecycle.after_migrate()
 
 		setup_access.assert_called_once_with()
+		setup_field_permissions.assert_called_once_with()
 		setup_indexes.assert_called_once_with()
 
 	def test_settings_controller_on_update_syncs_configured_access_roles(self) -> None:
@@ -148,10 +152,20 @@ class TestAccessControl(FrappeTestCase):
 		)
 
 		settings = SimpleNamespace(write_role="Runtime Write", read_role="Runtime Read")
-		with patch.object(production_entry_settings.access_control, "sync_configured_access_roles") as sync:
+		with (
+			patch.object(production_entry_settings.access_control, "sync_configured_access_roles") as sync,
+			patch.object(
+				production_entry_settings.field_permissions, "ensure_pea_field_permissions"
+			) as sync_field_permissions,
+		):
 			production_entry_settings.ProductionEntrySettings.on_update(settings)
 
-		sync.assert_called_once_with(write_role="Runtime Write", read_role="Runtime Read")
+		sync.assert_called_once_with(write_role="Runtime Write", read_role="Runtime Read", managed_roles=())
+		sync_field_permissions.assert_called_once_with(
+			write_role="Runtime Write",
+			read_role="Runtime Read",
+			managed_roles=(),
+		)
 
 	def test_settings_sync_is_not_registered_twice(self) -> None:
 		from production_entry_app import hooks
@@ -179,18 +193,20 @@ class TestAccessControl(FrappeTestCase):
 				return None
 			if filters["field"] == "required_role":
 				return "   "
+			if filters["field"] in {"last_synced_write_role", "last_synced_read_role"}:
+				return None
 			raise AssertionError(filters)
 
 		with (
 			patch.object(
-				access_control.frappe.db, "exists", side_effect=[False, False, True, False]
+				access_control.frappe.db,
+				"exists",
+				side_effect=lambda doctype, name=None: doctype == "DocType"
+				and name == access_control.SETTINGS_DOCTYPE,
 			) as exists,
 			patch.object(access_control.frappe, "get_doc") as get_doc,
 			patch.object(access_control.frappe.db, "get_value", side_effect=fake_get_value),
 			patch.object(access_control.frappe.db, "set_single_value") as set_single_value,
-			patch.object(
-				access_control, "_get_existing_report_access_roles", return_value=()
-			) as get_managed_roles,
 			patch.object(access_control, "_sync_native_doctype_permissions") as sync_doctype_permissions,
 			patch.object(access_control, "_migrate_report_access_metadata") as migrate_reports,
 			patch.object(access_control, "invalidate_access_control_cache") as invalidate_cache,
@@ -203,6 +219,7 @@ class TestAccessControl(FrappeTestCase):
 			[
 				call("Role", DEFAULT_WRITE_ROLE),
 				call("Role", DEFAULT_READ_ROLE),
+				call("DocType", access_control.SETTINGS_DOCTYPE),
 				call("DocType", access_control.SETTINGS_DOCTYPE),
 				call("DocType", access_control.SETTINGS_DOCTYPE),
 			],
@@ -219,11 +236,14 @@ class TestAccessControl(FrappeTestCase):
 			[
 				call(access_control.SETTINGS_DOCTYPE, "write_role", DEFAULT_WRITE_ROLE),
 				call(access_control.SETTINGS_DOCTYPE, "read_role", DEFAULT_READ_ROLE),
+				call(access_control.SETTINGS_DOCTYPE, "last_synced_write_role", DEFAULT_WRITE_ROLE),
+				call(access_control.SETTINGS_DOCTYPE, "last_synced_read_role", DEFAULT_READ_ROLE),
 			]
 		)
-		get_managed_roles.assert_called_once_with()
 		sync_doctype_permissions.assert_called_once_with(
-			write_role=DEFAULT_WRITE_ROLE, read_role=DEFAULT_READ_ROLE, managed_roles=()
+			write_role=DEFAULT_WRITE_ROLE,
+			read_role=DEFAULT_READ_ROLE,
+			managed_roles=(DEFAULT_WRITE_ROLE, DEFAULT_READ_ROLE),
 		)
 		migrate_reports.assert_called_once_with(write_role=DEFAULT_WRITE_ROLE, read_role=DEFAULT_READ_ROLE)
 		invalidate_cache.assert_called_once_with()
@@ -234,20 +254,23 @@ class TestAccessControl(FrappeTestCase):
 		def fake_get_value(doctype: str, filters: dict, fieldname: str, **kwargs: object) -> str | None:
 			del doctype, fieldname
 			self.assertEqual(kwargs, {"order_by": None})
-			return {"write_role": "Custom Write", "read_role": "Custom Read"}.get(filters["field"])
+			return {
+				"write_role": "Custom Write",
+				"read_role": "Custom Read",
+				"required_role": "Legacy PEA",
+				"last_synced_write_role": "Previous Write",
+				"last_synced_read_role": "Previous Read",
+			}.get(filters["field"])
 
 		with (
 			patch.object(
-				access_control.frappe.db, "exists", side_effect=[True, True, True, True, True, True]
+				access_control.frappe.db,
+				"exists",
+				return_value=True,
 			),
 			patch.object(access_control.frappe, "get_doc") as get_doc,
 			patch.object(access_control.frappe.db, "get_value", side_effect=fake_get_value),
 			patch.object(access_control.frappe.db, "set_single_value") as set_single_value,
-			patch.object(
-				access_control,
-				"_get_existing_report_access_roles",
-				return_value=("System Manager", "Custom Write", "Custom Read"),
-			),
 			patch.object(access_control, "_sync_native_doctype_permissions") as sync_doctype_permissions,
 			patch.object(access_control, "_migrate_report_access_metadata") as migrate_reports,
 			patch.object(access_control, "invalidate_access_control_cache") as invalidate_cache,
@@ -255,13 +278,24 @@ class TestAccessControl(FrappeTestCase):
 			access_control.ensure_access_roles_and_settings()
 
 		get_doc.assert_not_called()
-		set_single_value.assert_not_called()
 		sync_doctype_permissions.assert_called_once_with(
 			write_role="Custom Write",
 			read_role="Custom Read",
-			managed_roles=("System Manager", "Custom Write", "Custom Read"),
+			managed_roles=(
+				DEFAULT_WRITE_ROLE,
+				DEFAULT_READ_ROLE,
+				"Legacy PEA",
+				"Previous Write",
+				"Previous Read",
+			),
 		)
 		migrate_reports.assert_called_once_with(write_role="Custom Write", read_role="Custom Read")
+		set_single_value.assert_has_calls(
+			[
+				call(access_control.SETTINGS_DOCTYPE, "last_synced_write_role", "Custom Write"),
+				call(access_control.SETTINGS_DOCTYPE, "last_synced_read_role", "Custom Read"),
+			]
+		)
 		invalidate_cache.assert_called_once_with()
 
 	def test_access_setup_migrates_report_metadata_for_existing_sites(self) -> None:
@@ -378,7 +412,7 @@ class TestAccessControl(FrappeTestCase):
 				"get_all",
 				return_value=[stale_write, stale_custom, active_write, unrelated],
 			),
-			patch.object(access_control.frappe.db, "delete") as delete,
+			patch.object(access_control.frappe, "delete_doc") as delete_doc,
 			patch.object(access_control, "_sync_docperm"),
 			patch.object(access_control.frappe, "clear_cache"),
 		):
@@ -388,9 +422,12 @@ class TestAccessControl(FrappeTestCase):
 				managed_roles=(access_control.DEFAULT_WRITE_ROLE, "Previous PEA Read"),
 			)
 
-		delete.assert_called_once_with(
-			"DocPerm",
-			{"name": ("in", ["stale-default-write", "stale-custom-read"])},
+		self.assertEqual(
+			delete_doc.call_args_list,
+			[
+				call("DocPerm", "stale-default-write", ignore_permissions=True, force=True),
+				call("DocPerm", "stale-custom-read", ignore_permissions=True, force=True),
+			],
 		)
 
 	def test_next_docperm_idx_uses_ordered_lookup_without_sql_function(self) -> None:

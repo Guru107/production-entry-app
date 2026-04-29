@@ -18,5 +18,8 @@ class LossEntry(Document):
 	def _has_parent_permission(self, *, ptype: str, user: str | None) -> bool:
 		parent_doc = getattr(self, "parent_doc", None)
 		if parent_doc:
-			return bool(parent_doc.has_permission(ptype))
+			try:
+				return bool(parent_doc.has_permission(ptype=ptype, user=user))
+			except TypeError:
+				return bool(parent_doc.has_permission(ptype))
 		return bool(super().has_permission(ptype, user=user))

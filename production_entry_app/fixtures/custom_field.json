@@ -9,7 +9,8 @@
   "options": "Shift",
   "insert_after": "remarks",
   "reqd": 0,
-  "module": "Production Entry App"
+  "module": "Production Entry App",
+  "permlevel": 9
  },
  {
   "doctype": "Custom Field",
@@ -20,7 +21,8 @@
   "label": "Has Die Tool",
   "default": "1",
   "insert_after": "custom_pea_stroke_capacity",
-  "module": "Production Entry App"
+  "module": "Production Entry App",
+  "permlevel": 9
  },
  {
   "doctype": "Custom Field",
@@ -32,7 +34,8 @@
   "read_only": 1,
   "fetch_from": "stock_entry_type.purpose",
   "insert_after": "stock_entry_type",
-  "module": "Production Entry App"
+  "module": "Production Entry App",
+  "permlevel": 9
  },
  {
   "doctype": "Custom Field",
@@ -45,19 +48,8 @@
   "depends_on": "eval:doc.custom_pea_stock_entry_purpose=='Manufacture'",
   "is_index": 1,
   "insert_after": "custom_pea_stock_entry_purpose",
-  "module": "Production Entry App"
- },
- {
-  "doctype": "Custom Field",
-  "name": "Stock Entry-branch",
-  "dt": "Stock Entry",
-  "fieldname": "branch",
-  "fieldtype": "Link",
-  "label": "Branch",
-  "options": "Branch",
-  "insert_after": "custom_pea_shift",
-  "read_only": 1,
-  "module": "Production Entry App"
+  "module": "Production Entry App",
+  "permlevel": 9
  },
  {
   "doctype": "Custom Field",
@@ -67,7 +59,8 @@
   "fieldtype": "Section Break",
   "label": "Planned & Actual Dates",
   "insert_after": "get_items",
-  "module": "Production Entry App"
+  "module": "Production Entry App",
+  "permlevel": 9
  },
  {
   "doctype": "Custom Field",
@@ -78,7 +71,8 @@
   "label": "Planned Start Date",
   "read_only": 1,
   "insert_after": "custom_pea_operation_details_section",
-  "module": "Production Entry App"
+  "module": "Production Entry App",
+  "permlevel": 9
  },
  {
   "doctype": "Custom Field",
@@ -91,7 +85,8 @@
   "print_hide": 0,
   "read_only": 1,
   "insert_after": "custom_pea_planned_start_date",
-  "module": "Production Entry App"
+  "module": "Production Entry App",
+  "permlevel": 9
  },
  {
   "doctype": "Custom Field",
@@ -100,7 +95,8 @@
   "fieldname": "custom_pea_operation_details_col_break",
   "fieldtype": "Column Break",
   "insert_after": "custom_pea_actual_end_date",
-  "module": "Production Entry App"
+  "module": "Production Entry App",
+  "permlevel": 9
  },
  {
   "doctype": "Custom Field",
@@ -113,7 +109,8 @@
   "module": "Production Entry App",
   "no_copy": 1,
   "print_hide": 1,
-  "search_index": 0
+  "search_index": 0,
+  "permlevel": 9
  },
  {
   "doctype": "Custom Field",
@@ -127,7 +124,8 @@
   "no_copy": 1,
   "print_hide": 1,
   "search_index": 0,
-  "placeholder": "HH:MM e.g. 0630"
+  "placeholder": "HH:MM e.g. 0630",
+  "permlevel": 9
  },
  {
   "doctype": "Custom Field",
@@ -142,7 +140,8 @@
   "read_only": 1,
   "no_copy": 1,
   "print_hide": 1,
-  "search_index": 0
+  "search_index": 0,
+  "permlevel": 9
  },
  {
   "doctype": "Custom Field",
@@ -155,7 +154,8 @@
   "module": "Production Entry App",
   "no_copy": 1,
   "print_hide": 1,
-  "search_index": 0
+  "search_index": 0,
+  "permlevel": 9
  },
  {
   "doctype": "Custom Field",
@@ -169,7 +169,8 @@
   "no_copy": 1,
   "print_hide": 1,
   "search_index": 0,
-  "placeholder": "HH:MM e.g. 0630"
+  "placeholder": "HH:MM e.g. 0630",
+  "permlevel": 9
  },
  {
   "doctype": "Custom Field",
@@ -184,7 +185,8 @@
   "read_only": 1,
   "no_copy": 1,
   "print_hide": 1,
-  "search_index": 0
+  "search_index": 0,
+  "permlevel": 9
  },
  {
   "doctype": "Custom Field",
@@ -194,7 +196,8 @@
   "fieldtype": "Section Break",
   "label": "Workstation & Operator",
   "insert_after": "custom_pea_actual_end_date",
-  "module": "Production Entry App"
+  "module": "Production Entry App",
+  "permlevel": 9
  },
  {
   "doctype": "Custom Field",
@@ -206,7 +209,8 @@
   "options": "Workstation",
   "is_index": 1,
   "insert_after": "custom_pea_workstation_operator_section",
-  "module": "Production Entry App"
+  "module": "Production Entry App",
+  "permlevel": 9
  },
  {
   "doctype": "Custom Field",
@@ -218,7 +222,8 @@
   "read_only": 1,
   "fetch_from": "custom_pea_workstation.custom_pea_standard_spm",
   "insert_after": "custom_pea_workstation",
-  "module": "Production Entry App"
+  "module": "Production Entry App",
+  "permlevel": 9
  },
  {
   "doctype": "Custom Field",
@@ -227,7 +232,8 @@
   "fieldname": "custom_pea_workstation_operator_col_break",
   "fieldtype": "Column Break",
   "insert_after": "custom_pea_standard_spm",
-  "module": "Production Entry App"
+  "module": "Production Entry App",
+  "permlevel": 9
  },
  {
   "doctype": "Custom Field",
@@ -239,7 +245,8 @@
   "options": "Operator",
   "is_index": 1,
   "insert_after": "custom_pea_workstation_operator_col_break",
-  "module": "Production Entry App"
+  "module": "Production Entry App",
+  "permlevel": 9
  },
  {
   "doctype": "Custom Field",
@@ -249,31 +256,34 @@
   "fieldtype": "Section Break",
   "label": "Unplanned Losses",
   "insert_after": "custom_pea_operator",
-  "module": "Production Entry App"
+  "module": "Production Entry App",
+  "permlevel": 9
  },
-{
-	"doctype": "Custom Field",
-	"name": "Stock Entry-custom_pea_unplanned_losses",
-	"dt": "Stock Entry",
-	"fieldname": "custom_pea_unplanned_losses",
-	"fieldtype": "Table",
-	"label": "Unplanned Losses",
-	"options": "Loss Entry",
-	"insert_after": "custom_pea_unplanned_losses_section",
-	"module": "Production Entry App"
-},
-{
-	"doctype": "Custom Field",
-	"name": "Stock Entry-custom_pea_rejection_qty",
-	"dt": "Stock Entry",
-	"fieldname": "custom_pea_rejection_qty",
-	"fieldtype": "Float",
-	"label": "Rejection Quantity",
-	"description": "Deducted from FG qty; moved to rejection warehouse",
-	"insert_after": "fg_completed_qty",
-	"depends_on": "eval:doc.from_bom",
-	"module": "Production Entry App"
-},
+ {
+  "doctype": "Custom Field",
+  "name": "Stock Entry-custom_pea_unplanned_losses",
+  "dt": "Stock Entry",
+  "fieldname": "custom_pea_unplanned_losses",
+  "fieldtype": "Table",
+  "label": "Unplanned Losses",
+  "options": "Loss Entry",
+  "insert_after": "custom_pea_unplanned_losses_section",
+  "module": "Production Entry App",
+  "permlevel": 9
+ },
+ {
+  "doctype": "Custom Field",
+  "name": "Stock Entry-custom_pea_rejection_qty",
+  "dt": "Stock Entry",
+  "fieldname": "custom_pea_rejection_qty",
+  "fieldtype": "Float",
+  "label": "Rejection Quantity",
+  "description": "Deducted from FG qty; moved to rejection warehouse",
+  "insert_after": "fg_completed_qty",
+  "depends_on": "eval:doc.from_bom",
+  "module": "Production Entry App",
+  "permlevel": 9
+ },
  {
   "doctype": "Custom Field",
   "name": "Stock Entry-custom_pea_ok_qty",
@@ -284,7 +294,8 @@
   "description": "Computed as FG Completed Qty - Rejection Quantity",
   "read_only": 1,
   "insert_after": "bom_no",
-  "module": "Production Entry App"
+  "module": "Production Entry App",
+  "permlevel": 9
  },
  {
   "doctype": "Custom Field",
@@ -297,7 +308,8 @@
   "read_only": 1,
   "depends_on": "eval:doc.custom_pea_rejection_qty > 0",
   "insert_after": "custom_pea_ok_qty",
-  "module": "Production Entry App"
+  "module": "Production Entry App",
+  "permlevel": 9
  },
  {
   "doctype": "Custom Field",
@@ -308,21 +320,23 @@
   "label": "Fetch Items",
   "insert_after": "custom_pea_rejection_qty",
   "depends_on": "eval:doc.from_bom && doc.bom_no",
-  "module": "Production Entry App"
+  "module": "Production Entry App",
+  "permlevel": 9
  },
-{
-	"doctype": "Custom Field",
-	"name": "Stock Entry-custom_pea_rejection_breakup",
-	"dt": "Stock Entry",
-	"fieldname": "custom_pea_rejection_breakup",
-	"fieldtype": "Table",
-	"label": "Rejection Breakup",
-	"options": "Rejection Breakup",
-	"insert_after": "custom_pea_fetch_items",
-	"depends_on": "eval:doc.custom_pea_rejection_qty > 0",
-	"mandatory_depends_on": "eval:doc.custom_pea_rejection_qty > 0",
-	"module": "Production Entry App"
-},
+ {
+  "doctype": "Custom Field",
+  "name": "Stock Entry-custom_pea_rejection_breakup",
+  "dt": "Stock Entry",
+  "fieldname": "custom_pea_rejection_breakup",
+  "fieldtype": "Table",
+  "label": "Rejection Breakup",
+  "options": "Rejection Breakup",
+  "insert_after": "custom_pea_fetch_items",
+  "depends_on": "eval:doc.custom_pea_rejection_qty > 0",
+  "mandatory_depends_on": "eval:doc.custom_pea_rejection_qty > 0",
+  "module": "Production Entry App",
+  "permlevel": 9
+ },
  {
   "doctype": "Custom Field",
   "name": "Stock Entry-custom_pea_metrics_section",
@@ -331,7 +345,8 @@
   "fieldtype": "Section Break",
   "label": "Production Metrics",
   "insert_after": "get_stock_and_rate",
-  "module": "Production Entry App"
+  "module": "Production Entry App",
+  "permlevel": 9
  },
  {
   "doctype": "Custom Field",
@@ -342,7 +357,8 @@
   "label": "Actual Duration (Minutes)",
   "read_only": 1,
   "insert_after": "custom_pea_metrics_section",
-  "module": "Production Entry App"
+  "module": "Production Entry App",
+  "permlevel": 9
  },
  {
   "doctype": "Custom Field",
@@ -353,7 +369,8 @@
   "label": "Production Time (Minutes)",
   "read_only": 1,
   "insert_after": "custom_pea_actual_duration_mins",
-  "module": "Production Entry App"
+  "module": "Production Entry App",
+  "permlevel": 9
  },
  {
   "doctype": "Custom Field",
@@ -364,7 +381,8 @@
   "label": "Actual SPM",
   "read_only": 1,
   "insert_after": "custom_pea_production_time_mins",
-  "module": "Production Entry App"
+  "module": "Production Entry App",
+  "permlevel": 9
  },
  {
   "doctype": "Custom Field",
@@ -375,7 +393,8 @@
   "label": "Cycle Time (sec/unit)",
   "read_only": 1,
   "insert_after": "custom_pea_actual_spm",
-  "module": "Production Entry App"
+  "module": "Production Entry App",
+  "permlevel": 9
  },
  {
   "doctype": "Custom Field",
@@ -384,7 +403,8 @@
   "fieldname": "custom_pea_metrics_col_break",
   "fieldtype": "Column Break",
   "insert_after": "custom_pea_cycle_time_sec",
-  "module": "Production Entry App"
+  "module": "Production Entry App",
+  "permlevel": 9
  },
  {
   "doctype": "Custom Field",
@@ -395,7 +415,8 @@
   "label": "Operator Efficiency (%)",
   "read_only": 1,
   "insert_after": "custom_pea_metrics_col_break",
-  "module": "Production Entry App"
+  "module": "Production Entry App",
+  "permlevel": 9
  },
  {
   "doctype": "Custom Field",
@@ -406,7 +427,8 @@
   "label": "Metrics Note",
   "read_only": 1,
   "insert_after": "custom_pea_operator_efficiency_pct",
-  "module": "Production Entry App"
+  "module": "Production Entry App",
+  "permlevel": 9
  },
  {
   "doctype": "Custom Field",
@@ -417,7 +439,8 @@
   "label": "Die Tool Utilization (%)",
   "read_only": 1,
   "insert_after": "custom_pea_metrics_note",
-  "module": "Production Entry App"
+  "module": "Production Entry App",
+  "permlevel": 9
  },
  {
   "doctype": "Custom Field",
@@ -428,7 +451,8 @@
   "label": "Die Tool Maintenance Due",
   "read_only": 1,
   "insert_after": "custom_pea_die_tool_utilization_pct",
-  "module": "Production Entry App"
+  "module": "Production Entry App",
+  "permlevel": 9
  },
  {
   "doctype": "Custom Field",
@@ -439,7 +463,8 @@
   "label": "Is Rejection Item",
   "read_only": 1,
   "insert_after": "is_scrap_item",
-  "module": "Production Entry App"
+  "module": "Production Entry App",
+  "permlevel": 9
  },
  {
   "doctype": "Custom Field",
@@ -449,7 +474,8 @@
   "fieldtype": "Float",
   "label": "Standard SPM",
   "insert_after": "hour_rate",
-  "module": "Production Entry App"
+  "module": "Production Entry App",
+  "permlevel": 9
  },
  {
   "doctype": "Custom Field",
@@ -459,7 +485,8 @@
   "fieldtype": "Section Break",
   "label": "Running Shift Timeline",
   "insert_after": "warehouse",
-  "module": "Production Entry App"
+  "module": "Production Entry App",
+  "permlevel": 9
  },
  {
   "doctype": "Custom Field",
@@ -471,7 +498,8 @@
   "read_only": 1,
   "options": "<p class=\"text-muted\">Loading...</p>",
   "insert_after": "custom_pea_shift_timeline_section",
-  "module": "Production Entry App"
+  "module": "Production Entry App",
+  "permlevel": 9
  },
  {
   "doctype": "Custom Field",
@@ -481,7 +509,8 @@
   "fieldtype": "Float",
   "label": "Strokes Per Unit",
   "insert_after": "default_bom",
-  "module": "Production Entry App"
+  "module": "Production Entry App",
+  "permlevel": 9
  },
  {
   "doctype": "Custom Field",
@@ -491,6 +520,7 @@
   "fieldtype": "Float",
   "label": "Max Stroke Count",
   "insert_after": "custom_pea_strokes_per_unit",
-  "module": "Production Entry App"
+  "module": "Production Entry App",
+  "permlevel": 9
  }
 ]

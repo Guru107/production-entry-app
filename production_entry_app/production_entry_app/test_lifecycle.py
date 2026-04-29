@@ -14,12 +14,16 @@ class TestLifecycle(FrappeTestCase):
 				"production_entry_app.production_entry_app.lifecycle.access_control.ensure_access_roles_and_settings"
 			) as setup_access,
 			patch(
+				"production_entry_app.production_entry_app.lifecycle.field_permissions.ensure_pea_field_permissions"
+			) as ensure_field_permissions,
+			patch(
 				"production_entry_app.production_entry_app.lifecycle.performance_indexes.ensure_performance_indexes_with_recovery"
 			) as ensure_indexes,
 		):
 			lifecycle.after_sync()
 
 		setup_access.assert_called_once_with()
+		ensure_field_permissions.assert_called_once_with()
 		ensure_indexes.assert_called_once_with()
 
 	def test_after_migrate_runs_idempotent_setup(self) -> None:
@@ -28,12 +32,16 @@ class TestLifecycle(FrappeTestCase):
 				"production_entry_app.production_entry_app.lifecycle.access_control.ensure_access_roles_and_settings"
 			) as setup_access,
 			patch(
+				"production_entry_app.production_entry_app.lifecycle.field_permissions.ensure_pea_field_permissions"
+			) as ensure_field_permissions,
+			patch(
 				"production_entry_app.production_entry_app.lifecycle.performance_indexes.ensure_performance_indexes_with_recovery"
 			) as ensure_indexes,
 		):
 			lifecycle.after_migrate()
 
 		setup_access.assert_called_once_with()
+		ensure_field_permissions.assert_called_once_with()
 		ensure_indexes.assert_called_once_with()
 
 	def test_before_uninstall_drops_indexes_and_deletes_only_app_owned_customizations(self) -> None:

@@ -3324,7 +3324,7 @@ class TestShiftPermissions(FrappeTestCase):
 		loaded.delete()
 		self.assertFalse(frappe.db.exists("Shift", doc.name))
 
-	def test_pea_user_can_crud_downtime_reason(self) -> None:
+	def test_pea_user_role_does_not_grant_downtime_reason_maintenance(self) -> None:
 		_ensure_user_with_role("test_shift_pea_user@example.com", "PEA User")
 		frappe.set_user("test_shift_pea_user@example.com")
 
@@ -3332,12 +3332,8 @@ class TestShiftPermissions(FrappeTestCase):
 		if frappe.db.exists("Downtime Reason", reason_name):
 			frappe.delete_doc("Downtime Reason", reason_name)
 
-		doc = frappe.get_doc({"doctype": "Downtime Reason", "downtime_reason_name": reason_name}).insert()
-		self.assertTrue(frappe.db.exists("Downtime Reason", doc.name))
-
-		loaded = frappe.get_doc("Downtime Reason", doc.name)
-		loaded.delete()
-		self.assertFalse(frappe.db.exists("Downtime Reason", doc.name))
+		with self.assertRaises(frappe.PermissionError):
+			frappe.get_doc({"doctype": "Downtime Reason", "downtime_reason_name": reason_name}).insert()
 
 	def test_user_without_pea_role_cannot_access_shift(self) -> None:
 		"""User with only Blogger role must not have Shift permission."""

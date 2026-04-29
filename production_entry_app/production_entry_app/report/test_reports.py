@@ -9,7 +9,7 @@ from frappe.desk.query_report import run as run_query_report
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import flt
 
-from production_entry_app.production_entry_app import access_control
+from production_entry_app.production_entry_app import access_control, field_permissions
 from production_entry_app.production_entry_app.overrides.test_stock_entry_hooks import (
 	_append_rejection_breakup_rows,
 	_create_manufacture_stock_entry,
@@ -3376,6 +3376,8 @@ def _set_legacy_required_role_only(role: str) -> None:
 
 
 def _set_runtime_access_roles(*, write_role: str, read_role: str) -> None:
+	previous_write_role = frappe.db.get_single_value("Production Entry Settings", "write_role")
+	previous_read_role = frappe.db.get_single_value("Production Entry Settings", "read_role")
 	settings = frappe.get_single("Production Entry Settings")
 	settings.enable_access_control = 1
 	settings.write_role = write_role
@@ -3383,6 +3385,20 @@ def _set_runtime_access_roles(*, write_role: str, read_role: str) -> None:
 	settings.required_role = write_role
 	settings.flags.ignore_links = True
 	settings.save(ignore_permissions=True)
+	if previous_write_role and previous_write_role != access_control.DEFAULT_WRITE_ROLE:
+		frappe.db.set_single_value("Production Entry Settings", "last_synced_write_role", previous_write_role)
+	if previous_read_role and previous_read_role != access_control.DEFAULT_READ_ROLE:
+		frappe.db.set_single_value("Production Entry Settings", "last_synced_read_role", previous_read_role)
+	access_control.sync_configured_access_roles(
+		write_role=write_role,
+		read_role=read_role,
+		managed_roles=(previous_write_role, previous_read_role),
+	)
+	field_permissions.ensure_pea_field_permissions(
+		write_role=write_role,
+		read_role=read_role,
+		managed_roles=(previous_write_role, previous_read_role),
+	)
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit - runtime settings save must be visible to permissions
 
 

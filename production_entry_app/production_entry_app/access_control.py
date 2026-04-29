@@ -68,7 +68,9 @@ def ensure_access_roles_and_settings() -> None:
 	sync_configured_access_roles()
 
 
-def sync_configured_access_roles(*, write_role: str | None = None, read_role: str | None = None) -> None:
+def sync_configured_access_roles(
+	*, write_role: str | None = None, read_role: str | None = None, managed_roles: tuple[str | None, ...] = ()
+) -> None:
 	"""Sync native permissions and report metadata for the configured access roles."""
 	effective_write_role, effective_read_role = _get_setup_access_roles()
 	if write_role is not None:
@@ -78,13 +80,16 @@ def sync_configured_access_roles(*, write_role: str | None = None, read_role: st
 	for role in _unique_roles(effective_write_role, effective_read_role):
 		if role not in (DEFAULT_WRITE_ROLE, DEFAULT_READ_ROLE):
 			_ensure_role(role)
-	managed_roles = _get_existing_report_access_roles()
+	managed_roles = _unique_roles(
+		*_get_app_managed_access_roles(), *(_clean_role(role) for role in managed_roles)
+	)
 	_sync_native_doctype_permissions(
 		write_role=effective_write_role,
 		read_role=effective_read_role,
 		managed_roles=managed_roles,
 	)
 	_migrate_report_access_metadata(write_role=effective_write_role, read_role=effective_read_role)
+	_remember_synced_access_roles(write_role=effective_write_role, read_role=effective_read_role)
 	invalidate_access_control_cache()
 
 
@@ -334,8 +339,8 @@ def _remove_stale_docperms(
 		for row in rows
 		if row.get("role") in candidate_roles and _matches_any_docperm_template(row, templates)
 	]
-	if stale_names:
-		frappe.db.delete("DocPerm", {"name": ("in", stale_names)})
+	for name in stale_names:
+		frappe.delete_doc("DocPerm", name, ignore_permissions=True, force=True)
 
 
 def _matches_any_docperm_template(row: dict[str, Any], templates: tuple[dict[str, int], ...]) -> bool:
@@ -370,6 +375,28 @@ def _get_existing_report_access_roles() -> tuple[str, ...]:
 		report = frappe.get_doc("Report", report_name)
 		roles.extend(row.role for row in report.get("roles") if row.role)
 	return _unique_roles(*roles)
+
+
+def _get_app_managed_access_roles() -> tuple[str, ...]:
+	return _unique_roles(
+		DEFAULT_WRITE_ROLE,
+		DEFAULT_READ_ROLE,
+		_clean_role(_get_single_value("required_role")),
+		_clean_role(_get_single_value("last_synced_write_role")),
+		_clean_role(_get_single_value("last_synced_read_role")),
+	)
+
+
+def _clean_role(role: str | None) -> str | None:
+	cleaned = str(role or "").strip()
+	return cleaned or None
+
+
+def _remember_synced_access_roles(*, write_role: str, read_role: str) -> None:
+	if not frappe.db.exists("DocType", SETTINGS_DOCTYPE):
+		return
+	frappe.db.set_single_value(SETTINGS_DOCTYPE, "last_synced_write_role", write_role)
+	frappe.db.set_single_value(SETTINGS_DOCTYPE, "last_synced_read_role", read_role)
 
 
 def _migrate_report_access_metadata(*, write_role: str, read_role: str) -> None:

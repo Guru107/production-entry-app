@@ -959,8 +959,9 @@ class Shift(Document):
 		sequence = _get_next_shift_sequence(self.shift_date)
 		self.name = f"SHIFT-{self.shift_date}.{self.shift_label}.{sequence:04d}"
 
-	def has_permission(self, ptype: str = "read") -> bool:
-		return access_control.has_gated_doctype_permission(self, ptype=ptype)
+	def has_permission(self, ptype: str = "read", user: str | None = None, debug: bool = False) -> bool:
+		del debug
+		return access_control.has_gated_doctype_permission(self, ptype=ptype, user=user)
 
 	def before_insert(self) -> None:
 		self._set_defaults()

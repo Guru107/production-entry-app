@@ -4,11 +4,13 @@
  "doctype": "DocType",
  "editable_grid": 1,
  "engine": "InnoDB",
- "field_order": [
-  "enable_access_control",
-  "write_role",
-  "read_role",
-  "shift_raw_material_warehouse",
+	 "field_order": [
+	  "enable_access_control",
+	  "write_role",
+	  "read_role",
+	  "last_synced_write_role",
+	  "last_synced_read_role",
+	  "shift_raw_material_warehouse",
   "shift_wip_warehouse",
   "shift_rejection_warehouse",
   "shift_scrap_warehouse",
@@ -30,14 +32,30 @@
    "options": "Role",
    "reqd": 1
   },
-  {
-   "default": "PEA Read Only",
-   "fieldname": "read_role",
-   "fieldtype": "Link",
-   "label": "Read Role",
-   "options": "Role",
-   "reqd": 1
-  },
+	  {
+	   "default": "PEA Read Only",
+	   "fieldname": "read_role",
+	   "fieldtype": "Link",
+	   "label": "Read Role",
+	   "options": "Role",
+	   "reqd": 1
+	  },
+	  {
+	   "fieldname": "last_synced_write_role",
+	   "fieldtype": "Link",
+	   "hidden": 1,
+	   "label": "Last Synced Write Role",
+	   "options": "Role",
+	   "read_only": 1
+	  },
+	  {
+	   "fieldname": "last_synced_read_role",
+	   "fieldtype": "Link",
+	   "hidden": 1,
+	   "label": "Last Synced Read Role",
+	   "options": "Role",
+	   "read_only": 1
+	  },
   {
    "fieldname": "shift_raw_material_warehouse",
    "fieldtype": "Link",
