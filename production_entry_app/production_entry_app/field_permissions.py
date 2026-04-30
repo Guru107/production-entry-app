@@ -5,7 +5,11 @@ from typing import Any
 import frappe
 from frappe import _
 
-from production_entry_app.production_entry_app.access_control import DEFAULT_READ_ROLE, DEFAULT_WRITE_ROLE, DOCPERM_FIELDS
+from production_entry_app.production_entry_app.access_control import (
+	DEFAULT_READ_ROLE,
+	DEFAULT_WRITE_ROLE,
+	DOCPERM_FIELDS,
+)
 
 APP_MODULE: str = "Production Entry App"
 PEA_FIELD_PERMLEVEL: int = 9
@@ -15,7 +19,9 @@ def ensure_pea_field_permissions(
 	*, write_role: str | None = None, read_role: str | None = None, managed_roles: tuple[str | None, ...] = ()
 ) -> None:
 	"""Ensure native Frappe permlevel access for app-owned custom fields on standard DocTypes."""
-	effective_write_role, effective_read_role = _get_effective_access_roles(write_role=write_role, read_role=read_role)
+	effective_write_role, effective_read_role = _get_effective_access_roles(
+		write_role=write_role, read_role=read_role
+	)
 	active_roles = _unique_roles(effective_write_role, effective_read_role)
 	cleanup_roles = tuple(role for role in _unique_roles(*managed_roles) if role not in active_roles)
 	for doctype in _get_pea_custom_field_doctypes():
@@ -93,7 +99,9 @@ def _sync_docperm(*, doctype: str, role: str, values: dict[str, int]) -> None:
 			["permlevel", *DOCPERM_FIELDS],
 			as_dict=True,
 		)
-		if not existing_values or not _matches_any_docperm_template(existing_values, _pea_docperm_templates()):
+		if not existing_values or not _matches_any_docperm_template(
+			existing_values, _pea_docperm_templates()
+		):
 			frappe.throw(
 				_(
 					"Existing permlevel {0} permission for role {1} on {2} is not managed by Production Entry App."

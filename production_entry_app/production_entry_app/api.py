@@ -32,6 +32,7 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	ensure_default_bom,
 	ensure_department,
 	ensure_downtime_reason,
+	ensure_fiscal_year_for_date,
 	ensure_item,
 	ensure_operator,
 	ensure_rejection_reason,
@@ -711,6 +712,8 @@ def bootstrap_e2e_context(prefix: str = "E2E") -> dict:
 	company = resolve_test_company()
 	abbr = frappe.db.get_value("Company", company, "abbr") or "TC"
 	branch = ensure_branch(resolve_test_branch() or "_Test Branch")
+	base_date = _e2e_base_date(prefix)
+	ensure_fiscal_year_for_date(base_date)
 
 	wip_warehouse = ensure_warehouse(f"{prefix} WIP - {abbr}", company)
 	rm_warehouse = ensure_warehouse(f"{prefix} RM - {abbr}", company)
@@ -748,12 +751,11 @@ def bootstrap_e2e_context(prefix: str = "E2E") -> dict:
 	frappe.clear_document_cache("Production Entry Settings")
 
 	bom = ensure_default_bom(fg_item=fg_item, rm_item=rm_item, company=company)
-	ensure_stock(rm_item, wip_warehouse, company, target_qty=1000)
+	ensure_stock(rm_item, wip_warehouse, company, target_qty=1000, posting_date=base_date)
 
 	dept_name = f"{prefix} Department"
 	department = ensure_department(dept_name, company)
 	_complete_other_running_e2e_shifts(keep_department=department)
-	base_date = _e2e_base_date(prefix)
 	shift = _get_or_create_e2e_shift(
 		base_date=base_date,
 		department=department,

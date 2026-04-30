@@ -8,6 +8,7 @@ import frappe
 from frappe.exceptions import ValidationError
 from frappe.tests.utils import FrappeTestCase
 
+from production_entry_app.production_entry_app import access_control
 from production_entry_app.production_entry_app.doctype.shift import shift as shift_module
 from production_entry_app.production_entry_app.doctype.shift.shift import _resolve_shift_company
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
@@ -3356,14 +3357,16 @@ class TestShiftPermissions(FrappeTestCase):
 	def test_loss_entry_permissions_include_pea_roles(self) -> None:
 		meta = frappe.get_meta("Loss Entry")
 		roles = {perm.role for perm in meta.permissions}
-		self.assertIn("PEA User", roles)
-		self.assertIn("PEA Read Only", roles)
+		write_role, read_role = access_control._get_setup_access_roles()
+		self.assertIn(write_role, roles)
+		self.assertIn(read_role, roles)
 
 	def test_rejection_breakup_permissions_include_pea_roles(self) -> None:
 		meta = frappe.get_meta("Rejection Breakup")
 		roles = {perm.role for perm in meta.permissions}
-		self.assertIn("PEA User", roles)
-		self.assertIn("PEA Read Only", roles)
+		write_role, read_role = access_control._get_setup_access_roles()
+		self.assertIn(write_role, roles)
+		self.assertIn(read_role, roles)
 
 	def _expected_name(self, department: str, shift_date: str, shift_label: str) -> str:
 		sequence = frappe.db.count("Shift", {"shift_date": shift_date}) + 1

@@ -3404,9 +3404,21 @@ def _set_runtime_access_roles(*, write_role: str, read_role: str) -> None:
 
 def _restore_default_access_roles() -> None:
 	settings_doctype = "Production Entry Settings"
+	previous_write_role = frappe.db.get_single_value(settings_doctype, "write_role")
+	previous_read_role = frappe.db.get_single_value(settings_doctype, "read_role")
 	frappe.db.delete("Singles", {"doctype": settings_doctype, "field": "required_role"})
 	frappe.db.set_single_value(settings_doctype, "write_role", access_control.DEFAULT_WRITE_ROLE)
 	frappe.db.set_single_value(settings_doctype, "read_role", access_control.DEFAULT_READ_ROLE)
+	access_control.sync_configured_access_roles(
+		write_role=access_control.DEFAULT_WRITE_ROLE,
+		read_role=access_control.DEFAULT_READ_ROLE,
+		managed_roles=(previous_write_role, previous_read_role),
+	)
+	field_permissions.ensure_pea_field_permissions(
+		write_role=access_control.DEFAULT_WRITE_ROLE,
+		read_role=access_control.DEFAULT_READ_ROLE,
+		managed_roles=(previous_write_role, previous_read_role),
+	)
 	frappe.clear_document_cache(settings_doctype)
 	access_control.invalidate_access_control_cache()
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit - reset committed legacy setup fixture

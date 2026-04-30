@@ -5,7 +5,10 @@ from unittest.mock import MagicMock, patch
 from frappe.tests.utils import FrappeTestCase
 
 from production_entry_app.production_entry_app.access_control import DEFAULT_READ_ROLE, DEFAULT_WRITE_ROLE
-from production_entry_app.production_entry_app.field_permissions import PEA_FIELD_PERMLEVEL, ensure_pea_field_permissions
+from production_entry_app.production_entry_app.field_permissions import (
+	PEA_FIELD_PERMLEVEL,
+	ensure_pea_field_permissions,
+)
 
 
 class TestFieldPermissions(FrappeTestCase):
@@ -27,12 +30,27 @@ class TestFieldPermissions(FrappeTestCase):
 				"production_entry_app.production_entry_app.field_permissions._get_pea_custom_field_doctypes",
 				return_value=("Stock Entry", "Item"),
 			),
-			patch("production_entry_app.production_entry_app.field_permissions._validate_permlevel_is_pea_owned"),
-			patch("production_entry_app.production_entry_app.field_permissions.frappe.db.exists", side_effect=fake_exists),
-			patch("production_entry_app.production_entry_app.field_permissions.frappe.get_all", return_value=[]),
-			patch("production_entry_app.production_entry_app.field_permissions._get_next_docperm_idx", return_value=7),
-			patch("production_entry_app.production_entry_app.field_permissions.frappe.get_doc", side_effect=fake_get_doc),
-			patch("production_entry_app.production_entry_app.field_permissions.frappe.clear_cache") as clear_cache,
+			patch(
+				"production_entry_app.production_entry_app.field_permissions._validate_permlevel_is_pea_owned"
+			),
+			patch(
+				"production_entry_app.production_entry_app.field_permissions.frappe.db.exists",
+				side_effect=fake_exists,
+			),
+			patch(
+				"production_entry_app.production_entry_app.field_permissions.frappe.get_all", return_value=[]
+			),
+			patch(
+				"production_entry_app.production_entry_app.field_permissions._get_next_docperm_idx",
+				return_value=7,
+			),
+			patch(
+				"production_entry_app.production_entry_app.field_permissions.frappe.get_doc",
+				side_effect=fake_get_doc,
+			),
+			patch(
+				"production_entry_app.production_entry_app.field_permissions.frappe.clear_cache"
+			) as clear_cache,
 		):
 			ensure_pea_field_permissions(write_role=DEFAULT_WRITE_ROLE, read_role=DEFAULT_READ_ROLE)
 
@@ -100,10 +118,20 @@ class TestFieldPermissions(FrappeTestCase):
 				"production_entry_app.production_entry_app.field_permissions._get_pea_custom_field_doctypes",
 				return_value=("Stock Entry",),
 			),
-			patch("production_entry_app.production_entry_app.field_permissions._validate_permlevel_is_pea_owned"),
-			patch("production_entry_app.production_entry_app.field_permissions.frappe.get_all", side_effect=fake_get_all),
-			patch("production_entry_app.production_entry_app.field_permissions.frappe.delete_doc") as delete_doc,
-			patch("production_entry_app.production_entry_app.field_permissions.frappe.db.exists", return_value="current"),
+			patch(
+				"production_entry_app.production_entry_app.field_permissions._validate_permlevel_is_pea_owned"
+			),
+			patch(
+				"production_entry_app.production_entry_app.field_permissions.frappe.get_all",
+				side_effect=fake_get_all,
+			),
+			patch(
+				"production_entry_app.production_entry_app.field_permissions.frappe.delete_doc"
+			) as delete_doc,
+			patch(
+				"production_entry_app.production_entry_app.field_permissions.frappe.db.exists",
+				return_value="current",
+			),
 			patch(
 				"production_entry_app.production_entry_app.field_permissions.frappe.db.get_value",
 				return_value={
@@ -134,7 +162,9 @@ class TestFieldPermissions(FrappeTestCase):
 				managed_roles=("Old Write", "New Read"),
 			)
 
-		delete_doc.assert_called_once_with("DocPerm", "stale-stock-entry", ignore_permissions=True, force=True)
+		delete_doc.assert_called_once_with(
+			"DocPerm", "stale-stock-entry", ignore_permissions=True, force=True
+		)
 
 	def test_rejects_existing_non_pea_docperm_for_active_role(self) -> None:
 		with (
@@ -142,9 +172,16 @@ class TestFieldPermissions(FrappeTestCase):
 				"production_entry_app.production_entry_app.field_permissions._get_pea_custom_field_doctypes",
 				return_value=("Stock Entry",),
 			),
-			patch("production_entry_app.production_entry_app.field_permissions._validate_permlevel_is_pea_owned"),
-			patch("production_entry_app.production_entry_app.field_permissions.frappe.get_all", return_value=[]),
-			patch("production_entry_app.production_entry_app.field_permissions.frappe.db.exists", return_value="production-row"),
+			patch(
+				"production_entry_app.production_entry_app.field_permissions._validate_permlevel_is_pea_owned"
+			),
+			patch(
+				"production_entry_app.production_entry_app.field_permissions.frappe.get_all", return_value=[]
+			),
+			patch(
+				"production_entry_app.production_entry_app.field_permissions.frappe.db.exists",
+				return_value="production-row",
+			),
 			patch(
 				"production_entry_app.production_entry_app.field_permissions.frappe.db.get_value",
 				return_value={
@@ -166,7 +203,10 @@ class TestFieldPermissions(FrappeTestCase):
 					"if_owner": 0,
 				},
 			),
-			patch("production_entry_app.production_entry_app.field_permissions.frappe.throw", side_effect=Exception) as throw,
+			patch(
+				"production_entry_app.production_entry_app.field_permissions.frappe.throw",
+				side_effect=Exception,
+			) as throw,
 		):
 			with self.assertRaises(Exception):
 				ensure_pea_field_permissions(write_role=DEFAULT_WRITE_ROLE, read_role=DEFAULT_READ_ROLE)
@@ -183,7 +223,9 @@ class TestFieldPermissions(FrappeTestCase):
 			"production_entry_app.production_entry_app.field_permissions.frappe.get_all",
 			return_value=rows,
 		) as get_all:
-			from production_entry_app.production_entry_app.field_permissions import _get_pea_custom_field_doctypes
+			from production_entry_app.production_entry_app.field_permissions import (
+				_get_pea_custom_field_doctypes,
+			)
 
 			self.assertEqual(_get_pea_custom_field_doctypes(), ("Stock Entry", "Item"))
 
@@ -209,10 +251,18 @@ class TestFieldPermissions(FrappeTestCase):
 			raise AssertionError(doctype)
 
 		with (
-			patch("production_entry_app.production_entry_app.field_permissions.frappe.get_all", side_effect=fake_get_all),
-			patch("production_entry_app.production_entry_app.field_permissions.frappe.throw", side_effect=Exception) as throw,
+			patch(
+				"production_entry_app.production_entry_app.field_permissions.frappe.get_all",
+				side_effect=fake_get_all,
+			),
+			patch(
+				"production_entry_app.production_entry_app.field_permissions.frappe.throw",
+				side_effect=Exception,
+			) as throw,
 		):
-			from production_entry_app.production_entry_app.field_permissions import _validate_permlevel_is_pea_owned
+			from production_entry_app.production_entry_app.field_permissions import (
+				_validate_permlevel_is_pea_owned,
+			)
 
 			with self.assertRaises(Exception):
 				_validate_permlevel_is_pea_owned("Stock Entry")

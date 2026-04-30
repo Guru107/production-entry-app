@@ -37,6 +37,7 @@ from production_entry_app.production_entry_app.api import (
 	set_e2e_access_control,
 	set_e2e_system_float_precision,
 )
+from production_entry_app.production_entry_app.utils.test_bootstrap import ensure_stock
 
 
 def _meta_stub(has_field_result: bool) -> object:
@@ -108,6 +109,29 @@ class TestE2EApi(FrappeTestCase):
 				):
 					with self.assertRaises(frappe.PermissionError):
 						_assert_e2e_api_allowed()
+
+	def test_ensure_stock_sets_explicit_posting_date_before_insert(self) -> None:
+		stock_entry = MagicMock()
+		stock_entry.insert.return_value = stock_entry
+
+		with (
+			patch(
+				"production_entry_app.production_entry_app.utils.test_bootstrap.frappe.db.get_value",
+				return_value=0,
+			),
+			patch(
+				"production_entry_app.production_entry_app.utils.test_bootstrap.frappe.get_doc",
+				return_value=stock_entry,
+			) as get_doc,
+		):
+			ensure_stock("RM", "WIP", "_Test Company", target_qty=1000, posting_date="2099-01-20")
+
+		doc = get_doc.call_args.args[0]
+		self.assertEqual(doc["posting_date"], "2099-01-20")
+		self.assertEqual(doc["posting_time"], "00:00:00")
+		self.assertEqual(doc["set_posting_time"], 1)
+		stock_entry.insert.assert_called_once_with(ignore_permissions=True)
+		stock_entry.submit.assert_called_once_with()
 
 	def test_ensure_e2e_settings_fields_loaded_reloads_when_meta_is_stale(self) -> None:
 		with patch(
@@ -1318,6 +1342,9 @@ class TestE2EApi(FrappeTestCase):
 					return_value="BOM-001",
 				)
 			)
+			stack.enter_context(
+				patch("production_entry_app.production_entry_app.api.ensure_fiscal_year_for_date")
+			)
 			stack.enter_context(patch("production_entry_app.production_entry_app.api.ensure_stock"))
 			stack.enter_context(
 				patch(
@@ -1412,7 +1439,12 @@ class TestE2EApi(FrappeTestCase):
 					return_value="BOM-001",
 				)
 			)
-			stack.enter_context(patch("production_entry_app.production_entry_app.api.ensure_stock"))
+			ensure_fiscal_year = stack.enter_context(
+				patch("production_entry_app.production_entry_app.api.ensure_fiscal_year_for_date")
+			)
+			ensure_stock = stack.enter_context(
+				patch("production_entry_app.production_entry_app.api.ensure_stock")
+			)
 			stack.enter_context(
 				patch(
 					"production_entry_app.production_entry_app.api.ensure_department",
@@ -1438,6 +1470,10 @@ class TestE2EApi(FrappeTestCase):
 			bootstrap_e2e_context(prefix="E2E")
 
 		complete_other.assert_called_once_with(keep_department="E2E Department - TC")
+		ensure_fiscal_year.assert_called_once_with("2099-01-20")
+		ensure_stock.assert_called_once_with(
+			"_RM_ITEM", "WIP", "_Test Company", target_qty=1000, posting_date="2099-01-20"
+		)
 		get_or_create.assert_called_once_with(
 			base_date="2099-01-20",
 			department="E2E Department - TC",
