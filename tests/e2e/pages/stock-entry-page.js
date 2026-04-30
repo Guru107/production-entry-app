@@ -41,6 +41,7 @@ class StockEntryPage {
 		await setFieldValue(this.page, "stock_entry_type", "Manufacture");
 		await setFieldValue(this.page, "custom_pea_stock_entry_purpose", "Manufacture");
 		await setFieldValue(this.page, "company", ctx.company);
+		await this.setPostingDate(ctx.shift_date);
 		await setFieldValue(this.page, "from_bom", 1);
 		await setFieldValue(this.page, "bom_no", ctx.bom);
 		await setFieldValue(this.page, "from_warehouse", ctx.wip_warehouse);
@@ -70,6 +71,7 @@ class StockEntryPage {
 		await setFieldValue(this.page, "stock_entry_type", "Manufacture");
 		await setFieldValue(this.page, "custom_pea_stock_entry_purpose", "Manufacture");
 		await setFieldValue(this.page, "company", ctx.company);
+		await this.setPostingDate(options.postingDate || ctx.shift_date);
 		await setFieldValue(this.page, "from_bom", 1);
 		await setFieldValue(this.page, "bom_no", ctx.bom);
 		await setFieldValue(
@@ -89,6 +91,15 @@ class StockEntryPage {
 		if (actualEnd !== null && actualEnd !== undefined) {
 			await setFieldValue(this.page, "custom_pea_actual_end_date", actualEnd);
 		}
+	}
+
+	async setPostingDate(postingDate) {
+		if (!postingDate) {
+			return;
+		}
+		await setFieldValue(this.page, "set_posting_time", 1);
+		await setFieldValue(this.page, "posting_date", postingDate);
+		await setFieldValue(this.page, "posting_time", "09:00:00");
 	}
 
 	async setShift(shiftName) {
