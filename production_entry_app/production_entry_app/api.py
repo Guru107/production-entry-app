@@ -12,7 +12,7 @@ from frappe.query_builder import DocType
 from frappe.utils import add_to_date, cint, get_datetime, get_time, now_datetime
 from pypika import Order
 
-from production_entry_app.production_entry_app import access_control
+from production_entry_app.production_entry_app import access_control, field_permissions
 from production_entry_app.production_entry_app.utils.alternative_items import (
 	get_bom_alternative_allowed_items,
 )
@@ -93,11 +93,23 @@ def set_e2e_access_control(
 	_assert_e2e_api_allowed()
 	write_role_value = (write_role or required_role or access_control.DEFAULT_WRITE_ROLE).strip()
 	read_role_value = (read_role or access_control.DEFAULT_READ_ROLE).strip()
+	previous_write_role = frappe.db.get_single_value("Production Entry Settings", "write_role")
+	previous_read_role = frappe.db.get_single_value("Production Entry Settings", "read_role")
 	frappe.db.set_single_value("Production Entry Settings", "enable_access_control", cint(enabled))
 	frappe.db.set_single_value("Production Entry Settings", "write_role", write_role_value)
 	frappe.db.set_single_value("Production Entry Settings", "read_role", read_role_value)
 	frappe.clear_document_cache("Production Entry Settings")
-	access_control.sync_configured_access_roles(write_role=write_role_value, read_role=read_role_value)
+	managed_roles = (previous_write_role, previous_read_role)
+	access_control.sync_configured_access_roles(
+		write_role=write_role_value,
+		read_role=read_role_value,
+		managed_roles=managed_roles,
+	)
+	field_permissions.ensure_pea_field_permissions(
+		write_role=write_role_value,
+		read_role=read_role_value,
+		managed_roles=managed_roles,
+	)
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit - E2E state toggle must persist immediately
 	return {"enabled": bool(cint(enabled)), "write_role": write_role_value, "read_role": read_role_value}
 

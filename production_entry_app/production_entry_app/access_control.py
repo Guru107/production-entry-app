@@ -91,6 +91,7 @@ def sync_configured_access_roles(
 	_migrate_report_access_metadata(write_role=effective_write_role, read_role=effective_read_role)
 	_remember_synced_access_roles(write_role=effective_write_role, read_role=effective_read_role)
 	invalidate_access_control_cache()
+	frappe.clear_cache()
 
 
 def can_use_production_entry_app(user: str | None = None) -> bool:

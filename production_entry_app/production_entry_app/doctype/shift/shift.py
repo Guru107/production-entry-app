@@ -981,7 +981,7 @@ class Shift(Document):
 	def start_shift(self) -> None:
 		access_control.assert_app_write_access(doctype="Shift", docname=self.name)
 		self._validate_no_other_running_shift()
-		self._transition_status(to_status="Running", allowed_from=("Draft",))
+		self._transition_status(to_status="Running", allowed_from=("Draft", "Completed"))
 
 	def _validate_no_other_running_shift(self) -> None:
 		"""Prevent starting a shift when another shift in the same department and branch is already Running."""
@@ -1016,7 +1016,7 @@ class Shift(Document):
 	@frappe.whitelist()
 	def cancel_shift(self) -> None:
 		access_control.assert_app_write_access(doctype="Shift", docname=self.name)
-		self._transition_status(to_status="Cancelled", allowed_from=("Draft",))
+		self._transition_status(to_status="Cancelled", allowed_from=("Draft", "Completed"))
 
 	def _set_defaults(self) -> None:
 		if not self.naming_series:

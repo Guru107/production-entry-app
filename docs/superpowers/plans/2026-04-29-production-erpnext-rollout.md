@@ -202,7 +202,7 @@ git commit -m "feat: split PEA read and write access roles"
 - [ ] **Step 1: Write failing fixture/permission tests**
 
 Add tests that load `fixtures/custom_field.json` and assert:
-- every Custom Field with `"module": "Production Entry App"` has `permlevel: 1`.
+- every Custom Field with `"module": "Production Entry App"` has `permlevel: 9`.
 - `Stock Entry-branch` is absent.
 - no permission changes are expected for `Warehouse.is_rejected_warehouse`.
 
@@ -213,7 +213,7 @@ def test_app_generated_custom_fields_use_pea_permlevel(self) -> None:
 	fields = _load_custom_field_fixture()
 	for field in fields:
 		if field.get("module") == "Production Entry App":
-			self.assertEqual(field.get("permlevel"), 1, field["name"])
+			self.assertEqual(field.get("permlevel"), 9, field["name"])
 ```
 
 - [ ] **Step 2: Run test and verify failure**

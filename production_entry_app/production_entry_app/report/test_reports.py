@@ -3404,11 +3404,13 @@ def _set_runtime_access_roles(*, write_role: str, read_role: str) -> None:
 
 def _restore_default_access_roles() -> None:
 	settings_doctype = "Production Entry Settings"
+	previous_enable_access_control = frappe.db.get_single_value(settings_doctype, "enable_access_control")
 	previous_write_role = frappe.db.get_single_value(settings_doctype, "write_role")
 	previous_read_role = frappe.db.get_single_value(settings_doctype, "read_role")
 	frappe.db.delete("Singles", {"doctype": settings_doctype, "field": "required_role"})
 	frappe.db.set_single_value(settings_doctype, "write_role", access_control.DEFAULT_WRITE_ROLE)
 	frappe.db.set_single_value(settings_doctype, "read_role", access_control.DEFAULT_READ_ROLE)
+	frappe.db.set_single_value(settings_doctype, "enable_access_control", previous_enable_access_control)
 	access_control.sync_configured_access_roles(
 		write_role=access_control.DEFAULT_WRITE_ROLE,
 		read_role=access_control.DEFAULT_READ_ROLE,

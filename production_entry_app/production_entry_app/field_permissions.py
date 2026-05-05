@@ -193,28 +193,27 @@ def _matches_docperm_template(row: dict[str, Any], template: dict[str, int]) -> 
 
 
 def _validate_permlevel_is_pea_owned(doctype: str) -> None:
-	app_fieldnames = set(
-		frappe.get_all(
-			"Custom Field",
-			filters={"dt": doctype, "module": APP_MODULE, "permlevel": PEA_FIELD_PERMLEVEL},
-			pluck="fieldname",
+	meta = frappe.get_meta(doctype)
+	conflicts = tuple(
+		dict.fromkeys(
+			field.fieldname
+			for field in meta.fields
+			if int(field.permlevel or 0) == PEA_FIELD_PERMLEVEL
+			and not (
+				field.fieldname
+				and field.module == APP_MODULE
+				and frappe.db.exists(
+					"Custom Field",
+					{
+						"dt": doctype,
+						"fieldname": field.fieldname,
+						"module": APP_MODULE,
+						"permlevel": PEA_FIELD_PERMLEVEL,
+					},
+				)
+			)
 		)
 	)
-	custom_conflicts = frappe.get_all(
-		"Custom Field",
-		filters={"dt": doctype, "permlevel": PEA_FIELD_PERMLEVEL, "module": ("!=", APP_MODULE)},
-		pluck="fieldname",
-	)
-	standard_conflicts = [
-		fieldname
-		for fieldname in frappe.get_all(
-			"DocField",
-			filters={"parent": doctype, "parenttype": "DocType", "permlevel": PEA_FIELD_PERMLEVEL},
-			pluck="fieldname",
-		)
-		if fieldname not in app_fieldnames
-	]
-	conflicts = tuple(dict.fromkeys([*custom_conflicts, *standard_conflicts]))
 	if not conflicts:
 		return
 

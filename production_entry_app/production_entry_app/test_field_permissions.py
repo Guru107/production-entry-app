@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from production_entry_app.production_entry_app.access_control import DEFAULT_READ_ROLE, DEFAULT_WRITE_ROLE
@@ -205,10 +206,10 @@ class TestFieldPermissions(FrappeTestCase):
 			),
 			patch(
 				"production_entry_app.production_entry_app.field_permissions.frappe.throw",
-				side_effect=Exception,
+				side_effect=frappe.ValidationError,
 			) as throw,
 		):
-			with self.assertRaises(Exception):
+			with self.assertRaises(frappe.ValidationError):
 				ensure_pea_field_permissions(write_role=DEFAULT_WRITE_ROLE, read_role=DEFAULT_READ_ROLE)
 
 		throw.assert_called_once()
@@ -237,34 +238,34 @@ class TestFieldPermissions(FrappeTestCase):
 		)
 
 	def test_rejects_pea_permlevel_collision_with_non_pea_fields(self) -> None:
-		def fake_get_all(doctype: str, **kwargs: object) -> list[str]:
-			if doctype == "Custom Field" and kwargs.get("filters") == {
-				"dt": "Stock Entry",
-				"module": "Production Entry App",
-				"permlevel": PEA_FIELD_PERMLEVEL,
-			}:
-				return ["custom_pea_shift"]
-			if doctype == "Custom Field":
-				return ["custom_existing_production_field"]
-			if doctype == "DocField":
-				return ["existing_standard_field"]
-			raise AssertionError(doctype)
+		meta = MagicMock()
+		meta.fields = [
+			MagicMock(
+				fieldname="custom_pea_shift", permlevel=PEA_FIELD_PERMLEVEL, module="Production Entry App"
+			),
+			MagicMock(fieldname="existing_standard_field", permlevel=PEA_FIELD_PERMLEVEL, module="Stock"),
+		]
+
+		def fake_exists(doctype: str, filters: object) -> bool:
+			if doctype != "Custom Field":
+				return False
+			if not isinstance(filters, dict):
+				return False
+			return filters.get("fieldname") == "custom_pea_shift"
 
 		with (
 			patch(
-				"production_entry_app.production_entry_app.field_permissions.frappe.get_all",
-				side_effect=fake_get_all,
+				"production_entry_app.production_entry_app.field_permissions.frappe.get_meta",
+				return_value=meta,
 			),
 			patch(
-				"production_entry_app.production_entry_app.field_permissions.frappe.throw",
-				side_effect=Exception,
-			) as throw,
+				"production_entry_app.production_entry_app.field_permissions.frappe.db.exists",
+				side_effect=fake_exists,
+			),
 		):
 			from production_entry_app.production_entry_app.field_permissions import (
 				_validate_permlevel_is_pea_owned,
 			)
 
-			with self.assertRaises(Exception):
+			with self.assertRaises(frappe.ValidationError):
 				_validate_permlevel_is_pea_owned("Stock Entry")
-
-		throw.assert_called_once()

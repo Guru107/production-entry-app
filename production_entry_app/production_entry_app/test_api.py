@@ -159,12 +159,23 @@ class TestE2EApi(FrappeTestCase):
 			set_single_value = stack.enter_context(
 				patch("production_entry_app.production_entry_app.api.frappe.db.set_single_value")
 			)
+			get_single_value = stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.api.frappe.db.get_single_value",
+					side_effect=("Old Write", "Old Read"),
+				)
+			)
 			stack.enter_context(
 				patch("production_entry_app.production_entry_app.api.frappe.clear_document_cache")
 			)
 			sync_roles = stack.enter_context(
 				patch(
 					"production_entry_app.production_entry_app.api.access_control.sync_configured_access_roles"
+				)
+			)
+			sync_fields = stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.api.field_permissions.ensure_pea_field_permissions"
 				)
 			)
 			commit = stack.enter_context(
@@ -180,7 +191,17 @@ class TestE2EApi(FrappeTestCase):
 		set_single_value.assert_any_call("Production Entry Settings", "enable_access_control", 1)
 		set_single_value.assert_any_call("Production Entry Settings", "write_role", "Manufacturing User")
 		set_single_value.assert_any_call("Production Entry Settings", "read_role", "PEA Read Only")
-		sync_roles.assert_called_once_with(write_role="Manufacturing User", read_role="PEA Read Only")
+		sync_roles.assert_called_once_with(
+			write_role="Manufacturing User",
+			read_role="PEA Read Only",
+			managed_roles=("Old Write", "Old Read"),
+		)
+		sync_fields.assert_called_once_with(
+			write_role="Manufacturing User",
+			read_role="PEA Read Only",
+			managed_roles=("Old Write", "Old Read"),
+		)
+		self.assertEqual(get_single_value.call_count, 2)
 		commit.assert_called_once()
 
 	def test_set_e2e_access_control_accepts_legacy_required_role_fallback(self) -> None:
@@ -197,6 +218,17 @@ class TestE2EApi(FrappeTestCase):
 			stack.enter_context(
 				patch(
 					"production_entry_app.production_entry_app.api.access_control.sync_configured_access_roles"
+				)
+			)
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.api.field_permissions.ensure_pea_field_permissions"
+				)
+			)
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.api.frappe.db.get_single_value",
+					side_effect=("Old Write", "Old Read"),
 				)
 			)
 			stack.enter_context(patch("production_entry_app.production_entry_app.api.frappe.db.commit"))
