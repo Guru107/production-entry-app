@@ -218,7 +218,9 @@ test.describe("Shift to Stock Entry integration", () => {
 		expect(values.to_warehouse).toBeFalsy();
 	});
 
-	test("@regression custom_pea_shift query returns only running shifts", async ({ page }) => {
+	test("@regression custom_pea_shift query returns running and completed shifts", async ({
+		page,
+	}) => {
 		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 		const seededShift = await getDoc(page, "Shift", ctx.shift_name);
@@ -239,6 +241,14 @@ test.describe("Shift to Stock Entry integration", () => {
 		const runningOptionNames = runningResults.map((row) => row.value || row.name || "");
 		expect(runningOptionNames).toContain(ctx.shift_name);
 
+		await shiftPage.open(ctx.shift_name);
+		await shiftPage.endShift();
+		await stockEntryPage.openNew();
+
+		const completedResults = await stockEntryPage.searchShiftLinkResults(ctx.shift_name);
+		const completedOptionNames = completedResults.map((row) => row.value || row.name || "");
+		expect(completedOptionNames).toContain(ctx.shift_name);
+
 		const draftResults = await stockEntryPage.searchShiftLinkResults(draft.name);
 		const draftOptionNames = draftResults.map((row) => row.value || row.name || "");
 		expect(draftOptionNames).not.toContain(draft.name);
@@ -246,18 +256,18 @@ test.describe("Shift to Stock Entry integration", () => {
 		const draftShift = await getDoc(page, "Shift", draft.name);
 		expect(draftShift.status).toBe("Draft");
 
-		const runningShift = await getDoc(page, "Shift", ctx.shift_name);
-		expect(runningShift.status).toBe("Running");
+		const completedShift = await getDoc(page, "Shift", ctx.shift_name);
+		expect(completedShift.status).toBe("Completed");
 
 		const query = await callFrappeMethod(page, "frappe.client.get_list", {
 			doctype: "Shift",
-			filters: JSON.stringify([["name", "in", runningOptionNames]]),
+			filters: JSON.stringify([["name", "in", completedOptionNames]]),
 			fields: JSON.stringify(["name", "status"]),
 			limit_page_length: 50,
 		});
 		expect(query.length).toBeGreaterThan(0);
 		for (const row of query) {
-			expect(row.status).toBe("Running");
+			expect(["Running", "Completed"]).toContain(row.status);
 		}
 	});
 
@@ -295,7 +305,10 @@ test.describe("Shift to Stock Entry integration", () => {
 		await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
 		await stockEntryPage.fetchItems();
 		await stockEntryPage.attemptSaveDraft();
-		await expectValidationError(page, /Only Running shifts can be linked in Stock Entry/i);
+		await expectValidationError(
+			page,
+			/Only Running or Completed shifts can be linked in Stock Entry/i
+		);
 	});
 
 	test("@regression shift aggregate production entries format numeric metrics with system precision", async ({

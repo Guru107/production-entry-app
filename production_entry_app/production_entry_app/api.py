@@ -55,6 +55,7 @@ _E2E_SYSTEM_SETTINGS_FIELDS: tuple[str, ...] = ("float_precision",)
 _E2E_RESERVED_USER_EMAIL_PREFIX: str = "e2e-user-"
 _E2E_RESERVED_ROLE_PREFIX: str = "E2E ROLE "
 _E2E_RESERVED_DOWNTIME_PREFIX: str = "E2E-DOWNTIME-"
+_ALLOWED_STOCK_ENTRY_SHIFT_STATUSES: tuple[str, ...] = ("Running", "Completed")
 _APP_GATED_DOCTYPES: frozenset[str] = frozenset(
 	{
 		"Shift",
@@ -168,9 +169,11 @@ def get_shift_details_for_stock_entry(shift_name: str) -> dict:
 		raise frappe.PermissionError
 
 	shift = frappe.get_doc("Shift", shift_name)
-	if shift.status != "Running":
+	if shift.status not in _ALLOWED_STOCK_ENTRY_SHIFT_STATUSES:
 		frappe.throw(
-			_("Only Running shifts can be linked in Stock Entry. Selected shift {0} is {1}.").format(
+			_(
+				"Only Running or Completed shifts can be linked in Stock Entry. Selected shift {0} is {1}."
+			).format(
 				frappe.bold(shift.name),
 				frappe.bold(shift.status or _("not found")),
 			)

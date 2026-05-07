@@ -39,6 +39,7 @@ from production_entry_app.production_entry_app.utils.system_precision import get
 _DEFAULT_START_BUFFER_MINS: int = 60
 _DEFAULT_END_BUFFER_MINS: int = 60
 _MAX_BUFFER_MINS: int = 480
+_ALLOWED_STOCK_ENTRY_SHIFT_STATUSES: tuple[str, ...] = ("Running", "Completed")
 _COMMON_OVERLAP_FIELDS: tuple[str, ...] = (
 	"purpose",
 	"custom_pea_shift",
@@ -59,7 +60,7 @@ def validate_stock_entry(doc: Document, method: str | None = None) -> None:
 	if not access_control.can_use_production_entry_app():
 		return
 	if doc.get("custom_pea_shift"):
-		_validate_linked_shift_is_running(doc)
+		_validate_linked_shift_can_accept_stock_entry(doc)
 		_apply_shift_defaults(doc)
 	_sync_unplanned_loss_shift_links(doc)
 
@@ -144,16 +145,18 @@ def _apply_shift_defaults(doc) -> None:
 			doc.to_warehouse = shift.work_in_progress_warehouse
 
 
-def _validate_linked_shift_is_running(doc) -> None:
-	"""Allow linking only Running shifts on Stock Entry."""
+def _validate_linked_shift_can_accept_stock_entry(doc) -> None:
+	"""Allow linking finalized or active shifts on Stock Entry."""
 	shift_name = doc.get("custom_pea_shift")
 	if not shift_name:
 		return
 
 	status = frappe.db.get_value("Shift", shift_name, "status")
-	if status != "Running":
+	if status not in _ALLOWED_STOCK_ENTRY_SHIFT_STATUSES:
 		frappe.throw(
-			_("Only Running shifts can be linked in Stock Entry. Selected shift {0} is {1}.").format(
+			_(
+				"Only Running or Completed shifts can be linked in Stock Entry. Selected shift {0} is {1}."
+			).format(
 				frappe.bold(shift_name),
 				frappe.bold(status or _("not found")),
 			)

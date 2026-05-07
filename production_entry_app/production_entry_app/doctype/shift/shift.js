@@ -64,7 +64,9 @@ function _add_status_action_buttons(frm) {
 			__("End Shift"),
 			() => {
 				frappe.confirm(
-					__("End this shift? No more production entries can be added after ending."),
+					__(
+						"End this shift? You can still add post-facto production entries after ending."
+					),
 					() => {
 						_call_shift_transition(frm, "end_shift");
 					}
@@ -119,7 +121,7 @@ function _add_create_buttons(frm) {
 		},
 		__("Create")
 	);
-	if (frm.doc.status !== "Running") {
+	if (!["Running", "Completed"].includes(frm.doc.status || "")) {
 		return;
 	}
 	frm.add_custom_button(
