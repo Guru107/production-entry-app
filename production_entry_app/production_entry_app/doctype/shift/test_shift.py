@@ -75,7 +75,12 @@ def _ensure_shift_duration_options() -> None:
 	shift_meta = frappe.get_meta("Shift", cached=True)
 	shift_duration = shift_meta.get_field("shift_duration")
 	options = (shift_duration.options or "").splitlines() if shift_duration else []
-	if "14" in options and "16" in options and shift_meta.get_field("company"):
+	if (
+		"14" in options
+		and "16" in options
+		and shift_meta.get_field("company")
+		and shift_meta.get_field("shift_title")
+	):
 		return
 	frappe.reload_doc("production_entry_app", "doctype", "shift")
 	frappe.clear_cache(doctype="Shift")
@@ -1585,6 +1590,43 @@ class TestShift(FrappeTestCase):
 		).insert()
 		self.assertEqual(doc2.name, "SHIFT-2026-02-21.2.0002")
 
+	def test_shift_title_contains_same_day_date_and_times_without_changing_name(self) -> None:
+		self._delete_shifts_for_date("2026-09-01")
+
+		doc = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"department": self._test_department,
+				"branch": self._test_branch,
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": "2026-09-01",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+
+		self.assertEqual(doc.name, "SHIFT-2026-09-01.1.0001")
+		self.assertEqual(getattr(doc, "shift_title", None), "2026-09-01 08:00-16:00")
+
+	def test_shift_title_includes_end_date_when_shift_crosses_day(self) -> None:
+		self._delete_shifts_for_date("2026-09-02")
+		self._delete_shifts_for_date("2026-09-03")
+
+		doc = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"department": self._test_department,
+				"branch": self._test_branch,
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": "2026-09-02",
+				"planned_start_time": "20:00:00",
+			}
+		).insert()
+
+		self.assertEqual(doc.name, "SHIFT-2026-09-02.1.0001")
+		self.assertEqual(getattr(doc, "shift_title", None), "2026-09-02 20:00 - 2026-09-03 04:00")
+
 	def test_overlap_query_scopes_to_nearby_dates(self) -> None:
 		from production_entry_app.production_entry_app.doctype.shift.shift import Shift
 
@@ -2433,11 +2475,15 @@ class TestShiftLayout(FrappeTestCase):
 		self.assertTrue(canonical)
 		self.assertEqual(int(canonical.hidden or 0), 1)
 
-	def test_planned_start_helper_field_follows_shift_date(self) -> None:
+	def test_shift_title_and_planned_start_helper_follow_shift_date(self) -> None:
 		meta = frappe.get_meta("Shift")
 		self.assertEqual(
-			self._field_index(meta, "planned_start_time_input"),
+			self._field_index(meta, "shift_title"),
 			self._field_index(meta, "shift_date") + 1,
+		)
+		self.assertEqual(
+			self._field_index(meta, "planned_start_time_input"),
+			self._field_index(meta, "shift_title") + 1,
 		)
 
 	def test_shift_end_date_is_in_times_column(self) -> None:
@@ -2446,6 +2492,16 @@ class TestShiftLayout(FrappeTestCase):
 			self._field_index(meta, "shift_end_date"),
 			self._field_index(meta, "col_break_times"),
 		)
+
+	def test_shift_title_is_hidden_read_only_title_field(self) -> None:
+		meta = frappe.get_meta("Shift")
+		field = meta.get_field("shift_title")
+		self.assertTrue(field)
+		self.assertEqual(field.fieldtype, "Data")
+		self.assertEqual(int(field.hidden or 0), 1)
+		self.assertEqual(int(field.read_only or 0), 1)
+		self.assertEqual(meta.title_field, "shift_title")
+		self.assertEqual(int(meta.show_title_field_in_link or 0), 1)
 
 	def test_search_indexes_enabled_for_key_shift_fields(self) -> None:
 		meta = frappe.get_meta("Shift")

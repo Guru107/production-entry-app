@@ -42,6 +42,7 @@ RUNNING_SHIFT_SERVER_COMPUTED_FIELDS: frozenset[str] = frozenset(
 		"planned_start_time",
 		"planned_end_time",
 		"shift_end_date",
+		"shift_title",
 	}
 )
 RUNNING_SHIFT_MUTABLE_FIELDS: frozenset[str] = (
@@ -564,6 +565,48 @@ def _normalize_planned_loss_time(value: Any) -> str | None:
 	return str(value) if value is not None else None
 
 
+def _format_shift_title_date(value: Any) -> str:
+	if hasattr(value, "isoformat"):
+		return value.isoformat()
+	return str(value)
+
+
+def _format_shift_title_time(value: Any) -> str:
+	if isinstance(value, datetime.timedelta):
+		total_seconds = int(value.total_seconds()) % 86400
+		hours, remainder = divmod(total_seconds, 3600)
+		minutes = remainder // 60
+		return f"{hours:02d}:{minutes:02d}"
+	if hasattr(value, "strftime"):
+		return value.strftime("%H:%M")
+
+	parts = str(value).strip().split(":")
+	if len(parts) >= 2:
+		return f"{parts[0].zfill(2)}:{parts[1].zfill(2)}"
+	return str(value).strip()
+
+
+def _build_shift_title(
+	shift_date: Any,
+	planned_start_time: Any,
+	shift_end_date: Any,
+	planned_end_time: Any,
+) -> str:
+	if not shift_date:
+		return ""
+
+	start_date = _format_shift_title_date(shift_date)
+	if not planned_start_time or not planned_end_time:
+		return start_date
+
+	end_date = _format_shift_title_date(shift_end_date or shift_date)
+	start_time = _format_shift_title_time(planned_start_time)
+	end_time = _format_shift_title_time(planned_end_time)
+	if end_date != start_date:
+		return f"{start_date} {start_time} - {end_date} {end_time}"
+	return f"{start_date} {start_time}-{end_time}"
+
+
 def _planned_loss_signature(row: Any) -> tuple[str | None, str | None, str | None]:
 	return (
 		getattr(row, "downtime_reason", None),
@@ -973,6 +1016,7 @@ class Shift(Document):
 		self._validate_status()
 		self._validate_field_locking()
 		self._calculate_planned_end_time_and_dates()
+		self._set_shift_title()
 		self._populate_planned_losses_if_needed()
 		self._validate_no_overlapping_shifts()
 		self._validate_unique_shift_label_per_date()
@@ -1257,6 +1301,14 @@ class Shift(Document):
 		# store as Time + Date fields
 		self.planned_end_time = end_dt.time().strftime("%H:%M:%S")
 		self.shift_end_date = end_dt.date().isoformat()
+
+	def _set_shift_title(self) -> None:
+		self.shift_title = _build_shift_title(
+			self.shift_date,
+			self.planned_start_time,
+			self.shift_end_date,
+			self.planned_end_time,
+		)
 
 	def _parse_duration_hours(self, shift_duration: str) -> int:
 		try:

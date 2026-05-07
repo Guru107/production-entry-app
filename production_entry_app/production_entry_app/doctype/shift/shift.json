@@ -12,6 +12,7 @@
   "shift_label",
   "shift_duration",
   "shift_date",
+  "shift_title",
   "planned_start_time_input",
   "col_break_times",
   "shift_end_date",
@@ -75,6 +76,14 @@
    "label": "Shift Date",
    "reqd": 1,
    "search_index": 1
+  },
+  {
+   "fieldname": "shift_title",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Shift Title",
+   "no_copy": 1,
+   "read_only": 1
   },
   {
    "fieldname": "planned_start_time_input",
@@ -290,5 +299,6 @@
    "title": "Cancelled"
   }
  ],
- "title_field": "shift_date"
+ "title_field": "shift_title",
+ "show_title_field_in_link": 1
 }

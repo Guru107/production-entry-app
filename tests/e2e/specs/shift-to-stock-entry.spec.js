@@ -218,7 +218,7 @@ test.describe("Shift to Stock Entry integration", () => {
 		expect(values.to_warehouse).toBeFalsy();
 	});
 
-	test("@regression custom_pea_shift query returns running and completed shifts", async ({
+	test("@regression custom_pea_shift query returns running and completed shifts with title labels", async ({
 		page,
 	}) => {
 		await page.goto(getRoute("/home"));
@@ -237,9 +237,13 @@ test.describe("Shift to Stock Entry integration", () => {
 		const stockEntryPage = new StockEntryPage(page);
 		await stockEntryPage.openNew();
 
+		const expectedShiftTitle = `${ctx.shift_date} 08:00-16:00`;
 		const runningResults = await stockEntryPage.searchShiftLinkResults(ctx.shift_name);
-		const runningOptionNames = runningResults.map((row) => row.value || row.name || "");
-		expect(runningOptionNames).toContain(ctx.shift_name);
+		const runningOption = runningResults.find(
+			(row) => (row.value || row.name || "") === ctx.shift_name
+		);
+		expect(runningOption).toBeTruthy();
+		expect(runningOption.label).toBe(expectedShiftTitle);
 
 		await shiftPage.open(ctx.shift_name);
 		await shiftPage.endShift();
@@ -247,7 +251,11 @@ test.describe("Shift to Stock Entry integration", () => {
 
 		const completedResults = await stockEntryPage.searchShiftLinkResults(ctx.shift_name);
 		const completedOptionNames = completedResults.map((row) => row.value || row.name || "");
-		expect(completedOptionNames).toContain(ctx.shift_name);
+		const completedOption = completedResults.find(
+			(row) => (row.value || row.name || "") === ctx.shift_name
+		);
+		expect(completedOption).toBeTruthy();
+		expect(completedOption.label).toBe(expectedShiftTitle);
 
 		const draftResults = await stockEntryPage.searchShiftLinkResults(draft.name);
 		const draftOptionNames = draftResults.map((row) => row.value || row.name || "");
