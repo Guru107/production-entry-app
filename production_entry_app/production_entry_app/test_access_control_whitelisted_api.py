@@ -190,6 +190,11 @@ class TestAccessControlWhitelistedApi(FrappeTestCase):
 		assert_app_read_access.assert_called_once_with(doctype="Shift", docname="SHIFT-B-00001")
 		has_permission.assert_called_once_with("Shift", "read", "SHIFT-B-00001")
 
+	def test_shift_details_returns_empty_without_access_check_when_shift_is_missing(self) -> None:
+		with patch.object(access_control, "assert_app_read_access") as assert_app_read_access:
+			self.assertEqual(get_shift_details_for_stock_entry(""), {})
+		assert_app_read_access.assert_not_called()
+
 	def test_shift_specific_endpoints_use_target_shift_read_permission(self) -> None:
 		with patch.object(access_control, "assert_app_read_access") as assert_app_read_access:
 			with patch(

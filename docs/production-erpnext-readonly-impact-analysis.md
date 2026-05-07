@@ -165,9 +165,9 @@ Installing this module on the observed production instance as-is is not low risk
 
 Main blockers:
 
-- Existing `Downtime Reason` DocType name collision.
-- Existing `Stock Entry-branch` custom field would likely be overwritten to read-only while remaining required.
-- Existing Stock Entry custom scripts and fields implement a parallel production/time workflow that PEA does not automatically migrate or synchronize.
+- `Downtime Reason` DocType name collision in production.
+- `Stock Entry-branch` would likely be overwritten to read-only while still required.
+- Current Stock Entry scripts and fields already implement a parallel production-time workflow that PEA does not automatically migrate or synchronize.
 
 ## Recommendation
 
