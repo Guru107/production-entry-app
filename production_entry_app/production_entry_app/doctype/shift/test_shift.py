@@ -995,6 +995,31 @@ class TestShift(FrappeTestCase):
 		doc.reload()
 		self.assertEqual(doc.status, "Completed")
 
+	def test_start_shift_not_allowed_from_completed(self) -> None:
+		shift_date = "2026-05-21"
+		self._delete_shifts_for_date(shift_date)
+
+		doc = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"department": self._test_department,
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": shift_date,
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+
+		doc.start_shift()
+		doc.end_shift()
+		doc.reload()
+		self.assertEqual(doc.status, "Completed")
+
+		with self.assertRaisesRegex(
+			ValidationError, r"Invalid status transition from .*Completed.* to .*Running"
+		):
+			doc.start_shift()
+
 	def test_status_transition_draft_to_cancelled(self) -> None:
 		name = self._expected_name(self._test_department, "2026-05-15", "2")
 		self._delete_shift_if_exists(name)

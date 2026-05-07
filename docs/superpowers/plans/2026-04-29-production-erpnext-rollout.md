@@ -231,7 +231,7 @@ Expected: FAIL because fixtures do not yet consistently set `permlevel`.
 
 In `production_entry_app/fixtures/custom_field.json`:
 - remove the `Stock Entry-branch` fixture object entirely.
-- add `"permlevel": 1` to every app-generated field object.
+- add `"permlevel": 9` to every app-generated field object.
 - do not add or change `Warehouse.is_rejected_warehouse`.
 
 - [ ] **Step 4: Add Role Permission fixtures or install setup**
@@ -240,17 +240,17 @@ Use an install/migrate setup helper, not fixtures. This repo has no existing Doc
 and an idempotent helper is easier to verify across local replica and Frappe Cloud.
 
 Required behavior:
-- `PEA User`: read/write at permlevel 1.
-- `PEA Read Only`: read at permlevel 1.
-- normal roles: no permlevel 1 access.
+- `PEA User`: read/write at permlevel 9.
+- `PEA Read Only`: read at permlevel 9.
+- normal roles: no permlevel 9 access.
 
 Create `production_entry_app/production_entry_app/field_permissions.py` and call it from
 `production_entry_app/production_entry_app/lifecycle.py` inside `_setup_app()`, which already runs
 from `after_sync` and `after_migrate`.
 
 The helper must:
-- discover standard DocTypes that have app-generated Custom Fields with `permlevel = 1`.
-- ensure Custom DocPerm rows for `PEA User` and `PEA Read Only` at permlevel 1.
+- discover standard DocTypes that have app-generated Custom Fields with `permlevel = 9`.
+- ensure Custom DocPerm rows for `PEA User` and `PEA Read Only` at permlevel 9.
 - not modify production-owned fields such as `Stock Entry.branch`.
 - not modify non-app-generated fields such as `Warehouse.is_rejected_warehouse`.
 - be idempotent and safe to run repeatedly.
