@@ -134,6 +134,16 @@ test.describe("Stock Entry validation matrix", () => {
 		);
 		expect(await stockEntryPage.isFieldVisible("custom_pea_workstation")).toBe(false);
 		expect(await stockEntryPage.isFieldVisible("custom_pea_fetch_items")).toBe(false);
+
+		await stockEntryPage.attemptSaveDraft();
+		await expect
+			.poll(async () => await stockEntryPage.isFieldVisible("custom_pea_shift"))
+			.toBe(false);
+		expect(await stockEntryPage.isSectionVisible("custom_pea_operation_details_section")).toBe(
+			false
+		);
+		expect(await stockEntryPage.isFieldVisible("custom_pea_workstation")).toBe(false);
+		expect(await stockEntryPage.isFieldVisible("custom_pea_fetch_items")).toBe(false);
 	});
 
 	test("@regression helper chips populate actual start and end datetimes", async ({ page }) => {

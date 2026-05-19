@@ -47,6 +47,9 @@
 				_setChildFieldVisibility(frm, doctype, fieldname, enabled);
 				continue;
 			}
+			if (doctype === "Stock Entry" && enabled) {
+				continue;
+			}
 			_setParentFieldVisibility(frm, fieldname, enabled);
 		}
 	}
