@@ -218,7 +218,9 @@ test.describe("Shift to Stock Entry integration", () => {
 		expect(values.to_warehouse).toBeFalsy();
 	});
 
-	test("@regression custom_pea_shift query returns only running shifts", async ({ page }) => {
+	test("@regression custom_pea_shift query returns running and completed shifts with title labels", async ({
+		page,
+	}) => {
 		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 		const seededShift = await getDoc(page, "Shift", ctx.shift_name);
@@ -235,9 +237,25 @@ test.describe("Shift to Stock Entry integration", () => {
 		const stockEntryPage = new StockEntryPage(page);
 		await stockEntryPage.openNew();
 
+		const expectedShiftTitle = `${ctx.shift_date} 08:00-16:00`;
 		const runningResults = await stockEntryPage.searchShiftLinkResults(ctx.shift_name);
-		const runningOptionNames = runningResults.map((row) => row.value || row.name || "");
-		expect(runningOptionNames).toContain(ctx.shift_name);
+		const runningOption = runningResults.find(
+			(row) => (row.value || row.name || "") === ctx.shift_name
+		);
+		expect(runningOption).toBeTruthy();
+		expect(runningOption.label).toBe(expectedShiftTitle);
+
+		await shiftPage.open(ctx.shift_name);
+		await shiftPage.endShift();
+		await stockEntryPage.openNew();
+
+		const completedResults = await stockEntryPage.searchShiftLinkResults(ctx.shift_name);
+		const completedOptionNames = completedResults.map((row) => row.value || row.name || "");
+		const completedOption = completedResults.find(
+			(row) => (row.value || row.name || "") === ctx.shift_name
+		);
+		expect(completedOption).toBeTruthy();
+		expect(completedOption.label).toBe(expectedShiftTitle);
 
 		const draftResults = await stockEntryPage.searchShiftLinkResults(draft.name);
 		const draftOptionNames = draftResults.map((row) => row.value || row.name || "");
@@ -246,18 +264,18 @@ test.describe("Shift to Stock Entry integration", () => {
 		const draftShift = await getDoc(page, "Shift", draft.name);
 		expect(draftShift.status).toBe("Draft");
 
-		const runningShift = await getDoc(page, "Shift", ctx.shift_name);
-		expect(runningShift.status).toBe("Running");
+		const completedShift = await getDoc(page, "Shift", ctx.shift_name);
+		expect(completedShift.status).toBe("Completed");
 
 		const query = await callFrappeMethod(page, "frappe.client.get_list", {
 			doctype: "Shift",
-			filters: JSON.stringify([["name", "in", runningOptionNames]]),
+			filters: JSON.stringify([["name", "in", completedOptionNames]]),
 			fields: JSON.stringify(["name", "status"]),
 			limit_page_length: 50,
 		});
 		expect(query.length).toBeGreaterThan(0);
 		for (const row of query) {
-			expect(row.status).toBe("Running");
+			expect(["Running", "Completed"]).toContain(row.status);
 		}
 	});
 
@@ -295,7 +313,10 @@ test.describe("Shift to Stock Entry integration", () => {
 		await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
 		await stockEntryPage.fetchItems();
 		await stockEntryPage.attemptSaveDraft();
-		await expectValidationError(page, /Only Running shifts can be linked in Stock Entry/i);
+		await expectValidationError(
+			page,
+			/Only Running or Completed shifts can be linked in Stock Entry/i
+		);
 	});
 
 	test("@regression shift aggregate production entries format numeric metrics with system precision", async ({

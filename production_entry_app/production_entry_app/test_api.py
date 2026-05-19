@@ -37,6 +37,7 @@ from production_entry_app.production_entry_app.api import (
 	set_e2e_access_control,
 	set_e2e_system_float_precision,
 )
+from production_entry_app.production_entry_app.utils.test_bootstrap import ensure_stock
 
 
 def _meta_stub(has_field_result: bool) -> object:
@@ -109,6 +110,29 @@ class TestE2EApi(FrappeTestCase):
 					with self.assertRaises(frappe.PermissionError):
 						_assert_e2e_api_allowed()
 
+	def test_ensure_stock_sets_explicit_posting_date_before_insert(self) -> None:
+		stock_entry = MagicMock()
+		stock_entry.insert.return_value = stock_entry
+
+		with (
+			patch(
+				"production_entry_app.production_entry_app.utils.test_bootstrap.frappe.db.get_value",
+				return_value=0,
+			),
+			patch(
+				"production_entry_app.production_entry_app.utils.test_bootstrap.frappe.get_doc",
+				return_value=stock_entry,
+			) as get_doc,
+		):
+			ensure_stock("RM", "WIP", "_Test Company", target_qty=1000, posting_date="2099-01-20")
+
+		doc = get_doc.call_args.args[0]
+		self.assertEqual(doc["posting_date"], "2099-01-20")
+		self.assertEqual(doc["posting_time"], "00:00:00")
+		self.assertEqual(doc["set_posting_time"], 1)
+		stock_entry.insert.assert_called_once_with(ignore_permissions=True)
+		stock_entry.submit.assert_called_once_with()
+
 	def test_ensure_e2e_settings_fields_loaded_reloads_when_meta_is_stale(self) -> None:
 		with patch(
 			"production_entry_app.production_entry_app.api.frappe.get_meta",
@@ -135,25 +159,84 @@ class TestE2EApi(FrappeTestCase):
 			set_single_value = stack.enter_context(
 				patch("production_entry_app.production_entry_app.api.frappe.db.set_single_value")
 			)
+			get_single_value = stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.api.frappe.db.get_single_value",
+					side_effect=("Old Write", "Old Read"),
+				)
+			)
 			stack.enter_context(
 				patch("production_entry_app.production_entry_app.api.frappe.clear_document_cache")
 			)
-			invalidate = stack.enter_context(
+			sync_roles = stack.enter_context(
 				patch(
-					"production_entry_app.production_entry_app.api.access_control.invalidate_access_control_cache"
+					"production_entry_app.production_entry_app.api.access_control.sync_configured_access_roles"
+				)
+			)
+			sync_fields = stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.api.field_permissions.ensure_pea_field_permissions"
 				)
 			)
 			commit = stack.enter_context(
 				patch("production_entry_app.production_entry_app.api.frappe.db.commit")
 			)
 
-			result = set_e2e_access_control(enabled=1, required_role=" Manufacturing User ")
+			result = set_e2e_access_control(enabled=1, write_role=" Manufacturing User ")
 
-		self.assertEqual(result, {"enabled": True, "required_role": "Manufacturing User"})
+		self.assertEqual(
+			result,
+			{"enabled": True, "write_role": "Manufacturing User", "read_role": "PEA Read Only"},
+		)
 		set_single_value.assert_any_call("Production Entry Settings", "enable_access_control", 1)
-		set_single_value.assert_any_call("Production Entry Settings", "required_role", "Manufacturing User")
-		invalidate.assert_called_once()
+		set_single_value.assert_any_call("Production Entry Settings", "write_role", "Manufacturing User")
+		set_single_value.assert_any_call("Production Entry Settings", "read_role", "PEA Read Only")
+		sync_roles.assert_called_once_with(
+			write_role="Manufacturing User",
+			read_role="PEA Read Only",
+			managed_roles=("Old Write", "Old Read"),
+		)
+		sync_fields.assert_called_once_with(
+			write_role="Manufacturing User",
+			read_role="PEA Read Only",
+			managed_roles=("Old Write", "Old Read"),
+		)
+		self.assertEqual(get_single_value.call_count, 2)
 		commit.assert_called_once()
+
+	def test_set_e2e_access_control_accepts_legacy_required_role_fallback(self) -> None:
+		with ExitStack() as stack:
+			stack.enter_context(
+				patch("production_entry_app.production_entry_app.api._assert_e2e_api_allowed")
+			)
+			set_single_value = stack.enter_context(
+				patch("production_entry_app.production_entry_app.api.frappe.db.set_single_value")
+			)
+			stack.enter_context(
+				patch("production_entry_app.production_entry_app.api.frappe.clear_document_cache")
+			)
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.api.access_control.sync_configured_access_roles"
+				)
+			)
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.api.field_permissions.ensure_pea_field_permissions"
+				)
+			)
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.api.frappe.db.get_single_value",
+					side_effect=("Old Write", "Old Read"),
+				)
+			)
+			stack.enter_context(patch("production_entry_app.production_entry_app.api.frappe.db.commit"))
+
+			result = set_e2e_access_control(enabled=1, required_role=" Legacy Writer ")
+
+		self.assertEqual(result["write_role"], "Legacy Writer")
+		set_single_value.assert_any_call("Production Entry Settings", "write_role", "Legacy Writer")
 
 	def test_cache_e2e_settings_snapshot_skips_existing_cache(self) -> None:
 		cache = MagicMock()
@@ -487,7 +570,7 @@ class TestE2EApi(FrappeTestCase):
 		shift_doc.shift_end_date = "2026-03-01"
 
 		with (
-			patch("production_entry_app.production_entry_app.api.access_control.assert_app_access"),
+			patch("production_entry_app.production_entry_app.api.access_control.assert_app_read_access"),
 			patch("production_entry_app.production_entry_app.api.frappe.has_permission", return_value=True),
 			patch("production_entry_app.production_entry_app.api.frappe.get_doc", return_value=shift_doc),
 		):
@@ -710,7 +793,9 @@ class TestE2EApi(FrappeTestCase):
 			"production_entry_app.production_entry_app.api._get_candidate_e2e_stock_entries",
 			return_value=[row1, row2],
 		):
-			with patch("production_entry_app.production_entry_app.api.access_control.assert_app_access"):
+			with patch(
+				"production_entry_app.production_entry_app.api.access_control.assert_app_write_access"
+			):
 				with patch("production_entry_app.production_entry_app.api._assert_e2e_api_allowed"):
 					with patch(
 						"production_entry_app.production_entry_app.api._e2e_base_date",
@@ -966,7 +1051,7 @@ class TestE2EApi(FrappeTestCase):
 
 		with ExitStack() as stack:
 			app_access = stack.enter_context(
-				patch("production_entry_app.production_entry_app.api.access_control.assert_app_access")
+				patch("production_entry_app.production_entry_app.api.access_control.assert_app_write_access")
 			)
 			guard = stack.enter_context(
 				patch("production_entry_app.production_entry_app.api._assert_e2e_api_allowed")
@@ -1225,7 +1310,7 @@ class TestE2EApi(FrappeTestCase):
 
 		with ExitStack() as stack:
 			stack.enter_context(
-				patch("production_entry_app.production_entry_app.api.access_control.assert_app_access")
+				patch("production_entry_app.production_entry_app.api.access_control.assert_app_write_access")
 			)
 			stack.enter_context(
 				patch("production_entry_app.production_entry_app.api._assert_e2e_api_allowed")
@@ -1289,6 +1374,9 @@ class TestE2EApi(FrappeTestCase):
 					return_value="BOM-001",
 				)
 			)
+			stack.enter_context(
+				patch("production_entry_app.production_entry_app.api.ensure_fiscal_year_for_date")
+			)
 			stack.enter_context(patch("production_entry_app.production_entry_app.api.ensure_stock"))
 			stack.enter_context(
 				patch(
@@ -1321,7 +1409,7 @@ class TestE2EApi(FrappeTestCase):
 
 		with ExitStack() as stack:
 			stack.enter_context(
-				patch("production_entry_app.production_entry_app.api.access_control.assert_app_access")
+				patch("production_entry_app.production_entry_app.api.access_control.assert_app_write_access")
 			)
 			stack.enter_context(
 				patch("production_entry_app.production_entry_app.api._assert_e2e_api_allowed")
@@ -1383,7 +1471,12 @@ class TestE2EApi(FrappeTestCase):
 					return_value="BOM-001",
 				)
 			)
-			stack.enter_context(patch("production_entry_app.production_entry_app.api.ensure_stock"))
+			ensure_fiscal_year = stack.enter_context(
+				patch("production_entry_app.production_entry_app.api.ensure_fiscal_year_for_date")
+			)
+			ensure_stock = stack.enter_context(
+				patch("production_entry_app.production_entry_app.api.ensure_stock")
+			)
 			stack.enter_context(
 				patch(
 					"production_entry_app.production_entry_app.api.ensure_department",
@@ -1409,6 +1502,10 @@ class TestE2EApi(FrappeTestCase):
 			bootstrap_e2e_context(prefix="E2E")
 
 		complete_other.assert_called_once_with(keep_department="E2E Department - TC")
+		ensure_fiscal_year.assert_called_once_with("2099-01-20")
+		ensure_stock.assert_called_once_with(
+			"_RM_ITEM", "WIP", "_Test Company", target_qty=1000, posting_date="2099-01-20"
+		)
 		get_or_create.assert_called_once_with(
 			base_date="2099-01-20",
 			department="E2E Department - TC",
@@ -1421,7 +1518,7 @@ class TestE2EApi(FrappeTestCase):
 	def test_set_e2e_system_float_precision_updates_settings_and_commits(self) -> None:
 		with ExitStack() as stack:
 			stack.enter_context(
-				patch("production_entry_app.production_entry_app.api.access_control.assert_app_access")
+				patch("production_entry_app.production_entry_app.api.access_control.assert_app_write_access")
 			)
 			stack.enter_context(
 				patch("production_entry_app.production_entry_app.api._assert_e2e_api_allowed")
@@ -1459,7 +1556,7 @@ class TestE2EApi(FrappeTestCase):
 		]
 		with ExitStack() as stack:
 			stack.enter_context(
-				patch("production_entry_app.production_entry_app.api.access_control.assert_app_access")
+				patch("production_entry_app.production_entry_app.api.access_control.assert_app_write_access")
 			)
 			stack.enter_context(
 				patch("production_entry_app.production_entry_app.api._assert_e2e_api_allowed")
@@ -1562,7 +1659,7 @@ class TestE2EApi(FrappeTestCase):
 		]
 		with ExitStack() as stack:
 			stack.enter_context(
-				patch("production_entry_app.production_entry_app.api.access_control.assert_app_access")
+				patch("production_entry_app.production_entry_app.api.access_control.assert_app_write_access")
 			)
 			stack.enter_context(
 				patch("production_entry_app.production_entry_app.api._assert_e2e_api_allowed")
@@ -1630,7 +1727,7 @@ class TestE2EApi(FrappeTestCase):
 		shift.shift_duration = "8"
 		with ExitStack() as stack:
 			stack.enter_context(
-				patch("production_entry_app.production_entry_app.api.access_control.assert_app_access")
+				patch("production_entry_app.production_entry_app.api.access_control.assert_app_write_access")
 			)
 			stack.enter_context(
 				patch("production_entry_app.production_entry_app.api._assert_e2e_api_allowed")
@@ -1663,7 +1760,7 @@ class TestE2EApi(FrappeTestCase):
 		builder.insert.return_value = doc
 		with ExitStack() as stack:
 			stack.enter_context(
-				patch("production_entry_app.production_entry_app.api.access_control.assert_app_access")
+				patch("production_entry_app.production_entry_app.api.access_control.assert_app_write_access")
 			)
 			stack.enter_context(
 				patch("production_entry_app.production_entry_app.api._assert_e2e_api_allowed")

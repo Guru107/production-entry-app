@@ -136,7 +136,6 @@ before_uninstall = ["production_entry_app.production_entry_app.lifecycle.before_
 has_permission = {
 	"Shift": "production_entry_app.production_entry_app.access_control.has_gated_doctype_permission",
 	"Loss Entry": "production_entry_app.production_entry_app.access_control.has_gated_doctype_permission",
-	"Downtime Reason": "production_entry_app.production_entry_app.access_control.has_gated_doctype_permission",
 	"Operator": "production_entry_app.production_entry_app.access_control.has_gated_doctype_permission",
 	"Die Tool Counter": "production_entry_app.production_entry_app.access_control.has_gated_doctype_permission",
 	"Die Tool Maintenance Log": "production_entry_app.production_entry_app.access_control.has_gated_doctype_permission",
@@ -168,9 +167,6 @@ override_doctype_class = {
 # Hook on document methods and events
 
 doc_events = {
-	"Production Entry Settings": {
-		"on_update": "production_entry_app.production_entry_app.doctype.production_entry_settings.production_entry_settings.on_update",
-	},
 	"Shift": {
 		"on_update": "production_entry_app.production_entry_app.doctype.shift.shift.invalidate_shift_summary_for_shift",
 		"on_trash": "production_entry_app.production_entry_app.doctype.shift.shift.invalidate_shift_summary_for_shift",

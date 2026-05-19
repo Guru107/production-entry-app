@@ -41,8 +41,11 @@ class StockEntryPage {
 		await setFieldValue(this.page, "stock_entry_type", "Manufacture");
 		await setFieldValue(this.page, "custom_pea_stock_entry_purpose", "Manufacture");
 		await setFieldValue(this.page, "company", ctx.company);
+		await this.setPostingDate(ctx.shift_date);
 		await setFieldValue(this.page, "from_bom", 1);
 		await setFieldValue(this.page, "bom_no", ctx.bom);
+		await setFieldValue(this.page, "from_warehouse", ctx.wip_warehouse);
+		await setFieldValue(this.page, "to_warehouse", ctx.wip_warehouse);
 		await setFieldValue(this.page, "fg_completed_qty", 100);
 		await setFieldValue(this.page, "custom_pea_rejection_qty", 5);
 		await setFieldValue(this.page, "custom_pea_shift", ctx.shift_name);
@@ -68,8 +71,15 @@ class StockEntryPage {
 		await setFieldValue(this.page, "stock_entry_type", "Manufacture");
 		await setFieldValue(this.page, "custom_pea_stock_entry_purpose", "Manufacture");
 		await setFieldValue(this.page, "company", ctx.company);
+		await this.setPostingDate(options.postingDate || ctx.shift_date);
 		await setFieldValue(this.page, "from_bom", 1);
 		await setFieldValue(this.page, "bom_no", ctx.bom);
+		await setFieldValue(
+			this.page,
+			"from_warehouse",
+			options.fromWarehouse || ctx.wip_warehouse
+		);
+		await setFieldValue(this.page, "to_warehouse", options.toWarehouse || ctx.wip_warehouse);
 		await setFieldValue(this.page, "fg_completed_qty", fgQty);
 		await setFieldValue(this.page, "custom_pea_rejection_qty", rejectionQty);
 		await setFieldValue(this.page, "custom_pea_shift", shiftName);
@@ -81,6 +91,15 @@ class StockEntryPage {
 		if (actualEnd !== null && actualEnd !== undefined) {
 			await setFieldValue(this.page, "custom_pea_actual_end_date", actualEnd);
 		}
+	}
+
+	async setPostingDate(postingDate) {
+		if (!postingDate) {
+			return;
+		}
+		await setFieldValue(this.page, "set_posting_time", 1);
+		await setFieldValue(this.page, "posting_date", postingDate);
+		await setFieldValue(this.page, "posting_time", "09:00:00");
 	}
 
 	async setShift(shiftName) {

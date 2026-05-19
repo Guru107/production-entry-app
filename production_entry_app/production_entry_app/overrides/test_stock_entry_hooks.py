@@ -152,8 +152,8 @@ class TestStockEntryHookPureHelpers(FrappeTestCase):
 			{"parenttype": "Stock Entry", "parent": "MAT-STE-UNIT-001"},
 		)
 
-	def test_validate_linked_shift_is_running_returns_when_shift_missing(self) -> None:
-		stock_entry_hooks._validate_linked_shift_is_running(frappe._dict({}))
+	def test_validate_linked_shift_can_accept_stock_entry_returns_when_shift_missing(self) -> None:
+		stock_entry_hooks._validate_linked_shift_can_accept_stock_entry(frappe._dict({}))
 
 	def test_get_shift_buffer_minutes_clamps_default_when_settings_field_missing(self) -> None:
 		meta = type("Meta", (), {"has_field": lambda self, fieldname: False})()
@@ -423,7 +423,7 @@ def _create_test_shift(
 		doc_data["rejection_warehouse"] = rejection_warehouse
 
 	shift = frappe.get_doc(doc_data).insert()
-	# Start the shift to set status to "Running" so it appears in custom_pea_shift filter
+	# Start the shift so Stock Entry can link it.
 	shift.start_shift()
 	return shift
 
@@ -1565,7 +1565,26 @@ class TestStockEntryHooks(FrappeTestCase):
 		self.assertIn("2026-04-22 00:00:00", result.get("custom_pea_planned_end_date") or "")
 		self.assertEqual(result.get("from_warehouse"), self.wip_warehouse)
 
-	def test_get_shift_details_for_stock_entry_api_blocks_non_running_shift(self) -> None:
+	def test_get_shift_details_for_stock_entry_api_allows_completed_shift(self) -> None:
+		from production_entry_app.production_entry_app.api import get_shift_details_for_stock_entry
+
+		shift = _create_test_shift(
+			shift_date="2026-04-22",
+			shift_label="2",
+			planned_start_time="16:00:00",
+			wip_warehouse=self.wip_warehouse,
+		)
+		shift.end_shift()
+		shift.reload()
+		self.assertEqual(shift.status, "Completed")
+
+		result = get_shift_details_for_stock_entry(shift.name)
+
+		self.assertEqual(result.get("company"), shift.company)
+		self.assertIn("2026-04-22 16:00:00", result.get("custom_pea_planned_start_date") or "")
+		self.assertEqual(result.get("from_warehouse"), self.wip_warehouse)
+
+	def test_get_shift_details_for_stock_entry_api_blocks_draft_shift(self) -> None:
 		from production_entry_app.production_entry_app.api import get_shift_details_for_stock_entry
 
 		cleanup_running_shifts()
@@ -1587,10 +1606,12 @@ class TestStockEntryHooks(FrappeTestCase):
 			}
 		).insert()
 
-		with self.assertRaisesRegex(ValidationError, "Only Running shifts can be linked in Stock Entry"):
+		with self.assertRaisesRegex(
+			ValidationError, "Only Running or Completed shifts can be linked in Stock Entry"
+		):
 			get_shift_details_for_stock_entry(draft_shift.name)
 
-	def test_stock_entry_blocks_non_running_shift_on_save(self) -> None:
+	def test_stock_entry_blocks_draft_shift_on_save(self) -> None:
 		cleanup_running_shifts()
 		department = ensure_department("Test Department")
 		for existing_name in frappe.get_all(
@@ -1620,8 +1641,32 @@ class TestStockEntryHooks(FrappeTestCase):
 		)
 		se.custom_pea_shift = draft_shift.name
 
-		with self.assertRaisesRegex(ValidationError, "Only Running shifts can be linked"):
+		with self.assertRaisesRegex(ValidationError, "Only Running or Completed shifts can be linked"):
 			se.save()
+
+	def test_stock_entry_allows_completed_shift_on_save(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2090-01-25",
+			shift_label="2",
+			wip_warehouse=self.wip_warehouse,
+		)
+		shift.end_shift()
+		shift.reload()
+		self.assertEqual(shift.status, "Completed")
+
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		se.custom_pea_shift = shift.name
+
+		se.save()
+
+		self.assertEqual(se.custom_pea_shift, shift.name)
+		self.assertEqual(se.branch, shift.branch)
 
 	def test_entry_metrics_with_no_fg_item_sets_die_tool_fields_to_zero(self) -> None:
 		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import _set_entry_metrics

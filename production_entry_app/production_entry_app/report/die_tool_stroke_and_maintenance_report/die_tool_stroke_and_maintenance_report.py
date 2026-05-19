@@ -6,11 +6,15 @@ from frappe.query_builder import DocType
 from frappe.query_builder.functions import Count, Max
 from frappe.utils import flt
 
-from production_entry_app.production_entry_app.report.report_utils import apply_system_precision
+from production_entry_app.production_entry_app.report.report_utils import (
+	apply_system_precision,
+	assert_report_read_access,
+)
 from production_entry_app.production_entry_app.utils.die_tool_counter import get_counter_health
 
 
 def execute(filters: dict | None = None):
+	assert_report_read_access()
 	filters = filters or {}
 	columns = _get_columns()
 	rows = _get_rows(filters)

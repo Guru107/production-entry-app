@@ -7,7 +7,6 @@
   "Stock Entry": [
     "custom_pea_stock_entry_purpose",
     "custom_pea_shift",
-    "branch",
     "custom_pea_operation_details_section",
     "custom_pea_planned_start_date",
     "custom_pea_planned_end_date",

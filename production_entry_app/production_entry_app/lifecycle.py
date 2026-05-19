@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import frappe
 
-from production_entry_app.production_entry_app import access_control, performance_indexes
+from production_entry_app.production_entry_app import access_control, field_permissions, performance_indexes
 
 APP_MODULE = "Production Entry App"
 CUSTOMIZATION_DOCTYPES = ("Property Setter", "Custom Field")
@@ -23,7 +23,8 @@ def before_uninstall() -> None:
 
 
 def _setup_app() -> None:
-	access_control.invalidate_access_control_cache()
+	access_control.ensure_access_roles_and_settings()
+	field_permissions.ensure_pea_field_permissions()
 	performance_indexes.ensure_performance_indexes_with_recovery()
 
 

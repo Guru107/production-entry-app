@@ -14,7 +14,6 @@ from production_entry_app.production_entry_app.overrides.test_stock_entry_hooks 
 GATED_DOCTYPES: tuple[str, ...] = (
 	"Shift",
 	"Loss Entry",
-	"Downtime Reason",
 	"Operator",
 	"Die Tool Counter",
 	"Die Tool Maintenance Log",
@@ -35,18 +34,6 @@ class TestPermissionHooksExplicitReturn(FrappeTestCase):
 		"""Shift's has_permission hook must return exactly True."""
 		shift = frappe.get_doc({"doctype": "Shift", "shift_date": "2026-01-01"})
 		result = frappe.has_permission(shift, ptype="read")
-		self.assertIs(
-			result,
-			True,
-			"has_permission must return exactly True, not a truthy value",
-		)
-
-	def test_downtime_reason_has_permission_returns_explicit_true(
-		self,
-	) -> None:
-		"""Downtime Reason's has_permission hook must return exactly True."""
-		dt = frappe.get_doc({"doctype": "Downtime Reason", "downtime_reason_name": "Test"})
-		result = frappe.has_permission(dt, ptype="read")
 		self.assertIs(
 			result,
 			True,

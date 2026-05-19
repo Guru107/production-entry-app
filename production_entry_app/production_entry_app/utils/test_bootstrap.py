@@ -4,6 +4,7 @@ from typing import Any
 
 import frappe
 from frappe import _
+from frappe.utils import getdate
 
 _PRODUCTION_ENTRY_SHIFT_SETTINGS_FIELDS: tuple[str, ...] = (
 	"shift_raw_material_warehouse",
@@ -203,30 +204,52 @@ def ensure_default_bom(fg_item: str, rm_item: str, company: str) -> str:
 	return bom.name
 
 
-def ensure_stock(item_code: str, warehouse: str, company: str, target_qty: float) -> None:
+def ensure_fiscal_year_for_date(posting_date: str) -> None:
+	date = getdate(posting_date)
+	fiscal_year = str(date.year)
+	if frappe.db.exists("Fiscal Year", fiscal_year):
+		if frappe.get_meta("Fiscal Year", cached=True).has_field("disabled"):
+			frappe.db.set_value("Fiscal Year", fiscal_year, "disabled", 0, update_modified=False)
+		return
+
+	doc = {
+		"doctype": "Fiscal Year",
+		"year": fiscal_year,
+		"year_start_date": f"{date.year}-01-01",
+		"year_end_date": f"{date.year}-12-31",
+	}
+	if frappe.get_meta("Fiscal Year", cached=True).has_field("disabled"):
+		doc["disabled"] = 0
+	frappe.get_doc(doc).insert(ignore_permissions=True)
+
+
+def ensure_stock(
+	item_code: str, warehouse: str, company: str, target_qty: float, *, posting_date: str | None = None
+) -> None:
 	actual_qty = float(
 		frappe.db.get_value("Bin", {"item_code": item_code, "warehouse": warehouse}, "actual_qty") or 0
 	)
 	if actual_qty >= target_qty:
 		return
 	diff = target_qty - actual_qty
-	se = frappe.get_doc(
-		{
-			"doctype": "Stock Entry",
-			"stock_entry_type": "Material Receipt",
-			"purpose": "Material Receipt",
-			"company": company,
-			"to_warehouse": warehouse,
-			"items": [
-				{
-					"item_code": item_code,
-					"qty": diff,
-					"t_warehouse": warehouse,
-					"basic_rate": 50,
-				}
-			],
-		}
-	).insert(ignore_permissions=True)
+	doc = {
+		"doctype": "Stock Entry",
+		"stock_entry_type": "Material Receipt",
+		"purpose": "Material Receipt",
+		"company": company,
+		"to_warehouse": warehouse,
+		"items": [
+			{
+				"item_code": item_code,
+				"qty": diff,
+				"t_warehouse": warehouse,
+				"basic_rate": 50,
+			}
+		],
+	}
+	if posting_date:
+		doc.update({"posting_date": posting_date, "posting_time": "00:00:00", "set_posting_time": 1})
+	se = frappe.get_doc(doc).insert(ignore_permissions=True)
 	se.submit()
 
 

@@ -42,6 +42,7 @@ RUNNING_SHIFT_SERVER_COMPUTED_FIELDS: frozenset[str] = frozenset(
 		"planned_start_time",
 		"planned_end_time",
 		"shift_end_date",
+		"shift_title",
 	}
 )
 RUNNING_SHIFT_MUTABLE_FIELDS: frozenset[str] = (
@@ -184,7 +185,7 @@ def get_planned_losses_for_duration(
 
 	Used by client script to populate the grid when shift_duration (or related fields) changes.
 	"""
-	access_control.assert_app_access()
+	access_control.assert_app_write_access()
 	if not shift_duration or not planned_start_time or not shift_date:
 		return []
 
@@ -209,7 +210,7 @@ def get_linked_downtime_entries(shift_name: str | None = None) -> list[dict]:
 	"""
 	if not shift_name:
 		return []
-	access_control.assert_app_access(doctype="Shift", docname=shift_name)
+	access_control.assert_app_read_access(doctype="Shift", docname=shift_name)
 	shift_exists = bool(frappe.db.exists("Shift", shift_name))
 	if not shift_exists and shift_name.startswith("new-"):
 		return []
@@ -249,7 +250,7 @@ def check_running_shift_conflict(shift_name: str) -> dict:
 	Used by client to show a warning dialog before starting a shift.
 	Returns: {"has_conflict": bool, "conflicting_shifts": [{"name": str, "shift_label": str, ...}]}
 	"""
-	access_control.assert_app_access(doctype="Shift", docname=shift_name)
+	access_control.assert_app_read_access(doctype="Shift", docname=shift_name)
 	if not shift_name:
 		return {"has_conflict": False, "conflicting_shifts": []}
 	if not frappe.has_permission("Shift", "read", shift_name):
@@ -564,6 +565,48 @@ def _normalize_planned_loss_time(value: Any) -> str | None:
 	return str(value) if value is not None else None
 
 
+def _format_shift_title_date(value: Any) -> str:
+	if hasattr(value, "isoformat"):
+		return value.isoformat()
+	return str(value)
+
+
+def _format_shift_title_time(value: Any) -> str:
+	if isinstance(value, datetime.timedelta):
+		total_seconds = int(value.total_seconds()) % 86400
+		hours, remainder = divmod(total_seconds, 3600)
+		minutes = remainder // 60
+		return f"{hours:02d}:{minutes:02d}"
+	if hasattr(value, "strftime"):
+		return value.strftime("%H:%M")
+
+	parts = str(value).strip().split(":")
+	if len(parts) >= 2:
+		return f"{parts[0].zfill(2)}:{parts[1].zfill(2)}"
+	return str(value).strip()
+
+
+def _build_shift_title(
+	shift_date: Any,
+	planned_start_time: Any,
+	shift_end_date: Any,
+	planned_end_time: Any,
+) -> str:
+	if not shift_date:
+		return ""
+
+	start_date = _format_shift_title_date(shift_date)
+	if not planned_start_time or not planned_end_time:
+		return start_date
+
+	end_date = _format_shift_title_date(shift_end_date or shift_date)
+	start_time = _format_shift_title_time(planned_start_time)
+	end_time = _format_shift_title_time(planned_end_time)
+	if end_date != start_date:
+		return f"{start_date} {start_time} - {end_date} {end_time}"
+	return f"{start_date} {start_time}-{end_time}"
+
+
 def _planned_loss_signature(row: Any) -> tuple[str | None, str | None, str | None]:
 	return (
 		getattr(row, "downtime_reason", None),
@@ -656,7 +699,7 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 	"""Return structured summary data for the Shift summary tab."""
 	if not shift_name:
 		return _empty_shift_summary()
-	access_control.assert_app_access(doctype="Shift", docname=shift_name)
+	access_control.assert_app_read_access(doctype="Shift", docname=shift_name)
 	shift_exists = bool(frappe.db.exists("Shift", shift_name))
 	if not shift_exists and shift_name.startswith("new-"):
 		return _empty_shift_summary()
@@ -849,7 +892,7 @@ def get_shift_aggregate_production_entries(shift_name: str | None = None) -> lis
 	"""Return per-BOM aggregate production values for submitted manufacture entries in a shift."""
 	if not shift_name:
 		return []
-	access_control.assert_app_access(doctype="Shift", docname=shift_name)
+	access_control.assert_app_read_access(doctype="Shift", docname=shift_name)
 	shift_exists = bool(frappe.db.exists("Shift", shift_name))
 	if not shift_exists and shift_name.startswith("new-"):
 		return []
@@ -959,8 +1002,9 @@ class Shift(Document):
 		sequence = _get_next_shift_sequence(self.shift_date)
 		self.name = f"SHIFT-{self.shift_date}.{self.shift_label}.{sequence:04d}"
 
-	def has_permission(self, ptype: str = "read") -> bool:
-		return access_control.has_gated_doctype_permission(self, ptype=ptype)
+	def has_permission(self, ptype: str = "read", user: str | None = None, debug: bool = False) -> bool:
+		del debug
+		return access_control.has_gated_doctype_permission(self, ptype=ptype, user=user)
 
 	def before_insert(self) -> None:
 		self._set_defaults()
@@ -972,13 +1016,14 @@ class Shift(Document):
 		self._validate_status()
 		self._validate_field_locking()
 		self._calculate_planned_end_time_and_dates()
+		self._set_shift_title()
 		self._populate_planned_losses_if_needed()
 		self._validate_no_overlapping_shifts()
 		self._validate_unique_shift_label_per_date()
 
 	@frappe.whitelist()
 	def start_shift(self) -> None:
-		access_control.assert_app_access(doctype="Shift", docname=self.name)
+		access_control.assert_app_write_access(doctype="Shift", docname=self.name)
 		self._validate_no_other_running_shift()
 		self._transition_status(to_status="Running", allowed_from=("Draft",))
 
@@ -1009,13 +1054,13 @@ class Shift(Document):
 
 	@frappe.whitelist()
 	def end_shift(self) -> None:
-		access_control.assert_app_access(doctype="Shift", docname=self.name)
+		access_control.assert_app_write_access(doctype="Shift", docname=self.name)
 		self._transition_status(to_status="Completed", allowed_from=("Running",))
 
 	@frappe.whitelist()
 	def cancel_shift(self) -> None:
-		access_control.assert_app_access(doctype="Shift", docname=self.name)
-		self._transition_status(to_status="Cancelled", allowed_from=("Draft",))
+		access_control.assert_app_write_access(doctype="Shift", docname=self.name)
+		self._transition_status(to_status="Cancelled", allowed_from=("Draft", "Completed"))
 
 	def _set_defaults(self) -> None:
 		if not self.naming_series:
@@ -1256,6 +1301,14 @@ class Shift(Document):
 		# store as Time + Date fields
 		self.planned_end_time = end_dt.time().strftime("%H:%M:%S")
 		self.shift_end_date = end_dt.date().isoformat()
+
+	def _set_shift_title(self) -> None:
+		self.shift_title = _build_shift_title(
+			self.shift_date,
+			self.planned_start_time,
+			self.shift_end_date,
+			self.planned_end_time,
+		)
 
 	def _parse_duration_hours(self, shift_duration: str) -> int:
 		try:

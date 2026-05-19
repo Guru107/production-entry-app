@@ -177,10 +177,10 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 			_sync_native_get_items_access(frm);
 			_apply_custom_field_visibility(frm);
 			_run_when_app_enabled(() => {
-				// Set filter to only show Running shifts
+				// Set filter to show shifts that can accept post-facto entries.
 				frm.set_query("custom_pea_shift", function () {
 					return {
-						filters: [["Shift", "status", "=", "Running"]],
+						filters: [["Shift", "status", "in", ["Running", "Completed"]]],
 					};
 				});
 

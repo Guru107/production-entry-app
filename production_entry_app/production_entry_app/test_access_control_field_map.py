@@ -6,6 +6,8 @@ from pathlib import Path
 
 from frappe.tests.utils import FrappeTestCase
 
+from production_entry_app.production_entry_app.field_permissions import PEA_FIELD_PERMLEVEL
+
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE_PATH = ROOT / "production_entry_app" / "fixtures" / "custom_field.json"
 GENERATED_PATH = ROOT / "production_entry_app" / "public" / "js" / "generated_access_control_field_map.js"
@@ -20,6 +22,17 @@ EXPECTED_DOCTYPES: tuple[str, ...] = (
 
 
 class TestAccessControlFieldMap(FrappeTestCase):
+	def test_app_generated_custom_fields_use_pea_permlevel(self) -> None:
+		for field in _load_custom_field_fixture():
+			if field.get("module") != "Production Entry App":
+				continue
+
+			self.assertEqual(field.get("permlevel"), PEA_FIELD_PERMLEVEL, field["name"])
+
+	def test_stock_entry_branch_is_not_app_owned(self) -> None:
+		field_names = {field.get("name") for field in _load_custom_field_fixture()}
+		self.assertNotIn("Stock Entry-branch", field_names)
+
 	def test_generated_map_matches_custom_field_fixture(self) -> None:
 		expected = _build_expected_map()
 		rendered = GENERATED_PATH.read_text()
@@ -46,9 +59,8 @@ class TestAccessControlFieldMap(FrappeTestCase):
 
 
 def _build_expected_map() -> dict[str, list[str]]:
-	rows = json.loads(FIXTURE_PATH.read_text())
 	field_map: dict[str, list[str]] = {doctype: [] for doctype in EXPECTED_DOCTYPES}
-	for row in rows:
+	for row in _load_custom_field_fixture():
 		if row.get("module") != "Production Entry App":
 			continue
 		doctype = row.get("dt")
@@ -56,6 +68,10 @@ def _build_expected_map() -> dict[str, list[str]]:
 		if doctype in field_map and fieldname:
 			field_map[doctype].append(str(fieldname))
 	return field_map
+
+
+def _load_custom_field_fixture() -> list[dict]:
+	return json.loads(FIXTURE_PATH.read_text())
 
 
 def _parse_generated_map(rendered: str) -> dict[str, list[str]]:

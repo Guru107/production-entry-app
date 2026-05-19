@@ -12,6 +12,14 @@ class LossEntry(Document):
 	"""
 
 	def has_permission(self, ptype: str = "read", user: str | None = None) -> bool:
-		return access_control.can_use_production_entry_app(user=user) and super().has_permission(
-			ptype, user=user
-		)
+		has_app_permission = access_control.has_gated_doctype_permission(self, ptype=ptype, user=user)
+		return has_app_permission and self._has_parent_permission(ptype=ptype, user=user)
+
+	def _has_parent_permission(self, *, ptype: str, user: str | None) -> bool:
+		parent_doc = getattr(self, "parent_doc", None)
+		if parent_doc:
+			try:
+				return bool(parent_doc.has_permission(ptype=ptype, user=user))
+			except TypeError:
+				return bool(parent_doc.has_permission(ptype))
+		return bool(super().has_permission(ptype, user=user))
