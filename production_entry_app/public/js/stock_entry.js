@@ -3,16 +3,23 @@
 
 /* global erpnext */
 
-const MANUFACTURE_FIELDS = [
+const NATIVE_MANUFACTURE_FIELDS = [
 	"from_bom",
 	"bom_no",
 	"use_multi_level_bom",
 	"fg_completed_qty",
+];
+
+const PEA_MANUFACTURE_FIELDS = [
 	"custom_pea_rejection_qty",
+	"custom_pea_ok_qty",
+	"custom_pea_rework_qty",
 	"custom_pea_fetch_items",
+	"custom_pea_rejection_breakup",
 	"custom_pea_shift",
 	"custom_pea_planned_start_date",
 	"custom_pea_planned_end_date",
+	"custom_pea_operation_details_col_break",
 	"custom_pea_actual_start_date_input",
 	"custom_pea_actual_start_time_input",
 	"custom_pea_actual_start_date",
@@ -21,24 +28,32 @@ const MANUFACTURE_FIELDS = [
 	"custom_pea_actual_end_date",
 	"custom_pea_workstation",
 	"custom_pea_standard_spm",
+	"custom_pea_workstation_operator_col_break",
 	"custom_pea_operator",
 	"custom_pea_unplanned_losses",
 	"custom_pea_actual_duration_mins",
 	"custom_pea_production_time_mins",
 	"custom_pea_actual_spm",
 	"custom_pea_cycle_time_sec",
+	"custom_pea_metrics_col_break",
 	"custom_pea_operator_efficiency_pct",
+	"custom_pea_metrics_note",
 	"custom_pea_die_tool_utilization_pct",
 	"custom_pea_die_tool_maintenance_due",
 ];
 
-const MANUFACTURE_SECTIONS = [
-	"bom_info_section",
+const MANUFACTURE_FIELDS = [...NATIVE_MANUFACTURE_FIELDS, ...PEA_MANUFACTURE_FIELDS];
+
+const NATIVE_MANUFACTURE_SECTIONS = ["bom_info_section"];
+
+const PEA_MANUFACTURE_SECTIONS = [
 	"custom_pea_operation_details_section",
 	"custom_pea_workstation_operator_section",
 	"custom_pea_unplanned_losses_section",
 	"custom_pea_metrics_section",
 ];
+
+const MANUFACTURE_SECTIONS = [...NATIVE_MANUFACTURE_SECTIONS, ...PEA_MANUFACTURE_SECTIONS];
 
 const ALWAYS_HIDDEN_FIELDS = ["process_loss_percentage", "process_loss_qty"];
 const ALWAYS_HIDDEN_SECTIONS = ["section_break_7qsm"];
@@ -112,6 +127,9 @@ function _show_native_get_items(frm) {
 function _sync_native_get_items_access(frm) {
 	const accessControl = _get_access_control_api();
 	_hide_native_get_items(frm);
+	if (!_is_manufacture_doc(frm.doc)) {
+		return;
+	}
 	if (!accessControl) {
 		_show_native_get_items(frm);
 		return;
@@ -128,14 +146,16 @@ function _sync_native_get_items_access(frm) {
 	if (ready?.then) {
 		void ready
 			.then((state) => {
-				if (state?.enabled === false) {
+				if (state?.enabled === false && _is_manufacture_doc(frm.doc)) {
 					_show_native_get_items(frm);
 					return;
 				}
 				_hide_native_get_items(frm);
 			})
 			.catch(() => {
-				_show_native_get_items(frm);
+				if (_is_manufacture_doc(frm.doc)) {
+					_show_native_get_items(frm);
+				}
 			});
 	}
 }
@@ -167,6 +187,7 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 		onload(frm) {
 			_set_prev_purpose(frm);
 			_sync_native_get_items_access(frm);
+			_apply_native_manufacture_visibility(frm);
 			_apply_custom_field_visibility(frm);
 			_run_when_app_enabled(() => {
 				_apply_manufacture_visibility(frm);
@@ -175,6 +196,7 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 		refresh(frm) {
 			_set_prev_purpose(frm);
 			_sync_native_get_items_access(frm);
+			_apply_native_manufacture_visibility(frm);
 			_apply_custom_field_visibility(frm);
 			_run_when_app_enabled(() => {
 				// Set filter to show shifts that can accept post-facto entries.
@@ -192,6 +214,8 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 			});
 		},
 		stock_entry_type(frm) {
+			_sync_native_get_items_access(frm);
+			_apply_native_manufacture_visibility(frm);
 			_run_when_app_enabled(() => {
 				// custom_pea_stock_entry_purpose is fetched via fetch_from and will re-trigger visibility.
 				_apply_manufacture_visibility(frm);
@@ -200,6 +224,8 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 			});
 		},
 		custom_pea_stock_entry_purpose(frm) {
+			_sync_native_get_items_access(frm);
+			_apply_native_manufacture_visibility(frm);
 			_run_when_app_enabled(() => {
 				_clear_manufacture_data_on_leave(frm);
 				_apply_manufacture_visibility(frm);
@@ -209,6 +235,8 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 			});
 		},
 		from_bom(frm) {
+			_sync_native_get_items_access(frm);
+			_apply_native_manufacture_visibility(frm);
 			_run_when_app_enabled(() => {
 				_ensure_use_multi_level_bom_unchecked(frm);
 				_hide_standard_get_items(frm);
@@ -216,6 +244,8 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 			});
 		},
 		bom_no(frm) {
+			_sync_native_get_items_access(frm);
+			_apply_native_manufacture_visibility(frm);
 			_run_when_app_enabled(() => {
 				_hide_standard_get_items(frm);
 				_apply_manufacture_visibility(frm);
@@ -293,15 +323,25 @@ function _hide_standard_get_items(frm) {
 	_hide_native_get_items(frm);
 }
 
-function _apply_manufacture_visibility(frm) {
+function _apply_native_manufacture_visibility(frm) {
 	const isManufacture = _is_manufacture_doc(frm.doc);
-	// Keep this explicit list in sync with Stock Entry custom manufacture-only fields.
-	frm.toggle_display(MANUFACTURE_FIELDS, isManufacture);
-	frm.toggle_display(MANUFACTURE_SECTIONS, isManufacture);
+	frm.toggle_display(NATIVE_MANUFACTURE_FIELDS, isManufacture);
+	frm.toggle_display(NATIVE_MANUFACTURE_SECTIONS, isManufacture);
 	frm.toggle_display(ALWAYS_HIDDEN_FIELDS, false);
 	frm.toggle_display(ALWAYS_HIDDEN_SECTIONS, false);
 	if (isManufacture) {
-		_expand_sections(frm, MANUFACTURE_SECTIONS);
+		_expand_sections(frm, NATIVE_MANUFACTURE_SECTIONS);
+	}
+}
+
+function _apply_manufacture_visibility(frm) {
+	const isManufacture = _is_manufacture_doc(frm.doc);
+	_apply_native_manufacture_visibility(frm);
+	// Keep this explicit list in sync with Stock Entry custom manufacture-only fields.
+	frm.toggle_display(PEA_MANUFACTURE_FIELDS, isManufacture);
+	frm.toggle_display(PEA_MANUFACTURE_SECTIONS, isManufacture);
+	if (isManufacture) {
+		_expand_sections(frm, PEA_MANUFACTURE_SECTIONS);
 	}
 
 	_toggle_rejection_breakup(frm);
@@ -753,6 +793,11 @@ if (typeof module !== "undefined" && module.exports) {
 		_normalize_purpose,
 		_is_manufacture_doc,
 		_did_leave_manufacture,
+		_apply_native_manufacture_visibility,
+		NATIVE_MANUFACTURE_FIELDS,
+		NATIVE_MANUFACTURE_SECTIONS,
+		PEA_MANUFACTURE_FIELDS,
+		PEA_MANUFACTURE_SECTIONS,
 		MANUFACTURE_FIELDS,
 		MANUFACTURE_SECTIONS,
 		ALWAYS_HIDDEN_FIELDS,
