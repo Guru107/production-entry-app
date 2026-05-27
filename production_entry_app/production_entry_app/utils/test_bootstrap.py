@@ -231,9 +231,7 @@ def ensure_fiscal_year_for_date(posting_date: str, company: str | None = None) -
 	)
 	if existing_fiscal_year:
 		if frappe.get_meta("Fiscal Year", cached=True).has_field("disabled"):
-			frappe.db.set_value(
-				"Fiscal Year", existing_fiscal_year, "disabled", 0, update_modified=False
-			)
+			frappe.db.set_value("Fiscal Year", existing_fiscal_year, "disabled", 0, update_modified=False)
 		_attach_fiscal_year_company(existing_fiscal_year, company)
 		return
 

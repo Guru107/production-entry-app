@@ -3496,7 +3496,10 @@ class TestGetItemsWithRejection(FrappeTestCase):
 	def test_rejection_qty_field_depends_on_from_bom(self) -> None:
 		"""The custom_pea_rejection_qty Custom Field should have depends_on set."""
 		depends_on = frappe.db.get_value("Custom Field", "Stock Entry-custom_pea_rejection_qty", "depends_on")
-		self.assertEqual(depends_on, "eval:doc.from_bom")
+		self.assertEqual(
+			depends_on,
+			'eval:doc.custom_pea_stock_entry_purpose=="Manufacture" && (doc.from_bom)',
+		)
 
 	def test_actual_datetime_helper_fields_exist(self) -> None:
 		meta = frappe.get_meta("Stock Entry")
