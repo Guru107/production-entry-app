@@ -17,3 +17,6 @@ tests/e2e/.auth/*.json
 yarn.lock
 .slop_quarantine.json
 .env
+.codegraph/
+.codex/
+.cursor/

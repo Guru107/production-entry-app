@@ -2615,15 +2615,25 @@ class TestProductionReports(FrappeTestCase):
 	# ── Daily Strokes SPM Monitor ─────────────────────────────────────
 
 	def _ensure_fiscal_year(self, fy_name: str, start_date: str, end_date: str) -> None:
-		if not frappe.db.exists("Fiscal Year", fy_name):
-			frappe.get_doc(
-				{
-					"doctype": "Fiscal Year",
-					"year": fy_name,
-					"year_start_date": start_date,
-					"year_end_date": end_date,
-				}
-			).insert(ignore_permissions=True)
+		meta = frappe.get_meta("Fiscal Year", cached=True)
+		if frappe.db.exists("Fiscal Year", fy_name):
+			if meta.has_field("companies"):
+				doc = frappe.get_doc("Fiscal Year", fy_name)
+				if not any((row.company or "") == self.company for row in (doc.get("companies") or [])):
+					doc.append("companies", {"company": self.company})
+					doc.flags.ignore_validate_update_after_submit = True
+					doc.save(ignore_permissions=True)
+			return
+
+		payload = {
+			"doctype": "Fiscal Year",
+			"year": fy_name,
+			"year_start_date": start_date,
+			"year_end_date": end_date,
+		}
+		if meta.has_field("companies"):
+			payload["companies"] = [{"company": self.company}]
+		frappe.get_doc(payload).insert(ignore_permissions=True)
 
 	def test_daily_strokes_spm_monitor_columns_without_operator(self) -> None:
 		from production_entry_app.production_entry_app.report.daily_strokes_spm_monitor.daily_strokes_spm_monitor import (

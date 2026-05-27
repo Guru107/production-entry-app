@@ -17,7 +17,7 @@ Guidance for Claude Code and developers working in this repository.
 ---
 
 ## Project Overview
-
+- APP UNDER DEVELOPMENT: No fallbacks or compatibility required.
 A Frappe/ERPNext application that simplifies production entries through a **Shift** document.
 The Shift is a central hub for supervisors: planned losses, downtime entries, warehouse defaults,
 and linked Stock Entries all flow through it.

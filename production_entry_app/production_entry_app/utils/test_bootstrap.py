@@ -4,7 +4,7 @@ from typing import Any
 
 import frappe
 from frappe import _
-from frappe.utils import getdate
+from frappe.utils import getdate, nowdate
 
 _PRODUCTION_ENTRY_SHIFT_SETTINGS_FIELDS: tuple[str, ...] = (
 	"shift_raw_material_warehouse",
@@ -204,14 +204,40 @@ def ensure_default_bom(fg_item: str, rm_item: str, company: str) -> str:
 	return bom.name
 
 
-def ensure_fiscal_year_for_date(posting_date: str) -> None:
+def _attach_fiscal_year_company(fiscal_year: str, company: str | None) -> None:
+	if not company:
+		return
+	meta = frappe.get_meta("Fiscal Year", cached=True)
+	if not meta.has_field("companies"):
+		return
+	doc = frappe.get_doc("Fiscal Year", fiscal_year)
+	if any((row.company or "") == company for row in (doc.get("companies") or [])):
+		return
+	doc.append("companies", {"company": company})
+	doc.flags.ignore_validate_update_after_submit = True
+	doc.save(ignore_permissions=True)
+
+
+def ensure_fiscal_year_for_date(posting_date: str, company: str | None = None) -> None:
 	date = getdate(posting_date)
-	fiscal_year = str(date.year)
-	if frappe.db.exists("Fiscal Year", fiscal_year):
+	existing_fiscal_year = frappe.db.get_value(
+		"Fiscal Year",
+		{
+			"year_start_date": ("<=", date),
+			"year_end_date": (">=", date),
+		},
+		"name",
+		order_by="year_start_date desc",
+	)
+	if existing_fiscal_year:
 		if frappe.get_meta("Fiscal Year", cached=True).has_field("disabled"):
-			frappe.db.set_value("Fiscal Year", fiscal_year, "disabled", 0, update_modified=False)
+			frappe.db.set_value(
+				"Fiscal Year", existing_fiscal_year, "disabled", 0, update_modified=False
+			)
+		_attach_fiscal_year_company(existing_fiscal_year, company)
 		return
 
+	fiscal_year = str(date.year)
 	doc = {
 		"doctype": "Fiscal Year",
 		"year": fiscal_year,
@@ -220,12 +246,16 @@ def ensure_fiscal_year_for_date(posting_date: str) -> None:
 	}
 	if frappe.get_meta("Fiscal Year", cached=True).has_field("disabled"):
 		doc["disabled"] = 0
+	if company and frappe.get_meta("Fiscal Year", cached=True).has_field("companies"):
+		doc["companies"] = [{"company": company}]
 	frappe.get_doc(doc).insert(ignore_permissions=True)
 
 
 def ensure_stock(
 	item_code: str, warehouse: str, company: str, target_qty: float, *, posting_date: str | None = None
 ) -> None:
+	effective_posting_date = posting_date or nowdate()
+	ensure_fiscal_year_for_date(effective_posting_date, company)
 	actual_qty = float(
 		frappe.db.get_value("Bin", {"item_code": item_code, "warehouse": warehouse}, "actual_qty") or 0
 	)
