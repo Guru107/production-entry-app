@@ -405,27 +405,40 @@ def _migrate_report_access_metadata(*, write_role: str, read_role: str) -> None:
 		return
 
 	report_roles = _unique_roles(SYSTEM_MANAGER_ROLE, write_role, read_role)
+	role_rows = [{"role": role} for role in report_roles]
 	for report_name in frappe.get_all("Report", filters={"module": "Production Entry App"}, pluck="name"):
-		# Avoid Report.validate() path for standard reports in non-developer mode.
-		frappe.db.set_value("Report", report_name, "ref_doctype", "Shift", update_modified=False)
-		frappe.db.delete(
-			"Has Role",
+		report = frappe.get_doc("Report", report_name)
+		report.ref_doctype = "Shift"
+		report.set("roles", role_rows)
+		try:
+			report.save(ignore_permissions=True)
+		except frappe.ValidationError as exc:
+			if "Standard reports can only be created in developer mode" not in str(exc):
+				raise
+			_persist_report_access_metadata_without_save(report_name=report_name, report_roles=report_roles)
+
+
+def _persist_report_access_metadata_without_save(*, report_name: str, report_roles: tuple[str, ...]) -> None:
+	# Fallback path for standard reports in non-developer mode.
+	frappe.db.set_value("Report", report_name, "ref_doctype", "Shift", update_modified=False)
+	frappe.db.delete(
+		"Has Role",
+		{
+			"parenttype": "Report",
+			"parentfield": "roles",
+			"parent": report_name,
+		},
+	)
+	for role in report_roles:
+		frappe.get_doc(
 			{
+				"doctype": "Has Role",
 				"parenttype": "Report",
 				"parentfield": "roles",
 				"parent": report_name,
-			},
-		)
-		for role in report_roles:
-			frappe.get_doc(
-				{
-					"doctype": "Has Role",
-					"parenttype": "Report",
-					"parentfield": "roles",
-					"parent": report_name,
-					"role": role,
-				}
-			).insert(ignore_permissions=True)
+				"role": role,
+			}
+		).insert(ignore_permissions=True)
 
 
 def _get_single_value(fieldname: str) -> str | None:
