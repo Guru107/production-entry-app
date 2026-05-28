@@ -120,6 +120,9 @@ class TestE2EApi(FrappeTestCase):
 				return_value=0,
 			),
 			patch(
+				"production_entry_app.production_entry_app.utils.test_bootstrap.ensure_fiscal_year_for_date"
+			) as ensure_fiscal_year,
+			patch(
 				"production_entry_app.production_entry_app.utils.test_bootstrap.frappe.get_doc",
 				return_value=stock_entry,
 			) as get_doc,
@@ -130,6 +133,7 @@ class TestE2EApi(FrappeTestCase):
 		self.assertEqual(doc["posting_date"], "2099-01-20")
 		self.assertEqual(doc["posting_time"], "00:00:00")
 		self.assertEqual(doc["set_posting_time"], 1)
+		ensure_fiscal_year.assert_called_once_with("2099-01-20", "_Test Company")
 		stock_entry.insert.assert_called_once_with(ignore_permissions=True)
 		stock_entry.submit.assert_called_once_with()
 

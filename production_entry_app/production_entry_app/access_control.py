@@ -404,12 +404,28 @@ def _migrate_report_access_metadata(*, write_role: str, read_role: str) -> None:
 	if not frappe.db.exists("DocType", "Report"):
 		return
 
-	report_roles = [{"role": role} for role in _unique_roles(SYSTEM_MANAGER_ROLE, write_role, read_role)]
+	report_roles = _unique_roles(SYSTEM_MANAGER_ROLE, write_role, read_role)
 	for report_name in frappe.get_all("Report", filters={"module": "Production Entry App"}, pluck="name"):
-		report = frappe.get_doc("Report", report_name)
-		report.ref_doctype = "Shift"
-		report.set("roles", report_roles)
-		report.save(ignore_permissions=True)
+		# Avoid Report.validate() path for standard reports in non-developer mode.
+		frappe.db.set_value("Report", report_name, "ref_doctype", "Shift", update_modified=False)
+		frappe.db.delete(
+			"Has Role",
+			{
+				"parenttype": "Report",
+				"parentfield": "roles",
+				"parent": report_name,
+			},
+		)
+		for role in report_roles:
+			frappe.get_doc(
+				{
+					"doctype": "Has Role",
+					"parenttype": "Report",
+					"parentfield": "roles",
+					"parent": report_name,
+					"role": role,
+				}
+			).insert(ignore_permissions=True)
 
 
 def _get_single_value(fieldname: str) -> str | None:
