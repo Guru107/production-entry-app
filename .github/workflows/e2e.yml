@@ -80,7 +80,11 @@ jobs:
       - name: Install Playwright deps
         run: |
           npm install
-          npx playwright install --with-deps chromium
+          if [ "$FRAPPE_VERSION" = "16" ]; then
+            npx playwright install chromium
+          else
+            npx playwright install --with-deps chromium
+          fi
 
       - name: Run Playwright smoke on PRs
         if: github.event_name != 'schedule'
