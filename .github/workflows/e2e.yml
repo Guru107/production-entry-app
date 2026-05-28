@@ -63,6 +63,17 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node_version }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-e2e-py${{ matrix.python_version }}-${{ hashFiles('**/*requirements.txt', '**/pyproject.toml', '**/setup.py', '**/setup.cfg') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-e2e-py${{ matrix.python_version }}-
+            ${{ runner.os }}-pip-e2e-
 
       - name: Install MariaDB client
         run: sudo apt-get update && sudo apt-get install -y mariadb-client
