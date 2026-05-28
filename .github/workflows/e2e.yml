@@ -16,6 +16,8 @@ jobs:
       FRAPPE_VERSION: ${{ matrix.frappe_version }}
       ERPNEXT_VERSION: ${{ matrix.erpnext_version }}
       PLAYWRIGHT_ROUTE_PREFIX: ${{ matrix.route_prefix }}
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+      PLAYWRIGHT_BROWSERS_PATH: ~/.cache/ms-playwright
     strategy:
       fail-fast: false
       matrix:
@@ -77,6 +79,15 @@ jobs:
           bench setup requirements --dev
           bench build
 
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ matrix.node_version }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-${{ matrix.node_version }}-
+            ${{ runner.os }}-playwright-
+
       - name: Install Playwright deps
         run: |
           npm install
@@ -98,22 +109,44 @@ jobs:
           chmod +x scripts/run_ephemeral_e2e.sh
           BENCH_ROOT=~/frappe-bench DB_ROOT_PASSWORD=root scripts/run_ephemeral_e2e.sh ci
 
-      - name: Upload Playwright report
+      - name: Check artifact paths
         if: always()
+        id: artifact_paths
+        run: |
+          if [ -d playwright-report ] && [ "$(ls -A playwright-report 2>/dev/null)" ]; then
+            echo "has_playwright_report=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_playwright_report=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [ -d test-results ] && [ "$(ls -A test-results 2>/dev/null)" ]; then
+            echo "has_test_results=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_test_results=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [ -f /tmp/bench-serve.log ]; then
+            echo "has_bench_log=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_bench_log=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload Playwright report
+        if: always() && steps.artifact_paths.outputs.has_playwright_report == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report-v${{ matrix.frappe_version }}-erp${{ matrix.erpnext_version }}
           path: playwright-report
 
       - name: Upload test results
-        if: always()
+        if: always() && steps.artifact_paths.outputs.has_test_results == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: playwright-test-results-v${{ matrix.frappe_version }}-erp${{ matrix.erpnext_version }}
           path: test-results
 
       - name: Upload bench logs
-        if: always()
+        if: always() && steps.artifact_paths.outputs.has_bench_log == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: bench-serve-log-v${{ matrix.frappe_version }}-erp${{ matrix.erpnext_version }}
