@@ -10,7 +10,52 @@ on:
     - cron: '0 2 * * *'
 
 jobs:
+  prepare-e2e-shared-artifacts:
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+      PLAYWRIGHT_BROWSERS_PATH: /home/runner/.cache/ms-playwright
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      - name: Install shared Node deps and Playwright browser
+        run: |
+          npm install
+          npx playwright install chromium
+
+      - name: Upload npm cache artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-shared-npm-cache
+          path: /home/runner/.npm
+          retention-days: 1
+
+      - name: Upload Playwright browsers artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-shared-playwright-browsers
+          path: /home/runner/.cache/ms-playwright
+          retention-days: 1
+
   e2e:
+    needs: prepare-e2e-shared-artifacts
     runs-on: ubuntu-latest
     env:
       FRAPPE_VERSION: ${{ matrix.frappe_version }}
@@ -75,6 +120,18 @@ jobs:
             ${{ runner.os }}-pip-e2e-py${{ matrix.python_version }}-
             ${{ runner.os }}-pip-e2e-
 
+      - name: Download shared npm cache
+        uses: actions/download-artifact@v4
+        with:
+          name: e2e-shared-npm-cache
+          path: /home/runner/.npm
+
+      - name: Download shared Playwright browsers
+        uses: actions/download-artifact@v4
+        with:
+          name: e2e-shared-playwright-browsers
+          path: /home/runner/.cache/ms-playwright
+
       - name: Install MariaDB client
         run: sudo apt-get update && sudo apt-get install -y mariadb-client
 
@@ -89,14 +146,6 @@ jobs:
           bench get-app --branch "version-$ERPNEXT_VERSION" erpnext
           bench setup requirements --dev
           bench build
-
-      - name: Cache Playwright browsers
-        uses: actions/cache@v4
-        with:
-          path: /home/runner/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-playwright-
 
       - name: Install Playwright deps
         run: |
