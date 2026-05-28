@@ -80,6 +80,9 @@ def _ensure_e2e_settings_fields_loaded() -> None:
 @frappe.whitelist()
 def get_access_control_state() -> dict[str, bool]:
 	"""Return whether the current user can access Production Entry App."""
+	# E2E role-toggle tests call this immediately after mutating singleton settings.
+	# Drop process cache first so this response reflects persisted settings and roles.
+	access_control.invalidate_access_control_cache()
 	return {"enabled": access_control.has_app_permission()}
 
 
