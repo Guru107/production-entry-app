@@ -119,6 +119,17 @@ jobs:
           name: e2e-shared-playwright-browsers
           path: /home/runner/.cache/ms-playwright
 
+      - name: Restore Playwright binary permissions
+        run: |
+          chmod +x /home/runner/.cache/ms-playwright/chromium-*/chrome-linux/chrome || true
+          chmod +x /home/runner/.cache/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell || true
+          chmod +x /home/runner/.cache/ms-playwright/ffmpeg-*/ffmpeg-linux || true
+
+      - name: Verify Playwright executables
+        run: |
+          test -x /home/runner/.cache/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell
+          test -x /home/runner/.cache/ms-playwright/chromium-*/chrome-linux/chrome
+
       - name: Install MariaDB client
         run: sudo apt-get update && sudo apt-get install -y mariadb-client
 
