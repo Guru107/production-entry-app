@@ -121,14 +121,51 @@ jobs:
 
       - name: Restore Playwright binary permissions
         run: |
-          chmod +x /home/runner/.cache/ms-playwright/chromium-*/chrome-linux/chrome || true
-          chmod +x /home/runner/.cache/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell || true
-          chmod +x /home/runner/.cache/ms-playwright/ffmpeg-*/ffmpeg-linux || true
+          shopt -s nullglob
+
+          headless_shell_bins=(/home/runner/.cache/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell)
+          chromium_bins=(/home/runner/.cache/ms-playwright/chromium-*/chrome-linux/chrome)
+          ffmpeg_bins=(/home/runner/.cache/ms-playwright/ffmpeg-*/ffmpeg-linux)
+
+          for bin in "${headless_shell_bins[@]}" "${chromium_bins[@]}" "${ffmpeg_bins[@]}"; do
+            if [ -e "$bin" ]; then
+              chmod +x "$bin"
+              ls -l "$bin"
+            fi
+          done
+
+          echo "headless_shell_bins=${#headless_shell_bins[@]} chromium_bins=${#chromium_bins[@]} ffmpeg_bins=${#ffmpeg_bins[@]}"
 
       - name: Verify Playwright executables
         run: |
-          test -x /home/runner/.cache/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell
-          test -x /home/runner/.cache/ms-playwright/chromium-*/chrome-linux/chrome
+          shopt -s nullglob
+
+          headless_shell_bins=(/home/runner/.cache/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell)
+          chromium_bins=(/home/runner/.cache/ms-playwright/chromium-*/chrome-linux/chrome)
+
+          if [ ${#headless_shell_bins[@]} -eq 0 ]; then
+            echo "ERROR: required Playwright headless shell binary not found under /home/runner/.cache/ms-playwright"
+            exit 1
+          fi
+
+          for bin in "${headless_shell_bins[@]}"; do
+            if [ ! -x "$bin" ]; then
+              echo "ERROR: required Playwright headless shell binary is not executable: $bin"
+              ls -l "$bin" || true
+              exit 1
+            fi
+          done
+
+          if [ ${#chromium_bins[@]} -eq 0 ]; then
+            echo "INFO: chromium UI binary not present in artifact; continuing with headless-shell-only artifact"
+          else
+            for bin in "${chromium_bins[@]}"; do
+              if [ ! -x "$bin" ]; then
+                echo "WARNING: chromium UI binary exists but is not executable: $bin"
+                ls -l "$bin" || true
+              fi
+            done
+          fi
 
       - name: Install MariaDB client
         run: sudo apt-get update && sudo apt-get install -y mariadb-client
