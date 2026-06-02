@@ -61,10 +61,9 @@ def invalidate_access_control_cache() -> None:
 
 
 def ensure_access_roles_and_settings() -> None:
-	"""Ensure split access roles and migrate legacy singleton settings."""
+	"""Ensure access roles and sync current access settings."""
 	_ensure_role(DEFAULT_WRITE_ROLE)
 	_ensure_role(DEFAULT_READ_ROLE)
-	_migrate_access_settings()
 	sync_configured_access_roles()
 
 
@@ -234,23 +233,6 @@ def _ensure_role(role_name: str) -> None:
 	frappe.get_doc({"doctype": "Role", "role_name": role_name}).insert()
 
 
-def _migrate_access_settings() -> None:
-	if not frappe.db.exists("DocType", SETTINGS_DOCTYPE):
-		return
-
-	write_role = _get_single_value("write_role")
-	read_role = _get_single_value("read_role")
-	if not str(write_role or "").strip():
-		legacy_required_role = _get_single_value("required_role")
-		frappe.db.set_single_value(
-			SETTINGS_DOCTYPE,
-			"write_role",
-			str(legacy_required_role or "").strip() or DEFAULT_WRITE_ROLE,
-		)
-	if not str(read_role or "").strip():
-		frappe.db.set_single_value(SETTINGS_DOCTYPE, "read_role", DEFAULT_READ_ROLE)
-
-
 def _get_setup_access_roles() -> tuple[str, str]:
 	if not frappe.db.exists("DocType", SETTINGS_DOCTYPE):
 		return DEFAULT_WRITE_ROLE, DEFAULT_READ_ROLE
@@ -382,7 +364,6 @@ def _get_app_managed_access_roles() -> tuple[str, ...]:
 	return _unique_roles(
 		DEFAULT_WRITE_ROLE,
 		DEFAULT_READ_ROLE,
-		_clean_role(_get_single_value("required_role")),
 		_clean_role(_get_single_value("last_synced_write_role")),
 		_clean_role(_get_single_value("last_synced_read_role")),
 	)
@@ -408,37 +389,12 @@ def _migrate_report_access_metadata(*, write_role: str, read_role: str) -> None:
 	role_rows = [{"role": role} for role in report_roles]
 	for report_name in frappe.get_all("Report", filters={"module": "Production Entry App"}, pluck="name"):
 		report = frappe.get_doc("Report", report_name)
+		current_roles = _unique_roles(*(row.role for row in (report.get("roles") or []) if row.role))
+		if report.ref_doctype == "Shift" and current_roles == report_roles:
+			continue
 		report.ref_doctype = "Shift"
 		report.set("roles", role_rows)
-		try:
-			report.save(ignore_permissions=True)
-		except frappe.ValidationError as exc:
-			if "Standard reports can only be created in developer mode" not in str(exc):
-				raise
-			_persist_report_access_metadata_without_save(report_name=report_name, report_roles=report_roles)
-
-
-def _persist_report_access_metadata_without_save(*, report_name: str, report_roles: tuple[str, ...]) -> None:
-	# Fallback path for standard reports in non-developer mode.
-	frappe.db.set_value("Report", report_name, "ref_doctype", "Shift", update_modified=False)
-	frappe.db.delete(
-		"Has Role",
-		{
-			"parenttype": "Report",
-			"parentfield": "roles",
-			"parent": report_name,
-		},
-	)
-	for role in report_roles:
-		frappe.get_doc(
-			{
-				"doctype": "Has Role",
-				"parenttype": "Report",
-				"parentfield": "roles",
-				"parent": report_name,
-				"role": role,
-			}
-		).insert(ignore_permissions=True)
+		report.save(ignore_permissions=True)
 
 
 def _get_single_value(fieldname: str) -> str | None:
@@ -459,10 +415,6 @@ def _load_access_configuration() -> AccessConfiguration:
 	raw_write_role = _get_field_value(settings, "write_role", default=None)
 	write_role = _normalize_role(raw_write_role, DEFAULT_WRITE_ROLE)
 	read_role = _normalize_role(_get_field_value(settings, "read_role", default=None), DEFAULT_READ_ROLE)
-	if raw_write_role is None:
-		write_role = _normalize_role(
-			_get_field_value(settings, "required_role", default=DEFAULT_WRITE_ROLE), DEFAULT_WRITE_ROLE
-		)
 	return AccessConfiguration(enabled=enabled, write_role=write_role, read_role=read_role)
 
 
@@ -473,25 +425,22 @@ def _normalize_access_configuration(value: Any) -> AccessConfiguration:
 		enabled = _get_field_value(value, "enabled", default=None)
 		write_role = _get_field_value(value, "write_role", default=None)
 		read_role = _get_field_value(value, "read_role", default=None)
-		required_role = _get_field_value(value, "required_role", default=None)
-		if enabled is None and write_role is None and read_role is None and required_role is None:
+		if enabled is None and write_role is None and read_role is None:
 			enabled = _get_field_value(value, "enable_access_control", default=None)
 			write_role = _get_field_value(value, "write_role", default=None)
 			read_role = _get_field_value(value, "read_role", default=None)
-			required_role = _get_field_value(value, "required_role", default=None)
-		if enabled is None and write_role is None and read_role is None and required_role is None:
+		if enabled is None and write_role is None and read_role is None:
 			raise ValueError("Access configuration is corrupt.")
 		return _normalize_access_configuration(
 			{
 				"enabled": enabled,
 				"write_role": write_role,
 				"read_role": read_role,
-				"required_role": required_role,
 			}
 		)
 
 	enabled = bool(value.get("enabled", value.get("enable_access_control", False)))
-	write_role = _normalize_role(value.get("write_role", value.get("required_role")), DEFAULT_WRITE_ROLE)
+	write_role = _normalize_role(value.get("write_role"), DEFAULT_WRITE_ROLE)
 	read_role = _normalize_role(value.get("read_role"), DEFAULT_READ_ROLE)
 	return AccessConfiguration(enabled=enabled, write_role=write_role, read_role=read_role)
 

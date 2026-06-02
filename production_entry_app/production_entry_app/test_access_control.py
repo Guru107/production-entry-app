@@ -180,7 +180,7 @@ class TestAccessControl(FrappeTestCase):
 		self.assertNotIn("Downtime Reason", hooks.has_permission)
 		self.assertNotIn("Downtime Reason", api._APP_GATED_DOCTYPES)
 
-	def test_access_setup_creates_roles_and_migrates_legacy_settings(self) -> None:
+	def test_access_setup_creates_roles_and_syncs_defaults(self) -> None:
 		from production_entry_app.production_entry_app import access_control
 
 		def fake_get_value(doctype: str, filters: dict, fieldname: str, **kwargs: object) -> str | None:
@@ -191,8 +191,6 @@ class TestAccessControl(FrappeTestCase):
 				return None
 			if filters["field"] == "read_role":
 				return None
-			if filters["field"] == "required_role":
-				return "   "
 			if filters["field"] in {"last_synced_write_role", "last_synced_read_role"}:
 				return None
 			raise AssertionError(filters)
@@ -221,7 +219,6 @@ class TestAccessControl(FrappeTestCase):
 				call("Role", DEFAULT_READ_ROLE),
 				call("DocType", access_control.SETTINGS_DOCTYPE),
 				call("DocType", access_control.SETTINGS_DOCTYPE),
-				call("DocType", access_control.SETTINGS_DOCTYPE),
 			],
 		)
 		self.assertEqual(
@@ -234,8 +231,6 @@ class TestAccessControl(FrappeTestCase):
 		self.assertEqual(role_doc.insert.call_count, 2)
 		set_single_value.assert_has_calls(
 			[
-				call(access_control.SETTINGS_DOCTYPE, "write_role", DEFAULT_WRITE_ROLE),
-				call(access_control.SETTINGS_DOCTYPE, "read_role", DEFAULT_READ_ROLE),
 				call(access_control.SETTINGS_DOCTYPE, "last_synced_write_role", DEFAULT_WRITE_ROLE),
 				call(access_control.SETTINGS_DOCTYPE, "last_synced_read_role", DEFAULT_READ_ROLE),
 			]
@@ -257,7 +252,6 @@ class TestAccessControl(FrappeTestCase):
 			return {
 				"write_role": "Custom Write",
 				"read_role": "Custom Read",
-				"required_role": "Legacy PEA",
 				"last_synced_write_role": "Previous Write",
 				"last_synced_read_role": "Previous Read",
 			}.get(filters["field"])
@@ -284,7 +278,6 @@ class TestAccessControl(FrappeTestCase):
 			managed_roles=(
 				DEFAULT_WRITE_ROLE,
 				DEFAULT_READ_ROLE,
-				"Legacy PEA",
 				"Previous Write",
 				"Previous Read",
 			),
@@ -329,6 +322,35 @@ class TestAccessControl(FrappeTestCase):
 			],
 		)
 		report.save.assert_called_once_with(ignore_permissions=True)
+
+	def test_access_setup_skips_report_save_when_metadata_already_matches(self) -> None:
+		from production_entry_app.production_entry_app import access_control
+
+		report = SimpleNamespace(
+			ref_doctype="Shift",
+			set=MagicMock(),
+			save=MagicMock(),
+			get=MagicMock(
+				return_value=[
+					SimpleNamespace(role="System Manager"),
+					SimpleNamespace(role=DEFAULT_WRITE_ROLE),
+					SimpleNamespace(role=DEFAULT_READ_ROLE),
+				]
+			),
+		)
+
+		with (
+			patch.object(access_control.frappe.db, "exists", return_value=True),
+			patch.object(access_control.frappe, "get_all", return_value=["Rejection Pareto Report"]),
+			patch.object(access_control.frappe, "get_doc", return_value=report),
+		):
+			access_control._migrate_report_access_metadata(
+				write_role=DEFAULT_WRITE_ROLE,
+				read_role=DEFAULT_READ_ROLE,
+			)
+
+		report.set.assert_not_called()
+		report.save.assert_not_called()
 
 	def test_native_permission_sync_uses_write_template_when_read_and_write_roles_match(self) -> None:
 		from production_entry_app.production_entry_app import access_control
@@ -538,7 +560,6 @@ class TestAccessControl(FrappeTestCase):
 
 		settings = frappe.get_single("Production Entry Settings")
 		settings.enable_access_control = 1 if not settings.enable_access_control else 0
-		settings.required_role = DEFAULT_WRITE_ROLE
 		if settings.enable_access_control:
 			settings.write_role = DEFAULT_WRITE_ROLE
 			settings.read_role = DEFAULT_READ_ROLE
@@ -772,18 +793,6 @@ class TestAccessControl(FrappeTestCase):
 			self.assertTrue(config.enabled)
 			self.assertEqual(config.write_role, "")
 			self.assertEqual(config.read_role, "")
-
-	def test_load_access_configuration_uses_legacy_required_role_for_write_role(self) -> None:
-		with patch(
-			"production_entry_app.production_entry_app.access_control.frappe.get_single",
-			return_value=SimpleNamespace(enable_access_control=1, required_role="Legacy PEA User"),
-		):
-			from production_entry_app.production_entry_app import access_control
-
-			config = access_control._load_access_configuration()
-			self.assertTrue(config.enabled)
-			self.assertEqual(config.write_role, "Legacy PEA User")
-			self.assertEqual(config.read_role, DEFAULT_READ_ROLE)
 
 	def test_has_gated_doctype_permission_uses_real_loader_path(self) -> None:
 		with (
