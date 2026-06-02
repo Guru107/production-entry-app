@@ -389,8 +389,8 @@ def _migrate_report_access_metadata(*, write_role: str, read_role: str) -> None:
 	role_rows = [{"role": role} for role in report_roles]
 	for report_name in frappe.get_all("Report", filters={"module": "Production Entry App"}, pluck="name"):
 		report = frappe.get_doc("Report", report_name)
-		current_roles = _unique_roles(*(row.role for row in (report.get("roles") or []) if row.role))
-		if report.ref_doctype == "Shift" and current_roles == report_roles:
+		current_roles = {row.role for row in (report.get("roles") or []) if row.role}
+		if report.ref_doctype == "Shift" and current_roles == set(report_roles):
 			continue
 		report.ref_doctype = "Shift"
 		report.set("roles", role_rows)
@@ -427,8 +427,6 @@ def _normalize_access_configuration(value: Any) -> AccessConfiguration:
 		read_role = _get_field_value(value, "read_role", default=None)
 		if enabled is None and write_role is None and read_role is None:
 			enabled = _get_field_value(value, "enable_access_control", default=None)
-			write_role = _get_field_value(value, "write_role", default=None)
-			read_role = _get_field_value(value, "read_role", default=None)
 		if enabled is None and write_role is None and read_role is None:
 			raise ValueError("Access configuration is corrupt.")
 		return _normalize_access_configuration(

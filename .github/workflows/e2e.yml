@@ -9,6 +9,9 @@ on:
   schedule:
     - cron: '0 2 * * *'
 
+permissions:
+  contents: read
+
 jobs:
   prepare-e2e-shared-artifacts:
     runs-on: ubuntu-latest
@@ -37,8 +40,9 @@ jobs:
 
       - name: Install shared Node deps and Playwright browser
         run: |
-          npm install
+          npm ci
           npx playwright install chromium
+          npx playwright install-deps chromium
 
       - name: Upload Playwright browsers artifact
         uses: actions/upload-artifact@v4
@@ -184,12 +188,8 @@ jobs:
 
       - name: Install Playwright deps
         run: |
-          npm install
-          if [ "$FRAPPE_VERSION" = "16" ]; then
-            npx playwright install chromium
-          else
-            npx playwright install --with-deps chromium
-          fi
+          npm ci
+          npx playwright install-deps chromium
 
       - name: Run Playwright smoke on PRs
         if: github.event_name != 'schedule'

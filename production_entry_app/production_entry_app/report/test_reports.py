@@ -2625,6 +2625,25 @@ class TestProductionReports(FrappeTestCase):
 					doc.save(ignore_permissions=True)
 			return
 
+		covering_fiscal_year = frappe.get_all(
+			"Fiscal Year",
+			filters=[
+				["year_start_date", "<=", start_date],
+				["year_end_date", ">=", end_date],
+			],
+			pluck="name",
+			limit=1,
+		)
+		if covering_fiscal_year:
+			doc = frappe.get_doc("Fiscal Year", covering_fiscal_year[0])
+			if meta.has_field("companies") and not any(
+				(row.company or "") == self.company for row in (doc.get("companies") or [])
+			):
+				doc.append("companies", {"company": self.company})
+				doc.flags.ignore_validate_update_after_submit = True
+				doc.save(ignore_permissions=True)
+			return
+
 		payload = {
 			"doctype": "Fiscal Year",
 			"year": fy_name,

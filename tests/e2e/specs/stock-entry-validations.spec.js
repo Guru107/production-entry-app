@@ -103,6 +103,7 @@ test.describe("Stock Entry validation matrix", () => {
 		page,
 	}) => {
 		await page.goto(getRoute("/home"));
+		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 
 		const stockEntryPage = new StockEntryPage(page);
 		await stockEntryPage.openNew();
@@ -135,7 +136,17 @@ test.describe("Stock Entry validation matrix", () => {
 		expect(await stockEntryPage.isFieldVisible("custom_pea_workstation")).toBe(false);
 		expect(await stockEntryPage.isFieldVisible("custom_pea_fetch_items")).toBe(false);
 
+		await setFieldValue(page, "company", ctx.company);
+		await setFieldValue(page, "from_warehouse", ctx.rm_warehouse);
+		await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
+		await setFieldValue(page, "set_posting_time", 1);
+		await setFieldValue(page, "posting_date", ctx.shift_date);
+		await setFieldValue(page, "posting_time", "09:00:00");
 		await stockEntryPage.attemptSaveDraft();
+		await page.waitForFunction(() => {
+			const name = window.cur_frm?.doc?.name || "";
+			return Boolean(name) && !String(name).startsWith("new-stock-entry");
+		});
 		await expect
 			.poll(async () => await stockEntryPage.isFieldVisible("custom_pea_shift"))
 			.toBe(false);

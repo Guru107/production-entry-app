@@ -333,8 +333,8 @@ class TestAccessControl(FrappeTestCase):
 			get=MagicMock(
 				return_value=[
 					SimpleNamespace(role="System Manager"),
-					SimpleNamespace(role=DEFAULT_WRITE_ROLE),
 					SimpleNamespace(role=DEFAULT_READ_ROLE),
+					SimpleNamespace(role=DEFAULT_WRITE_ROLE),
 				]
 			),
 		)
