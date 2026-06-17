@@ -20,3 +20,4 @@ yarn.lock
 .codegraph/
 .codex/
 .cursor/
+dump.rdb

@@ -125,9 +125,7 @@ test.describe("Access control role-only flow", () => {
 		expect(await stockEntryPage.isFieldVisible("custom_pea_rejection_breakup")).toBe(false);
 
 		await expect(stockEntryPage.page.locator('[data-fieldname="items"]')).toBeVisible();
-		await expect(
-			stockEntryPage.page.getByRole("button", { name: "Get Items", exact: true })
-		).toBeVisible();
+		await expect.poll(async () => await stockEntryPage.isFieldVisible("get_items")).toBe(true);
 	});
 
 	test("@regression denied user cannot see app entry or open workspace routes", async ({
@@ -205,9 +203,9 @@ test.describe("Access control role-only flow", () => {
 		await expect
 			.poll(async () => await stockEntryPage.isFieldVisible("custom_pea_fetch_items"))
 			.toBe(true);
-		await expect(
-			stockEntryPage.page.getByRole("button", { name: "Get Items", exact: true })
-		).not.toBeVisible();
+		await expect
+			.poll(async () => await stockEntryPage.isFieldVisible("get_items"))
+			.toBe(false);
 	});
 
 	test("@regression system manager bypass sees app entry and can open workspace routes", async ({
