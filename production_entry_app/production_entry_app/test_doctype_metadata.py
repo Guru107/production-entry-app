@@ -50,6 +50,19 @@ def test_filtered_custom_fields_are_search_indexed() -> None:
 	assert not missing, f"Custom fields must set search_index: {', '.join(missing)}"
 
 
+def test_access_role_settings_document_static_report_role_contract() -> None:
+	fields_by_name = {
+		field.get("fieldname"): field
+		for field in assert_doctype_json("Production Entry Settings").get("fields", [])
+		if field.get("fieldname")
+	}
+	for fieldname in ("write_role", "read_role"):
+		description = fields_by_name.get(fieldname, {}).get("description") or ""
+		assert "DocType" in description
+		assert "Report access" in description
+		assert "source-controlled roles" in description
+
+
 def assert_doctype_json(doctype: str) -> dict:
 	doctype_path = DOCTYPE_ROOT / scrub_doctype(doctype) / f"{scrub_doctype(doctype)}.json"
 	return json.loads(doctype_path.read_text())
@@ -75,5 +88,6 @@ def load_tests(
 			test_master_data_doctypes_do_not_allow_rename,
 			test_filtered_doctype_fields_are_search_indexed,
 			test_filtered_custom_fields_are_search_indexed,
+			test_access_role_settings_document_static_report_role_contract,
 		)
 	)

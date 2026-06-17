@@ -6,6 +6,8 @@ from typing import Any
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from production_entry_app import hooks as app_hooks
+
 PERMISSION_HOOKS: tuple[tuple[str, str], ...] = (
 	("production_entry_app.production_entry_app.doctype.operator.operator", "Operator"),
 	(
@@ -35,5 +37,18 @@ class TestPermissionHookSignatures(FrappeTestCase):
 				importlib.import_module(module_path)
 				doc = frappe.get_doc({"doctype": doctype})
 				result: Any = doc.has_permission(ptype="read", user=frappe.session.user, debug=False)
+
+				self.assertIsInstance(result, bool)
+
+	def test_registered_has_permission_hooks_accept_user_and_debug_arguments(self) -> None:
+		for doctype, hook_path in app_hooks.has_permission.items():
+			with self.subTest(doctype=doctype):
+				hook = frappe.get_attr(hook_path)
+				result: Any = hook(
+					doc=frappe.get_doc({"doctype": doctype}),
+					ptype="read",
+					user=frappe.session.user,
+					debug=False,
+				)
 
 				self.assertIsInstance(result, bool)

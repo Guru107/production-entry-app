@@ -26,6 +26,7 @@
   },
   {
    "default": "PEA User",
+   "description": "Controls Production Entry DocType and field access. Query Report access is controlled by each Report's source-controlled roles.",
    "fieldname": "write_role",
    "fieldtype": "Link",
    "label": "Write Role",
@@ -34,6 +35,7 @@
   },
 	  {
 	   "default": "PEA Read Only",
+	   "description": "Controls read access for Production Entry DocTypes and fields. Query Report access is controlled by each Report's source-controlled roles.",
 	   "fieldname": "read_role",
 	   "fieldtype": "Link",
 	   "label": "Read Role",

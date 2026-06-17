@@ -166,12 +166,14 @@ def assert_app_write_access(
 	frappe.throw(_("You do not have write access to Production Entry App."), frappe.PermissionError)
 
 
-def has_gated_doctype_permission(doc: Any = None, ptype: str = "read", user: str | None = None) -> bool:
+def has_gated_doctype_permission(
+	doc: Any = None, ptype: str | None = "read", user: str | None = None, debug: bool = False
+) -> bool:
 	"""Return whether a gated document or doctype action is allowed."""
-	del doc
+	del doc, debug
 	effective_user = _resolve_user(user)
 	try:
-		if ptype in READ_PERMISSION_TYPES:
+		if (ptype or "read") in READ_PERMISSION_TYPES:
 			return _can_read(effective_user)
 		return _can_write(effective_user)
 	except Exception:
