@@ -208,7 +208,7 @@ class TestE2EApi(FrappeTestCase):
 		self.assertEqual(get_single_value.call_count, 2)
 		commit.assert_called_once()
 
-	def test_set_e2e_access_control_accepts_legacy_required_role_fallback(self) -> None:
+	def test_set_e2e_access_control_does_not_accept_legacy_required_role(self) -> None:
 		with ExitStack() as stack:
 			stack.enter_context(
 				patch("production_entry_app.production_entry_app.api._assert_e2e_api_allowed")
@@ -237,10 +237,10 @@ class TestE2EApi(FrappeTestCase):
 			)
 			stack.enter_context(patch("production_entry_app.production_entry_app.api.frappe.db.commit"))
 
-			result = set_e2e_access_control(enabled=1, required_role=" Legacy Writer ")
+			with self.assertRaises(TypeError):
+				set_e2e_access_control(required_role="Manufacturing User")
 
-		self.assertEqual(result["write_role"], "Legacy Writer")
-		set_single_value.assert_any_call("Production Entry Settings", "write_role", "Legacy Writer")
+		set_single_value.assert_not_called()
 
 	def test_cache_e2e_settings_snapshot_skips_existing_cache(self) -> None:
 		cache = MagicMock()
