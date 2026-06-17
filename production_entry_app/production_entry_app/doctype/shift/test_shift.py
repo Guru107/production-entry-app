@@ -1049,6 +1049,7 @@ class TestShift(FrappeTestCase):
 	def test_start_shift_adds_status_audit_comment(self) -> None:
 		name = self._expected_name(self._test_department, "2026-05-16", "1")
 		self._delete_shift_if_exists(name)
+		frappe.set_user("Administrator")
 		doc = frappe.get_doc(
 			{
 				"doctype": "Shift",
@@ -1064,13 +1065,20 @@ class TestShift(FrappeTestCase):
 		comments = frappe.get_all(
 			"Comment",
 			filters={"reference_doctype": "Shift", "reference_name": name},
-			pluck="content",
+			fields=["content"],
+			order_by="creation desc",
+			limit=1,
 		)
-		self.assertTrue(any("Status changed to" in (c or "") and "Running" in (c or "") for c in comments))
+		self.assertTrue(comments)
+		content = comments[0].content or ""
+		self.assertIn("Status changed to", content)
+		self.assertIn("Running", content)
+		self.assertIn(frappe.session.user, content)
 
 	def test_end_shift_adds_status_audit_comment(self) -> None:
 		name = self._expected_name(self._test_department, "2026-05-17", "1")
 		self._delete_shift_if_exists(name)
+		frappe.set_user("Administrator")
 		doc = frappe.get_doc(
 			{
 				"doctype": "Shift",
@@ -1087,13 +1095,20 @@ class TestShift(FrappeTestCase):
 		comments = frappe.get_all(
 			"Comment",
 			filters={"reference_doctype": "Shift", "reference_name": name},
-			pluck="content",
+			fields=["content"],
+			order_by="creation desc",
+			limit=1,
 		)
-		self.assertTrue(any("Status changed to" in (c or "") and "Completed" in (c or "") for c in comments))
+		self.assertTrue(comments)
+		content = comments[0].content or ""
+		self.assertIn("Status changed to", content)
+		self.assertIn("Completed", content)
+		self.assertIn(frappe.session.user, content)
 
 	def test_cancel_shift_adds_status_audit_comment(self) -> None:
 		name = self._expected_name(self._test_department, "2026-05-18", "2")
 		self._delete_shift_if_exists(name)
+		frappe.set_user("Administrator")
 		doc = frappe.get_doc(
 			{
 				"doctype": "Shift",
@@ -1109,9 +1124,15 @@ class TestShift(FrappeTestCase):
 		comments = frappe.get_all(
 			"Comment",
 			filters={"reference_doctype": "Shift", "reference_name": name},
-			pluck="content",
+			fields=["content"],
+			order_by="creation desc",
+			limit=1,
 		)
-		self.assertTrue(any("Status changed to" in (c or "") and "Cancelled" in (c or "") for c in comments))
+		self.assertTrue(comments)
+		content = comments[0].content or ""
+		self.assertIn("Status changed to", content)
+		self.assertIn("Cancelled", content)
+		self.assertIn(frappe.session.user, content)
 
 	def test_cancel_shift_not_allowed_from_running(self) -> None:
 		name = self._expected_name(self._test_department, "2026-02-16", "1")

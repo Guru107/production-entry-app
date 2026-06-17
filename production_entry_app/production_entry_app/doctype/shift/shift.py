@@ -1274,7 +1274,9 @@ class Shift(Document):
 		self.save()
 		self.add_comment(
 			"Info",
-			_("Status changed to {0}.").format(frappe.bold(to_status)),
+			_("Status changed to {0} by {1}").format(
+				frappe.bold(to_status), frappe.bold(frappe.session.user)
+			),
 		)
 
 		if to_status == "Running":
