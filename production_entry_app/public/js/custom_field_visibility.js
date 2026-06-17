@@ -25,19 +25,30 @@
 		frm.toggle_display(fieldname, visible);
 	}
 
+	function _setGridRowsFieldVisibility(grid, fieldname, visible) {
+		for (const row of grid?.grid_rows || []) {
+			if (!row) continue;
+			if (typeof row.toggle_display === "function") {
+				row.toggle_display(fieldname, visible);
+			}
+		}
+	}
+
 	function _setChildFieldVisibility(frm, childDoctype, fieldname, visible) {
-		const docfield =
-			typeof frappe !== "undefined" && frappe.meta?.get_docfield
-				? frappe.meta.get_docfield(childDoctype, fieldname, frm?.doc?.name)
-				: null;
-		if (!docfield) {
+		const parentTableFieldname = _getParentTableFieldname(frm, childDoctype);
+		const grid = parentTableFieldname ? frm?.fields_dict?.[parentTableFieldname]?.grid : null;
+		if (!grid) {
 			return;
 		}
-		docfield.hidden = visible ? 0 : 1;
-		const parentTableFieldname = _getParentTableFieldname(frm, childDoctype);
-		if (parentTableFieldname) {
-			frm.refresh_field(parentTableFieldname);
+		if (typeof grid.toggle_display === "function") {
+			grid.toggle_display(fieldname, visible);
+		} else if (typeof grid.update_docfield_property === "function") {
+			grid.update_docfield_property(fieldname, "hidden", visible ? 0 : 1);
+			grid.debounced_refresh?.();
+		} else {
+			_setGridRowsFieldVisibility(grid, fieldname, visible);
 		}
+		frm.refresh_field?.(parentTableFieldname);
 	}
 
 	function _applyFieldVisibilityForDoctype(frm, doctype, enabled) {

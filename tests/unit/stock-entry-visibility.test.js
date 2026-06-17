@@ -132,6 +132,57 @@ test("fg completed qty override is disabled until required-role access is explic
 	}
 });
 
+test("fg completed qty prototype patch preserves ERPNext fallback for non-manufacture documents", () => {
+	const modulePath = "../../production_entry_app/public/js/stock_entry.js";
+	const moduleId = require.resolve(modulePath);
+	const cachedModule = require.cache[moduleId];
+	const originalWindow = global.window;
+	const originalErpnext = global.erpnext;
+	let originalCallCount = 0;
+	const erpnextStub = {
+		stock: {
+			StockEntry: function StockEntry() {},
+		},
+	};
+	erpnextStub.stock.StockEntry.prototype.fg_completed_qty = function () {
+		originalCallCount += 1;
+		return "native-result";
+	};
+
+	delete require.cache[moduleId];
+	global.erpnext = erpnextStub;
+	global.window = {
+		erpnext: erpnextStub,
+		production_entry_app: {
+			access_control: {
+				get_cached_access_control_state() {
+					return { enabled: true };
+				},
+			},
+		},
+	};
+
+	try {
+		require(modulePath);
+
+		const controller = new erpnextStub.stock.StockEntry();
+		controller.frm = {
+			doc: { custom_pea_stock_entry_purpose: "Material Transfer", from_bom: 1 },
+		};
+
+		assert.equal(controller.fg_completed_qty(), "native-result");
+		assert.equal(originalCallCount, 1);
+	} finally {
+		if (cachedModule) {
+			require.cache[moduleId] = cachedModule;
+		} else {
+			delete require.cache[moduleId];
+		}
+		global.window = originalWindow;
+		global.erpnext = originalErpnext;
+	}
+});
+
 test("shift detail updates clear present empty values instead of leaving stale fields", () => {
 	const updates = [];
 	const frm = {

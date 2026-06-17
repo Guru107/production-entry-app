@@ -163,6 +163,9 @@ function _sync_native_get_items_access(frm) {
 // Suppress ERPNext's auto-populate on fg_completed_qty change for Manufacture
 // entries so the user can set both Qty to Manufacture and Rejection Qty before
 // explicitly clicking "Fetch Items".
+// Depends on ERPNext v15/v16 `erpnext.stock.StockEntry.prototype.fg_completed_qty`
+// from erpnext/stock/doctype/stock_entry/stock_entry.js. Keep the original
+// method fallback so ERPNext changes fail visibly instead of replacing behavior globally.
 if (typeof window !== "undefined" && window.erpnext && erpnext.stock && erpnext.stock.StockEntry) {
 	const originalFgCompletedQty = erpnext.stock.StockEntry.prototype.fg_completed_qty;
 	if (typeof originalFgCompletedQty !== "function") {

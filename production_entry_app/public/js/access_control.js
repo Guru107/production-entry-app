@@ -22,7 +22,14 @@
 					resolve(_state);
 				},
 				error(error) {
-					console.warn("Production Entry App access-control state fetch failed.", error);
+					frappe.msgprint({
+						title: __("Access settings unavailable"),
+						message: __(
+							"Could not load Production Entry access settings. Please refresh and try again."
+						),
+						indicator: "orange",
+					});
+					console.error("[production_entry_app] Failed to load access settings", error);
 					_state = DEFAULT_STATE;
 					resolve(_state);
 				},
