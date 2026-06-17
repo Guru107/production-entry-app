@@ -142,7 +142,8 @@
    "fieldtype": "Link",
    "label": "Branch",
    "options": "Branch",
-   "reqd": 1
+   "reqd": 1,
+   "search_index": 1
   },
   {
    "fieldname": "company",

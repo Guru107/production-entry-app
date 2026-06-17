@@ -47,6 +47,7 @@
   "options": "Shift",
   "depends_on": "eval:doc.custom_pea_stock_entry_purpose=='Manufacture'",
   "is_index": 1,
+  "search_index": 1,
   "insert_after": "custom_pea_stock_entry_purpose",
   "module": "Production Entry App",
   "permlevel": 9
@@ -219,6 +220,7 @@
   "label": "Workstation",
   "options": "Workstation",
   "is_index": 1,
+  "search_index": 1,
   "insert_after": "custom_pea_workstation_operator_section",
   "module": "Production Entry App",
   "permlevel": 9,
@@ -258,6 +260,7 @@
   "label": "Operator",
   "options": "Operator",
   "is_index": 1,
+  "search_index": 1,
   "insert_after": "custom_pea_workstation_operator_col_break",
   "module": "Production Entry App",
   "permlevel": 9,
@@ -490,6 +493,7 @@
   "fieldtype": "Check",
   "label": "Is Rejection Item",
   "read_only": 1,
+  "search_index": 1,
   "insert_after": "is_scrap_item",
   "module": "Production Entry App",
   "permlevel": 9
