@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import time
 from contextlib import ExitStack
+from pathlib import Path
 from unittest.mock import patch
 
 import frappe
@@ -30,6 +32,22 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 
 
 class TestProductionReports(FrappeTestCase):
+	def test_report_access_metadata_is_source_controlled_not_runtime_synced(self) -> None:
+		"""Report JSON should be the source of truth for report roles."""
+		report_root = Path(__file__).parent
+		for report_path in report_root.glob("*/*.json"):
+			with self.subTest(report=report_path.parent.name):
+				report_schema = json.loads(report_path.read_text())
+				self.assertEqual(report_schema["ref_doctype"], "Shift")
+				self.assertEqual(
+					[role["role"] for role in report_schema.get("roles", [])],
+					[
+						"System Manager",
+						access_control.DEFAULT_WRITE_ROLE,
+						access_control.DEFAULT_READ_ROLE,
+					],
+				)
+
 	def _assert_column_precision(
 		self, columns: list[dict], fieldnames: tuple[str, ...], expected_precision: int
 	) -> None:
@@ -154,32 +172,6 @@ class TestProductionReports(FrappeTestCase):
 				)
 		finally:
 			frappe.set_user(original_user)
-
-	def test_legacy_custom_write_role_can_access_native_doctype_and_report_paths(self) -> None:
-		legacy_role = f"Legacy Production Role {frappe.generate_hash(length=8)}"
-		user_email = f"test_pea_report_legacy_{frappe.generate_hash(length=8)}@example.com"
-		_ensure_user_with_exact_roles(user_email, (legacy_role,))
-		frappe.reload_doc("production_entry_app", "doctype", "shift")
-		frappe.reload_doc("production_entry_app", "report", "rejection_pareto_report")
-		_set_legacy_required_role_only(legacy_role)
-		access_control.ensure_access_roles_and_settings()
-		frappe.clear_cache(doctype="Shift")
-		frappe.clear_cache(user=user_email)
-		original_user = frappe.session.user
-		try:
-			frappe.set_user(user_email)
-			self.assertTrue(frappe.has_permission("Shift", "read"))
-			result = run_query_report(
-				"Rejection Pareto Report",
-				filters={},
-				ignore_prepared_report=True,
-			)
-		finally:
-			frappe.set_user(original_user)
-			_restore_default_access_roles()
-
-		self.assertIn("columns", result)
-		self.assertIn("result", result)
 
 	def test_runtime_settings_role_change_syncs_native_doctype_and_report_paths(self) -> None:
 		write_role = f"Runtime PEA Write {frappe.generate_hash(length=8)}"
@@ -3387,23 +3379,6 @@ def _ensure_user_with_exact_roles(email: str, roles: tuple[str, ...]) -> None:
 	frappe.clear_cache(user=email)
 
 
-def _set_legacy_required_role_only(role: str) -> None:
-	settings_doctype = "Production Entry Settings"
-	for fieldname in ("write_role", "read_role", "required_role"):
-		frappe.db.delete("Singles", {"doctype": settings_doctype, "field": fieldname})
-	frappe.db.set_single_value(settings_doctype, "enable_access_control", 1)
-	frappe.db.sql(
-		"""
-		insert into `tabSingles` (`doctype`, `field`, `value`)
-		values (%s, %s, %s)
-		""",
-		(settings_doctype, "required_role", role),
-	)
-	frappe.clear_document_cache(settings_doctype)
-	access_control.invalidate_access_control_cache()
-	frappe.db.commit()  # nosemgrep: frappe-manual-commit - legacy Singles row must be visible to setup
-
-
 def _set_runtime_access_roles(*, write_role: str, read_role: str) -> None:
 	previous_write_role = frappe.db.get_single_value("Production Entry Settings", "write_role")
 	previous_read_role = frappe.db.get_single_value("Production Entry Settings", "read_role")
@@ -3411,7 +3386,6 @@ def _set_runtime_access_roles(*, write_role: str, read_role: str) -> None:
 	settings.enable_access_control = 1
 	settings.write_role = write_role
 	settings.read_role = read_role
-	settings.required_role = write_role
 	settings.flags.ignore_links = True
 	settings.save(ignore_permissions=True)
 	if previous_write_role and previous_write_role != access_control.DEFAULT_WRITE_ROLE:
@@ -3436,7 +3410,6 @@ def _restore_default_access_roles() -> None:
 	previous_enable_access_control = frappe.db.get_single_value(settings_doctype, "enable_access_control")
 	previous_write_role = frappe.db.get_single_value(settings_doctype, "write_role")
 	previous_read_role = frappe.db.get_single_value(settings_doctype, "read_role")
-	frappe.db.delete("Singles", {"doctype": settings_doctype, "field": "required_role"})
 	frappe.db.set_single_value(settings_doctype, "write_role", access_control.DEFAULT_WRITE_ROLE)
 	frappe.db.set_single_value(settings_doctype, "read_role", access_control.DEFAULT_READ_ROLE)
 	frappe.db.set_single_value(settings_doctype, "enable_access_control", previous_enable_access_control)

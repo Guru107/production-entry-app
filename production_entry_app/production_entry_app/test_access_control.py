@@ -3,14 +3,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import call, patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
 DEFAULT_WRITE_ROLE: str = "PEA User"
 DEFAULT_READ_ROLE: str = "PEA Read Only"
-DEFAULT_REQUIRED_ROLE: str = DEFAULT_WRITE_ROLE
 REPORTS_PATH: Path = Path(__file__).parent / "report"
 
 
@@ -115,7 +114,7 @@ class TestAccessControl(FrappeTestCase):
 
 		setup.assert_called_once_with()
 
-	def test_before_install_hook_registers_default_required_role_setup(self) -> None:
+	def test_before_install_hook_registers_access_setup(self) -> None:
 		from production_entry_app import hooks
 
 		self.assertIn("production_entry_app.install.before_install", hooks.before_install)
@@ -206,7 +205,6 @@ class TestAccessControl(FrappeTestCase):
 			patch.object(access_control.frappe.db, "get_value", side_effect=fake_get_value),
 			patch.object(access_control.frappe.db, "set_single_value") as set_single_value,
 			patch.object(access_control, "_sync_native_doctype_permissions") as sync_doctype_permissions,
-			patch.object(access_control, "_migrate_report_access_metadata") as migrate_reports,
 			patch.object(access_control, "invalidate_access_control_cache") as invalidate_cache,
 		):
 			role_doc = get_doc.return_value
@@ -240,7 +238,6 @@ class TestAccessControl(FrappeTestCase):
 			read_role=DEFAULT_READ_ROLE,
 			managed_roles=(DEFAULT_WRITE_ROLE, DEFAULT_READ_ROLE),
 		)
-		migrate_reports.assert_called_once_with(write_role=DEFAULT_WRITE_ROLE, read_role=DEFAULT_READ_ROLE)
 		invalidate_cache.assert_called_once_with()
 
 	def test_access_setup_keeps_existing_split_settings(self) -> None:
@@ -262,16 +259,17 @@ class TestAccessControl(FrappeTestCase):
 				"exists",
 				return_value=True,
 			),
-			patch.object(access_control.frappe, "get_doc") as get_doc,
 			patch.object(access_control.frappe.db, "get_value", side_effect=fake_get_value),
 			patch.object(access_control.frappe.db, "set_single_value") as set_single_value,
 			patch.object(access_control, "_sync_native_doctype_permissions") as sync_doctype_permissions,
-			patch.object(access_control, "_migrate_report_access_metadata") as migrate_reports,
+			patch.object(access_control.frappe, "get_all") as get_all,
+			patch.object(access_control.frappe, "get_doc") as get_doc,
 			patch.object(access_control, "invalidate_access_control_cache") as invalidate_cache,
 		):
 			access_control.ensure_access_roles_and_settings()
 
 		get_doc.assert_not_called()
+		get_all.assert_not_called()
 		sync_doctype_permissions.assert_called_once_with(
 			write_role="Custom Write",
 			read_role="Custom Read",
@@ -282,7 +280,6 @@ class TestAccessControl(FrappeTestCase):
 				"Previous Read",
 			),
 		)
-		migrate_reports.assert_called_once_with(write_role="Custom Write", read_role="Custom Read")
 		set_single_value.assert_has_calls(
 			[
 				call(access_control.SETTINGS_DOCTYPE, "last_synced_write_role", "Custom Write"),
@@ -291,66 +288,67 @@ class TestAccessControl(FrappeTestCase):
 		)
 		invalidate_cache.assert_called_once_with()
 
-	def test_access_setup_migrates_report_metadata_for_existing_sites(self) -> None:
+	def test_access_setup_does_not_sync_report_metadata_on_migrate_path(self) -> None:
+		"""after_migrate setup must not save Report docs or rewrite report JSON."""
 		from production_entry_app.production_entry_app import access_control
 
-		report = frappe._dict(name="Rejection Pareto Report")
-		report.set = MagicMock()
-		report.save = MagicMock()
+		def fake_exists(doctype: str, name: str | None = None) -> bool:
+			if doctype == "Role":
+				return True
+			if doctype == "DocType":
+				return name in {access_control.SETTINGS_DOCTYPE, "Report"}
+			return False
+
+		def fake_get_value(doctype: str, filters: dict, fieldname: str, **kwargs: object) -> str | None:
+			del doctype, fieldname
+			self.assertEqual(kwargs, {"order_by": None})
+			return {
+				"write_role": DEFAULT_WRITE_ROLE,
+				"read_role": DEFAULT_READ_ROLE,
+				"last_synced_write_role": DEFAULT_WRITE_ROLE,
+				"last_synced_read_role": DEFAULT_READ_ROLE,
+			}.get(filters["field"])
+
+		stale_report = SimpleNamespace(
+			ref_doctype="Item",
+			get=lambda fieldname: [SimpleNamespace(role="Manufacturing User")]
+			if fieldname == "roles"
+			else [],
+			set=lambda *_args, **_kwargs: self.fail("Report metadata must not be rewritten during setup."),
+			save=lambda *_args, **_kwargs: self.fail("Report docs must not be saved during setup."),
+		)
+		inserted_role_rows: list[SimpleNamespace] = []
+
+		def fake_get_doc(*args: object, **_kwargs: object) -> SimpleNamespace:
+			if args == ("Report", "Rejection Pareto Report"):
+				return stale_report
+			if args and isinstance(args[0], dict) and args[0].get("doctype") == "Has Role":
+				row = SimpleNamespace(db_insert=lambda *_args, **_kwargs: None)
+				inserted_role_rows.append(row)
+				return row
+			raise AssertionError(args)
 
 		with (
-			patch.object(access_control.frappe.db, "exists", return_value=True),
+			patch.object(access_control.frappe.db, "exists", side_effect=fake_exists),
+			patch.object(access_control.frappe.db, "get_value", side_effect=fake_get_value),
+			patch.object(access_control.frappe.db, "set_single_value"),
+			patch.object(access_control, "_sync_native_doctype_permissions"),
 			patch.object(
 				access_control.frappe, "get_all", return_value=["Rejection Pareto Report"]
 			) as get_all,
-			patch.object(access_control.frappe, "get_doc", return_value=report) as get_doc,
+			patch.object(access_control.frappe, "get_doc", side_effect=fake_get_doc) as get_doc,
+			patch.object(access_control.frappe.db, "set_value") as set_value,
+			patch.object(access_control.frappe.db, "delete") as delete,
+			patch.object(access_control, "invalidate_access_control_cache"),
+			patch.object(access_control.frappe, "clear_cache"),
 		):
-			access_control._migrate_report_access_metadata(
-				write_role="Legacy Production Role",
-				read_role=DEFAULT_READ_ROLE,
-			)
+			access_control.ensure_access_roles_and_settings()
 
-		get_all.assert_called_once_with("Report", filters={"module": "Production Entry App"}, pluck="name")
-		get_doc.assert_called_once_with("Report", "Rejection Pareto Report")
-		self.assertEqual(report.ref_doctype, "Shift")
-		report.set.assert_called_once_with(
-			"roles",
-			[
-				{"role": "System Manager"},
-				{"role": "Legacy Production Role"},
-				{"role": DEFAULT_READ_ROLE},
-			],
-		)
-		report.save.assert_called_once_with(ignore_permissions=True)
-
-	def test_access_setup_skips_report_save_when_metadata_already_matches(self) -> None:
-		from production_entry_app.production_entry_app import access_control
-
-		report = SimpleNamespace(
-			ref_doctype="Shift",
-			set=MagicMock(),
-			save=MagicMock(),
-			get=MagicMock(
-				return_value=[
-					SimpleNamespace(role="System Manager"),
-					SimpleNamespace(role=DEFAULT_READ_ROLE),
-					SimpleNamespace(role=DEFAULT_WRITE_ROLE),
-				]
-			),
-		)
-
-		with (
-			patch.object(access_control.frappe.db, "exists", return_value=True),
-			patch.object(access_control.frappe, "get_all", return_value=["Rejection Pareto Report"]),
-			patch.object(access_control.frappe, "get_doc", return_value=report),
-		):
-			access_control._migrate_report_access_metadata(
-				write_role=DEFAULT_WRITE_ROLE,
-				read_role=DEFAULT_READ_ROLE,
-			)
-
-		report.set.assert_not_called()
-		report.save.assert_not_called()
+		get_all.assert_not_called()
+		get_doc.assert_not_called()
+		set_value.assert_not_called()
+		delete.assert_not_called()
+		self.assertEqual(inserted_role_rows, [])
 
 	def test_native_permission_sync_uses_write_template_when_read_and_write_roles_match(self) -> None:
 		from production_entry_app.production_entry_app import access_control
@@ -546,8 +544,8 @@ class TestAccessControl(FrappeTestCase):
 	def test_settings_update_invalidates_access_cache(self) -> None:
 		from production_entry_app.production_entry_app import access_control
 
-		if not frappe.db.exists("Role", DEFAULT_REQUIRED_ROLE):
-			frappe.get_doc({"doctype": "Role", "role_name": DEFAULT_REQUIRED_ROLE}).insert(
+		if not frappe.db.exists("Role", DEFAULT_WRITE_ROLE):
+			frappe.get_doc({"doctype": "Role", "role_name": DEFAULT_WRITE_ROLE}).insert(
 				ignore_permissions=True
 			)
 
@@ -587,7 +585,7 @@ class TestAccessControl(FrappeTestCase):
 		)
 		with patch(
 			"production_entry_app.production_entry_app.access_control._load_access_configuration",
-			return_value=_settings(False, DEFAULT_REQUIRED_ROLE),
+			return_value=_settings(False, DEFAULT_WRITE_ROLE),
 		):
 			self.assertTrue(access_control.can_use_production_entry_app("user@example.com"))
 
@@ -685,7 +683,7 @@ class TestAccessControl(FrappeTestCase):
 		with (
 			patch(
 				"production_entry_app.production_entry_app.access_control._load_access_configuration",
-				return_value=_settings(False, DEFAULT_REQUIRED_ROLE),
+				return_value=_settings(False, DEFAULT_WRITE_ROLE),
 			),
 			patch(
 				"production_entry_app.production_entry_app.access_control.frappe.get_roles",
@@ -700,7 +698,7 @@ class TestAccessControl(FrappeTestCase):
 		with (
 			patch(
 				"production_entry_app.production_entry_app.access_control._load_access_configuration",
-				return_value=_settings(True, DEFAULT_REQUIRED_ROLE),
+				return_value=_settings(True, DEFAULT_WRITE_ROLE),
 			),
 			patch(
 				"production_entry_app.production_entry_app.access_control.frappe.get_roles",
@@ -716,7 +714,7 @@ class TestAccessControl(FrappeTestCase):
 		with (
 			patch(
 				"production_entry_app.production_entry_app.access_control._load_access_configuration",
-				return_value=_settings(True, DEFAULT_REQUIRED_ROLE),
+				return_value=_settings(True, DEFAULT_WRITE_ROLE),
 			),
 			patch(
 				"production_entry_app.production_entry_app.access_control.frappe.get_roles",
@@ -736,7 +734,7 @@ class TestAccessControl(FrappeTestCase):
 			),
 			patch(
 				"production_entry_app.production_entry_app.access_control.frappe.get_roles",
-				return_value=[DEFAULT_REQUIRED_ROLE],
+				return_value=[DEFAULT_WRITE_ROLE],
 			),
 		):
 			from production_entry_app.production_entry_app import access_control
@@ -798,7 +796,7 @@ class TestAccessControl(FrappeTestCase):
 		with (
 			patch(
 				"production_entry_app.production_entry_app.access_control.frappe.get_single",
-				return_value=_settings_doc(True, DEFAULT_REQUIRED_ROLE),
+				return_value=_settings_doc(True, DEFAULT_WRITE_ROLE),
 			),
 			patch(
 				"production_entry_app.production_entry_app.access_control.frappe.cache",
@@ -808,7 +806,7 @@ class TestAccessControl(FrappeTestCase):
 			),
 			patch(
 				"production_entry_app.production_entry_app.access_control.frappe.get_roles",
-				return_value=[DEFAULT_REQUIRED_ROLE],
+				return_value=[DEFAULT_WRITE_ROLE],
 			),
 		):
 			from production_entry_app.production_entry_app import access_control
@@ -820,26 +818,26 @@ class TestAccessControl(FrappeTestCase):
 				)
 			)
 
-	def test_assert_app_access_doc_context_allows_with_required_role_and_skips_branch_lookup(self) -> None:
+	def test_assert_app_access_doc_context_allows_with_write_role_and_skips_branch_lookup(self) -> None:
 		with (
 			patch(
 				"production_entry_app.production_entry_app.access_control._load_access_configuration",
-				return_value=_settings(True, DEFAULT_REQUIRED_ROLE),
+				return_value=_settings(True, DEFAULT_WRITE_ROLE),
 			),
 			patch(
 				"production_entry_app.production_entry_app.access_control.frappe.get_roles",
-				return_value=[DEFAULT_REQUIRED_ROLE],
+				return_value=[DEFAULT_WRITE_ROLE],
 			),
 		):
 			from production_entry_app.production_entry_app import access_control
 
 			access_control.assert_app_access(doctype="Shift", docname="SHIFT-00001")
 
-	def test_assert_app_access_doc_context_denies_when_missing_required_role(self) -> None:
+	def test_assert_app_access_doc_context_denies_when_missing_write_role(self) -> None:
 		with (
 			patch(
 				"production_entry_app.production_entry_app.access_control._load_access_configuration",
-				return_value=_settings(True, DEFAULT_REQUIRED_ROLE),
+				return_value=_settings(True, DEFAULT_WRITE_ROLE),
 			),
 			patch(
 				"production_entry_app.production_entry_app.access_control.frappe.get_roles",

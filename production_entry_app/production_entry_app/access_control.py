@@ -17,7 +17,6 @@ APP_ROOT: Path = Path(__file__).parent
 SYSTEM_MANAGER_ROLE: str = "System Manager"
 DEFAULT_WRITE_ROLE: str = "PEA User"
 DEFAULT_READ_ROLE: str = "PEA Read Only"
-DEFAULT_REQUIRED_ROLE: str = DEFAULT_WRITE_ROLE
 READ_PERMISSION_TYPES: frozenset[str] = frozenset({"read", "select", "print", "email", "export", "report"})
 GATED_DOCTYPES: tuple[str, ...] = (
 	"Shift",
@@ -70,7 +69,7 @@ def ensure_access_roles_and_settings() -> None:
 def sync_configured_access_roles(
 	*, write_role: str | None = None, read_role: str | None = None, managed_roles: tuple[str | None, ...] = ()
 ) -> None:
-	"""Sync native permissions and report metadata for the configured access roles."""
+	"""Sync native permissions for the configured access roles."""
 	effective_write_role, effective_read_role = _get_setup_access_roles()
 	if write_role is not None:
 		effective_write_role = _normalize_role(write_role, DEFAULT_WRITE_ROLE)
@@ -87,7 +86,6 @@ def sync_configured_access_roles(
 		read_role=effective_read_role,
 		managed_roles=managed_roles,
 	)
-	_migrate_report_access_metadata(write_role=effective_write_role, read_role=effective_read_role)
 	_remember_synced_access_roles(write_role=effective_write_role, read_role=effective_read_role)
 	invalidate_access_control_cache()
 	frappe.clear_cache()
@@ -349,17 +347,6 @@ def _get_next_docperm_idx(doctype: str) -> int:
 	return int(rows[0].get("idx") or 0) + 1
 
 
-def _get_existing_report_access_roles() -> tuple[str, ...]:
-	if not frappe.db.exists("DocType", "Report"):
-		return ()
-
-	roles: list[str] = []
-	for report_name in frappe.get_all("Report", filters={"module": "Production Entry App"}, pluck="name"):
-		report = frappe.get_doc("Report", report_name)
-		roles.extend(row.role for row in report.get("roles") if row.role)
-	return _unique_roles(*roles)
-
-
 def _get_app_managed_access_roles() -> tuple[str, ...]:
 	return _unique_roles(
 		DEFAULT_WRITE_ROLE,
@@ -379,22 +366,6 @@ def _remember_synced_access_roles(*, write_role: str, read_role: str) -> None:
 		return
 	frappe.db.set_single_value(SETTINGS_DOCTYPE, "last_synced_write_role", write_role)
 	frappe.db.set_single_value(SETTINGS_DOCTYPE, "last_synced_read_role", read_role)
-
-
-def _migrate_report_access_metadata(*, write_role: str, read_role: str) -> None:
-	if not frappe.db.exists("DocType", "Report"):
-		return
-
-	report_roles = _unique_roles(SYSTEM_MANAGER_ROLE, write_role, read_role)
-	role_rows = [{"role": role} for role in report_roles]
-	for report_name in frappe.get_all("Report", filters={"module": "Production Entry App"}, pluck="name"):
-		report = frappe.get_doc("Report", report_name)
-		current_roles = {row.role for row in (report.get("roles") or []) if row.role}
-		if report.ref_doctype == "Shift" and current_roles == set(report_roles):
-			continue
-		report.ref_doctype = "Shift"
-		report.set("roles", role_rows)
-		report.save(ignore_permissions=True)
 
 
 def _get_single_value(fieldname: str) -> str | None:
