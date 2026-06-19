@@ -792,6 +792,13 @@ class TestE2EApi(FrappeTestCase):
 		se2 = frappe._dict(
 			{"name": "STE-OK", "docstatus": 0, "custom_pea_operator": "E2E Operator", "items": []}
 		)
+		stock_entries = {se1.name: se1, se2.name: se2}
+		real_get_doc = frappe.get_doc
+
+		def get_doc(doctype: str, name: str | None = None, *args, **kwargs):
+			if doctype == "Stock Entry" and name in stock_entries:
+				return stock_entries[name]
+			return real_get_doc(doctype, name, *args, **kwargs)
 
 		with patch(
 			"production_entry_app.production_entry_app.api._get_candidate_e2e_stock_entries",
@@ -811,7 +818,7 @@ class TestE2EApi(FrappeTestCase):
 						):
 							with patch(
 								"production_entry_app.production_entry_app.api.frappe.get_doc",
-								side_effect=[se1, se2],
+								side_effect=get_doc,
 							):
 								with patch(
 									"production_entry_app.production_entry_app.api.frappe.delete_doc",
