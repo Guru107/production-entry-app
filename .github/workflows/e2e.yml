@@ -96,10 +96,12 @@ jobs:
           bench setup requirements --dev
           bench build
 
-      - name: Install Playwright deps
-        run: |
-          npm ci
-          npx playwright install --with-deps chromium
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Install Playwright browser
+        timeout-minutes: 20
+        run: npx playwright install --with-deps chromium
 
       - name: Run Playwright smoke on PRs
         if: github.event_name != 'schedule'
