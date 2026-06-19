@@ -12,54 +12,18 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  prepare-e2e-shared-artifacts:
-    runs-on: ubuntu-latest
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-      PLAYWRIGHT_BROWSERS_PATH: /home/runner/.cache/ms-playwright
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-          cache: npm
-          cache-dependency-path: package-lock.json
-
-      - name: Cache Playwright browsers
-        uses: actions/cache@v4
-        with:
-          path: /home/runner/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-playwright-
-
-      - name: Install shared Node deps and Playwright browser
-        run: |
-          npm ci
-          npx playwright install chromium
-          npx playwright install-deps chromium
-
-      - name: Upload Playwright browsers artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: e2e-shared-playwright-browsers
-          path: /home/runner/.cache/ms-playwright
-          retention-days: 1
-
   e2e:
-    needs: prepare-e2e-shared-artifacts
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     env:
       FRAPPE_VERSION: ${{ matrix.frappe_version }}
       ERPNEXT_VERSION: ${{ matrix.erpnext_version }}
       PLAYWRIGHT_ROUTE_PREFIX: ${{ matrix.route_prefix }}
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-      PLAYWRIGHT_BROWSERS_PATH: /home/runner/.cache/ms-playwright
     strategy:
       fail-fast: false
       matrix:
@@ -94,82 +58,28 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.0
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6.2.0
         with:
           python-version: ${{ matrix.python_version }}
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6.4.0
         with:
           node-version: ${{ matrix.node_version }}
           cache: npm
           cache-dependency-path: package-lock.json
 
       - name: Cache pip
-        uses: actions/cache@v4
+        uses: actions/cache@v5.0.5
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-e2e-py${{ matrix.python_version }}-${{ hashFiles('**/*requirements.txt', '**/pyproject.toml', '**/setup.py', '**/setup.cfg') }}
           restore-keys: |
             ${{ runner.os }}-pip-e2e-py${{ matrix.python_version }}-
             ${{ runner.os }}-pip-e2e-
-
-      - name: Download shared Playwright browsers
-        uses: actions/download-artifact@v4
-        with:
-          name: e2e-shared-playwright-browsers
-          path: /home/runner/.cache/ms-playwright
-
-      - name: Restore Playwright binary permissions
-        run: |
-          shopt -s nullglob
-
-          headless_shell_bins=(/home/runner/.cache/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell)
-          chromium_bins=(/home/runner/.cache/ms-playwright/chromium-*/chrome-linux/chrome)
-          ffmpeg_bins=(/home/runner/.cache/ms-playwright/ffmpeg-*/ffmpeg-linux)
-
-          for bin in "${headless_shell_bins[@]}" "${chromium_bins[@]}" "${ffmpeg_bins[@]}"; do
-            if [ -e "$bin" ]; then
-              chmod +x "$bin"
-              ls -l "$bin"
-            fi
-          done
-
-          echo "headless_shell_bins=${#headless_shell_bins[@]} chromium_bins=${#chromium_bins[@]} ffmpeg_bins=${#ffmpeg_bins[@]}"
-
-      - name: Verify Playwright executables
-        run: |
-          shopt -s nullglob
-
-          headless_shell_bins=(/home/runner/.cache/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell)
-          chromium_bins=(/home/runner/.cache/ms-playwright/chromium-*/chrome-linux/chrome)
-
-          if [ ${#headless_shell_bins[@]} -eq 0 ]; then
-            echo "ERROR: required Playwright headless shell binary not found under /home/runner/.cache/ms-playwright"
-            exit 1
-          fi
-
-          for bin in "${headless_shell_bins[@]}"; do
-            if [ ! -x "$bin" ]; then
-              echo "ERROR: required Playwright headless shell binary is not executable: $bin"
-              ls -l "$bin" || true
-              exit 1
-            fi
-          done
-
-          if [ ${#chromium_bins[@]} -eq 0 ]; then
-            echo "INFO: chromium UI binary not present in artifact; continuing with headless-shell-only artifact"
-          else
-            for bin in "${chromium_bins[@]}"; do
-              if [ ! -x "$bin" ]; then
-                echo "WARNING: chromium UI binary exists but is not executable: $bin"
-                ls -l "$bin" || true
-              fi
-            done
-          fi
 
       - name: Install MariaDB client
         run: sudo apt-get update && sudo apt-get install -y mariadb-client
@@ -189,7 +99,7 @@ jobs:
       - name: Install Playwright deps
         run: |
           npm ci
-          npx playwright install-deps chromium
+          npx playwright install --with-deps chromium
 
       - name: Run Playwright smoke on PRs
         if: github.event_name != 'schedule'
@@ -227,21 +137,21 @@ jobs:
 
       - name: Upload Playwright report
         if: always() && steps.artifact_paths.outputs.has_playwright_report == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: playwright-report-v${{ matrix.frappe_version }}-erp${{ matrix.erpnext_version }}
           path: playwright-report
 
       - name: Upload test results
         if: always() && steps.artifact_paths.outputs.has_test_results == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: playwright-test-results-v${{ matrix.frappe_version }}-erp${{ matrix.erpnext_version }}
           path: test-results
 
       - name: Upload bench logs
         if: always() && steps.artifact_paths.outputs.has_bench_log == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: bench-serve-log-v${{ matrix.frappe_version }}-erp${{ matrix.erpnext_version }}
           path: /tmp/bench-serve.log
