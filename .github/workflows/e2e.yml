@@ -108,6 +108,11 @@ jobs:
         timeout-minutes: 20
         run: npx playwright install --with-deps chromium
 
+      - name: Restore matrix Node for Frappe
+        uses: actions/setup-node@v6.4.0
+        with:
+          node-version: ${{ matrix.node_version }}
+
       - name: Run Playwright smoke on PRs
         if: github.event_name != 'schedule'
         run: |
