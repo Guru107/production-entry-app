@@ -1579,7 +1579,7 @@ class TestE2EApi(FrappeTestCase):
 					},
 				)
 			)
-			stack.enter_context(
+			get_doc = stack.enter_context(
 				patch(
 					"production_entry_app.production_entry_app.api.frappe.get_doc", side_effect=[shift, doc]
 				)
@@ -1592,6 +1592,10 @@ class TestE2EApi(FrappeTestCase):
 			result = create_e2e_submitted_stock_entry(prefix="E2E", rejection_qty=4)
 
 		self.assertEqual(result, {"name": "MAT-STE-001", "docstatus": 1, "posting_date": "2099-01-20"})
+		doc_payload = get_doc.call_args_list[1].args[0]
+		self.assertEqual(doc_payload["posting_date"], "2099-01-20")
+		self.assertEqual(doc_payload["posting_time"], "09:00:00")
+		self.assertEqual(doc_payload["set_posting_time"], 1)
 		doc.get_items.assert_called_once()
 		doc.append.assert_called_once_with(
 			"custom_pea_rejection_breakup", {"rejection_reason": "Burr", "qty": 4.0}
@@ -1711,8 +1715,12 @@ class TestE2EApi(FrappeTestCase):
 		second_payload = get_doc.call_args_list[2].args[0]
 		self.assertEqual(first_payload["custom_pea_actual_start_date"], "2099-01-20 08:00:00")
 		self.assertEqual(first_payload["custom_pea_actual_end_date"], "2099-01-20 08:30:00")
+		self.assertEqual(first_payload["set_posting_time"], 1)
+		self.assertEqual(first_payload["posting_date"], "2099-01-20")
 		self.assertEqual(second_payload["custom_pea_actual_start_date"], "2099-01-20 08:30:00")
 		self.assertEqual(second_payload["custom_pea_actual_end_date"], "2099-01-20 09:00:00")
+		self.assertEqual(second_payload["set_posting_time"], 1)
+		self.assertEqual(second_payload["posting_date"], "2099-01-20")
 		first_doc.get_items.assert_called_once()
 		second_doc.get_items.assert_called_once()
 		first_doc.append.assert_not_called()

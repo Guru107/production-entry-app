@@ -249,23 +249,30 @@ class StockEntryPage {
 	}
 
 	async searchShiftLinkResults(text) {
-		return await this.page.evaluate(async (searchText) => {
-			const query = window.cur_frm?.fields_dict?.custom_pea_shift?.get_query?.() || {};
-			return await new Promise((resolve, reject) => {
-				frappe.call({
-					method: "frappe.desk.search.search_link",
-					args: {
-						doctype: "Shift",
-						txt: searchText,
-						page_length: 20,
-						filters: query.filters || {},
-					},
-					callback: (r) => resolve(r.message || []),
-					error: (err) =>
-						reject(new Error(err?.message || "Failed to search Shift link options.")),
+		return await retryOnContextDestroyed(this.page, async () => {
+			await this.page.waitForFunction(() =>
+				Boolean(window.cur_frm?.fields_dict?.custom_pea_shift)
+			);
+			return await this.page.evaluate(async (searchText) => {
+				const query = window.cur_frm?.fields_dict?.custom_pea_shift?.get_query?.() || {};
+				return await new Promise((resolve, reject) => {
+					frappe.call({
+						method: "frappe.desk.search.search_link",
+						args: {
+							doctype: "Shift",
+							txt: searchText,
+							page_length: 20,
+							filters: query.filters || {},
+						},
+						callback: (r) => resolve(r.message || []),
+						error: (err) =>
+							reject(
+								new Error(err?.message || "Failed to search Shift link options.")
+							),
+					});
 				});
-			});
-		}, text);
+			}, text);
+		});
 	}
 
 	async fetchItems() {

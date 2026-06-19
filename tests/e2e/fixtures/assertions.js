@@ -8,19 +8,37 @@ const MESSAGE_SELECTORS = [
 ];
 
 async function waitForVisibleMessage(page, timeout = 10_000) {
-	for (const selector of MESSAGE_SELECTORS) {
-		const locator = page.locator(selector).first();
-		try {
-			await locator.waitFor({ state: "visible", timeout });
-			const text = (await locator.textContent()) || "";
-			if (text.trim()) {
-				return text.trim();
-			}
-		} catch (error) {
-			// Try the next selector.
-		}
+	try {
+		const handle = await page.waitForFunction(
+			(selectors) => {
+				function isVisible(element) {
+					const rect = element.getBoundingClientRect();
+					const style = window.getComputedStyle(element);
+					return (
+						rect.width > 0 &&
+						rect.height > 0 &&
+						style.display !== "none" &&
+						style.visibility !== "hidden"
+					);
+				}
+
+				for (const selector of selectors) {
+					for (const element of document.querySelectorAll(selector)) {
+						const text = (element.innerText || element.textContent || "").trim();
+						if (text && isVisible(element)) {
+							return text;
+						}
+					}
+				}
+				return false;
+			},
+			MESSAGE_SELECTORS,
+			{ timeout }
+		);
+		return await handle.jsonValue();
+	} catch (error) {
+		throw new Error("No visible Frappe message found.");
 	}
-	throw new Error("No visible Frappe message found.");
 }
 
 async function expectValidationError(page, pattern, timeout = 10_000) {

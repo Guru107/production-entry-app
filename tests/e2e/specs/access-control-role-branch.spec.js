@@ -10,6 +10,7 @@ const ADMIN_USERNAME = process.env.PLAYWRIGHT_USERNAME || "Administrator";
 const ADMIN_PASSWORD = process.env.PLAYWRIGHT_PASSWORD || "123";
 const TEST_PASSWORD = process.env.PLAYWRIGHT_TEST_USER_PASSWORD || "E2eT3st!Pass#2026";
 const STOCK_ENTRY_ROLE = "Manufacturing User";
+const NATIVE_STOCK_ROLE = "Stock User";
 const WRITE_ROLE = "PEA User";
 const ACCESS_BLOCKED_TEXT_RE =
 	/not permitted|permission denied|page not found|does not exist|access denied/i;
@@ -94,7 +95,7 @@ test.describe("Access control role-only flow", () => {
 			email: deniedEmail,
 			firstName: "Denied",
 			password: TEST_PASSWORD,
-			roles: [STOCK_ENTRY_ROLE],
+			roles: [STOCK_ENTRY_ROLE, NATIVE_STOCK_ROLE],
 		});
 
 		await loginAsAdmin(page);

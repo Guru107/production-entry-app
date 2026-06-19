@@ -2260,6 +2260,7 @@ class TestShift(FrappeTestCase):
 		self.assertEqual(_to_date_str(running_doc.shift_end_date), "2026-02-17")
 
 		running_doc.shift_duration = "10"
+		running_doc.planned_start_time_input = "08:00"
 		running_doc.save()
 		running_doc.reload()
 

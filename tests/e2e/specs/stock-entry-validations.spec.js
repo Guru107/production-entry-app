@@ -11,6 +11,11 @@ async function setupFreshContext(page, prefix) {
 	return await bootstrapE2E(page, prefix);
 }
 
+function normalizeTime(value) {
+	const [hours, minutes = "00", seconds = "00"] = String(value).split(":");
+	return `${hours.padStart(2, "0")}:${minutes}:${seconds}`;
+}
+
 async function openManufactureEntry(page, ctx, options = {}) {
 	const stockEntryPage = new StockEntryPage(page);
 	await stockEntryPage.openNew();
@@ -139,6 +144,27 @@ test.describe("Stock Entry validation matrix", () => {
 		await setFieldValue(page, "company", ctx.company);
 		await setFieldValue(page, "from_warehouse", ctx.rm_warehouse);
 		await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
+		await page.evaluate(
+			({ itemCode, fromWarehouse, toWarehouse }) => {
+				cur_frm.clear_table("items");
+				cur_frm.add_child("items", {
+					item_code: itemCode,
+					s_warehouse: fromWarehouse,
+					t_warehouse: toWarehouse,
+					qty: 1,
+					transfer_qty: 1,
+					uom: "Nos",
+					stock_uom: "Nos",
+					conversion_factor: 1,
+				});
+				cur_frm.refresh_field("items");
+			},
+			{
+				itemCode: ctx.rm_item,
+				fromWarehouse: ctx.rm_warehouse,
+				toWarehouse: ctx.fg_warehouse,
+			}
+		);
 		await setFieldValue(page, "set_posting_time", 1);
 		await setFieldValue(page, "posting_date", ctx.shift_date);
 		await setFieldValue(page, "posting_time", "09:00:00");
@@ -382,8 +408,8 @@ test.describe("Stock Entry validation matrix", () => {
 			downtime_reason: "Tea Break",
 		});
 		await stockEntryPage.setUnplannedLossHelperRow(0, {
-			start_time_input: "1000",
-			end_time_input: "1015",
+			start_time_input: "0830",
+			end_time_input: "0845",
 		});
 
 		await stockEntryPage.saveDraft();
@@ -392,8 +418,12 @@ test.describe("Stock Entry validation matrix", () => {
 
 		expect(savedStockEntry.custom_pea_unplanned_losses || []).toHaveLength(1);
 		expect(savedStockEntry.custom_pea_unplanned_losses[0].downtime_reason).toBe("Tea Break");
-		expect(savedStockEntry.custom_pea_unplanned_losses[0].start_time).toBe("10:00:00");
-		expect(savedStockEntry.custom_pea_unplanned_losses[0].end_time).toBe("10:15:00");
+		expect(normalizeTime(savedStockEntry.custom_pea_unplanned_losses[0].start_time)).toBe(
+			"08:30:00"
+		);
+		expect(normalizeTime(savedStockEntry.custom_pea_unplanned_losses[0].end_time)).toBe(
+			"08:45:00"
+		);
 	});
 
 	test("@regression re-save remains idempotent for rejection row and finished good qty", async ({

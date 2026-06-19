@@ -39,6 +39,7 @@ RUNNING_SHIFT_USER_EDITABLE_FIELDS: frozenset[str] = frozenset(
 )
 RUNNING_SHIFT_SERVER_COMPUTED_FIELDS: frozenset[str] = frozenset(
 	{
+		"planned_start_time_input",
 		"planned_start_time",
 		"planned_end_time",
 		"shift_end_date",

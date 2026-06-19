@@ -1066,6 +1066,7 @@ def create_e2e_submitted_stock_entry(prefix: str = "E2E", rejection_qty: float =
 			"custom_pea_rejection_qty": float(rejection_qty or 0),
 			"custom_pea_actual_start_date": f"{shift_date} 08:00:00",
 			"custom_pea_actual_end_date": f"{shift_date} 09:00:00",
+			"set_posting_time": 1,
 			"posting_date": shift_date,
 			"posting_time": "09:00:00",
 		}
@@ -1129,6 +1130,7 @@ def _build_e2e_full_shift_entry_payloads(ctx: dict) -> list[dict]:
 				"custom_pea_rejection_qty": float(ctx["rejection_qty"] or 0),
 				"custom_pea_actual_start_date": str(current_start),
 				"custom_pea_actual_end_date": str(current_end),
+				"set_posting_time": 1,
 				"posting_date": str(current_end.date()),
 				"posting_time": str(current_end.time()),
 				"_pea_wip_warehouse": ctx["wip_warehouse"],
