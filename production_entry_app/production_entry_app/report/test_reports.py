@@ -1321,7 +1321,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		shift = self._create_shift_for_label("2094-06-07", "1")
-		self._ensure_fiscal_year("2094", "2094-01-01", "2094-12-31")
+		fiscal_year = self._ensure_fiscal_year("2094", "2094-01-01", "2094-12-31")
 		self._create_mock_submitted_entry_with_breakup(
 			posting_date="2094-06-07",
 			planned_start="2094-06-07 08:00:00",
@@ -1344,7 +1344,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 		_, oee_rows = oee_execute({"from_date": "2094-06-07", "to_date": "2094-06-07"})
 		daily_columns, daily_rows = daily_execute(
-			{"fiscal_year": "2094", "month": "June", "custom_pea_operator": "Report Operator"}
+			{"fiscal_year": fiscal_year, "month": "June", "custom_pea_operator": "Report Operator"}
 		)
 
 		self.assertIn("rework_qty", [c.get("fieldname") for c in operator_columns])
@@ -2609,7 +2609,7 @@ class TestProductionReports(FrappeTestCase):
 
 	# ── Daily Strokes SPM Monitor ─────────────────────────────────────
 
-	def _ensure_fiscal_year(self, fy_name: str, start_date: str, end_date: str) -> None:
+	def _ensure_fiscal_year(self, fy_name: str, start_date: str, end_date: str) -> str:
 		meta = frappe.get_meta("Fiscal Year", cached=True)
 		if frappe.db.exists("Fiscal Year", fy_name):
 			if meta.has_field("companies"):
@@ -2618,7 +2618,7 @@ class TestProductionReports(FrappeTestCase):
 					doc.append("companies", {"company": self.company})
 					doc.flags.ignore_validate_update_after_submit = True
 					doc.save(ignore_permissions=True)
-			return
+			return fy_name
 
 		covering_fiscal_year = frappe.get_all(
 			"Fiscal Year",
@@ -2637,7 +2637,7 @@ class TestProductionReports(FrappeTestCase):
 				doc.append("companies", {"company": self.company})
 				doc.flags.ignore_validate_update_after_submit = True
 				doc.save(ignore_permissions=True)
-			return
+			return doc.name
 
 		payload = {
 			"doctype": "Fiscal Year",
@@ -2647,15 +2647,16 @@ class TestProductionReports(FrappeTestCase):
 		}
 		if meta.has_field("companies"):
 			payload["companies"] = [{"company": self.company}]
-		frappe.get_doc(payload).insert(ignore_permissions=True)
+		doc = frappe.get_doc(payload).insert(ignore_permissions=True)
+		return doc.name
 
 	def test_daily_strokes_spm_monitor_columns_without_operator(self) -> None:
 		from production_entry_app.production_entry_app.report.daily_strokes_spm_monitor.daily_strokes_spm_monitor import (
 			execute,
 		)
 
-		self._ensure_fiscal_year("2090-2091", "2090-04-01", "2091-03-31")
-		columns, _ = execute({"fiscal_year": "2090-2091", "month": "April"})
+		fiscal_year = self._ensure_fiscal_year("2090-2091", "2090-04-01", "2091-03-31")
+		columns, _ = execute({"fiscal_year": fiscal_year, "month": "April"})
 		fieldnames = [c["fieldname"] for c in columns]
 		self.assertIn("operator", fieldnames)
 		self.assertEqual(
@@ -2678,9 +2679,9 @@ class TestProductionReports(FrappeTestCase):
 			execute,
 		)
 
-		self._ensure_fiscal_year("2090-2091", "2090-04-01", "2091-03-31")
+		fiscal_year = self._ensure_fiscal_year("2090-2091", "2090-04-01", "2091-03-31")
 		columns, _ = execute(
-			{"fiscal_year": "2090-2091", "month": "April", "custom_pea_operator": "Report Operator"}
+			{"fiscal_year": fiscal_year, "month": "April", "custom_pea_operator": "Report Operator"}
 		)
 		fieldnames = [c["fieldname"] for c in columns]
 		self.assertNotIn("operator", fieldnames)
@@ -2703,7 +2704,7 @@ class TestProductionReports(FrappeTestCase):
 			execute,
 		)
 
-		self._ensure_fiscal_year("2080-2081", "2080-04-01", "2081-03-31")
+		fiscal_year = self._ensure_fiscal_year("2080-2081", "2080-04-01", "2081-03-31")
 		shift = self._create_shift_for_label("2080-05-10", "1")
 		# actual_duration = 60 mins = 1 hour; fg_qty=100, rejection_qty=10
 		# After rejection hook: FG row=90, rejection row=10 → good_qty_map=90
@@ -2735,7 +2736,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute(
-			{"fiscal_year": "2080-2081", "month": "May", "custom_pea_operator": "Report Operator"}
+			{"fiscal_year": fiscal_year, "month": "May", "custom_pea_operator": "Report Operator"}
 		)
 		# Should have 1 data row + 1 totals row
 		self.assertEqual(len(rows), 2)
@@ -2760,7 +2761,7 @@ class TestProductionReports(FrappeTestCase):
 			execute,
 		)
 
-		self._ensure_fiscal_year("2082-2083", "2082-04-01", "2083-03-31")
+		fiscal_year = self._ensure_fiscal_year("2082-2083", "2082-04-01", "2083-03-31")
 		shift = self._create_shift_for_label("2082-05-11", "1")
 		self._create_mock_submitted_entry(
 			posting_date="2082-05-11",
@@ -2786,7 +2787,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute(
-			{"fiscal_year": "2082-2083", "month": "May", "custom_pea_operator": "Report Operator"}
+			{"fiscal_year": fiscal_year, "month": "May", "custom_pea_operator": "Report Operator"}
 		)
 		self.assertEqual(len(rows), 2)
 		data_row = rows[0]
@@ -2805,7 +2806,7 @@ class TestProductionReports(FrappeTestCase):
 			execute,
 		)
 
-		self._ensure_fiscal_year("2081-2082", "2081-04-01", "2082-03-31")
+		fiscal_year = self._ensure_fiscal_year("2081-2082", "2081-04-01", "2082-03-31")
 		shift1 = self._create_shift_for_label("2081-06-01", "1")
 		shift2 = self._create_shift_for_label("2081-06-02", "1")
 		self._create_mock_submitted_entry(
@@ -2830,7 +2831,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute(
-			{"fiscal_year": "2081-2082", "month": "June", "custom_pea_operator": "Report Operator"}
+			{"fiscal_year": fiscal_year, "month": "June", "custom_pea_operator": "Report Operator"}
 		)
 		# 2 data rows + 1 totals
 		self.assertEqual(len(rows), 3)
@@ -2848,8 +2849,8 @@ class TestProductionReports(FrappeTestCase):
 			execute,
 		)
 
-		self._ensure_fiscal_year("2099-2100", "2099-04-01", "2100-03-31")
-		_, rows = execute({"fiscal_year": "2099-2100", "month": "April"})
+		fiscal_year = self._ensure_fiscal_year("2099-2100", "2099-04-01", "2100-03-31")
+		_, rows = execute({"fiscal_year": fiscal_year, "month": "April"})
 		self.assertEqual(rows, [])
 
 	def test_daily_strokes_spm_monitor_throws_for_invalid_fiscal_year(self) -> None:
@@ -2882,7 +2883,7 @@ class TestProductionReports(FrappeTestCase):
 			execute,
 		)
 
-		self._ensure_fiscal_year("2092", "2092-01-01", "2092-12-31")
+		fiscal_year = self._ensure_fiscal_year("2092", "2092-01-01", "2092-12-31")
 		shift = self._create_shift_for_label("2092-01-10", "1")
 		self._create_mock_submitted_entry(
 			posting_date="2092-01-10",
@@ -2896,7 +2897,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute(
-			{"fiscal_year": "2092", "month": "January", "custom_pea_operator": "Report Operator"}
+			{"fiscal_year": fiscal_year, "month": "January", "custom_pea_operator": "Report Operator"}
 		)
 		self.assertEqual(rows[0]["date"], "2092-01-10")
 
@@ -2905,7 +2906,7 @@ class TestProductionReports(FrappeTestCase):
 			execute,
 		)
 
-		self._ensure_fiscal_year("2092-2093", "2092-10-01", "2093-09-30")
+		fiscal_year = self._ensure_fiscal_year("2092-2093", "2092-10-01", "2093-09-30")
 		shift = self._create_shift_for_label("2093-09-15", "1")
 		self._create_mock_submitted_entry(
 			posting_date="2093-09-15",
@@ -2919,7 +2920,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute(
-			{"fiscal_year": "2092-2093", "month": "September", "custom_pea_operator": "Report Operator"}
+			{"fiscal_year": fiscal_year, "month": "September", "custom_pea_operator": "Report Operator"}
 		)
 		self.assertEqual(rows[0]["date"], "2093-09-15")
 

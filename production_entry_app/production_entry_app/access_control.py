@@ -167,7 +167,7 @@ def assert_app_write_access(
 
 
 def has_gated_doctype_permission(
-	doc: Any = None, ptype: str | None = "read", user: str | None = None, debug: bool = False
+	doc: object | None = None, ptype: str | None = "read", user: str | None = None, debug: bool = False
 ) -> bool:
 	"""Return whether a gated document or doctype action is allowed."""
 	del doc, debug

@@ -548,6 +548,10 @@ class TestAccessControl(FrappeTestCase):
 			frappe.get_doc({"doctype": "Role", "role_name": DEFAULT_WRITE_ROLE}).insert(
 				ignore_permissions=True
 			)
+		if not frappe.db.exists("Role", DEFAULT_READ_ROLE):
+			frappe.get_doc({"doctype": "Role", "role_name": DEFAULT_READ_ROLE}).insert(
+				ignore_permissions=True
+			)
 
 		cache = frappe.cache()
 		cache.set_value(

@@ -6,7 +6,7 @@
 
 **Architecture:** Treat DocType, Report, Custom Field, and fixture metadata as source-controlled state, not runtime state that `migrate` rewrites. Keep runtime setup strict and idempotent, with no legacy fallbacks because this app is under development. Implement fixes in small TDD chunks so behavior changes, metadata changes, and client-side fixes can be reviewed and reverted independently.
 
-**Tech Stack:** Frappe v15/v16, ERPNext v15/v16, Python 3.10+, JavaScript, Playwright, Node test runner, bench, pre-commit, CodeGraph.
+**Tech Stack:** Frappe v15/v16, ERPNext v15/v16, Python 3.10+, JavaScript, Playwright, Node test runner, bench, pre-commit.
 
 ---
 
@@ -16,6 +16,10 @@
 - Repo rules: `CLAUDE.md`.
 - Project guidance: `AGENTS.md`, including CodeGraph-first structural exploration.
 - Current branch: `feature/roll-out-plan`.
+
+## CodeGraph Availability
+
+Use the repo-local CodeGraph MCP tools documented in `AGENTS.md` when `.codegraph/` exists. If those tools are unavailable, run `codegraph init -i` from `$APP_ROOT` or use the fallback `rg`/`git` commands listed in the affected task.
 
 ## Scope
 
@@ -42,7 +46,7 @@ Out of scope:
 - Before each chunk, run `git status --short --branch` and do not overwrite unrelated unstaged work.
 - Do not stage or revert existing source changes unless they are part of the current chunk.
 - Ask the user before destructive actions such as `git checkout --`, `git restore`, `rm`, or resetting report JSON files to another branch.
-- Use CodeGraph for structural lookups such as callers, callees, and impact checks.
+- Use CodeGraph for structural lookups when `.codegraph/` and `codegraph_*` tools are available; otherwise use the listed `rg`/`git` fallback commands.
 - Write or update failing tests before implementation changes.
 - Keep Python and JavaScript indentation consistent with repo rules: tabs in code, not spaces.
 - Keep commits small. Each chunk has its own commit step.
@@ -53,9 +57,10 @@ Out of scope:
 Use these shell variables in command snippets when executing the plan:
 
 ```bash
-APP_ROOT=/Users/gurudattkulkarni/Workspace/production-entry-app
-BENCH16=/Users/gurudattkulkarni/Workspace/bench16
-BENCH15=/Users/gurudattkulkarni/Workspace/bench15
+APP_ROOT=${APP_ROOT:-$(git rev-parse --show-toplevel)}
+WORKSPACE_ROOT=${WORKSPACE_ROOT:-$(dirname "$APP_ROOT")}
+BENCH16=${BENCH16:-$WORKSPACE_ROOT/bench16}
+BENCH15=${BENCH15:-$WORKSPACE_ROOT/bench15}
 SITE16=${SITE16:-frappe16.localhost}
 SITE15=${SITE15:-development.localhost}
 ```
@@ -98,7 +103,7 @@ If a local site name differs, set `SITE16` or `SITE15` explicitly before running
 
 ## Shared Verification Commands
 
-Run from `/Users/gurudattkulkarni/Workspace/production-entry-app` unless the command changes directory:
+Run from `$APP_ROOT` unless the command changes directory:
 
 ```bash
 git status --short --branch
@@ -171,6 +176,14 @@ Expected before implementation: at least one new test fails because report metad
 Use `codegraph_context` for `ensure_access_roles_and_settings` and `codegraph_impact` for `_migrate_report_access_metadata`.
 
 Expected: impacted callers are limited to access-control setup and tests.
+
+Fallback:
+
+```bash
+cd "$APP_ROOT"
+rg -n "ensure_access_roles_and_settings|_migrate_report_access_metadata" production_entry_app tests
+git diff -- production_entry_app/production_entry_app/access_control.py production_entry_app/production_entry_app/lifecycle.py
+```
 
 - [ ] **Step 2: Remove legacy migration paths**
 
@@ -322,6 +335,14 @@ Trade-off: Report metadata will no longer be auto-healed during migrate. Develop
 Use `codegraph_context` for `has_permission` and `codegraph_explore` on the matching DocType controller symbols.
 
 Expected: confirm all DocType permission hooks that need v15/v16 compatible signatures.
+
+Fallback:
+
+```bash
+cd "$APP_ROOT"
+rg -n "def has_permission" production_entry_app/production_entry_app/doctype --type=py
+rg -n "has_permission =" production_entry_app/hooks.py
+```
 
 - [ ] **Step 2: Create failing signature tests**
 

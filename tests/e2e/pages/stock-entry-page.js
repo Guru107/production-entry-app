@@ -250,8 +250,9 @@ class StockEntryPage {
 
 	async searchShiftLinkResults(text) {
 		return await retryOnContextDestroyed(this.page, async () => {
-			await this.page.waitForFunction(() =>
-				Boolean(window.cur_frm?.fields_dict?.custom_pea_shift)
+			await this.page.waitForFunction(
+				() =>
+					typeof window.cur_frm?.fields_dict?.custom_pea_shift?.get_query === "function"
 			);
 			return await this.page.evaluate(async (searchText) => {
 				const query = window.cur_frm?.fields_dict?.custom_pea_shift?.get_query?.() || {};

@@ -12,8 +12,8 @@ async function setupFreshContext(page, prefix) {
 }
 
 function normalizeTime(value) {
-	const [hours, minutes = "00", seconds = "00"] = String(value).split(":");
-	return `${hours.padStart(2, "0")}:${minutes}:${seconds}`;
+	const [hours = "00", minutes = "00", seconds = "00"] = String(value).split(":");
+	return `${hours.padStart(2, "0")}:${minutes.padStart(2, "0")}:${seconds.padStart(2, "0")}`;
 }
 
 async function openManufactureEntry(page, ctx, options = {}) {
