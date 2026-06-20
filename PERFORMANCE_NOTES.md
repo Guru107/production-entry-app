@@ -12,7 +12,7 @@
 
 - Dataset key: `PHASE2`
 - Seed size used for main throughput validation: `10,000` Manufacture Stock Entries
-- Harness: [report_benchmark.py](/Users/gurudattkulkarni/Workspace/production-entry-app/apps/production_entry_app/production_entry_app/production_entry_app/report/report_benchmark.py)
+- Harness removed after measurement; results remain here as historical evidence.
 
 ### A/B result against baseline
 
@@ -51,7 +51,7 @@ These are smoke timings, not baseline A/B comparisons.
 
 ## Write-path benchmark evidence
 
-Harness: [write_benchmark.py](/Users/gurudattkulkarni/Workspace/production-entry-app/apps/production_entry_app/production_entry_app/production_entry_app/write_benchmark.py)
+Harness removed after measurement; results remain here as historical evidence.
 
 Measured on `development.localhost` using the seeded `PHASE2` dataset with warmup iterations:
 
@@ -96,17 +96,3 @@ The code intentionally does not include a permanent report-sync hook for this de
 - The earlier `async fallback` checklist item was intentionally superseded by making all reports prepared reports by default.
 - The earlier Frappe test bootstrap timestamp issue was fixed by making test setup idempotent in [test_setup.py](/Users/gurudattkulkarni/Workspace/production-entry-app/apps/production_entry_app/production_entry_app/production_entry_app/utils/test_setup.py).
 - There are no known open checklist items from the performance plan on the current branch.
-
-## Useful commands
-
-```bash
-# Report throughput benchmark
-bench --site development.localhost execute \
-  production_entry_app.production_entry_app.report.report_benchmark.run_report_benchmark \
-  --kwargs '{"entry_count": 10000, "day_span": 20, "dataset_key": "PHASE2", "keep_data": 1}'
-
-# Write-path benchmark
-bench --site development.localhost execute \
-  production_entry_app.production_entry_app.write_benchmark.run_stock_entry_write_benchmark \
-  --kwargs '{"iterations": 3, "warmup_iterations": 1, "source_dataset_key": "PHASE2", "keep_data": 1}'
-```

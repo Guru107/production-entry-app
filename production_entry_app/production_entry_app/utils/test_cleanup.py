@@ -23,11 +23,6 @@ def cleanup_reserved_test_data() -> None:
 	api._cleanup_reserved_e2e_artifacts()
 
 
-def cleanup_reserved_benchmark_data() -> None:
-	"""No-op: benchmark-specific cleanup modules were removed in the audit slice."""
-	return
-
-
 def cleanup_after_python_test(snapshot: dict[str, Any] | None) -> None:
 	last_error: Exception | None = None
 	for _attempt in range(2):

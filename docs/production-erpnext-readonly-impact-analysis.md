@@ -41,7 +41,6 @@ New app DocTypes introduced by the module:
 - `Die Tool Counter`
 - `Die Tool Maintenance Log`
 - `Production Entry Settings`
-- `Production Entry Access Rule`
 
 ## Key Findings
 
