@@ -1,6 +1,7 @@
 const { test, expect } = require("@playwright/test");
 const { deleteRoleIfExists, deleteUserIfExists, ensureUser } = require("../fixtures/users");
 const { callFrappeMethod, getDoc, saveForm, setFieldValue } = require("../fixtures/frappe");
+const { bootstrapE2E, cleanupE2E } = require("../fixtures/test-data");
 const { ShiftPage } = require("../pages/shift-page");
 const { getRoute, getRouteRegex } = require("../utils/routing");
 
@@ -23,6 +24,12 @@ function reservedRoleName(label, suffix) {
 function futureDate(daysAhead = 45) {
 	const date = new Date();
 	date.setDate(date.getDate() + daysAhead);
+	return date.toISOString().slice(0, 10);
+}
+
+function plusOneDay(dateString) {
+	const date = new Date(dateString);
+	date.setDate(date.getDate() + 1);
 	return date.toISOString().slice(0, 10);
 }
 
@@ -80,34 +87,65 @@ async function ensureDepartment(page, departmentName = "E2E Department") {
 	return doc.name;
 }
 
-async function getShiftSeedFields(page) {
+async function setAccessControl(page, { enabled, writeRole = "PEA User" }) {
+	await callFrappeMethod(
+		page,
+		"production_entry_app.production_entry_app.api.set_e2e_access_control",
+		{
+			enabled: enabled ? 1 : 0,
+			write_role: writeRole,
+		}
+	);
+}
+
+async function getShiftSeedFields(page, prefix) {
+	if (prefix) {
+		const ctx = await bootstrapE2E(page, prefix);
+		const seededShift = await getDoc(page, "Shift", ctx.shift_name);
+		return {
+			company: ctx.company,
+			department: seededShift.department,
+			branch: ctx.branch,
+			raw_material_warehouse: ctx.rm_warehouse,
+			work_in_progress_warehouse: ctx.wip_warehouse,
+			rejection_warehouse: ctx.rejection_warehouse,
+			shift_date: plusOneDay(ctx.shift_date),
+			shift_label: "2",
+		};
+	}
 	return {
 		department: await ensureDepartment(page),
 		branch: await ensureBranch(page),
+		shift_date: futureDate(),
+		shift_label: "1",
 	};
 }
 
-async function runShiftCrudAsRole(page, { email, role, dayOffset }) {
-	const shiftFields = await getShiftSeedFields(page);
+async function runShiftCrudAsRole(page, { email, role, prefix }) {
+	const shiftFields = await getShiftSeedFields(page, prefix);
 	await ensureUser(page, {
 		email,
 		firstName: role.replace(/\s+/g, ""),
 		password: TEST_PASSWORD,
 		roles: [role],
 	});
+	await setAccessControl(page, { enabled: true });
 
 	await loginAs(page, email, TEST_PASSWORD);
 
-	const shiftDate = futureDate(dayOffset + Math.floor(Math.random() * 3650));
 	const shiftPage = new ShiftPage(page);
 	const createdDoc = await callFrappeMethod(page, "frappe.client.insert", {
 		doc: JSON.stringify({
 			doctype: "Shift",
 			department: shiftFields.department,
 			branch: shiftFields.branch,
-			shift_label: "1",
+			company: shiftFields.company,
+			raw_material_warehouse: shiftFields.raw_material_warehouse,
+			work_in_progress_warehouse: shiftFields.work_in_progress_warehouse,
+			rejection_warehouse: shiftFields.rejection_warehouse,
+			shift_label: shiftFields.shift_label,
 			shift_duration: "8",
-			shift_date: shiftDate,
+			shift_date: shiftFields.shift_date,
 			planned_start_time: "06:00:00",
 		}),
 	});
@@ -145,9 +183,14 @@ async function runShiftCrudAsRole(page, { email, role, dayOffset }) {
 test.describe("Permissions", () => {
 	const createdUsers = new Set();
 	const createdRoles = new Set();
+	const createdPrefixes = new Set();
 
 	test.afterEach(async ({ page }) => {
 		await loginAsAdmin(page);
+		for (const prefix of createdPrefixes) {
+			await cleanupE2E(page, prefix);
+		}
+		await setAccessControl(page, { enabled: false });
 		for (const email of createdUsers) {
 			await deleteUserIfExists(page, email);
 		}
@@ -156,37 +199,40 @@ test.describe("Permissions", () => {
 		}
 		createdUsers.clear();
 		createdRoles.clear();
+		createdPrefixes.clear();
 	});
 
-	test("@regression manufacturing user can create read update delete Shift in UI", async ({
-		page,
-	}) => {
+	test("@regression PEA user can create read update delete Shift in UI", async ({ page }) => {
 		await loginAsAdmin(page);
 		const suffix = uniqueSuffix();
-		const email = reservedUserEmail("mfg-user", suffix);
+		const email = reservedUserEmail("pea-user", suffix);
+		const prefix = `E2E-PERM-PEA-${suffix}`;
 		createdUsers.add(email);
+		createdPrefixes.add(prefix);
 
 		await runShiftCrudAsRole(page, {
 			email,
-			role: "Manufacturing User",
-			dayOffset: 46,
+			role: "PEA User",
+			prefix,
 		});
 
 		await loginAsAdmin(page);
 	});
 
-	test("@regression manufacturing manager can create read update delete Shift in UI", async ({
+	test("@regression system manager can create read update delete Shift in UI", async ({
 		page,
 	}) => {
 		await loginAsAdmin(page);
 		const suffix = uniqueSuffix();
-		const email = reservedUserEmail("mfg-manager", suffix);
+		const email = reservedUserEmail("system-manager", suffix);
+		const prefix = `E2E-PERM-SM-${suffix}`;
 		createdUsers.add(email);
+		createdPrefixes.add(prefix);
 
 		await runShiftCrudAsRole(page, {
 			email,
-			role: "Manufacturing Manager",
-			dayOffset: 47,
+			role: "System Manager",
+			prefix,
 		});
 
 		await loginAsAdmin(page);
@@ -199,8 +245,10 @@ test.describe("Permissions", () => {
 		const suffix = uniqueSuffix();
 		const email = reservedUserEmail("non-mfg", suffix);
 		const noManufacturingRole = reservedRoleName("no-manufacturing", suffix);
+		const prefix = `E2E-PERM-DENY-${suffix}`;
 		createdUsers.add(email);
 		createdRoles.add(noManufacturingRole);
+		createdPrefixes.add(prefix);
 
 		await ensureUser(page, {
 			email,
@@ -208,6 +256,8 @@ test.describe("Permissions", () => {
 			password: TEST_PASSWORD,
 			roles: [noManufacturingRole],
 		});
+		const shiftSeedFields = await getShiftSeedFields(page, prefix);
+		await setAccessControl(page, { enabled: true });
 
 		await loginAs(page, email, TEST_PASSWORD);
 
@@ -226,10 +276,8 @@ test.describe("Permissions", () => {
 			callFrappeMethod(page, "frappe.client.insert", {
 				doc: JSON.stringify({
 					doctype: "Shift",
-					...(await getShiftSeedFields(page)),
-					shift_label: "1",
+					...shiftSeedFields,
 					shift_duration: "8",
-					shift_date: futureDate(49),
 					planned_start_time: "08:00:00",
 				}),
 			})
@@ -272,17 +320,15 @@ test.describe("Permissions", () => {
 		await page.goto(getRoute(`/downtime-reason/${encodeURIComponent(docName)}`));
 		await page.waitForFunction((name) => window.cur_frm?.doc?.name === name, docName);
 
-		const renamedReason = `${reasonName}-UPDATED`;
-		await callFrappeMethod(page, "frappe.rename_doc", {
+		await callFrappeMethod(page, "frappe.client.set_value", {
 			doctype: "Downtime Reason",
-			old: docName,
-			new: renamedReason,
-			merge: 0,
+			name: docName,
+			fieldname: "is_active",
+			value: 0,
 		});
-		docName = renamedReason;
 		const updatedReason = await getDoc(page, "Downtime Reason", docName);
-		expect(updatedReason.name).toBe(renamedReason);
-		expect(updatedReason.downtime_reason_name).toBe(renamedReason);
+		expect(updatedReason.name).toBe(reasonName);
+		expect(Number(updatedReason.is_active)).toBe(0);
 
 		await page.goto(getRoute(`/downtime-reason/${encodeURIComponent(docName)}`));
 		await page.waitForFunction((name) => window.cur_frm?.doc?.name === name, docName);

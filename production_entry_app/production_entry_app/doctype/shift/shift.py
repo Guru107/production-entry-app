@@ -39,6 +39,7 @@ RUNNING_SHIFT_USER_EDITABLE_FIELDS: frozenset[str] = frozenset(
 )
 RUNNING_SHIFT_SERVER_COMPUTED_FIELDS: frozenset[str] = frozenset(
 	{
+		"planned_start_time_input",
 		"planned_start_time",
 		"planned_end_time",
 		"shift_end_date",
@@ -1274,7 +1275,9 @@ class Shift(Document):
 		self.save()
 		self.add_comment(
 			"Info",
-			_("Status changed to {0}.").format(frappe.bold(to_status)),
+			_("Status changed to {0} by {1}").format(
+				frappe.bold(to_status), frappe.bold(frappe.session.user)
+			),
 		)
 
 		if to_status == "Running":

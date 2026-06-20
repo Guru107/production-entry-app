@@ -11,6 +11,11 @@ async function setupFreshContext(page, prefix) {
 	return await bootstrapE2E(page, prefix);
 }
 
+function normalizeTime(value) {
+	const [hours = "00", minutes = "00", seconds = "00"] = String(value).split(":");
+	return `${hours.padStart(2, "0")}:${minutes.padStart(2, "0")}:${seconds.padStart(2, "0")}`;
+}
+
 async function openManufactureEntry(page, ctx, options = {}) {
 	const stockEntryPage = new StockEntryPage(page);
 	await stockEntryPage.openNew();
@@ -103,6 +108,7 @@ test.describe("Stock Entry validation matrix", () => {
 		page,
 	}) => {
 		await page.goto(getRoute("/home"));
+		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 
 		const stockEntryPage = new StockEntryPage(page);
 		await stockEntryPage.openNew();
@@ -130,6 +136,47 @@ test.describe("Stock Entry validation matrix", () => {
 			false
 		);
 		expect(await stockEntryPage.isFieldVisible("custom_pea_actual_end_time_input")).toBe(
+			false
+		);
+		expect(await stockEntryPage.isFieldVisible("custom_pea_workstation")).toBe(false);
+		expect(await stockEntryPage.isFieldVisible("custom_pea_fetch_items")).toBe(false);
+
+		await setFieldValue(page, "company", ctx.company);
+		await setFieldValue(page, "from_warehouse", ctx.rm_warehouse);
+		await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
+		await page.evaluate(
+			({ itemCode, fromWarehouse, toWarehouse }) => {
+				cur_frm.clear_table("items");
+				cur_frm.add_child("items", {
+					item_code: itemCode,
+					s_warehouse: fromWarehouse,
+					t_warehouse: toWarehouse,
+					qty: 1,
+					transfer_qty: 1,
+					uom: "Nos",
+					stock_uom: "Nos",
+					conversion_factor: 1,
+				});
+				cur_frm.refresh_field("items");
+			},
+			{
+				itemCode: ctx.rm_item,
+				fromWarehouse: ctx.rm_warehouse,
+				toWarehouse: ctx.fg_warehouse,
+			}
+		);
+		await setFieldValue(page, "set_posting_time", 1);
+		await setFieldValue(page, "posting_date", ctx.shift_date);
+		await setFieldValue(page, "posting_time", "09:00:00");
+		await stockEntryPage.attemptSaveDraft();
+		await page.waitForFunction(() => {
+			const name = window.cur_frm?.doc?.name || "";
+			return Boolean(name) && !String(name).startsWith("new-stock-entry");
+		});
+		await expect
+			.poll(async () => await stockEntryPage.isFieldVisible("custom_pea_shift"))
+			.toBe(false);
+		expect(await stockEntryPage.isSectionVisible("custom_pea_operation_details_section")).toBe(
 			false
 		);
 		expect(await stockEntryPage.isFieldVisible("custom_pea_workstation")).toBe(false);
@@ -361,8 +408,8 @@ test.describe("Stock Entry validation matrix", () => {
 			downtime_reason: "Tea Break",
 		});
 		await stockEntryPage.setUnplannedLossHelperRow(0, {
-			start_time_input: "1000",
-			end_time_input: "1015",
+			start_time_input: "0830",
+			end_time_input: "0845",
 		});
 
 		await stockEntryPage.saveDraft();
@@ -371,8 +418,12 @@ test.describe("Stock Entry validation matrix", () => {
 
 		expect(savedStockEntry.custom_pea_unplanned_losses || []).toHaveLength(1);
 		expect(savedStockEntry.custom_pea_unplanned_losses[0].downtime_reason).toBe("Tea Break");
-		expect(savedStockEntry.custom_pea_unplanned_losses[0].start_time).toBe("10:00:00");
-		expect(savedStockEntry.custom_pea_unplanned_losses[0].end_time).toBe("10:15:00");
+		expect(normalizeTime(savedStockEntry.custom_pea_unplanned_losses[0].start_time)).toBe(
+			"08:30:00"
+		);
+		expect(normalizeTime(savedStockEntry.custom_pea_unplanned_losses[0].end_time)).toBe(
+			"08:45:00"
+		);
 	});
 
 	test("@regression re-save remains idempotent for rejection row and finished good qty", async ({

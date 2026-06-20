@@ -20,12 +20,15 @@ frappe.ui.form.on("Shift", {
 		_set_department_query(frm);
 	},
 	planned_start_time(frm) {
+		_sync_planned_end_fields(frm);
 		_populate_default_breaks_if_draft(frm);
 	},
 	shift_duration(frm) {
+		_sync_planned_end_fields(frm);
 		_populate_default_breaks_if_draft(frm);
 	},
 	shift_date(frm) {
+		_sync_planned_end_fields(frm);
 		_populate_default_breaks_if_draft(frm);
 	},
 	refresh(frm) {
@@ -178,6 +181,72 @@ function _set_warehouse_queries(frm) {
 			return { filters };
 		});
 	});
+}
+
+function _sync_planned_end_fields(frm) {
+	const dateParts = _parse_iso_date(frm.doc.shift_date);
+	const timeParts = _parse_frappe_time(frm.doc.planned_start_time);
+	const durationHours = parseInt(frm.doc.shift_duration, 10);
+	if (!dateParts || !timeParts || !Number.isFinite(durationHours)) {
+		return;
+	}
+
+	const end = new Date(
+		Date.UTC(
+			dateParts.year,
+			dateParts.month - 1,
+			dateParts.day,
+			timeParts.hour + durationHours,
+			timeParts.minute,
+			timeParts.second
+		)
+	);
+	frm.set_value("planned_end_time", _format_utc_time(end));
+	frm.set_value("shift_end_date", _format_utc_date(end));
+}
+
+function _parse_iso_date(value) {
+	const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+	if (!match) {
+		return null;
+	}
+	return {
+		year: Number(match[1]),
+		month: Number(match[2]),
+		day: Number(match[3]),
+	};
+}
+
+function _parse_frappe_time(value) {
+	const match = String(value || "").match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+	if (!match) {
+		return null;
+	}
+	return {
+		hour: Number(match[1]),
+		minute: Number(match[2]),
+		second: Number(match[3] || 0),
+	};
+}
+
+function _pad2(value) {
+	return String(value).padStart(2, "0");
+}
+
+function _format_utc_date(value) {
+	return [
+		value.getUTCFullYear(),
+		_pad2(value.getUTCMonth() + 1),
+		_pad2(value.getUTCDate()),
+	].join("-");
+}
+
+function _format_utc_time(value) {
+	return [
+		_pad2(value.getUTCHours()),
+		_pad2(value.getUTCMinutes()),
+		_pad2(value.getUTCSeconds()),
+	].join(":");
 }
 
 function _populate_default_breaks_if_draft(frm) {

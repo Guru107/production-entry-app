@@ -8,6 +8,23 @@
 		return { enabled: Boolean(value && value.enabled) };
 	}
 
+	function _translate(message) {
+		return typeof __ === "function" ? __(message) : message;
+	}
+
+	function _showAccessSettingsUnavailable() {
+		if (typeof frappe.msgprint !== "function") {
+			return;
+		}
+		frappe.msgprint({
+			title: _translate("Access settings unavailable"),
+			message: _translate(
+				"Could not load Production Entry access settings. Please refresh and try again."
+			),
+			indicator: "orange",
+		});
+	}
+
 	function _fetchState() {
 		if (typeof frappe === "undefined" || typeof frappe.call !== "function") {
 			_state = DEFAULT_STATE;
@@ -22,8 +39,9 @@
 					resolve(_state);
 				},
 				error(error) {
-					console.warn("Production Entry App access-control state fetch failed.", error);
 					_state = DEFAULT_STATE;
+					_showAccessSettingsUnavailable();
+					console.error("[production_entry_app] Failed to load access settings", error);
 					resolve(_state);
 				},
 			});

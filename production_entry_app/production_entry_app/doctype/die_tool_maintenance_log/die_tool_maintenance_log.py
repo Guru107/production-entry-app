@@ -29,8 +29,9 @@ class DieToolMaintenanceLog(Document):
 	def on_submit(self) -> None:
 		reset_counter_from_maintenance_log(self.die_tool_item, self.maintenance_date)
 
-	def has_permission(self, ptype: str = "read") -> bool:
-		return access_control.has_gated_doctype_permission(self, ptype=ptype)
+	def has_permission(self, ptype: str | None = None, user: str | None = None, debug: bool = False) -> bool:
+		del debug
+		return access_control.has_gated_doctype_permission(self, ptype=ptype or "read", user=user)
 
 
 def _sanitize_item_code(item_code: str) -> str:

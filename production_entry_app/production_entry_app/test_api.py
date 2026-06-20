@@ -120,6 +120,9 @@ class TestE2EApi(FrappeTestCase):
 				return_value=0,
 			),
 			patch(
+				"production_entry_app.production_entry_app.utils.test_bootstrap.ensure_fiscal_year_for_date"
+			) as ensure_fiscal_year,
+			patch(
 				"production_entry_app.production_entry_app.utils.test_bootstrap.frappe.get_doc",
 				return_value=stock_entry,
 			) as get_doc,
@@ -130,6 +133,7 @@ class TestE2EApi(FrappeTestCase):
 		self.assertEqual(doc["posting_date"], "2099-01-20")
 		self.assertEqual(doc["posting_time"], "00:00:00")
 		self.assertEqual(doc["set_posting_time"], 1)
+		ensure_fiscal_year.assert_called_once_with("2099-01-20", "_Test Company")
 		stock_entry.insert.assert_called_once_with(ignore_permissions=True)
 		stock_entry.submit.assert_called_once_with()
 
@@ -204,7 +208,7 @@ class TestE2EApi(FrappeTestCase):
 		self.assertEqual(get_single_value.call_count, 2)
 		commit.assert_called_once()
 
-	def test_set_e2e_access_control_accepts_legacy_required_role_fallback(self) -> None:
+	def test_set_e2e_access_control_does_not_accept_legacy_required_role(self) -> None:
 		with ExitStack() as stack:
 			stack.enter_context(
 				patch("production_entry_app.production_entry_app.api._assert_e2e_api_allowed")
@@ -233,10 +237,10 @@ class TestE2EApi(FrappeTestCase):
 			)
 			stack.enter_context(patch("production_entry_app.production_entry_app.api.frappe.db.commit"))
 
-			result = set_e2e_access_control(enabled=1, required_role=" Legacy Writer ")
+			with self.assertRaises(TypeError):
+				set_e2e_access_control(required_role="Manufacturing User")
 
-		self.assertEqual(result["write_role"], "Legacy Writer")
-		set_single_value.assert_any_call("Production Entry Settings", "write_role", "Legacy Writer")
+		set_single_value.assert_not_called()
 
 	def test_cache_e2e_settings_snapshot_skips_existing_cache(self) -> None:
 		cache = MagicMock()
@@ -788,6 +792,13 @@ class TestE2EApi(FrappeTestCase):
 		se2 = frappe._dict(
 			{"name": "STE-OK", "docstatus": 0, "custom_pea_operator": "E2E Operator", "items": []}
 		)
+		stock_entries = {se1.name: se1, se2.name: se2}
+		real_get_doc = frappe.get_doc
+
+		def get_doc(doctype: str, name: str | None = None, *args, **kwargs):
+			if doctype == "Stock Entry" and name in stock_entries:
+				return stock_entries[name]
+			return real_get_doc(doctype, name, *args, **kwargs)
 
 		with patch(
 			"production_entry_app.production_entry_app.api._get_candidate_e2e_stock_entries",
@@ -807,7 +818,7 @@ class TestE2EApi(FrappeTestCase):
 						):
 							with patch(
 								"production_entry_app.production_entry_app.api.frappe.get_doc",
-								side_effect=[se1, se2],
+								side_effect=get_doc,
 							):
 								with patch(
 									"production_entry_app.production_entry_app.api.frappe.delete_doc",
@@ -1575,7 +1586,7 @@ class TestE2EApi(FrappeTestCase):
 					},
 				)
 			)
-			stack.enter_context(
+			get_doc = stack.enter_context(
 				patch(
 					"production_entry_app.production_entry_app.api.frappe.get_doc", side_effect=[shift, doc]
 				)
@@ -1588,6 +1599,10 @@ class TestE2EApi(FrappeTestCase):
 			result = create_e2e_submitted_stock_entry(prefix="E2E", rejection_qty=4)
 
 		self.assertEqual(result, {"name": "MAT-STE-001", "docstatus": 1, "posting_date": "2099-01-20"})
+		doc_payload = get_doc.call_args_list[1].args[0]
+		self.assertEqual(doc_payload["posting_date"], "2099-01-20")
+		self.assertEqual(doc_payload["posting_time"], "09:00:00")
+		self.assertEqual(doc_payload["set_posting_time"], 1)
 		doc.get_items.assert_called_once()
 		doc.append.assert_called_once_with(
 			"custom_pea_rejection_breakup", {"rejection_reason": "Burr", "qty": 4.0}
@@ -1707,8 +1722,12 @@ class TestE2EApi(FrappeTestCase):
 		second_payload = get_doc.call_args_list[2].args[0]
 		self.assertEqual(first_payload["custom_pea_actual_start_date"], "2099-01-20 08:00:00")
 		self.assertEqual(first_payload["custom_pea_actual_end_date"], "2099-01-20 08:30:00")
+		self.assertEqual(first_payload["set_posting_time"], 1)
+		self.assertEqual(first_payload["posting_date"], "2099-01-20")
 		self.assertEqual(second_payload["custom_pea_actual_start_date"], "2099-01-20 08:30:00")
 		self.assertEqual(second_payload["custom_pea_actual_end_date"], "2099-01-20 09:00:00")
+		self.assertEqual(second_payload["set_posting_time"], 1)
+		self.assertEqual(second_payload["posting_date"], "2099-01-20")
 		first_doc.get_items.assert_called_once()
 		second_doc.get_items.assert_called_once()
 		first_doc.append.assert_not_called()

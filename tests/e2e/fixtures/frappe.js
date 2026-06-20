@@ -14,8 +14,29 @@ async function retryOnContextDestroyed(page, action, retries = 3) {
 	}
 }
 
+async function getCsrfToken(page, retries = 3) {
+	for (let attempt = 0; attempt < retries; attempt += 1) {
+		try {
+			const token = await page.evaluate(() => window.frappe?.csrf_token || "");
+			if (token) {
+				return token;
+			}
+			if (attempt === retries - 1) {
+				throw new Error("Unable to read CSRF token after retries.");
+			}
+		} catch (error) {
+			const message = String(error?.message || "");
+			if (!message.includes("Execution context was destroyed") || attempt === retries - 1) {
+				throw error;
+			}
+		}
+		await page.waitForLoadState("domcontentloaded", { timeout: 5000 }).catch(() => {});
+	}
+	throw new Error("Unable to read CSRF token after retries.");
+}
+
 async function callFrappeMethod(page, method, args = {}) {
-	const csrfToken = await page.evaluate(() => window.frappe?.csrf_token || "");
+	const csrfToken = await getCsrfToken(page);
 	const response = await page.request.post(`/api/method/${method}`, {
 		form: args,
 		headers: {

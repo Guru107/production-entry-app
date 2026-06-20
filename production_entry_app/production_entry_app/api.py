@@ -80,6 +80,9 @@ def _ensure_e2e_settings_fields_loaded() -> None:
 @frappe.whitelist()
 def get_access_control_state() -> dict[str, bool]:
 	"""Return whether the current user can access Production Entry App."""
+	# E2E role-toggle tests call this immediately after mutating singleton settings.
+	# Drop process cache first so this response reflects persisted settings and roles.
+	access_control.invalidate_access_control_cache()
 	return {"enabled": access_control.has_app_permission()}
 
 
@@ -88,12 +91,11 @@ def set_e2e_access_control(
 	enabled: int = 0,
 	write_role: str | None = None,
 	read_role: str = access_control.DEFAULT_READ_ROLE,
-	required_role: str | None = None,
 ) -> dict:
 	"""Set access-control flags for E2E without full-doc validation side effects."""
 	_assert_e2e_api_allowed()
-	write_role_value = (write_role or required_role or access_control.DEFAULT_WRITE_ROLE).strip()
-	read_role_value = (read_role or access_control.DEFAULT_READ_ROLE).strip()
+	write_role_value = (write_role or "").strip() or access_control.DEFAULT_WRITE_ROLE
+	read_role_value = (read_role or "").strip() or access_control.DEFAULT_READ_ROLE
 	previous_write_role = frappe.db.get_single_value("Production Entry Settings", "write_role")
 	previous_read_role = frappe.db.get_single_value("Production Entry Settings", "read_role")
 	frappe.db.set_single_value("Production Entry Settings", "enable_access_control", cint(enabled))
@@ -1064,6 +1066,7 @@ def create_e2e_submitted_stock_entry(prefix: str = "E2E", rejection_qty: float =
 			"custom_pea_rejection_qty": float(rejection_qty or 0),
 			"custom_pea_actual_start_date": f"{shift_date} 08:00:00",
 			"custom_pea_actual_end_date": f"{shift_date} 09:00:00",
+			"set_posting_time": 1,
 			"posting_date": shift_date,
 			"posting_time": "09:00:00",
 		}
@@ -1127,6 +1130,7 @@ def _build_e2e_full_shift_entry_payloads(ctx: dict) -> list[dict]:
 				"custom_pea_rejection_qty": float(ctx["rejection_qty"] or 0),
 				"custom_pea_actual_start_date": str(current_start),
 				"custom_pea_actual_end_date": str(current_end),
+				"set_posting_time": 1,
 				"posting_date": str(current_end.date()),
 				"posting_time": str(current_end.time()),
 				"_pea_wip_warehouse": ctx["wip_warehouse"],

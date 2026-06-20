@@ -5,6 +5,7 @@ const {
 	_normalize_purpose,
 	_is_manufacture_doc,
 	_did_leave_manufacture,
+	_apply_native_manufacture_visibility,
 	_should_override_fg_completed_qty,
 	_run_when_app_enabled,
 	_sync_native_get_items_access,
@@ -59,6 +60,47 @@ test("leave-manufacture transition detector works", () => {
 	assert.equal(_did_leave_manufacture("Material Transfer", "Material Transfer"), false);
 });
 
+test("native manufacture fields hide for non-manufacture without app access", () => {
+	assert.equal(typeof _apply_native_manufacture_visibility, "function");
+	const calls = [];
+	const frm = {
+		doc: {
+			custom_pea_stock_entry_purpose: "Material Transfer",
+		},
+		toggle_display(fieldnames, visible) {
+			calls.push([fieldnames, visible]);
+		},
+	};
+
+	_apply_native_manufacture_visibility(frm);
+
+	assert.deepEqual(calls, [
+		[["from_bom", "bom_no", "use_multi_level_bom", "fg_completed_qty"], false],
+		[["bom_info_section"], false],
+		[["process_loss_percentage", "process_loss_qty"], false],
+		[["section_break_7qsm"], false],
+	]);
+});
+
+test("stock entry PEA sections are metadata-gated to manufacture", () => {
+	const customFields = require("../../production_entry_app/fixtures/custom_field.json");
+	const byFieldname = Object.fromEntries(
+		customFields.filter((row) => row.dt === "Stock Entry").map((row) => [row.fieldname, row])
+	);
+	const sectionFieldnames = [
+		"custom_pea_operation_details_section",
+		"custom_pea_workstation_operator_section",
+		"custom_pea_unplanned_losses_section",
+		"custom_pea_metrics_section",
+	];
+
+	for (const fieldname of sectionFieldnames) {
+		const dependsOn = byFieldname[fieldname]?.depends_on || "";
+		assert.match(dependsOn, /custom_pea_stock_entry_purpose/);
+		assert.match(dependsOn, /Manufacture/);
+	}
+});
+
 test("fg completed qty override is disabled until required-role access is explicitly allowed", () => {
 	const originalWindow = global.window;
 	global.window = {
@@ -87,6 +129,57 @@ test("fg completed qty override is disabled until required-role access is explic
 		assert.equal(_should_override_fg_completed_qty(), true);
 	} finally {
 		global.window = originalWindow;
+	}
+});
+
+test("fg completed qty prototype patch preserves ERPNext fallback for non-manufacture documents", () => {
+	const modulePath = "../../production_entry_app/public/js/stock_entry.js";
+	const moduleId = require.resolve(modulePath);
+	const cachedModule = require.cache[moduleId];
+	const originalWindow = global.window;
+	const originalErpnext = global.erpnext;
+	let originalCallCount = 0;
+	const erpnextStub = {
+		stock: {
+			StockEntry: function StockEntry() {},
+		},
+	};
+	erpnextStub.stock.StockEntry.prototype.fg_completed_qty = function () {
+		originalCallCount += 1;
+		return "native-result";
+	};
+
+	delete require.cache[moduleId];
+	global.erpnext = erpnextStub;
+	global.window = {
+		erpnext: erpnextStub,
+		production_entry_app: {
+			access_control: {
+				get_cached_access_control_state() {
+					return { enabled: true };
+				},
+			},
+		},
+	};
+
+	try {
+		require(modulePath);
+
+		const controller = new erpnextStub.stock.StockEntry();
+		controller.frm = {
+			doc: { custom_pea_stock_entry_purpose: "Material Transfer", from_bom: 1 },
+		};
+
+		assert.equal(controller.fg_completed_qty(), "native-result");
+		assert.equal(originalCallCount, 1);
+	} finally {
+		if (cachedModule) {
+			require.cache[moduleId] = cachedModule;
+		} else {
+			delete require.cache[moduleId];
+		}
+		global.window = originalWindow;
+		global.erpnext = originalErpnext;
 	}
 });
 
@@ -150,6 +243,41 @@ test("app-enabled callbacks stay fail-closed when access lookup rejects", async 
 	}
 });
 
+test("native get_items remains hidden for non-manufacture denied users", () => {
+	const calls = [];
+	const frm = {
+		doc: { custom_pea_stock_entry_purpose: "Material Transfer" },
+		toggle_display(fieldname, visible) {
+			calls.push(["toggle_display", fieldname, visible]);
+		},
+		set_df_property(fieldname, property, value) {
+			calls.push(["set_df_property", fieldname, property, value]);
+		},
+	};
+	const originalWindow = global.window;
+	global.window = {
+		production_entry_app: {
+			access_control: {
+				get_cached_access_control_state() {
+					return { enabled: false };
+				},
+			},
+		},
+	};
+
+	try {
+		_sync_native_get_items_access(frm);
+
+		assert.deepEqual(calls.slice(-3), [
+			["toggle_display", "get_items", false],
+			["set_df_property", "get_items", "hidden", 1],
+			["set_df_property", "get_items", "read_only", 1],
+		]);
+	} finally {
+		global.window = originalWindow;
+	}
+});
+
 test("native get_items stays hidden while required-role access is unresolved and only reappears for denied users", async () => {
 	const originalWindow = global.window;
 	let resolveReady;
@@ -158,6 +286,7 @@ test("native get_items stays hidden while required-role access is unresolved and
 	});
 	const calls = [];
 	const frm = {
+		doc: { custom_pea_stock_entry_purpose: "Manufacture" },
 		toggle_display(fieldname, visible) {
 			calls.push(["toggle_display", fieldname, visible]);
 		},
@@ -207,6 +336,7 @@ test("native get_items falls back to visible when access lookup rejects", async 
 	});
 	const calls = [];
 	const frm = {
+		doc: { custom_pea_stock_entry_purpose: "Manufacture" },
 		toggle_display(fieldname, visible) {
 			calls.push(["toggle_display", fieldname, visible]);
 		},

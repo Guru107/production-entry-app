@@ -10,7 +10,8 @@ const ADMIN_USERNAME = process.env.PLAYWRIGHT_USERNAME || "Administrator";
 const ADMIN_PASSWORD = process.env.PLAYWRIGHT_PASSWORD || "123";
 const TEST_PASSWORD = process.env.PLAYWRIGHT_TEST_USER_PASSWORD || "E2eT3st!Pass#2026";
 const STOCK_ENTRY_ROLE = "Manufacturing User";
-const REQUIRED_ROLE = "PEA User";
+const NATIVE_STOCK_ROLE = "Stock User";
+const WRITE_ROLE = "PEA User";
 const ACCESS_BLOCKED_TEXT_RE =
 	/not permitted|permission denied|page not found|does not exist|access denied/i;
 
@@ -38,14 +39,14 @@ async function loginAsAdmin(page) {
 	await loginAs(page, ADMIN_USERNAME, ADMIN_PASSWORD);
 }
 
-async function ensureAccessRule(page, { enabled, requiredRole = REQUIRED_ROLE }) {
-	await ensureRole(page, requiredRole);
+async function ensureAccessRule(page, { enabled, writeRole = WRITE_ROLE }) {
+	await ensureRole(page, writeRole);
 	await callFrappeMethod(
 		page,
 		"production_entry_app.production_entry_app.api.set_e2e_access_control",
 		{
 			enabled: enabled ? 1 : 0,
-			required_role: requiredRole,
+			write_role: writeRole,
 		}
 	);
 }
@@ -94,7 +95,7 @@ test.describe("Access control role-only flow", () => {
 			email: deniedEmail,
 			firstName: "Denied",
 			password: TEST_PASSWORD,
-			roles: [STOCK_ENTRY_ROLE],
+			roles: [STOCK_ENTRY_ROLE, NATIVE_STOCK_ROLE],
 		});
 
 		await loginAsAdmin(page);
@@ -124,9 +125,8 @@ test.describe("Access control role-only flow", () => {
 		expect(await stockEntryPage.isFieldVisible("custom_pea_fetch_items")).toBe(false);
 		expect(await stockEntryPage.isFieldVisible("custom_pea_rejection_breakup")).toBe(false);
 
-		await expect(
-			stockEntryPage.page.getByRole("button", { name: "Get Items", exact: true })
-		).toBeVisible();
+		await expect(stockEntryPage.page.locator('[data-fieldname="items"]')).toBeVisible();
+		await expect.poll(async () => await stockEntryPage.isFieldVisible("get_items")).toBe(true);
 	});
 
 	test("@regression denied user cannot see app entry or open workspace routes", async ({
@@ -169,7 +169,7 @@ test.describe("Access control role-only flow", () => {
 			email: allowedEmail,
 			firstName: "Allowed",
 			password: TEST_PASSWORD,
-			roles: [STOCK_ENTRY_ROLE, REQUIRED_ROLE],
+			roles: [STOCK_ENTRY_ROLE, WRITE_ROLE],
 		});
 
 		await loginAsAdmin(page);
@@ -204,9 +204,9 @@ test.describe("Access control role-only flow", () => {
 		await expect
 			.poll(async () => await stockEntryPage.isFieldVisible("custom_pea_fetch_items"))
 			.toBe(true);
-		await expect(
-			stockEntryPage.page.getByRole("button", { name: "Get Items", exact: true })
-		).not.toBeVisible();
+		await expect
+			.poll(async () => await stockEntryPage.isFieldVisible("get_items"))
+			.toBe(false);
 	});
 
 	test("@regression system manager bypass sees app entry and can open workspace routes", async ({

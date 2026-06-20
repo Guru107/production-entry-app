@@ -47,6 +47,7 @@
   "options": "Shift",
   "depends_on": "eval:doc.custom_pea_stock_entry_purpose=='Manufacture'",
   "is_index": 1,
+  "search_index": 1,
   "insert_after": "custom_pea_stock_entry_purpose",
   "module": "Production Entry App",
   "permlevel": 9
@@ -60,7 +61,8 @@
   "label": "Planned & Actual Dates",
   "insert_after": "get_items",
   "module": "Production Entry App",
-  "permlevel": 9
+  "permlevel": 9,
+  "depends_on": "eval:doc.custom_pea_stock_entry_purpose==\"Manufacture\""
  },
  {
   "doctype": "Custom Field",
@@ -72,7 +74,8 @@
   "read_only": 1,
   "insert_after": "custom_pea_operation_details_section",
   "module": "Production Entry App",
-  "permlevel": 9
+  "permlevel": 9,
+  "depends_on": "eval:doc.custom_pea_stock_entry_purpose==\"Manufacture\""
  },
  {
   "doctype": "Custom Field",
@@ -86,7 +89,8 @@
   "read_only": 1,
   "insert_after": "custom_pea_planned_start_date",
   "module": "Production Entry App",
-  "permlevel": 9
+  "permlevel": 9,
+  "depends_on": "eval:doc.custom_pea_stock_entry_purpose==\"Manufacture\""
  },
  {
   "doctype": "Custom Field",
@@ -96,7 +100,8 @@
   "fieldtype": "Column Break",
   "insert_after": "custom_pea_actual_end_date",
   "module": "Production Entry App",
-  "permlevel": 9
+  "permlevel": 9,
+  "depends_on": "eval:doc.custom_pea_stock_entry_purpose==\"Manufacture\""
  },
  {
   "doctype": "Custom Field",
@@ -110,7 +115,8 @@
   "no_copy": 1,
   "print_hide": 1,
   "search_index": 0,
-  "permlevel": 9
+  "permlevel": 9,
+  "depends_on": "eval:doc.custom_pea_stock_entry_purpose==\"Manufacture\""
  },
  {
   "doctype": "Custom Field",
@@ -125,7 +131,8 @@
   "print_hide": 1,
   "search_index": 0,
   "placeholder": "HH:MM e.g. 0630",
-  "permlevel": 9
+  "permlevel": 9,
+  "depends_on": "eval:doc.custom_pea_stock_entry_purpose==\"Manufacture\""
  },
  {
   "doctype": "Custom Field",
@@ -141,7 +148,8 @@
   "no_copy": 1,
   "print_hide": 1,
   "search_index": 0,
-  "permlevel": 9
+  "permlevel": 9,
+  "depends_on": "eval:doc.custom_pea_stock_entry_purpose==\"Manufacture\""
  },
  {
   "doctype": "Custom Field",
@@ -155,7 +163,8 @@
   "no_copy": 1,
   "print_hide": 1,
   "search_index": 0,
-  "permlevel": 9
+  "permlevel": 9,
+  "depends_on": "eval:doc.custom_pea_stock_entry_purpose==\"Manufacture\""
  },
  {
   "doctype": "Custom Field",
@@ -170,7 +179,8 @@
   "print_hide": 1,
   "search_index": 0,
   "placeholder": "HH:MM e.g. 0630",
-  "permlevel": 9
+  "permlevel": 9,
+  "depends_on": "eval:doc.custom_pea_stock_entry_purpose==\"Manufacture\""
  },
  {
   "doctype": "Custom Field",
@@ -186,7 +196,8 @@
   "no_copy": 1,
   "print_hide": 1,
   "search_index": 0,
-  "permlevel": 9
+  "permlevel": 9,
+  "depends_on": "eval:doc.custom_pea_stock_entry_purpose==\"Manufacture\""
  },
  {
   "doctype": "Custom Field",
@@ -197,7 +208,8 @@
   "label": "Workstation & Operator",
   "insert_after": "custom_pea_actual_end_date",
   "module": "Production Entry App",
-  "permlevel": 9
+  "permlevel": 9,
+  "depends_on": "eval:doc.custom_pea_stock_entry_purpose==\"Manufacture\""
  },
  {
   "doctype": "Custom Field",
@@ -208,9 +220,11 @@
   "label": "Workstation",
   "options": "Workstation",
   "is_index": 1,
+  "search_index": 1,
   "insert_after": "custom_pea_workstation_operator_section",
   "module": "Production Entry App",
-  "permlevel": 9
+  "permlevel": 9,
+  "depends_on": "eval:doc.custom_pea_stock_entry_purpose==\"Manufacture\""
  },
  {
   "doctype": "Custom Field",
@@ -223,7 +237,8 @@
   "fetch_from": "custom_pea_workstation.custom_pea_standard_spm",
   "insert_after": "custom_pea_workstation",
   "module": "Production Entry App",
-  "permlevel": 9
+  "permlevel": 9,
+  "depends_on": "eval:doc.custom_pea_stock_entry_purpose==\"Manufacture\""
  },
  {
   "doctype": "Custom Field",
@@ -233,7 +248,8 @@
   "fieldtype": "Column Break",
   "insert_after": "custom_pea_standard_spm",
   "module": "Production Entry App",
-  "permlevel": 9
+  "permlevel": 9,
+  "depends_on": "eval:doc.custom_pea_stock_entry_purpose==\"Manufacture\""
  },
  {
   "doctype": "Custom Field",
@@ -244,9 +260,11 @@
   "label": "Operator",
   "options": "Operator",
   "is_index": 1,
+  "search_index": 1,
   "insert_after": "custom_pea_workstation_operator_col_break",
   "module": "Production Entry App",
-  "permlevel": 9
+  "permlevel": 9,
+  "depends_on": "eval:doc.custom_pea_stock_entry_purpose==\"Manufacture\""
  },
  {
   "doctype": "Custom Field",
@@ -257,7 +275,8 @@
   "label": "Unplanned Losses",
   "insert_after": "custom_pea_operator",
   "module": "Production Entry App",
-  "permlevel": 9
+  "permlevel": 9,
+  "depends_on": "eval:doc.custom_pea_stock_entry_purpose==\"Manufacture\""
  },
  {
   "doctype": "Custom Field",
@@ -269,7 +288,8 @@
   "options": "Loss Entry",
   "insert_after": "custom_pea_unplanned_losses_section",
   "module": "Production Entry App",
-  "permlevel": 9
+  "permlevel": 9,
+  "depends_on": "eval:doc.custom_pea_stock_entry_purpose==\"Manufacture\""
  },
  {
   "doctype": "Custom Field",
@@ -280,7 +300,7 @@
   "label": "Rejection Quantity",
   "description": "Deducted from FG qty; moved to rejection warehouse",
   "insert_after": "fg_completed_qty",
-  "depends_on": "eval:doc.from_bom",
+  "depends_on": "eval:doc.custom_pea_stock_entry_purpose==\"Manufacture\" && (doc.from_bom)",
   "module": "Production Entry App",
   "permlevel": 9
  },
@@ -295,7 +315,8 @@
   "read_only": 1,
   "insert_after": "bom_no",
   "module": "Production Entry App",
-  "permlevel": 9
+  "permlevel": 9,
+  "depends_on": "eval:doc.custom_pea_stock_entry_purpose==\"Manufacture\""
  },
  {
   "doctype": "Custom Field",
@@ -306,7 +327,7 @@
   "label": "Rework Quantity",
   "description": "Sum of rejection breakup quantities marked as rework",
   "read_only": 1,
-  "depends_on": "eval:doc.custom_pea_rejection_qty > 0",
+  "depends_on": "eval:doc.custom_pea_stock_entry_purpose==\"Manufacture\" && (doc.custom_pea_rejection_qty > 0)",
   "insert_after": "custom_pea_ok_qty",
   "module": "Production Entry App",
   "permlevel": 9
@@ -319,7 +340,7 @@
   "fieldtype": "Button",
   "label": "Fetch Items",
   "insert_after": "custom_pea_rejection_qty",
-  "depends_on": "eval:doc.from_bom && doc.bom_no",
+  "depends_on": "eval:doc.custom_pea_stock_entry_purpose==\"Manufacture\" && (doc.from_bom && doc.bom_no)",
   "module": "Production Entry App",
   "permlevel": 9
  },
@@ -332,7 +353,7 @@
   "label": "Rejection Breakup",
   "options": "Rejection Breakup",
   "insert_after": "custom_pea_fetch_items",
-  "depends_on": "eval:doc.custom_pea_rejection_qty > 0",
+  "depends_on": "eval:doc.custom_pea_stock_entry_purpose==\"Manufacture\" && (doc.custom_pea_rejection_qty > 0)",
   "mandatory_depends_on": "eval:doc.custom_pea_rejection_qty > 0",
   "module": "Production Entry App",
   "permlevel": 9
@@ -346,7 +367,8 @@
   "label": "Production Metrics",
   "insert_after": "get_stock_and_rate",
   "module": "Production Entry App",
-  "permlevel": 9
+  "permlevel": 9,
+  "depends_on": "eval:doc.custom_pea_stock_entry_purpose==\"Manufacture\""
  },
  {
   "doctype": "Custom Field",
@@ -358,7 +380,8 @@
   "read_only": 1,
   "insert_after": "custom_pea_metrics_section",
   "module": "Production Entry App",
-  "permlevel": 9
+  "permlevel": 9,
+  "depends_on": "eval:doc.custom_pea_stock_entry_purpose==\"Manufacture\""
  },
  {
   "doctype": "Custom Field",
@@ -370,7 +393,8 @@
   "read_only": 1,
   "insert_after": "custom_pea_actual_duration_mins",
   "module": "Production Entry App",
-  "permlevel": 9
+  "permlevel": 9,
+  "depends_on": "eval:doc.custom_pea_stock_entry_purpose==\"Manufacture\""
  },
  {
   "doctype": "Custom Field",
@@ -382,7 +406,8 @@
   "read_only": 1,
   "insert_after": "custom_pea_production_time_mins",
   "module": "Production Entry App",
-  "permlevel": 9
+  "permlevel": 9,
+  "depends_on": "eval:doc.custom_pea_stock_entry_purpose==\"Manufacture\""
  },
  {
   "doctype": "Custom Field",
@@ -394,7 +419,8 @@
   "read_only": 1,
   "insert_after": "custom_pea_actual_spm",
   "module": "Production Entry App",
-  "permlevel": 9
+  "permlevel": 9,
+  "depends_on": "eval:doc.custom_pea_stock_entry_purpose==\"Manufacture\""
  },
  {
   "doctype": "Custom Field",
@@ -404,7 +430,8 @@
   "fieldtype": "Column Break",
   "insert_after": "custom_pea_cycle_time_sec",
   "module": "Production Entry App",
-  "permlevel": 9
+  "permlevel": 9,
+  "depends_on": "eval:doc.custom_pea_stock_entry_purpose==\"Manufacture\""
  },
  {
   "doctype": "Custom Field",
@@ -416,7 +443,8 @@
   "read_only": 1,
   "insert_after": "custom_pea_metrics_col_break",
   "module": "Production Entry App",
-  "permlevel": 9
+  "permlevel": 9,
+  "depends_on": "eval:doc.custom_pea_stock_entry_purpose==\"Manufacture\""
  },
  {
   "doctype": "Custom Field",
@@ -428,7 +456,8 @@
   "read_only": 1,
   "insert_after": "custom_pea_operator_efficiency_pct",
   "module": "Production Entry App",
-  "permlevel": 9
+  "permlevel": 9,
+  "depends_on": "eval:doc.custom_pea_stock_entry_purpose==\"Manufacture\""
  },
  {
   "doctype": "Custom Field",
@@ -440,7 +469,8 @@
   "read_only": 1,
   "insert_after": "custom_pea_metrics_note",
   "module": "Production Entry App",
-  "permlevel": 9
+  "permlevel": 9,
+  "depends_on": "eval:doc.custom_pea_stock_entry_purpose==\"Manufacture\""
  },
  {
   "doctype": "Custom Field",
@@ -452,7 +482,8 @@
   "read_only": 1,
   "insert_after": "custom_pea_die_tool_utilization_pct",
   "module": "Production Entry App",
-  "permlevel": 9
+  "permlevel": 9,
+  "depends_on": "eval:doc.custom_pea_stock_entry_purpose==\"Manufacture\""
  },
  {
   "doctype": "Custom Field",
@@ -462,6 +493,7 @@
   "fieldtype": "Check",
   "label": "Is Rejection Item",
   "read_only": 1,
+  "search_index": 1,
   "insert_after": "is_scrap_item",
   "module": "Production Entry App",
   "permlevel": 9

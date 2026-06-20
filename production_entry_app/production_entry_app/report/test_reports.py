@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import time
 from contextlib import ExitStack
+from pathlib import Path
 from unittest.mock import patch
 
 import frappe
@@ -30,6 +32,29 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 
 
 class TestProductionReports(FrappeTestCase):
+	def test_report_access_metadata_is_source_controlled_not_runtime_synced(self) -> None:
+		"""Report JSON should be the source of truth for report roles."""
+		report_root = Path(__file__).parent
+		for report_path in report_root.glob("*/*.json"):
+			with self.subTest(report=report_path.parent.name):
+				report_schema = json.loads(report_path.read_text())
+				self.assertEqual(report_schema["ref_doctype"], "Shift")
+				self.assertEqual(
+					[role["role"] for role in report_schema.get("roles", [])],
+					[
+						"System Manager",
+						access_control.DEFAULT_WRITE_ROLE,
+						access_control.DEFAULT_READ_ROLE,
+					],
+				)
+
+	def test_report_metadata_keeps_prepared_report_source_value(self) -> None:
+		report_root = Path(__file__).parent
+		for report_path in report_root.glob("*/*.json"):
+			with self.subTest(report=report_path.parent.name):
+				report_schema = json.loads(report_path.read_text())
+				self.assertEqual(report_schema["prepared_report"], 0)
+
 	def _assert_column_precision(
 		self, columns: list[dict], fieldnames: tuple[str, ...], expected_precision: int
 	) -> None:
@@ -155,33 +180,7 @@ class TestProductionReports(FrappeTestCase):
 		finally:
 			frappe.set_user(original_user)
 
-	def test_legacy_custom_write_role_can_access_native_doctype_and_report_paths(self) -> None:
-		legacy_role = f"Legacy Production Role {frappe.generate_hash(length=8)}"
-		user_email = f"test_pea_report_legacy_{frappe.generate_hash(length=8)}@example.com"
-		_ensure_user_with_exact_roles(user_email, (legacy_role,))
-		frappe.reload_doc("production_entry_app", "doctype", "shift")
-		frappe.reload_doc("production_entry_app", "report", "rejection_pareto_report")
-		_set_legacy_required_role_only(legacy_role)
-		access_control.ensure_access_roles_and_settings()
-		frappe.clear_cache(doctype="Shift")
-		frappe.clear_cache(user=user_email)
-		original_user = frappe.session.user
-		try:
-			frappe.set_user(user_email)
-			self.assertTrue(frappe.has_permission("Shift", "read"))
-			result = run_query_report(
-				"Rejection Pareto Report",
-				filters={},
-				ignore_prepared_report=True,
-			)
-		finally:
-			frappe.set_user(original_user)
-			_restore_default_access_roles()
-
-		self.assertIn("columns", result)
-		self.assertIn("result", result)
-
-	def test_runtime_settings_role_change_syncs_native_doctype_and_report_paths(self) -> None:
+	def test_runtime_settings_role_change_syncs_native_doctype_permissions_only(self) -> None:
 		write_role = f"Runtime PEA Write {frappe.generate_hash(length=8)}"
 		read_role = f"Runtime PEA Read {frappe.generate_hash(length=8)}"
 		user_email = f"test_pea_report_runtime_{frappe.generate_hash(length=8)}@example.com"
@@ -196,17 +195,15 @@ class TestProductionReports(FrappeTestCase):
 			frappe.set_user(user_email)
 			self.assertTrue(frappe.has_permission("Shift", "read"))
 			self.assertTrue(frappe.has_permission("Shift", "create"))
-			result = run_query_report(
-				"Rejection Pareto Report",
-				filters={},
-				ignore_prepared_report=True,
-			)
+			with self.assertRaises(frappe.PermissionError):
+				run_query_report(
+					"Rejection Pareto Report",
+					filters={},
+					ignore_prepared_report=True,
+				)
 		finally:
 			frappe.set_user(original_user)
 			_restore_default_access_roles()
-
-		self.assertIn("columns", result)
-		self.assertIn("result", result)
 
 	def test_runtime_role_rotation_removes_stale_native_access(self) -> None:
 		old_role = f"Runtime PEA Old {frappe.generate_hash(length=8)}"
@@ -234,7 +231,7 @@ class TestProductionReports(FrappeTestCase):
 			frappe.set_user(original_user)
 			_restore_default_access_roles()
 
-	def test_same_runtime_read_write_role_keeps_native_write_permissions(self) -> None:
+	def test_same_runtime_read_write_role_keeps_native_write_permissions_only(self) -> None:
 		role = f"Runtime PEA Both {frappe.generate_hash(length=8)}"
 		user_email = f"test_pea_report_same_role_{frappe.generate_hash(length=8)}@example.com"
 		_ensure_user_with_exact_roles(user_email, (role,))
@@ -250,17 +247,15 @@ class TestProductionReports(FrappeTestCase):
 			self.assertTrue(frappe.has_permission("Shift", "read"))
 			self.assertTrue(frappe.has_permission("Shift", "write"))
 			self.assertTrue(frappe.has_permission("Shift", "create"))
-			result = run_query_report(
-				"Rejection Pareto Report",
-				filters={},
-				ignore_prepared_report=True,
-			)
+			with self.assertRaises(frappe.PermissionError):
+				run_query_report(
+					"Rejection Pareto Report",
+					filters={},
+					ignore_prepared_report=True,
+				)
 		finally:
 			frappe.set_user(original_user)
 			_restore_default_access_roles()
-
-		self.assertIn("columns", result)
-		self.assertIn("result", result)
 
 	def test_production_oee_report_columns_match_v2_schema(self) -> None:
 		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
@@ -1326,7 +1321,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		shift = self._create_shift_for_label("2094-06-07", "1")
-		self._ensure_fiscal_year("2094", "2094-01-01", "2094-12-31")
+		fiscal_year = self._ensure_fiscal_year("2094", "2094-01-01", "2094-12-31")
 		self._create_mock_submitted_entry_with_breakup(
 			posting_date="2094-06-07",
 			planned_start="2094-06-07 08:00:00",
@@ -1349,7 +1344,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 		_, oee_rows = oee_execute({"from_date": "2094-06-07", "to_date": "2094-06-07"})
 		daily_columns, daily_rows = daily_execute(
-			{"fiscal_year": "2094", "month": "June", "custom_pea_operator": "Report Operator"}
+			{"fiscal_year": fiscal_year, "month": "June", "custom_pea_operator": "Report Operator"}
 		)
 
 		self.assertIn("rework_qty", [c.get("fieldname") for c in operator_columns])
@@ -2614,24 +2609,54 @@ class TestProductionReports(FrappeTestCase):
 
 	# ── Daily Strokes SPM Monitor ─────────────────────────────────────
 
-	def _ensure_fiscal_year(self, fy_name: str, start_date: str, end_date: str) -> None:
-		if not frappe.db.exists("Fiscal Year", fy_name):
-			frappe.get_doc(
-				{
-					"doctype": "Fiscal Year",
-					"year": fy_name,
-					"year_start_date": start_date,
-					"year_end_date": end_date,
-				}
-			).insert(ignore_permissions=True)
+	def _ensure_fiscal_year(self, fy_name: str, start_date: str, end_date: str) -> str:
+		meta = frappe.get_meta("Fiscal Year", cached=True)
+		if frappe.db.exists("Fiscal Year", fy_name):
+			if meta.has_field("companies"):
+				doc = frappe.get_doc("Fiscal Year", fy_name)
+				if not any((row.company or "") == self.company for row in (doc.get("companies") or [])):
+					doc.append("companies", {"company": self.company})
+					doc.flags.ignore_validate_update_after_submit = True
+					doc.save(ignore_permissions=True)
+			return fy_name
+
+		covering_fiscal_year = frappe.get_all(
+			"Fiscal Year",
+			filters=[
+				["year_start_date", "<=", start_date],
+				["year_end_date", ">=", end_date],
+			],
+			pluck="name",
+			limit=1,
+		)
+		if covering_fiscal_year:
+			doc = frappe.get_doc("Fiscal Year", covering_fiscal_year[0])
+			if meta.has_field("companies") and not any(
+				(row.company or "") == self.company for row in (doc.get("companies") or [])
+			):
+				doc.append("companies", {"company": self.company})
+				doc.flags.ignore_validate_update_after_submit = True
+				doc.save(ignore_permissions=True)
+			return doc.name
+
+		payload = {
+			"doctype": "Fiscal Year",
+			"year": fy_name,
+			"year_start_date": start_date,
+			"year_end_date": end_date,
+		}
+		if meta.has_field("companies"):
+			payload["companies"] = [{"company": self.company}]
+		doc = frappe.get_doc(payload).insert(ignore_permissions=True)
+		return doc.name
 
 	def test_daily_strokes_spm_monitor_columns_without_operator(self) -> None:
 		from production_entry_app.production_entry_app.report.daily_strokes_spm_monitor.daily_strokes_spm_monitor import (
 			execute,
 		)
 
-		self._ensure_fiscal_year("2090-2091", "2090-04-01", "2091-03-31")
-		columns, _ = execute({"fiscal_year": "2090-2091", "month": "April"})
+		fiscal_year = self._ensure_fiscal_year("2090-2091", "2090-04-01", "2091-03-31")
+		columns, _ = execute({"fiscal_year": fiscal_year, "month": "April"})
 		fieldnames = [c["fieldname"] for c in columns]
 		self.assertIn("operator", fieldnames)
 		self.assertEqual(
@@ -2654,9 +2679,9 @@ class TestProductionReports(FrappeTestCase):
 			execute,
 		)
 
-		self._ensure_fiscal_year("2090-2091", "2090-04-01", "2091-03-31")
+		fiscal_year = self._ensure_fiscal_year("2090-2091", "2090-04-01", "2091-03-31")
 		columns, _ = execute(
-			{"fiscal_year": "2090-2091", "month": "April", "custom_pea_operator": "Report Operator"}
+			{"fiscal_year": fiscal_year, "month": "April", "custom_pea_operator": "Report Operator"}
 		)
 		fieldnames = [c["fieldname"] for c in columns]
 		self.assertNotIn("operator", fieldnames)
@@ -2679,7 +2704,7 @@ class TestProductionReports(FrappeTestCase):
 			execute,
 		)
 
-		self._ensure_fiscal_year("2080-2081", "2080-04-01", "2081-03-31")
+		fiscal_year = self._ensure_fiscal_year("2080-2081", "2080-04-01", "2081-03-31")
 		shift = self._create_shift_for_label("2080-05-10", "1")
 		# actual_duration = 60 mins = 1 hour; fg_qty=100, rejection_qty=10
 		# After rejection hook: FG row=90, rejection row=10 → good_qty_map=90
@@ -2711,7 +2736,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute(
-			{"fiscal_year": "2080-2081", "month": "May", "custom_pea_operator": "Report Operator"}
+			{"fiscal_year": fiscal_year, "month": "May", "custom_pea_operator": "Report Operator"}
 		)
 		# Should have 1 data row + 1 totals row
 		self.assertEqual(len(rows), 2)
@@ -2736,7 +2761,7 @@ class TestProductionReports(FrappeTestCase):
 			execute,
 		)
 
-		self._ensure_fiscal_year("2082-2083", "2082-04-01", "2083-03-31")
+		fiscal_year = self._ensure_fiscal_year("2082-2083", "2082-04-01", "2083-03-31")
 		shift = self._create_shift_for_label("2082-05-11", "1")
 		self._create_mock_submitted_entry(
 			posting_date="2082-05-11",
@@ -2762,7 +2787,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute(
-			{"fiscal_year": "2082-2083", "month": "May", "custom_pea_operator": "Report Operator"}
+			{"fiscal_year": fiscal_year, "month": "May", "custom_pea_operator": "Report Operator"}
 		)
 		self.assertEqual(len(rows), 2)
 		data_row = rows[0]
@@ -2781,7 +2806,7 @@ class TestProductionReports(FrappeTestCase):
 			execute,
 		)
 
-		self._ensure_fiscal_year("2081-2082", "2081-04-01", "2082-03-31")
+		fiscal_year = self._ensure_fiscal_year("2081-2082", "2081-04-01", "2082-03-31")
 		shift1 = self._create_shift_for_label("2081-06-01", "1")
 		shift2 = self._create_shift_for_label("2081-06-02", "1")
 		self._create_mock_submitted_entry(
@@ -2806,7 +2831,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute(
-			{"fiscal_year": "2081-2082", "month": "June", "custom_pea_operator": "Report Operator"}
+			{"fiscal_year": fiscal_year, "month": "June", "custom_pea_operator": "Report Operator"}
 		)
 		# 2 data rows + 1 totals
 		self.assertEqual(len(rows), 3)
@@ -2824,8 +2849,8 @@ class TestProductionReports(FrappeTestCase):
 			execute,
 		)
 
-		self._ensure_fiscal_year("2099-2100", "2099-04-01", "2100-03-31")
-		_, rows = execute({"fiscal_year": "2099-2100", "month": "April"})
+		fiscal_year = self._ensure_fiscal_year("2099-2100", "2099-04-01", "2100-03-31")
+		_, rows = execute({"fiscal_year": fiscal_year, "month": "April"})
 		self.assertEqual(rows, [])
 
 	def test_daily_strokes_spm_monitor_throws_for_invalid_fiscal_year(self) -> None:
@@ -2858,7 +2883,7 @@ class TestProductionReports(FrappeTestCase):
 			execute,
 		)
 
-		self._ensure_fiscal_year("2092", "2092-01-01", "2092-12-31")
+		fiscal_year = self._ensure_fiscal_year("2092", "2092-01-01", "2092-12-31")
 		shift = self._create_shift_for_label("2092-01-10", "1")
 		self._create_mock_submitted_entry(
 			posting_date="2092-01-10",
@@ -2872,7 +2897,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute(
-			{"fiscal_year": "2092", "month": "January", "custom_pea_operator": "Report Operator"}
+			{"fiscal_year": fiscal_year, "month": "January", "custom_pea_operator": "Report Operator"}
 		)
 		self.assertEqual(rows[0]["date"], "2092-01-10")
 
@@ -2881,7 +2906,7 @@ class TestProductionReports(FrappeTestCase):
 			execute,
 		)
 
-		self._ensure_fiscal_year("2092-2093", "2092-10-01", "2093-09-30")
+		fiscal_year = self._ensure_fiscal_year("2092-2093", "2092-10-01", "2093-09-30")
 		shift = self._create_shift_for_label("2093-09-15", "1")
 		self._create_mock_submitted_entry(
 			posting_date="2093-09-15",
@@ -2895,7 +2920,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute(
-			{"fiscal_year": "2092-2093", "month": "September", "custom_pea_operator": "Report Operator"}
+			{"fiscal_year": fiscal_year, "month": "September", "custom_pea_operator": "Report Operator"}
 		)
 		self.assertEqual(rows[0]["date"], "2093-09-15")
 
@@ -3358,23 +3383,6 @@ def _ensure_user_with_exact_roles(email: str, roles: tuple[str, ...]) -> None:
 	frappe.clear_cache(user=email)
 
 
-def _set_legacy_required_role_only(role: str) -> None:
-	settings_doctype = "Production Entry Settings"
-	for fieldname in ("write_role", "read_role", "required_role"):
-		frappe.db.delete("Singles", {"doctype": settings_doctype, "field": fieldname})
-	frappe.db.set_single_value(settings_doctype, "enable_access_control", 1)
-	frappe.db.sql(
-		"""
-		insert into `tabSingles` (`doctype`, `field`, `value`)
-		values (%s, %s, %s)
-		""",
-		(settings_doctype, "required_role", role),
-	)
-	frappe.clear_document_cache(settings_doctype)
-	access_control.invalidate_access_control_cache()
-	frappe.db.commit()  # nosemgrep: frappe-manual-commit - legacy Singles row must be visible to setup
-
-
 def _set_runtime_access_roles(*, write_role: str, read_role: str) -> None:
 	previous_write_role = frappe.db.get_single_value("Production Entry Settings", "write_role")
 	previous_read_role = frappe.db.get_single_value("Production Entry Settings", "read_role")
@@ -3382,7 +3390,6 @@ def _set_runtime_access_roles(*, write_role: str, read_role: str) -> None:
 	settings.enable_access_control = 1
 	settings.write_role = write_role
 	settings.read_role = read_role
-	settings.required_role = write_role
 	settings.flags.ignore_links = True
 	settings.save(ignore_permissions=True)
 	if previous_write_role and previous_write_role != access_control.DEFAULT_WRITE_ROLE:
@@ -3407,7 +3414,6 @@ def _restore_default_access_roles() -> None:
 	previous_enable_access_control = frappe.db.get_single_value(settings_doctype, "enable_access_control")
 	previous_write_role = frappe.db.get_single_value(settings_doctype, "write_role")
 	previous_read_role = frappe.db.get_single_value(settings_doctype, "read_role")
-	frappe.db.delete("Singles", {"doctype": settings_doctype, "field": "required_role"})
 	frappe.db.set_single_value(settings_doctype, "write_role", access_control.DEFAULT_WRITE_ROLE)
 	frappe.db.set_single_value(settings_doctype, "read_role", access_control.DEFAULT_READ_ROLE)
 	frappe.db.set_single_value(settings_doctype, "enable_access_control", previous_enable_access_control)

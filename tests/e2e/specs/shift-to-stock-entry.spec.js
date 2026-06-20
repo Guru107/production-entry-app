@@ -309,14 +309,15 @@ test.describe("Shift to Stock Entry integration", () => {
 			rejectionQty: 0,
 			shiftName: draft.name,
 		});
-		await setFieldValue(page, "from_warehouse", ctx.rm_warehouse);
-		await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
-		await stockEntryPage.fetchItems();
-		await stockEntryPage.attemptSaveDraft();
 		await expectValidationError(
 			page,
 			/Only Running or Completed shifts can be linked in Stock Entry/i
 		);
+		await setFieldValue(page, "from_warehouse", ctx.rm_warehouse);
+		await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
+		await stockEntryPage.fetchItems();
+		await stockEntryPage.attemptSaveDraft();
+		await expect(page.evaluate(() => Boolean(window.cur_frm?.is_new?.()))).resolves.toBe(true);
 	});
 
 	test("@regression shift aggregate production entries format numeric metrics with system precision", async ({
