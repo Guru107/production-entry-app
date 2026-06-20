@@ -1,6 +1,7 @@
 frappe.query_reports["Rework Trend Report"] = {
 	filters: [
-		...window.production_entry_app.report_filter_utils.get_standard_report_date_filters(),
+		...(window.production_entry_app?.report_filter_utils?.get_standard_report_date_filters?.() ??
+			[]),
 		{
 			fieldname: "time_grain",
 			label: __("Time Grain"),

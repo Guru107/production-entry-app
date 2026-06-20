@@ -1,6 +1,7 @@
 frappe.query_reports["Rework PPM Report"] = {
 	filters: [
-		...window.production_entry_app.report_filter_utils.get_standard_report_date_filters(),
+		...(window.production_entry_app?.report_filter_utils?.get_standard_report_date_filters?.() ??
+			[]),
 		{
 			fieldname: "custom_pea_workstation",
 			label: __("Workstation"),
