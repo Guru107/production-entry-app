@@ -4,14 +4,6 @@ fail_fast: false
 
 
 repos:
-  - repo: local
-    hooks:
-      - id: pre-commit-all-files
-        name: Run pre-commit on all files
-        entry: bash -c 'SKIP=pre-commit-all-files pre-commit run --all-files'
-        language: system
-        pass_filenames: false
-
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:

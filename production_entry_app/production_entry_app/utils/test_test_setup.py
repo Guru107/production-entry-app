@@ -18,9 +18,6 @@ class TestTestSetup(FrappeTestCase):
 				"production_entry_app.production_entry_app.utils.test_setup.install_test_run_cleanup"
 			) as install_cleanup,
 			patch(
-				"production_entry_app.production_entry_app.utils.test_setup.cleanup_reserved_benchmark_data"
-			) as cleanup_benchmarks,
-			patch(
 				"production_entry_app.production_entry_app.utils.test_setup._get_erpnext_before_tests"
 			) as get_erpnext_before_tests,
 			patch(
@@ -37,7 +34,6 @@ class TestTestSetup(FrappeTestCase):
 
 		get_erpnext_before_tests.assert_not_called()
 		install_cleanup.assert_called_once_with()
-		cleanup_benchmarks.assert_called_once_with()
 		ensure_defaults.assert_called_once_with()
 		ensure_branch_defaults.assert_called_once_with()
 		ensure_genders.assert_called_once_with()
@@ -53,9 +49,6 @@ class TestTestSetup(FrappeTestCase):
 				side_effect=fake_exists,
 			),
 			patch("production_entry_app.production_entry_app.utils.test_setup.install_test_run_cleanup"),
-			patch(
-				"production_entry_app.production_entry_app.utils.test_setup.cleanup_reserved_benchmark_data"
-			),
 			patch(
 				"production_entry_app.production_entry_app.utils.test_setup._get_erpnext_before_tests",
 				return_value=erpnext_before_tests,
@@ -81,9 +74,6 @@ class TestTestSetup(FrappeTestCase):
 				return_value=False,
 			),
 			patch("production_entry_app.production_entry_app.utils.test_setup.install_test_run_cleanup"),
-			patch(
-				"production_entry_app.production_entry_app.utils.test_setup.cleanup_reserved_benchmark_data"
-			),
 			patch(
 				"production_entry_app.production_entry_app.utils.test_setup._get_erpnext_before_tests",
 				return_value=erpnext_before_tests,
@@ -111,9 +101,6 @@ class TestTestSetup(FrappeTestCase):
 				side_effect=fake_exists,
 			),
 			patch("production_entry_app.production_entry_app.utils.test_setup.install_test_run_cleanup"),
-			patch(
-				"production_entry_app.production_entry_app.utils.test_setup.cleanup_reserved_benchmark_data"
-			),
 			patch(
 				"production_entry_app.production_entry_app.utils.test_setup._get_erpnext_before_tests",
 				return_value=None,

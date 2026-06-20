@@ -6,10 +6,7 @@ from importlib import import_module
 import frappe
 
 from production_entry_app.production_entry_app.utils.test_bootstrap import ensure_branch
-from production_entry_app.production_entry_app.utils.test_cleanup import (
-	cleanup_reserved_benchmark_data,
-	install_test_run_cleanup,
-)
+from production_entry_app.production_entry_app.utils.test_cleanup import install_test_run_cleanup
 
 
 def _ensure_company_defaults() -> None:
@@ -95,7 +92,6 @@ def _bootstrap_erpnext_defaults_without_hook() -> None:
 def before_tests() -> None:
 	"""Bootstrap site-local ERPNext test records for deterministic local/CI runs."""
 	install_test_run_cleanup()
-	cleanup_reserved_benchmark_data()
 	if not frappe.db.exists("Company", None) or not frappe.db.exists("Cost Center", None):
 		if erpnext_before_tests := _get_erpnext_before_tests():
 			erpnext_before_tests()

@@ -1,29 +1,7 @@
 frappe.query_reports["Workstation Rejection Reason Matrix"] = {
 	filters: [
-		{
-			fieldname: "from_date",
-			label: __("From Date"),
-			fieldtype: "Date",
-			reqd: 1,
-			default: frappe.datetime.month_start(),
-			on_change(report) {
-				window.production_entry_app?.report_filter_utils?.validate_report_date_range?.(
-					report
-				);
-			},
-		},
-		{
-			fieldname: "to_date",
-			label: __("To Date"),
-			fieldtype: "Date",
-			reqd: 1,
-			default: frappe.datetime.month_end(),
-			on_change(report) {
-				window.production_entry_app?.report_filter_utils?.validate_report_date_range?.(
-					report
-				);
-			},
-		},
+		...(window.production_entry_app?.report_filter_utils?.get_standard_report_date_filters?.() ??
+			[]),
 		{
 			fieldname: "top_n_reasons",
 			label: __("Top N Reasons"),

@@ -1,4 +1,25 @@
 (function () {
+	function get_standard_report_date_filters() {
+		return [
+			{
+				fieldname: "from_date",
+				label: __("From Date"),
+				fieldtype: "Date",
+				reqd: 1,
+				default: frappe.datetime.month_start(),
+				on_change: validate_report_date_range,
+			},
+			{
+				fieldname: "to_date",
+				label: __("To Date"),
+				fieldtype: "Date",
+				reqd: 1,
+				default: frappe.datetime.month_end(),
+				on_change: validate_report_date_range,
+			},
+		];
+	}
+
 	function validate_report_date_range(report) {
 		const fromDate = report?.get_filter_value?.("from_date");
 		const toDate = report?.get_filter_value?.("to_date");
@@ -12,7 +33,10 @@
 			report.set_filter_value("from_date", toDate);
 		}
 	}
-	const api = { validate_report_date_range };
+	const api = {
+		get_standard_report_date_filters,
+		validate_report_date_range,
+	};
 
 	if (typeof window !== "undefined") {
 		const PEA = (window.production_entry_app = window.production_entry_app || {});
