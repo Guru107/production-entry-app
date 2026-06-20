@@ -69,15 +69,6 @@ class TestAccessControl(FrappeTestCase):
 		self.assertEqual(read_field["reqd"], 1)
 		self.assertNotIn("allowed_access_rules", field_by_name)
 
-	def test_access_rule_doctype_controller_is_registered(self) -> None:
-		from frappe.model.document import Document
-
-		from production_entry_app.production_entry_app.doctype.production_entry_access_rule.production_entry_access_rule import (
-			ProductionEntryAccessRule,
-		)
-
-		self.assertTrue(issubclass(ProductionEntryAccessRule, Document))
-
 	def test_report_metadata_uses_pea_read_roles(self) -> None:
 		for report_path in REPORTS_PATH.glob("*/*.json"):
 			with self.subTest(report=report_path.parent.name):

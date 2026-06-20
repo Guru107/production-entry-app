@@ -7,9 +7,14 @@ import frappe
 
 from production_entry_app.production_entry_app.utils.test_bootstrap import ensure_branch
 from production_entry_app.production_entry_app.utils.test_cleanup import (
-	cleanup_reserved_benchmark_data,
+	cleanup_reserved_benchmark_data as _cleanup_reserved_benchmark_data,
 	install_test_run_cleanup,
 )
+
+
+def cleanup_reserved_benchmark_data() -> None:
+	"""Compatibility shim for historical benchmark cleanup entry points."""
+	_cleanup_reserved_benchmark_data()
 
 
 def _ensure_company_defaults() -> None:

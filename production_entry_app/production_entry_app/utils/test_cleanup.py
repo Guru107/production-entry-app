@@ -5,9 +5,7 @@ from typing import Any
 import frappe
 
 from production_entry_app.production_entry_app import api
-from production_entry_app.production_entry_app.report import report_benchmark
 
-_PYTHON_TEST_BENCHMARK_KEYS: tuple[str, ...] = ("PHASE2", "WRITEPATH")
 _ORIGINAL_FRAPPE_TEST_CASE_RUN = None
 
 
@@ -23,13 +21,11 @@ def cleanup_reserved_test_data() -> None:
 	# Persistent-site runs still use document-level cleanup, but authoritative suites now
 	# rely on dropping the whole ephemeral site after the run.
 	api._cleanup_reserved_e2e_artifacts()
-	for dataset_key in _PYTHON_TEST_BENCHMARK_KEYS:
-		report_benchmark.cleanup_report_benchmark(dataset_key)
 
 
 def cleanup_reserved_benchmark_data() -> None:
-	for dataset_key in _PYTHON_TEST_BENCHMARK_KEYS:
-		report_benchmark.cleanup_report_benchmark(dataset_key)
+	"""No-op: benchmark-specific cleanup modules were removed in the audit slice."""
+	return
 
 
 def cleanup_after_python_test(snapshot: dict[str, Any] | None) -> None:
