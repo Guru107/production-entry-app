@@ -244,6 +244,36 @@ test("shift detail updates skip absent fields without aborting later updates", a
 	]);
 });
 
+test("shift detail updates stop when the request becomes stale", async () => {
+	const updates = [];
+	let current = true;
+	const frm = {
+		fields_dict: {
+			company: {},
+			branch: {},
+			custom_pea_planned_start_date: {},
+		},
+		set_value(fieldname, value) {
+			updates.push([fieldname, value]);
+			current = false;
+			return Promise.resolve();
+		},
+	};
+
+	const applied = await _apply_shift_detail_updates(
+		frm,
+		{
+			company: "Old Company",
+			branch: "Old Branch",
+			custom_pea_planned_start_date: "2026-02-22 08:00:00",
+		},
+		() => current
+	);
+
+	assert.equal(applied, false);
+	assert.deepEqual(updates, [["company", "Old Company"]]);
+});
+
 test("app-enabled callbacks stay fail-closed when access lookup rejects", async () => {
 	const originalWindow = global.window;
 	let rejectReady;

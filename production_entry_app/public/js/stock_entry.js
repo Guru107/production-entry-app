@@ -622,13 +622,17 @@ function _apply_shift_details_response(frm, selectedShift, reqId, data) {
 		});
 		return;
 	}
-	_apply_shift_detail_updates(frm, data).finally(() => {
-		_sync_stock_entry_helper_fields(frm);
-		_setup_stock_entry_quick_entry(frm);
+	const isCurrentRequest = () =>
+		reqId === _shiftDetailsRequestId && frm.doc.custom_pea_shift === selectedShift;
+	_apply_shift_detail_updates(frm, data, isCurrentRequest).then((applied) => {
+		if (applied && isCurrentRequest()) {
+			_sync_stock_entry_helper_fields(frm);
+			_setup_stock_entry_quick_entry(frm);
+		}
 	});
 }
 
-async function _apply_shift_detail_updates(frm, data) {
+async function _apply_shift_detail_updates(frm, data, isCurrentRequest = () => true) {
 	const fieldMap = {
 		company: "company",
 		branch: "branch",
@@ -638,10 +642,14 @@ async function _apply_shift_detail_updates(frm, data) {
 		to_warehouse: "to_warehouse",
 	};
 	for (const [sourceField, targetField] of Object.entries(fieldMap)) {
+		if (!isCurrentRequest()) {
+			return false;
+		}
 		if (Object.prototype.hasOwnProperty.call(data, sourceField)) {
 			await _set_form_value_if_present(frm, targetField, data[sourceField]);
 		}
 	}
+	return true;
 }
 
 function _clear_shift_derived_fields(frm) {
