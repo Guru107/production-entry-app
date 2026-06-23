@@ -131,7 +131,9 @@ class StockEntryPage {
 				const doc = window.cur_frm?.doc || {};
 				const plannedStart = String(doc.custom_pea_planned_start_date || "");
 				const plannedEnd = String(doc.custom_pea_planned_end_date || "");
-				const branchMatch = expectedBranch ? doc.branch === expectedBranch : true;
+				const hasBranchField = Boolean(window.cur_frm?.fields_dict?.branch);
+				const branchMatch =
+					expectedBranch && hasBranchField ? doc.branch === expectedBranch : true;
 				const fromWarehouseMatch = expectedFromWarehouse
 					? doc.from_warehouse === expectedFromWarehouse
 					: true;

@@ -149,10 +149,10 @@ test.describe("Shift validations", () => {
 		expect(planned8h).toHaveLength(3);
 		expect(planned8h[0].downtime_reason).toBe("Shift Start Up");
 		expect(planned8h[0].start_time).toBe("08:00:00");
-		expect(planned8h[1].downtime_reason).toBe("JH Activity");
-		expect(planned8h[1].start_time).toBe("08:10:00");
-		expect(planned8h[2].downtime_reason).toBe("Tea Break");
-		expect(planned8h[2].start_time).toBe("09:00:00");
+		expect(planned8h[1].downtime_reason).toBe("Tea Break");
+		expect(planned8h[1].start_time).toBe("09:00:00");
+		expect(planned8h[2].downtime_reason).toBe("JH Activity");
+		expect(planned8h[2].start_time).toBe("10:00:00");
 
 		await shiftPage.setDraftFields({ duration: "10" });
 		await shiftPage.waitForPlannedLossRows(5);

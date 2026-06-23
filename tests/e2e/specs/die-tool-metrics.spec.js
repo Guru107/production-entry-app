@@ -132,8 +132,8 @@ test.describe("Die tool metrics and counter", () => {
 		});
 		await stockEntryPage.addUnplannedLossRow({
 			downtime_reason: "Setup Time",
-			start_time: "08:00:00",
-			end_time: "08:10:00",
+			start_time: "08:10:00",
+			end_time: "08:20:00",
 		});
 		await stockEntryPage.saveDraft();
 
