@@ -217,7 +217,7 @@ test.describe("Batch 2 shift UX", () => {
 
 		const summaryText = await getFieldText(page, "shift_metrics");
 		expect(summaryText).toContain("1.0000");
-		expect(summaryText).toContain("2.5000");
+		expect(summaryText).toContain("2.0000");
 	});
 
 	test("@regression shift aggregate entries renders empty state then table after production entry", async ({

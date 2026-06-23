@@ -175,7 +175,7 @@ test.describe("Shift to Stock Entry integration", () => {
 			"custom_pea_planned_start_date",
 			"custom_pea_planned_end_date",
 		]);
-		if (shift.branch) {
+		if (shift.branch && values.branch !== undefined) {
 			expect(values.branch).toBe(shift.branch);
 		}
 		expect(String(values.custom_pea_planned_start_date || "")).toContain(

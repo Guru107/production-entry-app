@@ -622,13 +622,17 @@ function _apply_shift_details_response(frm, selectedShift, reqId, data) {
 		});
 		return;
 	}
-	Promise.all(_get_shift_detail_updates(frm, data)).finally(() => {
-		_sync_stock_entry_helper_fields(frm);
-		_setup_stock_entry_quick_entry(frm);
+	const isCurrentRequest = () =>
+		reqId === _shiftDetailsRequestId && frm.doc.custom_pea_shift === selectedShift;
+	_apply_shift_detail_updates(frm, data, isCurrentRequest).then((applied) => {
+		if (applied && isCurrentRequest()) {
+			_sync_stock_entry_helper_fields(frm);
+			_setup_stock_entry_quick_entry(frm);
+		}
 	});
 }
 
-function _get_shift_detail_updates(frm, data) {
+async function _apply_shift_detail_updates(frm, data, isCurrentRequest = () => true) {
 	const fieldMap = {
 		company: "company",
 		branch: "branch",
@@ -637,19 +641,35 @@ function _get_shift_detail_updates(frm, data) {
 		from_warehouse: "from_warehouse",
 		to_warehouse: "to_warehouse",
 	};
-	return Object.entries(fieldMap)
-		.filter(([sourceField]) => Object.prototype.hasOwnProperty.call(data, sourceField))
-		.map(([sourceField, targetField]) => frm.set_value(targetField, data[sourceField]));
+	for (const [sourceField, targetField] of Object.entries(fieldMap)) {
+		if (!isCurrentRequest()) {
+			return false;
+		}
+		if (Object.prototype.hasOwnProperty.call(data, sourceField)) {
+			await _set_form_value_if_present(frm, targetField, data[sourceField]);
+		}
+	}
+	return true;
 }
 
 function _clear_shift_derived_fields(frm) {
-	return Promise.all([
-		frm.set_value("branch", ""),
-		frm.set_value("custom_pea_planned_start_date", ""),
-		frm.set_value("custom_pea_planned_end_date", ""),
-		frm.set_value("from_warehouse", ""),
-		frm.set_value("to_warehouse", ""),
-	]);
+	return (async () => {
+		for (const fieldname of [
+			"branch",
+			"custom_pea_planned_start_date",
+			"custom_pea_planned_end_date",
+			"from_warehouse",
+			"to_warehouse",
+		]) {
+			await _set_form_value_if_present(frm, fieldname, "");
+		}
+	})();
+}
+
+async function _set_form_value_if_present(frm, fieldname, value) {
+	if (frm.fields_dict?.[fieldname]) {
+		await frm.set_value(fieldname, value);
+	}
 }
 
 function _extract_error_detail(error) {
@@ -809,7 +829,7 @@ if (typeof module !== "undefined" && module.exports) {
 		_should_override_fg_completed_qty,
 		_run_when_app_enabled,
 		_sync_native_get_items_access,
-		_get_shift_detail_updates,
+		_apply_shift_detail_updates,
 		_hide_native_get_items,
 		_show_native_get_items,
 	};

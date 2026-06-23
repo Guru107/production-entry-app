@@ -9,7 +9,7 @@ const {
 	_should_override_fg_completed_qty,
 	_run_when_app_enabled,
 	_sync_native_get_items_access,
-	_get_shift_detail_updates,
+	_apply_shift_detail_updates,
 	MANUFACTURE_FIELDS,
 	MANUFACTURE_SECTIONS,
 	ALWAYS_HIDDEN_FIELDS,
@@ -183,16 +183,23 @@ test("fg completed qty prototype patch preserves ERPNext fallback for non-manufa
 	}
 });
 
-test("shift detail updates clear present empty values instead of leaving stale fields", () => {
+test("shift detail updates clear present empty values instead of leaving stale fields", async () => {
 	const updates = [];
 	const frm = {
+		fields_dict: {
+			company: {},
+			branch: {},
+			custom_pea_planned_start_date: {},
+			custom_pea_planned_end_date: {},
+			from_warehouse: {},
+		},
 		set_value(fieldname, value) {
 			updates.push([fieldname, value]);
 			return Promise.resolve();
 		},
 	};
 
-	const result = _get_shift_detail_updates(frm, {
+	await _apply_shift_detail_updates(frm, {
 		company: "Test Company",
 		branch: "",
 		custom_pea_planned_start_date: null,
@@ -200,7 +207,6 @@ test("shift detail updates clear present empty values instead of leaving stale f
 		from_warehouse: undefined,
 	});
 
-	assert.equal(result.length, 5);
 	assert.deepEqual(updates, [
 		["company", "Test Company"],
 		["branch", ""],
@@ -208,6 +214,64 @@ test("shift detail updates clear present empty values instead of leaving stale f
 		["custom_pea_planned_end_date", "2026-02-22 16:00:00"],
 		["from_warehouse", undefined],
 	]);
+});
+
+test("shift detail updates skip absent fields without aborting later updates", async () => {
+	const updates = [];
+	const frm = {
+		fields_dict: {
+			company: {},
+			custom_pea_planned_start_date: {},
+			from_warehouse: {},
+		},
+		set_value(fieldname, value) {
+			updates.push([fieldname, value]);
+			return Promise.resolve();
+		},
+	};
+
+	await _apply_shift_detail_updates(frm, {
+		company: "Test Company",
+		branch: "Missing Branch Field",
+		custom_pea_planned_start_date: "2026-02-22 08:00:00",
+		from_warehouse: "Stores - TC",
+	});
+
+	assert.deepEqual(updates, [
+		["company", "Test Company"],
+		["custom_pea_planned_start_date", "2026-02-22 08:00:00"],
+		["from_warehouse", "Stores - TC"],
+	]);
+});
+
+test("shift detail updates stop when the request becomes stale", async () => {
+	const updates = [];
+	let current = true;
+	const frm = {
+		fields_dict: {
+			company: {},
+			branch: {},
+			custom_pea_planned_start_date: {},
+		},
+		set_value(fieldname, value) {
+			updates.push([fieldname, value]);
+			current = false;
+			return Promise.resolve();
+		},
+	};
+
+	const applied = await _apply_shift_detail_updates(
+		frm,
+		{
+			company: "Old Company",
+			branch: "Old Branch",
+			custom_pea_planned_start_date: "2026-02-22 08:00:00",
+		},
+		() => current
+	);
+
+	assert.equal(applied, false);
+	assert.deepEqual(updates, [["company", "Old Company"]]);
 });
 
 test("app-enabled callbacks stay fail-closed when access lookup rejects", async () => {
