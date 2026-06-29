@@ -70,6 +70,7 @@ def validate_stock_entry(doc: Document, method: str | None = None) -> None:
 	_validate_operator_overlap(doc)
 	_validate_workstation_downtime_overlap(doc)
 	_validate_rejection_breakup(doc)
+	_set_direct_manufacture_alternative_flags(doc)
 	_validate_direct_manufacture_alternative_items(doc)
 	_apply_rejection_entries(doc)
 	_validate_rejection_target_warehouses(doc)
@@ -438,8 +439,45 @@ def _validate_direct_manufacture_alternative_items(doc: Document) -> None:
 	bom_no = doc.get("bom_no")
 	bom_item_codes = get_bom_item_codes(bom_no)
 	bom_allowed_items = get_bom_alternative_allowed_items(bom_no)
+	bom_secondary_item_codes = _get_bom_secondary_item_codes(bom_no)
 	for row in doc.get("items") or []:
-		_validate_direct_manufacture_alternative_row(row, bom_no, bom_item_codes, bom_allowed_items)
+		_validate_direct_manufacture_alternative_row(
+			row,
+			bom_no,
+			bom_item_codes,
+			bom_allowed_items,
+			bom_secondary_item_codes,
+		)
+
+
+def _get_bom_secondary_item_codes(bom_no: str) -> set[str]:
+	if not frappe.db.exists("DocType", "BOM Secondary Item"):
+		return set()
+	return set(
+		frappe.get_all(
+			"BOM Secondary Item",
+			filters={"parent": bom_no, "parenttype": "BOM"},
+			pluck="item_code",
+		)
+	)
+
+
+def _set_direct_manufacture_alternative_flags(doc: Document) -> None:
+	if doc.get("purpose") != "Manufacture" or not doc.get("from_bom") or doc.get("work_order"):
+		return
+	if not doc.get("bom_no"):
+		return
+
+	allowed_items = get_bom_alternative_allowed_items(doc.get("bom_no"))
+	if not allowed_items:
+		return
+
+	for row in doc.get("items") or []:
+		if row.get("is_finished_item") or row.get("is_scrap_item") or row.get("custom_pea_is_rejection_item"):
+			continue
+		item_code = row.get("original_item") or row.get("item_code")
+		if item_code in allowed_items:
+			row.allow_alternative_item = 1
 
 
 def _validate_direct_manufacture_alternative_row(
@@ -447,12 +485,20 @@ def _validate_direct_manufacture_alternative_row(
 	bom_no: str,
 	bom_item_codes: set[str],
 	bom_allowed_items: set[str],
+	bom_secondary_item_codes: set[str] | None = None,
 ) -> None:
-	if row.get("is_finished_item") or row.get("is_scrap_item") or row.get("custom_pea_is_rejection_item"):
+	if (
+		row.get("is_finished_item")
+		or row.get("is_scrap_item")
+		or row.get("is_legacy_scrap_item")
+		or row.get("custom_pea_is_rejection_item")
+	):
 		return
 
 	original_item = row.get("original_item")
 	item_code = row.get("item_code")
+	if item_code in (bom_secondary_item_codes or set()):
+		return
 	if not original_item:
 		_validate_bom_contains_item(row, item_code, bom_no, bom_item_codes)
 		return

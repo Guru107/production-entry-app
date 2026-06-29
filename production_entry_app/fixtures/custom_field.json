@@ -494,7 +494,7 @@
   "label": "Is Rejection Item",
   "read_only": 1,
   "search_index": 1,
-  "insert_after": "is_scrap_item",
+  "insert_after": "is_finished_item",
   "module": "Production Entry App",
   "permlevel": 9
  },

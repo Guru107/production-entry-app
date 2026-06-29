@@ -50,6 +50,14 @@ def test_filtered_custom_fields_are_search_indexed() -> None:
 	assert not missing, f"Custom fields must set search_index: {', '.join(missing)}"
 
 
+def test_stock_entry_detail_rejection_flag_uses_cross_version_anchor() -> None:
+	fields_by_name = {field.get("name"): field for field in load_custom_field_fixture() if field.get("name")}
+	assert (
+		fields_by_name["Stock Entry Detail-custom_pea_is_rejection_item"].get("insert_after")
+		== "is_finished_item"
+	)
+
+
 def test_access_role_settings_document_static_report_role_contract() -> None:
 	fields_by_name = {
 		field.get("fieldname"): field
@@ -88,6 +96,7 @@ def load_tests(
 			test_master_data_doctypes_do_not_allow_rename,
 			test_filtered_doctype_fields_are_search_indexed,
 			test_filtered_custom_fields_are_search_indexed,
+			test_stock_entry_detail_rejection_flag_uses_cross_version_anchor,
 			test_access_role_settings_document_static_report_role_contract,
 		)
 	)
