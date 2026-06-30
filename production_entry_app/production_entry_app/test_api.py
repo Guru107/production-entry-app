@@ -7,12 +7,12 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from production_entry_app.production_entry_app.api import (
-	_apply_direct_manufacture_alternative_flags,
 	_assert_e2e_api_allowed,
 	_build_e2e_shift_doc,
 	_cache_e2e_settings_snapshot,
 	_cache_e2e_shift_name,
 	_cleanup_e2e_context,
+	_cleanup_e2e_downtime_entries,
 	_cleanup_orphan_stock_entry_loss_links,
 	_cleanup_reserved_e2e_artifacts,
 	_collect_reserved_e2e_prefixes,
@@ -26,6 +26,7 @@ from production_entry_app.production_entry_app.api import (
 	_item_has_live_stock_entry_references,
 	_restore_cached_e2e_settings,
 	_safe_cancel_and_delete,
+	_safe_force_delete,
 	_stock_entry_matches_cleanup_target,
 	bootstrap_e2e_context,
 	cleanup_e2e_context,
@@ -36,6 +37,9 @@ from production_entry_app.production_entry_app.api import (
 	get_die_tool_counter,
 	set_e2e_access_control,
 	set_e2e_system_float_precision,
+)
+from production_entry_app.production_entry_app.utils.alternative_items import (
+	apply_direct_manufacture_alternative_flags,
 )
 from production_entry_app.production_entry_app.utils.test_bootstrap import ensure_stock
 
@@ -366,11 +370,17 @@ class TestE2EApi(FrappeTestCase):
 			}
 		)
 
-		with patch(
-			"production_entry_app.production_entry_app.api.get_bom_alternative_allowed_items",
-			return_value={"RM-ALLOWED", "RM-EXISTING", "RM-ORIGINAL"},
+		with (
+			patch(
+				"production_entry_app.production_entry_app.utils.alternative_items.get_bom_alternative_allowed_items",
+				return_value={"RM-ALLOWED", "RM-EXISTING", "RM-ORIGINAL"},
+			),
+			patch(
+				"production_entry_app.production_entry_app.utils.alternative_items.get_bom_secondary_item_codes",
+				return_value=set(),
+			),
 		):
-			_apply_direct_manufacture_alternative_flags(doc)
+			apply_direct_manufacture_alternative_flags(doc)
 
 		self.assertEqual(
 			[row.get("item_code") for row in doc.get("items")],
@@ -606,6 +616,22 @@ class TestE2EApi(FrappeTestCase):
 			target_rm_item="_E2E_RM_Item",
 		)
 
+	def test_cleanup_e2e_downtime_entries_deletes_target_workstation_entries(self) -> None:
+		targets = {"target_workstation": "E2E Workstation"}
+		with patch(
+			"production_entry_app.production_entry_app.api.frappe.get_all",
+			return_value=["DT-001"],
+		) as get_all:
+			with patch("production_entry_app.production_entry_app.api._safe_force_delete") as force_delete:
+				_cleanup_e2e_downtime_entries(targets)
+
+		get_all.assert_called_once_with(
+			"Downtime Entry",
+			filters={"workstation": "E2E Workstation"},
+			pluck="name",
+		)
+		force_delete.assert_called_once_with("Downtime Entry", "DT-001", context="cleanup_e2e_context")
+
 	def test_cleanup_e2e_context_returns_ok_and_remains_safe_when_repeated(self) -> None:
 		with ExitStack() as stack:
 			stack.enter_context(
@@ -783,56 +809,15 @@ class TestE2EApi(FrappeTestCase):
 		cache.delete_value.assert_any_call("pea:timeline:Administrator:Workstation:E2E Workstation:SHIFT-001")
 		cache.delete_value.assert_any_call("pea:timeline:Administrator:Operator:E2E Operator:SHIFT-001")
 
-	def test_cleanup_continues_when_one_stock_entry_delete_fails(self) -> None:
-		row1 = frappe._dict({"name": "STE-FAIL", "docstatus": 0})
-		row2 = frappe._dict({"name": "STE-OK", "docstatus": 0})
-		se1 = frappe._dict(
-			{"name": "STE-FAIL", "docstatus": 0, "custom_pea_operator": "E2E Operator", "items": []}
-		)
-		se2 = frappe._dict(
-			{"name": "STE-OK", "docstatus": 0, "custom_pea_operator": "E2E Operator", "items": []}
-		)
-		stock_entries = {se1.name: se1, se2.name: se2}
-		real_get_doc = frappe.get_doc
-
-		def get_doc(doctype: str, name: str | None = None, *args, **kwargs):
-			if doctype == "Stock Entry" and name in stock_entries:
-				return stock_entries[name]
-			return real_get_doc(doctype, name, *args, **kwargs)
-
+	def test_safe_force_delete_logs_delete_failures(self) -> None:
 		with patch(
-			"production_entry_app.production_entry_app.api._get_candidate_e2e_stock_entries",
-			return_value=[row1, row2],
-		):
-			with patch(
-				"production_entry_app.production_entry_app.api.access_control.assert_app_write_access"
-			):
-				with patch("production_entry_app.production_entry_app.api._assert_e2e_api_allowed"):
-					with patch(
-						"production_entry_app.production_entry_app.api._e2e_base_date",
-						return_value="2099-01-10",
-					):
-						with patch(
-							"production_entry_app.production_entry_app.api.frappe.db.exists",
-							return_value=False,
-						):
-							with patch(
-								"production_entry_app.production_entry_app.api.frappe.get_doc",
-								side_effect=get_doc,
-							):
-								with patch(
-									"production_entry_app.production_entry_app.api.frappe.delete_doc",
-									side_effect=[Exception("delete failed"), None],
-								) as delete_doc:
-									with patch(
-										"production_entry_app.production_entry_app.api.frappe.log_error"
-									) as log_error:
-										with patch(
-											"production_entry_app.production_entry_app.api.frappe.db.commit"
-										):
-											cleanup_e2e_context(prefix="E2E")
+			"production_entry_app.production_entry_app.api.frappe.delete_doc",
+			side_effect=Exception("delete failed"),
+		) as delete_doc:
+			with patch("production_entry_app.production_entry_app.api.frappe.log_error") as log_error:
+				_safe_force_delete("Stock Entry", "STE-FAIL", context="cleanup_e2e_context")
 
-		self.assertEqual(delete_doc.call_count, 2)
+		delete_doc.assert_called_once_with("Stock Entry", "STE-FAIL", ignore_permissions=True, force=True)
 		log_error.assert_called_once()
 
 	def test_cleanup_e2e_context_keeps_items_with_live_stock_entry_references(self) -> None:
@@ -899,6 +884,9 @@ class TestE2EApi(FrappeTestCase):
 			{"name": "STE-FAIL-CANCEL", "docstatus": 1, "custom_pea_operator": "E2E Operator", "items": []}
 		)
 		failing_stock_entry.cancel = MagicMock(side_effect=Exception("cancel failed"))
+		draft_stock_entry = frappe._dict(
+			{"name": "STE-DRAFT", "docstatus": 0, "custom_pea_operator": "E2E Operator", "items": []}
+		)
 		skipped_stock_entry = frappe._dict(
 			{
 				"name": "STE-SKIP",
@@ -943,6 +931,7 @@ class TestE2EApi(FrappeTestCase):
 				return {
 					"STE-SUBMITTED": submitted_stock_entry,
 					"STE-FAIL-CANCEL": failing_stock_entry,
+					"STE-DRAFT": draft_stock_entry,
 					"STE-SKIP": skipped_stock_entry,
 				}[name]
 			if doctype == "Die Tool Maintenance Log":
@@ -959,6 +948,7 @@ class TestE2EApi(FrappeTestCase):
 						frappe._dict({"name": "STE-SUBMITTED", "docstatus": 1}),
 						frappe._dict({"name": "STE-SUBMITTED", "docstatus": 1}),
 						frappe._dict({"name": "STE-FAIL-CANCEL", "docstatus": 1}),
+						frappe._dict({"name": "STE-DRAFT", "docstatus": 0}),
 						frappe._dict({"name": "STE-SKIP", "docstatus": 0}),
 					],
 				)
@@ -1013,6 +1003,7 @@ class TestE2EApi(FrappeTestCase):
 		maintenance_log.cancel.assert_called_once()
 		bom.cancel.assert_called_once()
 		self.assertGreaterEqual(safe_force_delete.call_count, 8)
+		safe_force_delete.assert_any_call("Stock Entry", "STE-DRAFT", context="cleanup_e2e_context")
 		self.assertGreaterEqual(log_error.call_count, 3)
 
 	def test_collect_reserved_e2e_prefixes_derives_item_and_workstation_names(self) -> None:

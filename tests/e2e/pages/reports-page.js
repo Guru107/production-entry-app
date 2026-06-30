@@ -6,6 +6,26 @@ const {
 	getRoutePrefix,
 } = require("../utils/routing");
 
+function isContextDestroyed(error) {
+	return String(error?.message || "").includes("Execution context was destroyed");
+}
+
+async function retryOnReportContextDestroyed(page, action, retries = 5) {
+	for (let attempt = 0; attempt < retries; attempt += 1) {
+		try {
+			return await action();
+		} catch (error) {
+			if (!isContextDestroyed(error) || attempt === retries - 1) {
+				throw error;
+			}
+			await page.waitForLoadState("domcontentloaded", { timeout: 5000 }).catch(() => {});
+			await page
+				.waitForFunction(() => Boolean(window.frappe?.query_report), { timeout: 10000 })
+				.catch(() => {});
+		}
+	}
+}
+
 class ReportsPage {
 	constructor(page) {
 		this.page = page;
@@ -90,21 +110,43 @@ class ReportsPage {
 	}
 
 	async clickRefresh() {
-		await this.page.evaluate(async () => {
-			const report = window.frappe?.query_report;
-			if (!report) {
-				throw new Error("Query report is not loaded.");
-			}
-			if (!Array.isArray(report.filters) && typeof report.setup_filters === "function") {
-				await report.setup_filters();
-			}
-			report.refresh();
-			const ajax = report.last_ajax;
-			if (ajax && typeof ajax.then === "function") {
-				await ajax;
-			}
+		await retryOnReportContextDestroyed(this.page, async () => {
+			const refreshToken = await this.page.evaluate(async () => {
+				const report = window.frappe?.query_report;
+				if (!report) {
+					throw new Error("Query report is not loaded.");
+				}
+				if (!Array.isArray(report.filters) && typeof report.setup_filters === "function") {
+					await report.setup_filters();
+				}
+
+				const nextToken = (report.__peaRefreshToken || 0) + 1;
+				report.__peaRefreshToken = nextToken;
+				report.__peaRefreshCompleteToken = 0;
+
+				const refreshImpl = window.frappe?.views?.QueryReport?.prototype?.refresh;
+				const refresh =
+					typeof refreshImpl === "function"
+						? refreshImpl.call(report, true)
+						: report.refresh(true);
+				const pending =
+					refresh && typeof refresh.then === "function" ? refresh : report.last_ajax;
+				if (pending && typeof pending.then === "function") {
+					await pending;
+				}
+				if (typeof window.frappe?.after_ajax === "function") {
+					await window.frappe.after_ajax();
+				}
+				report.__peaRefreshCompleteToken = nextToken;
+				return nextToken;
+			});
+			await this.page.waitForFunction(
+				(expectedToken) =>
+					window.frappe?.query_report?.__peaRefreshCompleteToken === expectedToken &&
+					Array.isArray(window.frappe?.query_report?.data),
+				refreshToken
+			);
 		});
-		await this.page.waitForFunction(() => Array.isArray(window.frappe?.query_report?.data));
 	}
 
 	async waitForRows(minRows = 1) {
@@ -131,9 +173,15 @@ class ReportsPage {
 		});
 	}
 
-	async getPrimaryActionLabel() {
+	async getRuntimeState() {
 		return await this.page.evaluate(() => {
-			return window.frappe?.query_report?.primary_button?.text()?.trim() || "";
+			const report = window.frappe?.query_report;
+			return {
+				href: window.location.href,
+				ignorePreparedReport: Boolean(report?.ignore_prepared_report),
+				preparedReport: Number(report?.report_doc?.prepared_report || 0),
+				reportName: report?.report_name || "",
+			};
 		});
 	}
 
@@ -162,8 +210,20 @@ class ReportsPage {
 	}
 
 	async runWithDateRange(fromDate, toDate) {
-		await this.setFilterByFieldname("from_date", fromDate);
-		await this.setFilterByFieldname("to_date", toDate);
+		const filters = await this.getFilterValues();
+		const currentFromDate = String(filters.from_date || "");
+		const currentToDate = String(filters.to_date || "");
+
+		if (currentToDate && fromDate > currentToDate) {
+			await this.setFilterByFieldname("to_date", toDate);
+			await this.setFilterByFieldname("from_date", fromDate);
+		} else if (currentFromDate && toDate < currentFromDate) {
+			await this.setFilterByFieldname("from_date", fromDate);
+			await this.setFilterByFieldname("to_date", toDate);
+		} else {
+			await this.setFilterByFieldname("from_date", fromDate);
+			await this.setFilterByFieldname("to_date", toDate);
+		}
 		await this.clickRefresh();
 	}
 }

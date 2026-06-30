@@ -15,8 +15,13 @@ from frappe.utils import flt, format_datetime, get_datetime, get_time
 from production_entry_app.production_entry_app import access_control
 from production_entry_app.production_entry_app.doctype.shift.shift import _get_shift_metrics_cache_key
 from production_entry_app.production_entry_app.utils.alternative_items import (
+	apply_direct_manufacture_alternative_flags,
 	get_bom_alternative_allowed_items,
 	get_bom_item_codes,
+	should_skip_direct_manufacture_alternative_row,
+)
+from production_entry_app.production_entry_app.utils.alternative_items import (
+	get_bom_secondary_item_codes as _get_bom_secondary_item_codes,
 )
 from production_entry_app.production_entry_app.utils.die_tool_counter import (
 	get_counter_health,
@@ -450,34 +455,8 @@ def _validate_direct_manufacture_alternative_items(doc: Document) -> None:
 		)
 
 
-def _get_bom_secondary_item_codes(bom_no: str) -> set[str]:
-	if not frappe.db.exists("DocType", "BOM Secondary Item"):
-		return set()
-	return set(
-		frappe.get_all(
-			"BOM Secondary Item",
-			filters={"parent": bom_no, "parenttype": "BOM"},
-			pluck="item_code",
-		)
-	)
-
-
 def _set_direct_manufacture_alternative_flags(doc: Document) -> None:
-	if doc.get("purpose") != "Manufacture" or not doc.get("from_bom") or doc.get("work_order"):
-		return
-	if not doc.get("bom_no"):
-		return
-
-	allowed_items = get_bom_alternative_allowed_items(doc.get("bom_no"))
-	if not allowed_items:
-		return
-
-	for row in doc.get("items") or []:
-		if row.get("is_finished_item") or row.get("is_scrap_item") or row.get("custom_pea_is_rejection_item"):
-			continue
-		item_code = row.get("original_item") or row.get("item_code")
-		if item_code in allowed_items:
-			row.allow_alternative_item = 1
+	apply_direct_manufacture_alternative_flags(doc)
 
 
 def _validate_direct_manufacture_alternative_row(
@@ -487,18 +466,11 @@ def _validate_direct_manufacture_alternative_row(
 	bom_allowed_items: set[str],
 	bom_secondary_item_codes: set[str] | None = None,
 ) -> None:
-	if (
-		row.get("is_finished_item")
-		or row.get("is_scrap_item")
-		or row.get("is_legacy_scrap_item")
-		or row.get("custom_pea_is_rejection_item")
-	):
+	if should_skip_direct_manufacture_alternative_row(row, bom_secondary_item_codes):
 		return
 
 	original_item = row.get("original_item")
 	item_code = row.get("item_code")
-	if item_code in (bom_secondary_item_codes or set()):
-		return
 	if not original_item:
 		_validate_bom_contains_item(row, item_code, bom_no, bom_item_codes)
 		return

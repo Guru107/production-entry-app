@@ -229,7 +229,29 @@ class StockEntryPage {
 				if (!frm || !row) {
 					throw new Error("Unplanned loss row not found.");
 				}
-				for (const [fieldname, value] of Object.entries(updates)) {
+				const normalizedUpdates = { ...updates };
+				const timeEntry = window.production_entry_app?.time_entry;
+				if (updates.start_time_input && timeEntry?.parse_time) {
+					const parsed = timeEntry.parse_time(updates.start_time_input);
+					if (parsed?.error) {
+						throw new Error(parsed.error);
+					}
+					normalizedUpdates.start_time = parsed.frappe_time;
+					normalizedUpdates.start_time_input = timeEntry.format_time_display(
+						parsed.frappe_time
+					);
+				}
+				if (updates.end_time_input && timeEntry?.parse_time) {
+					const parsed = timeEntry.parse_time(updates.end_time_input);
+					if (parsed?.error) {
+						throw new Error(parsed.error);
+					}
+					normalizedUpdates.end_time = parsed.frappe_time;
+					normalizedUpdates.end_time_input = timeEntry.format_time_display(
+						parsed.frappe_time
+					);
+				}
+				for (const [fieldname, value] of Object.entries(normalizedUpdates)) {
 					await frappe.model.set_value(row.doctype, row.name, fieldname, value);
 				}
 				frm.refresh_field("custom_pea_unplanned_losses");
@@ -279,10 +301,21 @@ class StockEntryPage {
 	}
 
 	async fetchItems() {
-		await this.page.evaluate(async () => {
-			await cur_frm.script_manager.trigger("custom_pea_fetch_items");
-		});
-		await this.page.waitForFunction(() => (window.cur_frm?.doc?.items || []).length > 0);
+		await retryOnContextDestroyed(
+			this.page,
+			async () => {
+				await this.page.waitForFunction(
+					() => window.cur_frm?.doctype === "Stock Entry" && Boolean(window.cur_frm?.doc)
+				);
+				await this.page.evaluate(async () => {
+					await cur_frm.script_manager.trigger("custom_pea_fetch_items");
+				});
+				await this.page.waitForFunction(
+					() => (window.cur_frm?.doc?.items || []).length > 0
+				);
+			},
+			5
+		);
 	}
 
 	async isSectionVisible(sectionFieldname) {

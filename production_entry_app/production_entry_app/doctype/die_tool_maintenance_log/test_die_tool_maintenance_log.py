@@ -7,6 +7,7 @@ from frappe.tests.utils import FrappeTestCase
 from production_entry_app.production_entry_app.doctype.die_tool_maintenance_log.die_tool_maintenance_log import (
 	_sanitize_item_code,
 )
+from production_entry_app.production_entry_app.utils.test_bootstrap import ensure_item
 
 
 class TestDieToolMaintenanceLog(FrappeTestCase):
@@ -22,7 +23,7 @@ class TestDieToolMaintenanceLog(FrappeTestCase):
 			frappe.reload_doc("production_entry_app", "doctype", "die_tool_counter")
 
 	def setUp(self) -> None:
-		self._ensure_item(self.item_code)
+		ensure_item(self.item_code, item_group="All Item Groups")
 
 	@classmethod
 	def tearDownClass(cls) -> None:
@@ -34,22 +35,6 @@ class TestDieToolMaintenanceLog(FrappeTestCase):
 		if frappe.db.exists("Die Tool Counter", cls.item_code):
 			frappe.delete_doc("Die Tool Counter", cls.item_code, force=True, ignore_permissions=True)
 		super().tearDownClass()
-
-	@staticmethod
-	def _ensure_item(item_code: str) -> str:
-		if frappe.db.exists("Item", item_code):
-			return item_code
-		frappe.get_doc(
-			{
-				"doctype": "Item",
-				"item_code": item_code,
-				"item_name": item_code,
-				"item_group": "All Item Groups",
-				"stock_uom": "Nos",
-				"is_stock_item": 1,
-			}
-		).insert(ignore_permissions=True)
-		return item_code
 
 	def test_sanitize_item_code_replaces_special_characters(self) -> None:
 		self.assertEqual(_sanitize_item_code("FG 1 (A)&$"), "FG-1--A---")

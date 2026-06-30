@@ -1,6 +1,6 @@
 const { test, expect } = require("@playwright/test");
 const { bootstrapE2E, cleanupE2E } = require("../fixtures/test-data");
-const { getDoc, callFrappeMethod } = require("../fixtures/frappe");
+const { getDoc, callFrappeMethod, retryOnContextDestroyed } = require("../fixtures/frappe");
 const { StockEntryPage } = require("../pages/stock-entry-page");
 const { registerE2ELifecycle } = require("../fixtures/lifecycle");
 const { getRoute } = require("../utils/routing");
@@ -213,32 +213,39 @@ test.describe("Die tool metrics and counter", () => {
 			fgQty: 10,
 			rejectionQty: 0,
 		});
-		await page.evaluate(() => {
-			const originalCall = frappe.call.bind(frappe);
-			window.__peaOriginalFrappeCall = originalCall;
-			frappe.call = function (options) {
-				if (
-					options?.method ===
-					"production_entry_app.production_entry_app.api.get_die_tool_counter"
-				) {
-					options.callback?.({
-						message: {
-							die_tool_code: window.cur_frm?.doc?.fg_item || "ITEM-001",
-							has_die_tool: 1,
-							current_strokes: 901.2345,
-							stroke_capacity: 1000,
-							warning_threshold_pct: 90,
-							utilization_pct: 90.12345,
-							is_maintenance_due: 1,
-						},
-					});
-					return Promise.resolve();
-				}
-				return originalCall(options);
-			};
-		});
-		await page.evaluate(async () => {
-			await window.cur_frm?.script_manager?.trigger("custom_pea_rejection_qty");
+		await retryOnContextDestroyed(page, async () => {
+			await page.waitForFunction(
+				() =>
+					window.cur_frm?.doctype === "Stock Entry" &&
+					window.cur_frm?.doc?.docstatus === 0 &&
+					typeof window.cur_frm?.script_manager?.trigger === "function" &&
+					typeof window.frappe?.call === "function"
+			);
+			await page.evaluate(async () => {
+				const originalCall = window.__peaOriginalFrappeCall || frappe.call.bind(frappe);
+				window.__peaOriginalFrappeCall = originalCall;
+				frappe.call = function (options) {
+					if (
+						options?.method ===
+						"production_entry_app.production_entry_app.api.get_die_tool_counter"
+					) {
+						options.callback?.({
+							message: {
+								die_tool_code: window.cur_frm?.doc?.fg_item || "ITEM-001",
+								has_die_tool: 1,
+								current_strokes: 901.2345,
+								stroke_capacity: 1000,
+								warning_threshold_pct: 90,
+								utilization_pct: 90.12345,
+								is_maintenance_due: 1,
+							},
+						});
+						return Promise.resolve();
+					}
+					return originalCall(options);
+				};
+				await window.cur_frm?.script_manager?.trigger("custom_pea_rejection_qty");
+			});
 		});
 
 		await stockEntryPage.saveDraft();
