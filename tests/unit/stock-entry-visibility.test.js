@@ -10,6 +10,7 @@ const {
 	_run_when_app_enabled,
 	_sync_native_get_items_access,
 	_apply_shift_detail_updates,
+	_apply_fetch_items_response,
 	MANUFACTURE_FIELDS,
 	MANUFACTURE_SECTIONS,
 	ALWAYS_HIDDEN_FIELDS,
@@ -272,6 +273,75 @@ test("shift detail updates stop when the request becomes stale", async () => {
 
 	assert.equal(applied, false);
 	assert.deepEqual(updates, [["company", "Old Company"]]);
+});
+
+test("fetch items response refreshes form so ERPNext can add alternate item button", () => {
+	const originalFrappe = global.frappe;
+	const originalFlt = global.flt;
+	const originalTranslate = global.__;
+	let refreshCount = 0;
+	const apiCalls = [];
+	global.flt = Number;
+	global.__ = (text) => text;
+	global.frappe = {
+		model: {
+			add_child(doc, doctype, fieldname) {
+				const row = { doctype };
+				doc[fieldname].push(row);
+				return row;
+			},
+		},
+		call(options) {
+			apiCalls.push(options.method);
+		},
+	};
+	const frm = {
+		doc: {
+			custom_pea_stock_entry_purpose: "Manufacture",
+			custom_pea_rejection_qty: 0,
+			items: [{ item_code: "STALE" }],
+		},
+		fields_dict: {
+			custom_pea_die_tool_utilization_pct: {},
+			custom_pea_die_tool_maintenance_due: {},
+		},
+		layout: { sections: [] },
+		clear_table(fieldname) {
+			this.doc[fieldname] = [];
+		},
+		refresh_field() {},
+		refresh_fields() {},
+		toggle_display() {},
+		toggle_reqd() {},
+		dirty() {},
+		refresh() {
+			refreshCount += 1;
+		},
+	};
+
+	try {
+		const applied = _apply_fetch_items_response(frm, [
+			{ item_code: "RM001", allow_alternative_item: 1 },
+			{ item_code: "FG001", is_finished_item: 1 },
+		]);
+
+		assert.equal(applied, true);
+		assert.equal(refreshCount, 1);
+		assert.deepEqual(
+			frm.doc.items.map((row) => [row.item_code, row.allow_alternative_item || 0]),
+			[
+				["RM001", 1],
+				["FG001", 0],
+			]
+		);
+		assert.deepEqual(apiCalls, [
+			"production_entry_app.production_entry_app.api.get_die_tool_counter",
+		]);
+	} finally {
+		global.frappe = originalFrappe;
+		global.flt = originalFlt;
+		global.__ = originalTranslate;
+	}
 });
 
 test("app-enabled callbacks stay fail-closed when access lookup rejects", async () => {

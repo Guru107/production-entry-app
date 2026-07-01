@@ -290,22 +290,7 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 					freeze: true,
 					freeze_message: __("Fetching items..."),
 					callback(r) {
-						if (!r.message || !r.message.length) return;
-						frm.clear_table("items");
-						r.message.forEach(function (item) {
-							const d = frappe.model.add_child(
-								frm.doc,
-								"Stock Entry Detail",
-								"items"
-							);
-							Object.keys(item).forEach(function (key) {
-								d[key] = item[key];
-							});
-						});
-						frm.refresh_field("items");
-						frm.dirty();
-						_apply_manufacture_visibility(frm);
-						_update_die_tool_metrics(frm);
+						_apply_fetch_items_response(frm, r.message);
 					},
 					error(error) {
 						_notify_call_error(__("Failed to fetch items."), error);
@@ -324,6 +309,22 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 function _hide_standard_get_items(frm) {
 	// Hide the standard "Get Items" button field — our "Fetch Items" replaces it.
 	_hide_native_get_items(frm);
+}
+
+function _apply_fetch_items_response(frm, items) {
+	if (!items || !items.length) return false;
+	frm.clear_table("items");
+	items.forEach(function (item) {
+		const d = frappe.model.add_child(frm.doc, "Stock Entry Detail", "items");
+		Object.keys(item).forEach(function (key) {
+			d[key] = item[key];
+		});
+	});
+	frm.refresh_field("items");
+	frm.dirty();
+	frm.refresh();
+	_apply_manufacture_visibility(frm);
+	return true;
 }
 
 function _apply_native_manufacture_visibility(frm) {
@@ -830,6 +831,7 @@ if (typeof module !== "undefined" && module.exports) {
 		_run_when_app_enabled,
 		_sync_native_get_items_access,
 		_apply_shift_detail_updates,
+		_apply_fetch_items_response,
 		_hide_native_get_items,
 		_show_native_get_items,
 	};

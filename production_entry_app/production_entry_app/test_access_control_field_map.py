@@ -6,6 +6,9 @@ from pathlib import Path
 
 from frappe.tests.utils import FrappeTestCase
 
+from production_entry_app.production_entry_app.access_control_field_map import (
+	build_access_control_field_map,
+)
 from production_entry_app.production_entry_app.field_permissions import PEA_FIELD_PERMLEVEL
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -44,8 +47,6 @@ class TestAccessControlFieldMap(FrappeTestCase):
 			self.assertGreater(len(parsed[doctype]), 0)
 
 	def test_unlisted_app_owned_doctypes_fail_loudly(self) -> None:
-		from scripts.build_access_control_field_map import build_access_control_field_map
-
 		with self.assertRaisesRegex(ValueError, "unlisted doctypes"):
 			build_access_control_field_map(
 				custom_fields=[

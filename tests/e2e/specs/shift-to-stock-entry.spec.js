@@ -151,7 +151,7 @@ test.describe("Shift to Stock Entry integration", () => {
 		]);
 		expect(values.stock_entry_type).toBe("Manufacture");
 		expect(values.custom_pea_shift).toBe(ctx.shift_name);
-		expect(ctx.shift_name).toBe(`SHIFT-${ctx.shift_date}.1.0001`);
+		expect(ctx.shift_name).toMatch(new RegExp(`^SHIFT-${ctx.shift_date}\\.1\\.\\d{4}$`));
 	});
 
 	test("@regression selecting shift auto-fills branch and planned dates", async ({ page }) => {

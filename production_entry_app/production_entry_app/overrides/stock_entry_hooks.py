@@ -15,8 +15,13 @@ from frappe.utils import flt, format_datetime, get_datetime, get_time
 from production_entry_app.production_entry_app import access_control
 from production_entry_app.production_entry_app.doctype.shift.shift import _get_shift_metrics_cache_key
 from production_entry_app.production_entry_app.utils.alternative_items import (
+	apply_direct_manufacture_alternative_flags,
 	get_bom_alternative_allowed_items,
 	get_bom_item_codes,
+	should_skip_direct_manufacture_alternative_row,
+)
+from production_entry_app.production_entry_app.utils.alternative_items import (
+	get_bom_secondary_item_codes as _get_bom_secondary_item_codes,
 )
 from production_entry_app.production_entry_app.utils.die_tool_counter import (
 	get_counter_health,
@@ -70,6 +75,7 @@ def validate_stock_entry(doc: Document, method: str | None = None) -> None:
 	_validate_operator_overlap(doc)
 	_validate_workstation_downtime_overlap(doc)
 	_validate_rejection_breakup(doc)
+	_set_direct_manufacture_alternative_flags(doc)
 	_validate_direct_manufacture_alternative_items(doc)
 	_apply_rejection_entries(doc)
 	_validate_rejection_target_warehouses(doc)
@@ -438,8 +444,19 @@ def _validate_direct_manufacture_alternative_items(doc: Document) -> None:
 	bom_no = doc.get("bom_no")
 	bom_item_codes = get_bom_item_codes(bom_no)
 	bom_allowed_items = get_bom_alternative_allowed_items(bom_no)
+	bom_secondary_item_codes = _get_bom_secondary_item_codes(bom_no)
 	for row in doc.get("items") or []:
-		_validate_direct_manufacture_alternative_row(row, bom_no, bom_item_codes, bom_allowed_items)
+		_validate_direct_manufacture_alternative_row(
+			row,
+			bom_no,
+			bom_item_codes,
+			bom_allowed_items,
+			bom_secondary_item_codes,
+		)
+
+
+def _set_direct_manufacture_alternative_flags(doc: Document) -> None:
+	apply_direct_manufacture_alternative_flags(doc)
 
 
 def _validate_direct_manufacture_alternative_row(
@@ -447,8 +464,9 @@ def _validate_direct_manufacture_alternative_row(
 	bom_no: str,
 	bom_item_codes: set[str],
 	bom_allowed_items: set[str],
+	bom_secondary_item_codes: set[str] | None = None,
 ) -> None:
-	if row.get("is_finished_item") or row.get("is_scrap_item") or row.get("custom_pea_is_rejection_item"):
+	if should_skip_direct_manufacture_alternative_row(row, bom_secondary_item_codes):
 		return
 
 	original_item = row.get("original_item")

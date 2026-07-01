@@ -2,7 +2,7 @@ const { test, expect } = require("@playwright/test");
 const { bootstrapE2E, cleanupE2E } = require("../fixtures/test-data");
 const { callFrappeMethod } = require("../fixtures/frappe");
 const { registerE2ELifecycle } = require("../fixtures/lifecycle");
-const { getRoute } = require("../utils/routing");
+const { getRoute, getRouteRegex } = require("../utils/routing");
 
 async function setupFreshContext(page, prefix) {
 	await cleanupE2E(page, prefix);
@@ -413,7 +413,7 @@ test.describe("Batch 2 shift UX", () => {
 			canvasData.firstCenter
 		);
 		expect(clicked).toBe(true);
-		await page.waitForURL(/\/app\/stock-entry\//);
+		await page.waitForURL(getRouteRegex("/stock-entry/"));
 		await page.waitForFunction(
 			(expected) =>
 				window.cur_frm?.doctype === "Stock Entry" &&
@@ -577,7 +577,7 @@ test.describe("Batch 2 shift UX", () => {
 			canvasData.downtimeCenter
 		);
 		expect(clicked).toBe(true);
-		await page.waitForURL(/\/app\/downtime-entry\/[^/]+$/);
+		await page.waitForURL(getRouteRegex("/downtime-entry/"));
 		await page.waitForFunction(() => window.cur_frm?.doctype === "Downtime Entry");
 	});
 });

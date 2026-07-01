@@ -14,7 +14,7 @@ from pypika import Order
 
 from production_entry_app.production_entry_app import access_control, field_permissions
 from production_entry_app.production_entry_app.utils.alternative_items import (
-	get_bom_alternative_allowed_items,
+	apply_direct_manufacture_alternative_flags,
 )
 from production_entry_app.production_entry_app.utils.die_tool_counter import (
 	_get_or_create_counter,
@@ -243,7 +243,7 @@ def get_items_with_rejection(doc: str) -> list[dict]:
 	se.work_order = doc_dict.get("work_order")
 
 	se.get_items()
-	_apply_direct_manufacture_alternative_flags(se)
+	apply_direct_manufacture_alternative_flags(se)
 	_apply_rejection_entries(se)
 
 	# Return only data fields — exclude Frappe metadata that would corrupt
@@ -268,35 +268,6 @@ def get_items_with_rejection(doc: str) -> list[dict]:
 		d = {k: v for k, v in row.as_dict().items() if k not in _meta_fields}
 		items.append(d)
 	return items
-
-
-def _apply_direct_manufacture_alternative_flags(doc: Document) -> None:
-	if doc.get("purpose") != "Manufacture" or not doc.get("from_bom") or doc.get("work_order"):
-		return
-	if not doc.get("bom_no"):
-		return
-
-	allowed_items = get_bom_alternative_allowed_items(doc.get("bom_no"))
-	if not allowed_items:
-		return
-
-	for row in _get_direct_manufacture_alternative_item_rows(doc, allowed_items):
-		_apply_direct_manufacture_alternative_flag(row)
-
-
-def _get_direct_manufacture_alternative_item_rows(doc: Document, allowed_items: set[str]) -> list[Any]:
-	rows = []
-	for row in doc.get("items") or []:
-		if row.get("is_finished_item") or row.get("is_scrap_item") or row.get("custom_pea_is_rejection_item"):
-			continue
-		item_code = row.get("original_item") or row.get("item_code")
-		if item_code in allowed_items and not row.get("allow_alternative_item"):
-			rows.append(row)
-	return rows
-
-
-def _apply_direct_manufacture_alternative_flag(row: Any) -> None:
-	row.allow_alternative_item = 1
 
 
 @frappe.whitelist()
@@ -908,6 +879,16 @@ def _cleanup_e2e_stock_entries(targets: dict[str, object]) -> None:
 			_safe_force_delete("Stock Entry", se.name, context="cleanup_e2e_context")
 
 
+def _cleanup_e2e_downtime_entries(targets: dict[str, object]) -> None:
+	target_workstation = str(targets["target_workstation"])
+	for name in frappe.get_all(
+		"Downtime Entry",
+		filters={"workstation": target_workstation},
+		pluck="name",
+	):
+		_safe_force_delete("Downtime Entry", name, context="cleanup_e2e_context")
+
+
 def _cleanup_e2e_master_data(prefix: str) -> None:
 	target_operator = f"{prefix} Operator"
 	target_workstation = f"{prefix} Workstation"
@@ -976,6 +957,7 @@ def _cleanup_e2e_context(prefix: str = "E2E") -> dict:
 		targets = _get_e2e_cleanup_targets(prefix)
 		_cleanup_e2e_shifts(prefix, targets)
 		_cleanup_e2e_stock_entries(targets)
+		_cleanup_e2e_downtime_entries(targets)
 		_cleanup_e2e_master_data(prefix)
 	except Exception:
 		result["ok"] = False

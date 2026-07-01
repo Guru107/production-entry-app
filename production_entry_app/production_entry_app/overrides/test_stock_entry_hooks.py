@@ -179,6 +179,111 @@ class TestStockEntryHookPureHelpers(FrappeTestCase):
 		with self.assertRaisesRegex(frappe.ValidationError, "quantity greater than 0"):
 			stock_entry_hooks._validate_rejection_breakup(doc)
 
+	def test_direct_manufacture_validation_skips_v16_legacy_scrap_rows(self) -> None:
+		row = frappe._dict({"idx": 3, "item_code": "MSScrap", "is_legacy_scrap_item": 1})
+
+		stock_entry_hooks._validate_direct_manufacture_alternative_row(
+			row,
+			"BOM-FG001-001",
+			{"RM001"},
+			set(),
+		)
+
+	def test_direct_manufacture_validation_skips_bom_secondary_item_rows(self) -> None:
+		row = frappe._dict({"idx": 3, "item_code": "MSScrap"})
+
+		stock_entry_hooks._validate_direct_manufacture_alternative_row(
+			row,
+			"BOM-FG002SHR-002",
+			{"RM001"},
+			set(),
+			{"MSScrap"},
+		)
+
+	def test_direct_manufacture_validation_uses_bom_secondary_item_query(self) -> None:
+		doc = frappe._dict(
+			{
+				"purpose": "Manufacture",
+				"from_bom": 1,
+				"bom_no": "BOM-FG002SHR-005",
+				"items": [frappe._dict({"idx": 3, "item_code": "MSScrap"})],
+			}
+		)
+
+		with (
+			patch(
+				"production_entry_app.production_entry_app.overrides.stock_entry_hooks.get_bom_item_codes",
+				return_value={"RM001"},
+			),
+			patch(
+				"production_entry_app.production_entry_app.overrides.stock_entry_hooks.get_bom_alternative_allowed_items",
+				return_value=set(),
+			),
+			patch(
+				"production_entry_app.production_entry_app.overrides.stock_entry_hooks._get_bom_secondary_item_codes",
+				return_value={"MSScrap"},
+			) as get_secondary_items,
+		):
+			stock_entry_hooks._validate_direct_manufacture_alternative_items(doc)
+
+		get_secondary_items.assert_called_once_with("BOM-FG002SHR-005")
+
+	def test_direct_manufacture_validation_marks_alternative_allowed_rows(self) -> None:
+		doc = frappe._dict(
+			{
+				"purpose": "Manufacture",
+				"from_bom": 1,
+				"bom_no": "BOM-FG002SHR-005",
+				"items": [
+					frappe._dict({"item_code": "RM001", "allow_alternative_item": 0}),
+					frappe._dict({"item_code": "FG002SHR", "is_finished_item": 1}),
+				],
+			}
+		)
+
+		with (
+			patch(
+				"production_entry_app.production_entry_app.utils.alternative_items.get_bom_alternative_allowed_items",
+				return_value={"RM001"},
+			),
+			patch(
+				"production_entry_app.production_entry_app.utils.alternative_items.get_bom_secondary_item_codes",
+				return_value=set(),
+			),
+		):
+			stock_entry_hooks._set_direct_manufacture_alternative_flags(doc)
+
+		self.assertEqual(doc["items"][0].allow_alternative_item, 1)
+		self.assertFalse(doc["items"][1].get("allow_alternative_item"))
+
+	def test_direct_manufacture_validation_flags_skip_legacy_scrap_and_secondary_rows(self) -> None:
+		doc = frappe._dict(
+			{
+				"purpose": "Manufacture",
+				"from_bom": 1,
+				"bom_no": "BOM-FG002SHR-005",
+				"items": [
+					frappe._dict({"item_code": "RM001", "allow_alternative_item": 0}),
+					frappe._dict({"item_code": "LEGACY-SCRAP", "is_legacy_scrap_item": 1}),
+					frappe._dict({"item_code": "SECONDARY-OUTPUT"}),
+				],
+			}
+		)
+
+		with (
+			patch(
+				"production_entry_app.production_entry_app.utils.alternative_items.get_bom_alternative_allowed_items",
+				return_value={"RM001", "LEGACY-SCRAP", "SECONDARY-OUTPUT"},
+			),
+			patch(
+				"production_entry_app.production_entry_app.utils.alternative_items.get_bom_secondary_item_codes",
+				return_value={"SECONDARY-OUTPUT"},
+			),
+		):
+			stock_entry_hooks._set_direct_manufacture_alternative_flags(doc)
+
+		self.assertEqual([row.get("allow_alternative_item") for row in doc["items"]], [1, None, None])
+
 	def test_get_docfield_precision_defaults_when_field_missing(self) -> None:
 		meta = type("Meta", (), {"get_field": lambda self, fieldname: None})()
 		with patch(

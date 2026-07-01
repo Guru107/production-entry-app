@@ -1888,6 +1888,7 @@ class TestProductionReports(FrappeTestCase):
 
 		shift_june = self._create_shift_for_label("2026-06-29", "1")
 		shift_july = self._create_shift_for_label("2026-07-02", "1")
+		fg_item = _get_or_create_item(f"_Test FG Item For Rejection Trend {frappe.generate_hash(length=8)}")
 		self._create_mock_submitted_entry(
 			posting_date="2026-06-29",
 			planned_start="2026-06-29 08:00:00",
@@ -1897,6 +1898,7 @@ class TestProductionReports(FrappeTestCase):
 			fg_qty=100,
 			rejection_qty=10,
 			shift_name=shift_june.name,
+			fg_item=fg_item,
 		)
 		self._create_mock_submitted_entry(
 			posting_date="2026-07-02",
@@ -1907,10 +1909,16 @@ class TestProductionReports(FrappeTestCase):
 			fg_qty=80,
 			rejection_qty=8,
 			shift_name=shift_july.name,
+			fg_item=fg_item,
 		)
 
 		_, rows, _, _chart = execute(
-			{"from_date": "2026-06-01", "to_date": "2026-07-31", "time_grain": "Monthly"}
+			{
+				"from_date": "2026-06-01",
+				"to_date": "2026-07-31",
+				"time_grain": "Monthly",
+				"fg_item": fg_item,
+			}
 		)
 		self.assertEqual(len(rows), 2)
 		self.assertEqual(rows[0]["period"], "2026-06")
@@ -2242,6 +2250,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		shift = self._create_shift_for_label("2026-06-30", "1")
+		fg_item = _get_or_create_item(f"_Test FG Item For Rejection PPM {frappe.generate_hash(length=8)}")
 		self._create_mock_submitted_entry(
 			posting_date="2026-06-30",
 			planned_start="2026-06-30 08:00:00",
@@ -2251,9 +2260,10 @@ class TestProductionReports(FrappeTestCase):
 			fg_qty=100,
 			rejection_qty=10,
 			shift_name=shift.name,
+			fg_item=fg_item,
 		)
 
-		_, rows, _, _ = execute({"from_date": "2026-06-30", "to_date": "2026-06-30"})
+		_, rows, _, _ = execute({"from_date": "2026-06-30", "to_date": "2026-06-30", "fg_item": fg_item})
 		self.assertEqual(len(rows), 1)
 		self.assertEqual(rows[0]["date"], "2026-06-30")
 		self.assertEqual(float(rows[0]["total_qty"]), 100.0)
@@ -2849,7 +2859,7 @@ class TestProductionReports(FrappeTestCase):
 			execute,
 		)
 
-		fiscal_year = self._ensure_fiscal_year("2099-2100", "2099-04-01", "2100-03-31")
+		fiscal_year = self._ensure_fiscal_year("2079", "2079-01-01", "2079-12-31")
 		_, rows = execute({"fiscal_year": fiscal_year, "month": "April"})
 		self.assertEqual(rows, [])
 
