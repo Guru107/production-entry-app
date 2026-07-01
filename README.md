@@ -33,6 +33,13 @@ Pre-commit is configured to use the following tools for checking and formatting 
 - prettier
 - pyupgrade
 
+## Admin notes
+
+On every `bench migrate` / app sync, this app reconciles its own DocType and
+permlevel-9 field permissions (see `lifecycle._setup_app`). Manual changes to
+those app-owned permissions via Role Permission Manager may be overwritten on
+migrate. Each run logs a summary to the `production_entry_app` logger.
+
 ### CI
 
 This app can use GitHub Actions for CI. The following workflows are configured:

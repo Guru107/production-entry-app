@@ -26,6 +26,10 @@ def _setup_app() -> None:
 	access_control.ensure_access_roles_and_settings()
 	field_permissions.ensure_pea_field_permissions()
 	performance_indexes.ensure_performance_indexes_with_recovery()
+	frappe.logger("production_entry_app").info(
+		"Production Entry App setup ran: access roles, field permissions (permlevel 9), "
+		"and performance indexes were reconciled during sync/migrate."
+	)
 
 
 def _delete_customizations(doctype: str) -> None:
