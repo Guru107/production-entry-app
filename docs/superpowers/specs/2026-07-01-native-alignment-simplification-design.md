@@ -125,12 +125,13 @@ args; `has_gated_doctype_permission` signature unchanged.
 
 **Test:** summary is logged when DocPerms change.
 
-### 1.5 (Audit #10 / #11) Fix `/app` route strings
+### 1.5 (Audit #10 / #11) Create the app Workspace + fix `/app` route strings
 
-- `hooks.add_to_apps_screen[0].route` → app workspace/module route.
+- Create a public `Workspace` named `Production Entry App` (route slug `production-entry-app`) with two card sections — **Forms** (Stock Entry, Shift, Operator, Die Tool Counter, Die Tool Maintenance Log, Rejection Reason, Downtime Reason) and **Reports** (all 18 Shift-referenced Script Reports, ordered Efficiency → Rejection → Rework → Die Tool) — plus a **Production Entry Settings** shortcut.
+- `hooks.add_to_apps_screen[0].route` → `/app/production-entry-app` (now resolves to the new workspace).
 - `shift.js:385` → `frappe.utils.get_form_link("Downtime Entry", d.name)`.
 
-**Tests:** assertion where feasible; E2E link still resolves.
+**Tests:** metadata test asserts the workspace has Forms + Reports cards and 18 report links; E2E link still resolves.
 
 ### 1.6 (Audit #12) Fix `frappe_in_test()`
 

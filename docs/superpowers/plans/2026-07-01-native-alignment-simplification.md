@@ -15,8 +15,11 @@
 - All user-visible strings wrapped in `_()` (Python) / `__()` (JS).
 - Every `frappe.call()` needs an `error:` callback.
 - Run `pre-commit run --all-files` before declaring a task done; fix, then stage → commit.
-- Bench commands run from bench root: `cd /root/workspace/bench16` (v16) or `cd /root/workspace/bench15` (v15). Site: `development.localhost`.
-- Test module run: `bench --site development.localhost run-tests --app production_entry_app --module <dotted.module>`.
+- **Execution environment: cloud Linux env.** Bench targets (site names differ per bench here):
+  - `bench16` → `cd /root/workspace/bench16`, site **`frappe16.localhost`**, served on **:8002** (v16 — primary target for JS/override/E2E work).
+  - `bench15` → `cd /root/workspace/bench15`, site **`development.localhost`**, served on **:8000** (v15 — Python regression parity only).
+- **E2E prerequisite (executor-provided, one-time):** before any `npx playwright test` step, a bench dev server for **`frappe16.localhost` must be listening on `localhost:8002`** (Playwright's default `baseURL`; override with `PLAYWRIGHT_BASE_URL`). Confirm `developer_mode` and `allow_e2e_tests` are on for that site. The plan does not start/stop the server itself.
+- **Branch strategy:** the `codex/fix-bench16` fix is now merged to `develop`. Branch **`feat/native-alignment-phase-1`** off the updated `develop` for PR A; branch **`feat/native-alignment-phase-2`** off `develop` (after PR A merges) for PR B. Do not build on the old feature branch.
 - App under development: **no backward-compat shims** — update call sites directly.
 - Only **direct manufacture-from-BOM** is in scope. No Work Order / Job Card / serial-batch / process-loss tests (tripwire notes only).
 
@@ -47,7 +50,7 @@ def test_required_apps_declares_erpnext() -> None:
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /root/workspace/bench16 && bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.test_doctype_metadata`
+Run: `cd /root/workspace/bench16 && bench --site frappe16.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.test_doctype_metadata`
 Expected: FAIL — `required_apps` is currently a comment.
 
 - [ ] **Step 3: Implement**
@@ -101,7 +104,7 @@ def test_master_data_doctypes_do_not_allow_rename() -> None:
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /root/workspace/bench16 && bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.test_doctype_metadata`
+Run: `cd /root/workspace/bench16 && bench --site frappe16.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.test_doctype_metadata`
 Expected: FAIL — `Rejection Reason` has no `allow_rename: 0`.
 
 - [ ] **Step 3: Implement**
@@ -114,7 +117,7 @@ In `rejection_reason.json`, add the top-level key (alongside `"allow_import"`, e
 
 - [ ] **Step 4: Migrate + run test to verify it passes**
 
-Run: `cd /root/workspace/bench16 && bench --site development.localhost migrate && bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.test_doctype_metadata`
+Run: `cd /root/workspace/bench16 && bench --site frappe16.localhost migrate && bench --site frappe16.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.test_doctype_metadata`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -148,7 +151,7 @@ def test_frappe_in_test_true_via_flags(self) -> None:
 
 - [ ] **Step 2: Run test to verify it fails or is fragile**
 
-Run: `cd /root/workspace/bench16 && bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.tests.compat.test_version_compat`
+Run: `cd /root/workspace/bench16 && bench --site frappe16.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.tests.compat.test_version_compat`
 Expected: On v16 the current code reads `frappe.in_test` and ignores `frappe.flags.in_test`, so the flags-only path is not covered.
 
 - [ ] **Step 3: Implement**
@@ -216,7 +219,7 @@ def test_gated_doctype_permission_keeps_hook_signature(self) -> None:
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /root/workspace/bench16 && bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.test_access_control`
+Run: `cd /root/workspace/bench16 && bench --site frappe16.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.test_access_control`
 Expected: FAIL — helpers currently accept `doctype`/`docname`/`branch`.
 
 - [ ] **Step 3: Find every call site**
@@ -266,7 +269,7 @@ Update any additional sites grep found identically.
 
 - [ ] **Step 6: Run tests to verify pass**
 
-Run: `cd /root/workspace/bench16 && bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.test_access_control`
+Run: `cd /root/workspace/bench16 && bench --site frappe16.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.test_access_control`
 Then the broader access suite: `--module production_entry_app.production_entry_app.test_access_control_whitelisted_api`
 Expected: PASS.
 
@@ -279,16 +282,18 @@ git commit -m "refactor: drop unused context params from app access helpers"
 
 ---
 
-### Task 5: Fix `/app` route strings (Audit #10 / #11)
+### Task 5: Create the app Workspace + fix `/app` route strings (Audit #10 / #11)
 
 **Files:**
-- Modify: `production_entry_app/hooks.py:14-21`
+- Create: `production_entry_app/production_entry_app/workspace/production_entry_app/production_entry_app.json`
+- Modify: `production_entry_app/hooks.py` (`add_to_apps_screen` route)
 - Modify: `production_entry_app/production_entry_app/doctype/shift/shift.js:385`
+- Test: `production_entry_app/production_entry_app/test_doctype_metadata.py`
 
 **Interfaces:**
-- Produces: no code depends on these; verify via E2E only.
+- Produces: a public `Workspace` named `Production Entry App` (route slug `production-entry-app`) with a **Forms** card, a **Reports** card, and a **Production Entry Settings** shortcut.
 
-- [ ] **Step 1: Implement the downtime link (shift.js)**
+- [ ] **Step 1: Fix the hardcoded downtime link (shift.js)**
 
 Replace the hardcoded anchor at `shift.js:385`:
 
@@ -298,33 +303,99 @@ Replace the hardcoded anchor at `shift.js:385`:
 
 (Keep the existing link text/children unchanged.)
 
-- [ ] **Step 2: Implement the apps-screen route (hooks.py)**
+- [ ] **Step 2: Create the Workspace definition**
 
-In `add_to_apps_screen`, change `"route": "/app"` to the app workspace route:
+Create `workspace/production_entry_app/production_entry_app.json`. The `content` cards' `card_name` must match the `Card Break` labels exactly. `link_count` on each Card Break must equal the number of `Link` rows under it (Forms = 7, Reports = 18).
+
+```json
+{
+ "doctype": "Workspace",
+ "name": "Production Entry App",
+ "label": "Production Entry App",
+ "title": "Production Entry App",
+ "module": "Production Entry App",
+ "public": 1,
+ "is_hidden": 0,
+ "icon": "tool",
+ "sequence_id": 100.0,
+ "content": "[{\"id\":\"pea_header\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\">Production Entry App</span>\",\"col\":12}},{\"id\":\"pea_forms\",\"type\":\"card\",\"data\":{\"card_name\":\"Forms\",\"col\":4}},{\"id\":\"pea_reports\",\"type\":\"card\",\"data\":{\"card_name\":\"Reports\",\"col\":8}}]",
+ "shortcuts": [
+  {"type": "DocType", "label": "Production Entry Settings", "link_to": "Production Entry Settings", "color": "Grey"}
+ ],
+ "links": [
+  {"type": "Card Break", "label": "Forms", "hidden": 0, "onboard": 0, "link_count": 7},
+  {"type": "Link", "label": "Stock Entry", "link_type": "DocType", "link_to": "Stock Entry", "hidden": 0, "onboard": 0, "is_query_report": 0},
+  {"type": "Link", "label": "Shift", "link_type": "DocType", "link_to": "Shift", "hidden": 0, "onboard": 0, "is_query_report": 0},
+  {"type": "Link", "label": "Operator", "link_type": "DocType", "link_to": "Operator", "hidden": 0, "onboard": 0, "is_query_report": 0},
+  {"type": "Link", "label": "Die Tool Counter", "link_type": "DocType", "link_to": "Die Tool Counter", "hidden": 0, "onboard": 0, "is_query_report": 0},
+  {"type": "Link", "label": "Die Tool Maintenance Log", "link_type": "DocType", "link_to": "Die Tool Maintenance Log", "hidden": 0, "onboard": 0, "is_query_report": 0},
+  {"type": "Link", "label": "Rejection Reason", "link_type": "DocType", "link_to": "Rejection Reason", "hidden": 0, "onboard": 0, "is_query_report": 0},
+  {"type": "Link", "label": "Downtime Reason", "link_type": "DocType", "link_to": "Downtime Reason", "hidden": 0, "onboard": 0, "is_query_report": 0},
+  {"type": "Card Break", "label": "Reports", "hidden": 0, "onboard": 0, "link_count": 18},
+  {"type": "Link", "label": "Production OEE Report", "link_type": "Report", "link_to": "Production OEE Report", "hidden": 0, "onboard": 0, "is_query_report": 1},
+  {"type": "Link", "label": "Workstation Efficiency Report", "link_type": "Report", "link_to": "Workstation Efficiency Report", "hidden": 0, "onboard": 0, "is_query_report": 1},
+  {"type": "Link", "label": "Operator Efficiency Report", "link_type": "Report", "link_to": "Operator Efficiency Report", "hidden": 0, "onboard": 0, "is_query_report": 1},
+  {"type": "Link", "label": "Operator Daily SPM Report", "link_type": "Report", "link_to": "Operator Daily SPM Report", "hidden": 0, "onboard": 0, "is_query_report": 1},
+  {"type": "Link", "label": "Daily Strokes SPM Monitor", "link_type": "Report", "link_to": "Daily Strokes SPM Monitor", "hidden": 0, "onboard": 0, "is_query_report": 1},
+  {"type": "Link", "label": "Rejection Pareto Report", "link_type": "Report", "link_to": "Rejection Pareto Report", "hidden": 0, "onboard": 0, "is_query_report": 1},
+  {"type": "Link", "label": "Rejection PPM Report", "link_type": "Report", "link_to": "Rejection PPM Report", "hidden": 0, "onboard": 0, "is_query_report": 1},
+  {"type": "Link", "label": "Rejection Trend Report", "link_type": "Report", "link_to": "Rejection Trend Report", "hidden": 0, "onboard": 0, "is_query_report": 1},
+  {"type": "Link", "label": "Workstation Rejection Reason Matrix", "link_type": "Report", "link_to": "Workstation Rejection Reason Matrix", "hidden": 0, "onboard": 0, "is_query_report": 1},
+  {"type": "Link", "label": "Operator Rejection Performance", "link_type": "Report", "link_to": "Operator Rejection Performance", "hidden": 0, "onboard": 0, "is_query_report": 1},
+  {"type": "Link", "label": "Item BOM Rejection Hotspots", "link_type": "Report", "link_to": "Item BOM Rejection Hotspots", "hidden": 0, "onboard": 0, "is_query_report": 1},
+  {"type": "Link", "label": "Rework Pareto Report", "link_type": "Report", "link_to": "Rework Pareto Report", "hidden": 0, "onboard": 0, "is_query_report": 1},
+  {"type": "Link", "label": "Rework PPM Report", "link_type": "Report", "link_to": "Rework PPM Report", "hidden": 0, "onboard": 0, "is_query_report": 1},
+  {"type": "Link", "label": "Rework Trend Report", "link_type": "Report", "link_to": "Rework Trend Report", "hidden": 0, "onboard": 0, "is_query_report": 1},
+  {"type": "Link", "label": "Workstation Rework Reason Matrix", "link_type": "Report", "link_to": "Workstation Rework Reason Matrix", "hidden": 0, "onboard": 0, "is_query_report": 1},
+  {"type": "Link", "label": "Operator Rework Performance", "link_type": "Report", "link_to": "Operator Rework Performance", "hidden": 0, "onboard": 0, "is_query_report": 1},
+  {"type": "Link", "label": "Item BOM Rework Hotspots", "link_type": "Report", "link_to": "Item BOM Rework Hotspots", "hidden": 0, "onboard": 0, "is_query_report": 1},
+  {"type": "Link", "label": "Die Tool Stroke and Maintenance Report", "link_type": "Report", "link_to": "Die Tool Stroke and Maintenance Report", "hidden": 0, "onboard": 0, "is_query_report": 1}
+ ]
+}
+```
+
+- [ ] **Step 3: Point the apps-screen route at the workspace (hooks.py)**
+
+In `add_to_apps_screen`, change `"route": "/app"` to:
 
 ```python
 		"route": "/app/production-entry-app",
 ```
 
-- [ ] **Step 3: Verify workspace route resolves**
+- [ ] **Step 4: Migrate + write the metadata test**
 
-Run: `cd /root/workspace/bench16 && bench --site development.localhost console` then:
+Run: `cd /root/workspace/bench16 && bench --site frappe16.localhost migrate`
+
+Then add to `test_doctype_metadata.py`:
+
 ```python
-import frappe; print(frappe.db.exists("Workspace", {"name": "Production Entry App"}))
-```
-If it returns `None`, fall back to a route that exists (e.g. `/app/shift`) and note it in the commit message. Do **not** invent a route to a missing workspace.
+def test_workspace_has_forms_and_reports_cards() -> None:
+	import frappe
 
-- [ ] **Step 4: Build assets + smoke test the link**
+	ws = frappe.get_doc("Workspace", "Production Entry App")
+	card_labels = [row.label for row in ws.links if row.type == "Card Break"]
+	assert card_labels == ["Forms", "Reports"]
+	report_links = [row.link_to for row in ws.links if row.link_type == "Report"]
+	assert "Production OEE Report" in report_links
+	assert len(report_links) == 18
+```
+
+- [ ] **Step 5: Run the metadata test to verify it passes**
+
+Run: `cd /root/workspace/bench16 && bench --site frappe16.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.test_doctype_metadata`
+Expected: PASS. If the workspace failed to import, the `frappe.get_doc` raises `DoesNotExistError` — fix the JSON (most likely a `card_name`/`Card Break` label mismatch or a bad `link_count`) and re-migrate.
+
+- [ ] **Step 6: Build assets + smoke test the downtime link + workspace route**
 
 Run: `cd /root/workspace/bench16 && bench build --app production_entry_app`
-Then run the existing Shift E2E spec that renders downtime links: `cd /root/workspace/production-entry-app && npx playwright test specs/shift-batch2.spec.js`
-Expected: PASS (link still resolves to the Downtime Entry form).
+Then run the Shift E2E spec that renders downtime links: `cd /root/workspace/production-entry-app && npx playwright test specs/shift-batch2.spec.js`
+Expected: PASS (downtime link resolves; app icon opens `/app/production-entry-app`).
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add production_entry_app/hooks.py production_entry_app/production_entry_app/doctype/shift/shift.js
-git commit -m "fix: use form-link helper and workspace route instead of hardcoded /app"
+git add production_entry_app/production_entry_app/workspace/ production_entry_app/hooks.py production_entry_app/production_entry_app/doctype/shift/shift.js production_entry_app/production_entry_app/test_doctype_metadata.py
+git commit -m "feat: add Production Entry App workspace (Forms + Reports) and fix desk routes"
 ```
 
 ---
@@ -357,7 +428,7 @@ def test_setup_app_logs_summary(self) -> None:
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /root/workspace/bench16 && bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.test_lifecycle`
+Run: `cd /root/workspace/bench16 && bench --site frappe16.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.test_lifecycle`
 Expected: FAIL — no logger call today.
 
 - [ ] **Step 3: Implement**
@@ -444,7 +515,7 @@ def test_e2e_api_module_exposes_helpers(self) -> None:
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /root/workspace/bench16 && bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.test_api`
+Run: `cd /root/workspace/bench16 && bench --site frappe16.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.test_api`
 Expected: FAIL — helpers still in `api.py`, `e2e_api` does not exist.
 
 - [ ] **Step 3: Implement the module move**
@@ -489,7 +560,7 @@ def after_migrate() -> None:
 
 - [ ] **Step 6: Run Python tests to verify pass**
 
-Run: `cd /root/workspace/bench16 && bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.test_api`
+Run: `cd /root/workspace/bench16 && bench --site frappe16.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.test_api`
 Then the timeline + lifecycle modules to catch import breakage.
 Expected: PASS.
 
@@ -523,7 +594,7 @@ git commit -m "refactor: move E2E APIs into dedicated e2e_api module"
 
 - [ ] **Step 1: Run the spike on bench16**
 
-`cd /root/workspace/bench16 && bench --site development.localhost console`, then build a direct manufacture-from-BOM Stock Entry where the rejection row has `t_warehouse` = rejected warehouse and `is_finished_item = 0` (temporarily patch `_append_rejection_item_row` in a console session or construct the doc manually). Submit it. Record:
+`cd /root/workspace/bench16 && bench --site frappe16.localhost console`, then build a direct manufacture-from-BOM Stock Entry where the rejection row has `t_warehouse` = rejected warehouse and `is_finished_item = 0` (temporarily patch `_append_rejection_item_row` in a console session or construct the doc manually). Submit it. Record:
   1. Did it validate + submit without error?
   2. `frappe.get_all("Stock Ledger Entry", filters={"voucher_no": se.name}, fields=["warehouse","actual_qty","stock_value_difference"])` — FG warehouse qty = `fg_completed_qty − rejection_qty`? Rejected warehouse qty = `rejection_qty`? RM consumed from WIP? Rejection valued same as FG?
   3. `se.get_finished_item_row().item_code` — is it the real FG row (not the rejection row)?
@@ -609,7 +680,7 @@ def test_manufacture_with_rejection_cancels_cleanly(self) -> None:
 
 - [ ] **Step 3: Run tests to verify they pass on the current override (characterization)**
 
-Run: `cd /root/workspace/bench16 && bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.overrides.test_stock_entry_override`
+Run: `cd /root/workspace/bench16 && bench --site frappe16.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.overrides.test_stock_entry_override`
 Expected: these are characterization tests — they should PASS against the *current* override behavior, establishing the baseline before Task 10 changes anything. If they fail, fix the test setup (not the app) until they green on the current code.
 
 - [ ] **Step 4: Run the same on bench15**
@@ -666,7 +737,7 @@ If the verdict was KEEP, instead add above `get_finished_item_row` in `overrides
 
 - [ ] **Step 4: Migrate, build, run tests**
 
-Run: `cd /root/workspace/bench16 && bench --site development.localhost migrate && bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.overrides.test_stock_entry_override` (repeat on bench15).
+Run: `cd /root/workspace/bench16 && bench --site frappe16.localhost migrate && bench --site frappe16.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.overrides.test_stock_entry_override` (repeat on bench15).
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -716,7 +787,7 @@ def test_get_items_with_rejection_base_rows_match_native(self) -> None:
 
 - [ ] **Step 2: Run test to verify it passes (characterization)**
 
-Run: `cd /root/workspace/bench16 && bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.test_api` and on bench15.
+Run: `cd /root/workspace/bench16 && bench --site frappe16.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.test_api` and on bench15.
 Expected: PASS — proves the API's base rows equal native `get_items()` for direct manufacture. If it fails, the API has drifted from native and that is a real finding to raise, not a test to weaken.
 
 - [ ] **Step 3: Commit**
@@ -815,7 +886,7 @@ def test_client_delete_override_is_removed(self) -> None:
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd /root/workspace/bench16 && bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.test_api`
+Run: `cd /root/workspace/bench16 && bench --site frappe16.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.test_api`
 Expected: FAIL — override still registered; cleanup only runs through the `api.delete` wrapper.
 
 - [ ] **Step 3: Implement — move cleanup to Shift.on_trash**
@@ -854,7 +925,7 @@ Expected: PASS. Also confirm gated-doctype delete permission still enforced (nat
 
 - [ ] **Step 6: Migrate + run E2E teardown path**
 
-Run: `cd /root/workspace/bench16 && bench --site development.localhost migrate` then `cd /root/workspace/production-entry-app && npx playwright test specs/shift-batch2.spec.js` (exercises Shift creation/teardown).
+Run: `cd /root/workspace/bench16 && bench --site frappe16.localhost migrate` then `cd /root/workspace/production-entry-app && npx playwright test specs/shift-batch2.spec.js` (exercises Shift creation/teardown).
 Expected: PASS.
 
 - [ ] **Step 7: Commit**
@@ -894,7 +965,7 @@ Append to `production_entry_app/fixtures/custom_field.json` (keep the array vali
  }
 ```
 
-Run: `cd /root/workspace/bench16 && bench --site development.localhost migrate` to install the field.
+Run: `cd /root/workspace/bench16 && bench --site frappe16.localhost migrate` to install the field.
 
 - [ ] **Step 2: Write the failing stamp test**
 
@@ -921,7 +992,7 @@ def test_entry_against_running_shift_is_not_flagged_late(self) -> None:
 
 - [ ] **Step 3: Run stamp test to verify it fails**
 
-Run: `cd /root/workspace/bench16 && bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.overrides.test_stock_entry_hooks`
+Run: `cd /root/workspace/bench16 && bench --site frappe16.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.overrides.test_stock_entry_hooks`
 Expected: FAIL — nothing sets the flag.
 
 - [ ] **Step 4: Implement the stamp**
@@ -982,7 +1053,7 @@ def test_shift_summary_counts_late_entries(self) -> None:
 
 - [ ] **Step 7: Run summary test to verify it fails**
 
-Run: `cd /root/workspace/bench16 && bench --site development.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.doctype.shift.test_shift`
+Run: `cd /root/workspace/bench16 && bench --site frappe16.localhost run-tests --app production_entry_app --module production_entry_app.production_entry_app.doctype.shift.test_shift`
 Expected: FAIL — `late_entry_count` key absent.
 
 - [ ] **Step 8: Implement the summary count**
@@ -1029,8 +1100,10 @@ git commit -m "feat: flag and surface post-completion (late) stock entries"
 
 - [ ] **Step 1: Run the full Python suite with coverage on v16**
 
-Run: `cd /root/workspace/bench16 && bench --site development.localhost run-tests --app production_entry_app --with-coverage`
+Run: `cd /root/workspace/bench16 && bench --site frappe16.localhost run-tests --app production_entry_app --with-coverage`
 Expected: all pass; coverage **≥ 90%**. If below, add tests for the uncovered new code (not asserts-on-asserts).
+
+Note on the E2E-helper move (Task 7): those helpers are exercised by Playwright, not the Python unit run, so they read as uncovered lines. Moving them from `api.py` to `e2e_api.py` does not change the covered/uncovered ratio (same lines, new file). If — and only if — the coverage number regresses because of the relocation, add a `.coveragerc` `omit = */e2e_api.py` at the app root rather than writing unit tests for E2E-only fixtures. Do not omit anything else.
 
 - [ ] **Step 2: Run the full Python suite on v15**
 
