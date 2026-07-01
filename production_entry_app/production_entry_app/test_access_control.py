@@ -826,7 +826,7 @@ class TestAccessControl(FrappeTestCase):
 		):
 			from production_entry_app.production_entry_app import access_control
 
-			access_control.assert_app_access(doctype="Shift", docname="SHIFT-00001")
+			access_control.assert_app_access()
 
 	def test_assert_app_access_doc_context_denies_when_missing_write_role(self) -> None:
 		with (
@@ -842,7 +842,7 @@ class TestAccessControl(FrappeTestCase):
 			from production_entry_app.production_entry_app import access_control
 
 			with self.assertRaises(frappe.PermissionError):
-				access_control.assert_app_access(doctype="Shift", docname="SHIFT-00001")
+				access_control.assert_app_access()
 
 	def test_assert_app_access_fails_closed_for_non_manager_when_settings_are_corrupt(self) -> None:
 		with (
@@ -859,7 +859,7 @@ class TestAccessControl(FrappeTestCase):
 			from production_entry_app.production_entry_app import access_control
 
 			with self.assertRaises(frappe.PermissionError):
-				access_control.assert_app_access(doctype="Shift", docname="SHIFT-00001")
+				access_control.assert_app_access()
 			self.assertTrue(log_error.called)
 
 	def test_assert_app_access_allows_system_manager_when_settings_are_corrupt(self) -> None:
@@ -876,7 +876,7 @@ class TestAccessControl(FrappeTestCase):
 		):
 			from production_entry_app.production_entry_app import access_control
 
-			access_control.assert_app_access(doctype="Shift", docname="SHIFT-00001")
+			access_control.assert_app_access()
 			self.assertTrue(log_error.called)
 
 	def test_missing_or_corrupt_settings_fail_closed_for_non_manager(self) -> None:
@@ -912,6 +912,23 @@ class TestAccessControl(FrappeTestCase):
 
 			self.assertTrue(access_control.can_use_production_entry_app("manager@example.com"))
 			self.assertTrue(log_error.called)
+
+	def test_assert_helpers_take_no_context_kwargs(self) -> None:
+		import inspect
+
+		from production_entry_app.production_entry_app import access_control
+
+		for fn_name in ("assert_app_read_access", "assert_app_write_access", "assert_app_access"):
+			sig = inspect.signature(getattr(access_control, fn_name))
+			assert not sig.parameters, f"{fn_name} should take no params, got {list(sig.parameters)}"
+
+	def test_gated_doctype_permission_keeps_hook_signature(self) -> None:
+		import inspect
+
+		from production_entry_app.production_entry_app import access_control
+
+		params = list(inspect.signature(access_control.has_gated_doctype_permission).parameters)
+		assert params == ["doc", "ptype", "user", "debug"]
 
 
 def _ensure_user_with_role(email: str, role: str) -> None:

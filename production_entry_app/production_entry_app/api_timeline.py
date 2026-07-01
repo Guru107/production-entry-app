@@ -51,7 +51,7 @@ def get_shift_timeline_data(doctype: str, docname: str) -> dict:
 		frappe.throw(_("Invalid doctype for timeline data."))
 	if not frappe.has_permission(doctype, "read", docname):
 		raise frappe.PermissionError
-	access_control.assert_app_read_access(doctype=doctype, docname=docname)
+	access_control.assert_app_read_access()
 
 	running_shift = frappe.get_all(
 		"Shift",
@@ -64,7 +64,7 @@ def get_shift_timeline_data(doctype: str, docname: str) -> dict:
 		return {"shift_name": None, "entries": [], "float_precision": get_system_float_precision()}
 
 	shift = running_shift[0]
-	access_control.assert_app_read_access(doctype="Shift", docname=shift.get("name"))
+	access_control.assert_app_read_access()
 	if not frappe.has_permission("Shift", "read", shift.get("name")):
 		raise frappe.PermissionError
 	cached_data = _get_cached_timeline_data(doctype, docname, shift.get("name"))

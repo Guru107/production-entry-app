@@ -124,21 +124,16 @@ def has_app_permission() -> bool:
 	return can_read_production_entry_app()
 
 
-def assert_app_access(
-	*, doctype: str | None = None, docname: str | None = None, branch: str | None = None
-) -> None:
+def assert_app_access() -> None:
 	"""Compatibility alias for write access checks."""
-	assert_app_write_access(doctype=doctype, docname=docname, branch=branch)
+	assert_app_write_access()
 
 
-def assert_app_read_access(
-	*, doctype: str | None = None, docname: str | None = None, branch: str | None = None
-) -> None:
+def assert_app_read_access() -> None:
 	"""Raise if the current session user cannot access Production Entry App.
 
-	Document context is accepted for API compatibility, but access is evaluated by role only.
+	Access is evaluated by role only.
 	"""
-	del doctype, docname, branch
 	effective_user = _resolve_user(None)
 	try:
 		if _can_read(effective_user):
@@ -150,11 +145,8 @@ def assert_app_read_access(
 	frappe.throw(_("You do not have access to Production Entry App."), frappe.PermissionError)
 
 
-def assert_app_write_access(
-	*, doctype: str | None = None, docname: str | None = None, branch: str | None = None
-) -> None:
+def assert_app_write_access() -> None:
 	"""Raise if the current session user cannot write to Production Entry App."""
-	del doctype, docname, branch
 	effective_user = _resolve_user(None)
 	try:
 		if _can_write(effective_user):
@@ -181,8 +173,7 @@ def has_gated_doctype_permission(
 		return _is_system_manager(effective_user)
 
 
-def _can_read(user: str, branch: str | None = None) -> bool:
-	del branch
+def _can_read(user: str) -> bool:
 	config = _get_access_configuration()
 	if _is_system_manager(user):
 		return True
@@ -197,8 +188,7 @@ def _can_read(user: str, branch: str | None = None) -> bool:
 	return config.read_role in roles
 
 
-def _can_write(user: str, branch: str | None = None) -> bool:
-	del branch
+def _can_write(user: str) -> bool:
 	config = _get_access_configuration()
 	if _is_system_manager(user):
 		return True

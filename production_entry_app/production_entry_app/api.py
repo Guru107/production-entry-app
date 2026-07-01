@@ -150,7 +150,7 @@ def _cleanup_orphan_stock_entry_loss_links(shift_name: str) -> None:
 def delete(doctype: str, name: str) -> None:
 	"""Delete wrapper that cleans orphan Shift loss links before link validation."""
 	if doctype == "Shift":
-		access_control.assert_app_write_access(doctype="Shift", docname=name)
+		access_control.assert_app_write_access()
 	elif doctype in _APP_GATED_DOCTYPES:
 		access_control.assert_app_write_access()
 	if doctype == "Shift":
@@ -166,7 +166,7 @@ def get_shift_details_for_stock_entry(shift_name: str) -> dict:
 	"""
 	if not shift_name:
 		return {}
-	access_control.assert_app_read_access(doctype="Shift", docname=shift_name)
+	access_control.assert_app_read_access()
 	if not frappe.has_permission("Shift", "read", shift_name):
 		raise frappe.PermissionError
 
