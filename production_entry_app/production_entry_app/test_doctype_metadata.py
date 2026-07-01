@@ -29,6 +29,7 @@ def test_required_apps_declares_erpnext() -> None:
 def test_master_data_doctypes_do_not_allow_rename() -> None:
 	assert assert_doctype_json("Operator")["allow_rename"] == 0
 	assert assert_doctype_json("Downtime Reason")["allow_rename"] == 0
+	assert assert_doctype_json("Rejection Reason")["allow_rename"] == 0
 
 
 def test_filtered_doctype_fields_are_search_indexed() -> None:
