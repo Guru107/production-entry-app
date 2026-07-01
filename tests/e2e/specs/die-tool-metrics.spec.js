@@ -13,7 +13,7 @@ async function setupFreshContext(page, prefix) {
 async function setSystemFloatPrecision(page, prefix, precision) {
 	await callFrappeMethod(
 		page,
-		"production_entry_app.production_entry_app.api.set_e2e_system_float_precision",
+		"production_entry_app.production_entry_app.e2e_api.set_e2e_system_float_precision",
 		{ prefix, precision }
 	);
 }

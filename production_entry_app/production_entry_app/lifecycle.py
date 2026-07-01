@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import frappe
+from frappe.utils import cint
 
 from production_entry_app.production_entry_app import access_control, field_permissions, performance_indexes
 
@@ -14,12 +15,24 @@ def after_sync() -> None:
 
 def after_migrate() -> None:
 	_setup_app()
+	_warn_if_e2e_enabled_on_non_test_site()
 
 
 def before_uninstall() -> None:
 	performance_indexes.drop_performance_indexes_if_exists()
 	for doctype in CUSTOMIZATION_DOCTYPES:
 		_delete_customizations(doctype)
+
+
+def _warn_if_e2e_enabled_on_non_test_site() -> None:
+	if not cint(frappe.conf.get("allow_e2e_tests", 0)):
+		return
+	site = frappe.local.site or ""
+	if not any(marker in site for marker in ("test", "dev", "localhost")):
+		frappe.logger("production_entry_app").warning(
+			f"allow_e2e_tests=1 is set on site '{site}', which does not look like a "
+			"test/dev site. E2E APIs perform force-deletes and permission changes."
+		)
 
 
 def _setup_app() -> None:

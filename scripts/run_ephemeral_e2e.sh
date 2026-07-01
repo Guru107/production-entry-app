@@ -73,8 +73,8 @@ bench --site "$SITE_NAME" execute erpnext.setup.setup_wizard.operations.install_
 bench --site "$SITE_NAME" execute production_entry_app.production_entry_app.utils.test_setup.before_tests
 bench --site "$SITE_NAME" set-config developer_mode 1
 bench --site "$SITE_NAME" set-config allow_e2e_tests 1
-bench --site "$SITE_NAME" execute production_entry_app.production_entry_app.api._is_developer_mode_enabled
-bench --site "$SITE_NAME" execute production_entry_app.production_entry_app.api._is_allow_e2e_tests_enabled
+bench --site "$SITE_NAME" execute production_entry_app.production_entry_app.e2e_api._is_developer_mode_enabled
+bench --site "$SITE_NAME" execute production_entry_app.production_entry_app.e2e_api._is_allow_e2e_tests_enabled
 bench use "$SITE_NAME"
 
 if [ -n "$SERVE_PORT" ]; then

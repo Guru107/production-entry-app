@@ -5,7 +5,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from production_entry_app.production_entry_app.api import (
+from production_entry_app.production_entry_app.e2e_api import (
 	_cache_e2e_settings_snapshot,
 	_restore_cached_e2e_settings,
 )

@@ -24,7 +24,7 @@ module.exports = async () => {
 		}
 
 		const cleanupResponse = await requestContext.post(
-			"/api/method/production_entry_app.production_entry_app.api.cleanup_reserved_e2e_artifacts"
+			"/api/method/production_entry_app.production_entry_app.e2e_api.cleanup_reserved_e2e_artifacts"
 		);
 		if (!cleanupResponse.ok()) {
 			console.warn("Playwright global teardown reserved E2E cleanup failed.");

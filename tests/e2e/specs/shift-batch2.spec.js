@@ -171,7 +171,7 @@ test.describe("Batch 2 shift UX", () => {
 
 		await callFrappeMethod(
 			page,
-			"production_entry_app.production_entry_app.api.create_e2e_submitted_stock_entry",
+			"production_entry_app.production_entry_app.e2e_api.create_e2e_submitted_stock_entry",
 			{ prefix: testPrefix, rejection_qty: 0 }
 		);
 		await page.evaluate(async () => {
@@ -198,13 +198,13 @@ test.describe("Batch 2 shift UX", () => {
 
 		await callFrappeMethod(
 			page,
-			"production_entry_app.production_entry_app.api.set_e2e_system_float_precision",
+			"production_entry_app.production_entry_app.e2e_api.set_e2e_system_float_precision",
 			{ prefix: testPrefix, precision: 4 }
 		);
 		await page.goto(getRoute("/home"));
 		await callFrappeMethod(
 			page,
-			"production_entry_app.production_entry_app.api.create_e2e_submitted_stock_entry",
+			"production_entry_app.production_entry_app.e2e_api.create_e2e_submitted_stock_entry",
 			{ prefix: testPrefix, rejection_qty: 1 }
 		);
 
@@ -239,7 +239,7 @@ test.describe("Batch 2 shift UX", () => {
 
 		await callFrappeMethod(
 			page,
-			"production_entry_app.production_entry_app.api.create_e2e_submitted_stock_entry",
+			"production_entry_app.production_entry_app.e2e_api.create_e2e_submitted_stock_entry",
 			{ prefix: testPrefix, rejection_qty: 5 }
 		);
 		await page.evaluate(async () => {
@@ -269,12 +269,12 @@ test.describe("Batch 2 shift UX", () => {
 
 		await callFrappeMethod(
 			page,
-			"production_entry_app.production_entry_app.api.set_e2e_system_float_precision",
+			"production_entry_app.production_entry_app.e2e_api.set_e2e_system_float_precision",
 			{ prefix: testPrefix, precision: 4 }
 		);
 		await callFrappeMethod(
 			page,
-			"production_entry_app.production_entry_app.api.create_e2e_submitted_stock_entry",
+			"production_entry_app.production_entry_app.e2e_api.create_e2e_submitted_stock_entry",
 			{ prefix: testPrefix, rejection_qty: 1 }
 		);
 
@@ -309,7 +309,7 @@ test.describe("Batch 2 shift UX", () => {
 
 		await callFrappeMethod(
 			page,
-			"production_entry_app.production_entry_app.api.create_e2e_submitted_stock_entry",
+			"production_entry_app.production_entry_app.e2e_api.create_e2e_submitted_stock_entry",
 			{ prefix: testPrefix, rejection_qty: 0 }
 		);
 
@@ -379,7 +379,7 @@ test.describe("Batch 2 shift UX", () => {
 
 		const stockEntry = await callFrappeMethod(
 			page,
-			"production_entry_app.production_entry_app.api.create_e2e_submitted_stock_entry",
+			"production_entry_app.production_entry_app.e2e_api.create_e2e_submitted_stock_entry",
 			{ prefix: testPrefix, rejection_qty: 0 }
 		);
 
@@ -429,12 +429,12 @@ test.describe("Batch 2 shift UX", () => {
 
 		await callFrappeMethod(
 			page,
-			"production_entry_app.production_entry_app.api.set_e2e_system_float_precision",
+			"production_entry_app.production_entry_app.e2e_api.set_e2e_system_float_precision",
 			{ prefix: testPrefix, precision: 4 }
 		);
 		await callFrappeMethod(
 			page,
-			"production_entry_app.production_entry_app.api.create_e2e_submitted_stock_entry",
+			"production_entry_app.production_entry_app.e2e_api.create_e2e_submitted_stock_entry",
 			{ prefix: testPrefix, rejection_qty: 1 }
 		);
 
@@ -490,7 +490,7 @@ test.describe("Batch 2 shift UX", () => {
 
 		const result = await callFrappeMethod(
 			page,
-			"production_entry_app.production_entry_app.api.create_e2e_full_shift_stock_entries",
+			"production_entry_app.production_entry_app.e2e_api.create_e2e_full_shift_stock_entries",
 			{ prefix: testPrefix, slot_minutes: 60, rejection_qty: 0 }
 		);
 		expect(Number(result?.count || 0)).toBeGreaterThanOrEqual(8);
@@ -535,7 +535,7 @@ test.describe("Batch 2 shift UX", () => {
 
 		await callFrappeMethod(
 			page,
-			"production_entry_app.production_entry_app.api.create_e2e_downtime_entry",
+			"production_entry_app.production_entry_app.e2e_api.create_e2e_downtime_entry",
 			{
 				prefix: testPrefix,
 				from_time: "10:00:00",

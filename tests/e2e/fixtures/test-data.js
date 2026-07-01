@@ -3,7 +3,7 @@ const { callFrappeMethod } = require("./frappe");
 async function bootstrapE2E(page, prefix = "E2E") {
 	return await callFrappeMethod(
 		page,
-		"production_entry_app.production_entry_app.api.bootstrap_e2e_context",
+		"production_entry_app.production_entry_app.e2e_api.bootstrap_e2e_context",
 		{ prefix }
 	);
 }
@@ -11,7 +11,7 @@ async function bootstrapE2E(page, prefix = "E2E") {
 async function cleanupE2E(page, prefix = "E2E") {
 	return await callFrappeMethod(
 		page,
-		"production_entry_app.production_entry_app.api.cleanup_e2e_context",
+		"production_entry_app.production_entry_app.e2e_api.cleanup_e2e_context",
 		{ prefix }
 	);
 }

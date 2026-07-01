@@ -8,23 +8,25 @@ from frappe.tests.utils import FrappeTestCase
 
 from production_entry_app.production_entry_app import access_control
 from production_entry_app.production_entry_app.api import (
-	bootstrap_e2e_context,
-	cleanup_e2e_context,
-	cleanup_reserved_e2e_artifacts,
-	create_e2e_downtime_entry,
-	create_e2e_full_shift_stock_entries,
-	create_e2e_submitted_stock_entry,
 	delete,
 	get_access_control_state,
 	get_die_tool_counter,
 	get_items_with_rejection,
 	get_shift_details_for_stock_entry,
 	reset_die_tool_counter,
-	set_e2e_system_float_precision,
 )
 from production_entry_app.production_entry_app.api_timeline import get_shift_timeline_data
 from production_entry_app.production_entry_app.doctype.shift import shift as shift_module
 from production_entry_app.production_entry_app.doctype.shift.shift import Shift
+from production_entry_app.production_entry_app.e2e_api import (
+	bootstrap_e2e_context,
+	cleanup_e2e_context,
+	cleanup_reserved_e2e_artifacts,
+	create_e2e_downtime_entry,
+	create_e2e_full_shift_stock_entries,
+	create_e2e_submitted_stock_entry,
+	set_e2e_system_float_precision,
+)
 
 REQUIRED_ROLE: str = "PEA User"
 READ_ROLE: str = "PEA Read Only"

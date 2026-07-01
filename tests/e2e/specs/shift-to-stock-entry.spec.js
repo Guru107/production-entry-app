@@ -26,7 +26,7 @@ async function setupFreshContext(page, prefix) {
 async function setSystemFloatPrecision(page, prefix, precision) {
 	await callFrappeMethod(
 		page,
-		"production_entry_app.production_entry_app.api.set_e2e_system_float_precision",
+		"production_entry_app.production_entry_app.e2e_api.set_e2e_system_float_precision",
 		{ prefix, precision }
 	);
 }
@@ -104,7 +104,7 @@ function formatFloatForUi(value, precision) {
 async function createSubmittedDecimalManufactureEntry(page, prefix, options = {}) {
 	return await callFrappeMethod(
 		page,
-		"production_entry_app.production_entry_app.api.create_e2e_submitted_stock_entry",
+		"production_entry_app.production_entry_app.e2e_api.create_e2e_submitted_stock_entry",
 		{
 			prefix,
 			rejection_qty: options.rejectionQty ?? 0,
