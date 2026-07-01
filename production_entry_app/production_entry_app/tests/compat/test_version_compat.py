@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
@@ -47,6 +49,12 @@ class TestFrappeInTest(FrappeTestCase):
 			self.assertEqual(frappe_in_test(), frappe.in_test)
 		else:
 			self.assertEqual(frappe_in_test(), bool(frappe.flags.in_test))
+
+	def test_frappe_in_test_true_via_flags(self) -> None:
+		from production_entry_app.production_entry_app.compat import utils
+
+		with patch.dict(frappe.flags, {"in_test": True}), patch.object(frappe, "in_test", False, create=True):
+			self.assertIs(utils.frappe_in_test(), True)
 
 
 class TestHasPermissionStrict(FrappeTestCase):

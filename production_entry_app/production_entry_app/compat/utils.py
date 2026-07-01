@@ -7,18 +7,16 @@ from typing import Any
 import frappe
 from frappe.model.document import Document
 
-from production_entry_app.production_entry_app.compat import IS_V15, IS_V16_OR_GREATER
+from production_entry_app.production_entry_app.compat import IS_V15
 
 
 def frappe_in_test() -> bool:
 	"""Check if Frappe is running in test mode.
 
-	Replaces deprecated frappe.flags.in_test.
-	Works in both v15 (frappe.flags.in_test) and v16+ (frappe.in_test).
+	Works across v15 (frappe.flags.in_test) and v16+ (frappe.in_test) by
+	honoring whichever marker is set.
 	"""
-	if IS_V16_OR_GREATER:
-		return frappe.in_test
-	return bool(frappe.flags.in_test)
+	return bool(getattr(frappe.flags, "in_test", False) or getattr(frappe, "in_test", False))
 
 
 def has_permission_strict(
