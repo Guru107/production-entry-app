@@ -382,9 +382,10 @@ function _render_linked_downtime_entries(frm) {
 				const rows = list
 					.map(
 						(d) =>
-							`<tr><td><a href="/app/downtime-entry/${encodeURIComponent(
+							`<tr><td><a href="${frappe.utils.get_form_link(
+								"Downtime Entry",
 								d.name || ""
-							)}">${escape(d.name)}</a></td><td>${escape(
+							)}">${escape(d.name || "")}</a></td><td>${escape(
 								d.workstation
 							)}</td><td>${escape(d.from_time)}</td><td>${escape(
 								d.to_time

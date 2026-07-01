@@ -78,6 +78,17 @@ def test_access_role_settings_document_static_report_role_contract() -> None:
 		assert "source-controlled roles" in description
 
 
+def test_workspace_has_forms_and_reports_cards() -> None:
+	import frappe
+
+	ws = frappe.get_doc("Workspace", "Production Entry App")
+	card_labels = [row.label for row in ws.links if row.type == "Card Break"]
+	assert card_labels == ["Forms", "Reports"]
+	report_links = [row.link_to for row in ws.links if row.link_type == "Report"]
+	assert "Production OEE Report" in report_links
+	assert len(report_links) == 18
+
+
 def assert_doctype_json(doctype: str) -> dict:
 	doctype_path = DOCTYPE_ROOT / scrub_doctype(doctype) / f"{scrub_doctype(doctype)}.json"
 	return json.loads(doctype_path.read_text())
@@ -106,5 +117,6 @@ def load_tests(
 			test_filtered_custom_fields_are_search_indexed,
 			test_stock_entry_detail_rejection_flag_uses_cross_version_anchor,
 			test_access_role_settings_document_static_report_role_contract,
+			test_workspace_has_forms_and_reports_cards,
 		)
 	)

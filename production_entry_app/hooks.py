@@ -15,7 +15,7 @@ add_to_apps_screen = [
 	{
 		"name": "production_entry_app",
 		"title": "Production Entry App",
-		"route": "/app",
+		"route": "/app/production-entry-app",
 		"has_permission": "production_entry_app.production_entry_app.access_control.has_app_permission",
 	}
 ]
