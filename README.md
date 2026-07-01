@@ -2,6 +2,11 @@
 
 An erpnext module to simplify production entries
 
+## Supported versions
+
+Tested against Frappe/ERPNext **v15.110+** and **v16.20 / 16.21+**.
+ERPNext is a required dependency (`required_apps = ["erpnext"]`).
+
 ### Installation
 
 You can install this app using the [bench](https://github.com/frappe/bench) CLI:

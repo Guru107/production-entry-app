@@ -20,6 +20,12 @@ REQUIRED_CUSTOM_FIELD_SEARCH_INDEXES: set[str] = {
 }
 
 
+def test_required_apps_declares_erpnext() -> None:
+	from production_entry_app import hooks
+
+	assert getattr(hooks, "required_apps", None) == ["erpnext"]
+
+
 def test_master_data_doctypes_do_not_allow_rename() -> None:
 	assert assert_doctype_json("Operator")["allow_rename"] == 0
 	assert assert_doctype_json("Downtime Reason")["allow_rename"] == 0
@@ -93,6 +99,7 @@ def load_tests(
 	return unittest.TestSuite(
 		unittest.FunctionTestCase(test_func)
 		for test_func in (
+			test_required_apps_declares_erpnext,
 			test_master_data_doctypes_do_not_allow_rename,
 			test_filtered_doctype_fields_are_search_indexed,
 			test_filtered_custom_fields_are_search_indexed,
