@@ -1,0 +1,5 @@
+[report]
+omit =
+    */production_entry_app/test_*.py
+    */production_entry_app/**/test_*.py
+    */production_entry_app/**/tests/**/*.py
