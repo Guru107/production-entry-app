@@ -287,6 +287,7 @@ def _empty_shift_summary() -> dict:
 		"float_precision": get_system_float_precision(),
 		"snapshot": {
 			"entry_count": 0,
+			"late_entry_count": 0,
 			"total_qty": 0,
 			"ok_qty": 0,
 			"rejection_qty": 0,
@@ -734,6 +735,7 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 			"name",
 			"fg_completed_qty",
 			"custom_pea_rejection_qty",
+			"custom_pea_is_late_entry",
 			"custom_pea_actual_duration_mins",
 			"custom_pea_production_time_mins",
 			"custom_pea_standard_spm",
@@ -792,6 +794,7 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 	)
 
 	entry_count = len(entry_rows)
+	late_entry_count = sum(1 for row in entry_rows if row.get("custom_pea_is_late_entry"))
 	total_qty = 0.0
 	rejection_qty = 0.0
 	recorded_production_mins = 0.0
@@ -856,6 +859,7 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 		"float_precision": get_system_float_precision(),
 		"snapshot": {
 			"entry_count": entry_count,
+			"late_entry_count": late_entry_count,
 			"total_qty": flt(total_qty),
 			"ok_qty": flt(ok_qty),
 			"rejection_qty": flt(rejection_qty),

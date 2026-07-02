@@ -176,6 +176,7 @@ doc_events = {
 	},
 	"Stock Entry": {
 		"validate": "production_entry_app.production_entry_app.overrides.stock_entry_hooks.validate_stock_entry",
+		"before_submit": "production_entry_app.production_entry_app.overrides.stock_entry_hooks.before_submit_stock_entry",
 		"on_submit": "production_entry_app.production_entry_app.overrides.stock_entry_hooks.on_submit_stock_entry",
 		"on_cancel": "production_entry_app.production_entry_app.overrides.stock_entry_hooks.on_cancel_stock_entry",
 		"on_trash": "production_entry_app.production_entry_app.overrides.stock_entry_hooks.on_trash_stock_entry",

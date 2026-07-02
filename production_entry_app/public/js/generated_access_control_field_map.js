@@ -7,28 +7,29 @@
   "Stock Entry": [
     "custom_pea_stock_entry_purpose",
     "custom_pea_shift",
+    "custom_pea_ok_qty",
+    "custom_pea_rework_qty",
+    "custom_pea_rejection_qty",
+    "custom_pea_is_late_entry",
+    "custom_pea_fetch_items",
+    "custom_pea_rejection_breakup",
     "custom_pea_operation_details_section",
     "custom_pea_planned_start_date",
     "custom_pea_planned_end_date",
+    "custom_pea_actual_start_date",
+    "custom_pea_actual_end_date",
     "custom_pea_operation_details_col_break",
+    "custom_pea_workstation_operator_section",
     "custom_pea_actual_start_date_input",
     "custom_pea_actual_start_time_input",
-    "custom_pea_actual_start_date",
     "custom_pea_actual_end_date_input",
     "custom_pea_actual_end_time_input",
-    "custom_pea_actual_end_date",
-    "custom_pea_workstation_operator_section",
     "custom_pea_workstation",
     "custom_pea_standard_spm",
     "custom_pea_workstation_operator_col_break",
     "custom_pea_operator",
     "custom_pea_unplanned_losses_section",
     "custom_pea_unplanned_losses",
-    "custom_pea_rejection_qty",
-    "custom_pea_ok_qty",
-    "custom_pea_rework_qty",
-    "custom_pea_fetch_items",
-    "custom_pea_rejection_breakup",
     "custom_pea_metrics_section",
     "custom_pea_actual_duration_mins",
     "custom_pea_production_time_mins",
@@ -44,14 +45,14 @@
     "custom_pea_is_rejection_item"
   ],
   "Item": [
-    "custom_pea_has_die_tool",
     "custom_pea_strokes_per_unit",
-    "custom_pea_stroke_capacity"
+    "custom_pea_stroke_capacity",
+    "custom_pea_has_die_tool"
   ],
   "Workstation": [
-    "custom_pea_standard_spm",
     "custom_pea_shift_timeline_section",
-    "custom_pea_shift_timeline_html"
+    "custom_pea_shift_timeline_html",
+    "custom_pea_standard_spm"
   ],
   "Downtime Entry": [
     "custom_pea_shift"

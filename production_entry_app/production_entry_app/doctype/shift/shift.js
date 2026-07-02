@@ -494,6 +494,7 @@ function _get_snapshot_rows(snapshot) {
 		snapshot.overall_shift_efficiency_pct === undefined;
 	return [
 		{ label: __("Entries"), value: snapshot.entry_count, fieldtype: "Int" },
+		{ label: __("Late Entry Count"), value: snapshot.late_entry_count || 0, fieldtype: "Int" },
 		{ label: __("Total Qty"), value: snapshot.total_qty, fieldtype: "Float" },
 		{ label: __("OK Qty"), value: snapshot.ok_qty, fieldtype: "Float" },
 		{ label: __("Rejection Qty"), value: snapshot.rejection_qty, fieldtype: "Float" },

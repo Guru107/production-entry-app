@@ -82,6 +82,20 @@ def validate_stock_entry(doc: Document, method: str | None = None) -> None:
 	_set_entry_metrics(doc)
 
 
+def _stamp_late_entry_flag(doc: Document) -> None:
+	"""Flag entries submitted against a Completed shift (status-at-submit)."""
+	meta = frappe.get_meta("Stock Entry", cached=True)
+	if not meta.has_field("custom_pea_is_late_entry"):
+		return
+
+	shift_name = doc.get("custom_pea_shift")
+	is_late = 0
+	if shift_name:
+		if frappe.db.get_value("Shift", shift_name, "status") == "Completed":
+			is_late = 1
+	doc.custom_pea_is_late_entry = is_late
+
+
 def _validate_loss_entry_deletions_require_app_write(doc: Document) -> None:
 	"""Require app write access before a Stock Entry delete removes Loss Entry rows."""
 	if access_control.can_write_production_entry_app():
@@ -105,6 +119,10 @@ def _validate_loss_entry_deletions_require_app_write(doc: Document) -> None:
 	)
 	if persisted_names - current_names:
 		access_control.assert_app_write_access()
+
+
+def before_submit_stock_entry(doc, method: str | None = None) -> None:
+	_stamp_late_entry_flag(doc)
 
 
 def on_submit_stock_entry(doc, method: str | None = None) -> None:

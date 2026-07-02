@@ -1,98 +1,130 @@
 [
-	{
-		"doctype": "Downtime Reason",
-		"name": "Setup Time",
-		"downtime_reason_name": "Setup Time",
-		"is_active": 1
-	},
-	{
-		"doctype": "Downtime Reason",
-		"name": "Trial",
-		"downtime_reason_name": "Trial",
-		"is_active": 1
-	},
-	{
-		"doctype": "Downtime Reason",
-		"name": "Mtrl Handl",
-		"downtime_reason_name": "Mtrl Handl",
-		"is_active": 1
-	},
-	{
-		"doctype": "Downtime Reason",
-		"name": "No Operator",
-		"downtime_reason_name": "No Operator",
-		"is_active": 1
-	},
-	{
-		"doctype": "Downtime Reason",
-		"name": "No Mtrl",
-		"downtime_reason_name": "No Mtrl",
-		"is_active": 1
-	},
-	{
-		"doctype": "Downtime Reason",
-		"name": "Maint",
-		"downtime_reason_name": "Maint",
-		"is_active": 1
-	},
-	{
-		"doctype": "Downtime Reason",
-		"name": "P. Maint",
-		"downtime_reason_name": "P. Maint",
-		"is_active": 1
-	},
-	{
-		"doctype": "Downtime Reason",
-		"name": "Tool Break",
-		"downtime_reason_name": "Tool Break",
-		"is_active": 1
-	},
-	{
-		"doctype": "Downtime Reason",
-		"name": "Other",
-		"downtime_reason_name": "Other",
-		"is_active": 1
-	},
-	{
-		"doctype": "Downtime Reason",
-		"name": "No Helper",
-		"downtime_reason_name": "No Helper",
-		"is_active": 1
-	},
-	{
-		"doctype": "Downtime Reason",
-		"name": "Power Off",
-		"downtime_reason_name": "Power Off",
-		"is_active": 1
-	},
-	{
-		"doctype": "Downtime Reason",
-		"name": "Tea Break",
-		"downtime_reason_name": "Tea Break",
-		"is_active": 1
-	},
-	{
-		"doctype": "Downtime Reason",
-		"name": "Lunch Break",
-		"downtime_reason_name": "Lunch Break",
-		"is_active": 1
-	},
-	{
-		"doctype": "Downtime Reason",
-		"name": "Shift Start Up",
-		"downtime_reason_name": "Shift Start Up",
-		"is_active": 1
-	},
-	{
-		"doctype": "Downtime Reason",
-		"name": "JH Activity",
-		"downtime_reason_name": "JH Activity",
-		"is_active": 1
-	},
-	{
-		"doctype": "Downtime Reason",
-		"name": "Dinner",
-		"downtime_reason_name": "Dinner",
-		"is_active": 1
-	}
+ {
+  "docstatus": 0,
+  "doctype": "Downtime Reason",
+  "downtime_reason_name": "Setup Time",
+  "is_active": 1,
+  "modified": "2026-07-02 14:08:49.600235",
+  "name": "Setup Time"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Downtime Reason",
+  "downtime_reason_name": "Trial",
+  "is_active": 1,
+  "modified": "2026-07-02 14:08:49.615233",
+  "name": "Trial"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Downtime Reason",
+  "downtime_reason_name": "Mtrl Handl",
+  "is_active": 1,
+  "modified": "2026-07-02 14:08:49.627084",
+  "name": "Mtrl Handl"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Downtime Reason",
+  "downtime_reason_name": "No Operator",
+  "is_active": 1,
+  "modified": "2026-07-02 14:08:49.635820",
+  "name": "No Operator"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Downtime Reason",
+  "downtime_reason_name": "No Mtrl",
+  "is_active": 1,
+  "modified": "2026-07-02 14:08:49.644779",
+  "name": "No Mtrl"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Downtime Reason",
+  "downtime_reason_name": "Maint",
+  "is_active": 1,
+  "modified": "2026-07-02 14:08:49.654255",
+  "name": "Maint"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Downtime Reason",
+  "downtime_reason_name": "P. Maint",
+  "is_active": 1,
+  "modified": "2026-07-02 14:08:49.667061",
+  "name": "P. Maint"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Downtime Reason",
+  "downtime_reason_name": "Tool Break",
+  "is_active": 1,
+  "modified": "2026-07-02 14:08:49.687584",
+  "name": "Tool Break"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Downtime Reason",
+  "downtime_reason_name": "Other",
+  "is_active": 1,
+  "modified": "2026-07-02 14:08:49.698326",
+  "name": "Other"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Downtime Reason",
+  "downtime_reason_name": "No Helper",
+  "is_active": 1,
+  "modified": "2026-07-02 14:08:49.717915",
+  "name": "No Helper"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Downtime Reason",
+  "downtime_reason_name": "Power Off",
+  "is_active": 1,
+  "modified": "2026-07-02 14:08:49.736413",
+  "name": "Power Off"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Downtime Reason",
+  "downtime_reason_name": "Tea Break",
+  "is_active": 1,
+  "modified": "2026-07-02 14:08:49.752491",
+  "name": "Tea Break"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Downtime Reason",
+  "downtime_reason_name": "Lunch Break",
+  "is_active": 1,
+  "modified": "2026-07-02 14:08:49.762822",
+  "name": "Lunch Break"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Downtime Reason",
+  "downtime_reason_name": "Shift Start Up",
+  "is_active": 1,
+  "modified": "2026-07-02 14:08:49.776340",
+  "name": "Shift Start Up"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Downtime Reason",
+  "downtime_reason_name": "JH Activity",
+  "is_active": 1,
+  "modified": "2026-07-02 14:08:49.786160",
+  "name": "JH Activity"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Downtime Reason",
+  "downtime_reason_name": "Dinner",
+  "is_active": 1,
+  "modified": "2026-07-02 14:08:49.793064",
+  "name": "Dinner"
+ }
 ]

@@ -174,6 +174,7 @@ test.describe("Batch 2 shift UX", () => {
 			"production_entry_app.production_entry_app.e2e_api.create_e2e_submitted_stock_entry",
 			{ prefix: testPrefix, rejection_qty: 0 }
 		);
+		await page.waitForFunction(() => Boolean(window.cur_frm?.doc));
 		await page.evaluate(async () => {
 			await cur_frm.reload_doc();
 		});
@@ -218,6 +219,55 @@ test.describe("Batch 2 shift UX", () => {
 		const summaryText = await getFieldText(page, "shift_metrics");
 		expect(summaryText).toContain("1.0000");
 		expect(summaryText).toContain("2.0000");
+	});
+
+	test("@regression shift summary counts late entries after completion", async ({ page }) => {
+		await page.goto(getRoute("/home"));
+		const testPrefix = `${lifecycle.getPrefix()}-late-entry`;
+		const ctx = await setupFreshContext(page, testPrefix);
+
+		await callFrappeMethod(
+			page,
+			"production_entry_app.production_entry_app.e2e_api.create_e2e_submitted_stock_entry",
+			{
+				prefix: testPrefix,
+				rejection_qty: 0,
+				complete_shift_before_submit: 1,
+			}
+		);
+
+		await openForm(page, "shift", ctx.shift_name);
+		await page.waitForFunction(() => {
+			const field = window.cur_frm?.fields_dict?.shift_metrics;
+			const rows = field?.$wrapper?.[0]?.querySelectorAll?.("tbody tr") || [];
+			return [...rows].some((row) => {
+				const cells = row.querySelectorAll("td");
+				return (
+					(cells?.[0]?.textContent || "").replace(/\s+/g, " ").trim() ===
+						"Late Entry Count" &&
+					(cells?.[1]?.textContent || "").replace(/\s+/g, " ").trim() === "1"
+				);
+			});
+		});
+
+		const lateEntryCount = await page.evaluate(() => {
+			const field = window.cur_frm?.fields_dict?.shift_metrics;
+			const rows = field?.$wrapper?.[0]?.querySelectorAll?.("tbody tr") || [];
+			const row = [...rows].find((candidate) => {
+				const cells = candidate.querySelectorAll("td");
+				return (
+					(cells?.[0]?.textContent || "").replace(/\s+/g, " ").trim() ===
+					"Late Entry Count"
+				);
+			});
+			if (!row) {
+				return null;
+			}
+
+			const cells = row.querySelectorAll("td");
+			return (cells?.[1]?.textContent || "").replace(/\s+/g, " ").trim();
+		});
+		expect(lateEntryCount).toBe("1");
 	});
 
 	test("@regression shift aggregate entries renders empty state then table after production entry", async ({
