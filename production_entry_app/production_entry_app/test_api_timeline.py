@@ -268,6 +268,18 @@ class TestGetShiftTimelineData(FrappeTestCase):
 		from production_entry_app.production_entry_app.api_timeline import get_shift_timeline_data
 
 		shift = self._create_running_shift("2026-10-05")
+		frappe.db.set_value(
+			"Production Entry Settings",
+			"Production Entry Settings",
+			"shift_raw_material_warehouse",
+			self.ctx["rm_warehouse"],
+		)
+		frappe.db.set_value(
+			"Production Entry Settings",
+			"Production Entry Settings",
+			"shift_rejection_warehouse",
+			self.ctx["rejection_warehouse"],
+		)
 		self._create_submitted_like_entry(
 			shift.name,
 			workstation=self.workstation_a,
