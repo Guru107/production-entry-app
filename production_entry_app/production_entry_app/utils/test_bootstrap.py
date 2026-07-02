@@ -295,6 +295,7 @@ def bootstrap_manufacturing_test_context(prefix: str) -> dict[str, Any]:
 	rm_warehouse = ensure_warehouse(f"{prefix} RM - {abbr}", company)
 	fg_warehouse = ensure_warehouse(f"{prefix} FG - {abbr}", company)
 	rejection_warehouse = ensure_warehouse(f"{prefix} Rejection - {abbr}", company)
+	scrap_warehouse = ensure_warehouse(f"{prefix} Scrap - {abbr}", company)
 	if frappe.get_meta("Warehouse", cached=True).has_field("is_rejected_warehouse"):
 		frappe.db.set_value(
 			"Warehouse", rejection_warehouse, "is_rejected_warehouse", 1, update_modified=False
@@ -302,6 +303,10 @@ def bootstrap_manufacturing_test_context(prefix: str) -> dict[str, Any]:
 	frappe.db.set_single_value("Production Entry Settings", "shift_raw_material_warehouse", rm_warehouse)
 	frappe.db.set_single_value("Production Entry Settings", "shift_wip_warehouse", wip_warehouse)
 	frappe.db.set_single_value("Production Entry Settings", "shift_rejection_warehouse", rejection_warehouse)
+	frappe.db.set_single_value("Production Entry Settings", "raw_material_warehouse", rm_warehouse)
+	frappe.db.set_single_value("Production Entry Settings", "work_in_progress_warehouse", wip_warehouse)
+	frappe.db.set_single_value("Production Entry Settings", "rejection_warehouse", rejection_warehouse)
+	frappe.db.set_single_value("Production Entry Settings", "scrap_warehouse", scrap_warehouse)
 	frappe.clear_document_cache("Production Entry Settings")
 	return {
 		"company": company,
@@ -311,4 +316,5 @@ def bootstrap_manufacturing_test_context(prefix: str) -> dict[str, Any]:
 		"rm_warehouse": rm_warehouse,
 		"fg_warehouse": fg_warehouse,
 		"rejection_warehouse": rejection_warehouse,
+		"scrap_warehouse": scrap_warehouse,
 	}
