@@ -140,7 +140,7 @@ test.describe("Production reports", () => {
 		const seeded = await createSubmittedStockEntryForReports(page, ctx, 0);
 		await callFrappeMethod(
 			page,
-			"production_entry_app.production_entry_app.api.create_e2e_downtime_entry",
+			"production_entry_app.production_entry_app.e2e_api.create_e2e_downtime_entry",
 			{
 				prefix,
 				from_time: "11:00:00",

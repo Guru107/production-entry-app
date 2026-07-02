@@ -8,23 +8,25 @@ from frappe.tests.utils import FrappeTestCase
 
 from production_entry_app.production_entry_app import access_control
 from production_entry_app.production_entry_app.api import (
-	bootstrap_e2e_context,
-	cleanup_e2e_context,
-	cleanup_reserved_e2e_artifacts,
-	create_e2e_downtime_entry,
-	create_e2e_full_shift_stock_entries,
-	create_e2e_submitted_stock_entry,
 	delete,
 	get_access_control_state,
 	get_die_tool_counter,
 	get_items_with_rejection,
 	get_shift_details_for_stock_entry,
 	reset_die_tool_counter,
-	set_e2e_system_float_precision,
 )
 from production_entry_app.production_entry_app.api_timeline import get_shift_timeline_data
 from production_entry_app.production_entry_app.doctype.shift import shift as shift_module
 from production_entry_app.production_entry_app.doctype.shift.shift import Shift
+from production_entry_app.production_entry_app.e2e_api import (
+	bootstrap_e2e_context,
+	cleanup_e2e_context,
+	cleanup_reserved_e2e_artifacts,
+	create_e2e_downtime_entry,
+	create_e2e_full_shift_stock_entries,
+	create_e2e_submitted_stock_entry,
+	set_e2e_system_float_precision,
+)
 
 REQUIRED_ROLE: str = "PEA User"
 READ_ROLE: str = "PEA Read Only"
@@ -162,7 +164,7 @@ class TestAccessControlWhitelistedApi(FrappeTestCase):
 			) as guard,
 		):
 			delete("Shift", "SHIFT-B-00001")
-		guard.assert_called_once_with(doctype="Shift", docname="SHIFT-B-00001")
+		guard.assert_called_once_with()
 		cleanup_orphans.assert_called_once_with("SHIFT-B-00001")
 		delete_doc.assert_called_once_with("Shift", "SHIFT-B-00001")
 
@@ -187,7 +189,7 @@ class TestAccessControlWhitelistedApi(FrappeTestCase):
 				):
 					with self.assertRaises(frappe.PermissionError):
 						get_shift_details_for_stock_entry("SHIFT-B-00001")
-		assert_app_read_access.assert_called_once_with(doctype="Shift", docname="SHIFT-B-00001")
+			assert_app_read_access.assert_called_once_with()
 		has_permission.assert_called_once_with("Shift", "read", "SHIFT-B-00001")
 
 	def test_shift_details_returns_empty_without_access_check_when_shift_is_missing(self) -> None:
@@ -203,7 +205,7 @@ class TestAccessControlWhitelistedApi(FrappeTestCase):
 			) as has_permission:
 				with self.assertRaises(frappe.PermissionError):
 					shift_module.get_linked_downtime_entries("SHIFT-B-00001")
-		assert_app_read_access.assert_called_once_with(doctype="Shift", docname="SHIFT-B-00001")
+			assert_app_read_access.assert_called_once_with()
 		has_permission.assert_called_once_with("Shift", "read", "SHIFT-B-00001")
 
 		with patch.object(access_control, "assert_app_read_access") as assert_app_read_access:
@@ -213,7 +215,7 @@ class TestAccessControlWhitelistedApi(FrappeTestCase):
 			) as has_permission:
 				with self.assertRaises(frappe.PermissionError):
 					shift_module.check_running_shift_conflict("SHIFT-B-00001")
-		assert_app_read_access.assert_called_once_with(doctype="Shift", docname="SHIFT-B-00001")
+			assert_app_read_access.assert_called_once_with()
 		has_permission.assert_called_once_with("Shift", "read", "SHIFT-B-00001")
 
 	def test_shift_timeline_data_allows_when_user_has_required_role(self) -> None:
@@ -293,12 +295,7 @@ class TestAccessControlWhitelistedApi(FrappeTestCase):
 			) as guard,
 		):
 			result = get_shift_timeline_data("Workstation", "WS-00001")
-		guard.assert_has_calls(
-			[
-				call(doctype="Workstation", docname="WS-00001"),
-				call(doctype="Shift", docname="SHIFT-B-00001"),
-			]
-		)
+			guard.assert_has_calls([call(), call()])
 		self.assertEqual(guard.call_count, 2)
 		self.assertEqual(result["shift_name"], "SHIFT-B-00001")
 		self.assertEqual(result["entries"], [])
@@ -378,7 +375,7 @@ class TestAccessControlWhitelistedApi(FrappeTestCase):
 		):
 			with self.assertRaises(frappe.PermissionError):
 				get_shift_timeline_data("Workstation", "WS-00001")
-		guard.assert_called_once_with(doctype="Workstation", docname="WS-00001")
+			guard.assert_called_once_with()
 
 	def test_allowed_user_can_call_required_whitelisted_apis(self) -> None:
 		with patch.object(access_control, "assert_app_write_access") as assert_app_write_access:
@@ -386,7 +383,7 @@ class TestAccessControlWhitelistedApi(FrappeTestCase):
 				"production_entry_app.production_entry_app.api.frappe_client_delete_doc"
 			) as delete_doc:
 				delete("Shift", "SHIFT-00001")
-		assert_app_write_access.assert_called_once_with(doctype="Shift", docname="SHIFT-00001")
+		assert_app_write_access.assert_called_once_with()
 		delete_doc.assert_called_once_with("Shift", "SHIFT-00001")
 
 		with patch.object(access_control, "assert_app_read_access") as assert_app_read_access:
@@ -411,7 +408,7 @@ class TestAccessControlWhitelistedApi(FrappeTestCase):
 						return_value=3,
 					):
 						result = get_shift_timeline_data("Workstation", "WS-00001")
-		assert_app_read_access.assert_called_once_with(doctype="Workstation", docname="WS-00001")
+		assert_app_read_access.assert_called_once_with()
 		self.assertEqual(
 			result,
 			{"shift_name": None, "entries": [], "float_precision": 3},

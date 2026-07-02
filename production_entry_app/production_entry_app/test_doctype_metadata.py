@@ -20,9 +20,16 @@ REQUIRED_CUSTOM_FIELD_SEARCH_INDEXES: set[str] = {
 }
 
 
+def test_required_apps_declares_erpnext() -> None:
+	from production_entry_app import hooks
+
+	assert getattr(hooks, "required_apps", None) == ["erpnext"]
+
+
 def test_master_data_doctypes_do_not_allow_rename() -> None:
 	assert assert_doctype_json("Operator")["allow_rename"] == 0
 	assert assert_doctype_json("Downtime Reason")["allow_rename"] == 0
+	assert assert_doctype_json("Rejection Reason")["allow_rename"] == 0
 
 
 def test_filtered_doctype_fields_are_search_indexed() -> None:
@@ -71,6 +78,17 @@ def test_access_role_settings_document_static_report_role_contract() -> None:
 		assert "source-controlled roles" in description
 
 
+def test_workspace_has_forms_and_reports_cards() -> None:
+	import frappe
+
+	ws = frappe.get_doc("Workspace", "Production Entry App")
+	card_labels = [row.label for row in ws.links if row.type == "Card Break"]
+	assert card_labels == ["Forms", "Reports"]
+	report_links = [row.link_to for row in ws.links if row.link_type == "Report"]
+	assert "Production OEE Report" in report_links
+	assert len(report_links) == 18
+
+
 def assert_doctype_json(doctype: str) -> dict:
 	doctype_path = DOCTYPE_ROOT / scrub_doctype(doctype) / f"{scrub_doctype(doctype)}.json"
 	return json.loads(doctype_path.read_text())
@@ -93,10 +111,12 @@ def load_tests(
 	return unittest.TestSuite(
 		unittest.FunctionTestCase(test_func)
 		for test_func in (
+			test_required_apps_declares_erpnext,
 			test_master_data_doctypes_do_not_allow_rename,
 			test_filtered_doctype_fields_are_search_indexed,
 			test_filtered_custom_fields_are_search_indexed,
 			test_stock_entry_detail_rejection_flag_uses_cross_version_anchor,
 			test_access_role_settings_document_static_report_role_contract,
+			test_workspace_has_forms_and_reports_cards,
 		)
 	)

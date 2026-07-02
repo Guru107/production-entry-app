@@ -44,6 +44,14 @@ class TestLifecycle(FrappeTestCase):
 		ensure_field_permissions.assert_called_once_with()
 		ensure_indexes.assert_called_once_with()
 
+	def test_setup_app_logs_summary(self) -> None:
+		from production_entry_app.production_entry_app import lifecycle
+
+		with patch("frappe.logger") as mock_logger:
+			lifecycle._setup_app()
+			mock_logger.assert_called_with("production_entry_app")
+			assert mock_logger.return_value.info.called
+
 	def test_before_uninstall_drops_indexes_and_deletes_only_app_owned_customizations(self) -> None:
 		def fake_get_all(doctype: str, filters: dict[str, str] | None = None, pluck: str | None = None):
 			self.assertEqual(filters, {"module": lifecycle.APP_MODULE})

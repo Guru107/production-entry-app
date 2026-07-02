@@ -43,7 +43,7 @@ async function ensureAccessRule(page, { enabled, writeRole = WRITE_ROLE }) {
 	await ensureRole(page, writeRole);
 	await callFrappeMethod(
 		page,
-		"production_entry_app.production_entry_app.api.set_e2e_access_control",
+		"production_entry_app.production_entry_app.e2e_api.set_e2e_access_control",
 		{
 			enabled: enabled ? 1 : 0,
 			write_role: writeRole,

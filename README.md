@@ -2,6 +2,11 @@
 
 An erpnext module to simplify production entries
 
+## Supported versions
+
+Tested against Frappe/ERPNext **v15.110+** and **v16.20 / 16.21+**.
+ERPNext is a required dependency (`required_apps = ["erpnext"]`).
+
 ### Installation
 
 You can install this app using the [bench](https://github.com/frappe/bench) CLI:
@@ -27,6 +32,13 @@ Pre-commit is configured to use the following tools for checking and formatting 
 - eslint
 - prettier
 - pyupgrade
+
+## Admin notes
+
+On every `bench migrate` / app sync, this app reconciles its own DocType and
+permlevel-9 field permissions (see `lifecycle._setup_app`). Manual changes to
+those app-owned permissions via Role Permission Manager may be overwritten on
+migrate. Each run logs a summary to the `production_entry_app` logger.
 
 ### CI
 

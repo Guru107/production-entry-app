@@ -4,23 +4,23 @@ from typing import Any
 
 import frappe
 
-from production_entry_app.production_entry_app import api
+from production_entry_app.production_entry_app import e2e_api
 
 _ORIGINAL_FRAPPE_TEST_CASE_RUN = None
 
 
 def capture_manufacturing_settings_snapshot() -> dict[str, Any]:
-	return api._get_manufacturing_settings_snapshot()
+	return e2e_api._get_manufacturing_settings_snapshot()
 
 
 def restore_manufacturing_settings_snapshot(snapshot: dict[str, Any] | None) -> None:
-	api._restore_manufacturing_settings(snapshot)
+	e2e_api._restore_manufacturing_settings(snapshot)
 
 
 def cleanup_reserved_test_data() -> None:
 	# Persistent-site runs still use document-level cleanup, but authoritative suites now
 	# rely on dropping the whole ephemeral site after the run.
-	api._cleanup_reserved_e2e_artifacts()
+	e2e_api._cleanup_reserved_e2e_artifacts()
 
 
 def cleanup_after_python_test(snapshot: dict[str, Any] | None) -> None:
