@@ -82,6 +82,31 @@ def validate_stock_entry(doc: Document, method: str | None = None) -> None:
 	_set_entry_metrics(doc)
 
 
+def _validate_loss_entry_deletions_require_app_write(doc: Document) -> None:
+	"""Require app write access before a Stock Entry delete removes Loss Entry rows."""
+	if access_control.can_write_production_entry_app():
+		return
+	if doc.is_new() or not doc.name:
+		return
+
+	current_names = {
+		row.name for row in doc.get("custom_pea_unplanned_losses") or [] if getattr(row, "name", None)
+	}
+	persisted_names = set(
+		frappe.get_all(
+			"Loss Entry",
+			filters={
+				"parenttype": "Stock Entry",
+				"parent": doc.name,
+				"parentfield": "custom_pea_unplanned_losses",
+			},
+			pluck="name",
+		)
+	)
+	if persisted_names - current_names:
+		access_control.assert_app_write_access()
+
+
 def on_submit_stock_entry(doc, method: str | None = None) -> None:
 	update_counter_for_stock_entry(doc, direction=1)
 	_invalidate_shift_metrics_cache(doc)

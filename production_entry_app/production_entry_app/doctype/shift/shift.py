@@ -354,6 +354,14 @@ def invalidate_shift_summary_for_shift(doc, method: str | None = None) -> None:
 	invalidate_shift_summary_cache(getattr(doc, "name", None))
 
 
+def cleanup_orphan_stock_entry_loss_links(doc, method: str | None = None) -> None:
+	"""Delete orphan Loss Entry rows before Shift trash validation runs."""
+	del method
+	from production_entry_app.production_entry_app.api import _cleanup_orphan_stock_entry_loss_links
+
+	_cleanup_orphan_stock_entry_loss_links(getattr(doc, "name", None))
+
+
 def invalidate_shift_summary_for_downtime_entry(doc, method: str | None = None) -> None:
 	shift_names = {getattr(doc, "custom_pea_shift", None) or getattr(doc, "shift", None)}
 	get_before_save = getattr(doc, "get_doc_before_save", None)

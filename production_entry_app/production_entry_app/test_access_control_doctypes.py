@@ -14,6 +14,11 @@ from production_entry_app.production_entry_app.overrides.test_stock_entry_hooks 
 	_ensure_rejection_breakup_custom_field,
 	_ensure_rejection_breakup_doctype,
 )
+from production_entry_app.production_entry_app.tests.support.manufacture_builders import (
+	bootstrap_manufacture_masters,
+	make_direct_manufacture_entry,
+	make_running_shift,
+)
 from production_entry_app.production_entry_app.utils.test_bootstrap import ensure_department
 
 GATED_DOCTYPES: tuple[str, ...] = (
@@ -103,8 +108,46 @@ class TestAccessControlDoctypes(FrappeTestCase):
 			shift, loss_entry = _make_shift_with_loss_entry()
 			with self.subTest(doctype="Shift"):
 				self.assertFalse(shift.has_permission("read"))
-			with self.subTest(doctype="Loss Entry"):
-				self.assertFalse(loss_entry.has_permission("read"))
+				with self.subTest(doctype="Loss Entry"):
+					self.assertFalse(loss_entry.has_permission("read"))
+
+	def test_denied_user_cannot_native_delete_loss_entry_child_row_from_writable_stock_entry(self) -> None:
+		masters = bootstrap_manufacture_masters()
+		shift = make_running_shift(masters)
+		stock_entry = make_direct_manufacture_entry(
+			masters,
+			shift=shift.name,
+			fg_qty=100,
+			rejection_qty=0,
+		)
+		stock_entry.append(
+			"custom_pea_unplanned_losses",
+			{
+				"downtime_reason": "Tea Break",
+				"start_time": "08:30:00",
+				"end_time": "08:45:00",
+			},
+		)
+		stock_entry.save()
+		loss_entry_name = stock_entry.custom_pea_unplanned_losses[0].name
+
+		with patch(
+			"production_entry_app.production_entry_app.access_control._load_access_configuration",
+			return_value=_access_config(),
+		):
+			access_control.invalidate_access_control_cache()
+			frappe.set_user(DENIED_USER)
+			self.assertFalse(access_control.can_write_production_entry_app())
+			denied_stock_entry = frappe.get_doc("Stock Entry", stock_entry.name)
+			self.assertTrue(
+				bool(denied_stock_entry.has_permission("write")),
+				"expected native Stock Entry write so the child delete path reaches validate()",
+			)
+
+			with self.assertRaises(frappe.PermissionError):
+				frappe.client.delete_doc("Loss Entry", loss_entry_name)
+
+			self.assertTrue(frappe.db.exists("Loss Entry", loss_entry_name))
 
 	def test_denied_user_can_access_stock_entry_natively_but_is_blocked_on_rejection_breakup(
 		self,
@@ -342,6 +385,7 @@ def _ensure_user_with_roles(email: str, roles: tuple[str, ...]) -> None:
 		user.append("roles", {"role": role})
 	user.save(ignore_permissions=True)
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so role changes are visible
+	frappe.clear_cache(user=email)
 
 
 def _get_user_roles(email: str) -> list[str]:

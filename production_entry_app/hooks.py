@@ -169,7 +169,10 @@ override_doctype_class = {
 doc_events = {
 	"Shift": {
 		"on_update": "production_entry_app.production_entry_app.doctype.shift.shift.invalidate_shift_summary_for_shift",
-		"on_trash": "production_entry_app.production_entry_app.doctype.shift.shift.invalidate_shift_summary_for_shift",
+		"on_trash": [
+			"production_entry_app.production_entry_app.doctype.shift.shift.cleanup_orphan_stock_entry_loss_links",
+			"production_entry_app.production_entry_app.doctype.shift.shift.invalidate_shift_summary_for_shift",
+		],
 	},
 	"Stock Entry": {
 		"validate": "production_entry_app.production_entry_app.overrides.stock_entry_hooks.validate_stock_entry",
@@ -197,13 +200,6 @@ scheduler_events = {
 # -------
 before_tests = "production_entry_app.production_entry_app.utils.test_setup.before_tests"
 
-# Overriding Methods
-# ------------------------------
-#
-override_whitelisted_methods = {
-	"frappe.client.delete": "production_entry_app.production_entry_app.api.delete",
-}
-#
 # each overriding function accepts a `data` argument;
 # generated from the base implementation of the doctype dashboard,
 # along with any modifications made in other Frappe apps

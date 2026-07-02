@@ -5,7 +5,6 @@ import json
 
 import frappe
 from frappe import _
-from frappe.client import delete_doc as frappe_client_delete_doc
 from frappe.utils import get_datetime, get_time, now_datetime
 
 from production_entry_app.production_entry_app import access_control
@@ -24,17 +23,6 @@ from production_entry_app.production_entry_app.utils.system_precision import (
 )
 
 _ALLOWED_STOCK_ENTRY_SHIFT_STATUSES: tuple[str, ...] = ("Running", "Completed")
-_APP_GATED_DOCTYPES: frozenset[str] = frozenset(
-	{
-		"Shift",
-		"Loss Entry",
-		"Operator",
-		"Die Tool Counter",
-		"Die Tool Maintenance Log",
-		"Rejection Reason",
-		"Rejection Breakup",
-	}
-)
 
 
 @frappe.whitelist()
@@ -73,18 +61,6 @@ def _cleanup_orphan_stock_entry_loss_links(shift_name: str) -> None:
 	]
 	if orphan_row_names:
 		frappe.db.delete("Loss Entry", {"name": ("in", orphan_row_names)})
-
-
-@frappe.whitelist(methods=["DELETE", "POST"])
-def delete(doctype: str, name: str) -> None:
-	"""Delete wrapper that cleans orphan Shift loss links before link validation."""
-	if doctype == "Shift":
-		access_control.assert_app_write_access()
-	elif doctype in _APP_GATED_DOCTYPES:
-		access_control.assert_app_write_access()
-	if doctype == "Shift":
-		_cleanup_orphan_stock_entry_loss_links(name)
-	frappe_client_delete_doc(doctype, name)
 
 
 @frappe.whitelist()
