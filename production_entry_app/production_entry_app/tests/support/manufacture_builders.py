@@ -56,6 +56,22 @@ def bootstrap_manufacture_masters() -> dict[str, Any]:
 	}
 
 
+def direct_manufacture_doc_dict(
+	masters: dict[str, Any], *, fg_qty: float, rejection_qty: float
+) -> dict[str, Any]:
+	return {
+		"company": masters["company"],
+		"bom_no": masters["bom"],
+		"fg_completed_qty": fg_qty,
+		"from_warehouse": masters["wip_warehouse"],
+		"to_warehouse": masters["fg_warehouse"],
+		"purpose": "Manufacture",
+		"stock_entry_type": "Manufacture",
+		"custom_pea_rejection_qty": rejection_qty,
+		"use_multi_level_bom": 0,
+	}
+
+
 def _build_shift_doc(*, masters: dict[str, Any], status: str) -> Document:
 	global _SHIFT_SEQUENCE
 	_SHIFT_SEQUENCE += 1

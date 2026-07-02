@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from contextlib import ExitStack
 from unittest.mock import MagicMock, patch
 
@@ -1850,6 +1851,27 @@ class TestE2EApi(FrappeTestCase):
 
 			with self.assertRaisesRegex(frappe.ValidationError, "Invalid shift window"):
 				create_e2e_full_shift_stock_entries(prefix="E2E")
+
+	def test_get_items_with_rejection_base_rows_match_native(self) -> None:
+		from production_entry_app.production_entry_app import api
+		from production_entry_app.production_entry_app.tests.support.manufacture_builders import (
+			bootstrap_manufacture_masters,
+			direct_manufacture_doc_dict,
+		)
+
+		masters = bootstrap_manufacture_masters()
+		doc_dict = direct_manufacture_doc_dict(masters, fg_qty=100, rejection_qty=0)
+
+		native = frappe.new_doc("Stock Entry")
+		native.update({k: v for k, v in doc_dict.items() if k != "custom_pea_rejection_qty"})
+		native.from_bom = 1
+		native.get_items()
+		native_codes = sorted(r.item_code for r in native.items)
+
+		api_rows = api.get_items_with_rejection(json.dumps(doc_dict))
+		api_codes = sorted(r["item_code"] for r in api_rows)
+
+		self.assertEqual(api_codes, native_codes)  # rejection_qty=0 => no extra row
 
 	def test_create_e2e_downtime_entry_normalizes_unknown_stop_reason(self) -> None:
 		shift = MagicMock()
