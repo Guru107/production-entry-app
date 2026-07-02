@@ -6,27 +6,16 @@ from frappe.tests.utils import FrappeTestCase
 from production_entry_app.production_entry_app.overrides.stock_entry import ProductionEntryAppStockEntry
 from production_entry_app.production_entry_app.overrides.test_stock_entry_hooks import (
 	_append_rejection_breakup_rows,
-	_create_manufacture_stock_entry,
-	_create_test_shift,
 	_ensure_rejection_breakup_custom_field,
 	_ensure_rejection_breakup_doctype,
 	_ensure_rejection_reason_doctype,
 	_ensure_rejection_reasons,
-	_get_or_create_item,
 )
-from production_entry_app.production_entry_app.utils.test_bootstrap import (
-	bootstrap_manufacturing_test_context,
-	cleanup_running_shifts,
-	ensure_production_entry_settings_shift_fields,
-	ensure_stock,
+from production_entry_app.production_entry_app.tests.support.manufacture_builders import (
+	bootstrap_manufacture_masters,
+	make_direct_manufacture_entry,
+	make_running_shift,
 )
-
-
-def _set_shift_warehouse_defaults(rm_warehouse: str, wip_warehouse: str, rejection_warehouse: str) -> None:
-	ensure_production_entry_settings_shift_fields()
-	frappe.db.set_single_value("Production Entry Settings", "shift_raw_material_warehouse", rm_warehouse)
-	frappe.db.set_single_value("Production Entry Settings", "shift_wip_warehouse", wip_warehouse)
-	frappe.db.set_single_value("Production Entry Settings", "shift_rejection_warehouse", rejection_warehouse)
 
 
 class TestStockEntryOverride(FrappeTestCase):
@@ -39,41 +28,15 @@ class TestStockEntryOverride(FrappeTestCase):
 		_ensure_rejection_reason_doctype()
 		_ensure_rejection_reasons()
 		_ensure_rejection_breakup_custom_field()
-		context = bootstrap_manufacturing_test_context("SE Override")
-		cls.company = context["company"]
-		cls.wip_warehouse = context["wip_warehouse"]
-		cls.rm_warehouse = context["rm_warehouse"]
-		cls.rejection_warehouse = context["rejection_warehouse"]
-		cls.fg_warehouse = context["fg_warehouse"]
-		cls.fg_item = _get_or_create_item("_Test FG Item For Shift")
-		cls.rm_item = _get_or_create_item("_Test RM Item For Shift")
-		_set_shift_warehouse_defaults(cls.rm_warehouse, cls.wip_warehouse, cls.rejection_warehouse)
 
 	def setUp(self) -> None:
-		cleanup_running_shifts()
-		frappe.db.commit()  # nosemgrep: frappe-manual-commit - ensure running shift cleanup is visible
-		_set_shift_warehouse_defaults(self.rm_warehouse, self.wip_warehouse, self.rejection_warehouse)
-		ensure_stock(self.rm_item, self.rm_warehouse, self.company, target_qty=200)
+		frappe.db.rollback()
+		self.masters = bootstrap_manufacture_masters()
 
 	def tearDown(self) -> None:
 		frappe.db.rollback()
 
-	def test_stock_entry_uses_app_override_for_finished_item_selection(self) -> None:
-		shift = _create_test_shift(
-			shift_date="2026-04-24",
-			wip_warehouse=self.wip_warehouse,
-			rejection_warehouse=self.rejection_warehouse,
-		)
-		se = _create_manufacture_stock_entry(
-			company=self.company,
-			fg_item=self.fg_item,
-			rm_item=self.rm_item,
-			fg_qty=100,
-			custom_pea_shift=shift.name,
-			custom_pea_rejection_qty=10,
-			fg_warehouse=self.fg_warehouse,
-			rm_warehouse=self.rm_warehouse,
-		)
+	def _append_default_rejection_rows(self, se: object) -> None:
 		_append_rejection_breakup_rows(
 			se,
 			[
@@ -81,38 +44,36 @@ class TestStockEntryOverride(FrappeTestCase):
 				{"rejection_reason": "Crack", "qty": 4, "remark": "Surface crack"},
 			],
 		)
+
+	def _make_manufacture_entry_with_rejection_breakup(self, shift_name: str, fg_qty: float) -> object:
+		se = make_direct_manufacture_entry(
+			self.masters,
+			shift=shift_name,
+			fg_qty=fg_qty,
+			rejection_qty=0,
+		)
+		while se.custom_pea_rejection_breakup:
+			se.custom_pea_rejection_breakup.pop()
+		self._append_default_rejection_rows(se)
+		se.custom_pea_rejection_qty = 10
+		se.save(ignore_permissions=True)
+		return se
+
+	def test_stock_entry_uses_app_override_for_finished_item_selection(self) -> None:
+		shift = make_running_shift(self.masters)
+		se = self._make_manufacture_entry_with_rejection_breakup(shift.name, fg_qty=100)
 
 		self.assertIsInstance(se, ProductionEntryAppStockEntry)
 		finished_row = se.get_finished_item_row()
 		self.assertIsNotNone(finished_row)
+		assert finished_row is not None
 		self.assertTrue(finished_row.is_finished_item)
 		self.assertFalse(finished_row.custom_pea_is_rejection_item)
-		self.assertEqual(finished_row.t_warehouse, self.fg_warehouse)
+		self.assertEqual(finished_row.t_warehouse, self.masters["fg_warehouse"])
 
 	def test_rejection_row_posts_non_zero_valuation_on_submit(self) -> None:
-		shift = _create_test_shift(
-			shift_date="2026-04-25",
-			wip_warehouse=self.wip_warehouse,
-			rejection_warehouse=self.rejection_warehouse,
-		)
-		se = _create_manufacture_stock_entry(
-			company=self.company,
-			fg_item=self.fg_item,
-			rm_item=self.rm_item,
-			fg_qty=100,
-			custom_pea_shift=shift.name,
-			custom_pea_rejection_qty=10,
-			fg_warehouse=self.fg_warehouse,
-			rm_warehouse=self.rm_warehouse,
-		)
-		_append_rejection_breakup_rows(
-			se,
-			[
-				{"rejection_reason": "Burr", "qty": 6, "remark": "Edge burr"},
-				{"rejection_reason": "Crack", "qty": 4, "remark": "Surface crack"},
-			],
-		)
-		se.insert(ignore_permissions=True)
+		shift = make_running_shift(self.masters)
+		se = self._make_manufacture_entry_with_rejection_breakup(shift.name, fg_qty=100)
 
 		fg_rows = [row for row in se.items if row.is_finished_item and not row.custom_pea_is_rejection_item]
 		rejection_rows = [row for row in se.items if row.custom_pea_is_rejection_item]
@@ -132,7 +93,7 @@ class TestStockEntryOverride(FrappeTestCase):
 			filters={
 				"voucher_no": se.name,
 				"voucher_detail_no": rejection_rows[0].name,
-				"warehouse": self.rejection_warehouse,
+				"warehouse": self.masters["rejection_warehouse"],
 				"is_cancelled": 0,
 			},
 			fields=["valuation_rate", "stock_value_difference", "actual_qty"],
@@ -146,7 +107,7 @@ class TestStockEntryOverride(FrappeTestCase):
 			filters={
 				"voucher_no": se.name,
 				"voucher_detail_no": fg_rows[0].name,
-				"warehouse": self.fg_warehouse,
+				"warehouse": self.masters["fg_warehouse"],
 				"is_cancelled": 0,
 			},
 			fields=["valuation_rate", "stock_value_difference", "actual_qty"],
@@ -169,3 +130,44 @@ class TestStockEntryOverride(FrappeTestCase):
 			* float(fg_sle["valuation_rate"] or 0),
 			places=currency_places,
 		)
+
+	def test_manufacture_with_rejection_posts_expected_sles(self) -> None:
+		shift = make_running_shift(self.masters)
+		se = make_direct_manufacture_entry(self.masters, shift=shift.name, fg_qty=100, rejection_qty=10)
+		se.submit()
+
+		sles = frappe.get_all(
+			"Stock Ledger Entry",
+			filters={"voucher_no": se.name},
+			fields=["warehouse", "actual_qty"],
+		)
+		by_wh = {row["warehouse"]: row["actual_qty"] for row in sles}
+		assert by_wh[self.masters["fg_warehouse"]] == 90
+		assert by_wh[self.masters["rejection_warehouse"]] == 10
+
+	def test_manufacture_with_rejection_cancels_cleanly(self) -> None:
+		shift = make_running_shift(self.masters)
+		se = make_direct_manufacture_entry(self.masters, shift=shift.name, fg_qty=100, rejection_qty=10)
+		se.submit()
+		submitted_sles = frappe.get_all(
+			"Stock Ledger Entry",
+			filters={"voucher_no": se.name, "is_cancelled": 0},
+			fields=["name", "warehouse", "actual_qty"],
+		)
+		assert submitted_sles
+		se.cancel()
+
+		active_after_cancel = frappe.get_all(
+			"Stock Ledger Entry", filters={"voucher_no": se.name, "is_cancelled": 0}, pluck="name"
+		)
+		cancelled_after_cancel = frappe.get_all(
+			"Stock Ledger Entry",
+			filters={"voucher_no": se.name, "is_cancelled": 1},
+			fields=["warehouse", "actual_qty"],
+		)
+		assert not active_after_cancel
+		assert len(cancelled_after_cancel) >= len(submitted_sles)
+		submitted_warehouses = {row["warehouse"] for row in submitted_sles}
+		cancelled_warehouses = {row["warehouse"] for row in cancelled_after_cancel}
+		for warehouse in submitted_warehouses:
+			assert warehouse in cancelled_warehouses
