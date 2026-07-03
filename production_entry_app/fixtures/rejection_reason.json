@@ -1,66 +1,42 @@
 [
- {
-  "docstatus": 0,
-  "doctype": "Rejection Reason",
-  "is_active": 1,
-  "modified": "2026-07-02 14:08:49.948320",
-  "name": "Double Stroke",
-  "rejection_reason_name": "Double Stroke"
- },
- {
-  "docstatus": 0,
-  "doctype": "Rejection Reason",
-  "is_active": 1,
-  "modified": "2026-07-02 14:08:49.953115",
-  "name": "Part Shift",
-  "rejection_reason_name": "Part Shift"
- },
- {
-  "docstatus": 0,
-  "doctype": "Rejection Reason",
-  "is_active": 1,
-  "modified": "2026-07-02 14:08:49.958080",
-  "name": "Piercing Shift",
-  "rejection_reason_name": "Piercing Shift"
- },
- {
-  "docstatus": 0,
-  "doctype": "Rejection Reason",
-  "is_active": 1,
-  "modified": "2026-07-02 14:08:49.967748",
-  "name": "Blank Cut",
-  "rejection_reason_name": "Blank Cut"
- },
- {
-  "docstatus": 0,
-  "doctype": "Rejection Reason",
-  "is_active": 1,
-  "modified": "2026-07-02 14:08:49.977856",
-  "name": "Crack",
-  "rejection_reason_name": "Crack"
- },
- {
-  "docstatus": 0,
-  "doctype": "Rejection Reason",
-  "is_active": 1,
-  "modified": "2026-07-02 14:08:49.987700",
-  "name": "Part Dent/Damage",
-  "rejection_reason_name": "Part Dent/Damage"
- },
- {
-  "docstatus": 0,
-  "doctype": "Rejection Reason",
-  "is_active": 1,
-  "modified": "2026-07-02 14:08:49.998792",
-  "name": "Taper Shearing",
-  "rejection_reason_name": "Taper Shearing"
- },
- {
-  "docstatus": 0,
-  "doctype": "Rejection Reason",
-  "is_active": 1,
-  "modified": "2026-07-02 14:08:50.011259",
-  "name": "Burr",
-  "rejection_reason_name": "Burr"
- }
+	{
+		"doctype": "Rejection Reason",
+		"name": "Double Stroke",
+		"rejection_reason_name": "Double Stroke"
+	},
+	{
+		"doctype": "Rejection Reason",
+		"name": "Part Shift",
+		"rejection_reason_name": "Part Shift"
+	},
+	{
+		"doctype": "Rejection Reason",
+		"name": "Piercing Shift",
+		"rejection_reason_name": "Piercing Shift"
+	},
+	{
+		"doctype": "Rejection Reason",
+		"name": "Blank Cut",
+		"rejection_reason_name": "Blank Cut"
+	},
+	{
+		"doctype": "Rejection Reason",
+		"name": "Crack",
+		"rejection_reason_name": "Crack"
+	},
+	{
+		"doctype": "Rejection Reason",
+		"name": "Part Dent/Damage",
+		"rejection_reason_name": "Part Dent/Damage"
+	},
+	{
+		"doctype": "Rejection Reason",
+		"name": "Taper Shearing",
+		"rejection_reason_name": "Taper Shearing"
+	},
+	{
+		"doctype": "Rejection Reason",
+		"name": "Burr",
+		"rejection_reason_name": "Burr"
+	}
 ]

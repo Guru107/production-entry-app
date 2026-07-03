@@ -67,6 +67,7 @@ def validate_stock_entry(doc: Document, method: str | None = None) -> None:
 	if doc.get("custom_pea_shift"):
 		_validate_linked_shift_can_accept_stock_entry(doc)
 		_apply_shift_defaults(doc)
+	_stamp_late_entry_flag(doc)
 	_sync_unplanned_loss_shift_links(doc)
 
 	_validate_actual_times(doc)
@@ -90,7 +91,7 @@ def _stamp_late_entry_flag(doc: Document) -> None:
 
 	shift_name = doc.get("custom_pea_shift")
 	is_late = 0
-	if shift_name:
+	if doc.docstatus == 1 and shift_name:
 		if frappe.db.get_value("Shift", shift_name, "status") == "Completed":
 			is_late = 1
 	doc.custom_pea_is_late_entry = is_late
@@ -119,10 +120,6 @@ def _validate_loss_entry_deletions_require_app_write(doc: Document) -> None:
 	)
 	if persisted_names - current_names:
 		access_control.assert_app_write_access()
-
-
-def before_submit_stock_entry(doc, method: str | None = None) -> None:
-	_stamp_late_entry_flag(doc)
 
 
 def on_submit_stock_entry(doc, method: str | None = None) -> None:

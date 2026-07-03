@@ -14,6 +14,8 @@ class ProductionEntryAppStockEntry(StockEntry):
 	"""Keep custom rejection rows out of ERPNext's primary FG-row selection."""
 
 	def save(self, *args: Any, **kwargs: Any) -> ProductionEntryAppStockEntry:
+		# Compensates for the removed global frappe.client.delete override: native delete
+		# permission covers parent deletes, while this keeps child Loss Entry row removals gated.
 		_validate_loss_entry_deletions_require_app_write(self)
 		return super().save(*args, **kwargs)
 
