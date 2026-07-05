@@ -12,7 +12,7 @@ moves, both in the "stay native / delete custom logic" spirit of Phases 1–2:
 1. **Branch isolation** via native Frappe **User Permissions** on Branch — no custom
    permission code.
 2. **Delete the app's entire custom access-control / role-management layer** and rely
-   on native Roles + DocPerms + permlevel field permissions + User Permissions.
+   on native Roles + DocPerms + User Permissions.
 
 The guiding rule: if Frappe already provides a mechanism, use it and delete the
 app's parallel implementation.
@@ -33,8 +33,14 @@ app's parallel implementation.
 4. **Fixed native roles, always gated.** Remove the runtime-configurable
    `write_role` / `read_role` and the `enable_access_control` toggle. Gating is the
    native DocPerms on `PEA User` / `PEA Read Only`. No "open to everyone" bypass.
-5. **Keep permlevel-9 field hiding**, expressed as static native config (permlevel on
-   the fields + static Custom DocPerm rows), not programmatic per-migrate sync.
+5. **Drop permlevel-9 field hiding.** Set the 43 app custom fields (permlevel 9 today,
+   across Stock Entry ×35, Item ×3, Workstation ×3, Downtime Entry ×1, Stock Entry
+   Detail ×1) back to **permlevel 0** — plain fields visible to any user who can open
+   the doctype. Rationale: the data is non-sensitive, and keeping permlevel-9 the
+   native way requires `Custom DocPerm`, which **freezes** the 5 standard doctypes'
+   permission snapshot (they stop tracking ERPNext upstream). Dropping it avoids the
+   freeze and deletes the entire permlevel apparatus. `field_permissions.py` is
+   removed with **nothing** replacing it.
 6. **Follow Frappe best practice for endpoint gating, using native APIs only.**
    Read endpoints replace the custom assert with a native `frappe.has_permission`
    check where they return document-scoped data (trivial global lookups may stay
@@ -133,27 +139,13 @@ app doctype JSONs already carry complete DocPerms for `System Manager`, `PEA Use
 - **Role fixtures:** ship `PEA User` and `PEA Read Only` as `Role` fixtures (they were
   auto-created by the deleted `_ensure_role`).
 - **Doctype DocPerms:** already present in the 7 app doctype JSONs — no change.
-- **Permlevel-9 field permissions:** keep permlevel 9 on the 43 custom fields and
-  grant the permlevel access via a **native Frappe mechanism** (not a bespoke sync).
-  Three permlevel-9 permission rows per affected standard doctype (Stock Entry,
-  Stock Entry Detail, Item, Workstation, Downtime Entry):
-  - `PEA User` — read **+ write** (enters/edits the fields),
-  - `PEA Read Only` — read only (**sees** the fields, cannot edit),
-  - `System Manager` — read + write (admin safety; without this row a fresh SM
-    silently cannot see the app's custom fields — permlevels do not inherit to SM).
-
-  Net effect: the fields are hidden only from users holding **none** of these roles.
-
-**Permlevel mechanism (follow Frappe best practice, no custom permission code):**
-prefer **`Custom DocPerm` fixtures** in `hooks.py`, scoped by filter
-(`parent in (the 5 doctypes)` and `permlevel = 9`) so ERPNext's own Item permlevel-1
-perms and other apps' rows are not swept in. **Spike this first** on both benches: if
-the fixtures install/round-trip cleanly, use them (zero code). If they prove
-unreliable across v15/v16, fall back to a one-time **declarative** setup step calling
-Frappe's official `frappe.permissions.add_permission(doctype, role, permlevel=9)` API
-(a static `{doctype, role, ptype}` table upserted in lifecycle). Both are native
-Frappe mechanisms; neither is the runtime-configurable sync engine being deleted. Also
-ship `Role` fixtures for `PEA User` / `PEA Read Only`.
+- **Field-level permissions:** none. Set the 43 permlevel-9 custom fields to
+  **permlevel 0** in `fixtures/custom_field.json` and `export-fixtures`. On migrate,
+  the stale permlevel-9 `DocPerm` rows the deleted sync injected are wiped by Frappe's
+  standard-doctype reload and never recreated. No `Custom DocPerm`, no freeze, no
+  permlevel permission rows, no spike.
+- **Role fixtures:** ship `PEA User` / `PEA Read Only` as `Role` fixtures (they were
+  auto-created by the deleted `_ensure_role`).
 
 ---
 
@@ -190,8 +182,9 @@ ship `Role` fixtures for `PEA User` / `PEA Read Only`.
   no-op; absent → created); production Stock Entry `branch` == Shift branch;
   non-production entry `branch` empty.
 - **Native perms (unit/E2E):** `PEA User` can CRUD the 7 app doctypes; `PEA Read Only`
-  can read but not write; permlevel-9 custom fields not visible/editable to
-  `PEA Read Only`; write endpoint blocked for `PEA Read Only`, allowed for `PEA User`.
+  can read but not write; write endpoint blocked for `PEA Read Only`, allowed for
+  `PEA User`. The formerly-permlevel-9 fields are now permlevel 0 (no field-level
+  restriction to test).
 - **Regression:** full v15 + v16 suite green; coverage ≥ 90%. Rewrite the access-control
   test modules (`test_access_control*.py`, `test_field_permissions.py`,
   `test_permission_hooks.py`) — delete those covering removed custom logic; add tests
@@ -217,6 +210,10 @@ iteration.
 - The app is always role-gated; no "open to everyone" mode (decision #4).
 - Gating roles are fixed (`PEA User` / `PEA Read Only`); re-pointing them is done in
   Role Permission Manager, not via Settings (decision #4).
+- The app's custom fields (formerly permlevel 9) are now permlevel 0, so any user who
+  can open the doctype sees them — form clutter for non-PEA users, but the data is
+  non-sensitive. In exchange, the 5 standard doctypes keep native `DocPerm` and
+  continue tracking ERPNext upstream (no `Custom DocPerm` freeze) (decision #5).
 
 ## Rollout note (admin docs)
 
@@ -228,7 +225,6 @@ roles. Greenfield app → no existing population to migrate; the only action is
 
 ## Open items to confirm before implementation
 
-- Whether Custom DocPerm fixtures install cleanly on both benches, or the idempotent
-  `ensure_permlevel_permissions()` fallback is needed (B.2).
-- Exact list of write endpoints that carry `ignore_permissions=True` in production
-  paths (enumerate during implementation; E2E paths keep it).
+- Enumerate the exact whitelisted write endpoints that carry `ignore_permissions=True`
+  in production paths (drop it there; keep it on system paths like the die-tool
+  counter insert during Stock Entry submit, and E2E paths).
