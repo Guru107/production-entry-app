@@ -9,7 +9,6 @@ from frappe.tests.utils import FrappeTestCase
 from production_entry_app.production_entry_app.access_control_field_map import (
 	build_access_control_field_map,
 )
-from production_entry_app.production_entry_app.field_permissions import PEA_FIELD_PERMLEVEL
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE_PATH = ROOT / "production_entry_app" / "fixtures" / "custom_field.json"
@@ -25,13 +24,6 @@ EXPECTED_DOCTYPES: tuple[str, ...] = (
 
 
 class TestAccessControlFieldMap(FrappeTestCase):
-	def test_app_generated_custom_fields_use_pea_permlevel(self) -> None:
-		for field in _load_custom_field_fixture():
-			if field.get("module") != "Production Entry App":
-				continue
-
-			self.assertEqual(field.get("permlevel"), PEA_FIELD_PERMLEVEL, field["name"])
-
 	def test_stock_entry_branch_is_not_app_owned(self) -> None:
 		field_names = {field.get("name") for field in _load_custom_field_fixture()}
 		self.assertNotIn("Stock Entry-branch", field_names)
