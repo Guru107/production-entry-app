@@ -80,6 +80,33 @@ def set_e2e_access_control(
 	return {"enabled": bool(cint(enabled)), "write_role": write_role_value, "read_role": read_role_value}
 
 
+@frappe.whitelist()
+def set_e2e_branch_user_permission(user: str, branch: str) -> dict:
+	"""Assign a native Branch User Permission for E2E isolation."""
+	_assert_e2e_api_allowed()
+	user_value = (user or "").strip()
+	branch_value = (branch or "").strip()
+	if not user_value or not branch_value:
+		frappe.throw(_("user and branch are required."), frappe.ValidationError)
+	existing = frappe.get_all(
+		"User Permission",
+		filters={"user": user_value, "allow": "Branch", "for_value": branch_value},
+		pluck="name",
+	)
+	if not existing:
+		frappe.get_doc(
+			{
+				"doctype": "User Permission",
+				"user": user_value,
+				"allow": "Branch",
+				"for_value": branch_value,
+				"apply_to_all_doctypes": 1,
+			}
+		).insert(ignore_permissions=True)
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit - E2E setup must persist
+	return {"user": user_value, "branch": branch_value}
+
+
 def _e2e_base_date(prefix: str) -> str:
 	offset = sum(ord(ch) for ch in (prefix or "E2E")) % 30
 	return add_to_date("2099-01-01", days=7 + offset, as_string=True)
