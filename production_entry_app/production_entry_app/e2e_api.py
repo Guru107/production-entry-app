@@ -461,11 +461,12 @@ def _get_or_create_e2e_shift(
 
 
 @frappe.whitelist()
-def bootstrap_e2e_context(prefix: str = "E2E") -> dict:
+def bootstrap_e2e_context(prefix: str = "E2E", cleanup_running: int = 1) -> dict:
 	"""Create deterministic test masters for Playwright E2E tests."""
 	access_control.assert_app_write_access()
 	_assert_e2e_api_allowed()
-	cleanup_running_shifts()
+	if cint(cleanup_running):
+		cleanup_running_shifts()
 	_ensure_e2e_settings_fields_loaded()
 	_cache_e2e_settings_snapshot(prefix)
 	company = resolve_test_company()
@@ -795,13 +796,20 @@ def cleanup_reserved_e2e_artifacts() -> dict[str, object]:
 
 @frappe.whitelist()
 def create_e2e_submitted_stock_entry(
-	prefix: str = "E2E", rejection_qty: float = 0, complete_shift_before_submit: int = 0
+	prefix: str = "E2E",
+	rejection_qty: float = 0,
+	complete_shift_before_submit: int = 0,
+	shift_name: str | None = None,
+	actual_start_time: str = "08:00:00",
+	actual_end_time: str = "09:00:00",
+	posting_time: str = "09:00:00",
 ) -> dict:
 	"""Create and submit one manufacture stock entry for E2E report coverage."""
 	access_control.assert_app_write_access()
 	_assert_e2e_api_allowed()
-	ctx = bootstrap_e2e_context(prefix=prefix)
-	shift = frappe.get_doc("Shift", ctx["shift_name"])
+	ctx = bootstrap_e2e_context(prefix=prefix, cleanup_running=0 if shift_name else 1)
+	target_shift_name = (shift_name or ctx["shift_name"] or "").strip()
+	shift = frappe.get_doc("Shift", target_shift_name)
 	if cint(complete_shift_before_submit) and shift.status != "Completed":
 		shift.end_shift()
 		shift.reload()
@@ -818,15 +826,15 @@ def create_e2e_submitted_stock_entry(
 			"from_warehouse": ctx["wip_warehouse"],
 			"to_warehouse": ctx["fg_warehouse"],
 			"fg_completed_qty": 100,
-			"custom_pea_shift": ctx["shift_name"],
+			"custom_pea_shift": shift.name,
 			"custom_pea_operator": ctx["operator"],
 			"custom_pea_workstation": ctx["workstation"],
 			"custom_pea_rejection_qty": float(rejection_qty or 0),
-			"custom_pea_actual_start_date": f"{shift_date} 08:00:00",
-			"custom_pea_actual_end_date": f"{shift_date} 09:00:00",
+			"custom_pea_actual_start_date": f"{shift_date} {actual_start_time or '08:00:00'}",
+			"custom_pea_actual_end_date": f"{shift_date} {actual_end_time or '09:00:00'}",
 			"set_posting_time": 1,
 			"posting_date": shift_date,
-			"posting_time": "09:00:00",
+			"posting_time": posting_time or "09:00:00",
 		}
 	)
 	_finalize_e2e_submitted_stock_entry(
@@ -835,10 +843,16 @@ def create_e2e_submitted_stock_entry(
 		wip_warehouse=ctx["wip_warehouse"],
 		fg_warehouse=ctx["fg_warehouse"],
 	)
-	_clear_timeline_cache_for_context(ctx, ctx["shift_name"])
+	_clear_timeline_cache_for_context(ctx, shift.name)
 
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit - required for report read-after-write checks
-	return {"name": doc.name, "docstatus": doc.docstatus, "posting_date": shift_date}
+	return {
+		"name": doc.name,
+		"docstatus": doc.docstatus,
+		"posting_date": shift_date,
+		"shift_name": shift.name,
+		"branch": getattr(doc, "branch", None),
+	}
 
 
 def _finalize_e2e_submitted_stock_entry(
