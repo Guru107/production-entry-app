@@ -2,12 +2,34 @@ from __future__ import annotations
 
 from unittest.mock import call, patch
 
+import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from production_entry_app.production_entry_app import lifecycle
 
 
 class TestLifecycle(FrappeTestCase):
+	def test_ensure_branch_field_creates_when_absent(self) -> None:
+		if frappe.get_meta("Stock Entry", cached=True).has_field("branch"):
+			self.skipTest("site already has a Stock Entry branch field")
+
+		from production_entry_app.production_entry_app import lifecycle
+
+		lifecycle.ensure_stock_entry_branch_field()
+		frappe.clear_cache(doctype="Stock Entry")
+		df = frappe.get_meta("Stock Entry", cached=True).get_field("branch")
+		assert df is not None
+		assert df.fieldtype == "Link" and df.options == "Branch"
+
+	def test_ensure_branch_field_is_idempotent(self) -> None:
+		from production_entry_app.production_entry_app import lifecycle
+
+		lifecycle.ensure_stock_entry_branch_field()
+		lifecycle.ensure_stock_entry_branch_field()  # second call must not raise or duplicate
+		frappe.clear_cache(doctype="Stock Entry")
+		fields = [f for f in frappe.get_meta("Stock Entry", cached=True).fields if f.fieldname == "branch"]
+		assert len(fields) == 1
+
 	def test_after_sync_runs_idempotent_setup(self) -> None:
 		with (
 			patch(
@@ -17,12 +39,16 @@ class TestLifecycle(FrappeTestCase):
 				"production_entry_app.production_entry_app.lifecycle.field_permissions.ensure_pea_field_permissions"
 			) as ensure_field_permissions,
 			patch(
+				"production_entry_app.production_entry_app.lifecycle.ensure_stock_entry_branch_field"
+			) as ensure_branch_field,
+			patch(
 				"production_entry_app.production_entry_app.lifecycle.performance_indexes.ensure_performance_indexes_with_recovery"
 			) as ensure_indexes,
 		):
 			lifecycle.after_sync()
 
 		setup_access.assert_called_once_with()
+		ensure_branch_field.assert_called_once_with()
 		ensure_field_permissions.assert_called_once_with()
 		ensure_indexes.assert_called_once_with()
 
@@ -35,12 +61,16 @@ class TestLifecycle(FrappeTestCase):
 				"production_entry_app.production_entry_app.lifecycle.field_permissions.ensure_pea_field_permissions"
 			) as ensure_field_permissions,
 			patch(
+				"production_entry_app.production_entry_app.lifecycle.ensure_stock_entry_branch_field"
+			) as ensure_branch_field,
+			patch(
 				"production_entry_app.production_entry_app.lifecycle.performance_indexes.ensure_performance_indexes_with_recovery"
 			) as ensure_indexes,
 		):
 			lifecycle.after_migrate()
 
 		setup_access.assert_called_once_with()
+		ensure_branch_field.assert_called_once_with()
 		ensure_field_permissions.assert_called_once_with()
 		ensure_indexes.assert_called_once_with()
 

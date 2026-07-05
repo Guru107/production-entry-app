@@ -1635,9 +1635,12 @@ class TestE2EApi(FrappeTestCase):
 
 	def test_create_e2e_submitted_stock_entry_appends_rejection_breakup_and_returns_doc(self) -> None:
 		shift = MagicMock()
+		shift.name = "SHIFT-001"
+		shift.branch = "_Test Branch"
 		shift.shift_date = "2099-01-20"
 		doc = MagicMock()
 		doc.name = "MAT-STE-001"
+		doc.branch = "_Test Branch"
 		doc.docstatus = 1
 		doc.get.return_value = [
 			frappe._dict({"is_finished_item": 0, "s_warehouse": None, "t_warehouse": None}),
@@ -1672,17 +1675,31 @@ class TestE2EApi(FrappeTestCase):
 					side_effect=[shift, doc],
 				)
 			)
-			stack.enter_context(
+			clear_timeline_cache = stack.enter_context(
 				patch("production_entry_app.production_entry_app.e2e_api._clear_timeline_cache_for_context")
 			)
 			stack.enter_context(patch("production_entry_app.production_entry_app.e2e_api.frappe.db.commit"))
 
-			result = create_e2e_submitted_stock_entry(prefix="E2E", rejection_qty=4)
+			result = create_e2e_submitted_stock_entry(
+				prefix="E2E", rejection_qty=4, actual_end_time="10:30:00"
+			)
 
-		self.assertEqual(result, {"name": "MAT-STE-001", "docstatus": 1, "posting_date": "2099-01-20"})
+		self.assertEqual(
+			result,
+			{
+				"name": "MAT-STE-001",
+				"docstatus": 1,
+				"posting_date": "2099-01-20",
+				"shift_name": "SHIFT-001",
+				"branch": "_Test Branch",
+			},
+		)
 		doc_payload = get_doc.call_args_list[1].args[0]
+		self.assertEqual(get_doc.call_args_list[0].args, ("Shift", "SHIFT-001"))
+		self.assertEqual(doc_payload["custom_pea_shift"], "SHIFT-001")
 		self.assertEqual(doc_payload["posting_date"], "2099-01-20")
-		self.assertEqual(doc_payload["posting_time"], "09:00:00")
+		self.assertEqual(doc_payload["custom_pea_actual_end_date"], "2099-01-20 10:30:00")
+		self.assertEqual(doc_payload["posting_time"], "10:30:00")
 		self.assertEqual(doc_payload["set_posting_time"], 1)
 		doc.get_items.assert_called_once()
 		doc.append.assert_called_once_with(
@@ -1690,6 +1707,7 @@ class TestE2EApi(FrappeTestCase):
 		)
 		doc.insert.assert_called_once_with(ignore_permissions=True)
 		doc.submit.assert_called_once()
+		clear_timeline_cache.assert_called_once()
 
 	def test_insert_e2e_full_shift_stock_entry_does_not_mutate_payload(self) -> None:
 		payload = {
