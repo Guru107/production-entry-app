@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import frappe
 from unittest.mock import call, patch
 
+import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from production_entry_app.production_entry_app import lifecycle
