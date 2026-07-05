@@ -4196,3 +4196,31 @@ class TestStockEntryLateEntryStamp(FrappeTestCase):
 		se = make_direct_manufacture_entry(self.masters, shift=shift.name, fg_qty=100, rejection_qty=0)
 		se.submit()
 		self.assertFalse(se.custom_pea_is_late_entry)
+
+	def test_stock_entry_branch_is_populated_from_shift(self) -> None:
+		masters = bootstrap_manufacture_masters()
+		shift = make_running_shift(masters)
+		branch = frappe.db.get_value("Shift", shift.name, "branch")
+		se = make_direct_manufacture_entry(masters, shift=shift.name, fg_qty=100, rejection_qty=0)
+		assert se.branch == branch
+
+	def test_stock_entry_branch_is_not_set_when_stock_entry_field_is_missing(self) -> None:
+		masters = bootstrap_manufacture_masters()
+		shift = make_running_shift(masters)
+		original_get_meta = stock_entry_hooks.frappe.get_meta
+
+		def fake_get_meta(doctype: str, cached: bool = False) -> object:
+			if doctype == "Stock Entry":
+				meta = original_get_meta(doctype, cached=cached)
+				meta.has_field = lambda _fieldname: False
+				return meta
+			return original_get_meta(doctype, cached=cached)
+
+		with patch(
+			"production_entry_app.production_entry_app.overrides.stock_entry_hooks.frappe.get_meta",
+			side_effect=fake_get_meta,
+		):
+			doc = frappe._dict({"custom_pea_shift": shift.name})
+			stock_entry_hooks._apply_shift_defaults(doc)
+
+		self.assertNotIn("branch", doc)

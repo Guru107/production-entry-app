@@ -159,7 +159,7 @@ def _apply_shift_defaults(doc) -> None:
 	"""
 	shift = frappe.get_doc("Shift", doc.custom_pea_shift)
 
-	if shift.branch:
+	if frappe.get_meta("Stock Entry", cached=True).has_field("branch") and shift.branch:
 		doc.branch = shift.branch
 
 	# Only update planned dates for draft/new Stock Entries.
