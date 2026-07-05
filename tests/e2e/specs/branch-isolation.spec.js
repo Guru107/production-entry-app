@@ -25,6 +25,28 @@ async function loginAsAdmin(page) {
 	await loginAs(page, ADMIN_USERNAME, ADMIN_PASSWORD);
 }
 
+async function deleteDocIfExists(page, doctype, name) {
+	try {
+		await callFrappeMethod(page, "frappe.client.get", {
+			doctype,
+			name,
+		});
+		await callFrappeMethod(page, "frappe.client.delete", {
+			doctype,
+			name,
+		});
+	} catch (error) {
+		const message = String(error?.message || error);
+		if (
+			!message.includes("DoesNotExistError") &&
+			!message.includes("Resource is not available") &&
+			!message.includes("not found")
+		) {
+			throw error;
+		}
+	}
+}
+
 test.describe("Branch isolation", () => {
 	const lifecycle = registerE2ELifecycle(test);
 	const createdUsers = new Set();
@@ -45,10 +67,11 @@ test.describe("Branch isolation", () => {
 			name: ctx.shift_name,
 		});
 		const branchA = seedShift.branch || ctx.branch;
-		const branchB = `${branchA} B`;
+		const branchB = `${branchA}-${lifecycle.getPrefix()}-B-${Date.now()}`;
 		const shiftDate = seedShift.shift_date || ctx.shift_date;
 		const department = seedShift.department;
 		let branchBShiftName;
+		let branchPermission;
 		const seededFields = {
 			department,
 			company: seedShift.company,
@@ -79,7 +102,7 @@ test.describe("Branch isolation", () => {
 			branchBShiftName = branchBShift?.name;
 			expect(branchBShiftName).toContain("SHIFT-");
 
-			const email = `e2e-branch-isolation-${Date.now()}-${Math.floor(
+			const email = `e2e-user-branch-isolation-${lifecycle.getPrefix()}-${Date.now()}-${Math.floor(
 				Math.random() * 1000
 			)}@example.com`;
 			createdUsers.add(email);
@@ -90,7 +113,7 @@ test.describe("Branch isolation", () => {
 				roles: ["PEA User"],
 			});
 
-			await callFrappeMethod(
+			const permissionResult = await callFrappeMethod(
 				page,
 				"production_entry_app.production_entry_app.e2e_api.set_e2e_branch_user_permission",
 				{
@@ -98,11 +121,14 @@ test.describe("Branch isolation", () => {
 					branch: branchA,
 				}
 			);
+			branchPermission = permissionResult?.permission_name;
 
 			await loginAs(page, email, TEST_PASSWORD);
 			await page.goto(getRoute("/shift"));
 			await expect(page).toHaveURL(getRouteRegex("/shift"));
 
+			// API list call here intentionally runs after opening Shift list so it exercises
+			// Desk's permission-filtered list endpoint for the logged-in user.
 			const visibleShifts = await callFrappeMethod(page, "frappe.client.get_list", {
 				doctype: "Shift",
 				fields: JSON.stringify(["name", "branch"]),
@@ -119,16 +145,14 @@ test.describe("Branch isolation", () => {
 			expect(visibleShifts.length).toBe(1);
 			expect(visibleShifts[0].branch).toBe(branchA);
 		} finally {
-			if (branchBShiftName) {
-				await callFrappeMethod(page, "frappe.client.delete", {
-					doctype: "Shift",
-					name: branchBShiftName,
-				}).catch(() => {});
+			await loginAsAdmin(page);
+			if (branchPermission) {
+				await deleteDocIfExists(page, "User Permission", branchPermission);
 			}
-			await callFrappeMethod(page, "frappe.client.delete", {
-				doctype: "Branch",
-				name: branchB,
-			}).catch(() => {});
+			if (branchBShiftName) {
+				await deleteDocIfExists(page, "Shift", branchBShiftName);
+			}
+			await deleteDocIfExists(page, "Branch", branchB);
 		}
 	});
 });

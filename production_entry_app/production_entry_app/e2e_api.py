@@ -88,13 +88,25 @@ def set_e2e_branch_user_permission(user: str, branch: str) -> dict:
 	branch_value = (branch or "").strip()
 	if not user_value or not branch_value:
 		frappe.throw(_("user and branch are required."), frappe.ValidationError)
+	if not user_value.startswith(_E2E_RESERVED_USER_EMAIL_PREFIX):
+		frappe.throw(_("user must be an E2E reserved test user."), frappe.ValidationError)
+	if not frappe.db.exists("User", user_value):
+		frappe.throw(
+			_("user {0} does not exist.").format(frappe.bold(frappe.utils.escape_html(user_value))),
+			frappe.ValidationError,
+		)
+	if not frappe.db.exists("Branch", branch_value):
+		frappe.throw(
+			_("branch {0} does not exist.").format(frappe.bold(frappe.utils.escape_html(branch_value))),
+			frappe.ValidationError,
+		)
 	existing = frappe.get_all(
 		"User Permission",
 		filters={"user": user_value, "allow": "Branch", "for_value": branch_value},
 		pluck="name",
 	)
 	if not existing:
-		frappe.get_doc(
+		permission = frappe.get_doc(
 			{
 				"doctype": "User Permission",
 				"user": user_value,
@@ -103,8 +115,11 @@ def set_e2e_branch_user_permission(user: str, branch: str) -> dict:
 				"apply_to_all_doctypes": 1,
 			}
 		).insert(ignore_permissions=True)
+		permission_name = permission.name
+	else:
+		permission_name = existing[0]
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit - E2E setup must persist
-	return {"user": user_value, "branch": branch_value}
+	return {"user": user_value, "branch": branch_value, "permission_name": permission_name}
 
 
 def _e2e_base_date(prefix: str) -> str:
