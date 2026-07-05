@@ -35,9 +35,13 @@ app's parallel implementation.
    native DocPerms on `PEA User` / `PEA Read Only`. No "open to everyone" bypass.
 5. **Keep permlevel-9 field hiding**, expressed as static native config (permlevel on
    the fields + static Custom DocPerm rows), not programmatic per-migrate sync.
-6. **Read endpoints are non-sensitive → ungated.** Write endpoints are gated
-   **natively** by document-operation DocPerm checks (drop `ignore_permissions` that
-   masks them). E2E helpers keep their existing double gate.
+6. **Follow Frappe best practice for endpoint gating, using native APIs only.**
+   Read endpoints replace the custom assert with a native `frappe.has_permission`
+   check where they return document-scoped data (trivial global lookups may stay
+   open). Write endpoints are gated **natively** by document-operation DocPerm checks
+   (drop the `ignore_permissions` that masks them). E2E helpers keep their existing
+   double gate. Role assignment is a **manual admin/deployment step** — the app never
+   auto-grants roles.
 
 ## Non-goals
 
@@ -87,6 +91,13 @@ filters:
 Stock Entries in list views; Branch-B rows are hidden. A user with no Branch User
 Permission sees all branches.
 
+**Dependency (document, don't enforce):** this relies on System Settings
+`apply_strict_user_permissions` being **OFF** (verified OFF on the bench). With it
+OFF, Stock Entries with an empty `branch` (non-production entries — material
+transfers, etc.) stay visible to branch-restricted users. If an admin turns strict
+mode ON, those empty-branch entries would be hidden from restricted users — a native
+Frappe consequence outside the app's control; note it in admin docs.
+
 ---
 
 ## Part B — Delete the custom access-control layer
@@ -122,26 +133,45 @@ app doctype JSONs already carry complete DocPerms for `System Manager`, `PEA Use
 - **Role fixtures:** ship `PEA User` and `PEA Read Only` as `Role` fixtures (they were
   auto-created by the deleted `_ensure_role`).
 - **Doctype DocPerms:** already present in the 7 app doctype JSONs — no change.
-- **Permlevel-9 field permissions:** keep permlevel 9 on the 43 custom fields; ship
-  the read/write access at permlevel 9 as static **Custom DocPerm fixtures** for the
-  affected standard doctypes (Stock Entry, Stock Entry Detail, Item, Workstation,
-  Downtime Entry) so those fields stay editable only by `PEA User` and hidden from
-  `PEA Read Only`. No per-migrate sync.
+- **Permlevel-9 field permissions:** keep permlevel 9 on the 43 custom fields and
+  grant the permlevel access via a **native Frappe mechanism** (not a bespoke sync).
+  Three permlevel-9 permission rows per affected standard doctype (Stock Entry,
+  Stock Entry Detail, Item, Workstation, Downtime Entry):
+  - `PEA User` — read **+ write** (enters/edits the fields),
+  - `PEA Read Only` — read only (**sees** the fields, cannot edit),
+  - `System Manager` — read + write (admin safety; without this row a fresh SM
+    silently cannot see the app's custom fields — permlevels do not inherit to SM).
 
-**Fixture note:** add `Role` and the permlevel-9 `Custom DocPerm` set to `fixtures`
-in `hooks.py` (scoped by filter so unrelated roles/perms are not exported). If
-Custom DocPerm fixtures prove unreliable across v15/v16, fall back to a single
-idempotent `ensure_permlevel_permissions()` in lifecycle — but the fixture route is
-preferred (no runtime logic).
+  Net effect: the fields are hidden only from users holding **none** of these roles.
+
+**Permlevel mechanism (follow Frappe best practice, no custom permission code):**
+prefer **`Custom DocPerm` fixtures** in `hooks.py`, scoped by filter
+(`parent in (the 5 doctypes)` and `permlevel = 9`) so ERPNext's own Item permlevel-1
+perms and other apps' rows are not swept in. **Spike this first** on both benches: if
+the fixtures install/round-trip cleanly, use them (zero code). If they prove
+unreliable across v15/v16, fall back to a one-time **declarative** setup step calling
+Frappe's official `frappe.permissions.add_permission(doctype, role, permlevel=9)` API
+(a static `{doctype, role, ptype}` table upserted in lifecycle). Both are native
+Frappe mechanisms; neither is the runtime-configurable sync engine being deleted. Also
+ship `Role` fixtures for `PEA User` / `PEA Read Only`.
 
 ---
 
 ## Part C — Endpoint gating
 
-- **Read endpoints** (`get_die_tool_counter`, `get_shift_summary`,
-  `get_shift_timeline_data`, `get_shift_aggregate_production_entries`,
-  `get_linked_downtime_entries`, the 20 reports): data is non-sensitive → drop the
-  custom read asserts, add nothing. Callable by any authenticated user.
+- **Read endpoints:** drop the *custom* `assert_app_read_access`, but follow Frappe
+  best practice — a whitelisted method returning a specific document's data should
+  gate on **native `frappe.has_permission(doctype, "read", name)`**:
+  - Document-scoped readers (`get_shift_summary`, `get_shift_details_for_stock_entry`,
+    `get_shift_aggregate_production_entries`, `get_linked_downtime_entries`,
+    `get_shift_timeline_data`) → keep/add a native `frappe.has_permission` check. The
+    first two already have it (just delete the redundant custom assert). This also
+    keeps API reads consistent with Branch User Permission isolation (a Branch-A user
+    can't pull a Branch-B shift's summary).
+  - Trivial global lookups with no document-scoped permission to check
+    (`get_die_tool_counter` by item code) → may stay open.
+  - The 20 Script Reports → native Report `roles` already gate who can open them;
+    delete `assert_report_read_access`, add nothing.
 - **Write endpoints** (`reset_die_tool_counter`, and any mutating whitelisted
   method): drop the custom write assert and remove `ignore_permissions=True` from the
   production write path so the native DocPerm check on `insert`/`save`/`submit`/`delete`
@@ -187,6 +217,14 @@ iteration.
 - The app is always role-gated; no "open to everyone" mode (decision #4).
 - Gating roles are fixed (`PEA User` / `PEA Read Only`); re-pointing them is done in
   Role Permission Manager, not via Settings (decision #4).
+
+## Rollout note (admin docs)
+
+After this lands the app is **always role-gated** (no open mode). Assign `PEA User`
+(create/edit) or `PEA Read Only` (view) to every user who needs the app; `System
+Manager` retains full access via native DocPerms. The app does **not** auto-assign
+roles. Greenfield app → no existing population to migrate; the only action is
+"assign the role at setup." Dev/E2E bootstrap assigns roles explicitly.
 
 ## Open items to confirm before implementation
 
