@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from contextlib import ExitStack
 from unittest.mock import MagicMock, patch
 
@@ -8,7 +9,6 @@ from frappe.tests.utils import FrappeTestCase
 
 from production_entry_app.production_entry_app.api import (
 	_cleanup_orphan_stock_entry_loss_links,
-	delete,
 	get_die_tool_counter,
 )
 from production_entry_app.production_entry_app.e2e_api import (
@@ -437,27 +437,35 @@ class TestE2EApi(FrappeTestCase):
 				_cleanup_orphan_stock_entry_loss_links("SHIFT-2026-02-22.1.0001")
 		db_delete.assert_called_once_with("Loss Entry", {"name": ("in", ["LOSS-001"])})
 
-	def test_delete_wrapper_cleans_shift_orphans_before_delete(self) -> None:
-		with patch(
-			"production_entry_app.production_entry_app.api._cleanup_orphan_stock_entry_loss_links"
-		) as cleanup:
-			with patch(
-				"production_entry_app.production_entry_app.api.frappe_client_delete_doc"
-			) as delete_doc:
-				delete("Shift", "SHIFT-2026-02-22.1.0001")
-		cleanup.assert_called_once_with("SHIFT-2026-02-22.1.0001")
-		delete_doc.assert_called_once_with("Shift", "SHIFT-2026-02-22.1.0001")
+	def test_deleting_shift_cleans_orphan_stock_entry_loss_links(self) -> None:
+		from production_entry_app.production_entry_app.tests.support.manufacture_builders import (
+			bootstrap_manufacture_masters,
+			make_running_shift,
+		)
 
-	def test_delete_wrapper_does_not_cleanup_non_shift_doctypes(self) -> None:
-		with patch(
-			"production_entry_app.production_entry_app.api._cleanup_orphan_stock_entry_loss_links"
-		) as cleanup:
-			with patch(
-				"production_entry_app.production_entry_app.api.frappe_client_delete_doc"
-			) as delete_doc:
-				delete("Stock Entry", "MAT-STE-2026-00001")
-		cleanup.assert_not_called()
-		delete_doc.assert_called_once_with("Stock Entry", "MAT-STE-2026-00001")
+		masters = bootstrap_manufacture_masters()
+		shift = make_running_shift(masters)
+		# Simulate an orphan Loss Entry row pointing at a since-deleted Stock Entry parent.
+		frappe.get_doc(
+			{
+				"doctype": "Loss Entry",
+				"parenttype": "Stock Entry",
+				"parent": "SE-DELETED-0001",
+				"parentfield": "custom_pea_unplanned_losses",
+				"shift": shift.name,
+				"downtime_reason": frappe.db.get_value("Downtime Reason", {}, "name"),
+				"start_time": shift.planned_start_time,
+				"end_time": shift.planned_start_time,
+			}
+		).insert(ignore_permissions=True)
+		shift.db_set("status", "Draft")
+		frappe.delete_doc("Shift", shift.name, force=True)
+		assert not frappe.db.exists("Loss Entry", {"shift": shift.name, "parenttype": "Stock Entry"})
+
+	def test_client_delete_override_is_removed(self) -> None:
+		from production_entry_app import hooks
+
+		assert "frappe.client.delete" not in getattr(hooks, "override_whitelisted_methods", {})
 
 	def test_cleanup_e2e_shifts_cleans_shift_orphans_before_force_delete(self) -> None:
 		with patch(
@@ -531,10 +539,6 @@ class TestE2EApi(FrappeTestCase):
 		finalize.assert_called_once()
 		self.assertEqual(finalize.call_args.args[0], "E2E")
 		self.assertEqual(finalize.call_args.args[1]["ok"], False)
-
-	def test_delete_wrapper_http_methods_match_frappe_client_delete(self) -> None:
-		allowed_methods = frappe.allowed_http_methods_for_whitelisted_func.get(delete, [])
-		self.assertEqual(set(allowed_methods), {"DELETE", "POST"})
 
 	def test_get_die_tool_counter_preserves_unrounded_utilization_and_threshold_check(self) -> None:
 		with patch("production_entry_app.production_entry_app.api.frappe.db.exists", return_value=True):
@@ -1850,6 +1854,27 @@ class TestE2EApi(FrappeTestCase):
 
 			with self.assertRaisesRegex(frappe.ValidationError, "Invalid shift window"):
 				create_e2e_full_shift_stock_entries(prefix="E2E")
+
+	def test_get_items_with_rejection_base_rows_match_native(self) -> None:
+		from production_entry_app.production_entry_app import api
+		from production_entry_app.production_entry_app.tests.support.manufacture_builders import (
+			bootstrap_manufacture_masters,
+			direct_manufacture_doc_dict,
+		)
+
+		masters = bootstrap_manufacture_masters()
+		doc_dict = direct_manufacture_doc_dict(masters, fg_qty=100, rejection_qty=0)
+
+		native = frappe.new_doc("Stock Entry")
+		native.update({k: v for k, v in doc_dict.items() if k != "custom_pea_rejection_qty"})
+		native.from_bom = 1
+		native.get_items()
+		native_codes = sorted(r.item_code for r in native.items)
+
+		api_rows = api.get_items_with_rejection(json.dumps(doc_dict))
+		api_codes = sorted(r["item_code"] for r in api_rows)
+
+		self.assertEqual(api_codes, native_codes)  # rejection_qty=0 => no extra row
 
 	def test_create_e2e_downtime_entry_normalizes_unknown_stop_reason(self) -> None:
 		shift = MagicMock()

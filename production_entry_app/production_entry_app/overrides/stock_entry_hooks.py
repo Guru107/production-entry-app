@@ -67,6 +67,7 @@ def validate_stock_entry(doc: Document, method: str | None = None) -> None:
 	if doc.get("custom_pea_shift"):
 		_validate_linked_shift_can_accept_stock_entry(doc)
 		_apply_shift_defaults(doc)
+	_stamp_late_entry_flag(doc)
 	_sync_unplanned_loss_shift_links(doc)
 
 	_validate_actual_times(doc)
@@ -80,6 +81,45 @@ def validate_stock_entry(doc: Document, method: str | None = None) -> None:
 	_apply_rejection_entries(doc)
 	_validate_rejection_target_warehouses(doc)
 	_set_entry_metrics(doc)
+
+
+def _stamp_late_entry_flag(doc: Document) -> None:
+	"""Flag entries submitted against a Completed shift (status-at-submit)."""
+	meta = frappe.get_meta("Stock Entry", cached=True)
+	if not meta.has_field("custom_pea_is_late_entry"):
+		return
+
+	shift_name = doc.get("custom_pea_shift")
+	is_late = 0
+	if doc.docstatus == 1 and shift_name:
+		if frappe.db.get_value("Shift", shift_name, "status") == "Completed":
+			is_late = 1
+	doc.custom_pea_is_late_entry = is_late
+
+
+def _validate_loss_entry_deletions_require_app_write(doc: Document) -> None:
+	"""Require app write access before a Stock Entry delete removes Loss Entry rows."""
+	if access_control.can_write_production_entry_app():
+		return
+	if doc.is_new() or not doc.name:
+		return
+
+	current_names = {
+		row.name for row in doc.get("custom_pea_unplanned_losses") or [] if getattr(row, "name", None)
+	}
+	persisted_names = set(
+		frappe.get_all(
+			"Loss Entry",
+			filters={
+				"parenttype": "Stock Entry",
+				"parent": doc.name,
+				"parentfield": "custom_pea_unplanned_losses",
+			},
+			pluck="name",
+		)
+	)
+	if persisted_names - current_names:
+		access_control.assert_app_write_access()
 
 
 def on_submit_stock_entry(doc, method: str | None = None) -> None:

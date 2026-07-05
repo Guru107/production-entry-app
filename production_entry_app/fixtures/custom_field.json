@@ -554,5 +554,17 @@
   "insert_after": "custom_pea_strokes_per_unit",
   "module": "Production Entry App",
   "permlevel": 9
+ },
+ {
+  "doctype": "Custom Field",
+  "name": "Stock Entry-custom_pea_is_late_entry",
+  "dt": "Stock Entry",
+  "fieldname": "custom_pea_is_late_entry",
+  "fieldtype": "Check",
+  "label": "Late Entry (Post-Completion)",
+  "insert_after": "custom_pea_rejection_qty",
+  "read_only": 1,
+  "module": "Production Entry App",
+  "permlevel": 9
  }
 ]

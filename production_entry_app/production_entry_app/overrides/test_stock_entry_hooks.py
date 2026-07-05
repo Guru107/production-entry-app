@@ -9,6 +9,12 @@ from frappe.exceptions import ValidationError
 from frappe.tests.utils import FrappeTestCase
 
 from production_entry_app.production_entry_app.overrides import stock_entry_hooks
+from production_entry_app.production_entry_app.tests.support.manufacture_builders import (
+	bootstrap_manufacture_masters,
+	make_completed_shift,
+	make_direct_manufacture_entry,
+	make_running_shift,
+)
 from production_entry_app.production_entry_app.utils.alternative_items import (
 	get_bom_alternative_allowed_items,
 )
@@ -4170,3 +4176,23 @@ class TestDieToolCounter(FrappeTestCase):
 		self.assertIsNone(_get_fg_item_code(doc_without_fg))
 		self.assertEqual(_get_total_units(doc_without_fg), 0.0)
 		self.assertIsNone(_get_fg_row(doc_without_fg))
+
+
+class TestStockEntryLateEntryStamp(FrappeTestCase):
+	def setUp(self) -> None:
+		self.masters = bootstrap_manufacture_masters()
+
+	def tearDown(self) -> None:
+		frappe.db.rollback()
+
+	def test_entry_against_completed_shift_is_flagged_late(self) -> None:
+		shift = make_completed_shift(self.masters)
+		se = make_direct_manufacture_entry(self.masters, shift=shift.name, fg_qty=100, rejection_qty=0)
+		se.submit()
+		self.assertEqual(se.custom_pea_is_late_entry, 1)
+
+	def test_entry_against_running_shift_is_not_flagged_late(self) -> None:
+		shift = make_running_shift(self.masters)
+		se = make_direct_manufacture_entry(self.masters, shift=shift.name, fg_qty=100, rejection_qty=0)
+		se.submit()
+		self.assertFalse(se.custom_pea_is_late_entry)

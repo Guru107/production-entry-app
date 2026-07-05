@@ -175,8 +175,15 @@ if (typeof window !== "undefined" && window.erpnext && erpnext.stock && erpnext.
 			if (!_should_override_fg_completed_qty()) {
 				return originalFgCompletedQty.call(this);
 			}
-			if (_is_manufacture_doc(this.frm.doc) && this.frm.doc.from_bom) {
-				// Skip the standard get_items() call for Manufacture; handled by Fetch Items.
+			if (
+				_is_manufacture_doc(this.frm.doc) &&
+				this.frm.doc.from_bom &&
+				this.frm.doc.custom_pea_shift &&
+				!this.frm.doc.job_card
+			) {
+				// Shift-linked direct manufacture: item fetch is handled by
+				// the PEA "Fetch Items" button. Preserve v16's native Job Card
+				// guard and native behavior for non-Shift entries.
 				return;
 			}
 			// For all other purposes, keep the standard behaviour.

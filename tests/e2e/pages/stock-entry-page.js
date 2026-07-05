@@ -44,11 +44,11 @@ class StockEntryPage {
 		await this.setPostingDate(ctx.shift_date);
 		await setFieldValue(this.page, "from_bom", 1);
 		await setFieldValue(this.page, "bom_no", ctx.bom);
+		await setFieldValue(this.page, "custom_pea_shift", ctx.shift_name);
 		await setFieldValue(this.page, "from_warehouse", ctx.wip_warehouse);
 		await setFieldValue(this.page, "to_warehouse", ctx.wip_warehouse);
 		await setFieldValue(this.page, "fg_completed_qty", 100);
 		await setFieldValue(this.page, "custom_pea_rejection_qty", 5);
-		await setFieldValue(this.page, "custom_pea_shift", ctx.shift_name);
 		await setFieldValue(this.page, "custom_pea_workstation", ctx.workstation);
 		await setFieldValue(this.page, "custom_pea_operator", ctx.operator);
 		await setFieldValue(
@@ -74,6 +74,7 @@ class StockEntryPage {
 		await this.setPostingDate(options.postingDate || ctx.shift_date);
 		await setFieldValue(this.page, "from_bom", 1);
 		await setFieldValue(this.page, "bom_no", ctx.bom);
+		await setFieldValue(this.page, "custom_pea_shift", shiftName);
 		await setFieldValue(
 			this.page,
 			"from_warehouse",
@@ -82,7 +83,6 @@ class StockEntryPage {
 		await setFieldValue(this.page, "to_warehouse", options.toWarehouse || ctx.wip_warehouse);
 		await setFieldValue(this.page, "fg_completed_qty", fgQty);
 		await setFieldValue(this.page, "custom_pea_rejection_qty", rejectionQty);
-		await setFieldValue(this.page, "custom_pea_shift", shiftName);
 		await setFieldValue(this.page, "custom_pea_workstation", ctx.workstation);
 		await setFieldValue(this.page, "custom_pea_operator", ctx.operator);
 		if (actualStart !== null && actualStart !== undefined) {

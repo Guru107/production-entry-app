@@ -752,12 +752,17 @@ def cleanup_reserved_e2e_artifacts() -> dict[str, object]:
 
 
 @frappe.whitelist()
-def create_e2e_submitted_stock_entry(prefix: str = "E2E", rejection_qty: float = 0) -> dict:
+def create_e2e_submitted_stock_entry(
+	prefix: str = "E2E", rejection_qty: float = 0, complete_shift_before_submit: int = 0
+) -> dict:
 	"""Create and submit one manufacture stock entry for E2E report coverage."""
 	access_control.assert_app_write_access()
 	_assert_e2e_api_allowed()
 	ctx = bootstrap_e2e_context(prefix=prefix)
 	shift = frappe.get_doc("Shift", ctx["shift_name"])
+	if cint(complete_shift_before_submit) and shift.status != "Completed":
+		shift.end_shift()
+		shift.reload()
 	shift_date = str(shift.shift_date)
 
 	doc = frappe.get_doc(

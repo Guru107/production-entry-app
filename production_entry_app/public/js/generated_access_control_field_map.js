@@ -38,7 +38,8 @@
     "custom_pea_operator_efficiency_pct",
     "custom_pea_metrics_note",
     "custom_pea_die_tool_utilization_pct",
-    "custom_pea_die_tool_maintenance_due"
+    "custom_pea_die_tool_maintenance_due",
+    "custom_pea_is_late_entry"
   ],
   "Stock Entry Detail": [
     "custom_pea_is_rejection_item"

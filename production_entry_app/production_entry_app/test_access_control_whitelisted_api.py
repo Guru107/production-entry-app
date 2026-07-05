@@ -8,7 +8,6 @@ from frappe.tests.utils import FrappeTestCase
 
 from production_entry_app.production_entry_app import access_control
 from production_entry_app.production_entry_app.api import (
-	delete,
 	get_access_control_state,
 	get_die_tool_counter,
 	get_items_with_rejection,
@@ -38,7 +37,6 @@ class TestAccessControlWhitelistedApi(FrappeTestCase):
 
 	def test_denied_user_cannot_call_gated_whitelisted_apis(self) -> None:
 		gated_calls = [
-			("delete", "assert_app_write_access", lambda: delete("Shift", "SHIFT-00001")),
 			(
 				"get_shift_details_for_stock_entry",
 				"assert_app_read_access",
@@ -131,42 +129,6 @@ class TestAccessControlWhitelistedApi(FrappeTestCase):
 				with patch.object(access_control, guard_name, side_effect=frappe.PermissionError):
 					with self.assertRaises(frappe.PermissionError):
 						gated_call()
-
-	def test_denied_user_not_blocked_by_app_gate_for_core_doctype_delete_path(self) -> None:
-		with patch.object(access_control, "assert_app_write_access") as assert_app_write_access:
-			with patch(
-				"production_entry_app.production_entry_app.api.frappe_client_delete_doc"
-			) as delete_doc:
-				delete("Stock Entry", "STE-00001")
-		assert_app_write_access.assert_not_called()
-		delete_doc.assert_called_once_with("Stock Entry", "STE-00001")
-
-	def test_shift_delete_allows_when_user_has_required_role(self) -> None:
-		with (
-			patch(
-				"production_entry_app.production_entry_app.access_control._get_access_configuration",
-				return_value=access_control.AccessConfiguration(
-					enabled=True,
-					write_role=REQUIRED_ROLE,
-					read_role=READ_ROLE,
-				),
-			),
-			patch(
-				"production_entry_app.production_entry_app.access_control.frappe.get_roles",
-				return_value=["Manufacturing User", REQUIRED_ROLE],
-			),
-			patch("production_entry_app.production_entry_app.api.frappe_client_delete_doc") as delete_doc,
-			patch(
-				"production_entry_app.production_entry_app.api._cleanup_orphan_stock_entry_loss_links"
-			) as cleanup_orphans,
-			patch.object(
-				access_control, "assert_app_write_access", wraps=access_control.assert_app_write_access
-			) as guard,
-		):
-			delete("Shift", "SHIFT-B-00001")
-		guard.assert_called_once_with()
-		cleanup_orphans.assert_called_once_with("SHIFT-B-00001")
-		delete_doc.assert_called_once_with("Shift", "SHIFT-B-00001")
 
 	def test_shift_details_checks_target_shift_read_permission(self) -> None:
 		shift_doc = MagicMock()
@@ -378,14 +340,6 @@ class TestAccessControlWhitelistedApi(FrappeTestCase):
 			guard.assert_called_once_with()
 
 	def test_allowed_user_can_call_required_whitelisted_apis(self) -> None:
-		with patch.object(access_control, "assert_app_write_access") as assert_app_write_access:
-			with patch(
-				"production_entry_app.production_entry_app.api.frappe_client_delete_doc"
-			) as delete_doc:
-				delete("Shift", "SHIFT-00001")
-		assert_app_write_access.assert_called_once_with()
-		delete_doc.assert_called_once_with("Shift", "SHIFT-00001")
-
 		with patch.object(access_control, "assert_app_read_access") as assert_app_read_access:
 			with patch(
 				"production_entry_app.production_entry_app.api.frappe.db.exists",

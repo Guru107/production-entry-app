@@ -2775,6 +2775,7 @@ class TestShiftSummary(FrappeTestCase):
 		shift = self._create_shift("2026-09-11")
 		summary = get_shift_summary(shift.name)
 		self.assertEqual(summary["snapshot"]["entry_count"], 0)
+		self.assertEqual(summary["snapshot"]["late_entry_count"], 0)
 		self.assertEqual(float(summary["snapshot"]["total_qty"]), 0.0)
 		self.assertEqual(float(summary["snapshot"]["ok_qty"]), 0.0)
 		self.assertEqual(float(summary["snapshot"]["rejection_qty"]), 0.0)
@@ -2798,7 +2799,27 @@ class TestShiftSummary(FrappeTestCase):
 
 		summary = get_shift_summary("new-shift-njtiroovuu")
 		self.assertEqual(summary["snapshot"]["entry_count"], 0)
+		self.assertEqual(summary["snapshot"]["late_entry_count"], 0)
 		self.assertEqual(float(summary["snapshot"]["total_qty"]), 0.0)
+
+	def test_shift_summary_counts_late_entries(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import (
+			_get_shift_summary_cache_key,
+			get_shift_summary,
+		)
+		from production_entry_app.production_entry_app.tests.support.manufacture_builders import (
+			bootstrap_manufacture_masters,
+			make_completed_shift,
+			make_direct_manufacture_entry,
+		)
+
+		masters = bootstrap_manufacture_masters()
+		shift = make_completed_shift(masters)
+		make_direct_manufacture_entry(masters, shift=shift.name, fg_qty=100, rejection_qty=0).submit()
+		frappe.cache().delete_value(_get_shift_summary_cache_key(shift.name))
+
+		summary = get_shift_summary(shift.name)
+		self.assertEqual(summary["snapshot"]["late_entry_count"], 1)
 
 	def test_shift_summary_includes_float_precision_and_numeric_snapshot_metrics(self) -> None:
 		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
