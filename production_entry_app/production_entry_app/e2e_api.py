@@ -802,7 +802,6 @@ def create_e2e_submitted_stock_entry(
 	shift_name: str | None = None,
 	actual_start_time: str = "08:00:00",
 	actual_end_time: str = "09:00:00",
-	posting_time: str = "09:00:00",
 ) -> dict:
 	"""Create and submit one manufacture stock entry for E2E report coverage."""
 	access_control.assert_app_write_access()
@@ -814,6 +813,8 @@ def create_e2e_submitted_stock_entry(
 		shift.end_shift()
 		shift.reload()
 	shift_date = str(shift.shift_date)
+	actual_start_time = actual_start_time or "08:00:00"
+	actual_end_time = actual_end_time or "09:00:00"
 
 	doc = frappe.get_doc(
 		{
@@ -830,11 +831,11 @@ def create_e2e_submitted_stock_entry(
 			"custom_pea_operator": ctx["operator"],
 			"custom_pea_workstation": ctx["workstation"],
 			"custom_pea_rejection_qty": float(rejection_qty or 0),
-			"custom_pea_actual_start_date": f"{shift_date} {actual_start_time or '08:00:00'}",
-			"custom_pea_actual_end_date": f"{shift_date} {actual_end_time or '09:00:00'}",
+			"custom_pea_actual_start_date": f"{shift_date} {actual_start_time}",
+			"custom_pea_actual_end_date": f"{shift_date} {actual_end_time}",
 			"set_posting_time": 1,
 			"posting_date": shift_date,
-			"posting_time": posting_time or "09:00:00",
+			"posting_time": actual_end_time,
 		}
 	)
 	_finalize_e2e_submitted_stock_entry(

@@ -1680,7 +1680,9 @@ class TestE2EApi(FrappeTestCase):
 			)
 			stack.enter_context(patch("production_entry_app.production_entry_app.e2e_api.frappe.db.commit"))
 
-			result = create_e2e_submitted_stock_entry(prefix="E2E", rejection_qty=4)
+			result = create_e2e_submitted_stock_entry(
+				prefix="E2E", rejection_qty=4, actual_end_time="10:30:00"
+			)
 
 		self.assertEqual(
 			result,
@@ -1696,7 +1698,8 @@ class TestE2EApi(FrappeTestCase):
 		self.assertEqual(get_doc.call_args_list[0].args, ("Shift", "SHIFT-001"))
 		self.assertEqual(doc_payload["custom_pea_shift"], "SHIFT-001")
 		self.assertEqual(doc_payload["posting_date"], "2099-01-20")
-		self.assertEqual(doc_payload["posting_time"], "09:00:00")
+		self.assertEqual(doc_payload["custom_pea_actual_end_date"], "2099-01-20 10:30:00")
+		self.assertEqual(doc_payload["posting_time"], "10:30:00")
 		self.assertEqual(doc_payload["set_posting_time"], 1)
 		doc.get_items.assert_called_once()
 		doc.append.assert_called_once_with(
