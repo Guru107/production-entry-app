@@ -4202,18 +4202,20 @@ class TestStockEntryLateEntryStamp(FrappeTestCase):
 		shift = make_running_shift(masters)
 		branch = frappe.db.get_value("Shift", shift.name, "branch")
 		se = make_direct_manufacture_entry(masters, shift=shift.name, fg_qty=100, rejection_qty=0)
-		assert se.branch == branch
+		self.assertEqual(se.branch, branch)
 
 	def test_stock_entry_branch_is_not_set_when_stock_entry_field_is_missing(self) -> None:
 		masters = bootstrap_manufacture_masters()
 		shift = make_running_shift(masters)
 		original_get_meta = stock_entry_hooks.frappe.get_meta
 
+		class _StockEntryMeta:
+			def has_field(self, _fieldname: str) -> bool:
+				return False
+
 		def fake_get_meta(doctype: str, cached: bool = False) -> object:
 			if doctype == "Stock Entry":
-				meta = original_get_meta(doctype, cached=cached)
-				meta.has_field = lambda _fieldname: False
-				return meta
+				return _StockEntryMeta()
 			return original_get_meta(doctype, cached=cached)
 
 		with patch(
