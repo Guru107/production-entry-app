@@ -213,6 +213,7 @@ before_tests = "production_entry_app.production_entry_app.utils.test_setup.befor
 fixtures = [
 	{"dt": "Custom Field", "filters": [["module", "=", "Production Entry App"]]},
 	{"dt": "Property Setter", "filters": [["module", "=", "Production Entry App"]]},
+	{"dt": "Role", "filters": [["name", "in", ["PEA User", "PEA Read Only"]]]},
 	"Downtime Reason",
 	"Rejection Reason",
 ]
