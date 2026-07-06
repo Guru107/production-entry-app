@@ -2626,6 +2626,14 @@ class TestShiftSummary(FrappeTestCase):
 				"shift_label": shift_label,
 				"shift_duration": "8",
 				"shift_date": shift_date,
+				"raw_material_warehouse": ensure_warehouse(self.ctx["rm_warehouse"], self.ctx["company"]),
+				"work_in_progress_warehouse": ensure_warehouse(
+					self.ctx["wip_warehouse"], self.ctx["company"]
+				),
+				"rejection_warehouse": ensure_warehouse(
+					self.ctx["rejection_warehouse"], self.ctx["company"]
+				),
+				"scrap_warehouse": ensure_warehouse(self.ctx["scrap_warehouse"], self.ctx["company"]),
 				"planned_start_time": "08:00:00",
 			}
 		).insert()
@@ -3132,6 +3140,14 @@ class TestShiftAggregateProductionEntries(FrappeTestCase):
 				"shift_label": shift_label,
 				"shift_duration": "8",
 				"shift_date": shift_date,
+				"raw_material_warehouse": ensure_warehouse(self.ctx["rm_warehouse"], self.ctx["company"]),
+				"work_in_progress_warehouse": ensure_warehouse(
+					self.ctx["wip_warehouse"], self.ctx["company"]
+				),
+				"rejection_warehouse": ensure_warehouse(
+					self.ctx["rejection_warehouse"], self.ctx["company"]
+				),
+				"scrap_warehouse": ensure_warehouse(self.ctx["scrap_warehouse"], self.ctx["company"]),
 				"planned_start_time": "08:00:00",
 			}
 		).insert()

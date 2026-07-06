@@ -12,11 +12,6 @@ function plusOneDay(dateString) {
 	return nextDate.toISOString().slice(0, 10);
 }
 
-function uniqueFutureDate() {
-	const uniqueDay = String((Date.now() % 20) + 10).padStart(2, "0");
-	return `2099-12-${uniqueDay}`;
-}
-
 async function setupFreshContext(page, prefix) {
 	await cleanupE2E(page, prefix);
 	return await bootstrapE2E(page, prefix);
@@ -269,7 +264,7 @@ test.describe("Shift validations", () => {
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 		const seededShift = await getDoc(page, "Shift", ctx.shift_name);
 		const shiftPage = new ShiftPage(page);
-		const editDate = uniqueFutureDate();
+		const editDate = plusOneDay(ctx.shift_date);
 		const draft = await shiftPage.createDraftViaApi({
 			department: seededShift.department,
 			branch: seededShift.branch,
