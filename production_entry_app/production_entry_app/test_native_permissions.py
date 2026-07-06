@@ -33,7 +33,7 @@ def _ensure_user_with_exact_roles(email: str, roles: tuple[str, ...]) -> None:
 class TestNativeShiftPermissions(FrappeTestCase):
 	def setUp(self) -> None:
 		bootstrap_manufacturing_test_context("SHIFT-NATIVE-PERM")
-		self.department = ensure_department("Test Department")
+		self.department = ensure_department(f"Test Department {frappe.generate_hash(length=6)}")
 		self.branch = ensure_branch(resolve_test_branch() or "_Test Branch")
 		frappe.defaults.set_user_default("branch", self.branch)
 		frappe.defaults.set_user_default("Branch", self.branch)
@@ -61,9 +61,9 @@ class TestNativeShiftPermissions(FrappeTestCase):
 			frappe.set_user("Administrator")
 
 	def test_pea_read_only_can_read_but_cannot_write_shift(self) -> None:
-		doc = self._build_shift_doc("2026-07-07", "1").insert(ignore_permissions=True)
 		email = f"test_native_shift_readonly_{frappe.generate_hash(length=6)}@example.com"
 		_ensure_user_with_exact_roles(email, ("PEA Read Only",))
+		doc = self._build_shift_doc("2026-07-07", "1").insert(ignore_permissions=True)
 
 		try:
 			frappe.set_user(email)
@@ -78,9 +78,9 @@ class TestNativeShiftPermissions(FrappeTestCase):
 			frappe.set_user("Administrator")
 
 	def test_user_without_pea_roles_cannot_read_shift(self) -> None:
-		doc = self._build_shift_doc("2026-07-08", "1").insert(ignore_permissions=True)
 		email = f"test_native_shift_none_{frappe.generate_hash(length=6)}@example.com"
 		_ensure_user_with_exact_roles(email, ("Blogger",))
+		doc = self._build_shift_doc("2026-07-08", "1").insert(ignore_permissions=True)
 
 		try:
 			frappe.set_user(email)
