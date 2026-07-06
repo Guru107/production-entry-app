@@ -2006,9 +2006,7 @@ def _clear_role_docperm(doctype: str, role: str) -> None:
 	frappe.clear_cache(user=frappe.session.user)
 
 
-def _seed_die_tool_counter(
-	item_code: str, *, current_stroke_count: float, stroke_capacity: float
-) -> None:
+def _seed_die_tool_counter(item_code: str, *, current_stroke_count: float, stroke_capacity: float) -> None:
 	if frappe.db.exists("Die Tool Counter", item_code):
 		frappe.db.set_value(
 			"Die Tool Counter",

@@ -5,6 +5,7 @@ from typing import Any
 from erpnext.stock.doctype.stock_entry.stock_entry import StockEntry
 from erpnext.stock.doctype.stock_entry_detail.stock_entry_detail import StockEntryDetail
 
+
 class ProductionEntryAppStockEntry(StockEntry):
 	"""Keep custom rejection rows out of ERPNext's primary FG-row selection."""
 
