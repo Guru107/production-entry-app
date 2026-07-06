@@ -182,6 +182,20 @@ class TestShiftPureHelpers(FrappeTestCase):
 		self.assertEqual(fake_shift.shift_duration, "8")
 		fake_shift._populate_planned_losses.assert_called_once()
 
+	def test_get_planned_losses_for_duration_denies_if_no_create_permission(self) -> None:
+		with patch(
+			"production_entry_app.production_entry_app.doctype.shift.shift.frappe.has_permission",
+			return_value=False,
+		):
+			with patch(
+				"production_entry_app.production_entry_app.doctype.shift.shift.frappe.new_doc",
+				return_value=MagicMock(),
+			) as new_doc:
+				with self.assertRaises(frappe.PermissionError):
+					shift_module.get_planned_losses_for_duration("8", "08:00:00", "2099-01-01")
+
+			new_doc.assert_not_called()
+
 	def test_get_linked_downtime_entries_returns_empty_for_missing_or_incomplete_shift(self) -> None:
 		self.assertEqual(shift_module.get_linked_downtime_entries(None), [])
 		with patch(
@@ -541,9 +555,9 @@ class TestShiftPureHelpers(FrappeTestCase):
 		meta = type("Meta", (), {"has_field": lambda self, fieldname: False})()
 		with patch(
 			"production_entry_app.production_entry_app.doctype.shift.shift.frappe.get_meta",
-			side_effect=lambda doctype, *args, **kwargs: meta
-			if doctype == "Downtime Reason"
-			else original_get_meta(doctype, *args, **kwargs),
+			side_effect=lambda doctype, *args, **kwargs: (
+				meta if doctype == "Downtime Reason" else original_get_meta(doctype, *args, **kwargs)
+			),
 		):
 			with patch(
 				"production_entry_app.production_entry_app.doctype.shift.shift.frappe.db.exists",

@@ -188,6 +188,9 @@ def get_planned_losses_for_duration(
 	if not shift_duration or not planned_start_time or not shift_date:
 		return []
 
+	if not frappe.has_permission("Shift", "create"):
+		frappe.throw(_("You do not have permission to create Shift."), frappe.PermissionError)
+
 	doc = frappe.new_doc("Shift")
 	doc.shift_duration = shift_duration
 	doc.planned_start_time = planned_start_time
