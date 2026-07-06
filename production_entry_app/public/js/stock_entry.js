@@ -65,14 +65,6 @@ const MANUFACTURE_CLEAR_TABLE_FIELDS = [
 let _dieToolRequestId = 0;
 let _shiftDetailsRequestId = 0;
 
-function _run_when_app_enabled(fn) {
-	fn();
-}
-
-function _should_override_fg_completed_qty() {
-	return true;
-}
-
 function _hide_native_get_items(frm) {
 	frm.toggle_display("get_items", false);
 	frm.set_df_property("get_items", "hidden", 1);
@@ -87,9 +79,6 @@ function _show_native_get_items(frm) {
 
 function _sync_native_get_items_access(frm) {
 	_hide_native_get_items(frm);
-	if (!_is_manufacture_doc(frm.doc)) {
-		return;
-	}
 }
 
 // Suppress ERPNext's auto-populate on fg_completed_qty change for Manufacture
@@ -104,9 +93,6 @@ if (typeof window !== "undefined" && window.erpnext && erpnext.stock && erpnext.
 		// ERPNext changed the client controller surface; leave native behavior untouched.
 	} else {
 		erpnext.stock.StockEntry.prototype.fg_completed_qty = function () {
-			if (!_should_override_fg_completed_qty()) {
-				return originalFgCompletedQty.call(this);
-			}
 			if (
 				_is_manufacture_doc(this.frm.doc) &&
 				this.frm.doc.from_bom &&
@@ -130,115 +116,93 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 			_set_prev_purpose(frm);
 			_sync_native_get_items_access(frm);
 			_apply_native_manufacture_visibility(frm);
-			_run_when_app_enabled(() => {
-				_apply_manufacture_visibility(frm);
-			});
+			_apply_manufacture_visibility(frm);
 		},
 		refresh(frm) {
 			_set_prev_purpose(frm);
 			_sync_native_get_items_access(frm);
 			_apply_native_manufacture_visibility(frm);
-			_run_when_app_enabled(() => {
-				// Set filter to show shifts that can accept post-facto entries.
-				frm.set_query("custom_pea_shift", function () {
-					return {
-						filters: [["Shift", "status", "in", ["Running", "Completed"]]],
-					};
-				});
-
-				_ensure_use_multi_level_bom_unchecked(frm);
-				_apply_manufacture_visibility(frm);
-				_hide_standard_get_items(frm);
-				_sync_stock_entry_helper_fields(frm);
-				_setup_stock_entry_quick_entry(frm);
+			// Set filter to show shifts that can accept post-facto entries.
+			frm.set_query("custom_pea_shift", function () {
+				return {
+					filters: [["Shift", "status", "in", ["Running", "Completed"]]],
+				};
 			});
+
+			_ensure_use_multi_level_bom_unchecked(frm);
+			_apply_manufacture_visibility(frm);
+			_hide_standard_get_items(frm);
+			_sync_stock_entry_helper_fields(frm);
+			_setup_stock_entry_quick_entry(frm);
 		},
 		stock_entry_type(frm) {
 			_sync_native_get_items_access(frm);
 			_apply_native_manufacture_visibility(frm);
-			_run_when_app_enabled(() => {
-				// custom_pea_stock_entry_purpose is fetched via fetch_from and will re-trigger visibility.
-				_apply_manufacture_visibility(frm);
-				_sync_stock_entry_helper_fields(frm);
-				_setup_stock_entry_quick_entry(frm);
-			});
+			// custom_pea_stock_entry_purpose is fetched via fetch_from and will re-trigger visibility.
+			_apply_manufacture_visibility(frm);
+			_sync_stock_entry_helper_fields(frm);
+			_setup_stock_entry_quick_entry(frm);
 		},
 		custom_pea_stock_entry_purpose(frm) {
 			_sync_native_get_items_access(frm);
 			_apply_native_manufacture_visibility(frm);
-			_run_when_app_enabled(() => {
-				_clear_manufacture_data_on_leave(frm);
-				_apply_manufacture_visibility(frm);
-				_set_prev_purpose(frm);
-				_sync_stock_entry_helper_fields(frm);
-				_setup_stock_entry_quick_entry(frm);
-			});
+			_clear_manufacture_data_on_leave(frm);
+			_apply_manufacture_visibility(frm);
+			_set_prev_purpose(frm);
+			_sync_stock_entry_helper_fields(frm);
+			_setup_stock_entry_quick_entry(frm);
 		},
 		from_bom(frm) {
 			_sync_native_get_items_access(frm);
 			_apply_native_manufacture_visibility(frm);
-			_run_when_app_enabled(() => {
-				_ensure_use_multi_level_bom_unchecked(frm);
-				_hide_standard_get_items(frm);
-				_apply_manufacture_visibility(frm);
-			});
+			_ensure_use_multi_level_bom_unchecked(frm);
+			_hide_standard_get_items(frm);
+			_apply_manufacture_visibility(frm);
 		},
 		bom_no(frm) {
 			_sync_native_get_items_access(frm);
 			_apply_native_manufacture_visibility(frm);
-			_run_when_app_enabled(() => {
-				_hide_standard_get_items(frm);
-				_apply_manufacture_visibility(frm);
-			});
+			_hide_standard_get_items(frm);
+			_apply_manufacture_visibility(frm);
 		},
 		custom_pea_actual_start_date_input(frm) {
-			_run_when_app_enabled(() => {
-				_combine_actual_datetime(frm, {
-					date_fieldname: "custom_pea_actual_start_date_input",
-					time_fieldname: "custom_pea_actual_start_time_input",
-					canonical_fieldname: "custom_pea_actual_start_date",
-				});
+			_combine_actual_datetime(frm, {
+				date_fieldname: "custom_pea_actual_start_date_input",
+				time_fieldname: "custom_pea_actual_start_time_input",
+				canonical_fieldname: "custom_pea_actual_start_date",
 			});
 		},
 		custom_pea_actual_end_date_input(frm) {
-			_run_when_app_enabled(() => {
-				_combine_actual_datetime(frm, {
-					date_fieldname: "custom_pea_actual_end_date_input",
-					time_fieldname: "custom_pea_actual_end_time_input",
-					canonical_fieldname: "custom_pea_actual_end_date",
-				});
+			_combine_actual_datetime(frm, {
+				date_fieldname: "custom_pea_actual_end_date_input",
+				time_fieldname: "custom_pea_actual_end_time_input",
+				canonical_fieldname: "custom_pea_actual_end_date",
 			});
 		},
 		custom_pea_rejection_qty(frm) {
-			_run_when_app_enabled(() => {
-				_toggle_rejection_breakup(frm);
-				_update_die_tool_metrics(frm);
-			});
+			_toggle_rejection_breakup(frm);
+			_update_die_tool_metrics(frm);
 		},
 		custom_pea_fetch_items(frm) {
-			_run_when_app_enabled(() => {
-				if (!frm.doc.fg_completed_qty) {
-					frappe.msgprint(__("Please set Qty to Manufacture before fetching items."));
-					return;
-				}
-				frappe.call({
-					method: "production_entry_app.production_entry_app.api.get_items_with_rejection",
-					args: { doc: frm.doc },
-					freeze: true,
-					freeze_message: __("Fetching items..."),
-					callback(r) {
-						_apply_fetch_items_response(frm, r.message);
-					},
-					error(error) {
-						_notify_call_error(__("Failed to fetch items."), error);
-					},
-				});
+			if (!frm.doc.fg_completed_qty) {
+				frappe.msgprint(__("Please set Qty to Manufacture before fetching items."));
+				return;
+			}
+			frappe.call({
+				method: "production_entry_app.production_entry_app.api.get_items_with_rejection",
+				args: { doc: frm.doc },
+				freeze: true,
+				freeze_message: __("Fetching items..."),
+				callback(r) {
+					_apply_fetch_items_response(frm, r.message);
+				},
+				error(error) {
+					_notify_call_error(__("Failed to fetch items."), error);
+				},
 			});
 		},
 		custom_pea_shift(frm) {
-			_run_when_app_enabled(() => {
-				_handle_shift_change(frm);
-			});
+			_handle_shift_change(frm);
 		},
 	});
 }
@@ -764,8 +728,6 @@ if (typeof module !== "undefined" && module.exports) {
 		ALWAYS_HIDDEN_FIELDS,
 		ALWAYS_HIDDEN_SECTIONS,
 		MANUFACTURE_CLEAR_TABLE_FIELDS,
-		_should_override_fg_completed_qty,
-		_run_when_app_enabled,
 		_sync_native_get_items_access,
 		_apply_shift_detail_updates,
 		_apply_fetch_items_response,

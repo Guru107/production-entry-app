@@ -41,8 +41,9 @@ read-only access. `System Manager` keeps full access through native
 permissions. There is no open or disabled access-control mode, and the app
 never auto-grants roles. Branch isolation depends on native Branch User
 Permissions and assumes System Settings `apply_strict_user_permissions`
-stays OFF; if it is enabled, empty-branch Stock Entries can remain visible to
-branch-restricted users.
+stays OFF so empty-branch Stock Entries remain visible to branch-restricted
+users. If it is enabled, native User Permissions hide those non-production
+Stock Entries from branch-restricted users.
 
 ### CI
 
@@ -105,7 +106,6 @@ Environment variables (defaults shown) are in `tests/e2e/.env.example`:
 - `PLAYWRIGHT_BASE_URL=http://localhost:8002`
 - `PLAYWRIGHT_USERNAME=Administrator`
 - `PLAYWRIGHT_PASSWORD=123`
-
 
 ### License
 

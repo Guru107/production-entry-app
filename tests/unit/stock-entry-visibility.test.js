@@ -6,8 +6,6 @@ const {
 	_is_manufacture_doc,
 	_did_leave_manufacture,
 	_apply_native_manufacture_visibility,
-	_should_override_fg_completed_qty,
-	_run_when_app_enabled,
 	_sync_native_get_items_access,
 	_apply_shift_detail_updates,
 	_apply_fetch_items_response,
@@ -100,10 +98,6 @@ test("stock entry PEA sections are metadata-gated to manufacture", () => {
 		assert.match(dependsOn, /custom_pea_stock_entry_purpose/);
 		assert.match(dependsOn, /Manufacture/);
 	}
-});
-
-test("fg completed qty override stays enabled for native manufacture flow", () => {
-	assert.equal(_should_override_fg_completed_qty(), true);
 });
 
 test("fg completed qty prototype patch preserves ERPNext fallback for non-manufacture documents", () => {
@@ -304,14 +298,6 @@ test("fetch items response refreshes form so ERPNext can add alternate item butt
 		global.flt = originalFlt;
 		global.__ = originalTranslate;
 	}
-});
-
-test("app-enabled callbacks run immediately in the native-only flow", () => {
-	let runCount = 0;
-	_run_when_app_enabled(() => {
-		runCount += 1;
-	});
-	assert.equal(runCount, 1);
 });
 
 test("native get_items remains hidden for non-manufacture documents", () => {
