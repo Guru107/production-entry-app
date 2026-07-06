@@ -41,8 +41,8 @@ def _setup_app() -> None:
 	field_permissions.ensure_pea_field_permissions()
 	performance_indexes.ensure_performance_indexes_with_recovery()
 	frappe.logger("production_entry_app").info(
-		"Production Entry App setup ran: access roles, field permissions (permlevel 9), "
-		"and performance indexes were reconciled during sync/migrate."
+		"Production Entry App setup ran: access roles and performance indexes were reconciled "
+		"during sync/migrate."
 	)
 
 
