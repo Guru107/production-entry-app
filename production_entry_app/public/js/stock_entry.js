@@ -65,51 +65,12 @@ const MANUFACTURE_CLEAR_TABLE_FIELDS = [
 let _dieToolRequestId = 0;
 let _shiftDetailsRequestId = 0;
 
-function _get_access_control_api() {
-	return window.production_entry_app?.access_control || null;
-}
-
-function _ignore_access_control_lookup_error() {
-	return false;
-}
-
 function _run_when_app_enabled(fn) {
-	const accessControl = _get_access_control_api();
-	if (!accessControl) {
-		fn();
-		return;
-	}
-	const cached = accessControl.get_cached_access_control_state?.();
-	if (cached && cached.enabled === false) {
-		return;
-	}
-	if (cached && cached.enabled === true) {
-		fn();
-		return;
-	}
-	const ready = accessControl.when_ready?.();
-	if (ready?.then) {
-		void ready
-			.then((state) => {
-				if (state?.enabled) {
-					fn();
-				}
-			})
-			.catch(_ignore_access_control_lookup_error);
-	}
-}
-
-function _apply_custom_field_visibility(frm) {
-	window.production_entry_app?.custom_field_visibility?.apply_field_visibility?.(
-		frm,
-		"Stock Entry"
-	);
+	fn();
 }
 
 function _should_override_fg_completed_qty() {
-	const accessControl = _get_access_control_api();
-	const state = accessControl?.get_cached_access_control_state?.();
-	return state?.enabled === true;
+	return true;
 }
 
 function _hide_native_get_items(frm) {
@@ -125,38 +86,9 @@ function _show_native_get_items(frm) {
 }
 
 function _sync_native_get_items_access(frm) {
-	const accessControl = _get_access_control_api();
 	_hide_native_get_items(frm);
 	if (!_is_manufacture_doc(frm.doc)) {
 		return;
-	}
-	if (!accessControl) {
-		_show_native_get_items(frm);
-		return;
-	}
-	const cached = accessControl.get_cached_access_control_state?.();
-	if (cached?.enabled === false) {
-		_show_native_get_items(frm);
-		return;
-	}
-	if (cached?.enabled === true) {
-		return;
-	}
-	const ready = accessControl.when_ready?.();
-	if (ready?.then) {
-		void ready
-			.then((state) => {
-				if (state?.enabled === false && _is_manufacture_doc(frm.doc)) {
-					_show_native_get_items(frm);
-					return;
-				}
-				_hide_native_get_items(frm);
-			})
-			.catch(() => {
-				if (_is_manufacture_doc(frm.doc)) {
-					_show_native_get_items(frm);
-				}
-			});
 	}
 }
 
@@ -198,7 +130,6 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 			_set_prev_purpose(frm);
 			_sync_native_get_items_access(frm);
 			_apply_native_manufacture_visibility(frm);
-			_apply_custom_field_visibility(frm);
 			_run_when_app_enabled(() => {
 				_apply_manufacture_visibility(frm);
 			});
@@ -207,7 +138,6 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 			_set_prev_purpose(frm);
 			_sync_native_get_items_access(frm);
 			_apply_native_manufacture_visibility(frm);
-			_apply_custom_field_visibility(frm);
 			_run_when_app_enabled(() => {
 				// Set filter to show shifts that can accept post-facto entries.
 				frm.set_query("custom_pea_shift", function () {

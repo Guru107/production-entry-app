@@ -3,7 +3,7 @@ from __future__ import annotations
 import frappe
 from frappe.utils import cint
 
-from production_entry_app.production_entry_app import access_control, field_permissions, performance_indexes
+from production_entry_app.production_entry_app import performance_indexes
 
 APP_MODULE = "Production Entry App"
 CUSTOMIZATION_DOCTYPES = ("Property Setter", "Custom Field")
@@ -37,12 +37,9 @@ def _warn_if_e2e_enabled_on_non_test_site() -> None:
 
 def _setup_app() -> None:
 	ensure_stock_entry_branch_field()
-	access_control.ensure_access_roles_and_settings()
-	field_permissions.ensure_pea_field_permissions()
 	performance_indexes.ensure_performance_indexes_with_recovery()
 	frappe.logger("production_entry_app").info(
-		"Production Entry App setup ran: access roles and performance indexes were reconciled "
-		"during sync/migrate."
+		"Production Entry App setup ran: branch field and performance indexes were reconciled during sync/migrate."
 	)
 
 

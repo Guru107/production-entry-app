@@ -7,7 +7,6 @@ from frappe.query_builder import DocType
 from frappe.utils import add_to_date, cint, get_datetime
 from pypika import Order
 
-from production_entry_app.production_entry_app import access_control, field_permissions
 from production_entry_app.production_entry_app.api import _cleanup_orphan_stock_entry_loss_links
 from production_entry_app.production_entry_app.utils.shift_time import get_shift_planned_end_datetime
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
@@ -47,37 +46,6 @@ def _ensure_e2e_settings_fields_loaded() -> None:
 		return
 	frappe.reload_doc("production_entry_app", "doctype", "production_entry_settings")
 	frappe.clear_document_cache("Production Entry Settings")
-
-
-@frappe.whitelist()
-def set_e2e_access_control(
-	enabled: int = 0,
-	write_role: str | None = None,
-	read_role: str = access_control.DEFAULT_READ_ROLE,
-) -> dict:
-	"""Set access-control flags for E2E without full-doc validation side effects."""
-	_assert_e2e_api_allowed()
-	write_role_value = (write_role or "").strip() or access_control.DEFAULT_WRITE_ROLE
-	read_role_value = (read_role or "").strip() or access_control.DEFAULT_READ_ROLE
-	previous_write_role = frappe.db.get_single_value("Production Entry Settings", "write_role")
-	previous_read_role = frappe.db.get_single_value("Production Entry Settings", "read_role")
-	frappe.db.set_single_value("Production Entry Settings", "enable_access_control", cint(enabled))
-	frappe.db.set_single_value("Production Entry Settings", "write_role", write_role_value)
-	frappe.db.set_single_value("Production Entry Settings", "read_role", read_role_value)
-	frappe.clear_document_cache("Production Entry Settings")
-	managed_roles = (previous_write_role, previous_read_role)
-	access_control.sync_configured_access_roles(
-		write_role=write_role_value,
-		read_role=read_role_value,
-		managed_roles=managed_roles,
-	)
-	field_permissions.ensure_pea_field_permissions(
-		write_role=write_role_value,
-		read_role=read_role_value,
-		managed_roles=managed_roles,
-	)
-	frappe.db.commit()  # nosemgrep: frappe-manual-commit - E2E state toggle must persist immediately
-	return {"enabled": bool(cint(enabled)), "write_role": write_role_value, "read_role": read_role_value}
 
 
 @frappe.whitelist()
@@ -463,7 +431,6 @@ def _get_or_create_e2e_shift(
 @frappe.whitelist()
 def bootstrap_e2e_context(prefix: str = "E2E", cleanup_running: int = 1) -> dict:
 	"""Create deterministic test masters for Playwright E2E tests."""
-	access_control.assert_app_write_access()
 	_assert_e2e_api_allowed()
 	if cint(cleanup_running):
 		cleanup_running_shifts()
@@ -547,7 +514,6 @@ def bootstrap_e2e_context(prefix: str = "E2E", cleanup_running: int = 1) -> dict
 @frappe.whitelist()
 def set_e2e_system_float_precision(prefix: str = "E2E", precision: int = 3) -> dict:
 	"""Set System Settings float precision for a specific E2E context."""
-	access_control.assert_app_write_access()
 	_assert_e2e_api_allowed()
 	_cache_e2e_settings_snapshot(prefix)
 	frappe.db.set_single_value("System Settings", "float_precision", cint(precision))
@@ -742,7 +708,6 @@ def _cleanup_e2e_context(prefix: str = "E2E") -> dict:
 @frappe.whitelist()
 def cleanup_e2e_context(prefix: str = "E2E") -> dict:
 	"""Remove seeded E2E docs and end running shifts created for E2E."""
-	access_control.assert_app_write_access()
 	_assert_e2e_api_allowed()
 	return _cleanup_e2e_context(prefix=prefix)
 
@@ -789,7 +754,6 @@ def _cleanup_reserved_e2e_artifacts() -> dict[str, object]:
 
 @frappe.whitelist()
 def cleanup_reserved_e2e_artifacts() -> dict[str, object]:
-	access_control.assert_app_write_access()
 	_assert_e2e_api_allowed()
 	return _cleanup_reserved_e2e_artifacts()
 
@@ -804,7 +768,6 @@ def create_e2e_submitted_stock_entry(
 	actual_end_time: str = "09:00:00",
 ) -> dict:
 	"""Create and submit one manufacture stock entry for E2E report coverage."""
-	access_control.assert_app_write_access()
 	_assert_e2e_api_allowed()
 	ctx = bootstrap_e2e_context(prefix=prefix, cleanup_running=0 if shift_name else 1)
 	target_shift_name = (shift_name or ctx["shift_name"] or "").strip()
@@ -935,7 +898,6 @@ def create_e2e_full_shift_stock_entries(
 	prefix: str = "E2E", slot_minutes: int = 60, rejection_qty: float = 0
 ) -> dict:
 	"""Create contiguous submitted manufacture entries spanning the entire planned shift duration."""
-	access_control.assert_app_write_access()
 	_assert_e2e_api_allowed()
 	slot_mins = max(1, cint(slot_minutes or 60))
 	ctx = bootstrap_e2e_context(prefix=prefix)
@@ -982,7 +944,6 @@ def create_e2e_downtime_entry(
 	stop_reason: str = "Other",
 ) -> dict:
 	"""Create one downtime entry for E2E timeline coverage."""
-	access_control.assert_app_write_access()
 	_assert_e2e_api_allowed()
 	ctx = bootstrap_e2e_context(prefix=prefix)
 	shift = frappe.get_doc("Shift", ctx["shift_name"])

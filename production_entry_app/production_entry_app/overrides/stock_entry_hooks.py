@@ -12,7 +12,6 @@ from frappe.model.meta import get_field_precision
 from frappe.query_builder import DocType
 from frappe.utils import flt, format_datetime, get_datetime, get_time
 
-from production_entry_app.production_entry_app import access_control
 from production_entry_app.production_entry_app.doctype.shift.shift import _get_shift_metrics_cache_key
 from production_entry_app.production_entry_app.utils.alternative_items import (
 	apply_direct_manufacture_alternative_flags,
@@ -62,8 +61,6 @@ def validate_stock_entry(doc: Document, method: str | None = None) -> None:
 	1. Auto-fills fields from linked Shift (if custom_pea_shift is set).
 	2. Handles rejection quantity logic (if custom_pea_rejection_qty > 0).
 	"""
-	if not access_control.can_use_production_entry_app():
-		return
 	if doc.get("custom_pea_shift"):
 		_validate_linked_shift_can_accept_stock_entry(doc)
 		_apply_shift_defaults(doc)
@@ -99,8 +96,6 @@ def _stamp_late_entry_flag(doc: Document) -> None:
 
 def _validate_loss_entry_deletions_require_app_write(doc: Document) -> None:
 	"""Require app write access before a Stock Entry delete removes Loss Entry rows."""
-	if access_control.can_write_production_entry_app():
-		return
 	if doc.is_new() or not doc.name:
 		return
 
@@ -119,7 +114,7 @@ def _validate_loss_entry_deletions_require_app_write(doc: Document) -> None:
 		)
 	)
 	if persisted_names - current_names:
-		access_control.assert_app_write_access()
+		raise frappe.PermissionError
 
 
 def on_submit_stock_entry(doc, method: str | None = None) -> None:

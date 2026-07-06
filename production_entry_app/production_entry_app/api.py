@@ -7,7 +7,6 @@ import frappe
 from frappe import _
 from frappe.utils import get_datetime, get_time, now_datetime
 
-from production_entry_app.production_entry_app import access_control
 from production_entry_app.production_entry_app.utils.alternative_items import (
 	apply_direct_manufacture_alternative_flags,
 )
@@ -23,15 +22,6 @@ from production_entry_app.production_entry_app.utils.system_precision import (
 )
 
 _ALLOWED_STOCK_ENTRY_SHIFT_STATUSES: tuple[str, ...] = ("Running", "Completed")
-
-
-@frappe.whitelist()
-def get_access_control_state() -> dict[str, bool]:
-	"""Return whether the current user can access Production Entry App."""
-	# E2E role-toggle tests call this immediately after mutating singleton settings.
-	# Drop process cache first so this response reflects persisted settings and roles.
-	access_control.invalidate_access_control_cache()
-	return {"enabled": access_control.has_app_permission()}
 
 
 def _cleanup_orphan_stock_entry_loss_links(shift_name: str) -> None:
@@ -71,7 +61,6 @@ def get_shift_details_for_stock_entry(shift_name: str) -> dict:
 	"""
 	if not shift_name:
 		return {}
-	access_control.assert_app_read_access()
 	if not frappe.has_permission("Shift", "read", shift_name):
 		raise frappe.PermissionError
 
@@ -121,7 +110,6 @@ def get_items_with_rejection(doc: str) -> list[dict]:
 	so the user sees the final items (including the rejection row) *before*
 	saving.
 	"""
-	access_control.assert_app_write_access()
 	from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
 		_apply_rejection_entries,
 	)
@@ -172,7 +160,6 @@ def get_items_with_rejection(doc: str) -> list[dict]:
 
 @frappe.whitelist()
 def get_die_tool_counter(die_tool_code: str) -> dict:
-	access_control.assert_app_read_access()
 	if not die_tool_code or not frappe.db.exists("Item", die_tool_code):
 		return _empty_die_tool_payload(die_tool_code)
 	if not is_die_tool_enabled(die_tool_code):
@@ -225,7 +212,6 @@ def _empty_die_tool_payload(die_tool_code: str | None) -> dict:
 
 @frappe.whitelist()
 def reset_die_tool_counter(die_tool_code: str, maintenance_date: str | None = None) -> dict:
-	access_control.assert_app_write_access()
 	if not die_tool_code:
 		frappe.throw(_("Die Tool Item is required."))
 	if not is_die_tool_enabled(die_tool_code):

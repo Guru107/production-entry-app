@@ -8,7 +8,6 @@ from frappe.utils import flt, getdate
 
 from production_entry_app.production_entry_app.report.report_utils import (
 	apply_system_precision,
-	assert_report_read_access,
 	build_stock_entry_filters,
 	get_entry_production_minutes,
 	get_entry_raw_duration_minutes,
@@ -50,7 +49,6 @@ MONTH_NAME_TO_NUMBER: dict[str, int] = {
 
 
 def execute(filters: dict | None = None):
-	assert_report_read_access()
 	filters = filters or {}
 	columns = _get_columns(filters)
 	rows = _get_rows(filters)

@@ -6,7 +6,6 @@ from frappe.query_builder import DocType
 from frappe.query_builder.functions import Sum
 from frappe.utils import flt
 
-from production_entry_app.production_entry_app import access_control
 from production_entry_app.production_entry_app.utils.loss_time import build_interval_overlap_criterion
 from production_entry_app.production_entry_app.utils.shift_time import combine_date_time
 from production_entry_app.production_entry_app.utils.system_precision import (
@@ -51,7 +50,6 @@ def get_shift_timeline_data(doctype: str, docname: str) -> dict:
 		frappe.throw(_("Invalid doctype for timeline data."))
 	if not frappe.has_permission(doctype, "read", docname):
 		raise frappe.PermissionError
-	access_control.assert_app_read_access()
 
 	running_shift = frappe.get_all(
 		"Shift",
@@ -64,7 +62,6 @@ def get_shift_timeline_data(doctype: str, docname: str) -> dict:
 		return {"shift_name": None, "entries": [], "float_precision": get_system_float_precision()}
 
 	shift = running_shift[0]
-	access_control.assert_app_read_access()
 	if not frappe.has_permission("Shift", "read", shift.get("name")):
 		raise frappe.PermissionError
 	cached_data = _get_cached_timeline_data(doctype, docname, shift.get("name"))
