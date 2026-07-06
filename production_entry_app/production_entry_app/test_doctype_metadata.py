@@ -75,21 +75,25 @@ def test_stock_entry_detail_rejection_flag_uses_cross_version_anchor() -> None:
 	)
 
 
-def test_access_role_settings_document_static_report_role_contract() -> None:
+def test_settings_has_no_access_control_fields() -> None:
 	fields_by_name = {
 		field.get("fieldname"): field
 		for field in assert_doctype_json("Production Entry Settings").get("fields", [])
 		if field.get("fieldname")
 	}
-	for fieldname in ("write_role", "read_role"):
-		description = fields_by_name.get(fieldname, {}).get("description") or ""
-		assert "DocType" in description
-		assert "Report access" in description
-		assert "source-controlled roles" in description
+	for fieldname in (
+		"enable_access_control",
+		"write_role",
+		"read_role",
+		"last_synced_write_role",
+		"last_synced_read_role",
+	):
+		assert fieldname not in fields_by_name
 
 
 def test_pea_roles_are_shipped() -> None:
 	import frappe
+
 	from production_entry_app import hooks
 
 	fixtures_by_dt = {
@@ -163,7 +167,7 @@ def load_tests(
 			test_filtered_custom_fields_are_search_indexed,
 			test_no_app_custom_field_uses_nonzero_permlevel,
 			test_stock_entry_detail_rejection_flag_uses_cross_version_anchor,
-			test_access_role_settings_document_static_report_role_contract,
+			test_settings_has_no_access_control_fields,
 			test_pea_roles_are_shipped,
 			test_workspace_has_forms_and_reports_cards,
 		)
