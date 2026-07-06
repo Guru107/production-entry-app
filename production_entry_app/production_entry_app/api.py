@@ -116,7 +116,8 @@ def get_items_with_rejection(doc: str) -> list[dict]:
 
 	doc_dict = json.loads(doc) if isinstance(doc, str) else doc
 	docname = (doc_dict or {}).get("name")
-	if docname:
+	is_local_doc = bool((doc_dict or {}).get("__islocal"))
+	if docname and not is_local_doc and frappe.db.exists("Stock Entry", docname):
 		if not frappe.has_permission("Stock Entry", "write", docname):
 			raise frappe.PermissionError
 	elif not frappe.has_permission("Stock Entry", "create"):

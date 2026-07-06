@@ -1808,6 +1808,27 @@ class TestE2EApi(FrappeTestCase):
 		finally:
 			frappe.set_user("Administrator")
 
+	def test_get_items_with_rejection_local_temp_name_uses_create_perm(self) -> None:
+		from production_entry_app.production_entry_app import api
+		from production_entry_app.production_entry_app.tests.support.manufacture_builders import (
+			bootstrap_manufacture_masters,
+			direct_manufacture_doc_dict,
+		)
+
+		masters = bootstrap_manufacture_masters()
+		doc_dict = direct_manufacture_doc_dict(masters, fg_qty=100, rejection_qty=0)
+		doc_dict["name"] = "new-stock-entry-1"
+		doc_dict["__islocal"] = 1
+		user_email = f"test_items_local_temp_denied_{frappe.generate_hash(length=6)}@example.com"
+		_ensure_user_with_exact_roles(user_email, ("PEA Read Only",))
+
+		try:
+			frappe.set_user(user_email)
+			with self.assertRaises(frappe.PermissionError):
+				api.get_items_with_rejection(json.dumps(doc_dict))
+		finally:
+			frappe.set_user("Administrator")
+
 	def test_reset_die_tool_counter_denied_for_read_only(self) -> None:
 		masters = bootstrap_manufacture_masters()
 		_seed_die_tool_counter(masters["fg_item"], current_stroke_count=200, stroke_capacity=1000)
@@ -1838,6 +1859,10 @@ class TestE2EApi(FrappeTestCase):
 
 		try:
 			frappe.set_user(user_email)
+			self.assertTrue(frappe.has_permission("Die Tool Maintenance Log", "read"))
+			self.assertTrue(frappe.has_permission("Die Tool Maintenance Log", "write"))
+			self.assertTrue(frappe.has_permission("Die Tool Maintenance Log", "create"))
+			self.assertFalse(frappe.has_permission("Die Tool Maintenance Log", "submit"))
 			with self.assertRaises(frappe.PermissionError):
 				reset_die_tool_counter(masters["fg_item"], "2026-05-03 10:00:00")
 		finally:
@@ -1912,14 +1937,35 @@ def _ensure_user_with_exact_roles(email: str, roles: tuple[str, ...]) -> None:
 
 
 def _set_role_docperm(doctype: str, role: str, **permissions: int) -> None:
-	from frappe.permissions import add_permission
+	from frappe.permissions import setup_custom_perms
 
 	if not frappe.db.exists("Role", role):
 		frappe.get_doc({"doctype": "Role", "role_name": role}).insert(ignore_permissions=True)
 
-	for ptype, enabled in permissions.items():
-		if enabled:
-			add_permission(doctype, role, 0, ptype=ptype)
+	setup_custom_perms(doctype)
+	existing_name = frappe.db.get_value(
+		"Custom DocPerm",
+		{"parent": doctype, "role": role, "permlevel": 0, "if_owner": 0},
+		"name",
+	)
+	if existing_name:
+		docperm = frappe.get_doc("Custom DocPerm", existing_name)
+	else:
+		docperm = frappe.get_doc(
+			{
+				"doctype": "Custom DocPerm",
+				"parent": doctype,
+				"parenttype": "DocType",
+				"parentfield": "permissions",
+				"role": role,
+				"permlevel": 0,
+			}
+		)
+
+	for ptype in ("read", "write", "create", "delete", "submit", "cancel", "amend", "report"):
+		setattr(docperm, ptype, int(permissions.get(ptype, 0)))
+
+	docperm.save(ignore_permissions=True)
 
 	frappe.clear_cache(doctype=doctype)
 	frappe.clear_cache(user=frappe.session.user)
