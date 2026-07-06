@@ -21,6 +21,7 @@ from production_entry_app.production_entry_app.utils.alternative_items import (
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	bootstrap_manufacturing_test_context,
 	cleanup_running_shifts,
+	ensure_branch,
 	ensure_department,
 	ensure_item,
 	ensure_operator,
@@ -28,6 +29,7 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	ensure_warehouse,
 	ensure_workstation,
 	get_company_abbr,
+	resolve_test_branch,
 	resolve_test_company,
 )
 
@@ -4173,32 +4175,38 @@ class TestDieToolCounter(FrappeTestCase):
 class TestStockEntryLateEntryStamp(FrappeTestCase):
 	def setUp(self) -> None:
 		self.masters = bootstrap_manufacture_masters()
+		self._created_shift_names: list[str] = []
 
 	def tearDown(self) -> None:
+		frappe.set_user("Administrator")
 		frappe.db.rollback()
+		for shift_name in reversed(self._created_shift_names):
+			if frappe.db.exists("Shift", shift_name):
+				frappe.delete_doc("Shift", shift_name, force=True, ignore_permissions=True)
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit - persist explicit fixture cleanup
 
 	def test_entry_against_completed_shift_is_flagged_late(self) -> None:
-		shift = make_completed_shift(self.masters)
+		shift = self._make_completed_shift()
 		se = make_direct_manufacture_entry(self.masters, shift=shift.name, fg_qty=100, rejection_qty=0)
 		se.submit()
 		self.assertEqual(se.custom_pea_is_late_entry, 1)
 
 	def test_entry_against_running_shift_is_not_flagged_late(self) -> None:
-		shift = make_running_shift(self.masters)
+		shift = self._make_running_shift()
 		se = make_direct_manufacture_entry(self.masters, shift=shift.name, fg_qty=100, rejection_qty=0)
 		se.submit()
 		self.assertFalse(se.custom_pea_is_late_entry)
 
 	def test_stock_entry_branch_is_populated_from_shift(self) -> None:
 		masters = bootstrap_manufacture_masters()
-		shift = make_running_shift(masters)
+		shift = self._make_running_shift(masters)
 		branch = frappe.db.get_value("Shift", shift.name, "branch")
 		se = make_direct_manufacture_entry(masters, shift=shift.name, fg_qty=100, rejection_qty=0)
 		self.assertEqual(se.branch, branch)
 
 	def test_stock_entry_branch_is_not_set_when_stock_entry_field_is_missing(self) -> None:
 		masters = bootstrap_manufacture_masters()
-		shift = make_running_shift(masters)
+		shift = self._make_running_shift(masters)
 		original_get_meta = stock_entry_hooks.frappe.get_meta
 
 		class _StockEntryMeta:
@@ -4218,3 +4226,33 @@ class TestStockEntryLateEntryStamp(FrappeTestCase):
 			stock_entry_hooks._apply_shift_defaults(doc)
 
 		self.assertNotIn("branch", doc)
+
+	def _make_running_shift(self, masters: dict | None = None):
+		masters = masters or self.masters
+		shift = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"company": masters["company"],
+				"branch": ensure_branch(resolve_test_branch() or "_Test Branch"),
+				"shift_date": "2026-07-06",
+				"planned_start_time": "08:00:00",
+				"shift_duration": "8",
+				"shift_label": "1",
+				"department": ensure_department(
+					f"Late Entry Shift {frappe.generate_hash(length=6)}",
+					company=masters["company"],
+				),
+				"status": "Draft",
+				"work_in_progress_warehouse": masters["wip_warehouse"],
+				"raw_material_warehouse": masters["rm_warehouse"],
+				"rejection_warehouse": masters["rejection_warehouse"],
+			}
+		).insert(ignore_permissions=True)
+		shift.start_shift()
+		self._created_shift_names.append(shift.name)
+		return shift
+
+	def _make_completed_shift(self):
+		shift = self._make_running_shift(self.masters)
+		shift.end_shift()
+		return shift
