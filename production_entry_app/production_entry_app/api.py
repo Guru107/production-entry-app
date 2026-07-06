@@ -110,14 +110,17 @@ def get_items_with_rejection(doc: str) -> list[dict]:
 	so the user sees the final items (including the rejection row) *before*
 	saving.
 	"""
-	if not frappe.has_permission("Stock Entry", "read"):
-		raise frappe.PermissionError
-
 	from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
 		_apply_rejection_entries,
 	)
 
 	doc_dict = json.loads(doc) if isinstance(doc, str) else doc
+	docname = (doc_dict or {}).get("name")
+	if docname:
+		if not frappe.has_permission("Stock Entry", "write", docname):
+			raise frappe.PermissionError
+	elif not frappe.has_permission("Stock Entry", "create"):
+		raise frappe.PermissionError
 
 	se = frappe.new_doc("Stock Entry")
 	se.purpose = doc_dict.get("purpose", "Manufacture")
