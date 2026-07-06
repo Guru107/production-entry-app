@@ -102,42 +102,14 @@ test("stock entry PEA sections are metadata-gated to manufacture", () => {
 	}
 });
 
-test("fg completed qty override is disabled until required-role access is explicitly allowed", () => {
-	const originalWindow = global.window;
-	global.window = {
-		production_entry_app: {
-			access_control: {
-				get_cached_access_control_state() {
-					return null;
-				},
-			},
-		},
-	};
-
-	try {
-		assert.equal(_should_override_fg_completed_qty(), false);
-
-		global.window.production_entry_app.access_control.get_cached_access_control_state =
-			function () {
-				return { enabled: false };
-			};
-		assert.equal(_should_override_fg_completed_qty(), false);
-
-		global.window.production_entry_app.access_control.get_cached_access_control_state =
-			function () {
-				return { enabled: true };
-			};
-		assert.equal(_should_override_fg_completed_qty(), true);
-	} finally {
-		global.window = originalWindow;
-	}
+test("fg completed qty override stays enabled for native manufacture flow", () => {
+	assert.equal(_should_override_fg_completed_qty(), true);
 });
 
 test("fg completed qty prototype patch preserves ERPNext fallback for non-manufacture documents", () => {
 	const modulePath = "../../production_entry_app/public/js/stock_entry.js";
 	const moduleId = require.resolve(modulePath);
 	const cachedModule = require.cache[moduleId];
-	const originalWindow = global.window;
 	const originalErpnext = global.erpnext;
 	let originalCallCount = 0;
 	const erpnextStub = {
@@ -152,16 +124,7 @@ test("fg completed qty prototype patch preserves ERPNext fallback for non-manufa
 
 	delete require.cache[moduleId];
 	global.erpnext = erpnextStub;
-	global.window = {
-		erpnext: erpnextStub,
-		production_entry_app: {
-			access_control: {
-				get_cached_access_control_state() {
-					return { enabled: true };
-				},
-			},
-		},
-	};
+	global.window = { erpnext: erpnextStub };
 
 	try {
 		require(modulePath);
@@ -179,7 +142,6 @@ test("fg completed qty prototype patch preserves ERPNext fallback for non-manufa
 		} else {
 			delete require.cache[moduleId];
 		}
-		global.window = originalWindow;
 		global.erpnext = originalErpnext;
 	}
 });
@@ -344,40 +306,15 @@ test("fetch items response refreshes form so ERPNext can add alternate item butt
 	}
 });
 
-test("app-enabled callbacks stay fail-closed when access lookup rejects", async () => {
-	const originalWindow = global.window;
-	let rejectReady;
-	const readyPromise = new Promise((_resolve, reject) => {
-		rejectReady = reject;
-	});
+test("app-enabled callbacks run immediately in the native-only flow", () => {
 	let runCount = 0;
-	global.window = {
-		production_entry_app: {
-			access_control: {
-				get_cached_access_control_state() {
-					return null;
-				},
-				when_ready() {
-					return readyPromise;
-				},
-			},
-		},
-	};
-
-	try {
-		_run_when_app_enabled(() => {
-			runCount += 1;
-		});
-		rejectReady(new Error("ACL API failed"));
-		await readyPromise.catch(() => {});
-		await Promise.resolve();
-		assert.equal(runCount, 0);
-	} finally {
-		global.window = originalWindow;
-	}
+	_run_when_app_enabled(() => {
+		runCount += 1;
+	});
+	assert.equal(runCount, 1);
 });
 
-test("native get_items remains hidden for non-manufacture denied users", () => {
+test("native get_items remains hidden for non-manufacture documents", () => {
 	const calls = [];
 	const frm = {
 		doc: { custom_pea_stock_entry_purpose: "Material Transfer" },
@@ -388,36 +325,16 @@ test("native get_items remains hidden for non-manufacture denied users", () => {
 			calls.push(["set_df_property", fieldname, property, value]);
 		},
 	};
-	const originalWindow = global.window;
-	global.window = {
-		production_entry_app: {
-			access_control: {
-				get_cached_access_control_state() {
-					return { enabled: false };
-				},
-			},
-		},
-	};
+	_sync_native_get_items_access(frm);
 
-	try {
-		_sync_native_get_items_access(frm);
-
-		assert.deepEqual(calls.slice(-3), [
-			["toggle_display", "get_items", false],
-			["set_df_property", "get_items", "hidden", 1],
-			["set_df_property", "get_items", "read_only", 1],
-		]);
-	} finally {
-		global.window = originalWindow;
-	}
+	assert.deepEqual(calls.slice(-3), [
+		["toggle_display", "get_items", false],
+		["set_df_property", "get_items", "hidden", 1],
+		["set_df_property", "get_items", "read_only", 1],
+	]);
 });
 
-test("native get_items stays hidden while required-role access is unresolved and only reappears for denied users", async () => {
-	const originalWindow = global.window;
-	let resolveReady;
-	const readyPromise = new Promise((resolve) => {
-		resolveReady = resolve;
-	});
+test("native get_items stays hidden for manufacture documents until explicitly shown elsewhere", () => {
 	const calls = [];
 	const frm = {
 		doc: { custom_pea_stock_entry_purpose: "Manufacture" },
@@ -428,80 +345,11 @@ test("native get_items stays hidden while required-role access is unresolved and
 			calls.push(["set_df_property", fieldname, property, value]);
 		},
 	};
-	global.window = {
-		production_entry_app: {
-			access_control: {
-				get_cached_access_control_state() {
-					return null;
-				},
-				when_ready() {
-					return readyPromise;
-				},
-			},
-		},
-	};
+	_sync_native_get_items_access(frm);
 
-	try {
-		_sync_native_get_items_access(frm);
-		assert.deepEqual(calls.slice(0, 3), [
-			["toggle_display", "get_items", false],
-			["set_df_property", "get_items", "hidden", 1],
-			["set_df_property", "get_items", "read_only", 1],
-		]);
-
-		resolveReady({ enabled: false });
-		await readyPromise;
-		await Promise.resolve();
-		assert.deepEqual(calls.slice(-3), [
-			["toggle_display", "get_items", true],
-			["set_df_property", "get_items", "hidden", 0],
-			["set_df_property", "get_items", "read_only", 0],
-		]);
-	} finally {
-		global.window = originalWindow;
-	}
-});
-
-test("native get_items falls back to visible when access lookup rejects", async () => {
-	const originalWindow = global.window;
-	let rejectReady;
-	const readyPromise = new Promise((_resolve, reject) => {
-		rejectReady = reject;
-	});
-	const calls = [];
-	const frm = {
-		doc: { custom_pea_stock_entry_purpose: "Manufacture" },
-		toggle_display(fieldname, visible) {
-			calls.push(["toggle_display", fieldname, visible]);
-		},
-		set_df_property(fieldname, property, value) {
-			calls.push(["set_df_property", fieldname, property, value]);
-		},
-	};
-	global.window = {
-		production_entry_app: {
-			access_control: {
-				get_cached_access_control_state() {
-					return null;
-				},
-				when_ready() {
-					return readyPromise;
-				},
-			},
-		},
-	};
-
-	try {
-		_sync_native_get_items_access(frm);
-		rejectReady(new Error("ACL API failed"));
-		await readyPromise.catch(() => {});
-		await Promise.resolve();
-		assert.deepEqual(calls.slice(-3), [
-			["toggle_display", "get_items", true],
-			["set_df_property", "get_items", "hidden", 0],
-			["set_df_property", "get_items", "read_only", 0],
-		]);
-	} finally {
-		global.window = originalWindow;
-	}
+	assert.deepEqual(calls.slice(-3), [
+		["toggle_display", "get_items", false],
+		["set_df_property", "get_items", "hidden", 1],
+		["set_df_property", "get_items", "read_only", 1],
+	]);
 });

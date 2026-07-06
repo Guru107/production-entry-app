@@ -3813,10 +3813,6 @@ class TestDieToolCounter(FrappeTestCase):
 		doc = frappe._dict({"custom_pea_shift": shift_name})
 		with (
 			patch(
-				"production_entry_app.production_entry_app.overrides.stock_entry_hooks.access_control.can_use_production_entry_app",
-				return_value=True,
-			),
-			patch(
 				"production_entry_app.production_entry_app.overrides.stock_entry_hooks.update_counter_for_stock_entry"
 			),
 			patch(
@@ -3835,10 +3831,6 @@ class TestDieToolCounter(FrappeTestCase):
 		shift_name = "SHIFT-CACHE-TEST-2026-04-20.1"
 		doc = frappe._dict({"custom_pea_shift": shift_name})
 		with (
-			patch(
-				"production_entry_app.production_entry_app.overrides.stock_entry_hooks.access_control.can_use_production_entry_app",
-				return_value=True,
-			),
 			patch(
 				"production_entry_app.production_entry_app.overrides.stock_entry_hooks.update_counter_for_stock_entry"
 			),

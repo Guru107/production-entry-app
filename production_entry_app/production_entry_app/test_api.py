@@ -1772,13 +1772,29 @@ class TestE2EApi(FrappeTestCase):
 
 	def test_get_shift_summary_denies_without_read_perm(self) -> None:
 		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
-		from production_entry_app.production_entry_app.tests.support.manufacture_builders import (
-			bootstrap_manufacture_masters,
-			make_running_shift,
+		from production_entry_app.production_entry_app.utils.test_bootstrap import (
+			ensure_branch,
+			ensure_department,
+			resolve_test_branch,
+			resolve_test_company,
 		)
 
-		masters = bootstrap_manufacture_masters()
-		shift = make_running_shift(masters)
+		company = resolve_test_company()
+		shift = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"company": company,
+				"department": ensure_department(
+					f"API Shift Summary {frappe.generate_hash(length=6)}",
+					company=company,
+				),
+				"branch": ensure_branch(resolve_test_branch() or "_Test Branch"),
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": "2026-07-10",
+				"planned_start_time": "08:00:00",
+			}
+		).insert(ignore_permissions=True)
 		user_email = f"test_shift_summary_denied_{frappe.generate_hash(length=6)}@example.com"
 		_ensure_user_with_exact_roles(user_email, ("Manufacturing User",))
 
@@ -1830,6 +1846,10 @@ class TestE2EApi(FrappeTestCase):
 			frappe.set_user("Administrator")
 
 	def test_reset_die_tool_counter_denied_for_read_only(self) -> None:
+		from production_entry_app.production_entry_app.tests.support.manufacture_builders import (
+			bootstrap_manufacture_masters,
+		)
+
 		masters = bootstrap_manufacture_masters()
 		_seed_die_tool_counter(masters["fg_item"], current_stroke_count=200, stroke_capacity=1000)
 		user_email = f"test_reset_die_tool_readonly_{frappe.generate_hash(length=6)}@example.com"
@@ -1843,6 +1863,10 @@ class TestE2EApi(FrappeTestCase):
 			frappe.set_user("Administrator")
 
 	def test_reset_die_tool_counter_denied_without_submit_perm(self) -> None:
+		from production_entry_app.production_entry_app.tests.support.manufacture_builders import (
+			bootstrap_manufacture_masters,
+		)
+
 		masters = bootstrap_manufacture_masters()
 		_seed_die_tool_counter(masters["fg_item"], current_stroke_count=200, stroke_capacity=1000)
 		role_name = f"PEA Die Tool Create Only {frappe.generate_hash(length=6)}"

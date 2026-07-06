@@ -8,7 +8,6 @@ import frappe
 from frappe.exceptions import ValidationError
 from frappe.tests.utils import FrappeTestCase
 
-from production_entry_app.production_entry_app import access_control
 from production_entry_app.production_entry_app.doctype.shift import shift as shift_module
 from production_entry_app.production_entry_app.doctype.shift.shift import _resolve_shift_company
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
@@ -153,10 +152,7 @@ class TestShiftPureHelpers(FrappeTestCase):
 			self.assertEqual(shift_module._get_next_shift_sequence("2099-01-01"), 3)
 
 	def test_get_planned_losses_for_duration_returns_empty_for_missing_inputs(self) -> None:
-		with patch(
-			"production_entry_app.production_entry_app.doctype.shift.shift.access_control.assert_app_write_access"
-		):
-			self.assertEqual(shift_module.get_planned_losses_for_duration("", "08:00:00", "2099-01-01"), [])
+		self.assertEqual(shift_module.get_planned_losses_for_duration("", "08:00:00", "2099-01-01"), [])
 
 	def test_get_planned_losses_for_duration_uses_transient_shift_doc(self) -> None:
 		fake_shift = frappe._dict(
@@ -174,13 +170,10 @@ class TestShiftPureHelpers(FrappeTestCase):
 		)
 		fake_shift._populate_planned_losses = MagicMock()
 		with patch(
-			"production_entry_app.production_entry_app.doctype.shift.shift.access_control.assert_app_write_access"
+			"production_entry_app.production_entry_app.doctype.shift.shift.frappe.new_doc",
+			return_value=fake_shift,
 		):
-			with patch(
-				"production_entry_app.production_entry_app.doctype.shift.shift.frappe.new_doc",
-				return_value=fake_shift,
-			):
-				result = shift_module.get_planned_losses_for_duration("8", "08:00:00", "2099-01-01")
+			result = shift_module.get_planned_losses_for_duration("8", "08:00:00", "2099-01-01")
 
 		self.assertEqual(
 			result,
@@ -192,26 +185,23 @@ class TestShiftPureHelpers(FrappeTestCase):
 	def test_get_linked_downtime_entries_returns_empty_for_missing_or_incomplete_shift(self) -> None:
 		self.assertEqual(shift_module.get_linked_downtime_entries(None), [])
 		with patch(
-			"production_entry_app.production_entry_app.doctype.shift.shift.access_control.assert_app_read_access"
+			"production_entry_app.production_entry_app.doctype.shift.shift.frappe.db.exists",
+			return_value=False,
+		):
+			self.assertEqual(shift_module.get_linked_downtime_entries("new-shift-1"), [])
+		with patch(
+			"production_entry_app.production_entry_app.doctype.shift.shift.frappe.db.exists",
+			return_value=True,
 		):
 			with patch(
-				"production_entry_app.production_entry_app.doctype.shift.shift.frappe.db.exists",
-				return_value=False,
-			):
-				self.assertEqual(shift_module.get_linked_downtime_entries("new-shift-1"), [])
-			with patch(
-				"production_entry_app.production_entry_app.doctype.shift.shift.frappe.db.exists",
+				"production_entry_app.production_entry_app.doctype.shift.shift.frappe.has_permission",
 				return_value=True,
 			):
 				with patch(
-					"production_entry_app.production_entry_app.doctype.shift.shift.frappe.has_permission",
-					return_value=True,
+					"production_entry_app.production_entry_app.doctype.shift.shift.frappe.db.get_value",
+					return_value={"shift_date": "2099-01-01", "planned_start_time": None},
 				):
-					with patch(
-						"production_entry_app.production_entry_app.doctype.shift.shift.frappe.db.get_value",
-						return_value={"shift_date": "2099-01-01", "planned_start_time": None},
-					):
-						self.assertEqual(shift_module.get_linked_downtime_entries("SHIFT-001"), [])
+					self.assertEqual(shift_module.get_linked_downtime_entries("SHIFT-001"), [])
 			with patch(
 				"production_entry_app.production_entry_app.doctype.shift.shift.frappe.db.exists",
 				return_value=False,
@@ -223,25 +213,22 @@ class TestShiftPureHelpers(FrappeTestCase):
 					self.assertEqual(shift_module.get_linked_downtime_entries("SHIFT-MISSING"), [])
 
 	def test_check_running_shift_conflict_handles_missing_shift_name_and_missing_context(self) -> None:
+		self.assertEqual(
+			shift_module.check_running_shift_conflict(""),
+			{"has_conflict": False, "conflicting_shifts": []},
+		)
 		with patch(
-			"production_entry_app.production_entry_app.doctype.shift.shift.access_control.assert_app_read_access"
+			"production_entry_app.production_entry_app.doctype.shift.shift.frappe.has_permission",
+			return_value=True,
 		):
-			self.assertEqual(
-				shift_module.check_running_shift_conflict(""),
-				{"has_conflict": False, "conflicting_shifts": []},
-			)
 			with patch(
-				"production_entry_app.production_entry_app.doctype.shift.shift.frappe.has_permission",
-				return_value=True,
+				"production_entry_app.production_entry_app.doctype.shift.shift.frappe.db.get_value",
+				return_value={"department": None, "branch": "Branch"},
 			):
-				with patch(
-					"production_entry_app.production_entry_app.doctype.shift.shift.frappe.db.get_value",
-					return_value={"department": None, "branch": "Branch"},
-				):
-					self.assertEqual(
-						shift_module.check_running_shift_conflict("SHIFT-001"),
-						{"has_conflict": False, "conflicting_shifts": []},
-					)
+				self.assertEqual(
+					shift_module.check_running_shift_conflict("SHIFT-001"),
+					{"has_conflict": False, "conflicting_shifts": []},
+				)
 
 	def test_shift_summary_cache_and_empty_helpers(self) -> None:
 		summary = shift_module._empty_shift_summary()
@@ -286,11 +273,6 @@ class TestShiftPureHelpers(FrappeTestCase):
 		with ExitStack() as stack:
 			stack.enter_context(
 				patch(
-					"production_entry_app.production_entry_app.doctype.shift.shift.access_control.assert_app_read_access"
-				)
-			)
-			stack.enter_context(
-				patch(
 					"production_entry_app.production_entry_app.doctype.shift.shift.frappe.db.exists",
 					return_value=True,
 				)
@@ -326,21 +308,18 @@ class TestShiftPureHelpers(FrappeTestCase):
 
 	def test_summary_and_aggregate_return_empty_when_shift_was_deleted(self) -> None:
 		with patch(
-			"production_entry_app.production_entry_app.doctype.shift.shift.access_control.assert_app_read_access"
+			"production_entry_app.production_entry_app.doctype.shift.shift.frappe.db.exists",
+			return_value=False,
 		):
 			with patch(
-				"production_entry_app.production_entry_app.doctype.shift.shift.frappe.db.exists",
-				return_value=False,
+				"production_entry_app.production_entry_app.doctype.shift.shift.frappe.has_permission",
+				return_value=True,
 			):
-				with patch(
-					"production_entry_app.production_entry_app.doctype.shift.shift.frappe.has_permission",
-					return_value=True,
-				):
-					self.assertEqual(
-						shift_module.get_shift_summary("SHIFT-MISSING")["snapshot"]["entry_count"],
-						0,
-					)
-					self.assertEqual(shift_module.get_shift_aggregate_production_entries("SHIFT-MISSING"), [])
+				self.assertEqual(
+					shift_module.get_shift_summary("SHIFT-MISSING")["snapshot"]["entry_count"],
+					0,
+				)
+				self.assertEqual(shift_module.get_shift_aggregate_production_entries("SHIFT-MISSING"), [])
 
 	def test_invalidate_shift_summary_for_downtime_entry_includes_previous_shift(self) -> None:
 		doc = frappe._dict({"custom_pea_shift": "SHIFT-NEW"})
@@ -3481,16 +3460,14 @@ class TestShiftPermissions(FrappeTestCase):
 	def test_loss_entry_permissions_include_pea_roles(self) -> None:
 		meta = frappe.get_meta("Loss Entry")
 		roles = {perm.role for perm in meta.permissions}
-		write_role, read_role = access_control._get_setup_access_roles()
-		self.assertIn(write_role, roles)
-		self.assertIn(read_role, roles)
+		self.assertIn("PEA User", roles)
+		self.assertIn("PEA Read Only", roles)
 
 	def test_rejection_breakup_permissions_include_pea_roles(self) -> None:
 		meta = frappe.get_meta("Rejection Breakup")
 		roles = {perm.role for perm in meta.permissions}
-		write_role, read_role = access_control._get_setup_access_roles()
-		self.assertIn(write_role, roles)
-		self.assertIn(read_role, roles)
+		self.assertIn("PEA User", roles)
+		self.assertIn("PEA Read Only", roles)
 
 	def _expected_name(self, department: str, shift_date: str, shift_label: str) -> str:
 		sequence = frappe.db.count("Shift", {"shift_date": shift_date}) + 1
