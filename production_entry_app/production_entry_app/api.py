@@ -110,6 +110,9 @@ def get_items_with_rejection(doc: str) -> list[dict]:
 	so the user sees the final items (including the rejection row) *before*
 	saving.
 	"""
+	if not frappe.has_permission("Stock Entry", "read"):
+		raise frappe.PermissionError
+
 	from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
 		_apply_rejection_entries,
 	)
@@ -216,6 +219,8 @@ def reset_die_tool_counter(die_tool_code: str, maintenance_date: str | None = No
 		frappe.throw(_("Die Tool Item is required."))
 	if not is_die_tool_enabled(die_tool_code):
 		frappe.throw(_("Die tool counter reset is not allowed because this item has no die tool."))
+	if not frappe.has_permission("Die Tool Maintenance Log", "create"):
+		raise frappe.PermissionError
 
 	maintenance_dt = get_datetime(maintenance_date) if maintenance_date else now_datetime()
 	maintenance_log = frappe.get_doc(
@@ -225,8 +230,7 @@ def reset_die_tool_counter(die_tool_code: str, maintenance_date: str | None = No
 			"maintenance_date": maintenance_dt,
 			"remarks": _("Counter reset from API."),
 		}
-	).insert(ignore_permissions=True)
-	maintenance_log.flags.ignore_permissions = True
+	).insert()
 	maintenance_log.submit()
 
 	counter = _get_or_create_counter(die_tool_code)

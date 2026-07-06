@@ -10,6 +10,7 @@ from frappe.tests.utils import FrappeTestCase
 from production_entry_app.production_entry_app.api import (
 	_cleanup_orphan_stock_entry_loss_links,
 	get_die_tool_counter,
+	reset_die_tool_counter,
 )
 from production_entry_app.production_entry_app.e2e_api import (
 	_assert_e2e_api_allowed,
@@ -1894,6 +1895,57 @@ class TestE2EApi(FrappeTestCase):
 
 		self.assertEqual(api_codes, native_codes)  # rejection_qty=0 => no extra row
 
+	def test_get_shift_summary_denies_without_read_perm(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
+		from production_entry_app.production_entry_app.tests.support.manufacture_builders import (
+			bootstrap_manufacture_masters,
+			make_running_shift,
+		)
+
+		masters = bootstrap_manufacture_masters()
+		shift = make_running_shift(masters)
+		user_email = f"test_shift_summary_denied_{frappe.generate_hash(length=6)}@example.com"
+		_ensure_user_with_exact_roles(user_email, ("Manufacturing User",))
+
+		try:
+			frappe.set_user(user_email)
+			with self.assertRaises(frappe.PermissionError):
+				get_shift_summary(shift.name)
+		finally:
+			frappe.set_user("Administrator")
+
+	def test_get_items_with_rejection_denies_without_stock_entry_read_perm(self) -> None:
+		from production_entry_app.production_entry_app import api
+		from production_entry_app.production_entry_app.tests.support.manufacture_builders import (
+			bootstrap_manufacture_masters,
+			direct_manufacture_doc_dict,
+		)
+
+		masters = bootstrap_manufacture_masters()
+		doc_dict = direct_manufacture_doc_dict(masters, fg_qty=100, rejection_qty=0)
+		user_email = f"test_items_rejection_denied_{frappe.generate_hash(length=6)}@example.com"
+		_ensure_user_with_exact_roles(user_email, ("PEA Read Only",))
+
+		try:
+			frappe.set_user(user_email)
+			with self.assertRaises(frappe.PermissionError):
+				api.get_items_with_rejection(json.dumps(doc_dict))
+		finally:
+			frappe.set_user("Administrator")
+
+	def test_reset_die_tool_counter_denied_for_read_only(self) -> None:
+		masters = bootstrap_manufacture_masters()
+		_seed_die_tool_counter(masters["fg_item"], current_stroke_count=200, stroke_capacity=1000)
+		user_email = f"test_reset_die_tool_readonly_{frappe.generate_hash(length=6)}@example.com"
+		_ensure_user_with_exact_roles(user_email, ("PEA Read Only",))
+
+		try:
+			frappe.set_user(user_email)
+			with self.assertRaises(frappe.PermissionError):
+				reset_die_tool_counter(masters["fg_item"], "2026-05-03 10:00:00")
+		finally:
+			frappe.set_user("Administrator")
+
 	def test_create_e2e_downtime_entry_normalizes_unknown_stop_reason(self) -> None:
 		shift = MagicMock()
 		shift.shift_date = "2099-01-20"
@@ -1944,3 +1996,47 @@ class TestE2EApi(FrappeTestCase):
 		)
 		self.assertEqual(get_doc.call_args_list[1].args[0]["stop_reason"], "Other")
 		builder.insert.assert_called_once_with(ignore_permissions=True)
+
+
+def _ensure_user_with_exact_roles(email: str, roles: tuple[str, ...]) -> None:
+	unique_roles = tuple(dict.fromkeys(roles))
+	for role in unique_roles:
+		if not frappe.db.exists("Role", role):
+			frappe.get_doc({"doctype": "Role", "role_name": role}).insert(ignore_permissions=True)
+	if frappe.db.exists("User", email):
+		user = frappe.get_doc("User", email)
+	else:
+		user = frappe.new_doc("User")
+		user.email = email
+		user.first_name = email.split("@", 1)[0]
+		user.user_type = "System User"
+	user.set("roles", [])
+	for role in unique_roles:
+		user.append("roles", {"role": role})
+	user.save(ignore_permissions=True)
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so permission checks see role changes
+	frappe.clear_cache(user=email)
+
+
+def _seed_die_tool_counter(
+	item_code: str, *, current_stroke_count: float, stroke_capacity: float
+) -> None:
+	if frappe.db.exists("Die Tool Counter", item_code):
+		frappe.db.set_value(
+			"Die Tool Counter",
+			item_code,
+			{
+				"current_stroke_count": current_stroke_count,
+				"stroke_capacity": stroke_capacity,
+			},
+			update_modified=False,
+		)
+		return
+	frappe.get_doc(
+		{
+			"doctype": "Die Tool Counter",
+			"die_tool_item": item_code,
+			"current_stroke_count": current_stroke_count,
+			"stroke_capacity": stroke_capacity,
+		}
+	).insert(ignore_permissions=True)
