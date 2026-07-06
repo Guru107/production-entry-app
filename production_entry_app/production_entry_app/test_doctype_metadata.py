@@ -57,7 +57,7 @@ def test_filtered_custom_fields_are_search_indexed() -> None:
 	assert not missing, f"Custom fields must set search_index: {', '.join(missing)}"
 
 
-def test_no_app_custom_field_uses_permlevel_9() -> None:
+def test_no_app_custom_field_uses_nonzero_permlevel() -> None:
 	offenders = sorted(
 		field.get("name") or "<unnamed>" for field in load_custom_field_fixture() if field.get("permlevel")
 	)
@@ -122,7 +122,7 @@ def load_tests(
 			test_master_data_doctypes_do_not_allow_rename,
 			test_filtered_doctype_fields_are_search_indexed,
 			test_filtered_custom_fields_are_search_indexed,
-			test_no_app_custom_field_uses_permlevel_9,
+			test_no_app_custom_field_uses_nonzero_permlevel,
 			test_stock_entry_detail_rejection_flag_uses_cross_version_anchor,
 			test_access_role_settings_document_static_report_role_contract,
 			test_workspace_has_forms_and_reports_cards,
