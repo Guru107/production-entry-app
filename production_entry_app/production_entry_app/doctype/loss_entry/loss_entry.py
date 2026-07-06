@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from frappe.model.document import Document
 
+
 class LossEntry(Document):
 	"""Generic loss entry child table.
 

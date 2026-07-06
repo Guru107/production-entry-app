@@ -29,6 +29,8 @@ _STOCK_ENTRY_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
 	"custom_pea_shift": ("custom_pea_shift", "custom_shift"),
 	"custom_pea_operator": ("custom_pea_operator", "custom_operator"),
 }
+
+
 def build_stock_entry_filters(filters: dict, filter_keys: tuple[str, ...]) -> dict:
 	db_filters: dict = {"docstatus": 1, "purpose": "Manufacture"}
 
