@@ -35,10 +35,15 @@ Pre-commit is configured to use the following tools for checking and formatting 
 
 ## Admin notes
 
-On every `bench migrate` / app sync, this app reconciles its own DocType and
-permlevel-9 field permissions (see `lifecycle._setup_app`). Manual changes to
-those app-owned permissions via Role Permission Manager may be overwritten on
-migrate. Each run logs a summary to the `production_entry_app` logger.
+The app is always role-gated through native Frappe Roles, DocPerms, and User
+Permissions. Assign `PEA User` for write access and `PEA Read Only` for
+read-only access. `System Manager` keeps full access through native
+permissions. There is no open or disabled access-control mode, and the app
+never auto-grants roles. Branch isolation depends on native Branch User
+Permissions and assumes System Settings `apply_strict_user_permissions`
+stays OFF so empty-branch Stock Entries remain visible to branch-restricted
+users. If it is enabled, native User Permissions hide those non-production
+Stock Entries from branch-restricted users.
 
 ### CI
 
@@ -82,10 +87,10 @@ npm run test:e2e:regression
 npm run test:e2e:ci
 ```
 
-Targeted permission suite:
+Branch isolation suite:
 
 ```bash
-npx playwright test tests/e2e/specs/permissions.spec.js
+npx playwright test tests/e2e/specs/branch-isolation.spec.js
 ```
 
 Notes:
@@ -101,7 +106,6 @@ Environment variables (defaults shown) are in `tests/e2e/.env.example`:
 - `PLAYWRIGHT_BASE_URL=http://localhost:8002`
 - `PLAYWRIGHT_USERNAME=Administrator`
 - `PLAYWRIGHT_PASSWORD=123`
-
 
 ### License
 

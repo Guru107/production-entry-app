@@ -11,7 +11,6 @@ from frappe.query_builder import Case, DocType
 from frappe.query_builder.functions import Sum
 from frappe.utils import cint, flt, get_datetime
 
-from production_entry_app.production_entry_app import access_control
 from production_entry_app.production_entry_app.utils.loss_time import (
 	SETUP_TIME_REASON,
 	get_loss_duration_minutes,
@@ -30,10 +29,6 @@ _STOCK_ENTRY_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
 	"custom_pea_shift": ("custom_pea_shift", "custom_shift"),
 	"custom_pea_operator": ("custom_pea_operator", "custom_operator"),
 }
-
-
-def assert_report_read_access() -> None:
-	access_control.assert_app_read_access()
 
 
 def build_stock_entry_filters(filters: dict, filter_keys: tuple[str, ...]) -> dict:

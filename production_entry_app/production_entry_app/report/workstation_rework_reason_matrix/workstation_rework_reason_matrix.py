@@ -7,7 +7,6 @@ from frappe.utils import flt
 
 from production_entry_app.production_entry_app.report.report_utils import (
 	apply_system_precision,
-	assert_report_read_access,
 	build_stock_entry_filters,
 	get_parent_breakup_reason_rows,
 	get_stock_entry_alias_fields,
@@ -21,7 +20,6 @@ _ALIAS_FILTER_KEYS = ("custom_pea_workstation", "custom_pea_shift", "custom_pea_
 
 
 def execute(filters: dict | None = None):
-	assert_report_read_access()
 	filters = filters or {}
 	top_n = _normalize_top_n(filters.get("top_n_reasons"))
 	rows, reason_order = _get_rows(filters, top_n)

@@ -16,7 +16,6 @@ add_to_apps_screen = [
 		"name": "production_entry_app",
 		"title": "Production Entry App",
 		"route": "/app/production-entry-app",
-		"has_permission": "production_entry_app.production_entry_app.access_control.has_app_permission",
 	}
 ]
 
@@ -28,9 +27,6 @@ add_to_apps_screen = [
 app_include_js = [
 	"/assets/production_entry_app/js/report_filter_utils.js",
 	"/assets/production_entry_app/js/timeline_renderer.js",
-	"/assets/production_entry_app/js/access_control.js",
-	"/assets/production_entry_app/js/generated_access_control_field_map.js",
-	"/assets/production_entry_app/js/custom_field_visibility.js",
 	"/assets/production_entry_app/js/time_entry_fields.js",
 ]
 app_include_css = ["/assets/production_entry_app/css/time_entry_fields.css"]
@@ -129,20 +125,6 @@ before_uninstall = ["production_entry_app.production_entry_app.lifecycle.before_
 
 # notification_config = "production_entry_app.notifications.get_notification_config"
 
-# Permissions
-# -----------
-# Permissions evaluated in scripted ways
-
-has_permission = {
-	"Shift": "production_entry_app.production_entry_app.access_control.has_gated_doctype_permission",
-	"Loss Entry": "production_entry_app.production_entry_app.access_control.has_gated_doctype_permission",
-	"Operator": "production_entry_app.production_entry_app.access_control.has_gated_doctype_permission",
-	"Die Tool Counter": "production_entry_app.production_entry_app.access_control.has_gated_doctype_permission",
-	"Die Tool Maintenance Log": "production_entry_app.production_entry_app.access_control.has_gated_doctype_permission",
-	"Rejection Reason": "production_entry_app.production_entry_app.access_control.has_gated_doctype_permission",
-	"Rejection Breakup": "production_entry_app.production_entry_app.access_control.has_gated_doctype_permission",
-}
-
 # permission_query_conditions = {
 # 	"Event": "frappe.desk.doctype.event.event.get_permission_query_conditions",
 # }
@@ -213,6 +195,7 @@ before_tests = "production_entry_app.production_entry_app.utils.test_setup.befor
 fixtures = [
 	{"dt": "Custom Field", "filters": [["module", "=", "Production Entry App"]]},
 	{"dt": "Property Setter", "filters": [["module", "=", "Production Entry App"]]},
+	{"dt": "Role", "filters": [["name", "in", ["PEA User", "PEA Read Only"]]]},
 	"Downtime Reason",
 	"Rejection Reason",
 ]

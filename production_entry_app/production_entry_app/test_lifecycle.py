@@ -33,12 +33,6 @@ class TestLifecycle(FrappeTestCase):
 	def test_after_sync_runs_idempotent_setup(self) -> None:
 		with (
 			patch(
-				"production_entry_app.production_entry_app.lifecycle.access_control.ensure_access_roles_and_settings"
-			) as setup_access,
-			patch(
-				"production_entry_app.production_entry_app.lifecycle.field_permissions.ensure_pea_field_permissions"
-			) as ensure_field_permissions,
-			patch(
 				"production_entry_app.production_entry_app.lifecycle.ensure_stock_entry_branch_field"
 			) as ensure_branch_field,
 			patch(
@@ -47,19 +41,11 @@ class TestLifecycle(FrappeTestCase):
 		):
 			lifecycle.after_sync()
 
-		setup_access.assert_called_once_with()
 		ensure_branch_field.assert_called_once_with()
-		ensure_field_permissions.assert_called_once_with()
 		ensure_indexes.assert_called_once_with()
 
 	def test_after_migrate_runs_idempotent_setup(self) -> None:
 		with (
-			patch(
-				"production_entry_app.production_entry_app.lifecycle.access_control.ensure_access_roles_and_settings"
-			) as setup_access,
-			patch(
-				"production_entry_app.production_entry_app.lifecycle.field_permissions.ensure_pea_field_permissions"
-			) as ensure_field_permissions,
 			patch(
 				"production_entry_app.production_entry_app.lifecycle.ensure_stock_entry_branch_field"
 			) as ensure_branch_field,
@@ -69,9 +55,7 @@ class TestLifecycle(FrappeTestCase):
 		):
 			lifecycle.after_migrate()
 
-		setup_access.assert_called_once_with()
 		ensure_branch_field.assert_called_once_with()
-		ensure_field_permissions.assert_called_once_with()
 		ensure_indexes.assert_called_once_with()
 
 	def test_setup_app_logs_summary(self) -> None:

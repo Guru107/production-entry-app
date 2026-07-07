@@ -10,6 +10,7 @@ from frappe.tests.utils import FrappeTestCase
 from production_entry_app.production_entry_app.api import (
 	_cleanup_orphan_stock_entry_loss_links,
 	get_die_tool_counter,
+	reset_die_tool_counter,
 )
 from production_entry_app.production_entry_app.e2e_api import (
 	_assert_e2e_api_allowed,
@@ -37,7 +38,6 @@ from production_entry_app.production_entry_app.e2e_api import (
 	create_e2e_downtime_entry,
 	create_e2e_full_shift_stock_entries,
 	create_e2e_submitted_stock_entry,
-	set_e2e_access_control,
 	set_e2e_system_float_precision,
 )
 from production_entry_app.production_entry_app.utils.alternative_items import (
@@ -181,93 +181,6 @@ class TestE2EApi(FrappeTestCase):
 			"production_entry_settings",
 		)
 		clear_cache.assert_called_once_with("Production Entry Settings")
-
-	def test_set_e2e_access_control_persists_normalized_settings(self) -> None:
-		with ExitStack() as stack:
-			stack.enter_context(
-				patch("production_entry_app.production_entry_app.e2e_api._assert_e2e_api_allowed")
-			)
-			set_single_value = stack.enter_context(
-				patch("production_entry_app.production_entry_app.e2e_api.frappe.db.set_single_value")
-			)
-			get_single_value = stack.enter_context(
-				patch(
-					"production_entry_app.production_entry_app.e2e_api.frappe.db.get_single_value",
-					side_effect=("Old Write", "Old Read"),
-				)
-			)
-			stack.enter_context(
-				patch("production_entry_app.production_entry_app.e2e_api.frappe.clear_document_cache")
-			)
-			sync_roles = stack.enter_context(
-				patch(
-					"production_entry_app.production_entry_app.e2e_api.access_control.sync_configured_access_roles"
-				)
-			)
-			sync_fields = stack.enter_context(
-				patch(
-					"production_entry_app.production_entry_app.e2e_api.field_permissions.ensure_pea_field_permissions"
-				)
-			)
-			commit = stack.enter_context(
-				patch("production_entry_app.production_entry_app.e2e_api.frappe.db.commit")
-			)
-
-			result = set_e2e_access_control(enabled=1, write_role=" Manufacturing User ")
-
-		self.assertEqual(
-			result,
-			{"enabled": True, "write_role": "Manufacturing User", "read_role": "PEA Read Only"},
-		)
-		set_single_value.assert_any_call("Production Entry Settings", "enable_access_control", 1)
-		set_single_value.assert_any_call("Production Entry Settings", "write_role", "Manufacturing User")
-		set_single_value.assert_any_call("Production Entry Settings", "read_role", "PEA Read Only")
-		sync_roles.assert_called_once_with(
-			write_role="Manufacturing User",
-			read_role="PEA Read Only",
-			managed_roles=("Old Write", "Old Read"),
-		)
-		sync_fields.assert_called_once_with(
-			write_role="Manufacturing User",
-			read_role="PEA Read Only",
-			managed_roles=("Old Write", "Old Read"),
-		)
-		self.assertEqual(get_single_value.call_count, 2)
-		commit.assert_called_once()
-
-	def test_set_e2e_access_control_does_not_accept_legacy_required_role(self) -> None:
-		with ExitStack() as stack:
-			stack.enter_context(
-				patch("production_entry_app.production_entry_app.e2e_api._assert_e2e_api_allowed")
-			)
-			set_single_value = stack.enter_context(
-				patch("production_entry_app.production_entry_app.e2e_api.frappe.db.set_single_value")
-			)
-			stack.enter_context(
-				patch("production_entry_app.production_entry_app.e2e_api.frappe.clear_document_cache")
-			)
-			stack.enter_context(
-				patch(
-					"production_entry_app.production_entry_app.e2e_api.access_control.sync_configured_access_roles"
-				)
-			)
-			stack.enter_context(
-				patch(
-					"production_entry_app.production_entry_app.e2e_api.field_permissions.ensure_pea_field_permissions"
-				)
-			)
-			stack.enter_context(
-				patch(
-					"production_entry_app.production_entry_app.e2e_api.frappe.db.get_single_value",
-					side_effect=("Old Write", "Old Read"),
-				)
-			)
-			stack.enter_context(patch("production_entry_app.production_entry_app.e2e_api.frappe.db.commit"))
-
-			with self.assertRaises(TypeError):
-				set_e2e_access_control(required_role="Manufacturing User")
-
-		set_single_value.assert_not_called()
 
 	def test_cache_e2e_settings_snapshot_skips_existing_cache(self) -> None:
 		cache = MagicMock()
@@ -619,7 +532,6 @@ class TestE2EApi(FrappeTestCase):
 		shift_doc.shift_end_date = "2026-03-01"
 
 		with (
-			patch("production_entry_app.production_entry_app.api.access_control.assert_app_read_access"),
 			patch("production_entry_app.production_entry_app.api.frappe.has_permission", return_value=True),
 			patch("production_entry_app.production_entry_app.api.frappe.get_doc", return_value=shift_doc),
 		):
@@ -1106,11 +1018,6 @@ class TestE2EApi(FrappeTestCase):
 
 		with ExitStack() as stack:
 			app_access = stack.enter_context(
-				patch(
-					"production_entry_app.production_entry_app.e2e_api.access_control.assert_app_write_access"
-				)
-			)
-			guard = stack.enter_context(
 				patch("production_entry_app.production_entry_app.e2e_api._assert_e2e_api_allowed")
 			)
 			cleanup = stack.enter_context(
@@ -1124,7 +1031,6 @@ class TestE2EApi(FrappeTestCase):
 
 		self.assertEqual(result, {"ok": True, "prefixes": []})
 		app_access.assert_called_once()
-		guard.assert_called_once()
 		cleanup.assert_called_once()
 
 	def test_safe_cancel_and_delete_handles_missing_submitted_and_exception_paths(self) -> None:
@@ -1383,11 +1289,6 @@ class TestE2EApi(FrappeTestCase):
 
 		with ExitStack() as stack:
 			stack.enter_context(
-				patch(
-					"production_entry_app.production_entry_app.e2e_api.access_control.assert_app_write_access"
-				)
-			)
-			stack.enter_context(
 				patch("production_entry_app.production_entry_app.e2e_api._assert_e2e_api_allowed")
 			)
 			stack.enter_context(
@@ -1487,11 +1388,6 @@ class TestE2EApi(FrappeTestCase):
 			return _meta_stub(False)
 
 		with ExitStack() as stack:
-			stack.enter_context(
-				patch(
-					"production_entry_app.production_entry_app.e2e_api.access_control.assert_app_write_access"
-				)
-			)
 			stack.enter_context(
 				patch("production_entry_app.production_entry_app.e2e_api._assert_e2e_api_allowed")
 			)
@@ -1605,11 +1501,6 @@ class TestE2EApi(FrappeTestCase):
 	def test_set_e2e_system_float_precision_updates_settings_and_commits(self) -> None:
 		with ExitStack() as stack:
 			stack.enter_context(
-				patch(
-					"production_entry_app.production_entry_app.e2e_api.access_control.assert_app_write_access"
-				)
-			)
-			stack.enter_context(
 				patch("production_entry_app.production_entry_app.e2e_api._assert_e2e_api_allowed")
 			)
 			cache_snapshot = stack.enter_context(
@@ -1647,11 +1538,6 @@ class TestE2EApi(FrappeTestCase):
 			frappe._dict({"is_finished_item": 1, "s_warehouse": None, "t_warehouse": None}),
 		]
 		with ExitStack() as stack:
-			stack.enter_context(
-				patch(
-					"production_entry_app.production_entry_app.e2e_api.access_control.assert_app_write_access"
-				)
-			)
 			stack.enter_context(
 				patch("production_entry_app.production_entry_app.e2e_api._assert_e2e_api_allowed")
 			)
@@ -1773,11 +1659,6 @@ class TestE2EApi(FrappeTestCase):
 		]
 		with ExitStack() as stack:
 			stack.enter_context(
-				patch(
-					"production_entry_app.production_entry_app.e2e_api.access_control.assert_app_write_access"
-				)
-			)
-			stack.enter_context(
 				patch("production_entry_app.production_entry_app.e2e_api._assert_e2e_api_allowed")
 			)
 			stack.enter_context(
@@ -1847,11 +1728,6 @@ class TestE2EApi(FrappeTestCase):
 		shift.shift_duration = "8"
 		with ExitStack() as stack:
 			stack.enter_context(
-				patch(
-					"production_entry_app.production_entry_app.e2e_api.access_control.assert_app_write_access"
-				)
-			)
-			stack.enter_context(
 				patch("production_entry_app.production_entry_app.e2e_api._assert_e2e_api_allowed")
 			)
 			stack.enter_context(
@@ -1894,6 +1770,129 @@ class TestE2EApi(FrappeTestCase):
 
 		self.assertEqual(api_codes, native_codes)  # rejection_qty=0 => no extra row
 
+	def test_get_shift_summary_denies_without_read_perm(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
+		from production_entry_app.production_entry_app.utils.test_bootstrap import (
+			ensure_branch,
+			ensure_department,
+			resolve_test_branch,
+			resolve_test_company,
+		)
+
+		company = resolve_test_company()
+		shift = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"company": company,
+				"department": ensure_department(
+					f"API Shift Summary {frappe.generate_hash(length=6)}",
+					company=company,
+				),
+				"branch": ensure_branch(resolve_test_branch() or "_Test Branch"),
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": "2026-07-10",
+				"planned_start_time": "08:00:00",
+			}
+		).insert(ignore_permissions=True)
+		user_email = f"test_shift_summary_denied_{frappe.generate_hash(length=6)}@example.com"
+		_ensure_user_with_exact_roles(user_email, ("Manufacturing User",))
+
+		try:
+			frappe.set_user(user_email)
+			with self.assertRaises(frappe.PermissionError):
+				get_shift_summary(shift.name)
+		finally:
+			frappe.set_user("Administrator")
+
+	def test_get_items_with_rejection_denies_without_stock_entry_create_perm(self) -> None:
+		from production_entry_app.production_entry_app import api
+		from production_entry_app.production_entry_app.tests.support.manufacture_builders import (
+			bootstrap_manufacture_masters,
+			direct_manufacture_doc_dict,
+		)
+
+		masters = bootstrap_manufacture_masters()
+		doc_dict = direct_manufacture_doc_dict(masters, fg_qty=100, rejection_qty=0)
+		user_email = f"test_items_rejection_denied_{frappe.generate_hash(length=6)}@example.com"
+		_ensure_user_with_exact_roles(user_email, ("PEA Read Only",))
+
+		try:
+			frappe.set_user(user_email)
+			with self.assertRaises(frappe.PermissionError):
+				api.get_items_with_rejection(json.dumps(doc_dict))
+		finally:
+			frappe.set_user("Administrator")
+
+	def test_get_items_with_rejection_local_temp_name_uses_create_perm(self) -> None:
+		from production_entry_app.production_entry_app import api
+		from production_entry_app.production_entry_app.tests.support.manufacture_builders import (
+			bootstrap_manufacture_masters,
+			direct_manufacture_doc_dict,
+		)
+
+		masters = bootstrap_manufacture_masters()
+		doc_dict = direct_manufacture_doc_dict(masters, fg_qty=100, rejection_qty=0)
+		doc_dict["name"] = "new-stock-entry-1"
+		doc_dict["__islocal"] = 1
+		user_email = f"test_items_local_temp_denied_{frappe.generate_hash(length=6)}@example.com"
+		_ensure_user_with_exact_roles(user_email, ("PEA Read Only",))
+
+		try:
+			frappe.set_user(user_email)
+			with self.assertRaises(frappe.PermissionError):
+				api.get_items_with_rejection(json.dumps(doc_dict))
+		finally:
+			frappe.set_user("Administrator")
+
+	def test_reset_die_tool_counter_denied_for_read_only(self) -> None:
+		from production_entry_app.production_entry_app.tests.support.manufacture_builders import (
+			bootstrap_manufacture_masters,
+		)
+
+		masters = bootstrap_manufacture_masters()
+		_seed_die_tool_counter(masters["fg_item"], current_stroke_count=200, stroke_capacity=1000)
+		user_email = f"test_reset_die_tool_readonly_{frappe.generate_hash(length=6)}@example.com"
+		_ensure_user_with_exact_roles(user_email, ("PEA Read Only",))
+
+		try:
+			frappe.set_user(user_email)
+			with self.assertRaises(frappe.PermissionError):
+				reset_die_tool_counter(masters["fg_item"], "2026-05-03 10:00:00")
+		finally:
+			frappe.set_user("Administrator")
+
+	def test_reset_die_tool_counter_denied_without_submit_perm(self) -> None:
+		from production_entry_app.production_entry_app.tests.support.manufacture_builders import (
+			bootstrap_manufacture_masters,
+		)
+
+		masters = bootstrap_manufacture_masters()
+		_seed_die_tool_counter(masters["fg_item"], current_stroke_count=200, stroke_capacity=1000)
+		role_name = f"PEA Die Tool Create Only {frappe.generate_hash(length=6)}"
+		user_email = f"test_reset_die_tool_create_only_{frappe.generate_hash(length=6)}@example.com"
+		_ensure_user_with_exact_roles(user_email, (role_name,))
+		_set_role_docperm(
+			"Die Tool Maintenance Log",
+			role_name,
+			read=1,
+			write=1,
+			create=1,
+			submit=0,
+		)
+
+		try:
+			frappe.set_user(user_email)
+			self.assertTrue(frappe.has_permission("Die Tool Maintenance Log", "read"))
+			self.assertTrue(frappe.has_permission("Die Tool Maintenance Log", "write"))
+			self.assertTrue(frappe.has_permission("Die Tool Maintenance Log", "create"))
+			self.assertFalse(frappe.has_permission("Die Tool Maintenance Log", "submit"))
+			with self.assertRaises(frappe.PermissionError):
+				reset_die_tool_counter(masters["fg_item"], "2026-05-03 10:00:00")
+		finally:
+			frappe.set_user("Administrator")
+			_clear_role_docperm("Die Tool Maintenance Log", role_name)
+
 	def test_create_e2e_downtime_entry_normalizes_unknown_stop_reason(self) -> None:
 		shift = MagicMock()
 		shift.shift_date = "2099-01-20"
@@ -1902,11 +1901,6 @@ class TestE2EApi(FrappeTestCase):
 		builder = MagicMock()
 		builder.insert.return_value = doc
 		with ExitStack() as stack:
-			stack.enter_context(
-				patch(
-					"production_entry_app.production_entry_app.e2e_api.access_control.assert_app_write_access"
-				)
-			)
 			stack.enter_context(
 				patch("production_entry_app.production_entry_app.e2e_api._assert_e2e_api_allowed")
 			)
@@ -1944,3 +1938,91 @@ class TestE2EApi(FrappeTestCase):
 		)
 		self.assertEqual(get_doc.call_args_list[1].args[0]["stop_reason"], "Other")
 		builder.insert.assert_called_once_with(ignore_permissions=True)
+
+
+def _ensure_user_with_exact_roles(email: str, roles: tuple[str, ...]) -> None:
+	unique_roles = tuple(dict.fromkeys(roles))
+	for role in unique_roles:
+		if not frappe.db.exists("Role", role):
+			frappe.get_doc({"doctype": "Role", "role_name": role}).insert(ignore_permissions=True)
+	if frappe.db.exists("User", email):
+		user = frappe.get_doc("User", email)
+	else:
+		user = frappe.new_doc("User")
+		user.email = email
+		user.first_name = email.split("@", 1)[0]
+		user.user_type = "System User"
+	user.set("roles", [])
+	for role in unique_roles:
+		user.append("roles", {"role": role})
+	user.save(ignore_permissions=True)
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so permission checks see role changes
+	frappe.clear_cache(user=email)
+
+
+def _set_role_docperm(doctype: str, role: str, **permissions: int) -> None:
+	from frappe.permissions import setup_custom_perms
+
+	if not frappe.db.exists("Role", role):
+		frappe.get_doc({"doctype": "Role", "role_name": role}).insert(ignore_permissions=True)
+
+	setup_custom_perms(doctype)
+	existing_name = frappe.db.get_value(
+		"Custom DocPerm",
+		{"parent": doctype, "role": role, "permlevel": 0, "if_owner": 0},
+		"name",
+	)
+	if existing_name:
+		docperm = frappe.get_doc("Custom DocPerm", existing_name)
+	else:
+		docperm = frappe.get_doc(
+			{
+				"doctype": "Custom DocPerm",
+				"parent": doctype,
+				"parenttype": "DocType",
+				"parentfield": "permissions",
+				"role": role,
+				"permlevel": 0,
+			}
+		)
+
+	for ptype in ("read", "write", "create", "delete", "submit", "cancel", "amend", "report"):
+		setattr(docperm, ptype, int(permissions.get(ptype, 0)))
+
+	docperm.save(ignore_permissions=True)
+
+	frappe.clear_cache(doctype=doctype)
+	frappe.clear_cache(user=frappe.session.user)
+
+
+def _clear_role_docperm(doctype: str, role: str) -> None:
+	for name in frappe.get_all(
+		"Custom DocPerm",
+		filters={"parent": doctype, "role": role, "permlevel": 0},
+		pluck="name",
+	):
+		frappe.delete_doc("Custom DocPerm", name, ignore_permissions=True, force=True)
+	frappe.clear_cache(doctype=doctype)
+	frappe.clear_cache(user=frappe.session.user)
+
+
+def _seed_die_tool_counter(item_code: str, *, current_stroke_count: float, stroke_capacity: float) -> None:
+	if frappe.db.exists("Die Tool Counter", item_code):
+		frappe.db.set_value(
+			"Die Tool Counter",
+			item_code,
+			{
+				"current_stroke_count": current_stroke_count,
+				"stroke_capacity": stroke_capacity,
+			},
+			update_modified=False,
+		)
+		return
+	frappe.get_doc(
+		{
+			"doctype": "Die Tool Counter",
+			"die_tool_item": item_code,
+			"current_stroke_count": current_stroke_count,
+			"stroke_capacity": stroke_capacity,
+		}
+	).insert(ignore_permissions=True)
