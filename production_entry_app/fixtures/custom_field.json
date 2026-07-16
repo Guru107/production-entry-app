@@ -563,6 +563,7 @@
   "fieldtype": "Check",
   "label": "Late Entry (Post-Completion)",
   "insert_after": "custom_pea_rejection_qty",
+  "hidden": 1,
   "read_only": 1,
   "module": "Production Entry App",
   "permlevel": 0
