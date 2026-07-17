@@ -2384,7 +2384,13 @@ class TestProductionReports(FrappeTestCase):
 			],
 		)
 
-		_, rows = execute({"from_date": "2026-07-07", "to_date": "2026-07-07"})
+		_, rows = execute(
+			{
+				"from_date": "2026-07-07",
+				"to_date": "2026-07-07",
+				"custom_pea_operator": "Report Operator",
+			}
+		)
 		self.assertEqual(len(rows), 1)
 		self.assertEqual(float(rows[0]["rework_qty"]), 6.0)
 		self.assertEqual(float(rows[0]["rework_rate_pct"]), 5.0)
