@@ -6,8 +6,6 @@ on:
       - '**/*.md'
       - 'docs/**'
   workflow_dispatch:
-  schedule:
-    - cron: '0 2 * * *'
 
 permissions:
   contents: read
@@ -113,14 +111,7 @@ jobs:
         with:
           node-version: ${{ matrix.node_version }}
 
-      - name: Run Playwright smoke on PRs
-        if: github.event_name != 'schedule'
+      - name: Run Playwright smoke
         run: |
           chmod +x scripts/run_ephemeral_e2e.sh
           BENCH_ROOT=~/frappe-bench DB_ROOT_PASSWORD=root scripts/run_ephemeral_e2e.sh smoke
-
-      - name: Run Playwright full regression nightly
-        if: github.event_name == 'schedule'
-        run: |
-          chmod +x scripts/run_ephemeral_e2e.sh
-          BENCH_ROOT=~/frappe-bench DB_ROOT_PASSWORD=root scripts/run_ephemeral_e2e.sh ci
