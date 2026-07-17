@@ -27,6 +27,7 @@ from production_entry_app.production_entry_app.overrides.test_stock_entry_hooks 
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	get_company_abbr,
 	resolve_test_company,
+	save_test_user,
 )
 
 
@@ -3314,6 +3315,6 @@ def _ensure_user_with_exact_roles(email: str, roles: tuple[str, ...]) -> None:
 	user.set("roles", [])
 	for role in roles:
 		user.append("roles", {"role": role})
-	user.save(ignore_permissions=True)
+	save_test_user(user)
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit - role changes must be visible to permission checks
 	frappe.clear_cache(user=email)
