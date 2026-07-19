@@ -19,6 +19,7 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 PEA_READ_ONLY_STANDARD_READ_DOCTYPES: tuple[str, ...] = (
 	"Page",
 	"Company",
+	"Fiscal Year",
 	"Stock Entry",
 	"Stock Entry Detail",
 	"Stock Settings",

@@ -205,6 +205,7 @@ fixtures = [
 				[
 					"Page",
 					"Company",
+					"Fiscal Year",
 					"Stock Entry",
 					"Stock Entry Detail",
 					"Stock Settings",
