@@ -43,7 +43,7 @@ from production_entry_app.production_entry_app.e2e_api import (
 from production_entry_app.production_entry_app.utils.alternative_items import (
 	apply_direct_manufacture_alternative_flags,
 )
-from production_entry_app.production_entry_app.utils.test_bootstrap import ensure_stock
+from production_entry_app.production_entry_app.utils.test_bootstrap import ensure_stock, save_test_user
 
 
 def _meta_stub(has_field_result: bool) -> object:
@@ -1955,7 +1955,7 @@ def _ensure_user_with_exact_roles(email: str, roles: tuple[str, ...]) -> None:
 	user.set("roles", [])
 	for role in unique_roles:
 		user.append("roles", {"role": role})
-	user.save(ignore_permissions=True)
+	save_test_user(user)
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so permission checks see role changes
 	frappe.clear_cache(user=email)
 

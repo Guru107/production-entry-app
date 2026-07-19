@@ -196,6 +196,32 @@ fixtures = [
 	{"dt": "Custom Field", "filters": [["module", "=", "Production Entry App"]]},
 	{"dt": "Property Setter", "filters": [["module", "=", "Production Entry App"]]},
 	{"dt": "Role", "filters": [["name", "in", ["PEA User", "PEA Read Only"]]]},
+	{
+		"dt": "DocPerm",
+		"filters": [
+			[
+				"parent",
+				"in",
+				[
+					"Page",
+					"Company",
+					"Fiscal Year",
+					"Stock Entry",
+					"Stock Entry Detail",
+					"Stock Settings",
+					"BOM",
+					"BOM Item",
+					"Item",
+					"Workstation",
+					"Warehouse",
+					"UOM",
+				],
+			],
+			["role", "=", "PEA Read Only"],
+			["permlevel", "=", 0],
+			["if_owner", "=", 0],
+		],
+	},
 	"Downtime Reason",
 	"Rejection Reason",
 ]

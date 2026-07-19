@@ -22,6 +22,7 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	get_company_abbr,
 	resolve_test_branch,
 	resolve_test_company,
+	save_test_user,
 )
 
 _USE_DURATION = object()
@@ -3371,7 +3372,7 @@ def _ensure_user_with_role(email: str, role: str) -> None:
 		user.first_name = email.split("@", 1)[0]
 		user.user_type = "System User"
 	user.add_roles(role)
-	user.save(ignore_permissions=True)
+	save_test_user(user)
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed for permission tests to see user roles
 
 

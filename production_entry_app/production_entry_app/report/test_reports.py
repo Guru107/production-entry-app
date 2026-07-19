@@ -27,6 +27,7 @@ from production_entry_app.production_entry_app.overrides.test_stock_entry_hooks 
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	get_company_abbr,
 	resolve_test_company,
+	save_test_user,
 )
 
 
@@ -143,21 +144,34 @@ class TestProductionReports(FrappeTestCase):
 		user_email = f"test_pea_report_read_only_{frappe.generate_hash(length=8)}@example.com"
 		_ensure_user_with_exact_roles(user_email, ("PEA Read Only",))
 		frappe.reload_doc("production_entry_app", "doctype", "shift")
-		frappe.reload_doc("production_entry_app", "report", "rejection_pareto_report")
 		frappe.clear_cache(doctype="Shift")
+		report_root = Path(__file__).parent
+		report_names = []
+		for report_path in sorted(report_root.glob("*/*.json")):
+			report_schema = json.loads(report_path.read_text())
+			report_names.append(report_schema["name"])
+			frappe.reload_doc("production_entry_app", "report", report_path.parent.name)
+
 		original_user = frappe.session.user
 		try:
 			frappe.set_user(user_email)
-			result = run_query_report(
-				"Rejection Pareto Report",
-				filters={},
-				ignore_prepared_report=True,
-			)
+			for report_name in report_names:
+				with self.subTest(report=report_name):
+					result = run_query_report(
+						report_name,
+						filters=self._get_pea_read_only_report_filters(report_name),
+						ignore_prepared_report=True,
+					)
+					self.assertIn("columns", result)
+					self.assertIn("result", result)
 		finally:
 			frappe.set_user(original_user)
 
-		self.assertIn("columns", result)
-		self.assertIn("result", result)
+	def _get_pea_read_only_report_filters(self, report_name: str) -> dict:
+		if report_name == "Daily Strokes SPM Monitor":
+			fiscal_year = self._ensure_fiscal_year("2090-2091", "2090-04-01", "2091-03-31")
+			return {"fiscal_year": fiscal_year, "month": "April"}
+		return {}
 
 	def test_manufacturing_user_cannot_run_pea_report_through_query_report_runner(self) -> None:
 		user_email = f"test_pea_report_mfg_{frappe.generate_hash(length=8)}@example.com"
@@ -2384,7 +2398,13 @@ class TestProductionReports(FrappeTestCase):
 			],
 		)
 
-		_, rows = execute({"from_date": "2026-07-07", "to_date": "2026-07-07"})
+		_, rows = execute(
+			{
+				"from_date": "2026-07-07",
+				"to_date": "2026-07-07",
+				"custom_pea_operator": "Report Operator",
+			}
+		)
 		self.assertEqual(len(rows), 1)
 		self.assertEqual(float(rows[0]["rework_qty"]), 6.0)
 		self.assertEqual(float(rows[0]["rework_rate_pct"]), 5.0)
@@ -3308,6 +3328,6 @@ def _ensure_user_with_exact_roles(email: str, roles: tuple[str, ...]) -> None:
 	user.set("roles", [])
 	for role in roles:
 		user.append("roles", {"role": role})
-	user.save(ignore_permissions=True)
+	save_test_user(user)
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit - role changes must be visible to permission checks
 	frappe.clear_cache(user=email)

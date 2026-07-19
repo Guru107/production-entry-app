@@ -163,6 +163,19 @@ def ensure_operator(name: str) -> None:
 	)
 
 
+def save_test_user(user: frappe.model.document.Document) -> None:
+	"""Save a fixture user without tripping Frappe's user-creation throttle."""
+	previous_in_import = frappe.flags.get("in_import")
+	frappe.flags.in_import = True
+	try:
+		user.save(ignore_permissions=True)
+	finally:
+		if previous_in_import is None:
+			frappe.flags.pop("in_import", None)
+		else:
+			frappe.flags.in_import = previous_in_import
+
+
 def ensure_workstation(name: str, standard_spm: float) -> None:
 	if frappe.db.exists("Workstation", name):
 		frappe.db.set_value(
