@@ -21,6 +21,7 @@ PEA_READ_ONLY_STANDARD_READ_DOCTYPES: tuple[str, ...] = (
 	"Company",
 	"Stock Entry",
 	"Stock Entry Detail",
+	"Stock Settings",
 	"BOM",
 	"BOM Item",
 	"Item",
@@ -138,6 +139,17 @@ class TestNativeShiftPermissions(FrappeTestCase):
 				self.assertEqual(row.get(flag), 1, f"{doctype}.{flag} must be enabled")
 			for flag in PEA_READ_ONLY_BLOCKED_STANDARD_FLAGS:
 				self.assertEqual(row.get(flag), 0, f"{doctype}.{flag} must stay disabled")
+
+	def test_pea_read_only_can_open_stock_settings(self) -> None:
+		email = f"test_native_stock_settings_readonly_{frappe.generate_hash(length=6)}@example.com"
+		_ensure_user_with_exact_roles(email, ("PEA Read Only",))
+
+		try:
+			frappe.set_user(email)
+			self.assertTrue(frappe.has_permission("Stock Settings", "read"))
+			frappe.get_single("Stock Settings")
+		finally:
+			frappe.set_user("Administrator")
 
 	def test_pea_read_only_can_read_stock_entry_but_cannot_create_it(self) -> None:
 		email = f"test_native_stock_entry_readonly_{frappe.generate_hash(length=6)}@example.com"

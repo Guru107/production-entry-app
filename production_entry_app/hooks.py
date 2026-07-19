@@ -207,6 +207,7 @@ fixtures = [
 					"Company",
 					"Stock Entry",
 					"Stock Entry Detail",
+					"Stock Settings",
 					"BOM",
 					"BOM Item",
 					"Item",
