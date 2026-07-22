@@ -34,6 +34,9 @@ class TestOperator(FrappeTestCase):
 		self.assertEqual(doc.is_active, 1)
 		self._delete_if_exists(name)
 
+	def test_bulk_import_is_enabled(self) -> None:
+		self.assertEqual(frappe.get_meta("Operator").allow_import, 1)
+
 	def test_duplicate_name_rejected(self) -> None:
 		name = "Duplicate Operator Test"
 		self._delete_if_exists(name)
