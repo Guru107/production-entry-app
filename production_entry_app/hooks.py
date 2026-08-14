@@ -218,7 +218,7 @@ fixtures = [
 					"UOM",
 				],
 			],
-			["role", "=", "PEA Read Only"],
+			["role", "in", ["PEA User", "PEA Read Only"]],
 			["permlevel", "=", 0],
 			["if_owner", "=", 0],
 		],

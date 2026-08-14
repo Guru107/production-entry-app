@@ -45,6 +45,8 @@ PEA_MODULE_DOCTYPES: tuple[str, ...] = (
 
 PEA_READ_ONLY_ALLOWED_STANDARD_FLAGS: tuple[str, ...] = ("read", "select")
 
+PEA_STANDARD_READ_ROLES: tuple[str, ...] = ("PEA User", "PEA Read Only")
+
 PEA_READ_ONLY_BLOCKED_STANDARD_FLAGS: tuple[str, ...] = (
 	"write",
 	"create",
@@ -128,30 +130,31 @@ class TestNativeShiftPermissions(FrappeTestCase):
 		finally:
 			frappe.set_user("Administrator")
 
-	def test_pea_read_only_standard_docperms_are_read_select_only(self) -> None:
+	def test_pea_roles_standard_docperms_are_read_select_only(self) -> None:
 		for doctype in PEA_READ_ONLY_STANDARD_READ_DOCTYPES:
-			rows = frappe.get_all(
-				"DocPerm",
-				filters={
-					"parent": doctype,
-					"role": "PEA Read Only",
-				},
-				fields=[
-					"permlevel",
-					"if_owner",
-					*PEA_READ_ONLY_ALLOWED_STANDARD_FLAGS,
-					*PEA_READ_ONLY_BLOCKED_STANDARD_FLAGS,
-				],
-			)
-			self.assertEqual(len(rows), 1, f"{doctype} must have one PEA Read Only DocPerm row")
+			for role in PEA_STANDARD_READ_ROLES:
+				rows = frappe.get_all(
+					"DocPerm",
+					filters={
+						"parent": doctype,
+						"role": role,
+					},
+					fields=[
+						"permlevel",
+						"if_owner",
+						*PEA_READ_ONLY_ALLOWED_STANDARD_FLAGS,
+						*PEA_READ_ONLY_BLOCKED_STANDARD_FLAGS,
+					],
+				)
+				self.assertEqual(len(rows), 1, f"{doctype} must have one {role} DocPerm row")
 
-			row = rows[0]
-			self.assertEqual(row.get("permlevel"), 0, f"{doctype}.permlevel must be 0")
-			self.assertEqual(row.get("if_owner"), 0, f"{doctype}.if_owner must be 0")
-			for flag in PEA_READ_ONLY_ALLOWED_STANDARD_FLAGS:
-				self.assertEqual(row.get(flag), 1, f"{doctype}.{flag} must be enabled")
-			for flag in PEA_READ_ONLY_BLOCKED_STANDARD_FLAGS:
-				self.assertEqual(row.get(flag), 0, f"{doctype}.{flag} must stay disabled")
+				row = rows[0]
+				self.assertEqual(row.get("permlevel"), 0, f"{doctype}.{role}.permlevel must be 0")
+				self.assertEqual(row.get("if_owner"), 0, f"{doctype}.{role}.if_owner must be 0")
+				for flag in PEA_READ_ONLY_ALLOWED_STANDARD_FLAGS:
+					self.assertEqual(row.get(flag), 1, f"{doctype}.{role}.{flag} must be enabled")
+				for flag in PEA_READ_ONLY_BLOCKED_STANDARD_FLAGS:
+					self.assertEqual(row.get(flag), 0, f"{doctype}.{role}.{flag} must stay disabled")
 
 	def test_pea_roles_have_select_permission_on_module_doctypes(self) -> None:
 		for doctype in PEA_MODULE_DOCTYPES:
