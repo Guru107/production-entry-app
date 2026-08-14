@@ -145,6 +145,26 @@ class TestReportUtilsPerformance(FrappeTestCase):
 					last_row={"posting_date": None, "name": "STE-001"},
 				)
 
+	def test_fetch_stock_entry_chunk_uses_permission_aware_list(self) -> None:
+		with (
+			patch(
+				"production_entry_app.production_entry_app.report.report_utils.frappe.get_list",
+				return_value=[],
+			) as get_list,
+			patch(
+				"production_entry_app.production_entry_app.report.report_utils.frappe.qb.get_query"
+			) as get_query,
+		):
+			report_utils._fetch_stock_entry_chunk(
+				filters={"docstatus": 1},
+				fields=["name"],
+				order_by="name asc",
+				chunk_size=10,
+			)
+
+		get_list.assert_called_once()
+		get_query.assert_not_called()
+
 	def test_get_entry_qty_maps_includes_finished_item_map(self) -> None:
 		class _Query:
 			def select(self, *_args: Any, **_kwargs: Any) -> _Query:

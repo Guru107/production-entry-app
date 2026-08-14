@@ -454,41 +454,67 @@ class TestE2EApi(FrappeTestCase):
 		self.assertEqual(finalize.call_args.args[1]["ok"], False)
 
 	def test_get_die_tool_counter_preserves_unrounded_utilization_and_threshold_check(self) -> None:
-		with patch("production_entry_app.production_entry_app.api.frappe.db.exists", return_value=True):
-			with patch(
-				"production_entry_app.production_entry_app.api.is_die_tool_enabled", return_value=True
-			):
+		with patch("production_entry_app.production_entry_app.api.frappe.has_permission", return_value=True):
+			with patch("production_entry_app.production_entry_app.api.frappe.db.exists", return_value=True):
 				with patch(
-					"production_entry_app.production_entry_app.api.get_counter_snapshot",
-					return_value={
-						"current_stroke_count": 1,
-						"stroke_capacity": 3,
-						"warning_threshold_pct": 33.3333,
-					},
+					"production_entry_app.production_entry_app.api.is_die_tool_enabled", return_value=True
 				):
-					result = get_die_tool_counter("ITEM-001")
+					with patch(
+						"production_entry_app.production_entry_app.api.get_counter_snapshot",
+						return_value={
+							"current_stroke_count": 1,
+							"stroke_capacity": 3,
+							"warning_threshold_pct": 33.3333,
+						},
+					):
+						result = get_die_tool_counter("ITEM-001")
 
 		self.assertAlmostEqual(float(result.get("utilization_pct") or 0), 33.3333333333, places=6)
 		self.assertEqual(int(result.get("is_maintenance_due") or 0), 1)
+
+	def test_get_die_tool_counter_denies_item_without_read_permission(self) -> None:
+		with patch("production_entry_app.production_entry_app.api.frappe.db.exists", return_value=True):
+			with patch(
+				"production_entry_app.production_entry_app.api.frappe.has_permission", return_value=False
+			):
+				with self.assertRaises(frappe.PermissionError):
+					get_die_tool_counter("ITEM-001")
+
+	def test_get_die_tool_counter_denies_existing_counter_without_read_permission(self) -> None:
+		with (
+			patch("production_entry_app.production_entry_app.api.frappe.db.exists", return_value=True),
+			patch(
+				"production_entry_app.production_entry_app.api.frappe.has_permission",
+				side_effect=[True, False],
+			),
+			patch("production_entry_app.production_entry_app.api.is_die_tool_enabled", return_value=True),
+			patch(
+				"production_entry_app.production_entry_app.api.get_counter_snapshot",
+				return_value={"name": "DIE-TOOL-COUNTER-001"},
+			),
+		):
+			with self.assertRaises(frappe.PermissionError):
+				get_die_tool_counter("ITEM-001")
 
 	def test_get_die_tool_counter_includes_float_precision_without_rounding_payload(self) -> None:
 		from production_entry_app.production_entry_app.utils.system_precision import (
 			get_system_float_precision,
 		)
 
-		with patch("production_entry_app.production_entry_app.api.frappe.db.exists", return_value=True):
-			with patch(
-				"production_entry_app.production_entry_app.api.is_die_tool_enabled", return_value=True
-			):
+		with patch("production_entry_app.production_entry_app.api.frappe.has_permission", return_value=True):
+			with patch("production_entry_app.production_entry_app.api.frappe.db.exists", return_value=True):
 				with patch(
-					"production_entry_app.production_entry_app.api.get_counter_snapshot",
-					return_value={
-						"current_stroke_count": 12.5,
-						"stroke_capacity": 50,
-						"warning_threshold_pct": 90,
-					},
+					"production_entry_app.production_entry_app.api.is_die_tool_enabled", return_value=True
 				):
-					result = get_die_tool_counter("ITEM-001")
+					with patch(
+						"production_entry_app.production_entry_app.api.get_counter_snapshot",
+						return_value={
+							"current_stroke_count": 12.5,
+							"stroke_capacity": 50,
+							"warning_threshold_pct": 90,
+						},
+					):
+						result = get_die_tool_counter("ITEM-001")
 
 		self.assertEqual(result["float_precision"], get_system_float_precision())
 		self.assertIsInstance(result["current_strokes"], float)
@@ -1823,6 +1849,22 @@ class TestE2EApi(FrappeTestCase):
 				api.get_items_with_rejection(json.dumps(doc_dict))
 		finally:
 			frappe.set_user("Administrator")
+
+	def test_get_items_with_rejection_rejects_non_object_json(self) -> None:
+		from production_entry_app.production_entry_app import api
+
+		with self.assertRaises(frappe.ValidationError):
+			api.get_items_with_rejection('["Stock Entry"]')
+
+	def test_get_items_with_rejection_denies_inaccessible_linked_bom(self) -> None:
+		from production_entry_app.production_entry_app import api
+
+		with patch(
+			"production_entry_app.production_entry_app.api.frappe.has_permission",
+			side_effect=[True, False],
+		):
+			with self.assertRaises(frappe.PermissionError):
+				api.get_items_with_rejection(json.dumps({"doctype": "Stock Entry", "bom_no": "BOM-HIDDEN"}))
 
 	def test_get_items_with_rejection_local_temp_name_uses_create_perm(self) -> None:
 		from production_entry_app.production_entry_app import api

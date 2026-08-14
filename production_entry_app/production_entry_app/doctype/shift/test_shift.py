@@ -249,7 +249,8 @@ class TestShiftPureHelpers(FrappeTestCase):
 		summary = shift_module._empty_shift_summary()
 		self.assertEqual(summary["snapshot"]["entry_count"], 0)
 		self.assertEqual(
-			shift_module._get_shift_metrics_cache_key("SHIFT-001"), "pea:shift_summary:SHIFT-001"
+			shift_module._get_shift_metrics_cache_key("SHIFT-001"),
+			f"pea:shift_summary:SHIFT-001:{frappe.session.user}",
 		)
 		self.assertEqual(shift_module._with_shift_summary_float_precision({"snapshot": {}})["snapshot"], {})
 		with patch(
@@ -257,7 +258,7 @@ class TestShiftPureHelpers(FrappeTestCase):
 		) as cache_factory:
 			shift_module.invalidate_shift_summary_cache(None)
 			shift_module.invalidate_shift_summary_cache("SHIFT-001")
-		cache_factory.return_value.delete_value.assert_called_once_with("pea:shift_summary:SHIFT-001")
+		cache_factory.return_value.delete_keys.assert_called_once_with("pea:shift_summary:SHIFT-001:")
 
 	def test_shift_window_and_logged_downtime_helpers_handle_missing_data(self) -> None:
 		with patch(
@@ -1837,6 +1838,31 @@ class TestShift(FrappeTestCase):
 
 		self.assertEqual(get_linked_downtime_entries("new-shift-njtiroovuu"), [])
 
+	def test_get_linked_downtime_entries_uses_permission_aware_list(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import (
+			get_linked_downtime_entries,
+		)
+
+		with (
+			patch("frappe.db.exists", return_value=True),
+			patch("frappe.has_permission", return_value=True),
+			patch(
+				"frappe.db.get_value",
+				return_value=frappe._dict(
+					shift_date="2026-08-01",
+					planned_start_time="08:00:00",
+					shift_end_date="2026-08-01",
+					planned_end_time="16:00:00",
+				),
+			),
+			patch("frappe.get_list", return_value=[]) as get_list,
+			patch("frappe.get_all") as get_all,
+		):
+			get_linked_downtime_entries("SHIFT-SECURITY")
+
+		get_list.assert_called_once()
+		get_all.assert_not_called()
+
 	def test_update_shift_can_change_own_times_without_false_overlap(self) -> None:
 		"""Updating a shift (e.g. duration) should not falsely overlap with itself."""
 		name = self._expected_name(self._test_department, "2026-02-25", "1")
@@ -2650,7 +2676,7 @@ class TestShiftSummary(FrappeTestCase):
 				"planned_start_time": "08:00:00",
 			}
 		).insert()
-		frappe.cache().delete_value(f"pea:shift_summary:{shift.name}")
+		frappe.cache().delete_keys(f"pea:shift_summary:{shift.name}:")
 		return shift
 
 	def _create_submitted_like_entry(
@@ -3033,6 +3059,17 @@ class TestShiftSummary(FrappeTestCase):
 		with self.assertRaises(frappe.PermissionError):
 			get_shift_summary(shift.name)
 
+	def test_requires_stock_entry_read_permission(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
+
+		shift = self._create_shift("2026-09-11")
+		with patch(
+			"production_entry_app.production_entry_app.doctype.shift.shift.frappe.has_permission",
+			side_effect=[True, False],
+		):
+			with self.assertRaises(frappe.PermissionError):
+				get_shift_summary(shift.name)
+
 	def test_returns_cached_summary_without_querying_database(self) -> None:
 		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
 		from production_entry_app.production_entry_app.utils.system_precision import (
@@ -3235,6 +3272,19 @@ class TestShiftAggregateProductionEntries(FrappeTestCase):
 
 		with self.assertRaises(frappe.PermissionError):
 			get_shift_aggregate_production_entries(shift.name)
+
+	def test_requires_stock_entry_read_permission(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import (
+			get_shift_aggregate_production_entries,
+		)
+
+		shift = self._create_shift("2026-10-02", shift_label="2")
+		with patch(
+			"production_entry_app.production_entry_app.doctype.shift.shift.frappe.has_permission",
+			side_effect=[True, False],
+		):
+			with self.assertRaises(frappe.PermissionError):
+				get_shift_aggregate_production_entries(shift.name)
 
 	def test_aggregates_bom_based_quantities(self) -> None:
 		from production_entry_app.production_entry_app.doctype.shift.shift import (

@@ -68,10 +68,11 @@ def _build_filters(filters: dict) -> dict:
 def _get_shift_duration_map(shift_names: set[str]) -> dict[str, float]:
 	if not shift_names:
 		return {}
-	rows = frappe.get_all(
+	rows = frappe.get_list(
 		"Shift",
 		filters={"name": ["in", list(shift_names)]},
 		fields=["name", "shift_duration"],
+		limit_page_length=0,
 	)
 	return {row.get("name"): flt(row.get("shift_duration") or 0) for row in rows if row.get("name")}
 

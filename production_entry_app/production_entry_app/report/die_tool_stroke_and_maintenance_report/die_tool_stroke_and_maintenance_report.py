@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import frappe
 from frappe import _
-from frappe.query_builder import DocType
-from frappe.query_builder.functions import Count, Max
 from frappe.utils import flt
 
 from production_entry_app.production_entry_app.report.report_utils import (
@@ -93,44 +91,47 @@ def _get_rows(filters: dict) -> list[dict]:
 	if filters.get("item_code"):
 		counter_filters["die_tool_item"] = filters.get("item_code")
 
-	die_tool_counter = DocType("Die Tool Counter")
-	query = (
-		frappe.qb.from_(die_tool_counter)
-		.select(
-			die_tool_counter.die_tool_item,
-			die_tool_counter.current_stroke_count,
-			die_tool_counter.stroke_capacity,
-			die_tool_counter.warning_threshold_pct,
-			die_tool_counter.last_reset_on,
-			die_tool_counter.last_reset_by,
-		)
-		.orderby(die_tool_counter.die_tool_item)
+	counters = frappe.get_list(
+		"Die Tool Counter",
+		filters=counter_filters,
+		fields=[
+			"die_tool_item",
+			"current_stroke_count",
+			"stroke_capacity",
+			"warning_threshold_pct",
+			"last_reset_on",
+			"last_reset_by",
+		],
+		order_by="die_tool_item asc",
+		limit_page_length=0,
 	)
-	for fieldname, value in counter_filters.items():
-		query = query.where(die_tool_counter[fieldname] == value)
-	counters = query.run(as_dict=True)
 
 	maintenance_filters = {"docstatus": 1}
 	if filters.get("item_code"):
 		maintenance_filters["die_tool_item"] = filters.get("item_code")
 
-	die_tool_maintenance_log = DocType("Die Tool Maintenance Log")
-	maintenance_query = (
-		frappe.qb.from_(die_tool_maintenance_log)
-		.select(
-			die_tool_maintenance_log.die_tool_item,
-			Max(die_tool_maintenance_log.maintenance_date).as_("last_maintenance_date"),
-			Count(die_tool_maintenance_log.name).as_("maintenance_count"),
-		)
-		.where(die_tool_maintenance_log.docstatus == 1)
-		.groupby(die_tool_maintenance_log.die_tool_item)
+	maintenance_rows = frappe.get_list(
+		"Die Tool Maintenance Log",
+		filters=maintenance_filters,
+		fields=["die_tool_item", "maintenance_date"],
+		limit_page_length=0,
 	)
-	if filters.get("item_code"):
-		maintenance_query = maintenance_query.where(
-			die_tool_maintenance_log.die_tool_item == filters.get("item_code")
+	maintenance_map: dict[str, dict] = {}
+	for maintenance_row in maintenance_rows:
+		die_tool_item = maintenance_row.get("die_tool_item")
+		if not die_tool_item:
+			continue
+
+		summary = maintenance_map.setdefault(
+			die_tool_item,
+			{"last_maintenance_date": None, "maintenance_count": 0},
 		)
-	maintenance_rows = maintenance_query.run(as_dict=True)
-	maintenance_map = {row.get("die_tool_item"): row for row in maintenance_rows}
+		summary["maintenance_count"] += 1
+		maintenance_date = maintenance_row.get("maintenance_date")
+		if maintenance_date and (
+			not summary["last_maintenance_date"] or maintenance_date > summary["last_maintenance_date"]
+		):
+			summary["last_maintenance_date"] = maintenance_date
 
 	rows = []
 	for counter in counters:

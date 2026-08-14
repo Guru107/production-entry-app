@@ -6,7 +6,7 @@ from frappe.query_builder import DocType
 from frappe.query_builder.functions import Sum
 from frappe.utils import flt
 
-from production_entry_app.production_entry_app.utils.loss_time import build_interval_overlap_criterion
+from production_entry_app.production_entry_app.utils.loss_time import build_interval_overlap_filters
 from production_entry_app.production_entry_app.utils.shift_time import combine_date_time
 from production_entry_app.production_entry_app.utils.system_precision import (
 	get_system_float_precision,
@@ -51,7 +51,7 @@ def get_shift_timeline_data(doctype: str, docname: str) -> dict:
 	if not frappe.has_permission(doctype, "read", docname):
 		raise frappe.PermissionError
 
-	running_shift = frappe.get_all(
+	running_shift = frappe.get_list(
 		"Shift",
 		filters={"status": "Running"},
 		fields=["name", "shift_date", "planned_start_time", "shift_end_date", "planned_end_time"],
@@ -64,6 +64,10 @@ def get_shift_timeline_data(doctype: str, docname: str) -> dict:
 	shift = running_shift[0]
 	if not frappe.has_permission("Shift", "read", shift.get("name")):
 		raise frappe.PermissionError
+	if not frappe.has_permission("Stock Entry", "read"):
+		raise frappe.PermissionError
+	if doctype == "Workstation" and not frappe.has_permission("Downtime Entry", "read"):
+		raise frappe.PermissionError
 	cached_data = _get_cached_timeline_data(doctype, docname, shift.get("name"))
 	if cached_data is not None:
 		return _with_float_precision(cached_data)
@@ -75,26 +79,26 @@ def get_shift_timeline_data(doctype: str, docname: str) -> dict:
 	)
 
 	filter_field = "custom_pea_workstation" if doctype == "Workstation" else "custom_pea_operator"
-	stock_entry = DocType("Stock Entry")
-	rows = (
-		frappe.qb.from_(stock_entry)
-		.select(
-			stock_entry.name,
-			stock_entry.custom_pea_actual_start_date.as_("actual_start"),
-			stock_entry.custom_pea_actual_end_date.as_("actual_end"),
-			stock_entry.fg_completed_qty.as_("fg_qty"),
-			stock_entry.custom_pea_rejection_qty.as_("rejection_qty"),
-		)
-		.where(
-			(stock_entry.docstatus == 1)
-			& (stock_entry.purpose == "Manufacture")
-			& (stock_entry.custom_pea_shift == shift.get("name"))
-			& (stock_entry[filter_field] == docname)
-			& stock_entry.custom_pea_actual_start_date.isnotnull()
-			& stock_entry.custom_pea_actual_end_date.isnotnull()
-		)
-		.orderby(stock_entry.custom_pea_actual_start_date)
-	).run(as_dict=True)
+	rows = frappe.get_list(
+		"Stock Entry",
+		filters={
+			"docstatus": 1,
+			"purpose": "Manufacture",
+			"custom_pea_shift": shift.get("name"),
+			filter_field: docname,
+			"custom_pea_actual_start_date": ("is", "set"),
+			"custom_pea_actual_end_date": ("is", "set"),
+		},
+		fields=[
+			"name",
+			"custom_pea_actual_start_date as actual_start",
+			"custom_pea_actual_end_date as actual_end",
+			"fg_completed_qty as fg_qty",
+			"custom_pea_rejection_qty as rejection_qty",
+		],
+		order_by="custom_pea_actual_start_date asc",
+		limit_page_length=0,
+	)
 
 	stock_entry_detail = DocType("Stock Entry Detail")
 	names = [row.get("name") for row in rows if row.get("name")]
@@ -144,31 +148,21 @@ def get_shift_timeline_data(doctype: str, docname: str) -> dict:
 		)
 
 	if doctype == "Workstation":
-		downtime_entry = DocType("Downtime Entry")
-		downtime_query = (
-			frappe.qb.from_(downtime_entry)
-			.select(
-				downtime_entry.name,
-				downtime_entry.from_time.as_("actual_start"),
-				downtime_entry.to_time.as_("actual_end"),
-				downtime_entry.stop_reason,
-			)
-			.where(
-				(downtime_entry.workstation == docname)
-				& downtime_entry.from_time.isnotnull()
-				& downtime_entry.to_time.isnotnull()
-				& build_interval_overlap_criterion(
-					downtime_entry.from_time,
-					downtime_entry.to_time,
-					shift_start,
-					shift_end,
-				)
-			)
-			.orderby(downtime_entry.from_time)
-		)
+		downtime_filters = [
+			["workstation", "=", docname],
+			["from_time", "is", "set"],
+			["to_time", "is", "set"],
+			*build_interval_overlap_filters("from_time", "to_time", shift_start, shift_end),
+		]
 		if frappe.get_meta("Downtime Entry", cached=True).is_submittable:
-			downtime_query = downtime_query.where(downtime_entry.docstatus != 2)
-		downtime_rows = downtime_query.run(as_dict=True)
+			downtime_filters.append(["docstatus", "!=", 2])
+		downtime_rows = frappe.get_list(
+			"Downtime Entry",
+			filters=downtime_filters,
+			fields=["name", "from_time as actual_start", "to_time as actual_end", "stop_reason"],
+			order_by="from_time asc",
+			limit_page_length=0,
+		)
 		for row in downtime_rows:
 			entries.append(
 				{

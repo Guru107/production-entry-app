@@ -103,15 +103,21 @@ def _get_date_range(filters: dict) -> tuple[str, str]:
 		as_dict=True,
 	)
 	if not fy_dates or not fy_dates.get("year_start_date") or not fy_dates.get("year_end_date"):
-		frappe.throw(_("Fiscal Year {0} not found.").format(frappe.bold(fiscal_year)))
+		frappe.throw(
+			_("Fiscal Year {0} not found.").format(frappe.bold(frappe.utils.escape_html(str(fiscal_year))))
+		)
 	fy_start = getdate(fy_dates.get("year_start_date"))
 	fy_end = getdate(fy_dates.get("year_end_date"))
 	if fy_end < fy_start:
-		frappe.throw(_("Fiscal Year {0} has invalid date boundaries.").format(frappe.bold(fiscal_year)))
+		frappe.throw(
+			_("Fiscal Year {0} has invalid date boundaries.").format(
+				frappe.bold(frappe.utils.escape_html(str(fiscal_year)))
+			)
+		)
 
 	month_num = MONTH_NAME_TO_NUMBER.get(month_name)
 	if not month_num:
-		frappe.throw(_("Invalid month: {0}").format(frappe.bold(month_name)))
+		frappe.throw(_("Invalid month: {0}").format(frappe.bold(frappe.utils.escape_html(str(month_name)))))
 
 	start_month = fy_start.month
 	end_month = fy_end.month
@@ -119,7 +125,8 @@ def _get_date_range(filters: dict) -> tuple[str, str]:
 		if not (start_month <= month_num <= end_month):
 			frappe.throw(
 				_("Month {0} is outside Fiscal Year {1}.").format(
-					frappe.bold(month_name), frappe.bold(fiscal_year)
+					frappe.bold(frappe.utils.escape_html(str(month_name))),
+					frappe.bold(frappe.utils.escape_html(str(fiscal_year))),
 				)
 			)
 		year = fy_start.year
@@ -130,7 +137,8 @@ def _get_date_range(filters: dict) -> tuple[str, str]:
 	else:
 		frappe.throw(
 			_("Month {0} is outside Fiscal Year {1}.").format(
-				frappe.bold(month_name), frappe.bold(fiscal_year)
+				frappe.bold(frappe.utils.escape_html(str(month_name))),
+				frappe.bold(frappe.utils.escape_html(str(fiscal_year))),
 			)
 		)
 

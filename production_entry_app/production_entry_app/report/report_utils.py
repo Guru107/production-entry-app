@@ -215,36 +215,67 @@ def _fetch_stock_entry_chunk(
 	chunk_size: int,
 	last_row: dict | None = None,
 ) -> list[dict]:
-	stock_entry = DocType("Stock Entry")
-	query = frappe.qb.get_query(
-		"Stock Entry",
-		fields=[stock_entry[fieldname] for fieldname in fields],
-		filters=filters,
-		order_by=None,
-		limit=chunk_size,
-	)
+	permission_filters = _as_permission_aware_filters(filters)
 
 	if order_by == "name asc":
 		if last_row:
 			last_name = last_row.get("name")
 			if not last_name:
 				frappe.throw(_("Missing Stock Entry name for keyset pagination."))
-			query = query.where(stock_entry.name > last_name)
-		query = query.orderby(stock_entry.name)
-		return query.run(as_dict=True)
+			permission_filters.append(["name", ">", last_name])
+		return frappe.get_list(
+			"Stock Entry",
+			filters=permission_filters,
+			fields=fields,
+			order_by=order_by,
+			limit_page_length=chunk_size,
+		)
 
 	if last_row:
 		last_posting_date = last_row.get("posting_date")
 		last_name = last_row.get("name")
 		if last_posting_date is None or not last_name:
 			frappe.throw(_("Missing Stock Entry posting date or name for keyset pagination."))
-		query = query.where(
-			(stock_entry.posting_date > last_posting_date)
-			| ((stock_entry.posting_date == last_posting_date) & (stock_entry.name > last_name))
+		same_day_rows = frappe.get_list(
+			"Stock Entry",
+			filters=[
+				*permission_filters,
+				["posting_date", "=", last_posting_date],
+				["name", ">", last_name],
+			],
+			fields=fields,
+			order_by=order_by,
+			limit_page_length=chunk_size,
 		)
+		remaining = chunk_size - len(same_day_rows)
+		if remaining <= 0:
+			return same_day_rows
+		later_rows = frappe.get_list(
+			"Stock Entry",
+			filters=[*permission_filters, ["posting_date", ">", last_posting_date]],
+			fields=fields,
+			order_by=order_by,
+			limit_page_length=remaining,
+		)
+		return [*same_day_rows, *later_rows]
 
-	query = query.orderby(stock_entry.posting_date).orderby(stock_entry.name)
-	return query.run(as_dict=True)
+	return frappe.get_list(
+		"Stock Entry",
+		filters=permission_filters,
+		fields=fields,
+		order_by=order_by,
+		limit_page_length=chunk_size,
+	)
+
+
+def _as_permission_aware_filters(filters: dict) -> list[list]:
+	result = []
+	for fieldname, value in filters.items():
+		if isinstance(value, list | tuple) and len(value) == 2:
+			result.append([fieldname, value[0], value[1]])
+		else:
+			result.append([fieldname, "=", value])
+	return result
 
 
 def get_entry_qty_maps(

@@ -157,7 +157,7 @@ test.describe("Die tool metrics and counter", () => {
 
 		await callFrappeMethod(
 			page,
-			"production_entry_app.production_entry_app.api.get_die_tool_counter",
+			"production_entry_app.production_entry_app.api.reset_die_tool_counter",
 			{
 				die_tool_code: ctx.fg_item,
 			}

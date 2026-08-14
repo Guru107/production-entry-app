@@ -912,25 +912,26 @@ class TestProductionReports(FrappeTestCase):
 
 		shift_label_cache = {"SHIFT-1": "1"}
 		with patch(
-			"production_entry_app.production_entry_app.report.production_oee_report.production_oee_report.frappe.get_all",
+			"production_entry_app.production_entry_app.report.production_oee_report.production_oee_report.frappe.get_list",
 			return_value=[{"name": "SHIFT-2", "shift_label": "2"}],
-		) as get_all:
+		) as get_list:
 			labels = _get_shift_labels(["SHIFT-1", "SHIFT-2"], shift_label_cache)
 
 		self.assertEqual(labels, {"SHIFT-1": "1", "SHIFT-2": "2"})
-		get_all.assert_called_once_with(
+		get_list.assert_called_once_with(
 			"Shift",
 			filters={"name": ["in", ["SHIFT-2"]]},
 			fields=["name", "shift_label"],
+			limit_page_length=0,
 		)
 
 		with patch(
-			"production_entry_app.production_entry_app.report.production_oee_report.production_oee_report.frappe.get_all",
-		) as get_all:
+			"production_entry_app.production_entry_app.report.production_oee_report.production_oee_report.frappe.get_list",
+		) as get_list:
 			labels = _get_shift_labels(["SHIFT-1", "SHIFT-2"], shift_label_cache)
 
 		self.assertEqual(labels, {"SHIFT-1": "1", "SHIFT-2": "2"})
-		get_all.assert_not_called()
+		get_list.assert_not_called()
 
 	def test_operator_efficiency_report_groups_by_operator(self) -> None:
 		from production_entry_app.production_entry_app.report.operator_efficiency_report.operator_efficiency_report import (

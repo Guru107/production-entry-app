@@ -235,11 +235,12 @@ def get_linked_downtime_entries(shift_name: str | None = None) -> list[dict]:
 		shift.get("planned_end_time") or "23:59:59",
 	)
 
-	entries = frappe.get_all(
+	entries = frappe.get_list(
 		"Downtime Entry",
 		filters=build_interval_overlap_filters("from_time", "to_time", start_dt, end_dt),
 		fields=["name", "workstation", "operator", "from_time", "to_time", "downtime", "stop_reason"],
 		order_by="from_time asc",
+		limit_page_length=0,
 	)
 	return entries
 
@@ -265,7 +266,7 @@ def check_running_shift_conflict(shift_name: str) -> dict:
 	if not current_shift or not current_shift.get("department") or not current_shift.get("branch"):
 		return {"has_conflict": False, "conflicting_shifts": []}
 
-	running = frappe.get_all(
+	running = frappe.get_list(
 		"Shift",
 		filters=[
 			["status", "=", "Running"],
@@ -274,6 +275,7 @@ def check_running_shift_conflict(shift_name: str) -> dict:
 			["branch", "=", current_shift["branch"]],
 		],
 		fields=["name", "shift_label", "shift_date", "supervisor"],
+		limit_page_length=0,
 	)
 	return {
 		"has_conflict": len(running) > 0,
@@ -321,7 +323,7 @@ def _empty_shift_summary() -> dict:
 
 
 def _get_shift_summary_cache_key(shift_name: str) -> str:
-	return f"pea:shift_summary:{shift_name}"
+	return f"pea:shift_summary:{shift_name}:{frappe.session.user}"
 
 
 def _get_shift_metrics_cache_key(shift_name: str) -> str:
@@ -347,7 +349,7 @@ def _with_shift_summary_float_precision(summary: dict) -> dict:
 def invalidate_shift_summary_cache(shift_name: str | None) -> None:
 	if not shift_name:
 		return
-	frappe.cache().delete_value(_get_shift_summary_cache_key(shift_name))
+	frappe.cache().delete_keys(f"pea:shift_summary:{shift_name}:")
 
 
 def invalidate_shift_summary_for_shift(doc, method: str | None = None) -> None:
@@ -715,6 +717,9 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 		raise frappe.PermissionError
 	if not shift_exists:
 		return _empty_shift_summary()
+	for doctype in ("Stock Entry", "BOM", "Downtime Entry"):
+		if not frappe.has_permission(doctype, "read"):
+			raise frappe.PermissionError
 	cached_summary = _get_cached_shift_summary(shift_name)
 	if cached_summary is not None:
 		return _with_shift_summary_float_precision(cached_summary)
@@ -726,7 +731,7 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 		return empty_summary
 	shift, start_dt, end_dt = window
 
-	entry_rows = frappe.get_all(
+	entry_rows = frappe.get_list(
 		"Stock Entry",
 		filters={"docstatus": 1, "purpose": "Manufacture", "custom_pea_shift": shift_name},
 		fields=[
@@ -741,6 +746,7 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 			"bom_no",
 		],
 		order_by="name asc",
+		limit_page_length=0,
 	)
 	entry_names = [row.get("name") for row in entry_rows if row.get("name")]
 	item_by_entry = (
@@ -760,7 +766,12 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 	item_by_bom = (
 		{
 			row.get("name"): row.get("item")
-			for row in frappe.get_all("BOM", filters={"name": ["in", bom_names]}, fields=["name", "item"])
+			for row in frappe.get_list(
+				"BOM",
+				filters={"name": ["in", bom_names]},
+				fields=["name", "item"],
+				limit_page_length=0,
+			)
 		}
 		if bom_names
 		else {}
@@ -776,7 +787,7 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 		if entry_names
 		else []
 	)
-	logged_downtime_rows = frappe.get_all(
+	logged_downtime_rows = frappe.get_list(
 		"Downtime Entry",
 		filters=[
 			["custom_pea_shift", "=", shift_name],
@@ -784,6 +795,7 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 		],
 		fields=["name", "downtime", "from_time", "to_time", "stop_reason"],
 		order_by="from_time asc",
+		limit_page_length=0,
 	)
 	planned_loss_rows = frappe.get_all(
 		"Loss Entry",
@@ -910,7 +922,18 @@ def get_shift_aggregate_production_entries(shift_name: str | None = None) -> lis
 		raise frappe.PermissionError
 	if not shift_exists:
 		return []
+	for doctype in ("Stock Entry", "BOM"):
+		if not frappe.has_permission(doctype, "read"):
+			raise frappe.PermissionError
 	float_precision = get_system_float_precision()
+	permitted_entry_names = frappe.get_list(
+		"Stock Entry",
+		filters={"docstatus": 1, "purpose": "Manufacture", "custom_pea_shift": shift_name},
+		pluck="name",
+		limit_page_length=0,
+	)
+	if not permitted_entry_names:
+		return []
 
 	stock_entry = DocType("Stock Entry")
 	bom = DocType("BOM")
@@ -943,6 +966,7 @@ def get_shift_aggregate_production_entries(shift_name: str | None = None) -> lis
 			(stock_entry.docstatus == 1)
 			& (stock_entry.purpose == "Manufacture")
 			& (stock_entry.custom_pea_shift == shift_name)
+			& stock_entry.name.isin(permitted_entry_names)
 			& stock_entry.bom_no.isnotnull()
 			& (stock_entry.bom_no != "")
 		)
@@ -1157,7 +1181,11 @@ class Shift(Document):
 			self._validate_running_shift_edits()
 
 		if current_status in ("Completed", "Cancelled"):
-			frappe.throw(_("Shift in {0} state cannot be modified.").format(frappe.bold(current_status)))
+			frappe.throw(
+				_("Shift in {0} state cannot be modified.").format(
+					frappe.bold(frappe.utils.escape_html(str(current_status)))
+				)
+			)
 
 	def _get_current_status_for_locking(self) -> str | None:
 		before = self.get_doc_before_save()
@@ -1256,8 +1284,8 @@ class Shift(Document):
 		if existing:
 			frappe.throw(
 				_("Shift {0} already exists for date {1}.").format(
-					frappe.bold(self.shift_label),
-					frappe.bold(str(self.shift_date)),
+					frappe.bold(frappe.utils.escape_html(str(self.shift_label))),
+					frappe.bold(frappe.utils.escape_html(str(self.shift_date))),
 				)
 			)
 
@@ -1268,7 +1296,8 @@ class Shift(Document):
 		if self.status not in allowed_from:
 			frappe.throw(
 				_("Invalid status transition from {0} to {1}.").format(
-					frappe.bold(self.status), frappe.bold(to_status)
+					frappe.bold(frappe.utils.escape_html(str(self.status))),
+					frappe.bold(frappe.utils.escape_html(str(to_status))),
 				)
 			)
 
@@ -1278,7 +1307,8 @@ class Shift(Document):
 		self.add_comment(
 			"Info",
 			_("Status changed to {0} by {1}").format(
-				frappe.bold(to_status), frappe.bold(frappe.session.user)
+				frappe.bold(frappe.utils.escape_html(str(to_status))),
+				frappe.bold(frappe.utils.escape_html(str(frappe.session.user))),
 			),
 		)
 
@@ -1286,13 +1316,17 @@ class Shift(Document):
 			_send_shift_notification(
 				self,
 				event="start",
-				subject=_("Shift {0} has been started.").format(frappe.bold(self.name)),
+				subject=_("Shift {0} has been started.").format(
+					frappe.bold(frappe.utils.escape_html(str(self.name)))
+				),
 			)
 		elif to_status == "Completed":
 			_send_shift_notification(
 				self,
 				event="end",
-				subject=_("Shift {0} has been completed.").format(frappe.bold(self.name)),
+				subject=_("Shift {0} has been completed.").format(
+					frappe.bold(frappe.utils.escape_html(str(self.name)))
+				),
 			)
 
 	def _calculate_planned_end_time_and_dates(self) -> None:

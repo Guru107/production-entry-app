@@ -147,6 +147,23 @@ class TestDieToolCounterUtils(FrappeTestCase):
 
 		self.assertIsNone(row)
 
+	def test_get_counter_snapshot_does_not_create_missing_counter(self) -> None:
+		with patch(
+			"production_entry_app.production_entry_app.utils.die_tool_counter.frappe.db.exists",
+			return_value=True,
+		):
+			with patch(
+				"production_entry_app.production_entry_app.utils.die_tool_counter.frappe.db.get_value",
+				return_value=None,
+			):
+				with patch(
+					"production_entry_app.production_entry_app.utils.die_tool_counter._ensure_counter_exists"
+				) as ensure_counter:
+					row = get_counter_snapshot("DIE-001", retries=0)
+
+		self.assertIsNone(row)
+		ensure_counter.assert_not_called()
+
 	def test_get_counter_health_uses_exact_utilization_for_threshold_check(self) -> None:
 		utilization_pct, is_maintenance_due = get_counter_health(
 			current_strokes=1,

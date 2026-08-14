@@ -268,14 +268,12 @@ class TestGetShiftTimelineData(FrappeTestCase):
 		from production_entry_app.production_entry_app.api_timeline import get_shift_timeline_data
 
 		shift = self._create_running_shift("2026-10-05")
-		frappe.db.set_value(
-			"Production Entry Settings",
+		frappe.db.set_single_value(
 			"Production Entry Settings",
 			"shift_raw_material_warehouse",
 			self.ctx["rm_warehouse"],
 		)
-		frappe.db.set_value(
-			"Production Entry Settings",
+		frappe.db.set_single_value(
 			"Production Entry Settings",
 			"shift_rejection_warehouse",
 			self.ctx["rejection_warehouse"],
@@ -472,10 +470,33 @@ class TestGetShiftTimelineData(FrappeTestCase):
 	def test_raises_permission_error_when_running_shift_not_readable(self) -> None:
 		from production_entry_app.production_entry_app.api_timeline import get_shift_timeline_data
 
-		self._create_running_shift("2026-10-09")
-		with patch(
-			"production_entry_app.production_entry_app.api_timeline.frappe.has_permission",
-			side_effect=[True, False],
+		shift = self._create_running_shift("2026-10-09")
+		with (
+			patch(
+				"production_entry_app.production_entry_app.api_timeline.frappe.get_list",
+				return_value=[{"name": shift.name}],
+			),
+			patch(
+				"production_entry_app.production_entry_app.api_timeline.frappe.has_permission",
+				side_effect=[True, False],
+			),
+		):
+			with self.assertRaises(frappe.PermissionError):
+				get_shift_timeline_data("Workstation", self.workstation_a)
+
+	def test_raises_permission_error_when_stock_entries_not_readable(self) -> None:
+		from production_entry_app.production_entry_app.api_timeline import get_shift_timeline_data
+
+		shift = self._create_running_shift("2026-10-09")
+		with (
+			patch(
+				"production_entry_app.production_entry_app.api_timeline.frappe.get_list",
+				return_value=[{"name": shift.name}],
+			),
+			patch(
+				"production_entry_app.production_entry_app.api_timeline.frappe.has_permission",
+				side_effect=[True, True, False],
+			),
 		):
 			with self.assertRaises(frappe.PermissionError):
 				get_shift_timeline_data("Workstation", self.workstation_a)
@@ -504,7 +525,7 @@ class TestGetShiftTimelineData(FrappeTestCase):
 		]
 		with (
 			patch(
-				"production_entry_app.production_entry_app.api_timeline.frappe.get_all",
+				"production_entry_app.production_entry_app.api_timeline.frappe.get_list",
 				return_value=running_shift,
 			),
 			patch(
