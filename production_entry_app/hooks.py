@@ -140,7 +140,8 @@ before_uninstall = ["production_entry_app.production_entry_app.lifecycle.before_
 # override_doctype_class = {
 # 	"ToDo": "custom_app.overrides.CustomToDo"
 # }
-override_doctype_class = {
+# Frappe v15 has no extend_doctype_class hook; keep this compatibility fallback covered by regression tests.
+override_doctype_class = {  # nosemgrep: override-doctype-class
 	"Stock Entry": "production_entry_app.production_entry_app.overrides.stock_entry.ProductionEntryAppStockEntry"
 }
 
