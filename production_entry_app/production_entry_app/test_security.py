@@ -5,7 +5,6 @@ from pathlib import Path
 
 from frappe.tests.utils import FrappeTestCase
 
-
 PACKAGE_ROOT = Path(__file__).parent
 
 
@@ -14,7 +13,7 @@ class TestSecurityGuidelines(FrappeTestCase):
 		violations = []
 		for path, tree in self._production_trees():
 			for node in ast.walk(tree):
-				if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+				if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
 					continue
 				if not any(self._is_whitelist_decorator(item) for item in node.decorator_list):
 					continue
