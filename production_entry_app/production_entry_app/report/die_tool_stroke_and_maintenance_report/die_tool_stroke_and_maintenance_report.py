@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import frappe
 from frappe import _
 from frappe.utils import flt
 
 from production_entry_app.production_entry_app.report.report_utils import (
 	apply_system_precision,
+	get_report_rows,
 )
 from production_entry_app.production_entry_app.utils.die_tool_counter import get_counter_health
 
@@ -91,7 +91,7 @@ def _get_rows(filters: dict) -> list[dict]:
 	if filters.get("item_code"):
 		counter_filters["die_tool_item"] = filters.get("item_code")
 
-	counters = frappe.get_list(
+	counters = get_report_rows(
 		"Die Tool Counter",
 		filters=counter_filters,
 		fields=[
@@ -110,7 +110,7 @@ def _get_rows(filters: dict) -> list[dict]:
 	if filters.get("item_code"):
 		maintenance_filters["die_tool_item"] = filters.get("item_code")
 
-	maintenance_rows = frappe.get_list(
+	maintenance_rows = get_report_rows(
 		"Die Tool Maintenance Log",
 		filters=maintenance_filters,
 		fields=["die_tool_item", "maintenance_date"],

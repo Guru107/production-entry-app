@@ -31,6 +31,15 @@ _STOCK_ENTRY_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
 }
 
 
+def get_report_rows(doctype: str, **kwargs) -> list[dict]:
+	"""Read report source rows without granting PEA Read Only access to the source DocType."""
+	if frappe.has_permission(doctype, "read"):
+		return frappe.get_list(doctype, **kwargs)
+	if "PEA Read Only" not in frappe.get_roles() or not frappe.has_permission("Shift", "report"):
+		raise frappe.PermissionError
+	return frappe.get_all(doctype, **kwargs)
+
+
 def build_stock_entry_filters(filters: dict, filter_keys: tuple[str, ...]) -> dict:
 	db_filters: dict = {"docstatus": 1, "purpose": "Manufacture"}
 
@@ -223,7 +232,7 @@ def _fetch_stock_entry_chunk(
 			if not last_name:
 				frappe.throw(_("Missing Stock Entry name for keyset pagination."))
 			permission_filters.append(["name", ">", last_name])
-		return frappe.get_list(
+		return get_report_rows(
 			"Stock Entry",
 			filters=permission_filters,
 			fields=fields,
@@ -236,7 +245,7 @@ def _fetch_stock_entry_chunk(
 		last_name = last_row.get("name")
 		if last_posting_date is None or not last_name:
 			frappe.throw(_("Missing Stock Entry posting date or name for keyset pagination."))
-		same_day_rows = frappe.get_list(
+		same_day_rows = get_report_rows(
 			"Stock Entry",
 			filters=[
 				*permission_filters,
@@ -250,7 +259,7 @@ def _fetch_stock_entry_chunk(
 		remaining = chunk_size - len(same_day_rows)
 		if remaining <= 0:
 			return same_day_rows
-		later_rows = frappe.get_list(
+		later_rows = get_report_rows(
 			"Stock Entry",
 			filters=[*permission_filters, ["posting_date", ">", last_posting_date]],
 			fields=fields,
@@ -259,7 +268,7 @@ def _fetch_stock_entry_chunk(
 		)
 		return [*same_day_rows, *later_rows]
 
-	return frappe.get_list(
+	return get_report_rows(
 		"Stock Entry",
 		filters=permission_filters,
 		fields=fields,
@@ -573,6 +582,14 @@ def apply_system_precision(columns: list[dict]) -> list[dict]:
 	for column in columns:
 		if column.get("fieldtype") in {"Float", "Percent"}:
 			column["precision"] = precision
+		if (
+			column.get("fieldtype") == "Link"
+			and column.get("options")
+			and "PEA Read Only" in frappe.get_roles()
+			and not frappe.has_permission(column.get("options"), "read")
+		):
+			column["fieldtype"] = "Data"
+			column.pop("options", None)
 	return columns
 
 

@@ -276,10 +276,9 @@
    "report": 1
   },
   {
-   "read": 1,
-   "select": 1,
+   "report": 1,
    "role": "PEA Read Only",
-   "report": 1
+   "select": 1
   }
  ],
  "sort_field": "modified",
