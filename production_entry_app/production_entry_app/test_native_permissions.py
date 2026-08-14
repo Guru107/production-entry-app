@@ -31,6 +31,18 @@ PEA_READ_ONLY_STANDARD_READ_DOCTYPES: tuple[str, ...] = (
 	"UOM",
 )
 
+PEA_MODULE_DOCTYPES: tuple[str, ...] = (
+	"Die Tool Counter",
+	"Die Tool Maintenance Log",
+	"Downtime Reason",
+	"Loss Entry",
+	"Operator",
+	"Production Entry Settings",
+	"Rejection Breakup",
+	"Rejection Reason",
+	"Shift",
+)
+
 PEA_READ_ONLY_ALLOWED_STANDARD_FLAGS: tuple[str, ...] = ("read", "select")
 
 PEA_READ_ONLY_BLOCKED_STANDARD_FLAGS: tuple[str, ...] = (
@@ -140,6 +152,22 @@ class TestNativeShiftPermissions(FrappeTestCase):
 				self.assertEqual(row.get(flag), 1, f"{doctype}.{flag} must be enabled")
 			for flag in PEA_READ_ONLY_BLOCKED_STANDARD_FLAGS:
 				self.assertEqual(row.get(flag), 0, f"{doctype}.{flag} must stay disabled")
+
+	def test_pea_roles_have_select_permission_on_module_doctypes(self) -> None:
+		for doctype in PEA_MODULE_DOCTYPES:
+			frappe.reload_doc("production_entry_app", "doctype", frappe.scrub(doctype))
+			for role in ("PEA User", "PEA Read Only"):
+				rows = frappe.get_all(
+					"DocPerm",
+					filters={
+						"parent": doctype,
+						"role": role,
+					},
+					fields=["read", "select"],
+				)
+				self.assertEqual(len(rows), 1, f"{doctype} must have one {role} DocPerm row")
+				self.assertEqual(rows[0].get("read"), 1, f"{doctype}.{role}.read must be enabled")
+				self.assertEqual(rows[0].get("select"), 1, f"{doctype}.{role}.select must be enabled")
 
 	def test_pea_read_only_can_open_stock_settings(self) -> None:
 		email = f"test_native_stock_settings_readonly_{frappe.generate_hash(length=6)}@example.com"
