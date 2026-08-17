@@ -4,5 +4,4 @@
 
 [post_model_sync]
 production_entry_app.patches.backfill_shift_title
-production_entry_app.patches.restrict_pea_read_only_to_reports
 # Patches added in this section will be executed after doctypes are migrated
