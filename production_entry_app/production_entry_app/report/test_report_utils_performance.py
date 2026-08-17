@@ -162,7 +162,13 @@ class TestReportUtilsPerformance(FrappeTestCase):
 				chunk_size=10,
 			)
 
-		get_list.assert_called_once()
+		get_list.assert_called_once_with(
+			"Stock Entry",
+			filters=[["docstatus", "=", 1]],
+			fields=["name"],
+			order_by="name asc",
+			limit_page_length=10,
+		)
 		get_query.assert_not_called()
 
 	def test_get_entry_qty_maps_includes_finished_item_map(self) -> None:

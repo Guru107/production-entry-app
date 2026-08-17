@@ -148,18 +148,20 @@ class TestDieToolCounterUtils(FrappeTestCase):
 		self.assertIsNone(row)
 
 	def test_get_counter_snapshot_does_not_create_missing_counter(self) -> None:
-		with patch(
-			"production_entry_app.production_entry_app.utils.die_tool_counter.frappe.db.exists",
-			return_value=True,
-		):
-			with patch(
+		with (
+			patch(
+				"production_entry_app.production_entry_app.utils.die_tool_counter.frappe.db.exists",
+				return_value=True,
+			),
+			patch(
 				"production_entry_app.production_entry_app.utils.die_tool_counter.frappe.db.get_value",
 				return_value=None,
-			):
-				with patch(
-					"production_entry_app.production_entry_app.utils.die_tool_counter._ensure_counter_exists"
-				) as ensure_counter:
-					row = get_counter_snapshot("DIE-001", retries=0)
+			),
+			patch(
+				"production_entry_app.production_entry_app.utils.die_tool_counter._ensure_counter_exists"
+			) as ensure_counter,
+		):
+			row = get_counter_snapshot("DIE-001", retries=0)
 
 		self.assertIsNone(row)
 		ensure_counter.assert_not_called()

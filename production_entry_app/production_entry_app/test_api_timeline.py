@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import frappe
 from frappe.exceptions import ValidationError
@@ -593,6 +593,31 @@ class TestGetShiftTimelineData(FrappeTestCase):
 		# Verify fresh data is returned with the new shift end (not 16:00)
 		result = get_shift_timeline_data("Workstation", self.workstation_a)
 		self.assertIn("18:00", result["shift_end"])
+
+	def test_timeline_cache_is_disabled_for_non_administrator_users(self) -> None:
+		from production_entry_app.production_entry_app.api_timeline import (
+			_get_cached_timeline_data,
+			_set_cached_timeline_data,
+		)
+
+		cache = MagicMock()
+		cache.get_value.return_value = {"entries": [{"name": "PRIVATE-ENTRY"}]}
+		with (
+			patch(
+				"production_entry_app.production_entry_app.api_timeline.frappe.session",
+				frappe._dict(user="restricted@example.com"),
+			),
+			patch(
+				"production_entry_app.production_entry_app.api_timeline.frappe.cache",
+				return_value=cache,
+			),
+		):
+			_set_cached_timeline_data("Workstation", self.workstation_a, "SHIFT-001", {"entries": []})
+			cached = _get_cached_timeline_data("Workstation", self.workstation_a, "SHIFT-001")
+
+		self.assertIsNone(cached)
+		cache.get_value.assert_not_called()
+		cache.set_value.assert_not_called()
 
 	def test_timeline_cache_is_invalidated_when_running_shift_duration_changes(self) -> None:
 		"""When a Running shift's duration is updated, the timeline cache must be

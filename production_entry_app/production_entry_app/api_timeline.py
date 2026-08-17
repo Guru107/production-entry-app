@@ -17,10 +17,12 @@ def _get_timeline_cache_key(doctype: str, docname: str, shift_name: str) -> str:
 	"""Cache key includes shift's modified timestamp so any change to the shift
 	automatically invalidates the timeline cache."""
 	shift_modified = frappe.db.get_value("Shift", shift_name, "modified") or ""
-	return f"pea:timeline:{frappe.session.user}:{doctype}:{docname}:{shift_name}:{shift_modified}"
+	return f"pea:timeline:admin:{doctype}:{docname}:{shift_name}:{shift_modified}"
 
 
 def _set_cached_timeline_data(doctype: str, docname: str, shift_name: str, data: dict) -> None:
+	if frappe.session.user != "Administrator":
+		return
 	frappe.cache().set_value(
 		_get_timeline_cache_key(doctype, docname, shift_name),
 		data,
@@ -34,6 +36,8 @@ def _get_cached_timeline_data(doctype: str, docname: str, shift_name: str) -> di
 	Cache is keyed by the shift's modified timestamp, so any change to the shift
 	automatically produces a different key, making the cache stale.
 	"""
+	if frappe.session.user != "Administrator":
+		return None
 	return frappe.cache().get_value(_get_timeline_cache_key(doctype, docname, shift_name))
 
 

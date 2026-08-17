@@ -3,6 +3,7 @@ from __future__ import annotations
 from frappe import _
 from frappe.utils import flt
 
+from production_entry_app.production_entry_app.compat import IS_V15
 from production_entry_app.production_entry_app.report.report_utils import (
 	apply_system_precision,
 	get_report_rows,
@@ -110,28 +111,35 @@ def _get_rows(filters: dict) -> list[dict]:
 	if filters.get("item_code"):
 		maintenance_filters["die_tool_item"] = filters.get("item_code")
 
+	maintenance_fields = (
+		[
+			"die_tool_item",
+			"count(name) as maintenance_count",
+			"max(maintenance_date) as last_maintenance_date",
+		]
+		if IS_V15
+		else [
+			"die_tool_item",
+			{"COUNT": "name", "as": "maintenance_count"},
+			{"MAX": "maintenance_date", "as": "last_maintenance_date"},
+		]
+	)
 	maintenance_rows = get_report_rows(
 		"Die Tool Maintenance Log",
 		filters=maintenance_filters,
-		fields=["die_tool_item", "maintenance_date"],
+		fields=maintenance_fields,
+		group_by="die_tool_item",
+		order_by=None,
 		limit_page_length=0,
 	)
-	maintenance_map: dict[str, dict] = {}
-	for maintenance_row in maintenance_rows:
-		die_tool_item = maintenance_row.get("die_tool_item")
-		if not die_tool_item:
-			continue
-
-		summary = maintenance_map.setdefault(
-			die_tool_item,
-			{"last_maintenance_date": None, "maintenance_count": 0},
-		)
-		summary["maintenance_count"] += 1
-		maintenance_date = maintenance_row.get("maintenance_date")
-		if maintenance_date and (
-			not summary["last_maintenance_date"] or maintenance_date > summary["last_maintenance_date"]
-		):
-			summary["last_maintenance_date"] = maintenance_date
+	maintenance_map = {
+		row.get("die_tool_item"): {
+			"last_maintenance_date": row.get("last_maintenance_date"),
+			"maintenance_count": int(row.get("maintenance_count") or 0),
+		}
+		for row in maintenance_rows
+		if row.get("die_tool_item")
+	}
 
 	rows = []
 	for counter in counters:

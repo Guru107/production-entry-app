@@ -250,7 +250,7 @@ class TestShiftPureHelpers(FrappeTestCase):
 		self.assertEqual(summary["snapshot"]["entry_count"], 0)
 		self.assertEqual(
 			shift_module._get_shift_metrics_cache_key("SHIFT-001"),
-			f"pea:shift_summary:SHIFT-001:{frappe.session.user}",
+			"pea:shift_summary:SHIFT-001:admin",
 		)
 		self.assertEqual(shift_module._with_shift_summary_float_precision({"snapshot": {}})["snapshot"], {})
 		with patch(
@@ -321,6 +321,26 @@ class TestShiftPureHelpers(FrappeTestCase):
 
 		self.assertEqual(summary["snapshot"]["entry_count"], 0)
 		set_cache.assert_called_once()
+
+	def test_shift_summary_cache_is_disabled_for_non_administrator_users(self) -> None:
+		cache = MagicMock()
+		cache.get_value.return_value = {"snapshot": {"entry_count": 1}}
+		with (
+			patch(
+				"production_entry_app.production_entry_app.doctype.shift.shift.frappe.session",
+				frappe._dict(user="restricted@example.com"),
+			),
+			patch(
+				"production_entry_app.production_entry_app.doctype.shift.shift.frappe.cache",
+				return_value=cache,
+			),
+		):
+			shift_module._set_cached_shift_summary("SHIFT-001", {"snapshot": {"entry_count": 0}})
+			cached = shift_module._get_cached_shift_summary("SHIFT-001")
+
+		self.assertIsNone(cached)
+		cache.get_value.assert_not_called()
+		cache.set_value.assert_not_called()
 
 	def test_summary_and_aggregate_return_empty_when_shift_was_deleted(self) -> None:
 		with patch(
@@ -3285,6 +3305,27 @@ class TestShiftAggregateProductionEntries(FrappeTestCase):
 		):
 			with self.assertRaises(frappe.PermissionError):
 				get_shift_aggregate_production_entries(shift.name)
+
+	def test_filters_aggregate_by_permitted_bom_names(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import (
+			get_shift_aggregate_production_entries,
+		)
+
+		shift = self._create_shift("2026-10-02", shift_label="2")
+		with patch(
+			"production_entry_app.production_entry_app.doctype.shift.shift.frappe.get_list",
+			side_effect=[[frappe._dict(name="STE-001", bom_no=self.bom)], []],
+		) as get_list:
+			rows = get_shift_aggregate_production_entries(shift.name)
+
+		self.assertEqual(rows, [])
+		self.assertEqual(get_list.call_count, 2)
+		get_list.assert_any_call(
+			"BOM",
+			filters={"name": ["in", [self.bom]]},
+			pluck="name",
+			limit_page_length=0,
+		)
 
 	def test_aggregates_bom_based_quantities(self) -> None:
 		from production_entry_app.production_entry_app.doctype.shift.shift import (

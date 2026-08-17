@@ -323,7 +323,7 @@ def _empty_shift_summary() -> dict:
 
 
 def _get_shift_summary_cache_key(shift_name: str) -> str:
-	return f"pea:shift_summary:{shift_name}:{frappe.session.user}"
+	return f"pea:shift_summary:{shift_name}:admin"
 
 
 def _get_shift_metrics_cache_key(shift_name: str) -> str:
@@ -331,10 +331,14 @@ def _get_shift_metrics_cache_key(shift_name: str) -> str:
 
 
 def _get_cached_shift_summary(shift_name: str) -> dict | None:
+	if frappe.session.user != "Administrator":
+		return None
 	return frappe.cache().get_value(_get_shift_summary_cache_key(shift_name))
 
 
 def _set_cached_shift_summary(shift_name: str, summary: dict) -> None:
+	if frappe.session.user != "Administrator":
+		return
 	frappe.cache().set_value(
 		_get_shift_summary_cache_key(shift_name), summary, expires_in_sec=METRICS_CACHE_TTL_SEC
 	)
@@ -926,13 +930,23 @@ def get_shift_aggregate_production_entries(shift_name: str | None = None) -> lis
 		if not frappe.has_permission(doctype, "read"):
 			raise frappe.PermissionError
 	float_precision = get_system_float_precision()
-	permitted_entry_names = frappe.get_list(
+	permitted_entries = frappe.get_list(
 		"Stock Entry",
 		filters={"docstatus": 1, "purpose": "Manufacture", "custom_pea_shift": shift_name},
+		fields=["name", "bom_no"],
+		limit_page_length=0,
+	)
+	permitted_entry_names = [row.get("name") for row in permitted_entries if row.get("name")]
+	if not permitted_entry_names:
+		return []
+	requested_bom_names = sorted({row.get("bom_no") for row in permitted_entries if row.get("bom_no")})
+	permitted_bom_names = frappe.get_list(
+		"BOM",
+		filters={"name": ["in", requested_bom_names]},
 		pluck="name",
 		limit_page_length=0,
 	)
-	if not permitted_entry_names:
+	if not permitted_bom_names:
 		return []
 
 	stock_entry = DocType("Stock Entry")
@@ -967,6 +981,7 @@ def get_shift_aggregate_production_entries(shift_name: str | None = None) -> lis
 			& (stock_entry.purpose == "Manufacture")
 			& (stock_entry.custom_pea_shift == shift_name)
 			& stock_entry.name.isin(permitted_entry_names)
+			& stock_entry.bom_no.isin(permitted_bom_names)
 			& stock_entry.bom_no.isnotnull()
 			& (stock_entry.bom_no != "")
 		)

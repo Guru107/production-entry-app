@@ -13,7 +13,6 @@ from production_entry_app.production_entry_app.utils.alternative_items import (
 from production_entry_app.production_entry_app.utils.die_tool_counter import (
 	_get_or_create_counter,
 	get_counter_health,
-	get_counter_snapshot,
 	is_die_tool_enabled,
 )
 from production_entry_app.production_entry_app.utils.shift_time import get_shift_planned_end_datetime
@@ -191,11 +190,13 @@ def get_die_tool_counter(die_tool_code: str) -> dict:
 	if not is_die_tool_enabled(die_tool_code):
 		return _empty_die_tool_payload(die_tool_code)
 
-	counter = get_counter_snapshot(die_tool_code)
-	if counter and not frappe.has_permission(
-		"Die Tool Counter", "read", counter.get("name") or die_tool_code
-	):
-		raise frappe.PermissionError
+	counters = frappe.get_list(
+		"Die Tool Counter",
+		filters={"die_tool_item": die_tool_code},
+		fields=["name", "current_stroke_count", "stroke_capacity", "warning_threshold_pct"],
+		limit=1,
+	)
+	counter = counters[0] if counters else None
 	if not counter:
 		return {
 			"die_tool_code": die_tool_code,

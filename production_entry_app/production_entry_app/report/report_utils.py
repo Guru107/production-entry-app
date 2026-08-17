@@ -4,6 +4,7 @@ import datetime
 import time
 from collections import defaultdict
 from collections.abc import Iterator
+from typing import Any
 
 import frappe
 from frappe import _
@@ -31,7 +32,7 @@ _STOCK_ENTRY_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
 }
 
 
-def get_report_rows(doctype: str, **kwargs) -> list[dict]:
+def get_report_rows(doctype: str, **kwargs: Any) -> list[dict]:
 	"""Read report source rows without granting PEA Read Only access to the source DocType."""
 	if frappe.has_permission(doctype, "read"):
 		return frappe.get_list(doctype, **kwargs)

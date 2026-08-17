@@ -38,6 +38,7 @@ from production_entry_app.production_entry_app.e2e_api import (
 	create_e2e_downtime_entry,
 	create_e2e_full_shift_stock_entries,
 	create_e2e_submitted_stock_entry,
+	reset_e2e_die_tool_counter,
 	set_e2e_system_float_precision,
 )
 from production_entry_app.production_entry_app.utils.alternative_items import (
@@ -91,6 +92,7 @@ class TestE2EApi(FrappeTestCase):
 			"create_e2e_submitted_stock_entry",
 			"create_e2e_full_shift_stock_entries",
 			"create_e2e_downtime_entry",
+			"reset_e2e_die_tool_counter",
 			"set_e2e_access_control",
 			"set_e2e_system_float_precision",
 		):
@@ -235,6 +237,33 @@ class TestE2EApi(FrappeTestCase):
 				cleanup_e2e_context(prefix="E2E-Guard")
 			with self.assertRaises(frappe.PermissionError):
 				create_e2e_submitted_stock_entry(prefix="E2E-Guard")
+			with self.assertRaises(frappe.PermissionError):
+				reset_e2e_die_tool_counter(prefix="E2E_GUARD_W0")
+
+	def test_reset_e2e_die_tool_counter_restricts_item_to_reserved_prefix(self) -> None:
+		with (
+			patch("production_entry_app.production_entry_app.e2e_api._assert_e2e_api_allowed"),
+			patch(
+				"production_entry_app.production_entry_app.e2e_api.reset_die_tool_counter"
+			) as reset_counter,
+		):
+			with self.assertRaises(frappe.ValidationError):
+				reset_e2e_die_tool_counter(prefix="PRODUCTION")
+
+		reset_counter.assert_not_called()
+
+	def test_reset_e2e_die_tool_counter_resets_only_context_fg_item(self) -> None:
+		with (
+			patch("production_entry_app.production_entry_app.e2e_api._assert_e2e_api_allowed"),
+			patch(
+				"production_entry_app.production_entry_app.e2e_api.reset_die_tool_counter",
+				return_value={"current_strokes": 0},
+			) as reset_counter,
+		):
+			result = reset_e2e_die_tool_counter(prefix="E2E_DIE_TOOL_METRICS_W0")
+
+		self.assertEqual(result, {"current_strokes": 0})
+		reset_counter.assert_called_once_with("_E2E_DIE_TOOL_METRICS_W0_FG_Item")
 
 	def test_stock_entry_matches_cleanup_target_by_operator_or_fg_item(self) -> None:
 		operator_only_match = frappe._dict(
@@ -454,20 +483,24 @@ class TestE2EApi(FrappeTestCase):
 		self.assertEqual(finalize.call_args.args[1]["ok"], False)
 
 	def test_get_die_tool_counter_preserves_unrounded_utilization_and_threshold_check(self) -> None:
-		with patch("production_entry_app.production_entry_app.api.frappe.has_permission", return_value=True):
-			with patch("production_entry_app.production_entry_app.api.frappe.db.exists", return_value=True):
-				with patch(
-					"production_entry_app.production_entry_app.api.is_die_tool_enabled", return_value=True
-				):
-					with patch(
-						"production_entry_app.production_entry_app.api.get_counter_snapshot",
-						return_value={
+		with (
+			patch("production_entry_app.production_entry_app.api.frappe.has_permission", return_value=True),
+			patch("production_entry_app.production_entry_app.api.frappe.db.exists", return_value=True),
+			patch("production_entry_app.production_entry_app.api.is_die_tool_enabled", return_value=True),
+			patch(
+				"production_entry_app.production_entry_app.api.frappe.get_list",
+				return_value=[
+					frappe._dict(
+						{
 							"current_stroke_count": 1,
 							"stroke_capacity": 3,
 							"warning_threshold_pct": 33.3333,
-						},
-					):
-						result = get_die_tool_counter("ITEM-001")
+						}
+					)
+				],
+			),
+		):
+			result = get_die_tool_counter("ITEM-001")
 
 		self.assertAlmostEqual(float(result.get("utilization_pct") or 0), 33.3333333333, places=6)
 		self.assertEqual(int(result.get("is_maintenance_due") or 0), 1)
@@ -480,41 +513,49 @@ class TestE2EApi(FrappeTestCase):
 				with self.assertRaises(frappe.PermissionError):
 					get_die_tool_counter("ITEM-001")
 
-	def test_get_die_tool_counter_denies_existing_counter_without_read_permission(self) -> None:
+	def test_get_die_tool_counter_treats_hidden_counter_as_absent(self) -> None:
 		with (
 			patch("production_entry_app.production_entry_app.api.frappe.db.exists", return_value=True),
-			patch(
-				"production_entry_app.production_entry_app.api.frappe.has_permission",
-				side_effect=[True, False],
-			),
+			patch("production_entry_app.production_entry_app.api.frappe.has_permission", return_value=True),
 			patch("production_entry_app.production_entry_app.api.is_die_tool_enabled", return_value=True),
 			patch(
-				"production_entry_app.production_entry_app.api.get_counter_snapshot",
-				return_value={"name": "DIE-TOOL-COUNTER-001"},
-			),
+				"production_entry_app.production_entry_app.api.frappe.get_list", return_value=[]
+			) as get_list,
 		):
-			with self.assertRaises(frappe.PermissionError):
-				get_die_tool_counter("ITEM-001")
+			result = get_die_tool_counter("ITEM-001")
+
+		self.assertEqual(result["has_die_tool"], 1)
+		self.assertEqual(result["current_strokes"], 0)
+		get_list.assert_called_once_with(
+			"Die Tool Counter",
+			filters={"die_tool_item": "ITEM-001"},
+			fields=["name", "current_stroke_count", "stroke_capacity", "warning_threshold_pct"],
+			limit=1,
+		)
 
 	def test_get_die_tool_counter_includes_float_precision_without_rounding_payload(self) -> None:
 		from production_entry_app.production_entry_app.utils.system_precision import (
 			get_system_float_precision,
 		)
 
-		with patch("production_entry_app.production_entry_app.api.frappe.has_permission", return_value=True):
-			with patch("production_entry_app.production_entry_app.api.frappe.db.exists", return_value=True):
-				with patch(
-					"production_entry_app.production_entry_app.api.is_die_tool_enabled", return_value=True
-				):
-					with patch(
-						"production_entry_app.production_entry_app.api.get_counter_snapshot",
-						return_value={
+		with (
+			patch("production_entry_app.production_entry_app.api.frappe.has_permission", return_value=True),
+			patch("production_entry_app.production_entry_app.api.frappe.db.exists", return_value=True),
+			patch("production_entry_app.production_entry_app.api.is_die_tool_enabled", return_value=True),
+			patch(
+				"production_entry_app.production_entry_app.api.frappe.get_list",
+				return_value=[
+					frappe._dict(
+						{
 							"current_stroke_count": 12.5,
 							"stroke_capacity": 50,
 							"warning_threshold_pct": 90,
-						},
-					):
-						result = get_die_tool_counter("ITEM-001")
+						}
+					)
+				],
+			),
+		):
+			result = get_die_tool_counter("ITEM-001")
 
 		self.assertEqual(result["float_precision"], get_system_float_precision())
 		self.assertIsInstance(result["current_strokes"], float)
@@ -786,9 +827,9 @@ class TestE2EApi(FrappeTestCase):
 		finally:
 			frappe.session.user = previous_user
 
-		self.assertEqual(cache.delete_value.call_count, 2)
-		cache.delete_value.assert_any_call("pea:timeline:Administrator:Workstation:E2E Workstation:SHIFT-001")
-		cache.delete_value.assert_any_call("pea:timeline:Administrator:Operator:E2E Operator:SHIFT-001")
+		self.assertEqual(cache.delete_keys.call_count, 2)
+		cache.delete_keys.assert_any_call("pea:timeline:admin:Workstation:E2E Workstation:SHIFT-001:")
+		cache.delete_keys.assert_any_call("pea:timeline:admin:Operator:E2E Operator:SHIFT-001:")
 
 	def test_safe_force_delete_logs_delete_failures(self) -> None:
 		with patch(

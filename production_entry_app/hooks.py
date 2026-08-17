@@ -125,13 +125,18 @@ before_uninstall = ["production_entry_app.production_entry_app.lifecycle.before_
 
 # notification_config = "production_entry_app.notifications.get_notification_config"
 
-# permission_query_conditions = {
-# 	"Event": "frappe.desk.doctype.event.event.get_permission_query_conditions",
-# }
+permission_query_conditions = {
+	"Report": "production_entry_app.production_entry_app.report_access.get_report_permission_query_conditions",
+}
 #
 # has_permission = {
 # 	"Event": "frappe.desk.doctype.event.event.has_permission",
 # }
+
+override_whitelisted_methods = {
+	"frappe.desk.query_report.get_script": "production_entry_app.production_entry_app.report_access.get_script",
+	"frappe.desk.query_report.run": "production_entry_app.production_entry_app.report_access.run",
+}
 
 # DocType Class
 # ---------------
