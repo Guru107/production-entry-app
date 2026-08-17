@@ -206,16 +206,16 @@ fixtures = [
 		"dt": "DocPerm",
 		"filters": [
 			[
-				"parent",
+				"name",
 				"in",
 				[
-					"Fiscal Year",
-					"BOM",
-					"Item",
-					"Workstation",
+					"pea-read-only-fiscal-year",
+					"pea-read-only-bom",
+					"pea-read-only-item",
+					"pea-read-only-workstation",
+					"pea-user-stock-settings",
 				],
 			],
-			["role", "=", "PEA Read Only"],
 			["permlevel", "=", 0],
 			["if_owner", "=", 0],
 		],

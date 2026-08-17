@@ -118,6 +118,25 @@ class TestNativeShiftPermissions(FrappeTestCase):
 		finally:
 			frappe.set_user("Administrator")
 
+	def test_pea_user_can_read_stock_settings_required_by_stock_entry_form(self) -> None:
+		from frappe.client import get_single_value, get_value
+
+		email = f"test_native_stock_settings_user_{frappe.generate_hash(length=6)}@example.com"
+		_ensure_user_with_exact_roles(email, ("PEA User",))
+
+		try:
+			frappe.set_user(email)
+			self.assertTrue(frappe.has_permission("Stock Settings", "read"))
+			self.assertFalse(frappe.has_permission("Stock Settings", "write"))
+			get_value(
+				"Stock Settings",
+				"sample_retention_warehouse",
+				filters={"name": "Stock Settings"},
+			)
+			get_single_value("Stock Settings", "disable_serial_no_and_batch_selector")
+		finally:
+			frappe.set_user("Administrator")
+
 	def test_pea_read_only_can_report_but_cannot_read_shift(self) -> None:
 		from frappe.desk.search import search_link
 
@@ -146,7 +165,7 @@ class TestNativeShiftPermissions(FrappeTestCase):
 		for doctype in PEA_STANDARD_DEPENDENCY_DOCTYPES:
 			rows = frappe.get_all(
 				"DocPerm",
-				filters={"parent": doctype, "role": ["in", ["PEA User", "PEA Read Only"]]},
+				filters={"parent": doctype, "role": "PEA Read Only"},
 				fields=["role", "permlevel", "if_owner", "select", *PEA_READ_ONLY_BLOCKED_FLAGS],
 			)
 			if doctype not in PEA_REPORT_FILTER_STANDARD_DOCTYPES:
