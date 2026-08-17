@@ -3575,17 +3575,17 @@ class TestShiftPermissions(FrappeTestCase):
 			"User with only Blogger role must not have Shift read permission.",
 		)
 
-	def test_loss_entry_permissions_include_pea_roles(self) -> None:
+	def test_loss_entry_permissions_exclude_pea_read_only(self) -> None:
 		meta = frappe.get_meta("Loss Entry")
 		roles = {perm.role for perm in meta.permissions}
 		self.assertIn("PEA User", roles)
-		self.assertIn("PEA Read Only", roles)
+		self.assertNotIn("PEA Read Only", roles)
 
-	def test_rejection_breakup_permissions_include_pea_roles(self) -> None:
+	def test_rejection_breakup_permissions_exclude_pea_read_only(self) -> None:
 		meta = frappe.get_meta("Rejection Breakup")
 		roles = {perm.role for perm in meta.permissions}
 		self.assertIn("PEA User", roles)
-		self.assertIn("PEA Read Only", roles)
+		self.assertNotIn("PEA Read Only", roles)
 
 	def _expected_name(self, department: str, shift_date: str, shift_label: str) -> str:
 		sequence = frappe.db.count("Shift", {"shift_date": shift_date}) + 1

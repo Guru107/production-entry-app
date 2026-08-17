@@ -3989,12 +3989,12 @@ class TestDieToolCounter(FrappeTestCase):
 		self.assertEqual(int(result.get("is_maintenance_due") or 0), 0)
 		self.assertFalse(frappe.db.exists("Die Tool Counter", non_item_code))
 
-	def test_get_die_tool_counter_returns_safe_payload_when_counter_snapshot_missing(self) -> None:
+	def test_get_die_tool_counter_returns_safe_payload_when_permission_aware_lookup_is_empty(self) -> None:
 		from production_entry_app.production_entry_app.api import get_die_tool_counter
 
 		with patch(
-			"production_entry_app.production_entry_app.api.get_counter_snapshot",
-			return_value=None,
+			"production_entry_app.production_entry_app.api.frappe.get_list",
+			return_value=[],
 		):
 			result = get_die_tool_counter(self.fg_item)
 
