@@ -58,7 +58,9 @@ class TestReadOnlyReportAccess(FrappeTestCase):
 				"production_entry_app.production_entry_app.report_access.frappe.get_roles",
 				return_value=["PEA Read Only"],
 			),
-			patch("production_entry_app.production_entry_app.report_access.query_report.get_script") as core_get_script,
+			patch(
+				"production_entry_app.production_entry_app.report_access.query_report.get_script"
+			) as core_get_script,
 			self.assertRaises(frappe.PermissionError),
 		):
 			get_script("General Ledger")
