@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import frappe
 from frappe import _
 from frappe.utils import flt
 
@@ -11,6 +10,7 @@ from production_entry_app.production_entry_app.report.report_utils import (
 	get_entry_total_strokes,
 	get_parent_loss_metrics,
 	get_parent_quantity_metrics,
+	get_report_rows,
 	iter_stock_entries_in_chunks,
 )
 
@@ -68,10 +68,11 @@ def _build_filters(filters: dict) -> dict:
 def _get_shift_duration_map(shift_names: set[str]) -> dict[str, float]:
 	if not shift_names:
 		return {}
-	rows = frappe.get_all(
+	rows = get_report_rows(
 		"Shift",
 		filters={"name": ["in", list(shift_names)]},
 		fields=["name", "shift_duration"],
+		limit_page_length=0,
 	)
 	return {row.get("name"): flt(row.get("shift_duration") or 0) for row in rows if row.get("name")}
 

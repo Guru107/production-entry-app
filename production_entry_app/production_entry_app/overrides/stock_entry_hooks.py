@@ -12,7 +12,6 @@ from frappe.model.meta import get_field_precision
 from frappe.query_builder import DocType
 from frappe.utils import flt, format_datetime, get_datetime, get_time
 
-from production_entry_app.production_entry_app.doctype.shift.shift import _get_shift_metrics_cache_key
 from production_entry_app.production_entry_app.utils.alternative_items import (
 	apply_direct_manufacture_alternative_flags,
 	get_bom_alternative_allowed_items,
@@ -119,7 +118,7 @@ def _invalidate_shift_metrics_cache(doc) -> None:
 	shift_name = doc.get("custom_pea_shift")
 	if not shift_name:
 		return
-	frappe.cache().delete_value(_get_shift_metrics_cache_key(shift_name))
+	frappe.cache().delete_keys(f"pea:shift_summary:{shift_name}:")
 
 
 def _apply_shift_defaults(doc) -> None:
@@ -168,6 +167,8 @@ def _validate_linked_shift_can_accept_stock_entry(doc) -> None:
 	shift_name = doc.get("custom_pea_shift")
 	if not shift_name:
 		return
+	if not frappe.has_permission("Shift", "read", shift_name):
+		raise frappe.PermissionError
 
 	status = frappe.db.get_value("Shift", shift_name, "status")
 	if status not in _ALLOWED_STOCK_ENTRY_SHIFT_STATUSES:
@@ -175,8 +176,8 @@ def _validate_linked_shift_can_accept_stock_entry(doc) -> None:
 			_(
 				"Only Running or Completed shifts can be linked in Stock Entry. Selected shift {0} is {1}."
 			).format(
-				frappe.bold(shift_name),
-				frappe.bold(status or _("not found")),
+				frappe.bold(frappe.utils.escape_html(str(shift_name))),
+				frappe.bold(frappe.utils.escape_html(str(status or _("not found")))),
 			)
 		)
 
@@ -346,7 +347,8 @@ def _validate_workstation_overlap(doc) -> None:
 
 	frappe.throw(
 		_("Workstation {0} is already in use by {1} during this time period.").format(
-			frappe.bold(workstation), frappe.bold(conflict["name"])
+			frappe.bold(frappe.utils.escape_html(str(workstation))),
+			frappe.bold(frappe.utils.escape_html(str(conflict["name"]))),
 		)
 	)
 
@@ -363,7 +365,8 @@ def _validate_operator_overlap(doc) -> None:
 
 	frappe.throw(
 		_("Operator {0} is already assigned to {1} during this time period.").format(
-			frappe.bold(operator), frappe.bold(conflict["name"])
+			frappe.bold(frappe.utils.escape_html(str(operator))),
+			frappe.bold(frappe.utils.escape_html(str(conflict["name"]))),
 		)
 	)
 
@@ -387,8 +390,8 @@ def _validate_workstation_downtime_overlap(doc) -> None:
 		_(
 			"Workstation {0} has a downtime entry ({1}) from {2} to {3} that overlaps with this production entry."
 		).format(
-			frappe.bold(workstation),
-			frappe.bold(conflict["name"]),
+			frappe.bold(frappe.utils.escape_html(str(workstation))),
+			frappe.bold(frappe.utils.escape_html(str(conflict["name"]))),
 			format_datetime(conflict["from_time"]),
 			format_datetime(conflict["to_time"]),
 		)
@@ -493,7 +496,7 @@ def _validate_direct_manufacture_alternative_row(
 		frappe.throw(
 			_("Row {0}: BOM item {1} does not allow alternative items.").format(
 				row.idx,
-				frappe.bold(original_item),
+				frappe.bold(frappe.utils.escape_html(str(original_item))),
 			),
 			ValidationError,
 		)
@@ -501,8 +504,8 @@ def _validate_direct_manufacture_alternative_row(
 		frappe.throw(
 			_("Row {0}: Item {1} is not configured as an alternative for BOM item {2}.").format(
 				row.idx,
-				frappe.bold(item_code),
-				frappe.bold(original_item),
+				frappe.bold(frappe.utils.escape_html(str(item_code))),
+				frappe.bold(frappe.utils.escape_html(str(original_item))),
 			),
 			ValidationError,
 		)
@@ -516,8 +519,8 @@ def _validate_bom_contains_item(
 	frappe.throw(
 		_("Row {0}: Item {1} is not part of BOM {2}.").format(
 			row.idx,
-			frappe.bold(item_code),
-			frappe.bold(bom_no),
+			frappe.bold(frappe.utils.escape_html(str(item_code))),
+			frappe.bold(frappe.utils.escape_html(str(bom_no))),
 		),
 		ValidationError,
 	)

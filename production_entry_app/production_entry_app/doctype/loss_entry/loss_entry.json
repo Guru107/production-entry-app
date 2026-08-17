@@ -102,11 +102,6 @@
    "select": 1,
    "write": 1,
    "role": "PEA User"
-  },
-  {
-   "read": 1,
-   "select": 1,
-   "role": "PEA Read Only"
   }
  ],
  "sort_field": "modified",

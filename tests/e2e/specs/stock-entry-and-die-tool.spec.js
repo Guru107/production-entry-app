@@ -77,7 +77,7 @@ test.describe("Stock Entry integration", () => {
 		expect(warningMessage).toBe("");
 	});
 
-	test("@regression get_die_tool_counter stays non-throwing during concurrent first reads", async ({
+	test("@regression get_die_tool_counter stays side-effect-free during concurrent first reads", async ({
 		page,
 	}) => {
 		await page.goto(getRoute("/home"));
@@ -107,6 +107,12 @@ test.describe("Stock Entry integration", () => {
 				)
 			)
 		);
+		const counterAfterReads = await callFrappeMethod(page, "frappe.client.get_value", {
+			doctype: "Die Tool Counter",
+			filters: JSON.stringify({ die_tool_item: ctx.fg_item }),
+			fieldname: "name",
+		});
+		expect(counterAfterReads?.name || counterAfterReads?.message?.name).toBeFalsy();
 
 		const stockEntryPage = new StockEntryPage(page);
 		await stockEntryPage.openNew();

@@ -13,7 +13,6 @@ from production_entry_app.production_entry_app.utils.alternative_items import (
 from production_entry_app.production_entry_app.utils.die_tool_counter import (
 	_get_or_create_counter,
 	get_counter_health,
-	get_counter_snapshot,
 	is_die_tool_enabled,
 )
 from production_entry_app.production_entry_app.utils.shift_time import get_shift_planned_end_datetime
@@ -70,8 +69,8 @@ def get_shift_details_for_stock_entry(shift_name: str) -> dict:
 			_(
 				"Only Running or Completed shifts can be linked in Stock Entry. Selected shift {0} is {1}."
 			).format(
-				frappe.bold(shift.name),
-				frappe.bold(shift.status or _("not found")),
+				frappe.bold(frappe.utils.escape_html(str(shift.name))),
+				frappe.bold(frappe.utils.escape_html(str(shift.status or _("not found")))),
 			)
 		)
 
@@ -114,7 +113,13 @@ def get_items_with_rejection(doc: str) -> list[dict]:
 		_apply_rejection_entries,
 	)
 
-	doc_dict = json.loads(doc) if isinstance(doc, str) else doc
+	try:
+		doc_dict = json.loads(doc)
+	except (TypeError, ValueError):
+		frappe.throw(_("Stock Entry payload must be a valid JSON object."))
+	if not isinstance(doc_dict, dict) or doc_dict.get("doctype") not in (None, "Stock Entry"):
+		frappe.throw(_("Stock Entry payload must be a valid JSON object."))
+
 	docname = (doc_dict or {}).get("name")
 	is_local_doc = bool((doc_dict or {}).get("__islocal"))
 	if docname and not is_local_doc and frappe.db.exists("Stock Entry", docname):
@@ -122,6 +127,17 @@ def get_items_with_rejection(doc: str) -> list[dict]:
 			raise frappe.PermissionError
 	elif not frappe.has_permission("Stock Entry", "create"):
 		raise frappe.PermissionError
+
+	for doctype, fieldname in (
+		("BOM", "bom_no"),
+		("Work Order", "work_order"),
+		("Shift", "custom_pea_shift"),
+		("Warehouse", "from_warehouse"),
+		("Warehouse", "to_warehouse"),
+	):
+		name = doc_dict.get(fieldname)
+		if name and not frappe.has_permission(doctype, "read", name):
+			raise frappe.PermissionError
 
 	se = frappe.new_doc("Stock Entry")
 	se.purpose = doc_dict.get("purpose", "Manufacture")
@@ -169,10 +185,18 @@ def get_items_with_rejection(doc: str) -> list[dict]:
 def get_die_tool_counter(die_tool_code: str) -> dict:
 	if not die_tool_code or not frappe.db.exists("Item", die_tool_code):
 		return _empty_die_tool_payload(die_tool_code)
+	if not frappe.has_permission("Item", "read", die_tool_code):
+		raise frappe.PermissionError
 	if not is_die_tool_enabled(die_tool_code):
 		return _empty_die_tool_payload(die_tool_code)
 
-	counter = get_counter_snapshot(die_tool_code)
+	counters = frappe.get_list(
+		"Die Tool Counter",
+		filters={"die_tool_item": die_tool_code},
+		fields=["name", "current_stroke_count", "stroke_capacity", "warning_threshold_pct"],
+		limit=1,
+	)
+	counter = counters[0] if counters else None
 	if not counter:
 		return {
 			"die_tool_code": die_tool_code,

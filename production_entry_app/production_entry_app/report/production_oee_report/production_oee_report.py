@@ -10,6 +10,7 @@ from production_entry_app.production_entry_app.report.report_utils import (
 	get_entry_total_strokes,
 	get_loss_duration_minutes,
 	get_parent_quantity_metrics,
+	get_report_rows,
 	iter_stock_entries_in_chunks,
 	new_interactive_report_timeout_guard,
 )
@@ -381,13 +382,14 @@ def _get_availability_hours_by_group(
 
 
 def _get_shift_duration_hours_by_name(shift_names: list[str]) -> dict[str, float]:
-	shift_rows = frappe.get_all(
+	shift_rows = get_report_rows(
 		"Shift",
 		filters={
 			"name": ["in", shift_names],
 			"status": ["in", ["Running", "Completed"]],
 		},
 		fields=["name", "shift_duration"],
+		limit_page_length=0,
 	)
 	return {row.get("name"): flt(row.get("shift_duration") or 0) for row in shift_rows if row.get("name")}
 
@@ -447,10 +449,11 @@ def _get_shift_labels(
 		{shift_name for shift_name in shift_names if shift_name and shift_name not in shift_label_cache}
 	)
 	if missing_shift_names:
-		rows = frappe.get_all(
+		rows = get_report_rows(
 			"Shift",
 			filters={"name": ["in", missing_shift_names]},
 			fields=["name", "shift_label"],
+			limit_page_length=0,
 		)
 		fetched_shift_labels = {
 			row.get("name"): str(row.get("shift_label") or "") for row in rows if row.get("name")

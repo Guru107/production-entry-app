@@ -125,13 +125,18 @@ before_uninstall = ["production_entry_app.production_entry_app.lifecycle.before_
 
 # notification_config = "production_entry_app.notifications.get_notification_config"
 
-# permission_query_conditions = {
-# 	"Event": "frappe.desk.doctype.event.event.get_permission_query_conditions",
-# }
+permission_query_conditions = {
+	"Report": "production_entry_app.production_entry_app.report_access.get_report_permission_query_conditions",
+}
 #
 # has_permission = {
 # 	"Event": "frappe.desk.doctype.event.event.has_permission",
 # }
+
+override_whitelisted_methods = {
+	"frappe.desk.query_report.get_script": "production_entry_app.production_entry_app.report_access.get_script",
+	"frappe.desk.query_report.run": "production_entry_app.production_entry_app.report_access.run",
+}
 
 # DocType Class
 # ---------------
@@ -140,7 +145,8 @@ before_uninstall = ["production_entry_app.production_entry_app.lifecycle.before_
 # override_doctype_class = {
 # 	"ToDo": "custom_app.overrides.CustomToDo"
 # }
-override_doctype_class = {
+# Frappe v15 has no extend_doctype_class hook; keep this compatibility fallback covered by regression tests.
+override_doctype_class = {  # nosemgrep: override-doctype-class
 	"Stock Entry": "production_entry_app.production_entry_app.overrides.stock_entry.ProductionEntryAppStockEntry"
 }
 
@@ -200,24 +206,16 @@ fixtures = [
 		"dt": "DocPerm",
 		"filters": [
 			[
-				"parent",
+				"name",
 				"in",
 				[
-					"Page",
-					"Company",
-					"Fiscal Year",
-					"Stock Entry",
-					"Stock Entry Detail",
-					"Stock Settings",
-					"BOM",
-					"BOM Item",
-					"Item",
-					"Workstation",
-					"Warehouse",
-					"UOM",
+					"pea-read-only-fiscal-year",
+					"pea-read-only-bom",
+					"pea-read-only-item",
+					"pea-read-only-workstation",
+					"pea-user-stock-settings",
 				],
 			],
-			["role", "=", "PEA Read Only"],
 			["permlevel", "=", 0],
 			["if_owner", "=", 0],
 		],

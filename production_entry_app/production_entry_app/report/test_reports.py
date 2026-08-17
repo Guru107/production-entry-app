@@ -912,25 +912,26 @@ class TestProductionReports(FrappeTestCase):
 
 		shift_label_cache = {"SHIFT-1": "1"}
 		with patch(
-			"production_entry_app.production_entry_app.report.production_oee_report.production_oee_report.frappe.get_all",
+			"production_entry_app.production_entry_app.report.production_oee_report.production_oee_report.frappe.get_list",
 			return_value=[{"name": "SHIFT-2", "shift_label": "2"}],
-		) as get_all:
+		) as get_list:
 			labels = _get_shift_labels(["SHIFT-1", "SHIFT-2"], shift_label_cache)
 
 		self.assertEqual(labels, {"SHIFT-1": "1", "SHIFT-2": "2"})
-		get_all.assert_called_once_with(
+		get_list.assert_called_once_with(
 			"Shift",
 			filters={"name": ["in", ["SHIFT-2"]]},
 			fields=["name", "shift_label"],
+			limit_page_length=0,
 		)
 
 		with patch(
-			"production_entry_app.production_entry_app.report.production_oee_report.production_oee_report.frappe.get_all",
-		) as get_all:
+			"production_entry_app.production_entry_app.report.production_oee_report.production_oee_report.frappe.get_list",
+		) as get_list:
 			labels = _get_shift_labels(["SHIFT-1", "SHIFT-2"], shift_label_cache)
 
 		self.assertEqual(labels, {"SHIFT-1": "1", "SHIFT-2": "2"})
-		get_all.assert_not_called()
+		get_list.assert_not_called()
 
 	def test_operator_efficiency_report_groups_by_operator(self) -> None:
 		from production_entry_app.production_entry_app.report.operator_efficiency_report.operator_efficiency_report import (
@@ -1355,6 +1356,60 @@ class TestProductionReports(FrappeTestCase):
 		)
 		self.assertAlmostEqual(float(rows[0]["warning_threshold_pct"]), db_threshold, delta=derived_abs_tol)
 		self.assertEqual(int(rows[0]["maintenance_due"]), 1)
+
+	def test_die_tool_stroke_report_groups_maintenance_history_in_database(self) -> None:
+		from production_entry_app.production_entry_app.compat import IS_V15
+		from production_entry_app.production_entry_app.report.die_tool_stroke_and_maintenance_report import (
+			die_tool_stroke_and_maintenance_report as report,
+		)
+
+		with patch.object(
+			report,
+			"get_report_rows",
+			side_effect=[
+				[
+					frappe._dict(
+						die_tool_item="DIE-001",
+						current_stroke_count=100,
+						stroke_capacity=1000,
+						warning_threshold_pct=90,
+					)
+				],
+				[
+					frappe._dict(
+						die_tool_item="DIE-001",
+						maintenance_count=3,
+						last_maintenance_date="2026-08-16 12:00:00",
+					)
+				],
+			],
+		) as get_rows:
+			rows = report._get_rows({})
+
+		self.assertEqual(rows[0]["maintenance_count"], 3)
+		self.assertEqual(rows[0]["last_maintenance_date"], "2026-08-16 12:00:00")
+		self.assertEqual(
+			get_rows.call_args_list[1].kwargs,
+			{
+				"filters": {"docstatus": 1},
+				"fields": (
+					[
+						"die_tool_item",
+						"count(name) as maintenance_count",
+						"max(maintenance_date) as last_maintenance_date",
+					]
+					if IS_V15
+					else [
+						"die_tool_item",
+						{"COUNT": "name", "as": "maintenance_count"},
+						{"MAX": "maintenance_date", "as": "last_maintenance_date"},
+					]
+				),
+				"group_by": "die_tool_item",
+				"order_by": None,
+				"limit_page_length": 0,
+			},
+		)
 
 	def test_reports_return_empty_when_no_matching_entries(self) -> None:
 		from production_entry_app.production_entry_app.report.operator_efficiency_report.operator_efficiency_report import (

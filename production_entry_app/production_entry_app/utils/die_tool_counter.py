@@ -107,7 +107,6 @@ def get_counter_snapshot(item_code: str, retries: int = 2) -> frappe._dict | Non
 	if not item_code or not frappe.db.exists("Item", item_code):
 		return None
 
-	_ensure_counter_exists(item_code)
 	attempts = max(int(retries), 0) + 1
 	for attempt in range(attempts):
 		row = frappe.db.get_value(

@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import frappe
 from frappe import _
-from frappe.query_builder import DocType
-from frappe.query_builder.functions import Count, Max
 from frappe.utils import flt
 
+from production_entry_app.production_entry_app.compat import IS_V15
 from production_entry_app.production_entry_app.report.report_utils import (
 	apply_system_precision,
+	get_report_rows,
 )
 from production_entry_app.production_entry_app.utils.die_tool_counter import get_counter_health
 
@@ -93,44 +92,54 @@ def _get_rows(filters: dict) -> list[dict]:
 	if filters.get("item_code"):
 		counter_filters["die_tool_item"] = filters.get("item_code")
 
-	die_tool_counter = DocType("Die Tool Counter")
-	query = (
-		frappe.qb.from_(die_tool_counter)
-		.select(
-			die_tool_counter.die_tool_item,
-			die_tool_counter.current_stroke_count,
-			die_tool_counter.stroke_capacity,
-			die_tool_counter.warning_threshold_pct,
-			die_tool_counter.last_reset_on,
-			die_tool_counter.last_reset_by,
-		)
-		.orderby(die_tool_counter.die_tool_item)
+	counters = get_report_rows(
+		"Die Tool Counter",
+		filters=counter_filters,
+		fields=[
+			"die_tool_item",
+			"current_stroke_count",
+			"stroke_capacity",
+			"warning_threshold_pct",
+			"last_reset_on",
+			"last_reset_by",
+		],
+		order_by="die_tool_item asc",
+		limit_page_length=0,
 	)
-	for fieldname, value in counter_filters.items():
-		query = query.where(die_tool_counter[fieldname] == value)
-	counters = query.run(as_dict=True)
 
 	maintenance_filters = {"docstatus": 1}
 	if filters.get("item_code"):
 		maintenance_filters["die_tool_item"] = filters.get("item_code")
 
-	die_tool_maintenance_log = DocType("Die Tool Maintenance Log")
-	maintenance_query = (
-		frappe.qb.from_(die_tool_maintenance_log)
-		.select(
-			die_tool_maintenance_log.die_tool_item,
-			Max(die_tool_maintenance_log.maintenance_date).as_("last_maintenance_date"),
-			Count(die_tool_maintenance_log.name).as_("maintenance_count"),
-		)
-		.where(die_tool_maintenance_log.docstatus == 1)
-		.groupby(die_tool_maintenance_log.die_tool_item)
+	maintenance_fields = (
+		[
+			"die_tool_item",
+			"count(name) as maintenance_count",
+			"max(maintenance_date) as last_maintenance_date",
+		]
+		if IS_V15
+		else [
+			"die_tool_item",
+			{"COUNT": "name", "as": "maintenance_count"},
+			{"MAX": "maintenance_date", "as": "last_maintenance_date"},
+		]
 	)
-	if filters.get("item_code"):
-		maintenance_query = maintenance_query.where(
-			die_tool_maintenance_log.die_tool_item == filters.get("item_code")
-		)
-	maintenance_rows = maintenance_query.run(as_dict=True)
-	maintenance_map = {row.get("die_tool_item"): row for row in maintenance_rows}
+	maintenance_rows = get_report_rows(
+		"Die Tool Maintenance Log",
+		filters=maintenance_filters,
+		fields=maintenance_fields,
+		group_by="die_tool_item",
+		order_by=None,
+		limit_page_length=0,
+	)
+	maintenance_map = {
+		row.get("die_tool_item"): {
+			"last_maintenance_date": row.get("last_maintenance_date"),
+			"maintenance_count": int(row.get("maintenance_count") or 0),
+		}
+		for row in maintenance_rows
+		if row.get("die_tool_item")
+	}
 
 	rows = []
 	for counter in counters:

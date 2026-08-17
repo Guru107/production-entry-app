@@ -7,7 +7,10 @@ from frappe.query_builder import DocType
 from frappe.utils import add_to_date, cint, get_datetime
 from pypika import Order
 
-from production_entry_app.production_entry_app.api import _cleanup_orphan_stock_entry_loss_links
+from production_entry_app.production_entry_app.api import (
+	_cleanup_orphan_stock_entry_loss_links,
+	reset_die_tool_counter,
+)
 from production_entry_app.production_entry_app.utils.shift_time import get_shift_planned_end_datetime
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	cleanup_running_shifts,
@@ -316,15 +319,13 @@ def _get_or_create_e2e_employee(prefix: str, company: str) -> str:
 
 
 def _clear_timeline_cache_for_context(ctx: dict, shift_name: str) -> None:
-	user = frappe.session.user
 	for doctype, docname in (
 		("Workstation", ctx.get("workstation")),
 		("Operator", ctx.get("operator")),
 	):
 		if not docname:
 			continue
-		cache_key = f"pea:timeline:{user}:{doctype}:{docname}:{shift_name}"
-		frappe.cache().delete_value(cache_key)
+		frappe.cache().delete_keys(f"pea:timeline:admin:{doctype}:{docname}:{shift_name}:")
 
 
 def _build_e2e_shift_doc(
@@ -710,6 +711,16 @@ def cleanup_e2e_context(prefix: str = "E2E") -> dict:
 	"""Remove seeded E2E docs and end running shifts created for E2E."""
 	_assert_e2e_api_allowed()
 	return _cleanup_e2e_context(prefix=prefix)
+
+
+@frappe.whitelist()
+def reset_e2e_die_tool_counter(prefix: str = "E2E") -> dict:
+	"""Reset only the finished-good item reserved for an E2E context."""
+	_assert_e2e_api_allowed()
+	prefix_value = (prefix or "").strip()
+	if prefix_value != "E2E" and not prefix_value.startswith("E2E_"):
+		frappe.throw(_("Prefix must identify a reserved E2E context."), frappe.ValidationError)
+	return reset_die_tool_counter(f"_{prefix_value}_FG_Item")
 
 
 def _collect_reserved_e2e_prefixes() -> list[str]:

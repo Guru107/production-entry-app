@@ -809,6 +809,24 @@ class TestStockEntryHooks(FrappeTestCase):
 
 		self.assertEqual(se.branch, "Test Branch SE")
 
+	def test_linked_shift_requires_read_permission_before_lookup(self) -> None:
+		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
+			_validate_linked_shift_can_accept_stock_entry,
+		)
+
+		doc = frappe._dict(custom_pea_shift="SHIFT-HIDDEN")
+		with patch(
+			"production_entry_app.production_entry_app.overrides.stock_entry_hooks.frappe.has_permission",
+			return_value=False,
+		):
+			with patch(
+				"production_entry_app.production_entry_app.overrides.stock_entry_hooks.frappe.db.get_value"
+			) as get_value:
+				with self.assertRaises(frappe.PermissionError):
+					_validate_linked_shift_can_accept_stock_entry(doc)
+
+		get_value.assert_not_called()
+
 	def test_shift_reference_auto_fills_planned_dates(self) -> None:
 		shift = _create_test_shift(
 			shift_date="2026-04-11",
@@ -3823,7 +3841,7 @@ class TestDieToolCounter(FrappeTestCase):
 		):
 			on_submit_stock_entry(doc, "on_submit")
 
-		cache_fn.return_value.delete_value.assert_called_once_with(f"pea:shift_summary:{shift_name}")
+		cache_fn.return_value.delete_keys.assert_called_once_with(f"pea:shift_summary:{shift_name}:")
 
 	def test_cache_invalidated_on_stock_entry_cancel(self) -> None:
 		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
@@ -3842,7 +3860,7 @@ class TestDieToolCounter(FrappeTestCase):
 		):
 			on_cancel_stock_entry(doc, "on_cancel")
 
-		cache_fn.return_value.delete_value.assert_called_once_with(f"pea:shift_summary:{shift_name}")
+		cache_fn.return_value.delete_keys.assert_called_once_with(f"pea:shift_summary:{shift_name}:")
 
 	def test_die_tool_counter_resets_on_maintenance_log_submit(self) -> None:
 		if frappe.db.exists("Die Tool Counter", self.fg_item):
@@ -3971,12 +3989,12 @@ class TestDieToolCounter(FrappeTestCase):
 		self.assertEqual(int(result.get("is_maintenance_due") or 0), 0)
 		self.assertFalse(frappe.db.exists("Die Tool Counter", non_item_code))
 
-	def test_get_die_tool_counter_returns_safe_payload_when_counter_snapshot_missing(self) -> None:
+	def test_get_die_tool_counter_returns_safe_payload_when_permission_aware_lookup_is_empty(self) -> None:
 		from production_entry_app.production_entry_app.api import get_die_tool_counter
 
 		with patch(
-			"production_entry_app.production_entry_app.api.get_counter_snapshot",
-			return_value=None,
+			"production_entry_app.production_entry_app.api.frappe.get_list",
+			return_value=[],
 		):
 			result = get_die_tool_counter(self.fg_item)
 
