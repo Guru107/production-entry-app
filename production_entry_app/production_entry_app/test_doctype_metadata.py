@@ -16,6 +16,7 @@ REQUIRED_SEARCH_INDEXES: dict[str, set[str]] = {
 }
 
 REQUIRED_CUSTOM_FIELD_SEARCH_INDEXES: set[str] = {
+	"Stock Entry-custom_pea_is_joint_lh_rh",
 	"Stock Entry-custom_pea_shift",
 	"Stock Entry-custom_pea_workstation",
 	"Stock Entry-custom_pea_operator",
@@ -73,6 +74,36 @@ def test_stock_entry_detail_rejection_flag_uses_cross_version_anchor() -> None:
 		fields_by_name["Stock Entry Detail-custom_pea_is_rejection_item"].get("insert_after")
 		== "is_finished_item"
 	)
+
+
+def test_joint_lh_rh_production_metadata_is_exported() -> None:
+	fields_by_name = {field.get("name"): field for field in load_custom_field_fixture() if field.get("name")}
+	required_fields = {
+		"Stock Entry Type-custom_pea_joint_lh_rh_production",
+		"Stock Entry-custom_pea_is_joint_lh_rh",
+		"Stock Entry-custom_pea_lh_bom",
+		"Stock Entry-custom_pea_lh_gross_qty",
+		"Stock Entry-custom_pea_lh_rejection_qty",
+		"Stock Entry-custom_pea_rh_bom",
+		"Stock Entry-custom_pea_rh_gross_qty",
+		"Stock Entry-custom_pea_rh_rejection_qty",
+		"Stock Entry-custom_pea_total_strokes",
+		"Stock Entry-custom_pea_die_tool_item",
+		"Stock Entry-custom_pea_total_rm_consumption",
+		"Stock Entry-custom_pea_joint_scrap_qty",
+		"Stock Entry Detail-custom_pea_joint_output_side",
+	}
+	assert not required_fields.difference(fields_by_name)
+	assert fields_by_name["Stock Entry-custom_pea_is_joint_lh_rh"].get("fetch_from") == (
+		"stock_entry_type.custom_pea_joint_lh_rh_production"
+	)
+	assert fields_by_name["Stock Entry-custom_pea_is_joint_lh_rh"].get("read_only") == 1
+
+	rejection_fields = {
+		field.get("fieldname"): field for field in assert_doctype_json("Rejection Breakup").get("fields", [])
+	}
+	assert rejection_fields["output_side"]["options"] == "\nLH\nRH"
+	assert rejection_fields["item_code"]["options"] == "Item"
 
 
 def test_settings_has_no_access_control_fields() -> None:
@@ -167,6 +198,7 @@ def load_tests(
 			test_filtered_custom_fields_are_search_indexed,
 			test_no_app_custom_field_uses_nonzero_permlevel,
 			test_stock_entry_detail_rejection_flag_uses_cross_version_anchor,
+			test_joint_lh_rh_production_metadata_is_exported,
 			test_settings_has_no_access_control_fields,
 			test_pea_roles_are_shipped,
 			test_workspace_has_forms_and_reports_cards,

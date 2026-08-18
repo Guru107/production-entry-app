@@ -12,6 +12,10 @@ from frappe.model.meta import get_field_precision
 from frappe.query_builder import DocType
 from frappe.utils import flt, format_datetime, get_datetime, get_time
 
+from production_entry_app.production_entry_app.overrides.joint_production import (
+	is_joint_lh_rh_production,
+	validate_joint_production,
+)
 from production_entry_app.production_entry_app.utils.alternative_items import (
 	apply_direct_manufacture_alternative_flags,
 	get_bom_alternative_allowed_items,
@@ -71,10 +75,13 @@ def validate_stock_entry(doc: Document, method: str | None = None) -> None:
 	_validate_workstation_overlap(doc)
 	_validate_operator_overlap(doc)
 	_validate_workstation_downtime_overlap(doc)
-	_validate_rejection_breakup(doc)
-	_set_direct_manufacture_alternative_flags(doc)
-	_validate_direct_manufacture_alternative_items(doc)
-	_apply_rejection_entries(doc)
+	if is_joint_lh_rh_production(doc):
+		validate_joint_production(doc)
+	else:
+		_validate_rejection_breakup(doc)
+		_set_direct_manufacture_alternative_flags(doc)
+		_validate_direct_manufacture_alternative_items(doc)
+		_apply_rejection_entries(doc)
 	_validate_rejection_target_warehouses(doc)
 	_set_entry_metrics(doc)
 
@@ -792,7 +799,14 @@ def _set_entry_metrics(doc) -> None:
 
 	deducted_loss_mins = _get_deducted_loss_minutes_for_entry(doc, actual_start, actual_end)
 	production_time_mins = max(duration_mins - deducted_loss_mins, 0)
-	total_strokes = max(flt(doc.get("fg_completed_qty") or 0), 0)
+	total_strokes = max(
+		flt(
+			doc.get("custom_pea_total_strokes")
+			if is_joint_lh_rh_production(doc)
+			else doc.get("fg_completed_qty") or 0
+		),
+		0,
+	)
 	actual_spm = (
 		(total_strokes / production_time_mins) if production_time_mins > 0 and total_strokes > 0 else 0
 	)
@@ -924,6 +938,12 @@ def _get_shift_planned_losses_for_metrics(
 
 
 def _get_ok_units_for_metrics(doc) -> float:
+	if is_joint_lh_rh_production(doc):
+		gross_qty = flt(doc.get("custom_pea_lh_gross_qty")) + flt(doc.get("custom_pea_rh_gross_qty"))
+		rejection_qty = flt(doc.get("custom_pea_lh_rejection_qty")) + flt(
+			doc.get("custom_pea_rh_rejection_qty")
+		)
+		return max(gross_qty - rejection_qty, 0)
 	fg_completed_qty = flt(doc.get("fg_completed_qty") or 0)
 	rejection_qty_field = flt(doc.get("custom_pea_rejection_qty") or 0)
 	return max(fg_completed_qty - rejection_qty_field, 0)
@@ -962,6 +982,8 @@ def _set_die_tool_health_metrics(doc, meta) -> None:
 
 
 def _get_fg_item_code_for_metrics(doc) -> str | None:
+	if is_joint_lh_rh_production(doc):
+		return doc.get("custom_pea_die_tool_item")
 	if doc.get("fg_item"):
 		return doc.get("fg_item")
 	for row in doc.get("items", []):

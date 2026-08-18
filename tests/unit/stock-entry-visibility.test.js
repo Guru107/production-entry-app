@@ -4,6 +4,8 @@ const assert = require("node:assert/strict");
 const {
 	_normalize_purpose,
 	_is_manufacture_doc,
+	_is_joint_doc,
+	_is_production_doc,
 	_did_leave_manufacture,
 	_apply_native_manufacture_visibility,
 	_sync_native_get_items_access,
@@ -35,6 +37,17 @@ test("manufacture decision uses custom_pea_stock_entry_purpose only", () => {
 		}),
 		false
 	);
+});
+
+test("joint LH/RH Repack uses the common production form without native BOM fields", () => {
+	const doc = {
+		custom_pea_stock_entry_purpose: "Repack",
+		custom_pea_is_joint_lh_rh: 1,
+	};
+
+	assert.equal(_is_manufacture_doc(doc), false);
+	assert.equal(_is_joint_doc(doc), true);
+	assert.equal(_is_production_doc(doc), true);
 });
 
 test("manufacture visibility targets include key fields and sections", () => {
@@ -81,7 +94,7 @@ test("native manufacture fields hide for non-manufacture without app access", ()
 	]);
 });
 
-test("stock entry PEA sections are metadata-gated to manufacture", () => {
+test("stock entry PEA sections are metadata-gated to manufacture or joint production", () => {
 	const customFields = require("../../production_entry_app/fixtures/custom_field.json");
 	const byFieldname = Object.fromEntries(
 		customFields.filter((row) => row.dt === "Stock Entry").map((row) => [row.fieldname, row])
@@ -97,6 +110,7 @@ test("stock entry PEA sections are metadata-gated to manufacture", () => {
 		const dependsOn = byFieldname[fieldname]?.depends_on || "";
 		assert.match(dependsOn, /custom_pea_stock_entry_purpose/);
 		assert.match(dependsOn, /Manufacture/);
+		assert.match(dependsOn, /custom_pea_is_joint_lh_rh/);
 	}
 });
 

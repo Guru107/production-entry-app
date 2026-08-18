@@ -168,10 +168,11 @@ def _get_rows(filters: dict, timeout_guard) -> list[dict]:
 		std_spm = flt(group["standard_spm"])
 		stroke_required = flt(raw_running_time * std_spm * 60)
 		total_strokes = flt(group["total_strokes"])
-		rejection = flt(group["rejection"])
+		rejection = flt(group["quality_rejection"])
 		act_spm = flt(total_strokes / (raw_running_time * 60)) if raw_running_time > 0 else 0
 		productivity_pct = flt((act_spm / std_spm) * 100) if std_spm > 0 else 0
-		quality_pct = flt(((total_strokes - rejection) / total_strokes) * 100) if total_strokes > 0 else 0
+		quality_total = flt(group["quality_total"])
+		quality_pct = flt(((quality_total - rejection) / quality_total) * 100) if quality_total > 0 else 0
 		availability_pct = flt((raw_running_time / avl_time_hrs) * 100) if avl_time_hrs > 0 else 0
 		oee = flt((availability_pct + quality_pct + productivity_pct) / 3)
 		oee_mult_pct = flt((availability_pct * quality_pct * productivity_pct) / 10000)
@@ -235,7 +236,10 @@ def _get_stock_entry_groups(
 
 
 def _get_stock_entry_filters(filters: dict) -> dict:
-	stock_entry_filters: dict = {"docstatus": 1, "purpose": "Manufacture"}
+	stock_entry_filters: dict = {
+		"docstatus": 1,
+		"purpose": ["in", ["Manufacture", "Repack"]],
+	}
 	from_date = filters.get("from_date")
 	to_date = filters.get("to_date")
 	if from_date and to_date:
@@ -257,6 +261,12 @@ def _get_stock_entry_fields() -> list[str]:
 		"custom_pea_workstation",
 		"fg_completed_qty",
 		"custom_pea_rejection_qty",
+		"custom_pea_is_joint_lh_rh",
+		"custom_pea_total_strokes",
+		"custom_pea_lh_gross_qty",
+		"custom_pea_lh_rejection_qty",
+		"custom_pea_rh_gross_qty",
+		"custom_pea_rh_rejection_qty",
 		"custom_pea_standard_spm",
 		"custom_pea_actual_duration_mins",
 		"custom_pea_production_time_mins",
@@ -333,6 +343,16 @@ def _add_entry_quantities_to_group(
 ) -> None:
 	group["total_strokes"] += total_strokes
 	group["rejection"] += rejection_qty
+	if entry.get("custom_pea_is_joint_lh_rh"):
+		group["quality_total"] += flt(entry.get("custom_pea_lh_gross_qty")) + flt(
+			entry.get("custom_pea_rh_gross_qty")
+		)
+		group["quality_rejection"] += flt(entry.get("custom_pea_lh_rejection_qty")) + flt(
+			entry.get("custom_pea_rh_rejection_qty")
+		)
+	else:
+		group["quality_total"] += total_strokes
+		group["quality_rejection"] += rejection_qty
 
 	shift_name = entry.get("custom_pea_shift")
 	if shift_name:
@@ -475,6 +495,8 @@ def _new_group(day: str, workstation: str) -> dict:
 		"second_shift_strokes": 0.0,
 		"total_strokes": 0.0,
 		"rejection": 0.0,
+		"quality_total": 0.0,
+		"quality_rejection": 0.0,
 		"standard_spm": 0.0,
 	}
 	for key, _label in LOSS_BUCKETS:

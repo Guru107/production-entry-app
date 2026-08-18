@@ -7,6 +7,9 @@ import frappe
 from frappe import _
 from frappe.utils import get_datetime, get_time, now_datetime
 
+from production_entry_app.production_entry_app.overrides.joint_production import (
+	build_joint_item_rows,
+)
 from production_entry_app.production_entry_app.utils.alternative_items import (
 	apply_direct_manufacture_alternative_flags,
 )
@@ -21,6 +24,58 @@ from production_entry_app.production_entry_app.utils.system_precision import (
 )
 
 _ALLOWED_STOCK_ENTRY_SHIFT_STATUSES: tuple[str, ...] = ("Running", "Completed")
+
+
+@frappe.whitelist()
+def get_joint_production_items(doc: str) -> list[dict]:
+	try:
+		doc_dict = json.loads(doc)
+	except (TypeError, ValueError):
+		frappe.throw(_("Stock Entry payload must be a valid JSON object."))
+	if not isinstance(doc_dict, dict) or doc_dict.get("doctype") not in (None, "Stock Entry"):
+		frappe.throw(_("Stock Entry payload must be a valid JSON object."))
+
+	docname = doc_dict.get("name")
+	is_local_doc = bool(doc_dict.get("__islocal"))
+	if docname and not is_local_doc and frappe.db.exists("Stock Entry", docname):
+		if not frappe.has_permission("Stock Entry", "write", docname):
+			raise frappe.PermissionError
+	elif not frappe.has_permission("Stock Entry", "create"):
+		raise frappe.PermissionError
+
+	for doctype, fieldname in (
+		("BOM", "custom_pea_lh_bom"),
+		("BOM", "custom_pea_rh_bom"),
+		("Item", "custom_pea_die_tool_item"),
+		("Shift", "custom_pea_shift"),
+		("Warehouse", "from_warehouse"),
+		("Warehouse", "to_warehouse"),
+	):
+		name = doc_dict.get(fieldname)
+		if name and not frappe.has_permission(doctype, "read", name):
+			raise frappe.PermissionError
+
+	stock_entry = frappe.new_doc("Stock Entry")
+	for fieldname in (
+		"purpose",
+		"stock_entry_type",
+		"company",
+		"from_warehouse",
+		"to_warehouse",
+		"custom_pea_shift",
+		"custom_pea_is_joint_lh_rh",
+		"custom_pea_lh_bom",
+		"custom_pea_lh_gross_qty",
+		"custom_pea_lh_rejection_qty",
+		"custom_pea_rh_bom",
+		"custom_pea_rh_gross_qty",
+		"custom_pea_rh_rejection_qty",
+		"custom_pea_total_strokes",
+		"custom_pea_die_tool_item",
+		"custom_pea_total_rm_consumption",
+	):
+		stock_entry.set(fieldname, doc_dict.get(fieldname))
+	return build_joint_item_rows(stock_entry)
 
 
 def _cleanup_orphan_stock_entry_loss_links(shift_name: str) -> None:

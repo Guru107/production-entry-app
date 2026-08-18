@@ -25,6 +25,10 @@ _DEFAULT_REPORT_CHUNK_SIZE = 1000
 _DEFAULT_MAX_STOCK_ENTRY_ROWS = 100000
 _DEFAULT_INTERACTIVE_REPORT_TIMEOUT_SEC = 5.0
 _SUPPORTED_STOCK_ENTRY_ORDER_BY = frozenset({"name asc", "posting_date asc, name asc"})
+_PRODUCTION_STOCK_ENTRY_OR_FILTERS: tuple[tuple[str, str, Any], ...] = (
+	("purpose", "=", "Manufacture"),
+	("custom_pea_is_joint_lh_rh", "=", 1),
+)
 _STOCK_ENTRY_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
 	"custom_pea_workstation": ("custom_pea_workstation", "custom_workstation"),
 	"custom_pea_shift": ("custom_pea_shift", "custom_shift"),
@@ -42,7 +46,7 @@ def get_report_rows(doctype: str, **kwargs: Any) -> list[dict]:
 
 
 def build_stock_entry_filters(filters: dict, filter_keys: tuple[str, ...]) -> dict:
-	db_filters: dict = {"docstatus": 1, "purpose": "Manufacture"}
+	db_filters: dict = {"docstatus": 1, "purpose": ["in", ["Manufacture", "Repack"]]}
 
 	from_date = filters.get("from_date")
 	to_date = filters.get("to_date")
@@ -63,6 +67,12 @@ def build_stock_entry_filters(filters: dict, filter_keys: tuple[str, ...]) -> di
 		db_filters["name"] = ["in", parent_names or [""]]
 
 	return db_filters
+
+
+def is_production_stock_entry(entry: dict) -> bool:
+	if "purpose" not in entry and "custom_pea_is_joint_lh_rh" not in entry:
+		return True
+	return entry.get("purpose") == "Manufacture" or bool(entry.get("custom_pea_is_joint_lh_rh"))
 
 
 def get_stock_entry_alias_fields(base_fields: list[str], alias_keys: tuple[str, ...]) -> list[str]:
@@ -133,6 +143,7 @@ def _should_enforce_interactive_report_timeout() -> bool:
 def get_stock_entries_for_fg_item(item_code: str) -> list[str]:
 	stock_entry_detail = DocType("Stock Entry Detail")
 	stock_entry = DocType("Stock Entry")
+	non_scrap_criterion = _get_non_scrap_item_criterion(stock_entry_detail)
 	rows = (
 		frappe.qb.from_(stock_entry_detail)
 		.inner_join(stock_entry)
@@ -148,8 +159,12 @@ def get_stock_entries_for_fg_item(item_code: str) -> list[str]:
 				stock_entry_detail.custom_pea_is_rejection_item.isnull()
 				| (stock_entry_detail.custom_pea_is_rejection_item == 0)
 			)
+			& non_scrap_criterion
 			& (stock_entry.docstatus == 1)
-			& (stock_entry.purpose == "Manufacture")
+			& (
+				(stock_entry.purpose == "Manufacture")
+				| ((stock_entry.purpose == "Repack") & (stock_entry.custom_pea_is_joint_lh_rh == 1))
+			)
 		)
 		.limit(_MAX_FG_ITEM_PARENT_MATCHES + 1)
 	).run(as_dict=True)
@@ -172,30 +187,44 @@ def iter_stock_entries_in_chunks(
 	"""Yield Stock Entry rows in deterministic chunks to avoid blanket reads."""
 	normalized_order_by = _normalize_stock_entry_order_by(order_by)
 	_validate_stock_entry_chunk_fields(fields, normalized_order_by)
+	query_fields = list(fields)
+	for fieldname in (
+		"purpose",
+		"custom_pea_is_joint_lh_rh",
+		"custom_pea_total_strokes",
+		"custom_pea_lh_gross_qty",
+		"custom_pea_lh_rejection_qty",
+		"custom_pea_rh_gross_qty",
+		"custom_pea_rh_rejection_qty",
+	):
+		if fieldname not in query_fields:
+			query_fields.append(fieldname)
 	effective_chunk_size = max(int(chunk_size or _DEFAULT_REPORT_CHUNK_SIZE), 1)
 	processed_rows = 0
 	last_row: dict | None = None
 	while True:
-		rows = _fetch_stock_entry_chunk(
+		raw_rows = _fetch_stock_entry_chunk(
 			filters=filters,
-			fields=fields,
+			fields=query_fields,
 			order_by=normalized_order_by,
 			chunk_size=effective_chunk_size,
 			last_row=last_row,
 		)
-		if not rows:
+		if not raw_rows:
 			break
-		processed_rows += len(rows)
+		processed_rows += len(raw_rows)
 		if max_rows > 0 and processed_rows > max_rows:
 			frappe.throw(
 				_(
 					"Report scope exceeds {0} Stock Entries. Narrow filters by date, shift, workstation, operator, or BOM."
 				).format(max_rows)
 			)
-		yield rows
-		if len(rows) < effective_chunk_size:
+		rows = [row for row in raw_rows if is_production_stock_entry(row)]
+		if rows:
+			yield rows
+		if len(raw_rows) < effective_chunk_size:
 			break
-		last_row = rows[-1]
+		last_row = raw_rows[-1]
 
 
 def _normalize_stock_entry_order_by(order_by: str) -> str:
@@ -236,6 +265,7 @@ def _fetch_stock_entry_chunk(
 		return get_report_rows(
 			"Stock Entry",
 			filters=permission_filters,
+			or_filters=_PRODUCTION_STOCK_ENTRY_OR_FILTERS,
 			fields=fields,
 			order_by=order_by,
 			limit_page_length=chunk_size,
@@ -253,6 +283,7 @@ def _fetch_stock_entry_chunk(
 				["posting_date", "=", last_posting_date],
 				["name", ">", last_name],
 			],
+			or_filters=_PRODUCTION_STOCK_ENTRY_OR_FILTERS,
 			fields=fields,
 			order_by=order_by,
 			limit_page_length=chunk_size,
@@ -263,6 +294,7 @@ def _fetch_stock_entry_chunk(
 		later_rows = get_report_rows(
 			"Stock Entry",
 			filters=[*permission_filters, ["posting_date", ">", last_posting_date]],
+			or_filters=_PRODUCTION_STOCK_ENTRY_OR_FILTERS,
 			fields=fields,
 			order_by=order_by,
 			limit_page_length=remaining,
@@ -272,6 +304,7 @@ def _fetch_stock_entry_chunk(
 	return get_report_rows(
 		"Stock Entry",
 		filters=permission_filters,
+		or_filters=_PRODUCTION_STOCK_ENTRY_OR_FILTERS,
 		fields=fields,
 		order_by=order_by,
 		limit_page_length=chunk_size,
@@ -342,18 +375,15 @@ def get_parent_quantity_metrics(
 		return {}
 
 	stock_entry_detail = DocType("Stock Entry Detail")
-	good_qty_case = (
-		Case()
-		.when(
-			(stock_entry_detail.is_finished_item == 1)
-			& (
-				stock_entry_detail.custom_pea_is_rejection_item.isnull()
-				| (stock_entry_detail.custom_pea_is_rejection_item == 0)
-			),
-			stock_entry_detail.qty,
+	good_item_criterion = (
+		(stock_entry_detail.is_finished_item == 1)
+		& (
+			stock_entry_detail.custom_pea_is_rejection_item.isnull()
+			| (stock_entry_detail.custom_pea_is_rejection_item == 0)
 		)
-		.else_(0)
+		& _get_non_scrap_item_criterion(stock_entry_detail)
 	)
+	good_qty_case = Case().when(good_item_criterion, stock_entry_detail.qty).else_(0)
 	qty_rows = (
 		frappe.qb.from_(stock_entry_detail)
 		.select(
@@ -460,10 +490,29 @@ def get_finished_item_map(stock_entry_names: list[str]) -> dict[str, str]:
 			stock_entry_detail.custom_pea_is_rejection_item.isnull()
 			| (stock_entry_detail.custom_pea_is_rejection_item == 0)
 		)
+		.where(_get_non_scrap_item_criterion(stock_entry_detail))
 	).run(as_dict=True)
-	return {
-		row.get("parent"): row.get("item_code") for row in rows if row.get("parent") and row.get("item_code")
-	}
+	items_by_parent: dict[str, list[str]] = defaultdict(list)
+	for row in rows:
+		parent = row.get("parent")
+		item_code = row.get("item_code")
+		if parent and item_code and item_code not in items_by_parent[parent]:
+			items_by_parent[parent].append(item_code)
+	return {parent: " + ".join(item_codes) for parent, item_codes in items_by_parent.items()}
+
+
+def _get_non_scrap_item_criterion(stock_entry_detail: Any) -> Any:
+	meta = frappe.get_meta("Stock Entry Detail", cached=True)
+	criterion = stock_entry_detail.name.isnotnull()
+	if meta.has_field("is_scrap_item"):
+		criterion &= stock_entry_detail.is_scrap_item.isnull() | (stock_entry_detail.is_scrap_item == 0)
+	if meta.has_field("type"):
+		criterion &= stock_entry_detail.type.isnull() | (stock_entry_detail.type != "Scrap")
+	if meta.has_field("is_legacy_scrap_item"):
+		criterion &= stock_entry_detail.is_legacy_scrap_item.isnull() | (
+			stock_entry_detail.is_legacy_scrap_item == 0
+		)
+	return criterion
 
 
 def get_parent_loss_metrics(stock_entry_names: list[str]) -> dict[str, dict[str, float]]:
@@ -537,6 +586,8 @@ def get_entry_total_strokes(
 	if entry_name and total_rejected_qty_map is not None:
 		total_rejected_qty = flt(total_rejected_qty_map.get(entry_name) or 0)
 
+	if cint(entry.get("custom_pea_is_joint_lh_rh")):
+		return flt(entry.get("custom_pea_total_strokes") or 0), rejection_qty
 	fg_completed_qty = flt(entry.get("fg_completed_qty") or 0)
 	if fg_completed_qty > 0:
 		return fg_completed_qty, rejection_qty

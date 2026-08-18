@@ -433,6 +433,23 @@ def _top_reason_rows(reason_totals: dict[str, float], key_name: str = "reason") 
 	]
 
 
+def _get_entry_summary_quantities(entry: dict) -> tuple[float, float, float, float]:
+	if entry.get("custom_pea_is_joint_lh_rh"):
+		total_qty = flt(entry.get("custom_pea_lh_gross_qty")) + flt(entry.get("custom_pea_rh_gross_qty"))
+		rejection_qty = flt(entry.get("custom_pea_lh_rejection_qty")) + flt(
+			entry.get("custom_pea_rh_rejection_qty")
+		)
+		return (
+			total_qty,
+			max(total_qty - rejection_qty, 0),
+			rejection_qty,
+			flt(entry.get("custom_pea_total_strokes")),
+		)
+	total_qty = flt(entry.get("fg_completed_qty") or 0)
+	rejection_qty = flt(entry.get("custom_pea_rejection_qty") or 0)
+	return total_qty, max(total_qty - rejection_qty, 0), rejection_qty, total_qty
+
+
 def _build_workstation_summary_rows(entries: list[dict]) -> tuple[list[dict], dict | None]:
 	aggregates: dict[str, dict] = {}
 	for entry in entries:
@@ -442,6 +459,7 @@ def _build_workstation_summary_rows(entries: list[dict]) -> tuple[list[dict], di
 			{
 				"workstation": workstation,
 				"total_qty": 0.0,
+				"total_strokes": 0.0,
 				"ok_qty": 0.0,
 				"rejection_qty": 0.0,
 				"production_mins": 0.0,
@@ -449,12 +467,11 @@ def _build_workstation_summary_rows(entries: list[dict]) -> tuple[list[dict], di
 				"standard_weighted_sum": 0.0,
 			},
 		)
-		total_qty = flt(entry.get("fg_completed_qty") or 0)
-		rejection_qty = flt(entry.get("custom_pea_rejection_qty") or 0)
-		ok_qty = max(total_qty - rejection_qty, 0)
+		total_qty, ok_qty, rejection_qty, total_strokes = _get_entry_summary_quantities(entry)
 		production_mins = _get_entry_production_minutes(entry)
 		standard_spm = flt(entry.get("custom_pea_standard_spm") or 0)
 		aggregate["total_qty"] += total_qty
+		aggregate["total_strokes"] += total_strokes
 		aggregate["ok_qty"] += ok_qty
 		aggregate["rejection_qty"] += rejection_qty
 		aggregate["production_mins"] += production_mins
@@ -466,7 +483,7 @@ def _build_workstation_summary_rows(entries: list[dict]) -> tuple[list[dict], di
 	for aggregate in aggregates.values():
 		production_mins = flt(aggregate["production_mins"])
 		target_mins = flt(aggregate["target_mins"])
-		throughput_spm = (flt(aggregate["total_qty"]) / production_mins) if production_mins > 0 else 0
+		throughput_spm = (flt(aggregate["total_strokes"]) / production_mins) if production_mins > 0 else 0
 		target_coverage_pct = (target_mins / production_mins) * 100 if production_mins > 0 else 0
 		weighted_target_spm = flt(aggregate["standard_weighted_sum"]) / target_mins if target_mins > 0 else 0
 		efficiency_pct = None
@@ -523,10 +540,9 @@ def _build_item_bom_rows(entries: list[dict]) -> list[dict]:
 				"rejection_qty": 0.0,
 			},
 		)
-		total_qty = flt(entry.get("fg_completed_qty") or 0)
-		rejection_qty = flt(entry.get("custom_pea_rejection_qty") or 0)
+		total_qty, ok_qty, rejection_qty, _total_strokes = _get_entry_summary_quantities(entry)
 		aggregate["total_qty"] += total_qty
-		aggregate["ok_qty"] += max(total_qty - rejection_qty, 0)
+		aggregate["ok_qty"] += ok_qty
 		aggregate["rejection_qty"] += rejection_qty
 	rows: list[dict] = []
 	for aggregate in aggregates.values():
@@ -737,11 +753,25 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 
 	entry_rows = frappe.get_list(
 		"Stock Entry",
-		filters={"docstatus": 1, "purpose": "Manufacture", "custom_pea_shift": shift_name},
+		filters={
+			"docstatus": 1,
+			"purpose": ["in", ["Manufacture", "Repack"]],
+			"custom_pea_shift": shift_name,
+		},
+		or_filters={"purpose": "Manufacture", "custom_pea_is_joint_lh_rh": 1},
 		fields=[
 			"name",
+			"purpose",
 			"fg_completed_qty",
 			"custom_pea_rejection_qty",
+			"custom_pea_is_joint_lh_rh",
+			"custom_pea_total_strokes",
+			"custom_pea_lh_gross_qty",
+			"custom_pea_lh_rejection_qty",
+			"custom_pea_rh_gross_qty",
+			"custom_pea_rh_rejection_qty",
+			"custom_pea_lh_bom",
+			"custom_pea_rh_bom",
 			"custom_pea_is_late_entry",
 			"custom_pea_actual_duration_mins",
 			"custom_pea_production_time_mins",
@@ -752,6 +782,11 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 		order_by="name asc",
 		limit_page_length=0,
 	)
+	entry_rows = [
+		row
+		for row in entry_rows
+		if row.get("purpose") in (None, "Manufacture") or row.get("custom_pea_is_joint_lh_rh")
+	]
 	entry_names = [row.get("name") for row in entry_rows if row.get("name")]
 	item_by_entry = (
 		{
@@ -766,7 +801,14 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 		if entry_names
 		else {}
 	)
-	bom_names = sorted({row.get("bom_no") for row in entry_rows if row.get("bom_no")})
+	bom_names = sorted(
+		{
+			bom_no
+			for row in entry_rows
+			for bom_no in (row.get("bom_no"), row.get("custom_pea_lh_bom"), row.get("custom_pea_rh_bom"))
+			if bom_no
+		}
+	)
 	item_by_bom = (
 		{
 			row.get("name"): row.get("item")
@@ -781,6 +823,14 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 		else {}
 	)
 	for row in entry_rows:
+		if row.get("custom_pea_is_joint_lh_rh"):
+			lh_bom = row.get("custom_pea_lh_bom") or ""
+			rh_bom = row.get("custom_pea_rh_bom") or ""
+			row["bom_no"] = " + ".join(value for value in (lh_bom, rh_bom) if value)
+			row["item_code"] = " + ".join(
+				value for value in (item_by_bom.get(lh_bom), item_by_bom.get(rh_bom)) if value
+			)
+			continue
 		row["item_code"] = item_by_entry.get(row.get("name")) or item_by_bom.get(row.get("bom_no")) or ""
 	loss_rows = (
 		frappe.get_all(
@@ -810,13 +860,16 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 	entry_count = len(entry_rows)
 	late_entry_count = sum(1 for row in entry_rows if row.get("custom_pea_is_late_entry"))
 	total_qty = 0.0
+	total_strokes = 0.0
 	rejection_qty = 0.0
 	recorded_production_mins = 0.0
 	target_covered_mins = 0.0
 	weighted_target_sum = 0.0
 	for row in entry_rows:
-		total_qty += flt(row.get("fg_completed_qty") or 0)
-		rejection_qty += flt(row.get("custom_pea_rejection_qty") or 0)
+		entry_total, _entry_ok, entry_rejection, entry_strokes = _get_entry_summary_quantities(row)
+		total_qty += entry_total
+		total_strokes += entry_strokes
+		rejection_qty += entry_rejection
 		production_mins = _get_entry_production_minutes(row)
 		recorded_production_mins += production_mins
 		standard_spm = flt(row.get("custom_pea_standard_spm") or 0)
@@ -826,7 +879,7 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 
 	ok_qty = max(total_qty - rejection_qty, 0)
 	rejection_pct = flt((rejection_qty / total_qty) * 100) if total_qty > 0 else 0
-	overall_throughput_spm = (total_qty / recorded_production_mins) if recorded_production_mins > 0 else 0
+	overall_throughput_spm = (total_strokes / recorded_production_mins) if recorded_production_mins > 0 else 0
 	overall_ok_spm = (ok_qty / recorded_production_mins) if recorded_production_mins > 0 else 0
 	target_coverage_pct = (
 		(target_covered_mins / recorded_production_mins) * 100 if recorded_production_mins > 0 else 0
@@ -932,14 +985,45 @@ def get_shift_aggregate_production_entries(shift_name: str | None = None) -> lis
 	float_precision = get_system_float_precision()
 	permitted_entries = frappe.get_list(
 		"Stock Entry",
-		filters={"docstatus": 1, "purpose": "Manufacture", "custom_pea_shift": shift_name},
-		fields=["name", "bom_no"],
+		filters={
+			"docstatus": 1,
+			"purpose": ["in", ["Manufacture", "Repack"]],
+			"custom_pea_shift": shift_name,
+		},
+		or_filters={"purpose": "Manufacture", "custom_pea_is_joint_lh_rh": 1},
+		fields=[
+			"name",
+			"purpose",
+			"bom_no",
+			"custom_pea_is_joint_lh_rh",
+			"custom_pea_lh_bom",
+			"custom_pea_rh_bom",
+			"custom_pea_lh_gross_qty",
+			"custom_pea_lh_rejection_qty",
+			"custom_pea_rh_gross_qty",
+			"custom_pea_rh_rejection_qty",
+			"custom_pea_total_strokes",
+			"custom_pea_actual_duration_mins",
+			"custom_pea_production_time_mins",
+		],
 		limit_page_length=0,
 	)
+	permitted_entries = [
+		row
+		for row in permitted_entries
+		if row.get("purpose") in (None, "Manufacture") or row.get("custom_pea_is_joint_lh_rh")
+	]
 	permitted_entry_names = [row.get("name") for row in permitted_entries if row.get("name")]
 	if not permitted_entry_names:
 		return []
-	requested_bom_names = sorted({row.get("bom_no") for row in permitted_entries if row.get("bom_no")})
+	requested_bom_names = sorted(
+		{
+			bom_no
+			for row in permitted_entries
+			for bom_no in (row.get("bom_no"), row.get("custom_pea_lh_bom"), row.get("custom_pea_rh_bom"))
+			if bom_no
+		}
+	)
 	permitted_bom_names = frappe.get_list(
 		"BOM",
 		filters={"name": ["in", requested_bom_names]},
@@ -1010,6 +1094,56 @@ def get_shift_aggregate_production_entries(shift_name: str | None = None) -> lis
 				"total_ok_qty": total_ok_qty,
 				"total_reject_qty": total_reject_qty,
 				"avg_spm": avg_spm,
+				"float_precision": float_precision,
+			}
+		)
+
+	item_by_bom = {
+		row.get("name"): row.get("item")
+		for row in frappe.get_list(
+			"BOM",
+			filters={"name": ["in", permitted_bom_names]},
+			fields=["name", "item"],
+			limit_page_length=0,
+		)
+	}
+	joint_aggregates: dict[tuple[str, str], dict[str, float]] = {}
+	for entry in permitted_entries:
+		if not entry.get("custom_pea_is_joint_lh_rh"):
+			continue
+		lh_bom = entry.get("custom_pea_lh_bom") or ""
+		rh_bom = entry.get("custom_pea_rh_bom") or ""
+		key = (lh_bom, rh_bom)
+		aggregate = joint_aggregates.setdefault(
+			key,
+			{"total_qty": 0.0, "total_reject_qty": 0.0, "total_strokes": 0.0, "mins": 0.0},
+		)
+		aggregate["total_qty"] += flt(entry.get("custom_pea_lh_gross_qty")) + flt(
+			entry.get("custom_pea_rh_gross_qty")
+		)
+		aggregate["total_reject_qty"] += flt(entry.get("custom_pea_lh_rejection_qty")) + flt(
+			entry.get("custom_pea_rh_rejection_qty")
+		)
+		aggregate["total_strokes"] += flt(entry.get("custom_pea_total_strokes"))
+		aggregate["mins"] += flt(
+			entry.get("custom_pea_production_time_mins")
+			if entry.get("custom_pea_production_time_mins") is not None
+			else entry.get("custom_pea_actual_duration_mins")
+		)
+	for (lh_bom, rh_bom), aggregate in joint_aggregates.items():
+		total_qty = flt(aggregate["total_qty"])
+		total_reject_qty = flt(aggregate["total_reject_qty"])
+		mins = flt(aggregate["mins"])
+		result.append(
+			{
+				"bom_used": " + ".join(value for value in (lh_bom, rh_bom) if value),
+				"item_code": " + ".join(
+					value for value in (item_by_bom.get(lh_bom), item_by_bom.get(rh_bom)) if value
+				),
+				"total_qty": total_qty,
+				"total_ok_qty": max(total_qty - total_reject_qty, 0),
+				"total_reject_qty": total_reject_qty,
+				"avg_spm": flt(aggregate["total_strokes"] / mins) if mins > 0 else 0,
 				"float_precision": float_precision,
 			}
 		)

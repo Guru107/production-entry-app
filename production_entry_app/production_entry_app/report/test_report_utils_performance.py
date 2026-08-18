@@ -96,10 +96,16 @@ class TestReportUtilsPerformance(FrappeTestCase):
 					for index in range(report_utils._MAX_FG_ITEM_PARENT_MATCHES + 1)
 				]
 
-		with patch(
-			"production_entry_app.production_entry_app.report.report_utils.frappe.qb.from_",
-			return_value=_Query(),
+		with (
+			patch(
+				"production_entry_app.production_entry_app.report.report_utils.frappe.qb.from_",
+				return_value=_Query(),
+			),
+			patch(
+				"production_entry_app.production_entry_app.report.report_utils.frappe.get_meta"
+			) as get_meta,
 		):
+			get_meta.return_value.has_field.return_value = True
 			with self.assertRaisesRegex(frappe.ValidationError, "FG Item filter matches more"):
 				report_utils.get_stock_entries_for_fg_item("FG-001")
 
@@ -165,6 +171,10 @@ class TestReportUtilsPerformance(FrappeTestCase):
 		get_list.assert_called_once_with(
 			"Stock Entry",
 			filters=[["docstatus", "=", 1]],
+			or_filters=(
+				("purpose", "=", "Manufacture"),
+				("custom_pea_is_joint_lh_rh", "=", 1),
+			),
 			fields=["name"],
 			order_by="name asc",
 			limit_page_length=10,

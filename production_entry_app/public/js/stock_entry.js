@@ -42,6 +42,8 @@ const PEA_MANUFACTURE_FIELDS = [
 	"custom_pea_die_tool_maintenance_due",
 ];
 
+const NORMAL_ONLY_PEA_FIELDS = ["custom_pea_rejection_qty", "custom_pea_rework_qty"];
+
 const MANUFACTURE_FIELDS = [...NATIVE_MANUFACTURE_FIELDS, ...PEA_MANUFACTURE_FIELDS];
 
 const NATIVE_MANUFACTURE_SECTIONS = ["bom_info_section"];
@@ -64,6 +66,7 @@ const MANUFACTURE_CLEAR_TABLE_FIELDS = [
 ];
 let _dieToolRequestId = 0;
 let _shiftDetailsRequestId = 0;
+const _rejectionSideRequestIds = new Map();
 
 function _hide_native_get_items(frm) {
 	frm.toggle_display("get_items", false);
@@ -128,6 +131,13 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 					filters: [["Shift", "status", "in", ["Running", "Completed"]]],
 				};
 			});
+			for (const fieldname of ["custom_pea_lh_bom", "custom_pea_rh_bom"]) {
+				frm.set_query(fieldname, function () {
+					return {
+						filters: { docstatus: 1, is_active: 1, company: frm.doc.company },
+					};
+				});
+			}
 
 			_ensure_use_multi_level_bom_unchecked(frm);
 			_apply_manufacture_visibility(frm);
@@ -149,6 +159,12 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 			_clear_manufacture_data_on_leave(frm);
 			_apply_manufacture_visibility(frm);
 			_set_prev_purpose(frm);
+			_sync_stock_entry_helper_fields(frm);
+			_setup_stock_entry_quick_entry(frm);
+		},
+		custom_pea_is_joint_lh_rh(frm) {
+			_apply_native_manufacture_visibility(frm);
+			_apply_manufacture_visibility(frm);
 			_sync_stock_entry_helper_fields(frm);
 			_setup_stock_entry_quick_entry(frm);
 		},
@@ -183,18 +199,46 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 			_toggle_rejection_breakup(frm);
 			_update_die_tool_metrics(frm);
 		},
+		custom_pea_lh_rejection_qty(frm) {
+			_toggle_rejection_breakup(frm);
+		},
+		custom_pea_rh_rejection_qty(frm) {
+			_toggle_rejection_breakup(frm);
+		},
+		custom_pea_die_tool_item(frm) {
+			_update_die_tool_metrics(frm);
+		},
 		custom_pea_fetch_items(frm) {
-			if (!frm.doc.fg_completed_qty) {
+			const isJoint = _is_joint_doc(frm.doc);
+			if (!isJoint && !frm.doc.fg_completed_qty) {
 				frappe.msgprint(__("Please set Qty to Manufacture before fetching items."));
 				return;
 			}
+			if (
+				isJoint &&
+				(!frm.doc.custom_pea_lh_gross_qty || !frm.doc.custom_pea_rh_gross_qty)
+			) {
+				frappe.msgprint(__("Please set LH and RH Gross Quantity before fetching items."));
+				return;
+			}
 			frappe.call({
-				method: "production_entry_app.production_entry_app.api.get_items_with_rejection",
+				method: isJoint
+					? "production_entry_app.production_entry_app.api.get_joint_production_items"
+					: "production_entry_app.production_entry_app.api.get_items_with_rejection",
 				args: { doc: frm.doc },
 				freeze: true,
 				freeze_message: __("Fetching items..."),
 				callback(r) {
 					_apply_fetch_items_response(frm, r.message);
+					if (isJoint) {
+						const scrapRow = (r.message || []).find(
+							(row) =>
+								row.is_scrap_item ||
+								row.is_legacy_scrap_item ||
+								row.type === "Scrap"
+						);
+						frm.set_value("custom_pea_joint_scrap_qty", scrapRow?.qty || 0);
+					}
 				},
 				error(error) {
 					_notify_call_error(__("Failed to fetch items."), error);
@@ -203,6 +247,40 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 		},
 		custom_pea_shift(frm) {
 			_handle_shift_change(frm);
+		},
+	});
+
+	frappe.ui.form.on("Rejection Breakup", {
+		output_side(frm, cdt, cdn) {
+			if (!_is_joint_doc(frm.doc)) return;
+			const row = locals[cdt][cdn];
+			const selectedSide = row.output_side;
+			const requestId = (_rejectionSideRequestIds.get(cdn) || 0) + 1;
+			_rejectionSideRequestIds.set(cdn, requestId);
+			const bom =
+				selectedSide === "LH" ? frm.doc.custom_pea_lh_bom : frm.doc.custom_pea_rh_bom;
+			if (!bom) {
+				frappe.model.set_value(cdt, cdn, "item_code", "");
+				return;
+			}
+			frappe.db
+				.get_value("BOM", bom, "item")
+				.then((response) => {
+					const currentRow = locals[cdt]?.[cdn];
+					if (
+						_rejectionSideRequestIds.get(cdn) !== requestId ||
+						!currentRow ||
+						currentRow.output_side !== selectedSide
+					) {
+						return;
+					}
+					frappe.model.set_value(cdt, cdn, "item_code", response?.message?.item || "");
+				})
+				.catch((error) => {
+					if (_rejectionSideRequestIds.get(cdn) === requestId) {
+						_notify_call_error(__("Failed to load the joint output item."), error);
+					}
+				});
 		},
 	});
 }
@@ -241,11 +319,13 @@ function _apply_native_manufacture_visibility(frm) {
 
 function _apply_manufacture_visibility(frm) {
 	const isManufacture = _is_manufacture_doc(frm.doc);
+	const isProduction = _is_production_doc(frm.doc);
 	_apply_native_manufacture_visibility(frm);
 	// Keep this explicit list in sync with Stock Entry custom manufacture-only fields.
-	frm.toggle_display(PEA_MANUFACTURE_FIELDS, isManufacture);
-	frm.toggle_display(PEA_MANUFACTURE_SECTIONS, isManufacture);
-	if (isManufacture) {
+	frm.toggle_display(PEA_MANUFACTURE_FIELDS, isProduction);
+	frm.toggle_display(PEA_MANUFACTURE_SECTIONS, isProduction);
+	frm.toggle_display(NORMAL_ONLY_PEA_FIELDS, isManufacture);
+	if (isProduction) {
 		_expand_sections(frm, PEA_MANUFACTURE_SECTIONS);
 	}
 
@@ -357,13 +437,21 @@ function _is_manufacture_doc(doc) {
 	return _normalize_purpose(doc?.custom_pea_stock_entry_purpose) === "Manufacture";
 }
 
+function _is_joint_doc(doc) {
+	return parseInt(doc?.custom_pea_is_joint_lh_rh || 0, 10) === 1;
+}
+
+function _is_production_doc(doc) {
+	return _is_manufacture_doc(doc) || _is_joint_doc(doc);
+}
+
 function _get_time_entry_api() {
 	return window.production_entry_app?.time_entry || null;
 }
 
 function _sync_stock_entry_helper_fields(frm) {
 	const timeEntry = _get_time_entry_api();
-	if (!timeEntry || !_is_manufacture_doc(frm.doc)) {
+	if (!timeEntry || !_is_production_doc(frm.doc)) {
 		return;
 	}
 	const plannedStartDate = timeEntry.format_datetime_display(
@@ -417,7 +505,7 @@ function _setup_stock_entry_quick_entry(frm) {
 	if (!timeEntry) {
 		return;
 	}
-	const isManufacture = _is_manufacture_doc(frm.doc);
+	const isManufacture = _is_production_doc(frm.doc);
 	timeEntry.attach_datetime_split_chips(
 		frm,
 		"custom_pea_actual_start_date_input",
@@ -596,19 +684,24 @@ function _normalize_purpose(purpose) {
 }
 
 function _toggle_rejection_breakup(frm) {
-	if (!_is_manufacture_doc(frm.doc)) {
+	if (!_is_production_doc(frm.doc)) {
 		frm.toggle_display("custom_pea_rejection_breakup", false);
 		frm.toggle_reqd("custom_pea_rejection_breakup", false);
 		return;
 	}
-	const rejection_qty = typeof flt === "function" ? flt(frm.doc.custom_pea_rejection_qty) : 0;
+	const rejection_qty = _is_joint_doc(frm.doc)
+		? Number(frm.doc.custom_pea_lh_rejection_qty || 0) +
+		  Number(frm.doc.custom_pea_rh_rejection_qty || 0)
+		: typeof flt === "function"
+		? flt(frm.doc.custom_pea_rejection_qty)
+		: 0;
 	const has_rejection = rejection_qty > 0;
 	frm.toggle_display("custom_pea_rejection_breakup", has_rejection);
 	frm.toggle_reqd("custom_pea_rejection_breakup", has_rejection);
 }
 
 function _update_die_tool_metrics(frm) {
-	if (!_is_manufacture_doc(frm.doc)) return;
+	if (!_is_production_doc(frm.doc)) return;
 
 	const item_code = _get_die_tool_item_code(frm);
 	if (!item_code) {
@@ -707,6 +800,9 @@ function _ensure_use_multi_level_bom_unchecked(frm) {
 }
 
 function _get_die_tool_item_code(frm) {
+	if (_is_joint_doc(frm.doc) && frm.doc.custom_pea_die_tool_item) {
+		return frm.doc.custom_pea_die_tool_item;
+	}
 	if (frm.doc.fg_item) return frm.doc.fg_item;
 	const items = frm.doc.items || [];
 	const fgRow = items.find((row) => row.is_finished_item);
@@ -717,6 +813,8 @@ if (typeof module !== "undefined" && module.exports) {
 	module.exports = {
 		_normalize_purpose,
 		_is_manufacture_doc,
+		_is_joint_doc,
+		_is_production_doc,
 		_did_leave_manufacture,
 		_apply_native_manufacture_visibility,
 		NATIVE_MANUFACTURE_FIELDS,

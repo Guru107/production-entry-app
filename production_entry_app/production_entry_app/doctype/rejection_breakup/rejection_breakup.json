@@ -4,13 +4,30 @@
  "doctype": "DocType",
  "editable_grid": 1,
  "engine": "InnoDB",
- "field_order": [
+  "field_order": [
+  "output_side",
+  "item_code",
   "rejection_reason",
   "qty",
   "is_rework",
   "remark"
  ],
  "fields": [
+  {
+   "fieldname": "output_side",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Output Side",
+   "options": "\nLH\nRH"
+  },
+  {
+   "fieldname": "item_code",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Item Code",
+   "options": "Item",
+   "read_only": 1
+  },
   {
    "fieldname": "rejection_reason",
    "fieldtype": "Link",

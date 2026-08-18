@@ -9,8 +9,19 @@ from frappe.query_builder import DocType as QBDocType
 from frappe.query_builder.functions import CustomFunction
 from frappe.utils import cint, get_datetime, now_datetime
 
+from production_entry_app.production_entry_app.overrides.joint_production import (
+	is_joint_lh_rh_production,
+)
+
 
 def update_counter_for_stock_entry(doc, direction: int = 1) -> None:
+	if is_joint_lh_rh_production(doc):
+		item_code = doc.get("custom_pea_die_tool_item")
+		total_strokes = float(doc.get("custom_pea_total_strokes") or 0)
+		if not item_code or total_strokes <= 0 or not is_die_tool_enabled(item_code):
+			return
+		_update_counter(item_code, total_strokes * direction)
+		return
 	if doc.get("purpose") != "Manufacture":
 		return
 
@@ -28,7 +39,10 @@ def update_counter_for_stock_entry(doc, direction: int = 1) -> None:
 	if total_units <= 0:
 		return
 
-	stroke_delta = total_units * strokes_per_unit * direction
+	_update_counter(item_code, total_units * strokes_per_unit * direction)
+
+
+def _update_counter(item_code: str, stroke_delta: float) -> None:
 	counter_name = _ensure_counter_exists(item_code)
 	die_tool_counter = QBDocType("Die Tool Counter")
 
