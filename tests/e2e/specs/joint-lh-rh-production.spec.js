@@ -108,6 +108,22 @@ test.describe("Joint LH/RH production form", () => {
 		expect(await form.isFieldVisible("custom_pea_shift")).toBe(true);
 		expect(await form.isSectionVisible("bom_info_section")).toBe(false);
 		expect(await form.isSectionVisible("custom_pea_operation_details_section")).toBe(true);
+		expect(await form.isSectionVisible("custom_pea_joint_production_section")).toBe(true);
+		expect(await form.isSectionVisible("custom_pea_joint_resources_section")).toBe(true);
+		const sectionTops = await page.evaluate(() => {
+			const top = (fieldname) =>
+				document.querySelector(`[data-fieldname="${fieldname}"]`)?.getBoundingClientRect()
+					.top;
+			return {
+				dates: top("custom_pea_operation_details_section"),
+				jointProduction: top("custom_pea_joint_production_section"),
+				jointResources: top("custom_pea_joint_resources_section"),
+				workstation: top("custom_pea_workstation_operator_section"),
+			};
+		});
+		expect(sectionTops.dates).toBeLessThan(sectionTops.jointProduction);
+		expect(sectionTops.jointProduction).toBeLessThan(sectionTops.jointResources);
+		expect(sectionTops.jointResources).toBeLessThan(sectionTops.workstation);
 	});
 
 	test("@smoke joint Fetch Items populates rows from both BOMs", async ({ page }) => {

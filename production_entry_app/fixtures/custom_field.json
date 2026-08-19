@@ -235,7 +235,7 @@
   "fieldname": "custom_pea_workstation_operator_section",
   "fieldtype": "Section Break",
   "label": "Workstation & Operator",
-  "insert_after": "custom_pea_actual_end_date",
+  "insert_after": "custom_pea_joint_fetch_items",
   "module": "Production Entry App",
   "permlevel": 0,
   "depends_on": "eval:doc.custom_pea_stock_entry_purpose==\"Manufacture\" || doc.custom_pea_is_joint_lh_rh"
@@ -521,7 +521,7 @@
   "fieldname": "custom_pea_joint_production_section",
   "fieldtype": "Section Break",
   "label": "Joint LH/RH Production",
-  "insert_after": "custom_pea_die_tool_maintenance_due",
+  "insert_after": "custom_pea_actual_end_date",
   "depends_on": "eval:doc.custom_pea_is_joint_lh_rh",
   "module": "Production Entry App",
   "permlevel": 0
