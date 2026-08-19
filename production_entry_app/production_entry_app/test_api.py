@@ -1392,7 +1392,14 @@ class TestE2EApi(FrappeTestCase):
 			stack.enter_context(
 				patch(
 					"production_entry_app.production_entry_app.e2e_api.ensure_item",
-					side_effect=["_FG_ITEM", "_RM_ITEM"],
+					side_effect=[
+						"_FG_ITEM",
+						"_RM_ITEM",
+						"_E2E-DIE_Joint_LH_Item",
+						"_E2E-DIE_Joint_RH_Item",
+						"_E2E-DIE_Joint_RM_Item",
+						"_E2E-DIE_Joint_Scrap_Item",
+					],
 				)
 			)
 			stack.enter_context(
@@ -1419,6 +1426,12 @@ class TestE2EApi(FrappeTestCase):
 				patch(
 					"production_entry_app.production_entry_app.e2e_api.ensure_default_bom",
 					return_value="BOM-001",
+				)
+			)
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.e2e_api._ensure_e2e_joint_bom",
+					side_effect=["BOM-JOINT-LH", "BOM-JOINT-RH"],
 				)
 			)
 			stack.enter_context(
@@ -1492,7 +1505,14 @@ class TestE2EApi(FrappeTestCase):
 			stack.enter_context(
 				patch(
 					"production_entry_app.production_entry_app.e2e_api.ensure_item",
-					side_effect=["_FG_ITEM", "_RM_ITEM"],
+					side_effect=[
+						"_FG_ITEM",
+						"_RM_ITEM",
+						"_E2E_Joint_LH_Item",
+						"_E2E_Joint_RH_Item",
+						"_E2E_Joint_RM_Item",
+						"_E2E_Joint_Scrap_Item",
+					],
 				)
 			)
 			stack.enter_context(
@@ -1519,6 +1539,12 @@ class TestE2EApi(FrappeTestCase):
 				patch(
 					"production_entry_app.production_entry_app.e2e_api.ensure_default_bom",
 					return_value="BOM-001",
+				)
+			)
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.e2e_api._ensure_e2e_joint_bom",
+					side_effect=["BOM-JOINT-LH", "BOM-JOINT-RH"],
 				)
 			)
 			ensure_fiscal_year = stack.enter_context(
@@ -1553,9 +1579,17 @@ class TestE2EApi(FrappeTestCase):
 
 		complete_other.assert_called_once_with(keep_department="E2E Department - TC")
 		ensure_fiscal_year.assert_called_once_with("2099-01-20")
-		ensure_stock.assert_called_once_with(
+		ensure_stock.assert_any_call(
 			"_RM_ITEM", "WIP", "_Test Company", target_qty=1000, posting_date="2099-01-20"
 		)
+		ensure_stock.assert_any_call(
+			"_E2E_Joint_RM_Item",
+			"WIP",
+			"_Test Company",
+			target_qty=1000,
+			posting_date="2099-01-20",
+		)
+		self.assertEqual(ensure_stock.call_count, 2)
 		get_or_create.assert_called_once_with(
 			base_date="2099-01-20",
 			department="E2E Department - TC",

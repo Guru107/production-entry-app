@@ -695,6 +695,18 @@
  },
  {
   "doctype": "Custom Field",
+  "name": "Stock Entry-custom_pea_joint_fetch_items",
+  "dt": "Stock Entry",
+  "fieldname": "custom_pea_joint_fetch_items",
+  "fieldtype": "Button",
+  "label": "Fetch Items",
+  "insert_after": "custom_pea_joint_scrap_qty",
+  "depends_on": "eval:doc.custom_pea_is_joint_lh_rh",
+  "module": "Production Entry App",
+  "permlevel": 0
+ },
+ {
+  "doctype": "Custom Field",
   "name": "Stock Entry Detail-custom_pea_is_rejection_item",
   "dt": "Stock Entry Detail",
   "fieldname": "custom_pea_is_rejection_item",

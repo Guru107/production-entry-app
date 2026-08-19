@@ -15,6 +15,7 @@ const PEA_MANUFACTURE_FIELDS = [
 	"custom_pea_ok_qty",
 	"custom_pea_rework_qty",
 	"custom_pea_fetch_items",
+	"custom_pea_joint_fetch_items",
 	"custom_pea_rejection_breakup",
 	"custom_pea_shift",
 	"custom_pea_planned_start_date",
@@ -244,6 +245,9 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 					_notify_call_error(__("Failed to fetch items."), error);
 				},
 			});
+		},
+		custom_pea_joint_fetch_items(frm) {
+			return frm.trigger("custom_pea_fetch_items");
 		},
 		custom_pea_shift(frm) {
 			_handle_shift_change(frm);

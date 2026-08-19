@@ -91,6 +91,7 @@ def test_joint_lh_rh_production_metadata_is_exported() -> None:
 		"Stock Entry-custom_pea_die_tool_item",
 		"Stock Entry-custom_pea_total_rm_consumption",
 		"Stock Entry-custom_pea_joint_scrap_qty",
+		"Stock Entry-custom_pea_joint_fetch_items",
 		"Stock Entry Detail-custom_pea_joint_output_side",
 	}
 	assert not required_fields.difference(fields_by_name)

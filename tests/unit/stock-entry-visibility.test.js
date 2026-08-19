@@ -52,6 +52,7 @@ test("joint LH/RH Repack uses the common production form without native BOM fiel
 
 test("manufacture visibility targets include key fields and sections", () => {
 	assert.ok(MANUFACTURE_FIELDS.includes("custom_pea_fetch_items"));
+	assert.ok(MANUFACTURE_FIELDS.includes("custom_pea_joint_fetch_items"));
 	assert.ok(MANUFACTURE_FIELDS.includes("custom_pea_shift"));
 	assert.ok(MANUFACTURE_FIELDS.includes("custom_pea_actual_start_date_input"));
 	assert.ok(MANUFACTURE_FIELDS.includes("custom_pea_actual_start_time_input"));

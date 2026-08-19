@@ -104,9 +104,53 @@ test.describe("Joint LH/RH production form", () => {
 		expect(await form.isFieldVisible("custom_pea_rh_bom")).toBe(true);
 		expect(await form.isFieldVisible("custom_pea_total_strokes")).toBe(true);
 		expect(await form.isFieldVisible("custom_pea_total_rm_consumption")).toBe(true);
+		expect(await form.isFieldVisible("custom_pea_joint_fetch_items")).toBe(true);
 		expect(await form.isFieldVisible("custom_pea_shift")).toBe(true);
 		expect(await form.isSectionVisible("bom_info_section")).toBe(false);
 		expect(await form.isSectionVisible("custom_pea_operation_details_section")).toBe(true);
+	});
+
+	test("@smoke joint Fetch Items populates rows from both BOMs", async ({ page }) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const stockEntryType = await createJointStockEntryType(page, lifecycle.getPrefix());
+		createdTypes.add(stockEntryType);
+		const form = new StockEntryPage(page);
+
+		await form.openNew();
+		await setFieldValue(page, "stock_entry_type", stockEntryType);
+		await form.waitForFieldValue("custom_pea_is_joint_lh_rh", 1);
+		await setFieldValue(page, "company", ctx.company);
+		await setFieldValue(page, "custom_pea_shift", ctx.shift_name);
+		await setFieldValue(page, "from_warehouse", ctx.wip_warehouse);
+		await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
+		await setFieldValue(page, "custom_pea_lh_bom", ctx.joint_lh_bom);
+		await setFieldValue(page, "custom_pea_lh_gross_qty", 40);
+		await setFieldValue(page, "custom_pea_lh_rejection_qty", 0);
+		await setFieldValue(page, "custom_pea_rh_bom", ctx.joint_rh_bom);
+		await setFieldValue(page, "custom_pea_rh_gross_qty", 41);
+		await setFieldValue(page, "custom_pea_rh_rejection_qty", 0);
+		await setFieldValue(page, "custom_pea_total_strokes", 41);
+		await setFieldValue(page, "custom_pea_die_tool_item", ctx.joint_lh_item);
+		await setFieldValue(page, "custom_pea_total_rm_consumption", 49.125);
+
+		await page.locator('[data-fieldname="custom_pea_joint_fetch_items"] button').click();
+		await page.waitForFunction(() => (window.cur_frm?.doc?.items || []).length === 4);
+
+		const values = await form.getFieldValues(["items", "custom_pea_joint_scrap_qty"]);
+		const outgoingRows = values.items.filter((row) => row.s_warehouse);
+		const sideRows = values.items.filter((row) => row.custom_pea_joint_output_side);
+		const scrapRow = values.items.find(
+			(row) => row.is_scrap_item || row.is_legacy_scrap_item || row.type === "Scrap"
+		);
+		expect(outgoingRows).toHaveLength(1);
+		expect(outgoingRows[0]).toMatchObject({ item_code: ctx.joint_rm_item, qty: 49.125 });
+		expect(sideRows.map((row) => row.custom_pea_joint_output_side).sort()).toEqual([
+			"LH",
+			"RH",
+		]);
+		expect(scrapRow?.item_code).toBe(ctx.joint_scrap_item);
+		expect(values.custom_pea_joint_scrap_qty).toBeGreaterThan(0);
 	});
 
 	test("@regression joint Fetch Items shows required-header validation", async ({ page }) => {
