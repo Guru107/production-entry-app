@@ -173,15 +173,11 @@ def _validate_joint_rm_consumption(doc: Any, bom: JointBomDetails) -> None:
 	outgoing_rows = [row for row in (doc.get("items") or []) if row.get("s_warehouse")]
 	if not outgoing_rows or any(row.get("item_code") != bom.rm_item_code for row in outgoing_rows):
 		frappe.throw(_("Joint production outgoing rows must contain only the common BOM raw material."))
-	actual_rm_qty = sum(
-		flt(row.get("qty")) * flt(row.get("conversion_factor") or 1) for row in outgoing_rows
-	)
+	actual_rm_qty = sum(flt(row.get("qty")) * flt(row.get("conversion_factor") or 1) for row in outgoing_rows)
 	expected_rm_qty = flt(doc.get("custom_pea_total_rm_consumption"))
 	if flt(actual_rm_qty, 6) != flt(expected_rm_qty, 6):
 		frappe.throw(
-			_("Outgoing raw material quantity must equal Total RM Consumption ({0}).").format(
-				expected_rm_qty
-			)
+			_("Outgoing raw material quantity must equal Total RM Consumption ({0}).").format(expected_rm_qty)
 		)
 
 
@@ -192,9 +188,7 @@ def _set_joint_output_valuation(
 ) -> None:
 	rows = doc.get("items") or []
 	outgoing_value = sum(
-		flt(row.get("basic_amount"))
-		for row in rows
-		if row.get("s_warehouse") and not row.get("t_warehouse")
+		flt(row.get("basic_amount")) for row in rows if row.get("s_warehouse") and not row.get("t_warehouse")
 	)
 	scrap_value = sum(
 		flt(row.get("transfer_qty") or row.get("qty")) * flt(row.get("basic_rate"))
@@ -210,9 +204,7 @@ def _set_joint_output_valuation(
 	)
 	for side in ("LH", "RH"):
 		side_rows = [
-			row
-			for row in rows
-			if row.get("custom_pea_joint_output_side") == side and not _is_scrap_row(row)
+			row for row in rows if row.get("custom_pea_joint_output_side") == side and not _is_scrap_row(row)
 		]
 		side_qty = sum(flt(row.get("transfer_qty") or row.get("qty")) for row in side_rows)
 		if side_qty <= 0:

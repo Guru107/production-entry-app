@@ -22,6 +22,7 @@ async function login(page, username, password) {
 
 async function createJointStockEntryType(page, prefix) {
 	const name = `${prefix} Joint LH RH`;
+	await deleteDocIfExists(page, "Stock Entry Type", name);
 	await callFrappeMethod(page, "frappe.client.insert", {
 		doc: JSON.stringify({
 			doctype: "Stock Entry Type",
@@ -35,12 +36,13 @@ async function createJointStockEntryType(page, prefix) {
 
 async function deleteDocIfExists(page, doctype, name) {
 	if (!name) return;
-	try {
-		await callFrappeMethod(page, "frappe.client.delete", { doctype, name });
-	} catch (error) {
-		const message = String(error?.message || error);
-		if (!/not found|DoesNotExistError|Resource is not available/i.test(message)) throw error;
-	}
+	const rows = await callFrappeMethod(page, "frappe.client.get_list", {
+		doctype,
+		fields: JSON.stringify(["name"]),
+		filters: JSON.stringify({ name }),
+		limit_page_length: 1,
+	});
+	if (rows?.length) await callFrappeMethod(page, "frappe.client.delete", { doctype, name });
 }
 
 test.describe("Joint LH/RH production form", () => {
@@ -87,6 +89,8 @@ test.describe("Joint LH/RH production form", () => {
 		await form.openNew();
 		await setFieldValue(page, "stock_entry_type", stockEntryType);
 		await form.waitForFieldValue("custom_pea_is_joint_lh_rh", 1);
+		await setFieldValue(page, "custom_pea_lh_gross_qty", 40);
+		await setFieldValue(page, "custom_pea_rh_gross_qty", 41);
 		await form.fetchItems();
 
 		await expectValidationError(page, /LH BOM is required/i);
@@ -106,12 +110,14 @@ test.describe("Joint LH/RH production form", () => {
 		});
 		await login(page, email, TEST_PASSWORD);
 
-		await expect(
-			callFrappeMethod(
-				page,
-				"production_entry_app.production_entry_app.api.get_joint_production_items",
-				{ doc: JSON.stringify({ doctype: "Stock Entry", purpose: "Repack" }) }
-			)
-		).rejects.toThrow(/permission|not permitted|403/i);
+		const response = await page.request.post(
+			"/api/method/production_entry_app.production_entry_app.api.get_joint_production_items",
+			{
+				form: {
+					doc: JSON.stringify({ doctype: "Stock Entry", purpose: "Repack" }),
+				},
+			}
+		);
+		expect(response.status()).toBe(403);
 	});
 });

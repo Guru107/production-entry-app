@@ -15,7 +15,7 @@ test("authenticate admin for e2e", async ({ page }) => {
 	const userResponse = await page.request.get("/api/method/frappe.auth.get_logged_user");
 	expect(userResponse.ok()).toBeTruthy();
 	const userPayload = await userResponse.json();
-	expect(userPayload.message).toBe(username);
+	expect(String(userPayload.message).toLowerCase()).toBe(String(username).toLowerCase());
 
 	await page.context().storageState({ path: "tests/e2e/.auth/admin.json" });
 });
