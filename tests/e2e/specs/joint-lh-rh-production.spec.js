@@ -116,12 +116,25 @@ test.describe("Joint LH/RH production form", () => {
 					.top;
 			return {
 				dates: top("custom_pea_operation_details_section"),
+				actualStartDate: top("custom_pea_actual_start_date_input"),
+				actualStartTime: top("custom_pea_actual_start_time_input"),
+				actualEndDate: top("custom_pea_actual_end_date_input"),
+				actualEndTime: top("custom_pea_actual_end_time_input"),
 				jointProduction: top("custom_pea_joint_production_section"),
 				jointResources: top("custom_pea_joint_resources_section"),
 				workstation: top("custom_pea_workstation_operator_section"),
 			};
 		});
 		expect(sectionTops.dates).toBeLessThan(sectionTops.jointProduction);
+		for (const fieldname of [
+			"actualStartDate",
+			"actualStartTime",
+			"actualEndDate",
+			"actualEndTime",
+		]) {
+			expect(sectionTops[fieldname]).toBeGreaterThan(sectionTops.dates);
+			expect(sectionTops[fieldname]).toBeLessThan(sectionTops.jointProduction);
+		}
 		expect(sectionTops.jointProduction).toBeLessThan(sectionTops.jointResources);
 		expect(sectionTops.jointResources).toBeLessThan(sectionTops.workstation);
 	});
