@@ -14,21 +14,14 @@ from production_entry_app.production_entry_app.report_access import (
 
 
 class TestReadOnlyReportAccess(FrappeTestCase):
-	def test_frappe_hooks_enforce_report_allowlist(self) -> None:
+	def test_frappe_hooks_do_not_override_native_report_permissions(self) -> None:
 		from production_entry_app import hooks
 
-		self.assertEqual(
-			hooks.permission_query_conditions["Report"],
-			"production_entry_app.production_entry_app.report_access.get_report_permission_query_conditions",
-		)
-		self.assertEqual(
-			hooks.override_whitelisted_methods["frappe.desk.query_report.get_script"],
-			"production_entry_app.production_entry_app.report_access.get_script",
-		)
-		self.assertEqual(
-			hooks.override_whitelisted_methods["frappe.desk.query_report.run"],
-			"production_entry_app.production_entry_app.report_access.run",
-		)
+		permission_query_conditions = getattr(hooks, "permission_query_conditions", {})
+		override_whitelisted_methods = getattr(hooks, "override_whitelisted_methods", {})
+		self.assertNotIn("Report", permission_query_conditions)
+		self.assertNotIn("frappe.desk.query_report.get_script", override_whitelisted_methods)
+		self.assertNotIn("frappe.desk.query_report.run", override_whitelisted_methods)
 
 	def test_allowlist_matches_standard_app_reports(self) -> None:
 		report_names = frappe.get_all(

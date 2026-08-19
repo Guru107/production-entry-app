@@ -58,6 +58,23 @@ async function createSubmittedStockEntryForReports(
 test.describe("Production reports", () => {
 	const lifecycle = registerE2ELifecycle(test);
 
+	test("@regression System Manager can open the native Stock Ledger report", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
+		const reportsPage = new ReportsPage(page);
+
+		await reportsPage.open("Stock Ledger");
+		await reportsPage.setFilterByFieldname("company", ctx.company);
+		await reportsPage.runWithDateRange(ctx.shift_date, ctx.shift_date);
+
+		const filters = await reportsPage.getFilterValues();
+		const runtimeState = await reportsPage.getRuntimeState();
+		expect(filters.company).toBe(ctx.company);
+		expect(runtimeState.reportName).toBe("Stock Ledger");
+	});
+
 	test("@smoke OEE report shows day-workstation aggregate row", async ({ page }) => {
 		await page.goto(getRoute("/home"));
 		const prefix = lifecycle.getPrefix();
