@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import ceil
 from typing import Any
 
 import frappe
@@ -29,6 +30,50 @@ class JointBomDetails:
 	@property
 	def unit_net_weight(self) -> float:
 		return (self.rm_qty - self.scrap_qty) / self.quantity
+
+
+def calculate_joint_rm_consumption(
+	*,
+	lh_gross_qty: float,
+	lh_bom_quantity: float,
+	rh_gross_qty: float,
+	rh_bom_quantity: float,
+	rm_qty_per_sheet: float,
+) -> float:
+	lh_bom_quantity = flt(lh_bom_quantity)
+	rh_bom_quantity = flt(rh_bom_quantity)
+	rm_qty_per_sheet = flt(rm_qty_per_sheet)
+	if lh_bom_quantity <= 0 or rh_bom_quantity <= 0:
+		frappe.throw(_("LH and RH BOM quantities must be greater than zero."))
+	if rm_qty_per_sheet <= 0:
+		frappe.throw(_("Common raw material quantity per sheet must be greater than zero."))
+	if flt(lh_gross_qty) < 0 or flt(rh_gross_qty) < 0:
+		frappe.throw(_("LH and RH Gross Quantities cannot be negative."))
+
+	sheet_count = max(
+		ceil(flt(lh_gross_qty) / lh_bom_quantity),
+		ceil(flt(rh_gross_qty) / rh_bom_quantity),
+	)
+	return flt(sheet_count * rm_qty_per_sheet)
+
+
+def calculate_joint_rm_consumption_from_boms(
+	*,
+	lh_bom_no: str,
+	rh_bom_no: str,
+	lh_gross_qty: float,
+	rh_gross_qty: float,
+) -> float:
+	lh_bom = _get_joint_bom_details(lh_bom_no)
+	rh_bom = _get_joint_bom_details(rh_bom_no)
+	_validate_joint_bom_pair(lh_bom, rh_bom)
+	return calculate_joint_rm_consumption(
+		lh_gross_qty=lh_gross_qty,
+		lh_bom_quantity=lh_bom.quantity,
+		rh_gross_qty=rh_gross_qty,
+		rh_bom_quantity=rh_bom.quantity,
+		rm_qty_per_sheet=lh_bom.rm_qty,
+	)
 
 
 def calculate_joint_scrap_quantity(
@@ -77,9 +122,17 @@ def build_joint_item_rows(doc: Any) -> list[dict[str, Any]]:
 	rh_rejection = flt(doc.get("custom_pea_rh_rejection_qty"))
 	_validate_side_quantities("LH", lh_gross, lh_rejection)
 	_validate_side_quantities("RH", rh_gross, rh_rejection)
+	total_rm_consumption = calculate_joint_rm_consumption(
+		lh_gross_qty=lh_gross,
+		lh_bom_quantity=lh_bom.quantity,
+		rh_gross_qty=rh_gross,
+		rh_bom_quantity=rh_bom.quantity,
+		rm_qty_per_sheet=lh_bom.rm_qty,
+	)
+	doc.set("custom_pea_total_rm_consumption", total_rm_consumption)
 
 	scrap_qty = calculate_joint_scrap_quantity(
-		total_rm_consumption=flt(doc.get("custom_pea_total_rm_consumption")),
+		total_rm_consumption=total_rm_consumption,
 		lh_gross_qty=lh_gross,
 		lh_unit_net_weight=lh_bom.unit_net_weight,
 		rh_gross_qty=rh_gross,
@@ -90,7 +143,7 @@ def build_joint_item_rows(doc: Any) -> list[dict[str, Any]]:
 	rows = [
 		_item_row(
 			item_code=lh_bom.rm_item_code,
-			qty=flt(doc.get("custom_pea_total_rm_consumption")),
+			qty=total_rm_consumption,
 			s_warehouse=doc.get("from_warehouse"),
 		),
 	]
@@ -259,8 +312,6 @@ def _validate_joint_header(doc: Any) -> None:
 	):
 		if not doc.get(fieldname):
 			frappe.throw(_("{0} is required for joint LH/RH production.").format(label))
-	if flt(doc.get("custom_pea_total_rm_consumption")) <= 0:
-		frappe.throw(_("Total RM Consumption must be greater than zero."))
 	if flt(doc.get("custom_pea_total_strokes")) <= 0:
 		frappe.throw(_("Total Press Strokes must be greater than zero."))
 

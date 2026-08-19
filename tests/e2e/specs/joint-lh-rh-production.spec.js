@@ -132,7 +132,7 @@ test.describe("Joint LH/RH production form", () => {
 		await setFieldValue(page, "custom_pea_rh_rejection_qty", 0);
 		await setFieldValue(page, "custom_pea_total_strokes", 41);
 		await setFieldValue(page, "custom_pea_die_tool_item", ctx.joint_lh_item);
-		await setFieldValue(page, "custom_pea_total_rm_consumption", 49.125);
+		await form.waitForFieldValue("custom_pea_total_rm_consumption", 49.125);
 
 		await page.locator('[data-fieldname="custom_pea_joint_fetch_items"] button').click();
 		await page.waitForFunction(() => (window.cur_frm?.doc?.items || []).length === 4);

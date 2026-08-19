@@ -674,9 +674,10 @@
   "fieldname": "custom_pea_total_rm_consumption",
   "fieldtype": "Float",
   "label": "Total RM Consumption",
+  "description": "Calculated in complete-sheet multiples from the LH and RH BOM quantities.",
+  "read_only": 1,
   "insert_after": "custom_pea_joint_resources_col_break",
   "depends_on": "eval:doc.custom_pea_is_joint_lh_rh",
-  "mandatory_depends_on": "eval:doc.custom_pea_is_joint_lh_rh",
   "module": "Production Entry App",
   "permlevel": 0
  },

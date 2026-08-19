@@ -9,6 +9,7 @@ from frappe.utils import get_datetime, get_time, now_datetime
 
 from production_entry_app.production_entry_app.overrides.joint_production import (
 	build_joint_item_rows,
+	calculate_joint_rm_consumption_from_boms,
 )
 from production_entry_app.production_entry_app.utils.alternative_items import (
 	apply_direct_manufacture_alternative_flags,
@@ -24,6 +25,26 @@ from production_entry_app.production_entry_app.utils.system_precision import (
 )
 
 _ALLOWED_STOCK_ENTRY_SHIFT_STATUSES: tuple[str, ...] = ("Running", "Completed")
+
+
+@frappe.whitelist()
+def get_joint_rm_consumption(
+	lh_bom: str,
+	rh_bom: str,
+	lh_gross_qty: float,
+	rh_gross_qty: float,
+) -> float:
+	if not frappe.has_permission("Stock Entry", "create"):
+		raise frappe.PermissionError
+	for bom_no in (lh_bom, rh_bom):
+		if not frappe.has_permission("BOM", "read", bom_no):
+			raise frappe.PermissionError
+	return calculate_joint_rm_consumption_from_boms(
+		lh_bom_no=lh_bom,
+		rh_bom_no=rh_bom,
+		lh_gross_qty=lh_gross_qty,
+		rh_gross_qty=rh_gross_qty,
+	)
 
 
 @frappe.whitelist()
@@ -72,7 +93,6 @@ def get_joint_production_items(doc: str) -> list[dict]:
 		"custom_pea_rh_rejection_qty",
 		"custom_pea_total_strokes",
 		"custom_pea_die_tool_item",
-		"custom_pea_total_rm_consumption",
 	):
 		stock_entry.set(fieldname, doc_dict.get(fieldname))
 	return build_joint_item_rows(stock_entry)

@@ -9,11 +9,15 @@ import frappe.handler
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_to_date, get_datetime
 
-from production_entry_app.production_entry_app.api import get_joint_production_items
+from production_entry_app.production_entry_app.api import (
+	get_joint_production_items,
+	get_joint_rm_consumption,
+)
 from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
 from production_entry_app.production_entry_app.overrides.joint_production import (
 	allocate_joint_output_value,
 	build_joint_item_rows,
+	calculate_joint_rm_consumption,
 	calculate_joint_scrap_quantity,
 )
 from production_entry_app.production_entry_app.report.report_utils import (
@@ -52,6 +56,28 @@ def _make_running_shift_through_api(masters: dict[str, Any]) -> object:
 
 
 class TestJointProductionCalculations(FrappeTestCase):
+	def test_joint_rm_consumption_rounds_up_to_complete_sheets(self) -> None:
+		self.assertEqual(
+			calculate_joint_rm_consumption(
+				lh_gross_qty=40,
+				lh_bom_quantity=40,
+				rh_gross_qty=41,
+				rh_bom_quantity=41,
+				rm_qty_per_sheet=49.125,
+			),
+			49.125,
+		)
+		self.assertEqual(
+			calculate_joint_rm_consumption(
+				lh_gross_qty=41,
+				lh_bom_quantity=40,
+				rh_gross_qty=41,
+				rh_bom_quantity=41,
+				rm_qty_per_sheet=49.125,
+			),
+			98.25,
+		)
+
 	def test_joint_scrap_uses_total_rm_and_both_gross_outputs(self) -> None:
 		result = calculate_joint_scrap_quantity(
 			total_rm_consumption=49.125,
@@ -160,12 +186,13 @@ class TestJointProductionItems(FrappeTestCase):
 				"custom_pea_rh_rejection_qty": 0,
 				"custom_pea_total_strokes": 41,
 				"custom_pea_die_tool_item": self.lh_item,
-				"custom_pea_total_rm_consumption": 49.125,
+				"custom_pea_total_rm_consumption": 1,
 			}
 		)
 
 		rows = build_joint_item_rows(doc)
 
+		self.assertEqual(doc.custom_pea_total_rm_consumption, 49.125)
 		self.assertEqual(len([row for row in rows if row.get("s_warehouse")]), 1)
 		self.assertEqual(sum(row["qty"] for row in rows if row.get("s_warehouse")), 49.125)
 		self.assertEqual(
@@ -225,6 +252,17 @@ class TestJointProductionItems(FrappeTestCase):
 				if row.get("is_finished_item") and not _is_scrap_row(row)
 			},
 			{"LH", "RH"},
+		)
+
+	def test_joint_rm_consumption_is_available_through_the_stock_entry_api(self) -> None:
+		self.assertEqual(
+			get_joint_rm_consumption(
+				lh_bom=self.lh_bom,
+				rh_bom=self.rh_bom,
+				lh_gross_qty=101,
+				rh_gross_qty=41,
+			),
+			98.25,
 		)
 
 	def test_total_rm_consumption_must_match_the_single_rm_item_total(self) -> None:
@@ -386,7 +424,6 @@ class TestJointProductionItems(FrappeTestCase):
 				"custom_pea_rh_rejection_qty": 0,
 				"custom_pea_total_strokes": 41,
 				"custom_pea_die_tool_item": self.lh_item,
-				"custom_pea_total_rm_consumption": 49.125,
 				"custom_pea_rejection_breakup": [
 					{
 						"rejection_reason": "Burr",

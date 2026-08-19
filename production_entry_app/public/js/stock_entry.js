@@ -68,6 +68,7 @@ const MANUFACTURE_CLEAR_TABLE_FIELDS = [
 let _dieToolRequestId = 0;
 let _shiftDetailsRequestId = 0;
 const _rejectionSideRequestIds = new Map();
+const JOINT_RM_DEBOUNCE_MS = 300;
 
 function _hide_native_get_items(frm) {
 	frm.toggle_display("get_items", false);
@@ -168,6 +169,19 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 			_apply_manufacture_visibility(frm);
 			_sync_stock_entry_helper_fields(frm);
 			_setup_stock_entry_quick_entry(frm);
+			_schedule_joint_rm_consumption(frm);
+		},
+		custom_pea_lh_bom(frm) {
+			_schedule_joint_rm_consumption(frm);
+		},
+		custom_pea_rh_bom(frm) {
+			_schedule_joint_rm_consumption(frm);
+		},
+		custom_pea_lh_gross_qty(frm) {
+			_schedule_joint_rm_consumption(frm);
+		},
+		custom_pea_rh_gross_qty(frm) {
+			_schedule_joint_rm_consumption(frm);
 		},
 		from_bom(frm) {
 			_sync_native_get_items_access(frm);
@@ -232,12 +246,14 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 				callback(r) {
 					_apply_fetch_items_response(frm, r.message);
 					if (isJoint) {
+						const rmRow = (r.message || []).find((row) => row.s_warehouse);
 						const scrapRow = (r.message || []).find(
 							(row) =>
 								row.is_scrap_item ||
 								row.is_legacy_scrap_item ||
 								row.type === "Scrap"
 						);
+						frm.set_value("custom_pea_total_rm_consumption", rmRow?.qty || 0);
 						frm.set_value("custom_pea_joint_scrap_qty", scrapRow?.qty || 0);
 					}
 				},
@@ -285,6 +301,50 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 						_notify_call_error(__("Failed to load the joint output item."), error);
 					}
 				});
+		},
+	});
+}
+
+function _schedule_joint_rm_consumption(frm) {
+	if (frm.__peaJointRmTimer) {
+		clearTimeout(frm.__peaJointRmTimer);
+		frm.__peaJointRmTimer = null;
+	}
+	const requestId = (frm.__peaJointRmRequestId || 0) + 1;
+	frm.__peaJointRmRequestId = requestId;
+	const hasInputs =
+		_is_joint_doc(frm.doc) &&
+		frm.doc.custom_pea_lh_bom &&
+		frm.doc.custom_pea_rh_bom &&
+		Number(frm.doc.custom_pea_lh_gross_qty || 0) > 0 &&
+		Number(frm.doc.custom_pea_rh_gross_qty || 0) > 0;
+	if (!hasInputs) {
+		frm.set_value("custom_pea_total_rm_consumption", 0);
+		return;
+	}
+	frm.__peaJointRmTimer = setTimeout(() => {
+		frm.__peaJointRmTimer = null;
+		_load_joint_rm_consumption(frm, requestId);
+	}, JOINT_RM_DEBOUNCE_MS);
+}
+
+function _load_joint_rm_consumption(frm, requestId) {
+	frappe.call({
+		method: "production_entry_app.production_entry_app.api.get_joint_rm_consumption",
+		args: {
+			lh_bom: frm.doc.custom_pea_lh_bom,
+			rh_bom: frm.doc.custom_pea_rh_bom,
+			lh_gross_qty: frm.doc.custom_pea_lh_gross_qty,
+			rh_gross_qty: frm.doc.custom_pea_rh_gross_qty,
+		},
+		callback(r) {
+			if (requestId !== frm.__peaJointRmRequestId) return;
+			frm.set_value("custom_pea_total_rm_consumption", Number(r.message || 0));
+		},
+		error(error) {
+			if (requestId !== frm.__peaJointRmRequestId) return;
+			frm.set_value("custom_pea_total_rm_consumption", 0);
+			_notify_call_error(__("Failed to calculate Total RM Consumption."), error);
 		},
 	});
 }

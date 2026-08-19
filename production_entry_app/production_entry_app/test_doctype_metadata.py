@@ -99,6 +99,9 @@ def test_joint_lh_rh_production_metadata_is_exported() -> None:
 		"stock_entry_type.custom_pea_joint_lh_rh_production"
 	)
 	assert fields_by_name["Stock Entry-custom_pea_is_joint_lh_rh"].get("read_only") == 1
+	total_rm_field = fields_by_name["Stock Entry-custom_pea_total_rm_consumption"]
+	assert total_rm_field.get("read_only") == 1
+	assert not total_rm_field.get("mandatory_depends_on")
 
 	rejection_fields = {
 		field.get("fieldname"): field for field in assert_doctype_json("Rejection Breakup").get("fields", [])
