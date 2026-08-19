@@ -32,6 +32,7 @@
   "fieldtype": "Check",
   "label": "Joint LH/RH Production",
   "default": "0",
+  "allow_in_quick_entry": 1,
   "insert_after": "purpose",
   "module": "Production Entry App",
   "permlevel": 0

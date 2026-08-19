@@ -58,6 +58,36 @@ test.describe("Joint LH/RH production form", () => {
 		createdUsers.clear();
 	});
 
+	test("@regression Stock Entry Type quick entry exposes the joint-production flag", async ({
+		page,
+	}) => {
+		const stockEntryType = `${lifecycle.getPrefix()} Quick Joint LH RH`;
+		createdTypes.add(stockEntryType);
+		const form = new StockEntryPage(page);
+		await form.openNew();
+		await page.evaluate(() => frappe.ui.form.make_quick_entry("Stock Entry Type"));
+
+		const dialog = page.getByRole("dialog");
+		const jointFlag = dialog.getByRole("checkbox", { name: "Joint LH/RH Production" });
+		await expect(jointFlag).toBeVisible();
+		await expect(jointFlag).toBeEnabled();
+		await dialog.locator('[data-fieldname="__newname"] input').fill(stockEntryType);
+		await dialog.locator('[data-fieldname="purpose"] select').selectOption("Repack");
+		await jointFlag.check();
+		await dialog.getByRole("button", { name: "Save", exact: true }).click();
+		await expect(dialog).toBeHidden();
+
+		const savedType = await callFrappeMethod(page, "frappe.client.get_value", {
+			doctype: "Stock Entry Type",
+			filters: stockEntryType,
+			fieldname: JSON.stringify(["purpose", "custom_pea_joint_lh_rh_production"]),
+		});
+		expect(savedType).toMatchObject({
+			purpose: "Repack",
+			custom_pea_joint_lh_rh_production: 1,
+		});
+	});
+
 	test("@smoke joint Repack uses the common production form", async ({ page }) => {
 		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
