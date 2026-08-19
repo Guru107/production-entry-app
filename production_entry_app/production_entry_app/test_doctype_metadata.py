@@ -95,10 +95,9 @@ def test_joint_lh_rh_production_metadata_is_exported() -> None:
 		"Stock Entry Detail-custom_pea_joint_output_side",
 	}
 	assert not required_fields.difference(fields_by_name)
-	assert fields_by_name["Stock Entry-custom_pea_is_joint_lh_rh"].get("fetch_from") == (
-		"stock_entry_type.custom_pea_joint_lh_rh_production"
-	)
-	assert fields_by_name["Stock Entry-custom_pea_is_joint_lh_rh"].get("read_only") == 1
+	joint_flag = fields_by_name["Stock Entry-custom_pea_is_joint_lh_rh"]
+	assert not joint_flag.get("fetch_from")
+	assert not joint_flag.get("read_only")
 	total_rm_field = fields_by_name["Stock Entry-custom_pea_total_rm_consumption"]
 	assert total_rm_field.get("read_only") == 1
 	assert not total_rm_field.get("mandatory_depends_on")

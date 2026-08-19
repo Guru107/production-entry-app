@@ -12,6 +12,7 @@ from frappe.utils import add_to_date, get_datetime
 from production_entry_app.production_entry_app.api import (
 	get_joint_production_items,
 	get_joint_rm_consumption,
+	get_joint_stock_entry_type,
 )
 from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
 from production_entry_app.production_entry_app.overrides.joint_production import (
@@ -138,6 +139,29 @@ class TestJointProductionStockEntryType(FrappeTestCase):
 
 		with self.assertRaisesRegex(frappe.ValidationError, "must use Repack purpose"):
 			doc.insert(ignore_permissions=True)
+
+	def test_configured_joint_repack_type_is_available_to_the_stock_entry_form(self) -> None:
+		expected = f"Joint Repack {frappe.generate_hash(length=6)}"
+		frappe.get_doc(
+			{
+				"doctype": "Stock Entry Type",
+				"name": expected,
+				"purpose": "Repack",
+				"custom_pea_joint_lh_rh_production": 1,
+			}
+		).insert(ignore_permissions=True)
+		stock_entry_type = get_joint_stock_entry_type()
+
+		self.assertEqual(stock_entry_type, expected)
+		self.assertEqual(frappe.db.get_value("Stock Entry Type", stock_entry_type, "purpose"), "Repack")
+		self.assertEqual(
+			frappe.db.get_value(
+				"Stock Entry Type",
+				stock_entry_type,
+				"custom_pea_joint_lh_rh_production",
+			),
+			1,
+		)
 
 
 class TestJointProductionItems(FrappeTestCase):

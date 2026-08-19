@@ -34,6 +34,17 @@ async function createJointStockEntryType(page, prefix) {
 	return name;
 }
 
+async function enableJointProduction(page, form, stockEntryType) {
+	const jointCheckbox = page.getByRole("checkbox", {
+		name: "Joint LH/RH Production",
+		exact: true,
+	});
+	await expect(jointCheckbox).toBeEnabled();
+	await jointCheckbox.check();
+	await form.waitForFieldValue("stock_entry_type", stockEntryType);
+	await form.waitForFieldValue("custom_pea_stock_entry_purpose", "Repack");
+}
+
 async function deleteDocIfExists(page, doctype, name) {
 	if (!name) return;
 	const rows = await callFrappeMethod(page, "frappe.client.get_list", {
@@ -96,8 +107,7 @@ test.describe("Joint LH/RH production form", () => {
 		const form = new StockEntryPage(page);
 
 		await form.openNew();
-		await setFieldValue(page, "stock_entry_type", stockEntryType);
-		await form.waitForFieldValue("custom_pea_is_joint_lh_rh", 1);
+		await enableJointProduction(page, form, stockEntryType);
 		await setFieldValue(page, "company", ctx.company);
 
 		expect(await form.isFieldVisible("custom_pea_lh_bom")).toBe(true);
@@ -147,8 +157,7 @@ test.describe("Joint LH/RH production form", () => {
 		const form = new StockEntryPage(page);
 
 		await form.openNew();
-		await setFieldValue(page, "stock_entry_type", stockEntryType);
-		await form.waitForFieldValue("custom_pea_is_joint_lh_rh", 1);
+		await enableJointProduction(page, form, stockEntryType);
 		await setFieldValue(page, "company", ctx.company);
 		await setFieldValue(page, "custom_pea_shift", ctx.shift_name);
 		await setFieldValue(page, "from_warehouse", ctx.wip_warehouse);
@@ -190,8 +199,7 @@ test.describe("Joint LH/RH production form", () => {
 		const form = new StockEntryPage(page);
 
 		await form.openNew();
-		await setFieldValue(page, "stock_entry_type", stockEntryType);
-		await form.waitForFieldValue("custom_pea_is_joint_lh_rh", 1);
+		await enableJointProduction(page, form, stockEntryType);
 		await setFieldValue(page, "custom_pea_lh_gross_qty", 40);
 		await setFieldValue(page, "custom_pea_rh_gross_qty", 41);
 		await form.fetchItems();

@@ -28,6 +28,28 @@ _ALLOWED_STOCK_ENTRY_SHIFT_STATUSES: tuple[str, ...] = ("Running", "Completed")
 
 
 @frappe.whitelist()
+def get_joint_stock_entry_type() -> str:
+	if not frappe.has_permission("Stock Entry", "create"):
+		raise frappe.PermissionError
+	stock_entry_types = frappe.get_all(
+		"Stock Entry Type",
+		filters={
+			"purpose": "Repack",
+			"custom_pea_joint_lh_rh_production": 1,
+		},
+		order_by="modified desc, name asc",
+		pluck="name",
+		limit=1,
+	)
+	if not stock_entry_types:
+		frappe.throw(_("Configure a Repack Stock Entry Type for Joint LH/RH Production first."))
+	stock_entry_type = stock_entry_types[0]
+	if not frappe.has_permission("Stock Entry Type", "read", stock_entry_type):
+		raise frappe.PermissionError
+	return stock_entry_type
+
+
+@frappe.whitelist()
 def get_joint_rm_consumption(
 	lh_bom: str,
 	rh_bom: str,

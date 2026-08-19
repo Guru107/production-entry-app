@@ -23,6 +23,47 @@ async function setupFreshContext(page, prefix) {
 	return await bootstrapE2E(page, prefix);
 }
 
+async function ensureJointStockEntryType(page, prefix) {
+	const existing = await callFrappeMethod(page, "frappe.client.get_list", {
+		doctype: "Stock Entry Type",
+		fields: JSON.stringify(["name"]),
+		filters: JSON.stringify({
+			purpose: "Repack",
+			custom_pea_joint_lh_rh_production: 1,
+		}),
+		order_by: "modified desc, name asc",
+		limit_page_length: 1,
+	});
+	if (existing?.length) return { name: existing[0].name, created: false };
+
+	const name = `${prefix} Joint LH RH`;
+	await callFrappeMethod(page, "frappe.client.insert", {
+		doc: JSON.stringify({
+			doctype: "Stock Entry Type",
+			name,
+			purpose: "Repack",
+			custom_pea_joint_lh_rh_production: 1,
+		}),
+	});
+	return { name, created: true };
+}
+
+async function deleteStockEntryTypeIfExists(page, name) {
+	if (!name) return;
+	const existing = await callFrappeMethod(page, "frappe.client.get_list", {
+		doctype: "Stock Entry Type",
+		fields: JSON.stringify(["name"]),
+		filters: JSON.stringify({ name }),
+		limit_page_length: 1,
+	});
+	if (existing?.length) {
+		await callFrappeMethod(page, "frappe.client.delete", {
+			doctype: "Stock Entry Type",
+			name,
+		});
+	}
+}
+
 async function setSystemFloatPrecision(page, prefix, precision) {
 	await callFrappeMethod(
 		page,
@@ -133,12 +174,22 @@ async function deleteShiftIfExists(page, { department, date, label }) {
 
 test.describe("Shift to Stock Entry integration", () => {
 	const lifecycle = registerE2ELifecycle(test);
+	const createdStockEntryTypes = new Set();
+
+	test.afterEach(async ({ page }) => {
+		for (const name of createdStockEntryTypes) {
+			await deleteStockEntryTypeIfExists(page, name);
+		}
+		createdStockEntryTypes.clear();
+	});
 
 	test("@smoke running shift create action opens stock entry with shift prefilled", async ({
 		page,
 	}) => {
 		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
+		const jointType = await ensureJointStockEntryType(page, lifecycle.getPrefix());
+		if (jointType.created) createdStockEntryTypes.add(jointType.name);
 		const shift = await getDoc(page, "Shift", ctx.shift_name);
 		const shiftPage = new ShiftPage(page);
 		await shiftPage.open(ctx.shift_name);
@@ -152,6 +203,42 @@ test.describe("Shift to Stock Entry integration", () => {
 		expect(values.stock_entry_type).toBe("Manufacture");
 		expect(values.custom_pea_shift).toBe(ctx.shift_name);
 		expect(ctx.shift_name).toMatch(new RegExp(`^SHIFT-${ctx.shift_date}\\.1\\.\\d{4}$`));
+
+		await stockEntryPage.waitForShiftAutoFill({
+			branch: shift.branch || null,
+			plannedStartIncludes: `${ctx.shift_date} 08:00:00`,
+			plannedEndIncludes: "16:00:00",
+			warehouse: ctx.wip_warehouse,
+		});
+		const beforeJoint = await stockEntryPage.getFieldValues([
+			"company",
+			"branch",
+			"custom_pea_shift",
+			"custom_pea_planned_start_date",
+			"custom_pea_planned_end_date",
+			"from_warehouse",
+			"to_warehouse",
+		]);
+		const jointCheckbox = page.getByRole("checkbox", {
+			name: "Joint LH/RH Production",
+			exact: true,
+		});
+		await expect(jointCheckbox).toBeVisible();
+		await expect(jointCheckbox).toBeEnabled();
+		await jointCheckbox.check();
+		await stockEntryPage.waitForFieldValue("stock_entry_type", jointType.name);
+		await stockEntryPage.waitForFieldValue("custom_pea_stock_entry_purpose", "Repack");
+
+		const afterJoint = await stockEntryPage.getFieldValues([
+			"company",
+			"branch",
+			"custom_pea_shift",
+			"custom_pea_planned_start_date",
+			"custom_pea_planned_end_date",
+			"from_warehouse",
+			"to_warehouse",
+		]);
+		expect(afterJoint).toEqual(beforeJoint);
 	});
 
 	test("@regression selecting shift auto-fills branch and planned dates", async ({ page }) => {
