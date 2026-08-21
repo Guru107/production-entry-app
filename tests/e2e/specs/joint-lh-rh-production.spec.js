@@ -166,12 +166,12 @@ test.describe("Joint LH/RH production form", () => {
 		await form.waitForFieldValue("custom_pea_total_rm_consumption", 49.125);
 
 		await page.locator('[data-fieldname="custom_pea_joint_fetch_items"] button').click();
-		await page.waitForFunction(() => (window.cur_frm?.doc?.items || []).length === 4);
+		await page.waitForFunction(() => (window.cur_frm?.doc?.items || []).length === 5);
 
-		const values = await form.getFieldValues(["items", "custom_pea_joint_scrap_qty"]);
+		const values = await form.getFieldValues(["items"]);
 		const outgoingRows = values.items.filter((row) => row.s_warehouse);
 		const sideRows = values.items.filter((row) => row.custom_pea_joint_output_side);
-		const scrapRow = values.items.find(
+		const scrapRows = values.items.filter(
 			(row) => row.is_scrap_item || row.is_legacy_scrap_item || row.type === "Scrap"
 		);
 		expect(outgoingRows).toHaveLength(1);
@@ -180,8 +180,21 @@ test.describe("Joint LH/RH production form", () => {
 			"LH",
 			"RH",
 		]);
-		expect(scrapRow?.item_code).toBe(ctx.joint_scrap_item);
-		expect(values.custom_pea_joint_scrap_qty).toBeGreaterThan(0);
+		expect(scrapRows).toHaveLength(2);
+		expect(scrapRows).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					item_code: ctx.joint_scrap_item,
+					qty: 1.32125,
+					stock_uom: "Kg",
+				}),
+				expect.objectContaining({
+					item_code: ctx.joint_scrap_nos_item,
+					qty: 9,
+					stock_uom: "Nos",
+				}),
+			])
+		);
 	});
 
 	test("@regression joint Fetch Items shows required-header validation", async ({ page }) => {

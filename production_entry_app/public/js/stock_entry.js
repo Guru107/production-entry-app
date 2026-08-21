@@ -249,14 +249,7 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 					_apply_fetch_items_response(frm, r.message);
 					if (isJoint) {
 						const rmRow = (r.message || []).find((row) => row.s_warehouse);
-						const scrapRow = (r.message || []).find(
-							(row) =>
-								row.is_scrap_item ||
-								row.is_legacy_scrap_item ||
-								row.type === "Scrap"
-						);
 						frm.set_value("custom_pea_total_rm_consumption", rmRow?.qty || 0);
-						frm.set_value("custom_pea_joint_scrap_qty", scrapRow?.qty || 0);
 					}
 				},
 				error(error) {

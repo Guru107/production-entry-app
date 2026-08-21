@@ -270,7 +270,6 @@ test.describe("Shift to Stock Entry integration", () => {
 		expect(submitted.custom_pea_total_strokes).toBe(41);
 		expect(submitted.custom_pea_ok_qty).toBe(80);
 		expect(submitted.custom_pea_total_rm_consumption).toBe(49.125);
-		expect(submitted.custom_pea_joint_scrap_qty).toBeGreaterThan(0);
 		expect(submitted.custom_pea_actual_duration_mins).toBe(60);
 		expect(submitted.custom_pea_production_time_mins).toBeLessThan(60);
 		expect(submitted.custom_pea_actual_spm).toBeCloseTo(
@@ -287,11 +286,14 @@ test.describe("Shift to Stock Entry integration", () => {
 				)
 				.every((row) => row.basic_rate > 0 && row.valuation_rate > 0)
 		).toBe(true);
-		const submittedScrapRow = submitted.items.find(
+		const submittedScrapRows = submitted.items.filter(
 			(row) => row.is_scrap_item || row.is_legacy_scrap_item || row.type === "Scrap"
 		);
-		expect(submittedScrapRow).toBeDefined();
-		expect(submittedScrapRow).toHaveProperty("is_finished_item");
+		expect(submittedScrapRows).toHaveLength(2);
+		expect(submittedScrapRows.map((row) => row.item_code).sort()).toEqual(
+			[ctx.joint_scrap_item, ctx.joint_scrap_nos_item].sort()
+		);
+		expect(submittedScrapRows.every((row) => "is_finished_item" in row)).toBe(true);
 	});
 
 	test("@regression selecting shift auto-fills branch and planned dates", async ({ page }) => {

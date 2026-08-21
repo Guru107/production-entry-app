@@ -1401,6 +1401,7 @@ class TestE2EApi(FrappeTestCase):
 						"_E2E-DIE_Joint_RH_Item",
 						"_E2E-DIE_Joint_RM_Item",
 						"_E2E-DIE_Joint_Scrap_Item",
+						"_E2E-DIE_Joint_Scrap_Nos_Item",
 					],
 				)
 			)
@@ -1514,6 +1515,7 @@ class TestE2EApi(FrappeTestCase):
 						"_E2E_Joint_RH_Item",
 						"_E2E_Joint_RM_Item",
 						"_E2E_Joint_Scrap_Item",
+						"_E2E_Joint_Scrap_Nos_Item",
 					],
 				)
 			)

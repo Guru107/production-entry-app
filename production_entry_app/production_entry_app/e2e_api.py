@@ -429,17 +429,22 @@ def _get_or_create_e2e_shift(
 	frappe.throw(_("Unexpected Shift status for E2E bootstrap: {0}").format(shift.status))
 
 
-def _get_e2e_joint_item_codes(prefix: str) -> tuple[str, str, str, str]:
+def _get_e2e_joint_item_codes(prefix: str) -> tuple[str, str, str, str, str]:
 	return (
 		f"_{prefix}_Joint_LH_Item",
 		f"_{prefix}_Joint_RH_Item",
 		f"_{prefix}_Joint_RM_Item",
 		f"_{prefix}_Joint_Scrap_Item",
+		f"_{prefix}_Joint_Scrap_Nos_Item",
 	)
 
 
 def _ensure_e2e_joint_bom(
-	*, item_code: str, rm_item: str, scrap_item: str, company: str, scrap_qty: float
+	*,
+	item_code: str,
+	rm_item: str,
+	scrap_items: list[tuple[str, float, float]],
+	company: str,
 ) -> str:
 	existing = frappe.db.get_value(
 		"BOM",
@@ -459,18 +464,21 @@ def _ensure_e2e_joint_bom(
 		"items": [{"item_code": rm_item, "qty": 49.125, "rate": 50}],
 	}
 	if frappe.get_meta("BOM", cached=True).has_field("scrap_items"):
-		values["scrap_items"] = [{"item_code": scrap_item, "stock_qty": scrap_qty, "rate": 10}]
+		values["scrap_items"] = [
+			{"item_code": scrap_item, "stock_qty": qty, "rate": rate} for scrap_item, qty, rate in scrap_items
+		]
 	else:
 		values["secondary_items"] = [
 			{
 				"type": "Scrap",
 				"item_code": scrap_item,
-				"qty": scrap_qty,
-				"uom": "Kg",
+				"qty": qty,
+				"uom": frappe.db.get_value("Item", scrap_item, "stock_uom"),
 				"conversion_factor": 1,
 				"cost_allocation_per": 0,
 				"process_loss_per": 0,
 			}
+			for scrap_item, qty, _rate in scrap_items
 		]
 	bom = frappe.get_doc(values).insert(ignore_permissions=True)
 	bom.submit()
@@ -528,27 +536,28 @@ def bootstrap_e2e_context(prefix: str = "E2E", cleanup_running: int = 1) -> dict
 
 	bom = ensure_default_bom(fg_item=fg_item, rm_item=rm_item, company=company)
 	ensure_stock(rm_item, wip_warehouse, company, target_qty=1000, posting_date=base_date)
-	joint_lh_item, joint_rh_item, joint_rm_item, joint_scrap_item = _get_e2e_joint_item_codes(prefix)
+	joint_lh_item, joint_rh_item, joint_rm_item, joint_scrap_item, joint_scrap_nos_item = (
+		_get_e2e_joint_item_codes(prefix)
+	)
 	ensure_item(joint_lh_item)
 	ensure_item(joint_rh_item)
 	ensure_item(joint_rm_item, stock_uom="Kg")
 	ensure_item(joint_scrap_item, stock_uom="Kg")
+	ensure_item(joint_scrap_nos_item, stock_uom="Nos")
 	if frappe.get_meta("Item", cached=True).has_field("custom_pea_has_die_tool"):
 		frappe.db.set_value("Item", joint_lh_item, "custom_pea_has_die_tool", 1, update_modified=False)
 	frappe.db.set_value("Item", joint_lh_item, "custom_pea_stroke_capacity", 10000, update_modified=False)
 	joint_lh_bom = _ensure_e2e_joint_bom(
 		item_code=joint_lh_item,
 		rm_item=joint_rm_item,
-		scrap_item=joint_scrap_item,
+		scrap_items=[(joint_scrap_item, 1.125, 10), (joint_scrap_nos_item, 2, 4)],
 		company=company,
-		scrap_qty=1.125,
 	)
 	joint_rh_bom = _ensure_e2e_joint_bom(
 		item_code=joint_rh_item,
 		rm_item=joint_rm_item,
-		scrap_item=joint_scrap_item,
+		scrap_items=[(joint_scrap_item, 2.125, 10), (joint_scrap_nos_item, 20, 4)],
 		company=company,
-		scrap_qty=2.125,
 	)
 	ensure_stock(joint_rm_item, wip_warehouse, company, target_qty=1000, posting_date=base_date)
 
@@ -582,6 +591,7 @@ def bootstrap_e2e_context(prefix: str = "E2E", cleanup_running: int = 1) -> dict
 		"joint_rh_item": joint_rh_item,
 		"joint_rm_item": joint_rm_item,
 		"joint_scrap_item": joint_scrap_item,
+		"joint_scrap_nos_item": joint_scrap_nos_item,
 		"joint_lh_bom": joint_lh_bom,
 		"joint_rh_bom": joint_rh_bom,
 		"shift_name": shift.name,
@@ -714,12 +724,15 @@ def _cleanup_e2e_master_data(prefix: str) -> None:
 		if frappe.db.exists(doctype, name):
 			_safe_force_delete(doctype, name, context="cleanup_e2e_context")
 
-	joint_lh_item, joint_rh_item, joint_rm_item, joint_scrap_item = _get_e2e_joint_item_codes(prefix)
+	joint_lh_item, joint_rh_item, joint_rm_item, joint_scrap_item, joint_scrap_nos_item = (
+		_get_e2e_joint_item_codes(prefix)
+	)
 	for item in (
 		target_fg_item,
 		joint_lh_item,
 		joint_rh_item,
 		joint_scrap_item,
+		joint_scrap_nos_item,
 		joint_rm_item,
 		target_rm_item,
 	):

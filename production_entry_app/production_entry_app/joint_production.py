@@ -11,6 +11,26 @@ from frappe.utils import cint, flt
 
 
 @dataclass(frozen=True)
+class JointBomScrapItem:
+	item_code: str
+	qty: float
+	uom: str
+	rate: float
+
+
+@dataclass(frozen=True)
+class JointPlannedScrapItem:
+	item_code: str
+	qty: float
+	uom: str
+	rate: float
+
+	@property
+	def role(self) -> str:
+		return f"scrap:{self.item_code}"
+
+
+@dataclass(frozen=True)
 class JointBomDetails:
 	name: str
 	item_code: str
@@ -19,18 +39,11 @@ class JointBomDetails:
 	rm_item_code: str
 	rm_qty: float
 	rm_uom: str
-	scrap_item_code: str
-	scrap_qty: float
-	scrap_uom: str
-	scrap_rate: float
+	scrap_items: tuple[JointBomScrapItem, ...]
 
 	@property
 	def unit_cost(self) -> float:
 		return self.total_cost / self.quantity
-
-	@property
-	def unit_net_weight(self) -> float:
-		return (self.rm_qty - self.scrap_qty) / self.quantity
 
 
 @dataclass(frozen=True)
@@ -42,18 +55,19 @@ class JointProductionPlan:
 	rh_gross_qty: float
 	rh_rejection_qty: float
 	total_rm_consumption: float
-	scrap_qty: float
+	scrap_items: tuple[JointPlannedScrapItem, ...]
 
 	@property
 	def expected_role_quantities(self) -> dict[str, float]:
-		return {
+		quantities = {
 			"rm": self.total_rm_consumption,
 			"lh_good": self.lh_gross_qty - self.lh_rejection_qty,
 			"lh_rejection": self.lh_rejection_qty,
 			"rh_good": self.rh_gross_qty - self.rh_rejection_qty,
 			"rh_rejection": self.rh_rejection_qty,
-			"scrap": self.scrap_qty,
 		}
+		quantities.update({scrap.role: scrap.qty for scrap in self.scrap_items})
+		return quantities
 
 
 def calculate_joint_rm_consumption(
@@ -98,22 +112,6 @@ def calculate_joint_rm_consumption_from_boms(
 		rh_bom_quantity=rh_bom.quantity,
 		rm_qty_per_sheet=lh_bom.rm_qty,
 	)
-
-
-def calculate_joint_scrap_quantity(
-	*,
-	total_rm_consumption: float,
-	lh_gross_qty: float,
-	lh_unit_net_weight: float,
-	rh_gross_qty: float,
-	rh_unit_net_weight: float,
-) -> float:
-	scrap_qty = flt(total_rm_consumption) - (
-		flt(lh_gross_qty) * flt(lh_unit_net_weight) + flt(rh_gross_qty) * flt(rh_unit_net_weight)
-	)
-	if scrap_qty < 0:
-		frappe.throw(_("Total RM Consumption cannot be less than the net weight of the joint outputs."))
-	return scrap_qty
 
 
 def allocate_joint_output_value(
@@ -164,17 +162,17 @@ def materialize_joint_production_rows(doc: Any) -> list[dict[str, Any]]:
 			rejection_warehouse=_get_rejection_warehouse(doc),
 		)
 	)
-	if plan.scrap_qty > 0:
+	for scrap in plan.scrap_items:
 		scrap_row = _item_row(
-			item_code=plan.lh_bom.scrap_item_code,
-			qty=plan.scrap_qty,
+			item_code=scrap.item_code,
+			qty=scrap.qty,
 			t_warehouse=doc.get("to_warehouse"),
 		)
 		scrap_row.update(
 			{
 				"is_finished_item": 1,
 				"set_basic_rate_manually": 1,
-				"basic_rate": plan.lh_bom.scrap_rate,
+				"basic_rate": scrap.rate,
 			}
 		)
 		stock_entry_detail_meta = frappe.get_meta("Stock Entry Detail", cached=True)
@@ -206,15 +204,13 @@ def _build_joint_production_plan(doc: Any) -> JointProductionPlan:
 		rh_bom_quantity=rh_bom.quantity,
 		rm_qty_per_sheet=lh_bom.rm_qty,
 	)
-	scrap_qty = calculate_joint_scrap_quantity(
-		total_rm_consumption=total_rm_consumption,
+	scrap_items = _build_planned_scrap_items(
+		lh_bom=lh_bom,
 		lh_gross_qty=lh_gross_qty,
-		lh_unit_net_weight=lh_bom.unit_net_weight,
+		rh_bom=rh_bom,
 		rh_gross_qty=rh_gross_qty,
-		rh_unit_net_weight=rh_bom.unit_net_weight,
 	)
 	doc.set("custom_pea_total_rm_consumption", total_rm_consumption)
-	doc.set("custom_pea_joint_scrap_qty", scrap_qty)
 	return JointProductionPlan(
 		lh_bom=lh_bom,
 		rh_bom=rh_bom,
@@ -223,7 +219,38 @@ def _build_joint_production_plan(doc: Any) -> JointProductionPlan:
 		rh_gross_qty=rh_gross_qty,
 		rh_rejection_qty=rh_rejection_qty,
 		total_rm_consumption=total_rm_consumption,
-		scrap_qty=scrap_qty,
+		scrap_items=scrap_items,
+	)
+
+
+def _build_planned_scrap_items(
+	*,
+	lh_bom: JointBomDetails,
+	lh_gross_qty: float,
+	rh_bom: JointBomDetails,
+	rh_gross_qty: float,
+) -> tuple[JointPlannedScrapItem, ...]:
+	quantities: defaultdict[str, float] = defaultdict(float)
+	values: defaultdict[str, float] = defaultdict(float)
+	uoms: dict[str, str] = {}
+	for bom, gross_qty in ((lh_bom, lh_gross_qty), (rh_bom, rh_gross_qty)):
+		production_factor = flt(gross_qty) / bom.quantity
+		for scrap in bom.scrap_items:
+			generated_qty = production_factor * scrap.qty
+			if generated_qty <= 0:
+				continue
+			quantities[scrap.item_code] += generated_qty
+			values[scrap.item_code] += generated_qty * scrap.rate
+			uoms[scrap.item_code] = scrap.uom
+
+	return tuple(
+		JointPlannedScrapItem(
+			item_code=item_code,
+			qty=qty,
+			uom=uoms[item_code],
+			rate=values[item_code] / qty,
+		)
+		for item_code, qty in quantities.items()
 	)
 
 
@@ -277,14 +304,16 @@ def _validate_joint_item_rows(doc: Any, plan: JointProductionPlan) -> None:
 
 
 def _get_joint_role_label(role: str) -> str:
-	return {
+	labels = {
 		"rm": _("Total RM Consumption"),
 		"lh_good": _("LH Good quantity"),
 		"lh_rejection": _("LH Rejection quantity"),
 		"rh_good": _("RH Good quantity"),
 		"rh_rejection": _("RH Rejection quantity"),
-		"scrap": _("Scrap quantity"),
-	}[role]
+	}
+	if role.startswith("scrap:"):
+		return _("Scrap quantity for {0}").format(role.removeprefix("scrap:"))
+	return labels[role]
 
 
 def _get_joint_row_role(row: Any, plan: JointProductionPlan) -> str:
@@ -304,9 +333,10 @@ def _get_joint_row_role(row: Any, plan: JointProductionPlan) -> str:
 		return "rm"
 
 	if is_scrap:
-		if side or is_rejection or item_code != plan.lh_bom.scrap_item_code:
+		scrap = next((scrap for scrap in plan.scrap_items if scrap.item_code == item_code), None)
+		if side or is_rejection or not scrap:
 			_throw_stale_joint_rows(_("The scrap row does not match the selected BOMs."))
-		return "scrap"
+		return scrap.role
 
 	if side not in ("LH", "RH"):
 		_throw_stale_joint_rows(_("Every output row must specify LH or RH Output Side."))
@@ -341,10 +371,11 @@ def _set_joint_output_valuation(
 	plan: JointProductionPlan,
 ) -> None:
 	rows = doc.get("items") or []
+	scrap_rates = {scrap.item_code: scrap.rate for scrap in plan.scrap_items}
 	for row in rows:
 		if _is_scrap_row(row):
 			row.set_basic_rate_manually = 1
-			row.basic_rate = plan.lh_bom.scrap_rate
+			row.basic_rate = scrap_rates[row.get("item_code")]
 			row.basic_amount = flt(
 				_get_row_stock_qty(row) * row.basic_rate,
 				row.precision("basic_amount"),
@@ -443,16 +474,9 @@ def _get_joint_bom_details(bom_no: str) -> JointBomDetails:
 		]
 	if len(items) != 1:
 		frappe.throw(_("BOM {0} must contain exactly one raw material item.").format(bold_bom_no))
-	if len(scrap_items) != 1:
-		frappe.throw(_("BOM {0} must contain exactly one scrap item.").format(bold_bom_no))
 	if flt(bom.quantity) <= 0:
 		frappe.throw(_("BOM {0} quantity must be greater than zero.").format(bold_bom_no))
 	rm = items[0]
-	scrap = scrap_items[0]
-	scrap_qty = flt(scrap.get("stock_qty") or scrap.get("qty"))
-	scrap_rate = flt(scrap.get("rate"))
-	if not scrap_rate and scrap_qty > 0:
-		scrap_rate = flt(scrap.get("cost")) / scrap_qty
 	return JointBomDetails(
 		name=bom.name,
 		item_code=bom.item,
@@ -461,10 +485,20 @@ def _get_joint_bom_details(bom_no: str) -> JointBomDetails:
 		rm_item_code=rm.item_code,
 		rm_qty=flt(rm.stock_qty or rm.qty),
 		rm_uom=rm.stock_uom or rm.uom,
-		scrap_item_code=scrap.item_code,
-		scrap_qty=scrap_qty,
-		scrap_uom=scrap.get("stock_uom") or scrap.get("uom"),
-		scrap_rate=scrap_rate,
+		scrap_items=tuple(_get_bom_scrap_item_details(scrap) for scrap in scrap_items),
+	)
+
+
+def _get_bom_scrap_item_details(scrap: Any) -> JointBomScrapItem:
+	qty = flt(scrap.get("stock_qty") or scrap.get("qty"))
+	rate = flt(scrap.get("rate"))
+	if not rate and qty > 0:
+		rate = flt(scrap.get("cost")) / qty
+	return JointBomScrapItem(
+		item_code=scrap.item_code,
+		qty=qty,
+		uom=scrap.get("stock_uom") or scrap.get("uom"),
+		rate=rate,
 	)
 
 
@@ -473,11 +507,6 @@ def _validate_joint_bom_pair(lh_bom: JointBomDetails, rh_bom: JointBomDetails) -
 		frappe.throw(_("LH and RH BOMs must use the same raw material item and UOM."))
 	if abs(lh_bom.rm_qty - rh_bom.rm_qty) > 0.000001:
 		frappe.throw(_("LH and RH BOMs must use the same raw material quantity per sheet."))
-	if (lh_bom.scrap_item_code, lh_bom.scrap_uom) != (
-		rh_bom.scrap_item_code,
-		rh_bom.scrap_uom,
-	):
-		frappe.throw(_("LH and RH BOMs must use the same scrap item and UOM."))
 
 
 def _validate_side_quantities(side: str, gross_qty: float, rejection_qty: float) -> None:

@@ -20,7 +20,6 @@ from production_entry_app.production_entry_app.doctype.shift.shift import get_sh
 from production_entry_app.production_entry_app.joint_production import (
 	allocate_joint_output_value,
 	calculate_joint_rm_consumption,
-	calculate_joint_scrap_quantity,
 	materialize_joint_production_rows,
 	validate_and_apply_joint_production,
 )
@@ -83,17 +82,6 @@ class TestJointProductionCalculations(FrappeTestCase):
 			),
 			98.25,
 		)
-
-	def test_joint_scrap_uses_total_rm_and_both_gross_outputs(self) -> None:
-		result = calculate_joint_scrap_quantity(
-			total_rm_consumption=49.125,
-			lh_gross_qty=40,
-			lh_unit_net_weight=0.6,
-			rh_gross_qty=41,
-			rh_unit_net_weight=0.55,
-		)
-
-		self.assertAlmostEqual(result, 2.575, places=6)
 
 	def test_output_value_is_allocated_by_bom_cost_weight(self) -> None:
 		allocation = allocate_joint_output_value(
@@ -177,6 +165,7 @@ class TestJointProductionItems(FrappeTestCase):
 		self.rh_item = ensure_item(f"_Joint_RH_{suffix}")
 		self.rm_item = ensure_item(f"_Joint_RM_{suffix}", stock_uom="Kg")
 		self.scrap_item = ensure_item(f"_Joint_Scrap_{suffix}", stock_uom="Kg")
+		self.scrap_nos_item = ensure_item(f"_Joint_Scrap_Nos_{suffix}", stock_uom="Nos")
 		self.lh_bom = self._make_bom(self.lh_item, scrap_qty=1.125)
 		self.rh_bom = self._make_bom(self.rh_item, scrap_qty=2.125)
 		frappe.db.set_value(
@@ -240,7 +229,36 @@ class TestJointProductionItems(FrappeTestCase):
 		scrap = next(row for row in rows if _is_scrap_row(row))
 		self.assertEqual(scrap["item_code"], self.scrap_item)
 		self.assertGreater(scrap["qty"], 0)
-		self.assertAlmostEqual(doc.custom_pea_joint_scrap_qty, scrap["qty"], places=6)
+
+	def test_materializes_every_bom_scrap_item_with_mixed_uoms(self) -> None:
+		rh_only_scrap_item = ensure_item(
+			f"_Joint_RH_Only_Scrap_{frappe.generate_hash(length=6)}",
+			stock_uom="Kg",
+		)
+		lh_bom = self._make_bom(
+			self.lh_item,
+			scrap_items=[(self.scrap_item, 1.125, 10), (self.scrap_nos_item, 2, 4)],
+		)
+		rh_bom = self._make_bom(
+			self.rh_item,
+			scrap_items=[
+				(self.scrap_item, 2.125, 10),
+				(self.scrap_nos_item, 20, 4),
+				(rh_only_scrap_item, 0.5, 2),
+			],
+		)
+		shift = make_running_shift(self.masters)
+
+		doc = self._make_joint_entry(shift, lh_bom=lh_bom, rh_bom=rh_bom)
+		doc.insert(ignore_permissions=True)
+
+		scrap_rows = {row.item_code: row for row in doc.items if _is_scrap_row(row)}
+		self.assertEqual(set(scrap_rows), {self.scrap_item, self.scrap_nos_item, rh_only_scrap_item})
+		self.assertAlmostEqual(scrap_rows[self.scrap_item].qty, 1.32125, places=6)
+		self.assertEqual(scrap_rows[self.scrap_item].stock_uom, "Kg")
+		self.assertEqual(scrap_rows[self.scrap_nos_item].qty, 9)
+		self.assertEqual(scrap_rows[self.scrap_nos_item].stock_uom, "Nos")
+		self.assertAlmostEqual(scrap_rows[rh_only_scrap_item].qty, 0.205, places=6)
 
 	def test_joint_repack_can_be_inserted_with_native_stock_entry_items(self) -> None:
 		shift = make_running_shift(self.masters)
@@ -368,10 +386,11 @@ class TestJointProductionItems(FrappeTestCase):
 			).insert(ignore_permissions=True)
 			for suffix in ("A", "B")
 		]
-		lh_bom = frappe.get_doc("BOM", self.lh_bom)
-		scrap_rows = lh_bom.get("scrap_items") or lh_bom.get("secondary_items")
-		frappe.db.set_value(scrap_rows[0].doctype, scrap_rows[0].name, "rate", 0, update_modified=False)
-		frappe.clear_document_cache("BOM", self.lh_bom)
+		for bom_name in (self.lh_bom, self.rh_bom):
+			bom = frappe.get_doc("BOM", bom_name)
+			scrap_rows = bom.get("scrap_items") or bom.get("secondary_items")
+			frappe.db.set_value(scrap_rows[0].doctype, scrap_rows[0].name, "rate", 0, update_modified=False)
+			frappe.clear_document_cache("BOM", bom_name)
 		rm_row = next(row for row in doc.items if row.s_warehouse)
 		rm_row.qty = 20
 		rm_row.transfer_qty = 20
@@ -775,7 +794,13 @@ class TestJointProductionItems(FrappeTestCase):
 			)
 		)
 
-	def _make_joint_entry(self, shift: object) -> object:
+	def _make_joint_entry(
+		self,
+		shift: object,
+		*,
+		lh_bom: str | None = None,
+		rh_bom: str | None = None,
+	) -> object:
 		ensure_stock(
 			self.rm_item,
 			self.masters["wip_warehouse"],
@@ -799,10 +824,10 @@ class TestJointProductionItems(FrappeTestCase):
 				"custom_pea_actual_start_date": start,
 				"custom_pea_actual_end_date": end,
 				"custom_pea_is_joint_lh_rh": 1,
-				"custom_pea_lh_bom": self.lh_bom,
+				"custom_pea_lh_bom": lh_bom or self.lh_bom,
 				"custom_pea_lh_gross_qty": 40,
 				"custom_pea_lh_rejection_qty": 1,
-				"custom_pea_rh_bom": self.rh_bom,
+				"custom_pea_rh_bom": rh_bom or self.rh_bom,
 				"custom_pea_rh_gross_qty": 41,
 				"custom_pea_rh_rejection_qty": 0,
 				"custom_pea_total_strokes": 41,
@@ -849,7 +874,14 @@ class TestJointProductionItems(FrappeTestCase):
 		row.update({"qty": qty, "transfer_qty": qty})
 		doc.append("items", row)
 
-	def _make_bom(self, item_code: str, *, scrap_qty: float) -> str:
+	def _make_bom(
+		self,
+		item_code: str,
+		*,
+		scrap_qty: float | None = None,
+		scrap_items: list[tuple[str, float, float]] | None = None,
+	) -> str:
+		scrap_items = scrap_items or [(self.scrap_item, flt(scrap_qty), 10)]
 		values = {
 			"doctype": "BOM",
 			"item": item_code,
@@ -859,18 +891,22 @@ class TestJointProductionItems(FrappeTestCase):
 			"items": [{"item_code": self.rm_item, "qty": 49.125, "rate": 50}],
 		}
 		if frappe.get_meta("BOM", cached=True).has_field("scrap_items"):
-			values["scrap_items"] = [{"item_code": self.scrap_item, "stock_qty": scrap_qty, "rate": 10}]
+			values["scrap_items"] = [
+				{"item_code": scrap_item, "stock_qty": qty, "rate": rate}
+				for scrap_item, qty, rate in scrap_items
+			]
 		else:
 			values["secondary_items"] = [
 				{
 					"type": "Scrap",
-					"item_code": self.scrap_item,
-					"qty": scrap_qty,
-					"uom": "Kg",
+					"item_code": scrap_item,
+					"qty": qty,
+					"uom": frappe.db.get_value("Item", scrap_item, "stock_uom"),
 					"conversion_factor": 1,
 					"cost_allocation_per": 0,
 					"process_loss_per": 0,
 				}
+				for scrap_item, qty, _rate in scrap_items
 			]
 		bom = frappe.get_doc(values).insert(ignore_permissions=True)
 		bom.submit()
