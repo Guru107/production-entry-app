@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass
 from math import ceil
 from typing import Any
@@ -30,6 +31,29 @@ class JointBomDetails:
 	@property
 	def unit_net_weight(self) -> float:
 		return (self.rm_qty - self.scrap_qty) / self.quantity
+
+
+@dataclass(frozen=True)
+class JointProductionPlan:
+	lh_bom: JointBomDetails
+	rh_bom: JointBomDetails
+	lh_gross_qty: float
+	lh_rejection_qty: float
+	rh_gross_qty: float
+	rh_rejection_qty: float
+	total_rm_consumption: float
+	scrap_qty: float
+
+	@property
+	def expected_role_quantities(self) -> dict[str, float]:
+		return {
+			"RM": self.total_rm_consumption,
+			"LH Good": self.lh_gross_qty - self.lh_rejection_qty,
+			"LH Rejection": self.lh_rejection_qty,
+			"RH Good": self.rh_gross_qty - self.rh_rejection_qty,
+			"RH Rejection": self.rh_rejection_qty,
+			"Scrap": self.scrap_qty,
+		}
 
 
 def calculate_joint_rm_consumption(
@@ -110,49 +134,22 @@ def allocate_joint_output_value(
 	return {"LH": lh_value, "RH": value - lh_value}
 
 
-def build_joint_item_rows(doc: Any) -> list[dict[str, Any]]:
-	_validate_joint_header(doc)
-	lh_bom = _get_joint_bom_details(doc.get("custom_pea_lh_bom"))
-	rh_bom = _get_joint_bom_details(doc.get("custom_pea_rh_bom"))
-	_validate_joint_bom_pair(lh_bom, rh_bom)
-
-	lh_gross = flt(doc.get("custom_pea_lh_gross_qty"))
-	lh_rejection = flt(doc.get("custom_pea_lh_rejection_qty"))
-	rh_gross = flt(doc.get("custom_pea_rh_gross_qty"))
-	rh_rejection = flt(doc.get("custom_pea_rh_rejection_qty"))
-	_validate_side_quantities("LH", lh_gross, lh_rejection)
-	_validate_side_quantities("RH", rh_gross, rh_rejection)
-	total_rm_consumption = calculate_joint_rm_consumption(
-		lh_gross_qty=lh_gross,
-		lh_bom_quantity=lh_bom.quantity,
-		rh_gross_qty=rh_gross,
-		rh_bom_quantity=rh_bom.quantity,
-		rm_qty_per_sheet=lh_bom.rm_qty,
-	)
-	doc.set("custom_pea_total_rm_consumption", total_rm_consumption)
-
-	scrap_qty = calculate_joint_scrap_quantity(
-		total_rm_consumption=total_rm_consumption,
-		lh_gross_qty=lh_gross,
-		lh_unit_net_weight=lh_bom.unit_net_weight,
-		rh_gross_qty=rh_gross,
-		rh_unit_net_weight=rh_bom.unit_net_weight,
-	)
-	doc.set("custom_pea_joint_scrap_qty", scrap_qty)
+def materialize_joint_production_rows(doc: Any) -> list[dict[str, Any]]:
+	plan = _build_joint_production_plan(doc)
 
 	rows = [
 		_item_row(
-			item_code=lh_bom.rm_item_code,
-			qty=total_rm_consumption,
+			item_code=plan.lh_bom.rm_item_code,
+			qty=plan.total_rm_consumption,
 			s_warehouse=doc.get("from_warehouse"),
 		),
 	]
 	rows.extend(
 		_build_side_rows(
 			side="LH",
-			bom=lh_bom,
-			gross_qty=lh_gross,
-			rejection_qty=lh_rejection,
+			bom=plan.lh_bom,
+			gross_qty=plan.lh_gross_qty,
+			rejection_qty=plan.lh_rejection_qty,
 			fg_warehouse=doc.get("to_warehouse"),
 			rejection_warehouse=_get_rejection_warehouse(doc),
 		)
@@ -160,24 +157,24 @@ def build_joint_item_rows(doc: Any) -> list[dict[str, Any]]:
 	rows.extend(
 		_build_side_rows(
 			side="RH",
-			bom=rh_bom,
-			gross_qty=rh_gross,
-			rejection_qty=rh_rejection,
+			bom=plan.rh_bom,
+			gross_qty=plan.rh_gross_qty,
+			rejection_qty=plan.rh_rejection_qty,
 			fg_warehouse=doc.get("to_warehouse"),
 			rejection_warehouse=_get_rejection_warehouse(doc),
 		)
 	)
-	if scrap_qty > 0:
+	if plan.scrap_qty > 0:
 		scrap_row = _item_row(
-			item_code=lh_bom.scrap_item_code,
-			qty=scrap_qty,
+			item_code=plan.lh_bom.scrap_item_code,
+			qty=plan.scrap_qty,
 			t_warehouse=doc.get("to_warehouse"),
 		)
 		scrap_row.update(
 			{
 				"is_finished_item": 1,
 				"set_basic_rate_manually": 1,
-				"basic_rate": lh_bom.scrap_rate,
+				"basic_rate": plan.lh_bom.scrap_rate,
 			}
 		)
 		stock_entry_detail_meta = frappe.get_meta("Stock Entry Detail", cached=True)
@@ -187,6 +184,47 @@ def build_joint_item_rows(doc: Any) -> list[dict[str, Any]]:
 			scrap_row["type"] = "Scrap"
 		rows.append(scrap_row)
 	return rows
+
+
+def _build_joint_production_plan(doc: Any) -> JointProductionPlan:
+	_validate_joint_header(doc)
+	lh_bom = _get_joint_bom_details(doc.get("custom_pea_lh_bom"))
+	rh_bom = _get_joint_bom_details(doc.get("custom_pea_rh_bom"))
+	_validate_joint_bom_pair(lh_bom, rh_bom)
+
+	lh_gross_qty = flt(doc.get("custom_pea_lh_gross_qty"))
+	lh_rejection_qty = flt(doc.get("custom_pea_lh_rejection_qty"))
+	rh_gross_qty = flt(doc.get("custom_pea_rh_gross_qty"))
+	rh_rejection_qty = flt(doc.get("custom_pea_rh_rejection_qty"))
+	_validate_side_quantities("LH", lh_gross_qty, lh_rejection_qty)
+	_validate_side_quantities("RH", rh_gross_qty, rh_rejection_qty)
+
+	total_rm_consumption = calculate_joint_rm_consumption(
+		lh_gross_qty=lh_gross_qty,
+		lh_bom_quantity=lh_bom.quantity,
+		rh_gross_qty=rh_gross_qty,
+		rh_bom_quantity=rh_bom.quantity,
+		rm_qty_per_sheet=lh_bom.rm_qty,
+	)
+	scrap_qty = calculate_joint_scrap_quantity(
+		total_rm_consumption=total_rm_consumption,
+		lh_gross_qty=lh_gross_qty,
+		lh_unit_net_weight=lh_bom.unit_net_weight,
+		rh_gross_qty=rh_gross_qty,
+		rh_unit_net_weight=rh_bom.unit_net_weight,
+	)
+	doc.set("custom_pea_total_rm_consumption", total_rm_consumption)
+	doc.set("custom_pea_joint_scrap_qty", scrap_qty)
+	return JointProductionPlan(
+		lh_bom=lh_bom,
+		rh_bom=rh_bom,
+		lh_gross_qty=lh_gross_qty,
+		lh_rejection_qty=lh_rejection_qty,
+		rh_gross_qty=rh_gross_qty,
+		rh_rejection_qty=rh_rejection_qty,
+		total_rm_consumption=total_rm_consumption,
+		scrap_qty=scrap_qty,
+	)
 
 
 def is_joint_lh_rh_production(doc: Any) -> bool:
@@ -204,7 +242,7 @@ def is_joint_lh_rh_production(doc: Any) -> bool:
 	)
 
 
-def validate_joint_production(doc: Any) -> None:
+def validate_and_apply_joint_production(doc: Any) -> None:
 	if not is_joint_lh_rh_production(doc):
 		return
 	if not doc.get("stock_entry_type") or not frappe.db.get_value(
@@ -214,32 +252,89 @@ def validate_joint_production(doc: Any) -> None:
 	):
 		frappe.throw(_("Select a Stock Entry Type configured for Joint LH/RH Production."))
 	doc.set("custom_pea_is_joint_lh_rh", 1)
-	build_joint_item_rows(doc)
-	lh_bom = _get_joint_bom_details(doc.get("custom_pea_lh_bom"))
-	rh_bom = _get_joint_bom_details(doc.get("custom_pea_rh_bom"))
-	_validate_joint_rm_consumption(doc, lh_bom)
-	_validate_joint_rejection_breakup(doc)
-	_set_joint_output_valuation(doc, lh_bom, rh_bom)
+	plan = _build_joint_production_plan(doc)
+	_validate_joint_item_rows(doc, plan)
+	_validate_joint_rejection_breakup(doc, plan)
+	_set_joint_output_valuation(doc, plan)
 
 
-def _validate_joint_rm_consumption(doc: Any, bom: JointBomDetails) -> None:
-	outgoing_rows = [row for row in (doc.get("items") or []) if row.get("s_warehouse")]
-	if not outgoing_rows or any(row.get("item_code") != bom.rm_item_code for row in outgoing_rows):
-		frappe.throw(_("Joint production outgoing rows must contain only the common BOM raw material."))
-	actual_rm_qty = sum(flt(row.get("qty")) * flt(row.get("conversion_factor") or 1) for row in outgoing_rows)
-	expected_rm_qty = flt(doc.get("custom_pea_total_rm_consumption"))
-	if flt(actual_rm_qty, 6) != flt(expected_rm_qty, 6):
-		frappe.throw(
-			_("Outgoing raw material quantity must equal Total RM Consumption ({0}).").format(expected_rm_qty)
-		)
+def _validate_joint_item_rows(doc: Any, plan: JointProductionPlan) -> None:
+	actual_quantities: defaultdict[str, float] = defaultdict(float)
+	for row in doc.get("items") or []:
+		role = _get_joint_row_role(row, plan)
+		actual_quantities[role] += _get_row_stock_qty(row)
+
+	for role, expected_qty in plan.expected_role_quantities.items():
+		actual_qty = actual_quantities.get(role, 0)
+		if flt(actual_qty, 6) != flt(expected_qty, 6):
+			label = _("Total RM Consumption") if role == "RM" else _("{0} quantity").format(role)
+			_throw_stale_joint_rows(
+				_("{0} is {1}; expected {2}.").format(label, flt(actual_qty), flt(expected_qty))
+			)
+
+
+def _get_joint_row_role(row: Any, plan: JointProductionPlan) -> str:
+	has_source = bool(row.get("s_warehouse"))
+	has_target = bool(row.get("t_warehouse"))
+	if has_source == has_target:
+		_throw_stale_joint_rows(_("Every row must be either source-only or target-only."))
+
+	side = row.get("custom_pea_joint_output_side")
+	is_rejection = bool(row.get("custom_pea_is_rejection_item"))
+	is_scrap = _is_scrap_row(row)
+	item_code = row.get("item_code")
+
+	if has_source:
+		if side or is_rejection or is_scrap or item_code != plan.lh_bom.rm_item_code:
+			_throw_stale_joint_rows(_("The source row must be the common BOM raw material."))
+		return "RM"
+
+	if is_scrap:
+		if side or is_rejection or item_code != plan.lh_bom.scrap_item_code:
+			_throw_stale_joint_rows(_("The scrap row does not match the selected BOMs."))
+		return "Scrap"
+
+	if side not in ("LH", "RH"):
+		_throw_stale_joint_rows(_("Every output row must specify LH or RH Output Side."))
+	bom = plan.lh_bom if side == "LH" else plan.rh_bom
+	if item_code != bom.item_code:
+		_throw_stale_joint_rows(_("The {0} output item does not match its BOM.").format(side))
+
+	if is_rejection:
+		if row.get("bom_no"):
+			_throw_stale_joint_rows(_("The {0} rejection row cannot carry a BOM.").format(side))
+		return f"{side} Rejection"
+
+	if row.get("bom_no") != bom.name:
+		_throw_stale_joint_rows(_("The {0} good-output row must use BOM {1}.").format(side, bom.name))
+	return f"{side} Good"
+
+
+def _get_row_stock_qty(row: Any) -> float:
+	return flt(row.get("qty")) * flt(row.get("conversion_factor") or 1)
+
+
+def _throw_stale_joint_rows(detail: str) -> None:
+	frappe.throw(
+		_(
+			"Joint Production Items do not match the selected BOMs and quantities. {0} Run Fetch Items again."
+		).format(detail)
+	)
 
 
 def _set_joint_output_valuation(
 	doc: Any,
-	lh_bom: JointBomDetails,
-	rh_bom: JointBomDetails,
+	plan: JointProductionPlan,
 ) -> None:
 	rows = doc.get("items") or []
+	for row in rows:
+		if _is_scrap_row(row):
+			row.set_basic_rate_manually = 1
+			row.basic_rate = plan.lh_bom.scrap_rate
+			row.basic_amount = flt(
+				_get_row_stock_qty(row) * row.basic_rate,
+				row.precision("basic_amount"),
+			)
 	outgoing_value = sum(
 		flt(row.get("basic_amount")) for row in rows if row.get("s_warehouse") and not row.get("t_warehouse")
 	)
@@ -250,10 +345,10 @@ def _set_joint_output_valuation(
 	)
 	allocation = allocate_joint_output_value(
 		net_production_value=outgoing_value - scrap_value,
-		lh_gross_qty=doc.get("custom_pea_lh_gross_qty"),
-		lh_bom_unit_cost=lh_bom.unit_cost,
-		rh_gross_qty=doc.get("custom_pea_rh_gross_qty"),
-		rh_bom_unit_cost=rh_bom.unit_cost,
+		lh_gross_qty=plan.lh_gross_qty,
+		lh_bom_unit_cost=plan.lh_bom.unit_cost,
+		rh_gross_qty=plan.rh_gross_qty,
+		rh_bom_unit_cost=plan.rh_bom.unit_cost,
 	)
 	for side in ("LH", "RH"):
 		side_rows = [
@@ -266,6 +361,10 @@ def _set_joint_output_valuation(
 		for row in side_rows:
 			row.set_basic_rate_manually = 1
 			row.basic_rate = side_rate
+			row.basic_amount = flt(
+				_get_row_stock_qty(row) * side_rate,
+				row.precision("basic_amount"),
+			)
 
 	# Native Stock Entry recalculation applies the manual rates consistently to
 	# basic amounts, valuation rates, totals, and the eventual ledger entries.
@@ -276,15 +375,15 @@ def _is_scrap_row(row: Any) -> bool:
 	return bool(row.get("is_scrap_item") or row.get("is_legacy_scrap_item") or row.get("type") == "Scrap")
 
 
-def _validate_joint_rejection_breakup(doc: Any) -> None:
+def _validate_joint_rejection_breakup(doc: Any, plan: JointProductionPlan) -> None:
 	expected = {
-		"LH": flt(doc.get("custom_pea_lh_rejection_qty"), 6),
-		"RH": flt(doc.get("custom_pea_rh_rejection_qty"), 6),
+		"LH": flt(plan.lh_rejection_qty, 6),
+		"RH": flt(plan.rh_rejection_qty, 6),
 	}
 	actual = {"LH": 0.0, "RH": 0.0}
 	items = {
-		"LH": _get_joint_bom_details(doc.get("custom_pea_lh_bom")).item_code,
-		"RH": _get_joint_bom_details(doc.get("custom_pea_rh_bom")).item_code,
+		"LH": plan.lh_bom.item_code,
+		"RH": plan.rh_bom.item_code,
 	}
 	for row in doc.get("custom_pea_rejection_breakup") or []:
 		side = row.get("output_side")
@@ -318,8 +417,9 @@ def _validate_joint_header(doc: Any) -> None:
 
 def _get_joint_bom_details(bom_no: str) -> JointBomDetails:
 	bom = frappe.get_doc("BOM", bom_no)
+	bold_bom_no = frappe.bold(frappe.utils.escape_html(str(bom_no)))
 	if bom.docstatus != 1 or not bom.is_active:
-		frappe.throw(_("BOM {0} must be submitted and active.").format(frappe.bold(bom_no)))
+		frappe.throw(_("BOM {0} must be submitted and active.").format(bold_bom_no))
 	items = list(bom.get("items") or [])
 	if bom.meta.has_field("scrap_items"):
 		scrap_items = list(bom.get("scrap_items") or [])
@@ -330,11 +430,11 @@ def _get_joint_bom_details(bom_no: str) -> JointBomDetails:
 			if row.get("type") == "Scrap" or row.get("is_legacy")
 		]
 	if len(items) != 1:
-		frappe.throw(_("BOM {0} must contain exactly one raw material item.").format(frappe.bold(bom_no)))
+		frappe.throw(_("BOM {0} must contain exactly one raw material item.").format(bold_bom_no))
 	if len(scrap_items) != 1:
-		frappe.throw(_("BOM {0} must contain exactly one scrap item.").format(frappe.bold(bom_no)))
+		frappe.throw(_("BOM {0} must contain exactly one scrap item.").format(bold_bom_no))
 	if flt(bom.quantity) <= 0:
-		frappe.throw(_("BOM {0} quantity must be greater than zero.").format(frappe.bold(bom_no)))
+		frappe.throw(_("BOM {0} quantity must be greater than zero.").format(bold_bom_no))
 	rm = items[0]
 	scrap = scrap_items[0]
 	scrap_qty = flt(scrap.get("stock_qty") or scrap.get("qty"))

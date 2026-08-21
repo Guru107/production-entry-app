@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import frappe
 from frappe import _
-from frappe.query_builder import DocType
-from frappe.query_builder.functions import Sum
 from frappe.utils import flt
 
+from production_entry_app.production_entry_app.report.report_utils import (
+	get_entry_qty_maps,
+	get_finished_item_map,
+)
 from production_entry_app.production_entry_app.utils.loss_time import build_interval_overlap_filters
 from production_entry_app.production_entry_app.utils.shift_time import combine_date_time
 from production_entry_app.production_entry_app.utils.system_precision import (
@@ -87,66 +89,50 @@ def get_shift_timeline_data(doctype: str, docname: str) -> dict:
 		"Stock Entry",
 		filters={
 			"docstatus": 1,
-			"purpose": "Manufacture",
 			"custom_pea_shift": shift.get("name"),
 			filter_field: docname,
 			"custom_pea_actual_start_date": ("is", "set"),
 			"custom_pea_actual_end_date": ("is", "set"),
 		},
+		or_filters=[
+			["purpose", "=", "Manufacture"],
+			["custom_pea_is_joint_lh_rh", "=", 1],
+		],
 		fields=[
 			"name",
 			"custom_pea_actual_start_date as actual_start",
 			"custom_pea_actual_end_date as actual_end",
 			"fg_completed_qty as fg_qty",
 			"custom_pea_rejection_qty as rejection_qty",
+			"custom_pea_is_joint_lh_rh",
 		],
 		order_by="custom_pea_actual_start_date asc",
 		limit_page_length=0,
 	)
 
-	stock_entry_detail = DocType("Stock Entry Detail")
 	names = [row.get("name") for row in rows if row.get("name")]
-	fg_rows = []
-	if names:
-		fg_rows = (
-			frappe.qb.from_(stock_entry_detail)
-			.select(
-				stock_entry_detail.parent,
-				stock_entry_detail.item_code,
-				Sum(stock_entry_detail.qty).as_("fg_qty"),
-			)
-			.where(
-				(stock_entry_detail.parent.isin(names))
-				& (stock_entry_detail.is_finished_item == 1)
-				& (
-					stock_entry_detail.custom_pea_is_rejection_item.isnull()
-					| (stock_entry_detail.custom_pea_is_rejection_item == 0)
-				)
-			)
-			.groupby(stock_entry_detail.parent, stock_entry_detail.item_code)
-		).run(as_dict=True)
-	fg_item_by_entry = {}
-	fg_qty_by_entry = {}
-	for fg_row in fg_rows:
-		parent = fg_row.get("parent")
-		if parent and parent not in fg_item_by_entry:
-			fg_item_by_entry[parent] = fg_row.get("item_code")
-		if parent:
-			fg_qty_by_entry[parent] = flt(fg_qty_by_entry.get(parent) or 0) + flt(fg_row.get("fg_qty") or 0)
+	good_qty_by_entry, joint_rejection_qty_by_entry, _unused_fg_item_map = get_entry_qty_maps(names)
+	fg_item_by_entry = get_finished_item_map(names)
 
 	entries = []
 	for row in rows:
-		good_qty = flt(fg_qty_by_entry.get(row.get("name"), row.get("fg_qty") or 0))
-		rejection_qty = flt(row.get("rejection_qty") or 0)
+		entry_name = row.get("name")
+		good_qty = flt(good_qty_by_entry.get(entry_name, row.get("fg_qty") or 0))
+		is_joint_production = bool(row.get("custom_pea_is_joint_lh_rh"))
+		rejection_qty = flt(
+			joint_rejection_qty_by_entry.get(entry_name, 0)
+			if is_joint_production
+			else row.get("rejection_qty") or 0
+		)
 		entries.append(
 			{
-				"name": row.get("name"),
+				"name": entry_name,
 				"actual_start": str(row.get("actual_start")),
 				"actual_end": str(row.get("actual_end")),
-				"fg_item": fg_item_by_entry.get(row.get("name")),
+				"fg_item": fg_item_by_entry.get(entry_name),
 				"fg_qty": good_qty,
 				"rejection_qty": rejection_qty,
-				"ok_qty": good_qty - rejection_qty,
+				"ok_qty": good_qty if is_joint_production else good_qty - rejection_qty,
 				"entry_type": "production",
 			}
 		)

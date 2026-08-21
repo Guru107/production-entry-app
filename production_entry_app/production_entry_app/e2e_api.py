@@ -241,7 +241,7 @@ def _get_candidate_e2e_stock_entries(
 		.on(stock_entry_detail.parent == stock_entry.name)
 		.distinct()
 		.select(stock_entry.name, stock_entry.docstatus)
-		.where(stock_entry.stock_entry_type == "Manufacture")
+		.where((stock_entry.purpose == "Manufacture") | (stock_entry.custom_pea_is_joint_lh_rh == 1))
 		.where(match_criteria)
 		.orderby(stock_entry.creation, order=Order.desc)
 	)

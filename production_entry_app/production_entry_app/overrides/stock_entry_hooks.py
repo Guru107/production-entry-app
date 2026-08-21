@@ -12,9 +12,9 @@ from frappe.model.meta import get_field_precision
 from frappe.query_builder import DocType
 from frappe.utils import flt, format_datetime, get_datetime, get_time
 
-from production_entry_app.production_entry_app.overrides.joint_production import (
+from production_entry_app.production_entry_app.joint_production import (
 	is_joint_lh_rh_production,
-	validate_joint_production,
+	validate_and_apply_joint_production,
 )
 from production_entry_app.production_entry_app.utils.alternative_items import (
 	apply_direct_manufacture_alternative_flags,
@@ -76,7 +76,7 @@ def validate_stock_entry(doc: Document, method: str | None = None) -> None:
 	_validate_operator_overlap(doc)
 	_validate_workstation_downtime_overlap(doc)
 	if is_joint_lh_rh_production(doc):
-		validate_joint_production(doc)
+		validate_and_apply_joint_production(doc)
 	else:
 		_validate_rejection_breakup(doc)
 		_set_direct_manufacture_alternative_flags(doc)

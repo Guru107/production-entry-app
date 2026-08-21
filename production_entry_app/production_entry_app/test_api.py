@@ -759,7 +759,7 @@ class TestE2EApi(FrappeTestCase):
 			["SHIFT-CACHED-2099-01-20.1", "SHIFT-PREDICTED-2099-01-20.2"],
 		)
 
-	def test_get_candidate_e2e_stock_entries_filters_to_manufacture_and_distinct(self) -> None:
+	def test_get_candidate_e2e_stock_entries_filters_to_production_and_distinct(self) -> None:
 		results = [{"name": "MAT-STE-0001", "docstatus": 1}]
 		with patch("production_entry_app.production_entry_app.e2e_api.frappe.qb.from_") as qb_from:
 			query = qb_from.return_value
@@ -781,7 +781,9 @@ class TestE2EApi(FrappeTestCase):
 		self.assertEqual(response, results)
 		query.distinct.assert_called_once_with()
 		self.assertEqual(query.where.call_count, 2)
-		self.assertIn("stock_entry_type", str(query.where.call_args_list[0].args[0]))
+		production_filter = str(query.where.call_args_list[0].args[0])
+		self.assertIn("purpose", production_filter)
+		self.assertIn("custom_pea_is_joint_lh_rh", production_filter)
 
 	def test_item_has_live_stock_entry_references_returns_false_for_blank_and_true_for_query_hit(
 		self,

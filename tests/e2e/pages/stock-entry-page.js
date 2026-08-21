@@ -5,12 +5,7 @@ const {
 	saveForm,
 	setFieldValue,
 } = require("../fixtures/frappe");
-const {
-	escapeRegexLiteral,
-	getRoute,
-	getRouteRegex,
-	getRoutePrefix,
-} = require("../utils/routing");
+const { escapeRegexLiteral, getRoute, getRoutePrefix } = require("../utils/routing");
 
 class StockEntryPage {
 	constructor(page) {
@@ -19,7 +14,9 @@ class StockEntryPage {
 
 	async openNew() {
 		await this.page.goto(getRoute("/stock-entry/new"));
-		await expect(this.page).toHaveURL(getRouteRegex("/stock-entry/new-stock-entry-"));
+		await expect(this.page).toHaveURL(
+			new RegExp(`/${getRoutePrefix()}/stock-entry/(?:new|new-stock-entry-)`)
+		);
 		await this.page.waitForFunction(
 			() => window.cur_frm?.doctype === "Stock Entry" && window.cur_frm?.is_new?.()
 		);

@@ -7,9 +7,9 @@ import frappe
 from frappe import _
 from frappe.utils import get_datetime, get_time, now_datetime
 
-from production_entry_app.production_entry_app.overrides.joint_production import (
-	build_joint_item_rows,
+from production_entry_app.production_entry_app.joint_production import (
 	calculate_joint_rm_consumption_from_boms,
+	materialize_joint_production_rows,
 )
 from production_entry_app.production_entry_app.utils.alternative_items import (
 	apply_direct_manufacture_alternative_flags,
@@ -117,7 +117,7 @@ def get_joint_production_items(doc: str) -> list[dict]:
 		"custom_pea_die_tool_item",
 	):
 		stock_entry.set(fieldname, doc_dict.get(fieldname))
-	return build_joint_item_rows(stock_entry)
+	return materialize_joint_production_rows(stock_entry)
 
 
 def _cleanup_orphan_stock_entry_loss_links(shift_name: str) -> None:

@@ -202,10 +202,16 @@ class TestReportUtilsPerformance(FrappeTestCase):
 			"production_entry_app.production_entry_app.report.report_utils.get_parent_quantity_metrics",
 			return_value={"STE-001": {"good_qty": 8, "rejection_qty": 2}},
 		):
-			with patch(
-				"production_entry_app.production_entry_app.report.report_utils.frappe.qb.from_",
-				return_value=_Query(),
+			with (
+				patch(
+					"production_entry_app.production_entry_app.report.report_utils.frappe.qb.from_",
+					return_value=_Query(),
+				),
+				patch(
+					"production_entry_app.production_entry_app.report.report_utils.frappe.get_meta"
+				) as get_meta,
 			):
+				get_meta.return_value.has_field.return_value = True
 				good_qty_map, rejection_qty_map, fg_item_map = report_utils.get_entry_qty_maps(
 					["STE-001"],
 					include_fg_item=True,

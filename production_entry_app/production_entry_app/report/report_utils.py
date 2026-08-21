@@ -350,6 +350,7 @@ def get_entry_qty_maps(
 				stock_entry_detail.custom_pea_is_rejection_item.isnull()
 				| (stock_entry_detail.custom_pea_is_rejection_item == 0)
 			)
+			.where(_get_non_scrap_item_criterion(stock_entry_detail))
 			.groupby(stock_entry_detail.parent, stock_entry_detail.item_code)
 		).run(as_dict=True)
 		for row in good_rows:

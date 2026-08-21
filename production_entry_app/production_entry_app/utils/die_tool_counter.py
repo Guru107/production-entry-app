@@ -9,7 +9,7 @@ from frappe.query_builder import DocType as QBDocType
 from frappe.query_builder.functions import CustomFunction
 from frappe.utils import cint, get_datetime, now_datetime
 
-from production_entry_app.production_entry_app.overrides.joint_production import (
+from production_entry_app.production_entry_app.joint_production import (
 	is_joint_lh_rh_production,
 )
 

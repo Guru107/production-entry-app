@@ -7,21 +7,23 @@ import frappe
 import frappe.client
 import frappe.handler
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils import add_to_date, get_datetime
+from frappe.utils import add_to_date, flt, get_datetime
 
 from production_entry_app.production_entry_app.api import (
 	get_joint_production_items,
 	get_joint_rm_consumption,
 	get_joint_stock_entry_type,
 )
+from production_entry_app.production_entry_app.api_timeline import get_shift_timeline_data
 from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
-from production_entry_app.production_entry_app.overrides.joint_production import (
+from production_entry_app.production_entry_app.joint_production import (
 	allocate_joint_output_value,
-	build_joint_item_rows,
 	calculate_joint_rm_consumption,
 	calculate_joint_scrap_quantity,
+	materialize_joint_production_rows,
 )
 from production_entry_app.production_entry_app.report.report_utils import (
+	get_entry_qty_maps,
 	get_entry_total_strokes,
 	get_parent_quantity_metrics,
 	is_production_stock_entry,
@@ -36,6 +38,7 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	cleanup_running_shifts,
 	ensure_item,
 	ensure_stock,
+	ensure_workstation,
 )
 
 
@@ -214,7 +217,7 @@ class TestJointProductionItems(FrappeTestCase):
 			}
 		)
 
-		rows = build_joint_item_rows(doc)
+		rows = materialize_joint_production_rows(doc)
 
 		self.assertEqual(doc.custom_pea_total_rm_consumption, 49.125)
 		self.assertEqual(len([row for row in rows if row.get("s_warehouse")]), 1)
@@ -299,7 +302,7 @@ class TestJointProductionItems(FrappeTestCase):
 		with self.assertRaisesRegex(frappe.ValidationError, "Total RM Consumption"):
 			doc.insert(ignore_permissions=True)
 
-	def test_output_rows_are_not_compared_to_expected_quantities(self) -> None:
+	def test_stale_output_quantity_requires_fetch_items_again(self) -> None:
 		shift = make_running_shift(self.masters)
 		doc = self._make_joint_entry(shift)
 		lh_good_row = next(
@@ -310,14 +313,146 @@ class TestJointProductionItems(FrappeTestCase):
 		lh_good_row.qty = 38
 		lh_good_row.transfer_qty = 38
 
+		with self.assertRaisesRegex(frappe.ValidationError, "Run Fetch Items again"):
+			doc.insert(ignore_permissions=True)
+
+	def test_split_and_reordered_rows_preserve_the_item_table(self) -> None:
+		shift = make_running_shift(self.masters)
+		doc = self._make_joint_entry(shift)
+		rm_row = next(row for row in doc.items if row.s_warehouse)
+		rh_row = next(
+			row
+			for row in doc.items
+			if row.custom_pea_joint_output_side == "RH" and not row.custom_pea_is_rejection_item
+		)
+		rm_row.qty = 20
+		rm_row.transfer_qty = 20
+		rh_row.qty = 20
+		rh_row.transfer_qty = 20
+		self._append_split_row(doc, rm_row, qty=29.125)
+		self._append_split_row(doc, rh_row, qty=21)
+		doc.set("items", list(reversed(doc.items)))
+		expected_rows = len(doc.items)
+
 		doc.insert(ignore_permissions=True)
 
-		self.assertEqual(doc.docstatus, 0)
+		self.assertEqual(len(doc.items), expected_rows)
+		self.assertEqual(
+			sum(row.qty * row.conversion_factor for row in doc.items if row.s_warehouse),
+			49.125,
+		)
+		self.assertEqual(
+			sum(
+				row.qty * row.conversion_factor
+				for row in doc.items
+				if row.custom_pea_joint_output_side == "RH" and not row.custom_pea_is_rejection_item
+			),
+			41,
+		)
+
+	def test_tampered_scrap_classification_requires_fetch_items_again(self) -> None:
+		shift = make_running_shift(self.masters)
+		doc = self._make_joint_entry(shift)
+		scrap_row = next(row for row in doc.items if _is_scrap_row(row))
+		scrap_row.is_scrap_item = 0
+		scrap_row.is_legacy_scrap_item = 0
+		scrap_row.type = None
+
+		with self.assertRaisesRegex(frappe.ValidationError, "Run Fetch Items again"):
+			doc.insert(ignore_permissions=True)
+
+	def test_native_scrap_finished_classification_is_preserved_on_save(self) -> None:
+		shift = make_running_shift(self.masters)
+		doc = self._make_joint_entry(shift)
+
+		doc.insert(ignore_permissions=True)
+
+		scrap_row = next(row for row in doc.items if _is_scrap_row(row))
+		self.assertEqual(scrap_row.is_finished_item, 1)
+
+	def test_both_sides_may_be_fully_rejected(self) -> None:
+		shift = make_running_shift(self.masters)
+		doc = self._make_joint_entry(shift)
+		doc.custom_pea_lh_rejection_qty = 40
+		doc.custom_pea_rh_rejection_qty = 41
+		doc.set(
+			"custom_pea_rejection_breakup",
+			[
+				{"rejection_reason": "Burr", "qty": 40, "output_side": "LH", "item_code": self.lh_item},
+				{"rejection_reason": "Burr", "qty": 41, "output_side": "RH", "item_code": self.rh_item},
+			],
+		)
+		doc.set("items", get_joint_production_items(json.dumps(doc.as_dict(), default=str)))
+
+		doc.insert(ignore_permissions=True)
+		doc.submit()
+
+		self.assertEqual(doc.docstatus, 1)
+		self.assertEqual(doc.custom_pea_ok_qty, 0)
+		self.assertFalse(
+			[
+				row
+				for row in doc.items
+				if row.custom_pea_joint_output_side
+				and not row.custom_pea_is_rejection_item
+				and not _is_scrap_row(row)
+			]
+		)
+
+	def test_native_additional_cost_allocation_is_preserved(self) -> None:
+		shift = make_running_shift(self.masters)
+		doc = self._make_joint_entry(shift)
+		expense_account = frappe.get_cached_value(
+			"Company",
+			self.masters["company"],
+			"stock_adjustment_account",
+		)
+		doc.append(
+			"additional_costs",
+			{
+				"expense_account": expense_account,
+				"description": "Joint Production handling",
+				"amount": 100,
+			},
+		)
+
+		doc.insert(ignore_permissions=True)
+		doc.submit()
+
+		self.assertEqual(doc.total_additional_costs, 100)
+		self.assertAlmostEqual(
+			sum(flt(row.additional_cost) for row in doc.items if row.is_finished_item),
+			100,
+			places=5,
+		)
+		stock_value_differences = [
+			flt(row.get("stock_value_difference"))
+			for row in frappe.get_all(
+				"Stock Ledger Entry",
+				filters={"voucher_no": doc.name, "is_cancelled": 0},
+				fields=["stock_value_difference"],
+			)
+		]
+		incoming_value = sum(value for value in stock_value_differences if value > 0)
+		outgoing_value = -sum(value for value in stock_value_differences if value < 0)
+		currency_precision = int(frappe.db.get_single_value("System Settings", "currency_precision") or 2)
+		self.assertAlmostEqual(
+			incoming_value - outgoing_value,
+			100,
+			delta=(10**-currency_precision) * len(stock_value_differences),
+		)
 
 	def test_api_e2e_shift_start_joint_submit_and_cancel_reverses_everything(self) -> None:
 		shift = _make_running_shift_through_api(self.masters)
 		self.assertEqual(shift.status, "Running")
-		inserted = frappe.client.insert(self._make_joint_entry(shift).as_dict())
+		ensure_workstation("Joint Production Timeline", standard_spm=2)
+		workstation = (
+			frappe.db.get_value("Workstation", {"workstation_name": "Joint Production Timeline"}, "name")
+			or "Joint Production Timeline"
+		)
+		joint_entry = self._make_joint_entry(shift)
+		joint_entry.custom_pea_workstation = workstation
+		inserted = frappe.client.insert(joint_entry.as_dict())
 		submitted = frappe.client.submit(inserted)
 		doc = frappe.get_doc("Stock Entry", submitted["name"])
 
@@ -357,6 +492,8 @@ class TestJointProductionItems(FrappeTestCase):
 		outgoing_value = -sum(value for value in sle_value_by_detail.values() if value < 0)
 		self.assertAlmostEqual(incoming_value, outgoing_value, places=5)
 		self.assertEqual(get_parent_quantity_metrics([doc.name])[doc.name]["good_qty"], 80)
+		_, _, fg_item_map = get_entry_qty_maps([doc.name], include_fg_item=True)
+		self.assertNotEqual(fg_item_map.get(doc.name), self.scrap_item)
 		self.assertEqual(
 			frappe.db.get_value("Die Tool Counter", self.lh_item, "current_stroke_count"),
 			41,
@@ -367,6 +504,11 @@ class TestJointProductionItems(FrappeTestCase):
 		self.assertEqual(summary["ok_qty"], 80)
 		self.assertEqual(summary["rejection_qty"], 1)
 		self.assertAlmostEqual(summary["overall_throughput_spm"], 41 / 45, places=6)
+		timeline = get_shift_timeline_data("Workstation", workstation)
+		self.assertEqual(len(timeline["entries"]), 1)
+		self.assertEqual(timeline["entries"][0]["fg_qty"], 80)
+		self.assertEqual(timeline["entries"][0]["rejection_qty"], 1)
+		self.assertEqual(timeline["entries"][0]["ok_qty"], 80)
 
 		frappe.client.cancel("Stock Entry", doc.name)
 		doc.reload()
@@ -463,6 +605,32 @@ class TestJointProductionItems(FrappeTestCase):
 			get_joint_production_items(json.dumps(doc.as_dict(), default=str)),
 		)
 		return doc
+
+	def _append_split_row(self, doc: object, source_row: object, *, qty: float) -> None:
+		row = {
+			fieldname: source_row.get(fieldname)
+			for fieldname in (
+				"item_code",
+				"item_name",
+				"description",
+				"uom",
+				"stock_uom",
+				"conversion_factor",
+				"s_warehouse",
+				"t_warehouse",
+				"bom_no",
+				"is_finished_item",
+				"is_scrap_item",
+				"is_legacy_scrap_item",
+				"type",
+				"set_basic_rate_manually",
+				"basic_rate",
+				"custom_pea_is_rejection_item",
+				"custom_pea_joint_output_side",
+			)
+		}
+		row.update({"qty": qty, "transfer_qty": qty})
+		doc.append("items", row)
 
 	def _make_bom(self, item_code: str, *, scrap_qty: float) -> str:
 		values = {

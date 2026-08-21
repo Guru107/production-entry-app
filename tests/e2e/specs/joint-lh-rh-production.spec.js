@@ -207,6 +207,46 @@ test.describe("Joint LH/RH production form", () => {
 		await expectValidationError(page, /LH BOM is required/i);
 	});
 
+	test("@regression stale joint rows require Fetch Items without clearing logistics", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const stockEntryType = await createJointStockEntryType(page, lifecycle.getPrefix());
+		createdTypes.add(stockEntryType);
+		const form = new StockEntryPage(page);
+
+		await form.openNew();
+		await enableJointProduction(page, form, stockEntryType);
+		await setFieldValue(page, "company", ctx.company);
+		await form.setPostingDate(ctx.shift_date);
+		await setFieldValue(page, "custom_pea_shift", ctx.shift_name);
+		await setFieldValue(page, "from_warehouse", ctx.wip_warehouse);
+		await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
+		await setFieldValue(page, "custom_pea_lh_bom", ctx.joint_lh_bom);
+		await setFieldValue(page, "custom_pea_lh_gross_qty", 40);
+		await setFieldValue(page, "custom_pea_lh_rejection_qty", 0);
+		await setFieldValue(page, "custom_pea_rh_bom", ctx.joint_rh_bom);
+		await setFieldValue(page, "custom_pea_rh_gross_qty", 41);
+		await setFieldValue(page, "custom_pea_rh_rejection_qty", 0);
+		await setFieldValue(page, "custom_pea_total_strokes", 41);
+		await setFieldValue(page, "custom_pea_die_tool_item", ctx.joint_lh_item);
+		await setFieldValue(page, "custom_pea_workstation", ctx.workstation);
+		await setFieldValue(page, "custom_pea_operator", ctx.operator);
+		await setFieldValue(page, "custom_pea_actual_start_date", `${ctx.shift_date} 08:00:00`);
+		await setFieldValue(page, "custom_pea_actual_end_date", `${ctx.shift_date} 09:00:00`);
+		await form.fetchItems();
+		const before = await form.getFieldValues(["items"]);
+
+		await setFieldValue(page, "custom_pea_lh_gross_qty", 39);
+		await form.attemptSaveDraft();
+
+		await expectValidationError(page, /Run Fetch Items again/i);
+		const after = await form.getFieldValues(["items"]);
+		expect(after.items).toHaveLength(before.items.length);
+		expect(after.items.map((row) => row.name)).toEqual(before.items.map((row) => row.name));
+	});
+
 	test("@regression users without Stock Entry access cannot call the joint-items API", async ({
 		page,
 	}) => {

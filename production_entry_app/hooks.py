@@ -148,7 +148,7 @@ override_doctype_class = {  # nosemgrep: override-doctype-class
 
 doc_events = {
 	"Stock Entry Type": {
-		"validate": "production_entry_app.production_entry_app.overrides.joint_production.validate_stock_entry_type",
+		"validate": "production_entry_app.production_entry_app.joint_production.validate_stock_entry_type",
 	},
 	"Shift": {
 		"on_update": "production_entry_app.production_entry_app.doctype.shift.shift.invalidate_shift_summary_for_shift",
