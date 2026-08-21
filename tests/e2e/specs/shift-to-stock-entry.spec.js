@@ -257,6 +257,13 @@ test.describe("Shift to Stock Entry integration", () => {
 			end_time: "08:40:00",
 		});
 		await stockEntryPage.fetchItems();
+		const nativeScrapFinishedFlag = await page.evaluate(() => {
+			const scrapRow = (cur_frm.doc.items || []).find(
+				(row) => row.is_scrap_item || row.is_legacy_scrap_item || row.type === "Scrap"
+			);
+			if (!scrapRow) throw new Error("Joint production scrap row was not populated.");
+			return scrapRow.is_finished_item;
+		});
 		await stockEntryPage.saveAndSubmit();
 
 		const stockEntryName = await page.evaluate(() => cur_frm.doc.name);
@@ -291,7 +298,7 @@ test.describe("Shift to Stock Entry integration", () => {
 			submitted.items.find(
 				(row) => row.is_scrap_item || row.is_legacy_scrap_item || row.type === "Scrap"
 			)?.is_finished_item
-		).toBe(1);
+		).toBe(nativeScrapFinishedFlag);
 	});
 
 	test("@regression selecting shift auto-fills branch and planned dates", async ({ page }) => {
