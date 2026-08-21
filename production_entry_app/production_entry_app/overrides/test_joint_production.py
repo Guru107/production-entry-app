@@ -474,11 +474,13 @@ class TestJointProductionItems(FrappeTestCase):
 	def test_native_scrap_finished_classification_is_preserved_on_save(self) -> None:
 		shift = make_running_shift(self.masters)
 		doc = self._make_joint_entry(shift)
+		doc.mark_finished_and_scrap_items()
+		expected_is_finished_item = next(row for row in doc.items if _is_scrap_row(row)).is_finished_item
 
 		doc.insert(ignore_permissions=True)
 
 		scrap_row = next(row for row in doc.items if _is_scrap_row(row))
-		self.assertEqual(scrap_row.is_finished_item, 1)
+		self.assertEqual(scrap_row.is_finished_item, expected_is_finished_item)
 
 	def test_both_sides_may_be_fully_rejected(self) -> None:
 		shift = make_running_shift(self.masters)
