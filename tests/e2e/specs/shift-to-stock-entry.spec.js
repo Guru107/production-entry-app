@@ -242,18 +242,20 @@ test.describe("Shift to Stock Entry integration", () => {
 
 		await stockEntryPage.setPostingDate(ctx.shift_date);
 		await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
-		await setFieldValue(page, "custom_pea_lh_bom", ctx.joint_lh_bom);
-		await setFieldValue(page, "custom_pea_lh_gross_qty", 40);
-		await setFieldValue(page, "custom_pea_lh_rejection_qty", 0);
-		await setFieldValue(page, "custom_pea_rh_bom", ctx.joint_rh_bom);
-		await setFieldValue(page, "custom_pea_rh_gross_qty", 41);
-		await setFieldValue(page, "custom_pea_rh_rejection_qty", 0);
-		await setFieldValue(page, "custom_pea_total_strokes", 41);
-		await setFieldValue(page, "custom_pea_die_tool_item", ctx.joint_lh_item);
-		await setFieldValue(page, "custom_pea_workstation", ctx.workstation);
-		await setFieldValue(page, "custom_pea_operator", ctx.operator);
-		await setFieldValue(page, "custom_pea_actual_start_date", `${ctx.shift_date} 08:00:00`);
-		await setFieldValue(page, "custom_pea_actual_end_date", `${ctx.shift_date} 09:00:00`);
+		await stockEntryPage.fillJointProductionFields(ctx, { lhRejectionQty: 1 });
+		await stockEntryPage.setRejectionBreakupRows([
+			{
+				rejection_reason: "Burr",
+				qty: 1,
+				output_side: "LH",
+				item_code: ctx.joint_lh_item,
+			},
+		]);
+		await stockEntryPage.addUnplannedLossRow({
+			downtime_reason: "Tea Break",
+			start_time: "08:30:00",
+			end_time: "08:40:00",
+		});
 		await stockEntryPage.fetchItems();
 		await stockEntryPage.saveAndSubmit();
 
@@ -262,7 +264,29 @@ test.describe("Shift to Stock Entry integration", () => {
 		expect(submitted.docstatus).toBe(1);
 		expect(submitted.custom_pea_shift).toBe(ctx.shift_name);
 		expect(submitted.custom_pea_is_joint_lh_rh).toBe(1);
+		expect(submitted.custom_pea_lh_gross_qty).toBe(40);
+		expect(submitted.custom_pea_lh_rejection_qty).toBe(1);
+		expect(submitted.custom_pea_rh_gross_qty).toBe(41);
+		expect(submitted.custom_pea_total_strokes).toBe(41);
+		expect(submitted.custom_pea_ok_qty).toBe(80);
+		expect(submitted.custom_pea_total_rm_consumption).toBe(49.125);
+		expect(submitted.custom_pea_joint_scrap_qty).toBeGreaterThan(0);
+		expect(submitted.custom_pea_actual_duration_mins).toBe(60);
+		expect(submitted.custom_pea_production_time_mins).toBeLessThan(60);
+		expect(submitted.custom_pea_actual_spm).toBeCloseTo(
+			41 / submitted.custom_pea_production_time_mins,
+			6
+		);
+		expect(submitted.custom_pea_unplanned_losses).toHaveLength(1);
 		expect(submitted.items.filter((row) => row.s_warehouse)).toHaveLength(1);
+		expect(submitted.items.filter((row) => row.custom_pea_is_rejection_item)).toHaveLength(1);
+		expect(
+			submitted.items
+				.filter(
+					(row) => row.custom_pea_joint_output_side && !row.custom_pea_is_rejection_item
+				)
+				.every((row) => row.basic_rate > 0 && row.valuation_rate > 0)
+		).toBe(true);
 		expect(
 			submitted.items.find(
 				(row) => row.is_scrap_item || row.is_legacy_scrap_item || row.type === "Scrap"

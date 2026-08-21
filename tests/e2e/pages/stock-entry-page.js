@@ -99,6 +99,29 @@ class StockEntryPage {
 		await setFieldValue(this.page, "posting_time", "09:00:00");
 	}
 
+	async fillJointProductionFields(ctx, options = {}) {
+		await setFieldValue(this.page, "custom_pea_lh_bom", ctx.joint_lh_bom);
+		await setFieldValue(this.page, "custom_pea_lh_gross_qty", options.lhGrossQty ?? 40);
+		await setFieldValue(this.page, "custom_pea_lh_rejection_qty", options.lhRejectionQty ?? 0);
+		await setFieldValue(this.page, "custom_pea_rh_bom", ctx.joint_rh_bom);
+		await setFieldValue(this.page, "custom_pea_rh_gross_qty", options.rhGrossQty ?? 41);
+		await setFieldValue(this.page, "custom_pea_rh_rejection_qty", options.rhRejectionQty ?? 0);
+		await setFieldValue(this.page, "custom_pea_total_strokes", options.totalStrokes ?? 41);
+		await setFieldValue(this.page, "custom_pea_die_tool_item", ctx.joint_lh_item);
+		await setFieldValue(this.page, "custom_pea_workstation", ctx.workstation);
+		await setFieldValue(this.page, "custom_pea_operator", ctx.operator);
+		await setFieldValue(
+			this.page,
+			"custom_pea_actual_start_date",
+			options.actualStart || `${ctx.shift_date} 08:00:00`
+		);
+		await setFieldValue(
+			this.page,
+			"custom_pea_actual_end_date",
+			options.actualEnd || `${ctx.shift_date} 09:00:00`
+		);
+	}
+
 	async setShift(shiftName) {
 		await setFieldValue(this.page, "custom_pea_shift", shiftName);
 	}

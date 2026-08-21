@@ -47,12 +47,12 @@ class JointProductionPlan:
 	@property
 	def expected_role_quantities(self) -> dict[str, float]:
 		return {
-			"RM": self.total_rm_consumption,
-			"LH Good": self.lh_gross_qty - self.lh_rejection_qty,
-			"LH Rejection": self.lh_rejection_qty,
-			"RH Good": self.rh_gross_qty - self.rh_rejection_qty,
-			"RH Rejection": self.rh_rejection_qty,
-			"Scrap": self.scrap_qty,
+			"rm": self.total_rm_consumption,
+			"lh_good": self.lh_gross_qty - self.lh_rejection_qty,
+			"lh_rejection": self.lh_rejection_qty,
+			"rh_good": self.rh_gross_qty - self.rh_rejection_qty,
+			"rh_rejection": self.rh_rejection_qty,
+			"scrap": self.scrap_qty,
 		}
 
 
@@ -267,10 +267,24 @@ def _validate_joint_item_rows(doc: Any, plan: JointProductionPlan) -> None:
 	for role, expected_qty in plan.expected_role_quantities.items():
 		actual_qty = actual_quantities.get(role, 0)
 		if flt(actual_qty, 6) != flt(expected_qty, 6):
-			label = _("Total RM Consumption") if role == "RM" else _("{0} quantity").format(role)
 			_throw_stale_joint_rows(
-				_("{0} is {1}; expected {2}.").format(label, flt(actual_qty), flt(expected_qty))
+				_("{0} is {1}; expected {2}.").format(
+					_get_joint_role_label(role),
+					flt(actual_qty),
+					flt(expected_qty),
+				)
 			)
+
+
+def _get_joint_role_label(role: str) -> str:
+	return {
+		"rm": _("Total RM Consumption"),
+		"lh_good": _("LH Good quantity"),
+		"lh_rejection": _("LH Rejection quantity"),
+		"rh_good": _("RH Good quantity"),
+		"rh_rejection": _("RH Rejection quantity"),
+		"scrap": _("Scrap quantity"),
+	}[role]
 
 
 def _get_joint_row_role(row: Any, plan: JointProductionPlan) -> str:
@@ -287,12 +301,12 @@ def _get_joint_row_role(row: Any, plan: JointProductionPlan) -> str:
 	if has_source:
 		if side or is_rejection or is_scrap or item_code != plan.lh_bom.rm_item_code:
 			_throw_stale_joint_rows(_("The source row must be the common BOM raw material."))
-		return "RM"
+		return "rm"
 
 	if is_scrap:
 		if side or is_rejection or item_code != plan.lh_bom.scrap_item_code:
 			_throw_stale_joint_rows(_("The scrap row does not match the selected BOMs."))
-		return "Scrap"
+		return "scrap"
 
 	if side not in ("LH", "RH"):
 		_throw_stale_joint_rows(_("Every output row must specify LH or RH Output Side."))
@@ -303,11 +317,11 @@ def _get_joint_row_role(row: Any, plan: JointProductionPlan) -> str:
 	if is_rejection:
 		if row.get("bom_no"):
 			_throw_stale_joint_rows(_("The {0} rejection row cannot carry a BOM.").format(side))
-		return f"{side} Rejection"
+		return f"{side.lower()}_rejection"
 
 	if row.get("bom_no") != bom.name:
 		_throw_stale_joint_rows(_("The {0} good-output row must use BOM {1}.").format(side, bom.name))
-	return f"{side} Good"
+	return f"{side.lower()}_good"
 
 
 def _get_row_stock_qty(row: Any) -> float:
@@ -339,9 +353,7 @@ def _set_joint_output_valuation(
 		flt(row.get("basic_amount")) for row in rows if row.get("s_warehouse") and not row.get("t_warehouse")
 	)
 	scrap_value = sum(
-		flt(row.get("transfer_qty") or row.get("qty")) * flt(row.get("basic_rate"))
-		for row in rows
-		if _is_scrap_row(row)
+		_get_row_stock_qty(row) * flt(row.get("basic_rate")) for row in rows if _is_scrap_row(row)
 	)
 	allocation = allocate_joint_output_value(
 		net_production_value=outgoing_value - scrap_value,
@@ -354,7 +366,7 @@ def _set_joint_output_valuation(
 		side_rows = [
 			row for row in rows if row.get("custom_pea_joint_output_side") == side and not _is_scrap_row(row)
 		]
-		side_qty = sum(flt(row.get("transfer_qty") or row.get("qty")) for row in side_rows)
+		side_qty = sum(_get_row_stock_qty(row) for row in side_rows)
 		if side_qty <= 0:
 			frappe.throw(_("Joint production requires at least one {0} output row.").format(side))
 		side_rate = allocation[side] / side_qty
@@ -403,11 +415,11 @@ def _validate_joint_header(doc: Any) -> None:
 	if doc.get("purpose") != "Repack":
 		frappe.throw(_("Joint LH/RH production must use Repack purpose."))
 	for fieldname, label in (
-		("custom_pea_lh_bom", "LH BOM"),
-		("custom_pea_rh_bom", "RH BOM"),
-		("custom_pea_die_tool_item", "Die Tool Item"),
-		("from_warehouse", "Source Warehouse"),
-		("to_warehouse", "Target Warehouse"),
+		("custom_pea_lh_bom", _("LH BOM")),
+		("custom_pea_rh_bom", _("RH BOM")),
+		("custom_pea_die_tool_item", _("Die Tool Item")),
+		("from_warehouse", _("Source Warehouse")),
+		("to_warehouse", _("Target Warehouse")),
 	):
 		if not doc.get(fieldname):
 			frappe.throw(_("{0} is required for joint LH/RH production.").format(label))

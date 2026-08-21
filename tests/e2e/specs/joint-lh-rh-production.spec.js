@@ -162,14 +162,7 @@ test.describe("Joint LH/RH production form", () => {
 		await setFieldValue(page, "custom_pea_shift", ctx.shift_name);
 		await setFieldValue(page, "from_warehouse", ctx.wip_warehouse);
 		await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
-		await setFieldValue(page, "custom_pea_lh_bom", ctx.joint_lh_bom);
-		await setFieldValue(page, "custom_pea_lh_gross_qty", 40);
-		await setFieldValue(page, "custom_pea_lh_rejection_qty", 0);
-		await setFieldValue(page, "custom_pea_rh_bom", ctx.joint_rh_bom);
-		await setFieldValue(page, "custom_pea_rh_gross_qty", 41);
-		await setFieldValue(page, "custom_pea_rh_rejection_qty", 0);
-		await setFieldValue(page, "custom_pea_total_strokes", 41);
-		await setFieldValue(page, "custom_pea_die_tool_item", ctx.joint_lh_item);
+		await form.fillJointProductionFields(ctx);
 		await form.waitForFieldValue("custom_pea_total_rm_consumption", 49.125);
 
 		await page.locator('[data-fieldname="custom_pea_joint_fetch_items"] button').click();
@@ -223,19 +216,12 @@ test.describe("Joint LH/RH production form", () => {
 		await setFieldValue(page, "custom_pea_shift", ctx.shift_name);
 		await setFieldValue(page, "from_warehouse", ctx.wip_warehouse);
 		await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
-		await setFieldValue(page, "custom_pea_lh_bom", ctx.joint_lh_bom);
-		await setFieldValue(page, "custom_pea_lh_gross_qty", 40);
-		await setFieldValue(page, "custom_pea_lh_rejection_qty", 0);
-		await setFieldValue(page, "custom_pea_rh_bom", ctx.joint_rh_bom);
-		await setFieldValue(page, "custom_pea_rh_gross_qty", 41);
-		await setFieldValue(page, "custom_pea_rh_rejection_qty", 0);
-		await setFieldValue(page, "custom_pea_total_strokes", 41);
-		await setFieldValue(page, "custom_pea_die_tool_item", ctx.joint_lh_item);
-		await setFieldValue(page, "custom_pea_workstation", ctx.workstation);
-		await setFieldValue(page, "custom_pea_operator", ctx.operator);
-		await setFieldValue(page, "custom_pea_actual_start_date", `${ctx.shift_date} 08:00:00`);
-		await setFieldValue(page, "custom_pea_actual_end_date", `${ctx.shift_date} 09:00:00`);
+		await form.fillJointProductionFields(ctx);
 		await form.fetchItems();
+		await page.evaluate(async (warehouse) => {
+			const row = cur_frm.doc.items.find((item) => item.s_warehouse);
+			await frappe.model.set_value(row.doctype, row.name, "s_warehouse", warehouse);
+		}, ctx.rm_warehouse);
 		const before = await form.getFieldValues(["items"]);
 
 		await setFieldValue(page, "custom_pea_lh_gross_qty", 39);
@@ -245,6 +231,7 @@ test.describe("Joint LH/RH production form", () => {
 		const after = await form.getFieldValues(["items"]);
 		expect(after.items).toHaveLength(before.items.length);
 		expect(after.items.map((row) => row.name)).toEqual(before.items.map((row) => row.name));
+		expect(after.items.find((row) => row.s_warehouse)?.s_warehouse).toBe(ctx.rm_warehouse);
 	});
 
 	test("@regression users without Stock Entry access cannot call the joint-items API", async ({
