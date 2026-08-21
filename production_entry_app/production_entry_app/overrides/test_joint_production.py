@@ -474,7 +474,11 @@ class TestJointProductionItems(FrappeTestCase):
 	def test_native_scrap_finished_classification_is_preserved_on_save(self) -> None:
 		shift = make_running_shift(self.masters)
 		doc = self._make_joint_entry(shift)
-		doc.mark_finished_and_scrap_items()
+		if hasattr(doc, "mark_finished_and_secondary_items"):
+			native_classifier = doc.mark_finished_and_secondary_items
+		else:
+			native_classifier = doc.mark_finished_and_scrap_items
+		native_classifier()
 		expected_is_finished_item = next(row for row in doc.items if _is_scrap_row(row)).is_finished_item
 
 		doc.insert(ignore_permissions=True)
