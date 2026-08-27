@@ -10,6 +10,30 @@ from production_entry_app.production_entry_app.report import report_utils
 
 
 class TestReportUtilsPerformance(FrappeTestCase):
+	def test_bom_parent_lookup_uses_report_permission_boundary_and_scoped_filters(self) -> None:
+		scope = {
+			"docstatus": 1,
+			"purpose": ["in", ["Manufacture", "Repack"]],
+			"posting_date": [">=", "2026-01-01"],
+		}
+		with patch.object(report_utils, "get_report_rows", return_value=[{"name": "STE-JOINT-1"}]) as rows:
+			self.assertEqual(
+				report_utils.get_stock_entries_for_bom("BOM-LH-1", filters=scope),
+				["STE-JOINT-1"],
+			)
+
+		rows.assert_called_once_with(
+			"Stock Entry",
+			filters=scope,
+			or_filters=[
+				["bom_no", "=", "BOM-LH-1"],
+				["custom_pea_lh_bom", "=", "BOM-LH-1"],
+				["custom_pea_rh_bom", "=", "BOM-LH-1"],
+			],
+			fields=["name"],
+			limit_page_length=report_utils._MAX_BOM_PARENT_MATCHES + 1,
+		)
+
 	def test_build_stock_entry_filters_handles_single_sided_dates_and_fg_item(self) -> None:
 		with patch(
 			"production_entry_app.production_entry_app.report.report_utils.get_stock_entries_for_fg_item",

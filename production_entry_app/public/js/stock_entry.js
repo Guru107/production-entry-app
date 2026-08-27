@@ -53,6 +53,7 @@ const PEA_MANUFACTURE_SECTIONS = [
 	"custom_pea_operation_details_section",
 	"custom_pea_workstation_operator_section",
 	"custom_pea_unplanned_losses_section",
+	"custom_pea_rejection_section",
 	"custom_pea_metrics_section",
 ];
 
@@ -175,9 +176,11 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 		},
 		custom_pea_lh_bom(frm) {
 			_schedule_joint_rm_consumption(frm);
+			_refresh_joint_rejection_items(frm, "LH");
 		},
 		custom_pea_rh_bom(frm) {
 			_schedule_joint_rm_consumption(frm);
+			_refresh_joint_rejection_items(frm, "RH");
 		},
 		custom_pea_lh_gross_qty(frm) {
 			_schedule_joint_rm_consumption(frm);
@@ -300,6 +303,41 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 	});
 }
 
+function _refresh_joint_rejection_items(frm, side) {
+	if (!_is_joint_doc(frm.doc)) return;
+	const bomFieldname = side === "LH" ? "custom_pea_lh_bom" : "custom_pea_rh_bom";
+	const selectedBom = frm.doc[bomFieldname];
+	frm.__peaRejectionBomRequestIds ||= {};
+	const requestId = (frm.__peaRejectionBomRequestIds[side] || 0) + 1;
+	frm.__peaRejectionBomRequestIds[side] = requestId;
+
+	const applyItem = (itemCode) => {
+		if (
+			frm.__peaRejectionBomRequestIds[side] !== requestId ||
+			frm.doc[bomFieldname] !== selectedBom
+		) {
+			return;
+		}
+		for (const row of frm.doc.custom_pea_rejection_breakup || []) {
+			if (row.output_side === side) row.item_code = itemCode;
+		}
+		frm.refresh_field("custom_pea_rejection_breakup");
+	};
+
+	if (!selectedBom) {
+		applyItem("");
+		return;
+	}
+	frappe.db
+		.get_value("BOM", selectedBom, "item")
+		.then((response) => applyItem(response?.message?.item || ""))
+		.catch((error) => {
+			if (frm.__peaRejectionBomRequestIds[side] === requestId) {
+				_notify_call_error(__("Failed to refresh the joint rejection item."), error);
+			}
+		});
+}
+
 function _schedule_joint_rm_consumption(frm) {
 	if (frm.__peaJointRmTimer) {
 		clearTimeout(frm.__peaJointRmTimer);
@@ -389,6 +427,7 @@ function _apply_manufacture_visibility(frm) {
 	}
 
 	_toggle_rejection_breakup(frm);
+	_configure_rejection_breakup_grid(frm);
 	_update_die_tool_metrics(frm);
 }
 
@@ -778,8 +817,19 @@ function _toggle_rejection_breakup(frm) {
 		? flt(frm.doc.custom_pea_rejection_qty)
 		: 0;
 	const has_rejection = rejection_qty > 0;
-	frm.toggle_display("custom_pea_rejection_breakup", has_rejection);
+	const has_breakup_rows = (frm.doc.custom_pea_rejection_breakup || []).length > 0;
+	frm.toggle_display("custom_pea_rejection_breakup", has_rejection || has_breakup_rows);
 	frm.toggle_reqd("custom_pea_rejection_breakup", has_rejection);
+	_configure_rejection_breakup_grid(frm);
+}
+
+function _configure_rejection_breakup_grid(frm) {
+	const grid = frm.fields_dict?.custom_pea_rejection_breakup?.grid;
+	if (!grid) return;
+	const isJoint = _is_joint_doc(frm.doc);
+	grid.update_docfield_property("output_side", "hidden", isJoint ? 0 : 1);
+	grid.update_docfield_property("output_side", "reqd", isJoint ? 1 : 0);
+	grid.update_docfield_property("item_code", "hidden", isJoint ? 0 : 1);
 }
 
 function _update_die_tool_metrics(frm) {

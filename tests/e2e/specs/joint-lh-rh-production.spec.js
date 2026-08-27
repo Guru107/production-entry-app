@@ -110,6 +110,7 @@ test.describe("Joint LH/RH production form", () => {
 		await enableJointProduction(page, form, stockEntryType);
 		await setFieldValue(page, "company", ctx.company);
 
+		expect(await form.isFieldVisible("custom_pea_rejection_breakup")).toBe(false);
 		expect(await form.isFieldVisible("custom_pea_lh_bom")).toBe(true);
 		expect(await form.isFieldVisible("custom_pea_rh_bom")).toBe(true);
 		expect(await form.isFieldVisible("custom_pea_total_strokes")).toBe(true);
@@ -195,6 +196,206 @@ test.describe("Joint LH/RH production form", () => {
 				}),
 			])
 		);
+	});
+
+	test("@regression joint rejection breakup stays editable and preserves rows", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const stockEntryType = await createJointStockEntryType(page, lifecycle.getPrefix());
+		createdTypes.add(stockEntryType);
+		const form = new StockEntryPage(page);
+
+		await form.openNew();
+		await enableJointProduction(page, form, stockEntryType);
+		await setFieldValue(page, "company", ctx.company);
+		await setFieldValue(page, "custom_pea_lh_bom", ctx.joint_lh_bom);
+		await setFieldValue(page, "custom_pea_rh_bom", ctx.joint_rh_bom);
+		await setFieldValue(page, "custom_pea_lh_rejection_qty", 2);
+		await setFieldValue(page, "custom_pea_rh_rejection_qty", 3);
+		await page.evaluate(() => cur_frm.scroll_to_field("custom_pea_rejection_breakup"));
+
+		expect(await form.isFieldVisible("custom_pea_rejection_breakup")).toBe(true);
+		const jointColumnState = await page.evaluate(() => {
+			const grid = cur_frm.fields_dict.custom_pea_rejection_breakup.grid;
+			return Object.fromEntries(
+				["output_side", "item_code"].map((fieldname) => {
+					const df = grid.docfields.find((field) => field.fieldname === fieldname);
+					return [fieldname, { hidden: Boolean(df.hidden), reqd: Boolean(df.reqd) }];
+				})
+			);
+		});
+		expect(jointColumnState).toEqual({
+			output_side: { hidden: false, reqd: true },
+			item_code: { hidden: false, reqd: false },
+		});
+
+		await form.setRejectionBreakupRows([
+			{
+				output_side: "LH",
+				item_code: ctx.joint_lh_item,
+				rejection_reason: "Burr",
+				qty: 2,
+				is_rework: 0,
+			},
+			{
+				output_side: "RH",
+				item_code: ctx.joint_rh_item,
+				rejection_reason: "Crack",
+				qty: 3,
+				is_rework: 1,
+			},
+		]);
+		await setFieldValue(page, "custom_pea_lh_bom", null);
+		await page.waitForFunction(() => {
+			const rows = window.cur_frm?.doc?.custom_pea_rejection_breakup || [];
+			return rows.find((row) => row.output_side === "LH")?.item_code === "";
+		});
+		await setFieldValue(page, "custom_pea_lh_bom", ctx.joint_lh_bom);
+		await page.waitForFunction((expectedItem) => {
+			const rows = window.cur_frm?.doc?.custom_pea_rejection_breakup || [];
+			return rows.find((row) => row.output_side === "LH")?.item_code === expectedItem;
+		}, ctx.joint_lh_item);
+		const refreshedBreakup = (await form.getFieldValues(["custom_pea_rejection_breakup"]))
+			.custom_pea_rejection_breakup;
+		expect(refreshedBreakup).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					output_side: "LH",
+					item_code: ctx.joint_lh_item,
+					rejection_reason: "Burr",
+					qty: 2,
+					is_rework: 0,
+				}),
+				expect.objectContaining({
+					output_side: "RH",
+					item_code: ctx.joint_rh_item,
+					rejection_reason: "Crack",
+					qty: 3,
+					is_rework: 1,
+				}),
+			])
+		);
+		await setFieldValue(page, "custom_pea_shift", ctx.shift_name);
+		await setFieldValue(page, "from_warehouse", ctx.wip_warehouse);
+		await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
+		await setFieldValue(page, "custom_pea_lh_gross_qty", 40);
+		await setFieldValue(page, "custom_pea_rh_gross_qty", 41);
+		await page.locator('[data-fieldname="custom_pea_joint_fetch_items"] button').click();
+		await page.waitForFunction(() => (window.cur_frm?.doc?.items || []).length > 0);
+		expect(
+			(await form.getFieldValues(["custom_pea_rejection_breakup"]))
+				.custom_pea_rejection_breakup
+		).toHaveLength(2);
+		await setFieldValue(page, "custom_pea_lh_rejection_qty", 0);
+		await setFieldValue(page, "custom_pea_rh_rejection_qty", 0);
+
+		expect(await form.isFieldVisible("custom_pea_rejection_breakup")).toBe(true);
+		const values = await form.getFieldValues(["custom_pea_rejection_breakup"]);
+		expect(values.custom_pea_rejection_breakup).toHaveLength(2);
+	});
+
+	test("@smoke joint rejection breakup saves and submits through the production form", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const stockEntryType = await createJointStockEntryType(page, lifecycle.getPrefix());
+		createdTypes.add(stockEntryType);
+		const form = new StockEntryPage(page);
+
+		await form.openNew();
+		await enableJointProduction(page, form, stockEntryType);
+		await setFieldValue(page, "company", ctx.company);
+		await form.setPostingDate(ctx.shift_date);
+		await setFieldValue(page, "custom_pea_shift", ctx.shift_name);
+		await setFieldValue(page, "from_warehouse", ctx.wip_warehouse);
+		await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
+		await form.fillJointProductionFields(ctx, { lhRejectionQty: 2, rhRejectionQty: 3 });
+		await form.setRejectionBreakupRows([
+			{
+				output_side: "LH",
+				rejection_reason: "Burr",
+				qty: 2,
+				is_rework: 0,
+			},
+			{
+				output_side: "RH",
+				rejection_reason: "Crack",
+				qty: 3,
+				is_rework: 1,
+			},
+		]);
+		await form.fetchItems();
+		await form.saveAndSubmit();
+
+		const name = await page.evaluate(() => cur_frm.doc.name);
+		const submitted = await callFrappeMethod(page, "frappe.client.get", {
+			doctype: "Stock Entry",
+			name,
+		});
+		expect(submitted.docstatus).toBe(1);
+		expect(Number(submitted.custom_pea_rework_qty)).toBe(3);
+		expect(
+			submitted.custom_pea_rejection_breakup.map((row) => ({
+				side: row.output_side,
+				item: row.item_code,
+				qty: Number(row.qty),
+				rework: Number(row.is_rework),
+			}))
+		).toEqual([
+			{ side: "LH", item: ctx.joint_lh_item, qty: 2, rework: 0 },
+			{ side: "RH", item: ctx.joint_rh_item, qty: 3, rework: 1 },
+		]);
+	});
+
+	test("@regression joint rejection quantity requires a breakup before save", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const stockEntryType = await createJointStockEntryType(page, lifecycle.getPrefix());
+		createdTypes.add(stockEntryType);
+		const form = new StockEntryPage(page);
+
+		await form.openNew();
+		await enableJointProduction(page, form, stockEntryType);
+		await setFieldValue(page, "company", ctx.company);
+		await form.setPostingDate(ctx.shift_date);
+		await setFieldValue(page, "custom_pea_shift", ctx.shift_name);
+		await setFieldValue(page, "from_warehouse", ctx.wip_warehouse);
+		await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
+		await form.fillJointProductionFields(ctx, { lhRejectionQty: 1 });
+		await form.fetchItems();
+		await form.attemptSaveDraft();
+
+		await expectValidationError(page, /Rejection Breakup is required/i);
+	});
+
+	test("@regression normal Manufacture hides joint-only rejection columns", async ({ page }) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const form = new StockEntryPage(page);
+
+		await form.openNew();
+		await form.setManufactureFields(ctx, { rejectionQty: 1 });
+		await page.evaluate(() => cur_frm.scroll_to_field("custom_pea_rejection_breakup"));
+
+		expect(await form.isFieldVisible("custom_pea_rejection_breakup")).toBe(true);
+		const columnState = await page.evaluate(() => {
+			const grid = cur_frm.fields_dict.custom_pea_rejection_breakup.grid;
+			return Object.fromEntries(
+				["output_side", "item_code"].map((fieldname) => {
+					const df = grid.docfields.find((field) => field.fieldname === fieldname);
+					return [fieldname, { hidden: Boolean(df.hidden), reqd: Boolean(df.reqd) }];
+				})
+			);
+		});
+		expect(columnState).toEqual({
+			output_side: { hidden: true, reqd: false },
+			item_code: { hidden: true, reqd: false },
+		});
 	});
 
 	test("@regression joint Fetch Items shows required-header validation", async ({ page }) => {

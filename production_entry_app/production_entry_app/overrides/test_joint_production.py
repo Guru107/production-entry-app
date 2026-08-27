@@ -534,6 +534,135 @@ class TestJointProductionItems(FrappeTestCase):
 			]
 		)
 
+	def test_joint_rejection_breakup_api_requires_positive_quantity_and_reason(self) -> None:
+		shift = make_running_shift(self.masters)
+		invalid_rows = (
+			(
+				{
+					"rejection_reason": "Burr",
+					"qty": 0,
+					"output_side": "LH",
+					"item_code": self.lh_item,
+				},
+				"quantity greater than 0",
+			),
+			(
+				{
+					"qty": 1,
+					"output_side": "LH",
+					"item_code": self.lh_item,
+				},
+				"rejection reason",
+			),
+		)
+		for row, message in invalid_rows:
+			with self.subTest(message=message):
+				doc = self._make_joint_entry(shift)
+				doc.set("custom_pea_rejection_breakup", [row])
+				with self.assertRaisesRegex(frappe.ValidationError, message):
+					frappe.client.insert(doc.as_dict())
+
+		for fieldname, value, message in (
+			("output_side", "INVALID", "must specify LH or RH"),
+			("item_code", self.rh_item, "must match the selected LH BOM"),
+		):
+			with self.subTest(fieldname=fieldname):
+				doc = self._make_joint_entry(shift)
+				doc.custom_pea_rejection_breakup[0].set(fieldname, value)
+				with self.assertRaisesRegex(frappe.ValidationError, message):
+					frappe.client.insert(doc.as_dict())
+
+		doc = self._make_joint_entry(shift)
+		doc.custom_pea_lh_rejection_qty = 0
+		doc.set("items", get_joint_production_items(json.dumps(doc.as_dict(), default=str)))
+		with self.assertRaisesRegex(frappe.ValidationError, "LH rejection breakup total"):
+			frappe.client.insert(doc.as_dict())
+
+	def test_joint_rejection_breakup_api_derives_items_and_rework_total_per_side(self) -> None:
+		shift = make_running_shift(self.masters)
+		doc = self._make_joint_entry(shift)
+		doc.custom_pea_lh_rejection_qty = 2
+		doc.custom_pea_rh_rejection_qty = 3
+		doc.set(
+			"custom_pea_rejection_breakup",
+			[
+				{
+					"rejection_reason": "Burr",
+					"qty": 2,
+					"output_side": "LH",
+					"is_rework": 1,
+				},
+				{
+					"rejection_reason": "Burr",
+					"qty": 3,
+					"output_side": "RH",
+					"is_rework": 1,
+				},
+			],
+		)
+		doc.set("items", get_joint_production_items(json.dumps(doc.as_dict(), default=str)))
+
+		inserted = frappe.client.insert(doc.as_dict())
+
+		self.assertEqual(inserted["custom_pea_rework_qty"], 5)
+		self.assertEqual(
+			[(row["output_side"], row["item_code"]) for row in inserted["custom_pea_rejection_breakup"]],
+			[("LH", self.lh_item), ("RH", self.rh_item)],
+		)
+
+	def test_item_bom_quality_reports_attribute_joint_rejection_and_rework_by_side(self) -> None:
+		from production_entry_app.production_entry_app.report.item_bom_rejection_hotspots.item_bom_rejection_hotspots import (
+			execute as rejection_execute,
+		)
+		from production_entry_app.production_entry_app.report.item_bom_rework_hotspots.item_bom_rework_hotspots import (
+			execute as rework_execute,
+		)
+
+		shift = make_running_shift(self.masters)
+		doc = self._make_joint_entry(shift)
+		doc.custom_pea_lh_rejection_qty = 2
+		doc.custom_pea_rh_rejection_qty = 3
+		doc.set(
+			"custom_pea_rejection_breakup",
+			[
+				{
+					"rejection_reason": "Burr",
+					"qty": 2,
+					"output_side": "LH",
+					"is_rework": 0,
+				},
+				{
+					"rejection_reason": "Burr",
+					"qty": 3,
+					"output_side": "RH",
+					"is_rework": 1,
+				},
+			],
+		)
+		doc.set("items", get_joint_production_items(json.dumps(doc.as_dict(), default=str)))
+		inserted = frappe.client.insert(doc.as_dict())
+		frappe.client.submit(inserted)
+
+		_, rejection_rows = rejection_execute({"custom_pea_shift": shift.name})
+		_, rework_rows = rework_execute({"custom_pea_shift": shift.name})
+		_, lh_bom_rows = rejection_execute({"custom_pea_shift": shift.name, "bom_no": self.lh_bom})
+		rejection_by_item = {row["item_code"]: row for row in rejection_rows}
+		rework_by_item = {row["item_code"]: row for row in rework_rows}
+
+		self.assertEqual(
+			(rejection_by_item[self.lh_item]["bom_no"], rejection_by_item[self.lh_item]["total_qty"]),
+			(self.lh_bom, 40),
+		)
+		self.assertEqual(rejection_by_item[self.lh_item]["rejection_qty"], 2)
+		self.assertEqual(rejection_by_item[self.rh_item]["rejection_qty"], 0)
+		self.assertEqual(
+			(rework_by_item[self.rh_item]["bom_no"], rework_by_item[self.rh_item]["total_qty"]),
+			(self.rh_bom, 41),
+		)
+		self.assertEqual(rework_by_item[self.rh_item]["rework_qty"], 3)
+		self.assertEqual(rework_by_item[self.lh_item]["rework_qty"], 0)
+		self.assertEqual([row["item_code"] for row in lh_bom_rows], [self.lh_item])
+
 	def test_each_side_may_individually_be_fully_rejected(self) -> None:
 		shift = make_running_shift(self.masters)
 		for side, rejection_qty in (("LH", 40), ("RH", 41)):

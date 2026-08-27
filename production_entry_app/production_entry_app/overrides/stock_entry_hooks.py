@@ -12,6 +12,9 @@ from frappe.model.meta import get_field_precision
 from frappe.query_builder import DocType
 from frappe.utils import flt, format_datetime, get_datetime, get_time
 
+from production_entry_app.production_entry_app.doctype.rejection_breakup.rejection_breakup import (
+	validate_rejection_breakup_row,
+)
 from production_entry_app.production_entry_app.joint_production import (
 	is_joint_lh_rh_production,
 	validate_and_apply_joint_production,
@@ -562,7 +565,7 @@ def _validate_rejection_breakup(doc) -> None:
 	total_qty = 0.0
 	rework_qty = 0.0
 	for row in breakup_rows:
-		row_qty = _validate_rejection_breakup_row(row)
+		row_qty = validate_rejection_breakup_row(row)
 		total_qty += row_qty
 		if row.get("is_rework"):
 			rework_qty += row_qty
@@ -575,15 +578,6 @@ def _validate_rejection_breakup(doc) -> None:
 			)
 		)
 	doc.custom_pea_rework_qty = flt(rework_qty)
-
-
-def _validate_rejection_breakup_row(row: Any) -> float:
-	row_qty = float(row.get("qty") or 0)
-	if row_qty <= 0:
-		frappe.throw(_("Rejection Breakup rows must have a quantity greater than 0."))
-	if not row.get("rejection_reason"):
-		frappe.throw(_("Rejection Breakup rows must have a rejection reason."))
-	return row_qty
 
 
 def _get_rejection_breakup_abs_tol(doc: Document, breakup_rows: list[Any]) -> float:

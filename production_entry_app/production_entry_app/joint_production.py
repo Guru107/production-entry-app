@@ -9,6 +9,10 @@ import frappe
 from frappe import _
 from frappe.utils import cint, flt
 
+from production_entry_app.production_entry_app.doctype.rejection_breakup.rejection_breakup import (
+	validate_rejection_breakup_row,
+)
+
 
 @dataclass(frozen=True)
 class JointBomScrapItem:
@@ -428,7 +432,9 @@ def _validate_joint_rejection_breakup(doc: Any, plan: JointProductionPlan) -> No
 		"LH": plan.lh_bom.item_code,
 		"RH": plan.rh_bom.item_code,
 	}
+	rework_qty = 0.0
 	for row in doc.get("custom_pea_rejection_breakup") or []:
+		row_qty = validate_rejection_breakup_row(row)
 		side = row.get("output_side")
 		if side not in actual:
 			frappe.throw(_("Every joint rejection breakup row must specify LH or RH Output Side."))
@@ -436,10 +442,13 @@ def _validate_joint_rejection_breakup(doc: Any, plan: JointProductionPlan) -> No
 			row.set("item_code", items[side])
 		elif row.get("item_code") != items[side]:
 			frappe.throw(_("Joint rejection breakup Item must match the selected {0} BOM.").format(side))
-		actual[side] += flt(row.get("qty"), 6)
+		actual[side] += flt(row_qty, 6)
+		if row.get("is_rework"):
+			rework_qty += row_qty
 	for side in ("LH", "RH"):
 		if flt(actual[side], 6) != expected[side]:
 			frappe.throw(_("{0} rejection breakup total must equal {0} Rejection Quantity.").format(side))
+	doc.custom_pea_rework_qty = flt(rework_qty)
 
 
 def _validate_joint_header(doc: Any) -> None:

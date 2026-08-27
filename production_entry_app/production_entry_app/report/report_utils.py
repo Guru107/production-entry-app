@@ -21,6 +21,7 @@ from production_entry_app.production_entry_app.utils.system_precision import (
 )
 
 _MAX_FG_ITEM_PARENT_MATCHES = 5000
+_MAX_BOM_PARENT_MATCHES = 5000
 _DEFAULT_REPORT_CHUNK_SIZE = 1000
 _DEFAULT_MAX_STOCK_ENTRY_ROWS = 100000
 _DEFAULT_INTERACTIVE_REPORT_TIMEOUT_SEC = 5.0
@@ -58,13 +59,19 @@ def build_stock_entry_filters(filters: dict, filter_keys: tuple[str, ...]) -> di
 		db_filters["posting_date"] = ["<=", to_date]
 
 	for key in filter_keys:
-		if filters.get(key):
+		if key != "bom_no" and filters.get(key):
 			db_filters[key] = filters.get(key)
 
 	fg_item = filters.get("fg_item")
 	if fg_item:
-		parent_names = get_stock_entries_for_fg_item(fg_item)
-		db_filters["name"] = ["in", parent_names or [""]]
+		_restrict_stock_entry_names(db_filters, get_stock_entries_for_fg_item(fg_item))
+
+	bom_no = filters.get("bom_no")
+	if bom_no and "bom_no" in filter_keys:
+		_restrict_stock_entry_names(
+			db_filters,
+			get_stock_entries_for_bom(bom_no, filters=db_filters),
+		)
 
 	return db_filters
 
@@ -175,6 +182,36 @@ def get_stock_entries_for_fg_item(item_code: str) -> list[str]:
 			).format(_MAX_FG_ITEM_PARENT_MATCHES)
 		)
 	return [row.get("parent") for row in rows if row.get("parent")]
+
+
+def get_stock_entries_for_bom(bom_no: str, *, filters: dict | None = None) -> list[str]:
+	"""Return permitted normal or joint Stock Entries linked to a BOM."""
+	rows = get_report_rows(
+		"Stock Entry",
+		filters=dict(filters or {"docstatus": 1}),
+		or_filters=[
+			["bom_no", "=", bom_no],
+			["custom_pea_lh_bom", "=", bom_no],
+			["custom_pea_rh_bom", "=", bom_no],
+		],
+		fields=["name"],
+		limit_page_length=_MAX_BOM_PARENT_MATCHES + 1,
+	)
+	if len(rows) > _MAX_BOM_PARENT_MATCHES:
+		frappe.throw(
+			_("BOM filter matches more than {0} Stock Entries. Add a date or shift filter and retry.").format(
+				_MAX_BOM_PARENT_MATCHES
+			)
+		)
+	return [row.get("name") for row in rows if row.get("name")]
+
+
+def _restrict_stock_entry_names(db_filters: dict, parent_names: list[str]) -> None:
+	matched_names = set(parent_names)
+	existing = db_filters.get("name")
+	if isinstance(existing, list | tuple) and len(existing) == 2 and existing[0] == "in":
+		matched_names.intersection_update(existing[1])
+	db_filters["name"] = ["in", sorted(matched_names) or [""]]
 
 
 def iter_stock_entries_in_chunks(
@@ -464,11 +501,18 @@ def get_parent_breakup_reason_rows(
 		.select(
 			rejection_breakup.parent,
 			rejection_breakup.rejection_reason,
+			rejection_breakup.output_side,
+			rejection_breakup.item_code,
 			Sum(rejection_breakup.qty).as_("qty"),
 		)
 		.where(rejection_breakup.parenttype == "Stock Entry")
 		.where(rejection_breakup.parent.isin(stock_entry_names))
-		.groupby(rejection_breakup.parent, rejection_breakup.rejection_reason)
+		.groupby(
+			rejection_breakup.parent,
+			rejection_breakup.rejection_reason,
+			rejection_breakup.output_side,
+			rejection_breakup.item_code,
+		)
 	)
 	if is_rework is True:
 		query = query.where(rejection_breakup.is_rework == 1)
@@ -500,6 +544,168 @@ def get_finished_item_map(stock_entry_names: list[str]) -> dict[str, str]:
 		if parent and item_code and item_code not in items_by_parent[parent]:
 			items_by_parent[parent].append(item_code)
 	return {parent: " + ".join(item_codes) for parent, item_codes in items_by_parent.items()}
+
+
+def get_item_bom_quality_facts(entries: list[dict], *, is_rework: bool) -> list[dict]:
+	"""Return normal or joint output facts for item/BOM quality reports."""
+	entry_names = [entry.get("name") for entry in entries if entry.get("name")]
+	if not entry_names:
+		return []
+
+	parent_metrics = get_parent_quantity_metrics(entry_names, include_rework=is_rework)
+	item_by_entry = get_finished_item_map(entry_names)
+	breakup_rows = get_parent_breakup_reason_rows(entry_names, is_rework=is_rework)
+	joint_items = _get_joint_output_item_map(entry_names)
+	quality_by_output: dict[tuple[str, str], float] = defaultdict(float)
+	reasons_by_output: dict[tuple[str, str], dict[str, float]] = defaultdict(dict)
+	breakup_items: dict[tuple[str, str], str] = {}
+	joint_entry_names = {entry.get("name") for entry in entries if entry.get("custom_pea_is_joint_lh_rh")}
+
+	for breakup in breakup_rows:
+		parent = breakup.get("parent")
+		if not parent:
+			continue
+		side = breakup.get("output_side") if parent in joint_entry_names else ""
+		if parent in joint_entry_names and side not in ("LH", "RH"):
+			continue
+		key = (parent, side or "")
+		qty = flt(breakup.get("qty") or 0)
+		quality_by_output[key] += qty
+		if breakup.get("item_code"):
+			breakup_items[key] = breakup.get("item_code")
+		reason = breakup.get("rejection_reason")
+		if reason and qty > 0:
+			reasons = reasons_by_output[key]
+			reasons[reason] = flt(reasons.get(reason) or 0) + qty
+
+	facts: list[dict] = []
+	for entry in entries:
+		parent = entry.get("name")
+		if not parent:
+			continue
+		if entry.get("custom_pea_is_joint_lh_rh"):
+			for side in ("LH", "RH"):
+				key = (parent, side)
+				facts.append(
+					{
+						"parent": parent,
+						"item_code": joint_items.get(key) or breakup_items.get(key),
+						"bom_no": entry.get(f"custom_pea_{side.lower()}_bom"),
+						"total_qty": flt(entry.get(f"custom_pea_{side.lower()}_gross_qty") or 0),
+						"quality_qty": flt(quality_by_output.get(key) or 0),
+						"reason_totals": reasons_by_output.get(key) or {},
+					}
+				)
+			continue
+
+		metrics = parent_metrics.get(parent, {})
+		total_qty = flt(entry.get("fg_completed_qty") or 0)
+		if total_qty <= 0:
+			total_qty = flt(metrics.get("good_qty") or 0) + flt(metrics.get("total_rejected_qty") or 0)
+		facts.append(
+			{
+				"parent": parent,
+				"item_code": item_by_entry.get(parent),
+				"bom_no": entry.get("bom_no"),
+				"total_qty": total_qty,
+				"quality_qty": flt(quality_by_output.get((parent, "")) or 0),
+				"reason_totals": reasons_by_output.get((parent, "")) or {},
+			}
+		)
+	return facts
+
+
+def get_item_bom_quality_hotspot_rows(
+	filters: dict,
+	*,
+	is_rework: bool,
+	quantity_field: str,
+	rate_field: str,
+	timeout_guard: Any,
+) -> list[dict]:
+	"""Aggregate item/BOM quality facts for the rejection and rework hotspot reports."""
+	stock_entry_filters = build_stock_entry_filters(
+		filters,
+		filter_keys=("custom_pea_workstation", "custom_pea_shift", "custom_pea_operator", "bom_no"),
+	)
+	requested_bom = filters.get("bom_no")
+	agg: dict[tuple[str, str], dict] = {}
+	has_entries = False
+	for entries in iter_stock_entries_in_chunks(
+		stock_entry_filters,
+		[
+			"name",
+			"fg_completed_qty",
+			"custom_pea_rejection_qty",
+			"custom_pea_rework_qty",
+			"bom_no",
+			"custom_pea_lh_bom",
+			"custom_pea_rh_bom",
+		],
+	):
+		timeout_guard()
+		has_entries = True
+		for fact in get_item_bom_quality_facts(entries, is_rework=is_rework):
+			if requested_bom and fact.get("bom_no") != requested_bom:
+				continue
+			group = (fact.get("item_code") or "Unknown", fact.get("bom_no") or "")
+			row = agg.setdefault(
+				group,
+				{"entries": set(), "total_qty": 0.0, "quality_qty": 0.0, "reason_totals": {}},
+			)
+			row["entries"].add(fact.get("parent"))
+			row["total_qty"] += flt(fact.get("total_qty") or 0)
+			row["quality_qty"] += flt(fact.get("quality_qty") or 0)
+			for reason, qty in (fact.get("reason_totals") or {}).items():
+				row["reason_totals"][reason] = flt(row["reason_totals"].get(reason) or 0) + flt(qty)
+
+	if not has_entries:
+		return []
+
+	rows: list[dict] = []
+	for (item_code, bom_no), values in agg.items():
+		total_qty = flt(values["total_qty"])
+		quality_qty = flt(values["quality_qty"])
+		reasons = values.get("reason_totals") or {}
+		dominant_reason = ""
+		if reasons:
+			reason, qty = sorted(reasons.items(), key=lambda item: (-flt(item[1]), item[0]))[0]
+			dominant_reason = f"{reason} ({format_numeric_summary(qty)})"
+		rows.append(
+			{
+				"item_code": item_code,
+				"bom_no": bom_no,
+				"entries": len(values["entries"]),
+				"total_qty": total_qty,
+				quantity_field: quality_qty,
+				rate_field: flt((quality_qty / total_qty) * 100) if total_qty > 0 else 0,
+				"dominant_reason": dominant_reason,
+			}
+		)
+	rows.sort(key=lambda row: (-flt(row[quantity_field]), row["item_code"], row["bom_no"] or ""))
+	return rows
+
+
+def _get_joint_output_item_map(stock_entry_names: list[str]) -> dict[tuple[str, str], str]:
+	if not stock_entry_names:
+		return {}
+	stock_entry_detail = DocType("Stock Entry Detail")
+	rows = (
+		frappe.qb.from_(stock_entry_detail)
+		.select(
+			stock_entry_detail.parent,
+			stock_entry_detail.custom_pea_joint_output_side,
+			stock_entry_detail.item_code,
+		)
+		.where(stock_entry_detail.parent.isin(stock_entry_names))
+		.where(stock_entry_detail.custom_pea_joint_output_side.isin(("LH", "RH")))
+		.where(_get_non_scrap_item_criterion(stock_entry_detail))
+	).run(as_dict=True)
+	return {
+		(row.get("parent"), row.get("custom_pea_joint_output_side")): row.get("item_code")
+		for row in rows
+		if row.get("parent") and row.get("custom_pea_joint_output_side") and row.get("item_code")
+	}
 
 
 def _get_non_scrap_item_criterion(stock_entry_detail: Any) -> Any:
