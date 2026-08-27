@@ -56,6 +56,21 @@ async function deleteDocIfExists(page, doctype, name) {
 	if (rows?.length) await callFrappeMethod(page, "frappe.client.delete", { doctype, name });
 }
 
+async function getFieldTops(page, fieldnames) {
+	return page.evaluate(
+		(names) =>
+			Object.fromEntries(
+				names.map((fieldname) => [
+					fieldname,
+					document
+						.querySelector(`[data-fieldname="${fieldname}"]`)
+						?.getBoundingClientRect().top,
+				])
+			),
+		fieldnames
+	);
+}
+
 test.describe("Joint LH/RH production form", () => {
 	const lifecycle = registerE2ELifecycle(test);
 	const createdTypes = new Set();
@@ -217,6 +232,21 @@ test.describe("Joint LH/RH production form", () => {
 		await page.evaluate(() => cur_frm.scroll_to_field("custom_pea_rejection_breakup"));
 
 		expect(await form.isFieldVisible("custom_pea_rejection_breakup")).toBe(true);
+		const dataEntryFlowTops = await getFieldTops(page, [
+			"custom_pea_joint_resources_section",
+			"custom_pea_joint_fetch_items",
+			"custom_pea_rejection_breakup",
+			"custom_pea_workstation_operator_section",
+		]);
+		expect(dataEntryFlowTops.custom_pea_joint_resources_section).toBeLessThan(
+			dataEntryFlowTops.custom_pea_joint_fetch_items
+		);
+		expect(dataEntryFlowTops.custom_pea_joint_fetch_items).toBeLessThan(
+			dataEntryFlowTops.custom_pea_rejection_breakup
+		);
+		expect(dataEntryFlowTops.custom_pea_rejection_breakup).toBeLessThan(
+			dataEntryFlowTops.custom_pea_workstation_operator_section
+		);
 		const jointColumnState = await page.evaluate(() => {
 			const grid = cur_frm.fields_dict.custom_pea_rejection_breakup.grid;
 			return Object.fromEntries(
@@ -383,6 +413,13 @@ test.describe("Joint LH/RH production form", () => {
 		await page.evaluate(() => cur_frm.scroll_to_field("custom_pea_rejection_breakup"));
 
 		expect(await form.isFieldVisible("custom_pea_rejection_breakup")).toBe(true);
+		const normalFlowTops = await getFieldTops(page, [
+			"custom_pea_fetch_items",
+			"custom_pea_rejection_breakup",
+		]);
+		expect(normalFlowTops.custom_pea_fetch_items).toBeLessThan(
+			normalFlowTops.custom_pea_rejection_breakup
+		);
 		const columnState = await page.evaluate(() => {
 			const grid = cur_frm.fields_dict.custom_pea_rejection_breakup.grid;
 			return Object.fromEntries(

@@ -426,9 +426,25 @@ function _apply_manufacture_visibility(frm) {
 		_expand_sections(frm, PEA_MANUFACTURE_SECTIONS);
 	}
 
+	_position_rejection_breakup_section(frm);
 	_toggle_rejection_breakup(frm);
 	_configure_rejection_breakup_grid(frm);
 	_update_die_tool_metrics(frm);
+}
+
+function _position_rejection_breakup_section(frm) {
+	const rejectionSection = frm.fields_dict?.custom_pea_rejection_section;
+	const normalFetchSection = frm.fields_dict?.custom_pea_fetch_items?.section;
+	const jointResourcesSection = frm.fields_dict?.custom_pea_joint_resources_section;
+	const anchorSection = _is_joint_doc(frm.doc) ? jointResourcesSection : normalFetchSection;
+	if (
+		!rejectionSection?.wrapper ||
+		!anchorSection?.wrapper ||
+		rejectionSection === anchorSection
+	) {
+		return;
+	}
+	rejectionSection.wrapper.insertAfter(anchorSection.wrapper);
 }
 
 function _set_prev_purpose(frm) {
