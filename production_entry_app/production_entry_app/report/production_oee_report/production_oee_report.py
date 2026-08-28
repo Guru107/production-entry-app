@@ -6,6 +6,7 @@ from frappe.utils import flt, get_time
 
 from production_entry_app.production_entry_app.report.report_utils import (
 	apply_system_precision,
+	build_stock_entry_filters,
 	get_entry_production_minutes,
 	get_entry_total_strokes,
 	get_loss_duration_minutes,
@@ -225,7 +226,13 @@ def _get_stock_entry_groups(
 		quantity_maps = _get_entry_quantity_maps(entry_names)
 
 		for entry in chunk:
-			_add_stock_entry_to_group(groups, entry_meta_by_name, entry, quantity_maps, shift_labels)
+			_add_stock_entry_to_group(
+				groups,
+				entry_meta_by_name,
+				entry,
+				quantity_maps,
+				shift_labels,
+			)
 
 		_apply_loss_buckets_for_chunk(groups, entry_meta_by_name, loss_rows, shift_labels)
 
@@ -236,21 +243,7 @@ def _get_stock_entry_groups(
 
 
 def _get_stock_entry_filters(filters: dict) -> dict:
-	stock_entry_filters: dict = {
-		"docstatus": 1,
-		"purpose": ["in", ["Manufacture", "Repack"]],
-	}
-	from_date = filters.get("from_date")
-	to_date = filters.get("to_date")
-	if from_date and to_date:
-		stock_entry_filters["posting_date"] = ["between", [from_date, to_date]]
-	elif from_date:
-		stock_entry_filters["posting_date"] = [">=", from_date]
-	elif to_date:
-		stock_entry_filters["posting_date"] = ["<=", to_date]
-	if filters.get("custom_pea_workstation"):
-		stock_entry_filters["custom_pea_workstation"] = filters.get("custom_pea_workstation")
-	return stock_entry_filters
+	return build_stock_entry_filters(filters, filter_keys=("custom_pea_workstation",))
 
 
 def _get_stock_entry_fields() -> list[str]:
@@ -315,7 +308,9 @@ def _add_stock_entry_to_group(
 	quantity_maps: tuple[dict[str, float], dict[str, float], dict[str, float]],
 	shift_labels: dict[str, str],
 ) -> None:
-	day = str(entry.get("posting_date") or "")
+	day = str(entry.get("production_date") or "")
+	if not day:
+		return
 	workstation = entry.get("custom_pea_workstation") or "Unassigned"
 	entry_name = entry.get("name")
 	if entry_name:
@@ -341,6 +336,7 @@ def _add_entry_quantities_to_group(
 	rejection_qty: float,
 	shift_labels: dict[str, str],
 ) -> None:
+	shift_name = entry.get("custom_pea_shift")
 	group["total_strokes"] += total_strokes
 	group["rejection"] += rejection_qty
 	if entry.get("custom_pea_is_joint_lh_rh"):
@@ -354,7 +350,6 @@ def _add_entry_quantities_to_group(
 		group["quality_total"] += total_strokes
 		group["quality_rejection"] += rejection_qty
 
-	shift_name = entry.get("custom_pea_shift")
 	if shift_name:
 		group["shift_names"].add(shift_name)
 	shift_label = shift_labels.get(shift_name)

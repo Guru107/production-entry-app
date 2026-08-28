@@ -35,9 +35,12 @@ class TestReportUtilsPerformance(FrappeTestCase):
 		)
 
 	def test_build_stock_entry_filters_handles_single_sided_dates_and_fg_item(self) -> None:
-		with patch(
-			"production_entry_app.production_entry_app.report.report_utils.get_stock_entries_for_fg_item",
-			return_value=["STE-001"],
+		with (
+			patch(
+				"production_entry_app.production_entry_app.report.report_utils.get_stock_entries_for_fg_item",
+				return_value=["STE-001"],
+			),
+			patch.object(report_utils, "get_report_rows", side_effect=[["SHIFT-FROM"], ["SHIFT-TO"]]),
 		):
 			from_filters = report_utils.build_stock_entry_filters(
 				{"from_date": "2026-01-01", "fg_item": "FG-001", "custom_pea_operator": "OP-1"},
@@ -45,10 +48,10 @@ class TestReportUtilsPerformance(FrappeTestCase):
 			)
 			to_filters = report_utils.build_stock_entry_filters({"to_date": "2026-01-31"}, ())
 
-		self.assertEqual(from_filters["posting_date"], [">=", "2026-01-01"])
+		self.assertEqual(from_filters["custom_pea_shift"], ["in", ["SHIFT-FROM"]])
 		self.assertEqual(from_filters["custom_pea_operator"], "OP-1")
 		self.assertEqual(from_filters["name"], ["in", ["STE-001"]])
-		self.assertEqual(to_filters["posting_date"], ["<=", "2026-01-31"])
+		self.assertEqual(to_filters["custom_pea_shift"], ["in", ["SHIFT-TO"]])
 
 	def test_stock_entry_alias_helpers_match_legacy_and_new_fields(self) -> None:
 		row = {

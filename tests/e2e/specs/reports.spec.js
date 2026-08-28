@@ -1,6 +1,7 @@
 const { test, expect } = require("@playwright/test");
 const { bootstrapE2E, cleanupE2E } = require("../fixtures/test-data");
 const { ReportsPage } = require("../pages/reports-page");
+const { ShiftPage } = require("../pages/shift-page");
 const { StockEntryPage } = require("../pages/stock-entry-page");
 const { getDoc, callFrappeMethod } = require("../fixtures/frappe");
 const { registerE2ELifecycle } = require("../fixtures/lifecycle");
@@ -9,6 +10,12 @@ const { getRoute } = require("../utils/routing");
 async function setupFreshContext(page, prefix) {
 	await cleanupE2E(page, prefix);
 	return await bootstrapE2E(page, prefix);
+}
+
+function addDays(dateString, days) {
+	const date = new Date(`${dateString}T00:00:00Z`);
+	date.setUTCDate(date.getUTCDate() + days);
+	return date.toISOString().slice(0, 10);
 }
 
 async function createSubmittedStockEntryForReports(
@@ -24,6 +31,7 @@ async function createSubmittedStockEntryForReports(
 	const actualEnd = timeWindow.actualEnd || `${ctx.shift_date} 09:00:00`;
 	const plannedStart = timeWindow.plannedStart || actualStart;
 	const plannedEnd = timeWindow.plannedEnd || actualEnd;
+	const postingDate = timeWindow.postingDate || ctx.shift_date;
 	await stockEntryPage.openNew();
 	await stockEntryPage.setManufactureFields(ctx, {
 		fgQty: 100,
@@ -32,11 +40,12 @@ async function createSubmittedStockEntryForReports(
 		actualEnd,
 		plannedStart,
 		plannedEnd,
+		postingDate,
 	});
-	await page.evaluate(async (shiftDate) => {
-		await cur_frm.set_value("posting_date", shiftDate);
+	await page.evaluate(async (targetPostingDate) => {
+		await cur_frm.set_value("posting_date", targetPostingDate);
 		await cur_frm.set_value("posting_time", "09:00:00");
-	}, ctx.shift_date);
+	}, postingDate);
 	await stockEntryPage.fetchItems();
 	for (const row of unplannedLossRows) {
 		await stockEntryPage.addUnplannedLossRow(row);
@@ -52,7 +61,13 @@ async function createSubmittedStockEntryForReports(
 	const name = await page.evaluate(() => window.cur_frm?.doc?.name);
 	const doc = await getDoc(page, "Stock Entry", name);
 	await callFrappeMethod(page, "frappe.client.submit", { doc: JSON.stringify(doc) });
-	return { name, posting_date: doc.posting_date };
+	const shift = await getDoc(page, "Shift", ctx.shift_name);
+	if (shift.status !== "Completed") {
+		const shiftPage = new ShiftPage(page);
+		await shiftPage.open(ctx.shift_name);
+		await shiftPage.endShift();
+	}
+	return { name, posting_date: doc.posting_date, production_date: ctx.shift_date };
 }
 
 test.describe("Production reports", () => {
@@ -93,7 +108,7 @@ test.describe("Production reports", () => {
 
 		const reportsPage = new ReportsPage(page);
 		await reportsPage.open("Production OEE Report");
-		await reportsPage.runWithDateRange(seeded.posting_date, seeded.posting_date);
+		await reportsPage.runWithDateRange(seeded.production_date, seeded.production_date);
 		await reportsPage.setFilterByFieldname("custom_pea_workstation", ctx.workstation);
 		await reportsPage.clickRefresh();
 		await reportsPage.waitForRows(1);
@@ -101,12 +116,58 @@ test.describe("Production reports", () => {
 		const rows = await reportsPage.getRows();
 		const seededRow = rows.find(
 			(row) =>
-				String(row.day || "").includes(seeded.posting_date) &&
+				String(row.day || "").includes(seeded.production_date) &&
 				row.workstation === ctx.workstation
 		);
 		expect(Boolean(seededRow)).toBeTruthy();
 		expect(Number(seededRow.total_strokes || 0)).toBeGreaterThan(0);
 		expect(Number(seededRow.other_1st || 0)).toBe(2);
+	});
+
+	test("@regression date-driven reports use Completed Shift date instead of Posting Date", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		const prefix = lifecycle.getPrefix();
+		const ctx = await setupFreshContext(page, prefix);
+		await createSubmittedStockEntryForReports(
+			page,
+			ctx,
+			5,
+			[],
+			[
+				{ rejection_reason: "Burr", qty: 2, is_rework: 0 },
+				{ rejection_reason: "Crack", qty: 3, is_rework: 1 },
+			],
+			{ postingDate: addDays(ctx.shift_date, -1) }
+		);
+
+		const reportsPage = new ReportsPage(page);
+		for (const reportName of [
+			"Daily Strokes SPM Monitor",
+			"Item BOM Rejection Hotspots",
+			"Item BOM Rework Hotspots",
+			"Operator Daily SPM Report",
+			"Operator Efficiency Report",
+			"Operator Rejection Performance",
+			"Operator Rework Performance",
+			"Production OEE Report",
+			"Rejection Pareto Report",
+			"Rejection PPM Report",
+			"Rejection Trend Report",
+			"Rework Pareto Report",
+			"Rework PPM Report",
+			"Rework Trend Report",
+			"Workstation Efficiency Report",
+			"Workstation Rejection Reason Matrix",
+			"Workstation Rework Reason Matrix",
+		]) {
+			await test.step(reportName, async () => {
+				await reportsPage.open(reportName);
+				await reportsPage.runWithDateRange(ctx.shift_date, ctx.shift_date);
+				await reportsPage.waitForRows(1);
+			});
+		}
 	});
 
 	test("@regression OEE report keeps source-controlled non-prepared mode", async ({ page }) => {
@@ -134,7 +195,7 @@ test.describe("Production reports", () => {
 
 		const reportsPage = new ReportsPage(page);
 		await reportsPage.open("Production OEE Report");
-		await reportsPage.runWithDateRange(seeded.posting_date, seeded.posting_date);
+		await reportsPage.runWithDateRange(seeded.production_date, seeded.production_date);
 		await reportsPage.setFilterByFieldname("custom_pea_workstation", ctx.workstation);
 		await reportsPage.clickRefresh();
 		await reportsPage.waitForRows(1);
@@ -154,7 +215,6 @@ test.describe("Production reports", () => {
 		await page.goto(getRoute("/home"));
 		const prefix = lifecycle.getPrefix();
 		const ctx = await setupFreshContext(page, prefix);
-		const seeded = await createSubmittedStockEntryForReports(page, ctx, 0);
 		await callFrappeMethod(
 			page,
 			"production_entry_app.production_entry_app.e2e_api.create_e2e_downtime_entry",
@@ -165,10 +225,11 @@ test.describe("Production reports", () => {
 				stop_reason: "Other",
 			}
 		);
+		const seeded = await createSubmittedStockEntryForReports(page, ctx, 0);
 
 		const reportsPage = new ReportsPage(page);
 		await reportsPage.open("Production OEE Report");
-		await reportsPage.runWithDateRange(seeded.posting_date, seeded.posting_date);
+		await reportsPage.runWithDateRange(seeded.production_date, seeded.production_date);
 		await reportsPage.setFilterByFieldname("custom_pea_workstation", ctx.workstation);
 		await reportsPage.clickRefresh();
 		await reportsPage.waitForRows(1);
@@ -187,7 +248,7 @@ test.describe("Production reports", () => {
 
 		const reportsPage = new ReportsPage(page);
 		await reportsPage.open("Operator Efficiency Report");
-		await reportsPage.runWithDateRange(seeded.posting_date, seeded.posting_date);
+		await reportsPage.runWithDateRange(seeded.production_date, seeded.production_date);
 		await reportsPage.setFilterByFieldname("custom_pea_operator", ctx.operator);
 		await reportsPage.setFilterByFieldname("custom_pea_shift", ctx.shift_name);
 		await reportsPage.clickRefresh();
@@ -240,7 +301,7 @@ test.describe("Production reports", () => {
 
 		const reportsPage = new ReportsPage(page);
 		await reportsPage.open("Workstation Efficiency Report");
-		await reportsPage.runWithDateRange(seeded.posting_date, seeded.posting_date);
+		await reportsPage.runWithDateRange(seeded.production_date, seeded.production_date);
 		await reportsPage.setFilterByFieldname("custom_pea_workstation", ctx.workstation);
 		await reportsPage.setFilterByFieldname("custom_pea_shift", ctx.shift_name);
 		await reportsPage.clickRefresh();
@@ -298,7 +359,7 @@ test.describe("Production reports", () => {
 
 		const reportsPage = new ReportsPage(page);
 		await reportsPage.open("Rejection Pareto Report");
-		await reportsPage.runWithDateRange(seeded.posting_date, seeded.posting_date);
+		await reportsPage.runWithDateRange(seeded.production_date, seeded.production_date);
 		await reportsPage.setFilterByFieldname("custom_pea_workstation", ctx.workstation);
 		await reportsPage.clickRefresh();
 		await reportsPage.waitForRows(1);
@@ -363,7 +424,7 @@ test.describe("Production reports", () => {
 
 		const reportsPage = new ReportsPage(page);
 		await reportsPage.open("Workstation Rejection Reason Matrix");
-		await reportsPage.runWithDateRange(seeded.posting_date, seeded.posting_date);
+		await reportsPage.runWithDateRange(seeded.production_date, seeded.production_date);
 		await reportsPage.setFilterByFieldname("custom_pea_workstation", ctx.workstation);
 		await reportsPage.setFilterByFieldname("top_n_reasons", 2);
 		await reportsPage.clickRefresh();
@@ -392,7 +453,7 @@ test.describe("Production reports", () => {
 
 		const reportsPage = new ReportsPage(page);
 		await reportsPage.open("Operator Rejection Performance");
-		await reportsPage.runWithDateRange(seeded.posting_date, seeded.posting_date);
+		await reportsPage.runWithDateRange(seeded.production_date, seeded.production_date);
 		await reportsPage.setFilterByFieldname("custom_pea_operator", ctx.operator);
 		await reportsPage.clickRefresh();
 		await reportsPage.waitForRows(1);
@@ -421,7 +482,7 @@ test.describe("Production reports", () => {
 
 		const reportsPage = new ReportsPage(page);
 		await reportsPage.open("Item BOM Rejection Hotspots");
-		await reportsPage.runWithDateRange(seeded.posting_date, seeded.posting_date);
+		await reportsPage.runWithDateRange(seeded.production_date, seeded.production_date);
 		await reportsPage.setFilterByFieldname("fg_item", ctx.fg_item);
 		await reportsPage.setFilterByFieldname("custom_pea_shift", ctx.shift_name);
 		await reportsPage.setFilterByFieldname("custom_pea_workstation", ctx.workstation);
@@ -453,7 +514,7 @@ test.describe("Production reports", () => {
 
 		const reportsPage = new ReportsPage(page);
 		await reportsPage.open("Rework Pareto Report");
-		await reportsPage.runWithDateRange(seeded.posting_date, seeded.posting_date);
+		await reportsPage.runWithDateRange(seeded.production_date, seeded.production_date);
 		await reportsPage.setFilterByFieldname("custom_pea_workstation", ctx.workstation);
 		await reportsPage.setFilterByFieldname("custom_pea_shift", ctx.shift_name);
 		await reportsPage.clickRefresh();
@@ -558,11 +619,13 @@ test.describe("Production reports", () => {
 		await page.goto(getRoute("/home"));
 		const reportsPage = new ReportsPage(page);
 		for (const reportName of [
+			"Daily Strokes SPM Monitor",
 			"Production OEE Report",
 			"Operator Efficiency Report",
 			"Operator Daily SPM Report",
 			"Workstation Efficiency Report",
 			"Rejection Pareto Report",
+			"Rejection PPM Report",
 			"Rejection Trend Report",
 			"Workstation Rejection Reason Matrix",
 			"Operator Rejection Performance",

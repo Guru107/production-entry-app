@@ -25,6 +25,7 @@ _MAX_BOM_PARENT_MATCHES = 5000
 _DEFAULT_REPORT_CHUNK_SIZE = 1000
 _DEFAULT_MAX_STOCK_ENTRY_ROWS = 100000
 _DEFAULT_INTERACTIVE_REPORT_TIMEOUT_SEC = 5.0
+_NO_MATCHING_SHIFT = "__no_matching_completed_shift__"
 _SUPPORTED_STOCK_ENTRY_ORDER_BY = frozenset({"name asc", "posting_date asc, name asc"})
 _PRODUCTION_STOCK_ENTRY_OR_FILTERS: tuple[tuple[str, str, Any], ...] = (
 	("purpose", "=", "Manufacture"),
@@ -49,18 +50,25 @@ def get_report_rows(doctype: str, **kwargs: Any) -> list[dict]:
 def build_stock_entry_filters(filters: dict, filter_keys: tuple[str, ...]) -> dict:
 	db_filters: dict = {"docstatus": 1, "purpose": ["in", ["Manufacture", "Repack"]]}
 
-	from_date = filters.get("from_date")
-	to_date = filters.get("to_date")
-	if from_date and to_date:
-		db_filters["posting_date"] = ["between", [from_date, to_date]]
-	elif from_date:
-		db_filters["posting_date"] = [">=", from_date]
-	elif to_date:
-		db_filters["posting_date"] = ["<=", to_date]
-
 	for key in filter_keys:
 		if key != "bom_no" and filters.get(key):
 			db_filters[key] = filters.get(key)
+
+	from_date = filters.get("from_date")
+	to_date = filters.get("to_date")
+	if from_date or to_date:
+		shift_filters: dict = {"status": "Completed"}
+		if from_date and to_date:
+			shift_filters["shift_date"] = ["between", [from_date, to_date]]
+		elif from_date:
+			shift_filters["shift_date"] = [">=", from_date]
+		else:
+			shift_filters["shift_date"] = ["<=", to_date]
+		shift_names = get_report_rows("Shift", filters=shift_filters, pluck="name")
+		requested_shift = filters.get("custom_pea_shift")
+		if requested_shift:
+			shift_names = [shift_name for shift_name in shift_names if shift_name == requested_shift]
+		db_filters["custom_pea_shift"] = ["in", shift_names or [_NO_MATCHING_SHIFT]]
 
 	fg_item = filters.get("fg_item")
 	if fg_item:
@@ -74,6 +82,19 @@ def build_stock_entry_filters(filters: dict, filter_keys: tuple[str, ...]) -> di
 		)
 
 	return db_filters
+
+
+def get_shift_production_dates(shift_names: list[str] | set[str]) -> dict[str, Any]:
+	names = sorted({shift_name for shift_name in shift_names if shift_name})
+	if not names:
+		return {}
+	rows = get_report_rows(
+		"Shift",
+		filters={"name": ["in", names], "status": "Completed"},
+		fields=["name", "shift_date"],
+		limit_page_length=0,
+	)
+	return {row.get("name"): row.get("shift_date") for row in rows if row.get("name")}
 
 
 def is_production_stock_entry(entry: dict) -> bool:
@@ -227,6 +248,7 @@ def iter_stock_entries_in_chunks(
 	query_fields = list(fields)
 	for fieldname in (
 		"purpose",
+		"custom_pea_shift",
 		"custom_pea_is_joint_lh_rh",
 		"custom_pea_total_strokes",
 		"custom_pea_lh_gross_qty",
@@ -257,6 +279,13 @@ def iter_stock_entries_in_chunks(
 				).format(max_rows)
 			)
 		rows = [row for row in raw_rows if is_production_stock_entry(row)]
+		production_dates = get_shift_production_dates(
+			{row.get("custom_pea_shift") for row in rows if row.get("custom_pea_shift")}
+		)
+		for row in rows:
+			production_date = production_dates.get(row.get("custom_pea_shift"))
+			if production_date:
+				row["production_date"] = production_date
 		if rows:
 			yield rows
 		if len(raw_rows) < effective_chunk_size:

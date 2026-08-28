@@ -169,8 +169,7 @@ class TestProductionReports(FrappeTestCase):
 
 	def _get_pea_read_only_report_filters(self, report_name: str) -> dict:
 		if report_name == "Daily Strokes SPM Monitor":
-			fiscal_year = self._ensure_fiscal_year("2090-2091", "2090-04-01", "2091-03-31")
-			return {"fiscal_year": fiscal_year, "month": "April"}
+			return {"from_date": "2090-04-01", "to_date": "2090-04-30"}
 		return {}
 
 	def test_manufacturing_user_cannot_run_pea_report_through_query_report_runner(self) -> None:
@@ -190,6 +189,187 @@ class TestProductionReports(FrappeTestCase):
 				)
 		finally:
 			frappe.set_user(original_user)
+
+	def test_report_date_range_uses_completed_shift_date_instead_of_posting_date(self) -> None:
+		shift = self._create_shift_for_label("2091-09-10", "1")
+		self._create_mock_submitted_entry(
+			posting_date="2091-08-27",
+			planned_start="2091-09-10 08:00:00",
+			planned_end="2091-09-10 16:00:00",
+			actual_start="2091-09-10 08:00:00",
+			actual_end="2091-09-10 09:00:00",
+			fg_qty=120,
+			rejection_qty=0,
+			shift_name=shift.name,
+		)
+		frappe.db.set_value("Shift", shift.name, "status", "Completed", update_modified=False)
+
+		result = run_query_report(
+			"Operator Efficiency Report",
+			filters={"from_date": "2091-09-10", "to_date": "2091-09-10"},
+			ignore_prepared_report=True,
+		)
+
+		self.assertEqual(len(result["result"]), 1)
+		self.assertEqual(result["result"][0]["operator"], "Report Operator")
+
+	def test_report_period_uses_shift_production_date_instead_of_posting_date(self) -> None:
+		shift = self._create_shift_for_label("2091-09-11", "1")
+		self._create_mock_submitted_entry_with_breakup(
+			posting_date="2091-08-28",
+			planned_start="2091-09-11 08:00:00",
+			planned_end="2091-09-11 16:00:00",
+			actual_start="2091-09-11 08:00:00",
+			actual_end="2091-09-11 09:00:00",
+			fg_qty=120,
+			breakup_rows=[{"rejection_reason": "Burr", "qty": 2}],
+			shift_name=shift.name,
+		)
+
+		result = run_query_report(
+			"Rejection PPM Report",
+			filters={"from_date": "2091-09-11", "to_date": "2091-09-11"},
+			ignore_prepared_report=True,
+		)
+
+		self.assertEqual(len(result["result"]), 1)
+		self.assertEqual(str(result["result"][0]["date"]), "2091-09-11")
+
+	def test_date_grouped_reports_label_rows_by_shift_production_date(self) -> None:
+		shift = self._create_shift_for_label("2091-09-12", "1", clear_planned_losses=True)
+		self._create_mock_submitted_entry_with_breakup(
+			posting_date="2091-08-29",
+			planned_start="2091-09-12 08:00:00",
+			planned_end="2091-09-12 16:00:00",
+			actual_start="2091-09-12 08:00:00",
+			actual_end="2091-09-12 09:00:00",
+			fg_qty=120,
+			breakup_rows=[
+				{"rejection_reason": "Burr", "qty": 2, "is_rework": 0},
+				{"rejection_reason": "Crack", "qty": 3, "is_rework": 1},
+			],
+			shift_name=shift.name,
+		)
+
+		for report_name, date_field in (
+			("Production OEE Report", "day"),
+			("Rejection Trend Report", "period"),
+			("Rework PPM Report", "date"),
+			("Rework Trend Report", "period"),
+			("Operator Daily SPM Report", "date"),
+		):
+			with self.subTest(report=report_name):
+				result = run_query_report(
+					report_name,
+					filters={"from_date": "2091-09-12", "to_date": "2091-09-12"},
+					ignore_prepared_report=True,
+				)
+				self.assertGreater(len(result["result"]), 0)
+				self.assertEqual(str(result["result"][0][date_field]), "2091-09-12")
+
+	def test_daily_strokes_accepts_date_range_and_uses_shift_production_date(self) -> None:
+		shift = self._create_shift_for_label("2091-09-13", "1")
+		self._create_mock_submitted_entry(
+			posting_date="2091-08-30",
+			planned_start="2091-09-13 08:00:00",
+			planned_end="2091-09-13 16:00:00",
+			actual_start="2091-09-13 08:00:00",
+			actual_end="2091-09-13 09:00:00",
+			fg_qty=120,
+			rejection_qty=0,
+			shift_name=shift.name,
+		)
+
+		result = run_query_report(
+			"Daily Strokes SPM Monitor",
+			filters={"from_date": "2091-09-13", "to_date": "2091-09-13"},
+			ignore_prepared_report=True,
+		)
+
+		self.assertGreater(len(result["result"]), 0)
+		self.assertEqual(str(result["result"][0]["date"]), "2091-09-13")
+
+	def test_all_date_driven_reports_select_entries_by_completed_shift_date(self) -> None:
+		shift = self._create_shift_for_label("2091-09-14", "1", clear_planned_losses=True)
+		self._create_mock_submitted_entry_with_breakup(
+			posting_date="2091-08-31",
+			planned_start="2091-09-14 08:00:00",
+			planned_end="2091-09-14 16:00:00",
+			actual_start="2091-09-14 08:00:00",
+			actual_end="2091-09-14 09:00:00",
+			fg_qty=120,
+			breakup_rows=[
+				{"rejection_reason": "Burr", "qty": 2, "is_rework": 0},
+				{"rejection_reason": "Crack", "qty": 3, "is_rework": 1},
+			],
+			shift_name=shift.name,
+		)
+		filters = {"from_date": "2091-09-14", "to_date": "2091-09-14"}
+		report_names = (
+			"Daily Strokes SPM Monitor",
+			"Item BOM Rejection Hotspots",
+			"Item BOM Rework Hotspots",
+			"Operator Daily SPM Report",
+			"Operator Efficiency Report",
+			"Operator Rejection Performance",
+			"Operator Rework Performance",
+			"Production OEE Report",
+			"Rejection Pareto Report",
+			"Rejection PPM Report",
+			"Rejection Trend Report",
+			"Rework Pareto Report",
+			"Rework PPM Report",
+			"Rework Trend Report",
+			"Workstation Efficiency Report",
+			"Workstation Rejection Reason Matrix",
+			"Workstation Rework Reason Matrix",
+		)
+
+		for report_name in report_names:
+			with self.subTest(report=report_name):
+				result = run_query_report(
+					report_name,
+					filters=filters,
+					ignore_prepared_report=True,
+				)
+				self.assertGreater(len(result["result"]), 0)
+
+	def test_report_date_range_excludes_entries_outside_completed_shift_contract(self) -> None:
+		running_shift = self._create_shift_for_label("2091-09-15", "1")
+		self._create_mock_submitted_entry(
+			posting_date="2091-09-15",
+			planned_start="2091-09-15 08:00:00",
+			planned_end="2091-09-15 16:00:00",
+			actual_start="2091-09-15 08:00:00",
+			actual_end="2091-09-15 09:00:00",
+			fg_qty=120,
+			rejection_qty=0,
+			shift_name=running_shift.name,
+			complete_shift=False,
+		)
+		self._create_mock_submitted_entry(
+			posting_date="2091-09-15",
+			planned_start="2091-09-15 09:00:00",
+			planned_end="2091-09-15 10:00:00",
+			actual_start="2091-09-15 09:00:00",
+			actual_end="2091-09-15 10:00:00",
+			fg_qty=120,
+			rejection_qty=0,
+			shift_name=None,
+		)
+		self.assertEqual(frappe.db.get_value("Shift", running_shift.name, "status"), "Running")
+
+		result = run_query_report(
+			"Operator Efficiency Report",
+			filters={
+				"from_date": "2091-09-15",
+				"to_date": "2091-09-15",
+				"custom_pea_shift": running_shift.name,
+			},
+			ignore_prepared_report=True,
+		)
+
+		self.assertEqual(result["result"], [])
 
 	def test_production_oee_report_columns_match_v2_schema(self) -> None:
 		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
@@ -317,7 +497,7 @@ class TestProductionReports(FrappeTestCase):
 				expected_precision=4,
 			)
 			self._assert_column_precision(
-				get_daily_columns({"fiscal_year": "2090-2091", "month": "April"}),
+				get_daily_columns({"from_date": "2090-04-01", "to_date": "2090-04-30"}),
 				("setup_time_hrs", "spm", "rejection"),
 				expected_precision=4,
 			)
@@ -788,7 +968,7 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(len(rows), 1)
 		self.assertEqual(float(rows[0]["avl_time_hrs"]), 8.0)
 
-	def test_production_oee_report_uses_zero_availability_when_no_shift_exists(self) -> None:
+	def test_production_oee_report_excludes_entries_without_a_shift(self) -> None:
 		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
 			execute,
 		)
@@ -805,10 +985,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"from_date": "2026-06-11", "to_date": "2026-06-11"})
-		self.assertEqual(len(rows), 1)
-		self.assertEqual(float(rows[0]["avl_time_hrs"]), 0.0)
-		self.assertEqual(float(rows[0]["availability_pct"]), 0.0)
-		self.assertEqual(float(rows[0]["running_time"]), 0.0)
+		self.assertEqual(rows, [])
 
 	def test_production_oee_report_zero_duration_still_uses_fixed_standard_spm(self) -> None:
 		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
@@ -864,13 +1041,12 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(len(rows), 1)
 		self.assertEqual(float(rows[0]["std_spm"]), 2.0)
 
-	def test_production_oee_report_availability_changes_after_running_shift_extension(self) -> None:
-		"""Extending a Running shift's duration changes report availability and planned-loss deduction."""
+	def test_production_oee_report_uses_completed_shift_extension(self) -> None:
 		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
 			execute,
 		)
 
-		shift = self._create_shift_for_label("2026-07-01", "1")
+		shift = self._create_shift_for_label("2026-07-01", "1", clear_planned_losses=True)
 		self._create_mock_submitted_entry(
 			posting_date="2026-07-01",
 			planned_start="2026-07-01 08:00:00",
@@ -880,30 +1056,22 @@ class TestProductionReports(FrappeTestCase):
 			fg_qty=120,
 			rejection_qty=0,
 			shift_name=shift.name,
+			complete_shift=False,
 		)
 
 		_, rows = execute({"from_date": "2026-07-01", "to_date": "2026-07-01"})
-		self.assertEqual(len(rows), 1)
-		initial_avl_time_hrs = float(rows[0]["avl_time_hrs"])
+		self.assertEqual(rows, [])
 
 		running_doc = frappe.get_doc("Shift", shift.name)
 		running_doc.shift_duration = "10"
 		running_doc.flags.ignore_links = True
 		running_doc.save()
-		running_doc.reload()
+		frappe.db.delete("Loss Entry", {"parenttype": "Shift", "parent": shift.name})
+		frappe.db.set_value("Shift", shift.name, "status", "Completed", update_modified=False)
 
 		_, rows = execute({"from_date": "2026-07-01", "to_date": "2026-07-01"})
 		self.assertEqual(len(rows), 1)
-		extended_avl_time_hrs = float(rows[0]["avl_time_hrs"])
-
-		self.assertNotEqual(
-			initial_avl_time_hrs,
-			extended_avl_time_hrs,
-			"Availability hours must change after shift extension",
-		)
-		self.assertGreater(
-			extended_avl_time_hrs, initial_avl_time_hrs, "Extended shift should have more availability hours"
-		)
+		self.assertEqual(float(rows[0]["avl_time_hrs"]), 10.0)
 
 	def test_production_oee_shift_label_cache_reuses_loaded_shift_labels(self) -> None:
 		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
@@ -938,6 +1106,7 @@ class TestProductionReports(FrappeTestCase):
 			execute,
 		)
 
+		first_shift = self._create_shift_for_label("2026-06-02", "1", clear_planned_losses=True)
 		self._create_mock_submitted_entry(
 			posting_date="2026-06-02",
 			planned_start="2026-06-02 08:00:00",
@@ -946,6 +1115,8 @@ class TestProductionReports(FrappeTestCase):
 			actual_end="2026-06-02 09:00:00",
 			fg_qty=120,
 			rejection_qty=0,
+			shift_name=first_shift.name,
+			complete_shift=False,
 		)
 		self._create_mock_submitted_entry(
 			posting_date="2026-06-02",
@@ -955,6 +1126,7 @@ class TestProductionReports(FrappeTestCase):
 			actual_end="2026-06-02 11:00:00",
 			fg_qty=120,
 			rejection_qty=0,
+			shift_name=first_shift.name,
 		)
 
 		_, rows = execute({"from_date": "2026-06-02", "to_date": "2026-06-02"})
@@ -971,6 +1143,7 @@ class TestProductionReports(FrappeTestCase):
 
 		frappe.db.set_value("Workstation", "Report Workstation", "custom_pea_standard_spm", 4)
 
+		first_shift = self._create_shift_for_label("2026-06-02", "1", clear_planned_losses=True)
 		self._create_mock_submitted_entry(
 			posting_date="2026-06-02",
 			planned_start="2026-06-02 08:00:00",
@@ -980,6 +1153,8 @@ class TestProductionReports(FrappeTestCase):
 			fg_qty=100,
 			rejection_qty=0,
 			standard_spm=4,
+			shift_name=first_shift.name,
+			complete_shift=False,
 		)
 		self._create_mock_submitted_entry(
 			posting_date="2026-06-02",
@@ -990,6 +1165,7 @@ class TestProductionReports(FrappeTestCase):
 			fg_qty=100,
 			rejection_qty=0,
 			standard_spm=4,
+			shift_name=first_shift.name,
 		)
 
 		_, rows = execute({"from_date": "2026-06-02", "to_date": "2026-06-02"})
@@ -1003,7 +1179,7 @@ class TestProductionReports(FrappeTestCase):
 			execute,
 		)
 
-		self._create_shift_for_label("2026-06-14", "1")
+		shift = self._create_shift_for_label("2026-06-14", "1", clear_planned_losses=True)
 		self._create_mock_submitted_entry(
 			posting_date="2026-06-14",
 			planned_start="2026-06-14 08:00:00",
@@ -1013,6 +1189,7 @@ class TestProductionReports(FrappeTestCase):
 			fg_qty=60,
 			rejection_qty=0,
 			standard_spm=2,
+			shift_name=shift.name,
 			unplanned_losses=[
 				{"downtime_reason": "Setup Time", "start_time": "08:00:00", "end_time": "08:30:00"},
 				{"downtime_reason": "Maint", "start_time": "08:30:00", "end_time": "08:45:00"},
@@ -1054,6 +1231,7 @@ class TestProductionReports(FrappeTestCase):
 			execute,
 		)
 
+		shift = self._create_shift_for_label("2026-06-03", "1", clear_planned_losses=True)
 		self._create_mock_submitted_entry(
 			posting_date="2026-06-03",
 			planned_start="2026-06-03 08:00:00",
@@ -1062,6 +1240,7 @@ class TestProductionReports(FrappeTestCase):
 			actual_end="2026-06-03 09:00:00",
 			fg_qty=120,
 			rejection_qty=0,
+			shift_name=shift.name,
 		)
 
 		_, rows = execute({"from_date": "2026-06-03", "to_date": "2026-06-03"})
@@ -1076,7 +1255,7 @@ class TestProductionReports(FrappeTestCase):
 			execute,
 		)
 
-		self._create_shift_for_label("2026-06-15", "1")
+		shift = self._create_shift_for_label("2026-06-15", "1", clear_planned_losses=True)
 		frappe.db.set_value("Workstation", "Report Workstation", "custom_pea_standard_spm", 3)
 		self._create_mock_submitted_entry(
 			posting_date="2026-06-15",
@@ -1087,6 +1266,7 @@ class TestProductionReports(FrappeTestCase):
 			fg_qty=90,
 			rejection_qty=0,
 			standard_spm=3,
+			shift_name=shift.name,
 			unplanned_losses=[
 				{"downtime_reason": "Setup Time", "start_time": "08:00:00", "end_time": "08:20:00"},
 				{"downtime_reason": "Maint", "start_time": "08:20:00", "end_time": "08:30:00"},
@@ -1106,6 +1286,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		frappe.db.set_value("Workstation", "Report Workstation", "custom_pea_standard_spm", 4)
+		shift = self._create_shift_for_label("2026-06-15", "1", clear_planned_losses=True)
 		self._create_mock_submitted_entry(
 			posting_date="2026-06-15",
 			planned_start="2026-06-15 08:00:00",
@@ -1115,6 +1296,8 @@ class TestProductionReports(FrappeTestCase):
 			fg_qty=100,
 			rejection_qty=0,
 			standard_spm=4,
+			shift_name=shift.name,
+			complete_shift=False,
 		)
 		self._create_mock_submitted_entry(
 			posting_date="2026-06-15",
@@ -1125,6 +1308,7 @@ class TestProductionReports(FrappeTestCase):
 			fg_qty=100,
 			rejection_qty=0,
 			standard_spm=4,
+			shift_name=shift.name,
 		)
 
 		_, rows = execute({"from_date": "2026-06-15", "to_date": "2026-06-15"})
@@ -1256,7 +1440,6 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		shift = self._create_shift_for_label("2094-06-07", "1")
-		fiscal_year = self._ensure_fiscal_year("2094", "2094-01-01", "2094-12-31")
 		self._create_mock_submitted_entry_with_breakup(
 			posting_date="2094-06-07",
 			planned_start="2094-06-07 08:00:00",
@@ -1279,7 +1462,11 @@ class TestProductionReports(FrappeTestCase):
 		)
 		_, oee_rows = oee_execute({"from_date": "2094-06-07", "to_date": "2094-06-07"})
 		daily_columns, daily_rows = daily_execute(
-			{"fiscal_year": fiscal_year, "month": "June", "custom_pea_operator": "Report Operator"}
+			{
+				"from_date": "2094-06-07",
+				"to_date": "2094-06-07",
+				"custom_pea_operator": "Report Operator",
+			}
 		)
 
 		self.assertIn("rework_qty", [c.get("fieldname") for c in operator_columns])
@@ -1456,6 +1643,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		other_fg_item = _get_or_create_item("_Test FG Item For Reports Filter")
+		shift = self._create_shift_for_label("2026-06-05", "1")
 		self._create_mock_submitted_entry(
 			posting_date="2026-06-05",
 			planned_start="2026-06-05 08:00:00",
@@ -1465,6 +1653,8 @@ class TestProductionReports(FrappeTestCase):
 			fg_qty=100,
 			rejection_qty=0,
 			fg_item=self.fg_item,
+			shift_name=shift.name,
+			complete_shift=False,
 		)
 		self._create_mock_submitted_entry(
 			posting_date="2026-06-05",
@@ -1475,6 +1665,7 @@ class TestProductionReports(FrappeTestCase):
 			fg_qty=100,
 			rejection_qty=0,
 			fg_item=other_fg_item,
+			shift_name=shift.name,
 		)
 
 		filters = {"from_date": "2026-06-05", "to_date": "2026-06-05", "fg_item": self.fg_item}
@@ -1493,6 +1684,7 @@ class TestProductionReports(FrappeTestCase):
 			execute as workstation_execute,
 		)
 
+		shift = self._create_shift_for_label("2026-06-06", "1")
 		self._create_mock_submitted_entry(
 			posting_date="2026-06-06",
 			planned_start="2026-06-06 08:00:00",
@@ -1503,6 +1695,7 @@ class TestProductionReports(FrappeTestCase):
 			rejection_qty=0,
 			operator="",
 			workstation="",
+			shift_name=shift.name,
 		)
 
 		filters = {"from_date": "2026-06-06", "to_date": "2026-06-06"}
@@ -2614,54 +2807,12 @@ class TestProductionReports(FrappeTestCase):
 
 	# ── Daily Strokes SPM Monitor ─────────────────────────────────────
 
-	def _ensure_fiscal_year(self, fy_name: str, start_date: str, end_date: str) -> str:
-		meta = frappe.get_meta("Fiscal Year", cached=True)
-		if frappe.db.exists("Fiscal Year", fy_name):
-			if meta.has_field("companies"):
-				doc = frappe.get_doc("Fiscal Year", fy_name)
-				if not any((row.company or "") == self.company for row in (doc.get("companies") or [])):
-					doc.append("companies", {"company": self.company})
-					doc.flags.ignore_validate_update_after_submit = True
-					doc.save(ignore_permissions=True)
-			return fy_name
-
-		covering_fiscal_year = frappe.get_all(
-			"Fiscal Year",
-			filters=[
-				["year_start_date", "<=", start_date],
-				["year_end_date", ">=", end_date],
-			],
-			pluck="name",
-			limit=1,
-		)
-		if covering_fiscal_year:
-			doc = frappe.get_doc("Fiscal Year", covering_fiscal_year[0])
-			if meta.has_field("companies") and not any(
-				(row.company or "") == self.company for row in (doc.get("companies") or [])
-			):
-				doc.append("companies", {"company": self.company})
-				doc.flags.ignore_validate_update_after_submit = True
-				doc.save(ignore_permissions=True)
-			return doc.name
-
-		payload = {
-			"doctype": "Fiscal Year",
-			"year": fy_name,
-			"year_start_date": start_date,
-			"year_end_date": end_date,
-		}
-		if meta.has_field("companies"):
-			payload["companies"] = [{"company": self.company}]
-		doc = frappe.get_doc(payload).insert(ignore_permissions=True)
-		return doc.name
-
 	def test_daily_strokes_spm_monitor_columns_without_operator(self) -> None:
 		from production_entry_app.production_entry_app.report.daily_strokes_spm_monitor.daily_strokes_spm_monitor import (
 			execute,
 		)
 
-		fiscal_year = self._ensure_fiscal_year("2090-2091", "2090-04-01", "2091-03-31")
-		columns, _ = execute({"fiscal_year": fiscal_year, "month": "April"})
+		columns, _ = execute({"from_date": "2090-04-01", "to_date": "2090-04-30"})
 		fieldnames = [c["fieldname"] for c in columns]
 		self.assertIn("operator", fieldnames)
 		self.assertEqual(
@@ -2684,9 +2835,12 @@ class TestProductionReports(FrappeTestCase):
 			execute,
 		)
 
-		fiscal_year = self._ensure_fiscal_year("2090-2091", "2090-04-01", "2091-03-31")
 		columns, _ = execute(
-			{"fiscal_year": fiscal_year, "month": "April", "custom_pea_operator": "Report Operator"}
+			{
+				"from_date": "2090-04-01",
+				"to_date": "2090-04-30",
+				"custom_pea_operator": "Report Operator",
+			}
 		)
 		fieldnames = [c["fieldname"] for c in columns]
 		self.assertNotIn("operator", fieldnames)
@@ -2709,7 +2863,6 @@ class TestProductionReports(FrappeTestCase):
 			execute,
 		)
 
-		fiscal_year = self._ensure_fiscal_year("2080-2081", "2080-04-01", "2081-03-31")
 		shift = self._create_shift_for_label("2080-05-10", "1")
 		# actual_duration = 60 mins = 1 hour; fg_qty=100, rejection_qty=10
 		# After rejection hook: FG row=90, rejection row=10 → good_qty_map=90
@@ -2741,7 +2894,11 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute(
-			{"fiscal_year": fiscal_year, "month": "May", "custom_pea_operator": "Report Operator"}
+			{
+				"from_date": "2080-05-10",
+				"to_date": "2080-05-10",
+				"custom_pea_operator": "Report Operator",
+			}
 		)
 		# Should have 1 data row + 1 totals row
 		self.assertEqual(len(rows), 2)
@@ -2766,7 +2923,6 @@ class TestProductionReports(FrappeTestCase):
 			execute,
 		)
 
-		fiscal_year = self._ensure_fiscal_year("2082-2083", "2082-04-01", "2083-03-31")
 		shift = self._create_shift_for_label("2082-05-11", "1")
 		self._create_mock_submitted_entry(
 			posting_date="2082-05-11",
@@ -2792,7 +2948,11 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute(
-			{"fiscal_year": fiscal_year, "month": "May", "custom_pea_operator": "Report Operator"}
+			{
+				"from_date": "2082-05-11",
+				"to_date": "2082-05-11",
+				"custom_pea_operator": "Report Operator",
+			}
 		)
 		self.assertEqual(len(rows), 2)
 		data_row = rows[0]
@@ -2811,7 +2971,6 @@ class TestProductionReports(FrappeTestCase):
 			execute,
 		)
 
-		fiscal_year = self._ensure_fiscal_year("2081-2082", "2081-04-01", "2082-03-31")
 		shift1 = self._create_shift_for_label("2081-06-01", "1")
 		shift2 = self._create_shift_for_label("2081-06-02", "1")
 		self._create_mock_submitted_entry(
@@ -2836,7 +2995,11 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute(
-			{"fiscal_year": fiscal_year, "month": "June", "custom_pea_operator": "Report Operator"}
+			{
+				"from_date": "2081-06-01",
+				"to_date": "2081-06-02",
+				"custom_pea_operator": "Report Operator",
+			}
 		)
 		# 2 data rows + 1 totals
 		self.assertEqual(len(rows), 3)
@@ -2854,41 +3017,14 @@ class TestProductionReports(FrappeTestCase):
 			execute,
 		)
 
-		fiscal_year = self._ensure_fiscal_year("2079", "2079-01-01", "2079-12-31")
-		_, rows = execute({"fiscal_year": fiscal_year, "month": "April"})
+		_, rows = execute({"from_date": "2079-04-01", "to_date": "2079-04-30"})
 		self.assertEqual(rows, [])
 
-	def test_daily_strokes_spm_monitor_throws_for_invalid_fiscal_year(self) -> None:
+	def test_daily_strokes_spm_monitor_supports_january_date_range(self) -> None:
 		from production_entry_app.production_entry_app.report.daily_strokes_spm_monitor.daily_strokes_spm_monitor import (
 			execute,
 		)
 
-		with self.assertRaises(frappe.ValidationError) as exc:
-			execute({"fiscal_year": "DOES-NOT-EXIST", "month": "April"})
-		self.assertIn("Fiscal Year", str(exc.exception))
-		self.assertIn("not found", str(exc.exception))
-
-	def test_daily_strokes_spm_monitor_throws_when_fiscal_year_dates_missing(self) -> None:
-		from production_entry_app.production_entry_app.report.daily_strokes_spm_monitor.daily_strokes_spm_monitor import (
-			execute,
-		)
-
-		with patch(
-			"production_entry_app.production_entry_app.report.daily_strokes_spm_monitor."
-			"daily_strokes_spm_monitor.frappe.db.get_value",
-			return_value={"year_start_date": None, "year_end_date": None},
-		):
-			with self.assertRaises(frappe.ValidationError) as exc:
-				execute({"fiscal_year": "2090-2091", "month": "April"})
-		self.assertIn("Fiscal Year", str(exc.exception))
-		self.assertIn("not found", str(exc.exception))
-
-	def test_daily_strokes_spm_monitor_date_range_supports_jan_dec_fiscal_year(self) -> None:
-		from production_entry_app.production_entry_app.report.daily_strokes_spm_monitor.daily_strokes_spm_monitor import (
-			execute,
-		)
-
-		fiscal_year = self._ensure_fiscal_year("2092", "2092-01-01", "2092-12-31")
 		shift = self._create_shift_for_label("2092-01-10", "1")
 		self._create_mock_submitted_entry(
 			posting_date="2092-01-10",
@@ -2902,16 +3038,19 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute(
-			{"fiscal_year": fiscal_year, "month": "January", "custom_pea_operator": "Report Operator"}
+			{
+				"from_date": "2092-01-01",
+				"to_date": "2092-01-31",
+				"custom_pea_operator": "Report Operator",
+			}
 		)
 		self.assertEqual(rows[0]["date"], "2092-01-10")
 
-	def test_daily_strokes_spm_monitor_date_range_supports_non_april_cross_year_fiscal_year(self) -> None:
+	def test_daily_strokes_spm_monitor_supports_cross_year_date_range(self) -> None:
 		from production_entry_app.production_entry_app.report.daily_strokes_spm_monitor.daily_strokes_spm_monitor import (
 			execute,
 		)
 
-		fiscal_year = self._ensure_fiscal_year("2092-2093", "2092-10-01", "2093-09-30")
 		shift = self._create_shift_for_label("2093-09-15", "1")
 		self._create_mock_submitted_entry(
 			posting_date="2093-09-15",
@@ -2925,7 +3064,11 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute(
-			{"fiscal_year": fiscal_year, "month": "September", "custom_pea_operator": "Report Operator"}
+			{
+				"from_date": "2092-10-01",
+				"to_date": "2093-09-30",
+				"custom_pea_operator": "Report Operator",
+			}
 		)
 		self.assertEqual(rows[0]["date"], "2093-09-15")
 
@@ -3130,13 +3273,12 @@ class TestProductionReports(FrappeTestCase):
 		expected_spm = 200 / (expected_production_time_hrs * 60)
 		self.assertAlmostEqual(float(row["spm"]), expected_spm, delta=derived_abs_tol)
 
-	def test_operator_daily_spm_report_working_hours_change_after_running_shift_extension(self) -> None:
-		"""Extending a Running shift's duration changes the working_hours denominator in the operator report."""
+	def test_operator_daily_spm_report_uses_completed_shift_extension(self) -> None:
 		from production_entry_app.production_entry_app.report.operator_daily_spm_report.operator_daily_spm_report import (
 			execute,
 		)
 
-		shift = self._create_shift_for_label("2026-08-06", "1")
+		shift = self._create_shift_for_label("2026-08-06", "1", clear_planned_losses=True)
 		self._create_mock_submitted_entry(
 			posting_date="2026-08-06",
 			planned_start="2026-08-06 08:00:00",
@@ -3146,28 +3288,21 @@ class TestProductionReports(FrappeTestCase):
 			fg_qty=120,
 			rejection_qty=0,
 			shift_name=shift.name,
+			complete_shift=False,
 		)
 
 		_, rows = execute({"from_date": "2026-08-06", "to_date": "2026-08-06"})
-		self.assertEqual(len(rows), 1)
-		initial_working_hours = float(rows[0]["working_hours"])
+		self.assertEqual(rows, [])
 
 		running_doc = frappe.get_doc("Shift", shift.name)
 		running_doc.shift_duration = "10"
 		running_doc.flags.ignore_links = True
 		running_doc.save()
-		running_doc.reload()
+		frappe.db.set_value("Shift", shift.name, "status", "Completed", update_modified=False)
 
 		_, rows = execute({"from_date": "2026-08-06", "to_date": "2026-08-06"})
 		self.assertEqual(len(rows), 1)
-		extended_working_hours = float(rows[0]["working_hours"])
-
-		self.assertNotEqual(
-			initial_working_hours, extended_working_hours, "Working hours must change after shift extension"
-		)
-		self.assertGreater(
-			extended_working_hours, initial_working_hours, "Extended shift should have more working hours"
-		)
+		self.assertEqual(float(rows[0]["working_hours"]), 10.0)
 
 	def _create_mock_submitted_entry(
 		self,
@@ -3184,6 +3319,7 @@ class TestProductionReports(FrappeTestCase):
 		workstation: str | None = "Report Workstation",
 		shift_name: str | None = None,
 		unplanned_losses: list[dict] | None = None,
+		complete_shift: bool = True,
 	):
 		entry_fg_item = fg_item or self.fg_item
 		stock_entry = _create_manufacture_stock_entry(
@@ -3231,6 +3367,8 @@ class TestProductionReports(FrappeTestCase):
 		# Intentionally mark submitted in DB for report isolation; these tests
 		# validate query/report logic, not full stock-entry submit side effects.
 		frappe.db.set_value("Stock Entry", stock_entry.name, "docstatus", 1, update_modified=False)
+		if shift_name and complete_shift:
+			frappe.db.set_value("Shift", shift_name, "status", "Completed", update_modified=False)
 		stock_entry.reload()
 		return stock_entry
 
@@ -3248,6 +3386,7 @@ class TestProductionReports(FrappeTestCase):
 		operator: str | None = "Report Operator",
 		workstation: str | None = "Report Workstation",
 		shift_name: str | None = None,
+		complete_shift: bool = True,
 	):
 		rejection_qty = sum(float(row.get("qty") or 0) for row in breakup_rows)
 		stock_entry = _create_manufacture_stock_entry(
@@ -3278,6 +3417,8 @@ class TestProductionReports(FrappeTestCase):
 		# Intentionally mark submitted in DB for report isolation; these tests
 		# validate query/report logic, not full stock-entry submit side effects.
 		frappe.db.set_value("Stock Entry", stock_entry.name, "docstatus", 1, update_modified=False)
+		if shift_name and complete_shift:
+			frappe.db.set_value("Shift", shift_name, "status", "Completed", update_modified=False)
 		stock_entry.reload()
 		return stock_entry
 

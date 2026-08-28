@@ -116,14 +116,14 @@ def _get_rows(filters: dict) -> list[dict]:
 		for entry in entries:
 			entry_name = entry.get("name")
 			loss_metrics = parent_loss_metrics.get(entry_name or "", {})
-			posting_date = str(entry.get("posting_date") or "")
+			production_date = str(entry.get("production_date") or "")
 			operator = entry.get("custom_pea_operator") or "Unassigned"
 			workstation = entry.get("custom_pea_workstation") or "Unassigned"
-			group_key = (posting_date, operator, workstation)
+			group_key = (production_date, operator, workstation)
 			agg = aggregates.setdefault(
 				group_key,
 				{
-					"date": posting_date,
+					"date": production_date,
 					"operator": operator,
 					"workstation": workstation,
 					"shift_names": set(),
