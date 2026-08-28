@@ -61,14 +61,33 @@ def _make_running_shift_through_api(masters: dict[str, Any]) -> object:
 
 
 class TestJointProductionCalculations(FrappeTestCase):
+	def test_normal_manufacture_rejects_explicit_non_positive_strokes(self) -> None:
+		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
+			_default_total_strokes,
+		)
+
+		for total_strokes in (0, -1):
+			with self.subTest(total_strokes=total_strokes):
+				entry = frappe.get_doc(
+					{
+						"doctype": "Stock Entry",
+						"purpose": "Manufacture",
+						"fg_completed_qty": 100,
+						"custom_pea_total_strokes": total_strokes,
+					}
+				)
+				with self.assertRaisesRegex(frappe.ValidationError, "greater than zero"):
+					_default_total_strokes(entry)
+
 	def test_joint_rm_consumption_adds_bom_sheet_capacity_shares(self) -> None:
 		self.assertAlmostEqual(
 			calculate_joint_rm_consumption(
 				lh_gross_qty=39,
 				lh_bom_quantity=77,
+				lh_rm_qty=39.3,
 				rh_gross_qty=38,
 				rh_bom_quantity=77,
-				rm_qty_per_sheet=39.3,
+				rh_rm_qty=39.3,
 			),
 			39.3,
 			places=6,
@@ -77,9 +96,10 @@ class TestJointProductionCalculations(FrappeTestCase):
 			calculate_joint_rm_consumption(
 				lh_gross_qty=77,
 				lh_bom_quantity=77,
+				lh_rm_qty=39.3,
 				rh_gross_qty=77,
 				rh_bom_quantity=77,
-				rm_qty_per_sheet=39.3,
+				rh_rm_qty=39.3,
 			),
 			78.6,
 			places=6,
@@ -106,7 +126,6 @@ class TestJointProductionCalculations(FrappeTestCase):
 				"custom_pea_total_strokes": 41,
 				"fg_completed_qty": 0,
 			},
-			good_qty_map={"STE-JOINT-1": 80},
 			rejection_qty_map={"STE-JOINT-1": 1},
 		)
 
@@ -288,6 +307,24 @@ class TestJointProductionItems(FrappeTestCase):
 		self.assertEqual(scrap_row.item_code, self.scrap_nos_item)
 		self.assertEqual(scrap_row.stock_uom, "Nos")
 		self.assertEqual(scrap_row.qty, 1)
+		self.assertEqual(scrap_row.basic_rate, 2)
+
+		doc.submit()
+		self.assertTrue(
+			frappe.get_all(
+				"Stock Ledger Entry",
+				filters={"voucher_no": doc.name, "is_cancelled": 0},
+				pluck="name",
+			)
+		)
+		doc.cancel()
+		self.assertFalse(
+			frappe.get_all(
+				"Stock Ledger Entry",
+				filters={"voucher_no": doc.name, "is_cancelled": 0},
+				pluck="name",
+			)
+		)
 
 	def test_joint_repack_can_be_inserted_with_native_stock_entry_items(self) -> None:
 		shift = make_running_shift(self.masters)
@@ -342,6 +379,14 @@ class TestJointProductionItems(FrappeTestCase):
 			69.7575,
 			places=6,
 		)
+
+	def test_joint_boms_reject_different_rm_quantities(self) -> None:
+		lh_bom = self._make_bom(self.lh_item, bom_quantity=77, rm_qty=39.3, scrap_qty=1.125)
+		rh_bom = self._make_bom(self.rh_item, bom_quantity=77, rm_qty=40, scrap_qty=2.125)
+		shift = make_running_shift(self.masters)
+
+		with self.assertRaisesRegex(frappe.ValidationError, "same raw material quantity"):
+			self._make_joint_entry(shift, lh_bom=lh_bom, rh_bom=rh_bom)
 
 	def test_total_rm_consumption_must_match_the_single_rm_item_total(self) -> None:
 		shift = make_running_shift(self.masters)
@@ -930,7 +975,6 @@ class TestJointProductionItems(FrappeTestCase):
 			self.masters["fg_item"],
 			{
 				"custom_pea_has_die_tool": 1,
-				"custom_pea_strokes_per_unit": 12,
 				"custom_pea_stroke_capacity": 10000,
 			},
 			update_modified=False,
@@ -975,6 +1019,22 @@ class TestJointProductionItems(FrappeTestCase):
 				filters={"voucher_no": doc.name, "is_cancelled": 0},
 				pluck="name",
 			)
+		)
+
+		amended = frappe.copy_doc(doc)
+		amended.docstatus = 0
+		amended.amended_from = doc.name
+		amended.insert(ignore_permissions=True)
+		self.assertEqual(amended.custom_pea_total_strokes, 40)
+
+		amended.submit()
+
+		self.assertEqual(amended.docstatus, 1)
+		self.assertEqual(amended.amended_from, doc.name)
+		self.assertEqual(amended.custom_pea_total_strokes, 40)
+		self.assertEqual(
+			frappe.db.get_value("Die Tool Counter", self.masters["fg_item"], "current_stroke_count"),
+			40,
 		)
 
 	def _make_joint_entry(
@@ -1061,6 +1121,8 @@ class TestJointProductionItems(FrappeTestCase):
 		self,
 		item_code: str,
 		*,
+		bom_quantity: float = 100,
+		rm_qty: float = 49.125,
 		scrap_qty: float | None = None,
 		scrap_items: list[tuple[str, float, float]] | None = None,
 	) -> str:
@@ -1069,9 +1131,9 @@ class TestJointProductionItems(FrappeTestCase):
 			"doctype": "BOM",
 			"item": item_code,
 			"company": self.masters["company"],
-			"quantity": 100,
+			"quantity": bom_quantity,
 			"is_active": 1,
-			"items": [{"item_code": self.rm_item, "qty": 49.125, "rate": 50}],
+			"items": [{"item_code": self.rm_item, "qty": rm_qty, "rate": 50}],
 		}
 		if frappe.get_meta("BOM", cached=True).has_field("scrap_items"):
 			values["scrap_items"] = [
@@ -1086,10 +1148,11 @@ class TestJointProductionItems(FrappeTestCase):
 					"qty": qty,
 					"uom": frappe.db.get_value("Item", scrap_item, "stock_uom"),
 					"conversion_factor": 1,
+					"rate": rate,
 					"cost_allocation_per": 0,
 					"process_loss_per": 0,
 				}
-				for scrap_item, qty, _rate in scrap_items
+				for scrap_item, qty, rate in scrap_items
 			]
 		bom = frappe.get_doc(values).insert(ignore_permissions=True)
 		bom.submit()

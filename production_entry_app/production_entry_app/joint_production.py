@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Iterable
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
@@ -12,6 +13,8 @@ from frappe.utils import cint, flt
 from production_entry_app.production_entry_app.doctype.rejection_breakup.rejection_breakup import (
 	validate_rejection_breakup_row,
 )
+
+WHOLE_NUMBER_QUANTUM = Decimal("1")
 
 
 @dataclass(frozen=True)
@@ -78,23 +81,24 @@ def calculate_joint_rm_consumption(
 	*,
 	lh_gross_qty: float,
 	lh_bom_quantity: float,
+	lh_rm_qty: float,
 	rh_gross_qty: float,
 	rh_bom_quantity: float,
-	rm_qty_per_sheet: float,
+	rh_rm_qty: float,
 ) -> float:
 	lh_bom_quantity = flt(lh_bom_quantity)
 	rh_bom_quantity = flt(rh_bom_quantity)
-	rm_qty_per_sheet = flt(rm_qty_per_sheet)
+	lh_rm_qty = flt(lh_rm_qty)
+	rh_rm_qty = flt(rh_rm_qty)
 	if lh_bom_quantity <= 0 or rh_bom_quantity <= 0:
 		frappe.throw(_("LH and RH BOM quantities must be greater than zero."))
-	if rm_qty_per_sheet <= 0:
-		frappe.throw(_("Common raw material quantity per sheet must be greater than zero."))
+	if lh_rm_qty <= 0 or rh_rm_qty <= 0:
+		frappe.throw(_("LH and RH raw material quantities must be greater than zero."))
 	if flt(lh_gross_qty) < 0 or flt(rh_gross_qty) < 0:
 		frappe.throw(_("LH and RH Gross Quantities cannot be negative."))
 
 	return flt(
-		(flt(lh_gross_qty) * rm_qty_per_sheet / lh_bom_quantity)
-		+ (flt(rh_gross_qty) * rm_qty_per_sheet / rh_bom_quantity)
+		(flt(lh_gross_qty) * lh_rm_qty / lh_bom_quantity) + (flt(rh_gross_qty) * rh_rm_qty / rh_bom_quantity)
 	)
 
 
@@ -111,9 +115,10 @@ def calculate_joint_rm_consumption_from_boms(
 	return calculate_joint_rm_consumption(
 		lh_gross_qty=lh_gross_qty,
 		lh_bom_quantity=lh_bom.quantity,
+		lh_rm_qty=lh_bom.rm_qty,
 		rh_gross_qty=rh_gross_qty,
 		rh_bom_quantity=rh_bom.quantity,
-		rm_qty_per_sheet=lh_bom.rm_qty,
+		rh_rm_qty=rh_bom.rm_qty,
 	)
 
 
@@ -203,9 +208,10 @@ def _build_joint_production_plan(doc: Any) -> JointProductionPlan:
 	total_rm_consumption = calculate_joint_rm_consumption(
 		lh_gross_qty=lh_gross_qty,
 		lh_bom_quantity=lh_bom.quantity,
+		lh_rm_qty=lh_bom.rm_qty,
 		rh_gross_qty=rh_gross_qty,
 		rh_bom_quantity=rh_bom.quantity,
-		rm_qty_per_sheet=lh_bom.rm_qty,
+		rh_rm_qty=rh_bom.rm_qty,
 	)
 	scrap_items = _build_planned_scrap_items(
 		lh_bom=lh_bom,
@@ -247,22 +253,21 @@ def _build_planned_scrap_items(
 			uoms[scrap.item_code] = scrap.uom
 
 	uom_names = set(uoms.values())
-	whole_number_uoms = (
-		set(
-			frappe.get_all(
-				"UOM",
-				filters={"name": ("in", tuple(uom_names)), "must_be_whole_number": 1},
-				pluck="name",
-			)
+	uom_rows = (
+		frappe.get_all(
+			"UOM",
+			filters={"name": ("in", tuple(uom_names))},
+			fields=["name", "must_be_whole_number"],
 		)
 		if uom_names
-		else set()
+		else []
 	)
+	whole_number_uoms = {row.get("name") for row in uom_rows if row.get("must_be_whole_number")}
 	planned_items: list[JointPlannedScrapItem] = []
 	for item_code, precise_qty in quantities.items():
 		uom = uoms[item_code]
 		qty = (
-			float(Decimal(str(precise_qty)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+			float(Decimal(str(precise_qty)).quantize(WHOLE_NUMBER_QUANTUM, rounding=ROUND_HALF_UP))
 			if uom in whole_number_uoms
 			else precise_qty
 		)
@@ -507,6 +512,7 @@ def _get_joint_bom_details(bom_no: str) -> JointBomDetails:
 	if flt(bom.quantity) <= 0:
 		frappe.throw(_("BOM {0} quantity must be greater than zero.").format(bold_bom_no))
 	rm = items[0]
+	stock_uom_by_item = _get_item_stock_uoms(scrap.item_code for scrap in scrap_items)
 	return JointBomDetails(
 		name=bom.name,
 		item_code=bom.item,
@@ -515,11 +521,25 @@ def _get_joint_bom_details(bom_no: str) -> JointBomDetails:
 		rm_item_code=rm.item_code,
 		rm_qty=flt(rm.stock_qty or rm.qty),
 		rm_uom=rm.stock_uom or rm.uom,
-		scrap_items=tuple(_get_bom_scrap_item_details(scrap) for scrap in scrap_items),
+		scrap_items=tuple(_get_bom_scrap_item_details(scrap, stock_uom_by_item) for scrap in scrap_items),
 	)
 
 
-def _get_bom_scrap_item_details(scrap: Any) -> JointBomScrapItem:
+def _get_item_stock_uoms(item_codes: Iterable[str]) -> dict[str, str]:
+	unique_item_codes = list(dict.fromkeys(item_codes))
+	if not unique_item_codes:
+		return {}
+	return {
+		row.name: row.stock_uom
+		for row in frappe.get_all(
+			"Item",
+			filters={"name": ["in", unique_item_codes]},
+			fields=["name", "stock_uom"],
+		)
+	}
+
+
+def _get_bom_scrap_item_details(scrap: Any, stock_uom_by_item: dict[str, str]) -> JointBomScrapItem:
 	qty = flt(scrap.get("stock_qty") or scrap.get("qty"))
 	rate = flt(scrap.get("rate"))
 	if not rate and qty > 0:
@@ -527,7 +547,7 @@ def _get_bom_scrap_item_details(scrap: Any) -> JointBomScrapItem:
 	return JointBomScrapItem(
 		item_code=scrap.item_code,
 		qty=qty,
-		uom=frappe.get_cached_value("Item", scrap.item_code, "stock_uom"),
+		uom=stock_uom_by_item[scrap.item_code],
 		rate=rate,
 	)
 
@@ -536,7 +556,7 @@ def _validate_joint_bom_pair(lh_bom: JointBomDetails, rh_bom: JointBomDetails) -
 	if (lh_bom.rm_item_code, lh_bom.rm_uom) != (rh_bom.rm_item_code, rh_bom.rm_uom):
 		frappe.throw(_("LH and RH BOMs must use the same raw material item and UOM."))
 	if abs(lh_bom.rm_qty - rh_bom.rm_qty) > 0.000001:
-		frappe.throw(_("LH and RH BOMs must use the same raw material quantity per sheet."))
+		frappe.throw(_("LH and RH BOMs must use the same raw material quantity."))
 
 
 def _validate_side_quantities(side: str, gross_qty: float, rejection_qty: float) -> None:

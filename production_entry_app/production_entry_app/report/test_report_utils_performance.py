@@ -285,9 +285,7 @@ class TestReportUtilsPerformance(FrappeTestCase):
 				"custom_pea_rejection_qty": 9,
 				"custom_pea_total_strokes": 7,
 			},
-			good_qty_map={"STE-001": 11},
 			rejection_qty_map={"STE-001": 3},
-			total_rejected_qty_map={"STE-001": 4},
 		)
 
 		self.assertEqual(total_strokes, 7.0)
@@ -332,6 +330,7 @@ class TestReportUtilsPerformance(FrappeTestCase):
 					"_good_qty": 5,
 					"_rejection_qty": 1,
 					"_rework_qty": 2,
+					"_total_strokes": 6,
 					"_duration_mins": 0,
 					"custom_pea_standard_spm": 2,
 					"custom_pea_actual_spm": 3,
@@ -365,6 +364,7 @@ class TestReportUtilsPerformance(FrappeTestCase):
 		self.assertEqual(chunks, [[{"name": "STE-1"}, {"name": "STE-2"}], [{"name": "STE-3"}]])
 		self.assertEqual(fetch_chunk.call_count, 2)
 		first_call = fetch_chunk.call_args_list[0].kwargs
+		self.assertIn("custom_pea_total_strokes", first_call["fields"])
 		self.assertEqual(first_call["order_by"], "name asc")
 		self.assertEqual(first_call["chunk_size"], 2)
 		self.assertIsNone(first_call["last_row"])

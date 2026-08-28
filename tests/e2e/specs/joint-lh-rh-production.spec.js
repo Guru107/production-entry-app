@@ -510,4 +510,35 @@ test.describe("Joint LH/RH production form", () => {
 		);
 		expect(response.status()).toBe(403);
 	});
+
+	test("@regression users without Stock Entry access cannot change total press strokes", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const form = new StockEntryPage(page);
+		await form.openNew();
+		await form.setManufactureFields(ctx, { fgQty: 100, rejectionQty: 0 });
+		await form.fetchItems();
+		await form.saveDraft();
+		const saved = await page.evaluate(() => ({
+			...cur_frm.doc,
+			custom_pea_total_strokes: 40,
+		}));
+
+		const email = `e2e-user-strokes-${lifecycle.getPrefix()}@example.com`.toLowerCase();
+		createdUsers.add(email);
+		await ensureUser(page, {
+			email,
+			firstName: "TotalStrokesNoAccess",
+			password: TEST_PASSWORD,
+			roles: [],
+		});
+		await login(page, email, TEST_PASSWORD);
+
+		const response = await page.request.post("/api/method/frappe.client.save", {
+			form: { doc: JSON.stringify(saved) },
+		});
+		expect(response.status()).toBe(403);
+	});
 });

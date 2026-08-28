@@ -82,15 +82,8 @@ def _get_rows(filters: dict) -> list[dict]:
 		entry_names = [e.get("name") for e in entries if e.get("name")]
 		parent_quantity_metrics = get_parent_quantity_metrics(entry_names, include_rework=True)
 		parent_loss_metrics = get_parent_loss_metrics(entry_names)
-		good_qty_map = {
-			parent: flt(metrics.get("good_qty") or 0) for parent, metrics in parent_quantity_metrics.items()
-		}
 		rejection_qty_map = {
 			parent: flt(metrics.get("rejection_qty") or 0)
-			for parent, metrics in parent_quantity_metrics.items()
-		}
-		total_rejected_qty_map = {
-			parent: flt(metrics.get("total_rejected_qty") or 0)
 			for parent, metrics in parent_quantity_metrics.items()
 		}
 
@@ -124,9 +117,7 @@ def _get_rows(filters: dict) -> list[dict]:
 			rework_qty = float(entry.get("custom_pea_rework_qty") or entry_metrics.get("rework_qty") or 0)
 			total_strokes, rejection_qty = get_entry_total_strokes(
 				entry,
-				good_qty_map=good_qty_map,
 				rejection_qty_map=rejection_qty_map,
-				total_rejected_qty_map=total_rejected_qty_map,
 			)
 			production_time_mins = get_entry_production_minutes(
 				entry,

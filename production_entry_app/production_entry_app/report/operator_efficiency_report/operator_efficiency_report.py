@@ -78,28 +78,18 @@ def _get_rows(filters: dict, timeout_guard) -> list[dict]:
 		entry_names = [entry.get("name") for entry in entries if entry.get("name")]
 		parent_quantity_metrics = get_parent_quantity_metrics(entry_names, include_rework=True)
 		parent_loss_metrics = get_parent_loss_metrics(entry_names)
-		good_qty_map = {
-			parent: flt(metrics.get("good_qty") or 0) for parent, metrics in parent_quantity_metrics.items()
-		}
 		rejection_qty_map = {
 			parent: flt(metrics.get("rejection_qty") or 0)
 			for parent, metrics in parent_quantity_metrics.items()
 		}
-		total_rejected_qty_map = {
-			parent: flt(metrics.get("total_rejected_qty") or 0)
-			for parent, metrics in parent_quantity_metrics.items()
-		}
-
 		for entry in entries:
 			entry_metrics = parent_quantity_metrics.get(entry.get("name") or "", {})
 			loss_metrics = parent_loss_metrics.get(entry.get("name") or "", {})
 			total_strokes, rejection_qty = get_entry_total_strokes(
 				entry,
-				good_qty_map=good_qty_map,
 				rejection_qty_map=rejection_qty_map,
-				total_rejected_qty_map=total_rejected_qty_map,
 			)
-			good_qty = flt(max(total_strokes - rejection_qty, 0))
+			good_qty = flt(entry_metrics.get("good_qty") or 0)
 			rework_qty = flt(entry.get("custom_pea_rework_qty") or entry_metrics.get("rework_qty") or 0)
 			production_time_mins = get_entry_production_minutes(
 				entry,
@@ -110,6 +100,7 @@ def _get_rows(filters: dict, timeout_guard) -> list[dict]:
 			entry["_good_qty"] = good_qty
 			entry["_rejection_qty"] = rejection_qty
 			entry["_rework_qty"] = rework_qty
+			entry["_total_strokes"] = total_strokes
 			entry["_duration_mins"] = raw_duration_mins
 			entry["_production_time_mins"] = production_time_mins
 			accumulate_efficiency_aggregate(aggregates, entry, "custom_pea_operator")

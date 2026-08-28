@@ -783,23 +783,12 @@
  },
  {
   "doctype": "Custom Field",
-  "name": "Item-custom_pea_strokes_per_unit",
-  "dt": "Item",
-  "fieldname": "custom_pea_strokes_per_unit",
-  "fieldtype": "Float",
-  "label": "Strokes Per Unit",
-  "insert_after": "default_bom",
-  "module": "Production Entry App",
-  "permlevel": 0
- },
- {
-  "doctype": "Custom Field",
   "name": "Item-custom_pea_stroke_capacity",
   "dt": "Item",
   "fieldname": "custom_pea_stroke_capacity",
   "fieldtype": "Float",
   "label": "Max Stroke Count",
-  "insert_after": "custom_pea_strokes_per_unit",
+  "insert_after": "default_bom",
   "module": "Production Entry App",
   "permlevel": 0
  },

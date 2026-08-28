@@ -322,11 +322,19 @@ def _add_stock_entry_to_group(
 	group = groups.setdefault((day, workstation), _new_group(day, workstation))
 	total_strokes, rejection_qty = get_entry_total_strokes(
 		entry,
-		good_qty_map=quantity_maps[0],
 		rejection_qty_map=quantity_maps[1],
-		total_rejected_qty_map=quantity_maps[2],
 	)
-	_add_entry_quantities_to_group(group, entry, total_strokes, rejection_qty, shift_labels)
+	entry_good_qty = flt(quantity_maps[0].get(entry_name) or 0)
+	entry_total_rejected_qty = flt(quantity_maps[2].get(entry_name) or 0)
+	_add_entry_quantities_to_group(
+		group,
+		entry,
+		total_strokes,
+		rejection_qty,
+		entry_good_qty,
+		entry_total_rejected_qty,
+		shift_labels,
+	)
 
 
 def _add_entry_quantities_to_group(
@@ -334,6 +342,8 @@ def _add_entry_quantities_to_group(
 	entry: frappe._dict,
 	total_strokes: float,
 	rejection_qty: float,
+	good_qty: float,
+	total_rejected_qty: float,
 	shift_labels: dict[str, str],
 ) -> None:
 	shift_name = entry.get("custom_pea_shift")
@@ -347,7 +357,7 @@ def _add_entry_quantities_to_group(
 			entry.get("custom_pea_rh_rejection_qty")
 		)
 	else:
-		group["quality_total"] += total_strokes
+		group["quality_total"] += good_qty + total_rejected_qty
 		group["quality_rejection"] += rejection_qty
 
 	if shift_name:

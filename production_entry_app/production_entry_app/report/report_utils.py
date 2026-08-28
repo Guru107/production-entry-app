@@ -809,9 +809,7 @@ def get_duration_minutes(start_value, end_value) -> float:
 
 def get_entry_total_strokes(
 	entry: dict,
-	good_qty_map: dict[str, float] | None = None,
 	rejection_qty_map: dict[str, float] | None = None,
-	total_rejected_qty_map: dict[str, float] | None = None,
 ) -> tuple[float, float]:
 	"""Return (total_strokes, rejection_qty) for one stock entry row."""
 	entry_name = entry.get("name")
@@ -887,6 +885,7 @@ def new_efficiency_aggregates() -> defaultdict:
 			"rejection_qty": 0.0,
 			"rework_qty": 0.0,
 			"total_units": 0.0,
+			"total_strokes": 0.0,
 			"duration_mins": 0.0,
 			"standard_spm": 0.0,
 			"actual_spm_sum": 0.0,
@@ -905,6 +904,7 @@ def accumulate_efficiency_aggregate(
 	rejection_qty = flt(entry.get("_rejection_qty") or 0)
 	rework_qty = flt(entry.get("_rework_qty") or 0)
 	total_units = good_qty + rejection_qty
+	total_strokes = flt(entry.get("_total_strokes") or 0)
 	production_time_mins = entry.get("_production_time_mins")
 	duration_mins = flt(
 		production_time_mins if production_time_mins is not None else (entry.get("_duration_mins") or 0),
@@ -917,6 +917,7 @@ def accumulate_efficiency_aggregate(
 	agg["rejection_qty"] += rejection_qty
 	agg["rework_qty"] += rework_qty
 	agg["total_units"] += total_units
+	agg["total_strokes"] += total_strokes
 	agg["duration_mins"] += duration_mins
 	agg["actual_spm_sum"] += flt(entry.get("custom_pea_actual_spm") or 0)
 	if standard_spm > 0 and agg["standard_spm"] <= 0:
@@ -943,7 +944,7 @@ def build_efficiency_rows(
 	for group_value, agg in sorted(aggregates.items()):
 		entry_count = int(agg["entries"])
 		duration_mins = flt(agg["duration_mins"])
-		actual_spm = (agg["total_units"] / duration_mins) if duration_mins > 0 else 0
+		actual_spm = (agg["total_strokes"] / duration_mins) if duration_mins > 0 else 0
 		standard_spm = flt(agg["standard_spm"])
 		if duration_mins <= 0 and entry_count:
 			actual_spm = agg["actual_spm_sum"] / entry_count

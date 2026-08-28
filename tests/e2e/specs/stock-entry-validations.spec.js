@@ -609,6 +609,23 @@ test.describe("Stock Entry validation matrix", () => {
 		expect(Number(savedStockEntry.custom_pea_total_strokes || 0)).toBe(40);
 	});
 
+	test("@regression manufacture requires a positive total press stroke count", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
+
+		const stockEntryPage = await openManufactureEntry(page, ctx, {
+			fgQty: 100,
+			rejectionQty: 0,
+		});
+		await stockEntryPage.fetchItems();
+		await setFieldValue(page, "custom_pea_total_strokes", 0);
+		await stockEntryPage.attemptSaveDraft();
+
+		await expectValidationError(page, /Total Press Strokes must be greater than zero/i);
+	});
+
 	test("@regression blocks overlapping stock entry when workstation is already in use", async ({
 		page,
 	}) => {

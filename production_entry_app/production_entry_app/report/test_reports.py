@@ -606,6 +606,7 @@ class TestProductionReports(FrappeTestCase):
 			actual_end="2026-06-01 08:30:00",
 			fg_qty=60,
 			rejection_qty=5,
+			total_strokes=30,
 			shift_name=shift.name,
 		)
 		self._create_mock_submitted_entry(
@@ -616,13 +617,15 @@ class TestProductionReports(FrappeTestCase):
 			actual_end="2026-06-01 10:00:00",
 			fg_qty=120,
 			rejection_qty=0,
+			total_strokes=40,
 			shift_name=shift.name,
 		)
 		_, rows = execute({"from_date": "2026-06-01", "to_date": "2026-06-01"})
 		self.assertEqual(len(rows), 1)
-		self.assertEqual(float(rows[0]["total_strokes"]), 180.0)
+		self.assertEqual(float(rows[0]["total_strokes"]), 70.0)
 		self.assertEqual(float(rows[0]["rejection"]), 5.0)
-		self.assertEqual(float(rows[0]["first_shift_strokes"]), 180.0)
+		self.assertEqual(float(rows[0]["first_shift_strokes"]), 70.0)
+		self.assertAlmostEqual(float(rows[0]["quality_pct"]), (175 / 180) * 100, places=6)
 
 	def test_production_oee_report_shift_split_and_loss_bucket_mapping(self) -> None:
 		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
@@ -1136,6 +1139,41 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(float(rows[0]["total_units"]), 240.0)
 		self.assertEqual(float(rows[0]["operator_efficiency_pct"]), 100.0)
 
+	def test_efficiency_reports_use_strokes_for_speed_and_parts_for_quality_quantities(self) -> None:
+		from production_entry_app.production_entry_app.report.operator_efficiency_report.operator_efficiency_report import (
+			execute as operator_execute,
+		)
+		from production_entry_app.production_entry_app.report.workstation_efficiency_report.workstation_efficiency_report import (
+			execute as workstation_execute,
+		)
+
+		shift = self._create_shift_for_label("2026-06-16", "1", clear_planned_losses=True)
+		self._create_mock_submitted_entry(
+			posting_date="2026-06-16",
+			planned_start="2026-06-16 08:00:00",
+			planned_end="2026-06-16 09:00:00",
+			actual_start="2026-06-16 08:00:00",
+			actual_end="2026-06-16 09:00:00",
+			fg_qty=120,
+			rejection_qty=20,
+			total_strokes=60,
+			standard_spm=2,
+			shift_name=shift.name,
+		)
+
+		for execute, efficiency_field in (
+			(operator_execute, "operator_efficiency_pct"),
+			(workstation_execute, "workstation_efficiency_pct"),
+		):
+			with self.subTest(report=efficiency_field):
+				_, rows = execute({"from_date": "2026-06-16", "to_date": "2026-06-16"})
+				self.assertEqual(len(rows), 1)
+				self.assertEqual(float(rows[0]["good_qty"]), 100.0)
+				self.assertEqual(float(rows[0]["rejection_qty"]), 20.0)
+				self.assertEqual(float(rows[0]["total_units"]), 120.0)
+				self.assertEqual(float(rows[0]["actual_spm"]), 1.0)
+				self.assertEqual(float(rows[0][efficiency_field]), 50.0)
+
 	def test_operator_efficiency_report_uses_fixed_group_standard_spm(self) -> None:
 		from production_entry_app.production_entry_app.report.operator_efficiency_report.operator_efficiency_report import (
 			execute,
@@ -1329,6 +1367,7 @@ class TestProductionReports(FrappeTestCase):
 				"_good_qty": 0,
 				"_rejection_qty": 0,
 				"_rework_qty": 0,
+				"_total_strokes": 0,
 				"_production_time_mins": 0,
 				"_duration_mins": 60,
 				"custom_pea_standard_spm": 2,
@@ -1339,6 +1378,7 @@ class TestProductionReports(FrappeTestCase):
 				"_good_qty": 60,
 				"_rejection_qty": 0,
 				"_rework_qty": 0,
+				"_total_strokes": 60,
 				"_production_time_mins": 30,
 				"_duration_mins": 30,
 				"custom_pea_standard_spm": 2,
@@ -1366,6 +1406,7 @@ class TestProductionReports(FrappeTestCase):
 				"_good_qty": 40,
 				"_rejection_qty": 0,
 				"_rework_qty": 0,
+				"_total_strokes": 40,
 				"_production_time_mins": 10,
 				"_duration_mins": 10,
 				"custom_pea_standard_spm": 4,
@@ -1376,6 +1417,7 @@ class TestProductionReports(FrappeTestCase):
 				"_good_qty": 200,
 				"_rejection_qty": 0,
 				"_rework_qty": 0,
+				"_total_strokes": 200,
 				"_production_time_mins": 50,
 				"_duration_mins": 50,
 				"custom_pea_standard_spm": 9,
@@ -2865,9 +2907,8 @@ class TestProductionReports(FrappeTestCase):
 
 		shift = self._create_shift_for_label("2080-05-10", "1")
 		# actual_duration = 60 mins = 1 hour; fg_qty=100, rejection_qty=10
-		# After rejection hook: FG row=90, rejection row=10 → good_qty_map=90
-		# total_strokes = 90 + 10 = 100; production_time = 1 - 0.5 - 0.25 = 0.25 h
-		# SPM = 100 / (0.25 * 60) ~= 6.667
+		# Part quantities remain 90 good + 10 rejected while physical strokes are 40.
+		# Production time = 1 - 0.5 - 0.25 = 0.25 h.
 		self._create_mock_submitted_entry(
 			posting_date="2080-05-10",
 			planned_start="2080-05-10 08:00:00",
@@ -2876,6 +2917,7 @@ class TestProductionReports(FrappeTestCase):
 			actual_end="2080-05-10 09:00:00",
 			fg_qty=100,
 			rejection_qty=10,
+			total_strokes=40,
 			shift_name=shift.name,
 			unplanned_losses=[
 				{
@@ -2910,9 +2952,8 @@ class TestProductionReports(FrappeTestCase):
 		self.assertAlmostEqual(float(data_row["loss_time_hrs"]), 0.25, places=2)
 		# prod_time = (60 - 30 - 15) / 60 = 0.25
 		self.assertAlmostEqual(float(data_row["prod_time_hrs"]), 0.25, places=2)
-		# total_strokes = good_qty(90) + rejection(10) = 100
-		self.assertAlmostEqual(float(data_row["total_strokes"]), 100.0, places=2)
-		expected_spm = 100 / (0.25 * 60)
+		self.assertAlmostEqual(float(data_row["total_strokes"]), 40.0, places=2)
+		expected_spm = 40 / (0.25 * 60)
 		derived_abs_tol = 1e-6
 		self.assertAlmostEqual(float(data_row["spm"]), expected_spm, delta=derived_abs_tol)
 		self.assertAlmostEqual(float(data_row["rejection"]), 10.0, places=2)
@@ -3116,6 +3157,7 @@ class TestProductionReports(FrappeTestCase):
 			actual_end="2026-08-02 12:00:00",
 			fg_qty=100,
 			rejection_qty=10,
+			total_strokes=40,
 			shift_name=shift.name,
 			unplanned_losses=[
 				{
@@ -3144,8 +3186,8 @@ class TestProductionReports(FrappeTestCase):
 		self.assertAlmostEqual(float(row["loss_time_hrs"]), 1.0, places=3)
 		# 240 min - 100 min deducted (setup 30 + maint 60 + JH Activity 10) = 140 min
 		self.assertAlmostEqual(float(row["production_time_hrs"]), 140 / 60, places=3)
-		self.assertAlmostEqual(float(row["total_strokes"]), 100.0, places=3)
-		expected_spm = 100 / (140 / 60 * 60)
+		self.assertAlmostEqual(float(row["total_strokes"]), 40.0, places=3)
+		expected_spm = 40 / (140 / 60 * 60)
 		derived_abs_tol = 1e-6
 		self.assertAlmostEqual(float(row["spm"]), expected_spm, delta=derived_abs_tol)
 
@@ -3313,6 +3355,7 @@ class TestProductionReports(FrappeTestCase):
 		actual_end: str,
 		fg_qty: float,
 		rejection_qty: float,
+		total_strokes: float | None = None,
 		standard_spm: float = 2,
 		fg_item: str | None = None,
 		operator: str | None = "Report Operator",
@@ -3336,6 +3379,7 @@ class TestProductionReports(FrappeTestCase):
 		stock_entry.custom_pea_workstation = workstation
 		stock_entry.custom_pea_shift = shift_name
 		stock_entry.custom_pea_standard_spm = standard_spm
+		stock_entry.custom_pea_total_strokes = fg_qty if total_strokes is None else total_strokes
 		stock_entry.custom_pea_planned_start_date = planned_start
 		stock_entry.custom_pea_planned_end_date = planned_end
 		stock_entry.custom_pea_actual_start_date = actual_start
@@ -3403,6 +3447,7 @@ class TestProductionReports(FrappeTestCase):
 		stock_entry.custom_pea_workstation = workstation
 		stock_entry.custom_pea_shift = shift_name
 		stock_entry.custom_pea_standard_spm = 2
+		stock_entry.custom_pea_total_strokes = fg_qty
 		stock_entry.custom_pea_planned_start_date = planned_start
 		stock_entry.custom_pea_planned_end_date = planned_end
 		stock_entry.custom_pea_actual_start_date = actual_start

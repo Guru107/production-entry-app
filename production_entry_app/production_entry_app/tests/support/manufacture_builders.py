@@ -37,7 +37,6 @@ def bootstrap_manufacture_masters() -> dict[str, Any]:
 
 	fg_item = ensure_item("_Audit #1 FG Item")
 	rm_item = ensure_item("_Audit #1 RM Item")
-	frappe.db.set_value("Item", fg_item, "custom_pea_strokes_per_unit", 5, update_modified=False)
 	frappe.db.set_value("Item", fg_item, "custom_pea_stroke_capacity", 10000, update_modified=False)
 	if frappe.get_meta("Item", cached=True).has_field("custom_pea_has_die_tool"):
 		frappe.db.set_value("Item", fg_item, "custom_pea_has_die_tool", 1, update_modified=False)

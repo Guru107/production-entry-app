@@ -587,7 +587,7 @@ function _is_production_doc(doc) {
 
 function _default_total_strokes_from_fg(frm) {
 	if (!_is_manufacture_doc(frm.doc) || _is_joint_doc(frm.doc)) return;
-	if (Number(frm.doc.custom_pea_total_strokes || 0) > 0) return;
+	if (Number(frm.doc.custom_pea_total_strokes || 0) !== 0) return;
 
 	const completedQty = Number(frm.doc.fg_completed_qty || 0);
 	if (completedQty > 0) {

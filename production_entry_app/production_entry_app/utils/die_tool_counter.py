@@ -153,20 +153,3 @@ def _get_fg_item_code(doc) -> str | None:
 		if row.get("is_finished_item"):
 			return row.get("item_code")
 	return None
-
-
-def _get_total_units(doc) -> float:
-	rejection_qty = float(doc.get("custom_pea_rejection_qty") or 0)
-	if doc.get("fg_completed_qty"):
-		return float(doc.get("fg_completed_qty") or 0) + rejection_qty
-	fg_row = _get_fg_row(doc)
-	if not fg_row:
-		return 0.0
-	return float(fg_row.get("qty") or 0) + rejection_qty
-
-
-def _get_fg_row(doc):
-	for row in doc.get("items", []):
-		if row.get("is_finished_item"):
-			return row
-	return None

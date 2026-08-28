@@ -93,9 +93,12 @@ def validate_stock_entry(doc: Document, method: str | None = None) -> None:
 def _default_total_strokes(doc: Document) -> None:
 	if doc.get("purpose") != "Manufacture" or is_joint_lh_rh_production(doc):
 		return
-	if flt(doc.get("custom_pea_total_strokes")) > 0:
+	total_strokes = doc.get("custom_pea_total_strokes")
+	if total_strokes in (None, ""):
+		doc.set("custom_pea_total_strokes", flt(doc.get("fg_completed_qty")))
 		return
-	doc.set("custom_pea_total_strokes", flt(doc.get("fg_completed_qty")))
+	if flt(total_strokes) <= 0:
+		frappe.throw(_("Total Press Strokes must be greater than zero."))
 
 
 def _stamp_late_entry_flag(doc: Document) -> None:
