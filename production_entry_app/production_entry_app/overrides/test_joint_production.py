@@ -624,6 +624,7 @@ class TestJointProductionItems(FrappeTestCase):
 		scrap_row = next(row for row in doc.items if _is_scrap_row(row))
 		scrap_row.is_scrap_item = 0
 		scrap_row.is_legacy_scrap_item = 0
+		scrap_row.secondary_item_type = None
 		scrap_row.type = None
 
 		with self.assertRaisesRegex(frappe.ValidationError, "Run Fetch Items again"):
