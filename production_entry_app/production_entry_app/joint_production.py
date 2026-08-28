@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
-from math import ceil
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
 import frappe
@@ -92,11 +92,10 @@ def calculate_joint_rm_consumption(
 	if flt(lh_gross_qty) < 0 or flt(rh_gross_qty) < 0:
 		frappe.throw(_("LH and RH Gross Quantities cannot be negative."))
 
-	sheet_count = max(
-		ceil(flt(lh_gross_qty) / lh_bom_quantity),
-		ceil(flt(rh_gross_qty) / rh_bom_quantity),
+	return flt(
+		(flt(lh_gross_qty) * rm_qty_per_sheet / lh_bom_quantity)
+		+ (flt(rh_gross_qty) * rm_qty_per_sheet / rh_bom_quantity)
 	)
-	return flt(sheet_count * rm_qty_per_sheet)
 
 
 def calculate_joint_rm_consumption_from_boms(
@@ -247,15 +246,37 @@ def _build_planned_scrap_items(
 			values[scrap.item_code] += generated_qty * scrap.rate
 			uoms[scrap.item_code] = scrap.uom
 
-	return tuple(
-		JointPlannedScrapItem(
-			item_code=item_code,
-			qty=qty,
-			uom=uoms[item_code],
-			rate=values[item_code] / qty,
+	uom_names = set(uoms.values())
+	whole_number_uoms = (
+		set(
+			frappe.get_all(
+				"UOM",
+				filters={"name": ("in", tuple(uom_names)), "must_be_whole_number": 1},
+				pluck="name",
+			)
 		)
-		for item_code, qty in quantities.items()
+		if uom_names
+		else set()
 	)
+	planned_items: list[JointPlannedScrapItem] = []
+	for item_code, precise_qty in quantities.items():
+		uom = uoms[item_code]
+		qty = (
+			float(Decimal(str(precise_qty)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+			if uom in whole_number_uoms
+			else precise_qty
+		)
+		if qty <= 0:
+			continue
+		planned_items.append(
+			JointPlannedScrapItem(
+				item_code=item_code,
+				qty=qty,
+				uom=uom,
+				rate=values[item_code] / qty,
+			)
+		)
+	return tuple(planned_items)
 
 
 def is_joint_lh_rh_production(doc: Any) -> bool:
@@ -506,7 +527,7 @@ def _get_bom_scrap_item_details(scrap: Any) -> JointBomScrapItem:
 	return JointBomScrapItem(
 		item_code=scrap.item_code,
 		qty=qty,
-		uom=scrap.get("stock_uom") or scrap.get("uom"),
+		uom=frappe.get_cached_value("Item", scrap.item_code, "stock_uom"),
 		rate=rate,
 	)
 

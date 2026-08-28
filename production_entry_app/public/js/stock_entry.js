@@ -166,6 +166,9 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 			_sync_stock_entry_helper_fields(frm);
 			_setup_stock_entry_quick_entry(frm);
 		},
+		fg_completed_qty(frm) {
+			_default_total_strokes_from_fg(frm);
+		},
 		custom_pea_is_joint_lh_rh(frm) {
 			_apply_native_manufacture_visibility(frm);
 			_apply_manufacture_visibility(frm);
@@ -580,6 +583,16 @@ function _is_joint_doc(doc) {
 
 function _is_production_doc(doc) {
 	return _is_manufacture_doc(doc) || _is_joint_doc(doc);
+}
+
+function _default_total_strokes_from_fg(frm) {
+	if (!_is_manufacture_doc(frm.doc) || _is_joint_doc(frm.doc)) return;
+	if (Number(frm.doc.custom_pea_total_strokes || 0) > 0) return;
+
+	const completedQty = Number(frm.doc.fg_completed_qty || 0);
+	if (completedQty > 0) {
+		return frm.set_value("custom_pea_total_strokes", completedQty);
+	}
 }
 
 function _get_time_entry_api() {

@@ -818,18 +818,8 @@ def get_entry_total_strokes(
 	rejection_qty = 0.0
 	if entry_name and rejection_qty_map is not None:
 		rejection_qty = flt(rejection_qty_map.get(entry_name) or 0)
-	total_rejected_qty = flt(entry.get("custom_pea_rejection_qty") or 0)
-	if entry_name and total_rejected_qty_map is not None:
-		total_rejected_qty = flt(total_rejected_qty_map.get(entry_name) or 0)
 
-	if cint(entry.get("custom_pea_is_joint_lh_rh")):
-		return flt(entry.get("custom_pea_total_strokes") or 0), rejection_qty
-	fg_completed_qty = flt(entry.get("fg_completed_qty") or 0)
-	if fg_completed_qty > 0:
-		return fg_completed_qty, rejection_qty
-	if entry_name and good_qty_map is not None:
-		return flt(good_qty_map.get(entry_name) or 0) + total_rejected_qty, rejection_qty
-	return rejection_qty, rejection_qty
+	return flt(entry.get("custom_pea_total_strokes") or 0), rejection_qty
 
 
 def get_entry_production_minutes(

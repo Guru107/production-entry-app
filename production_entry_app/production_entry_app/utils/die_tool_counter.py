@@ -31,15 +31,11 @@ def update_counter_for_stock_entry(doc, direction: int = 1) -> None:
 	if not is_die_tool_enabled(item_code):
 		return
 
-	strokes_per_unit = float(frappe.db.get_value("Item", item_code, "custom_pea_strokes_per_unit") or 0)
-	if strokes_per_unit <= 0:
+	total_strokes = float(doc.get("custom_pea_total_strokes") or 0)
+	if total_strokes <= 0:
 		return
 
-	total_units = _get_total_units(doc)
-	if total_units <= 0:
-		return
-
-	_update_counter(item_code, total_units * strokes_per_unit * direction)
+	_update_counter(item_code, total_strokes * direction)
 
 
 def _update_counter(item_code: str, stroke_delta: float) -> None:

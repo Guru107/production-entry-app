@@ -269,7 +269,7 @@ test.describe("Shift to Stock Entry integration", () => {
 		expect(submitted.custom_pea_rh_gross_qty).toBe(41);
 		expect(submitted.custom_pea_total_strokes).toBe(41);
 		expect(submitted.custom_pea_ok_qty).toBe(80);
-		expect(submitted.custom_pea_total_rm_consumption).toBe(49.125);
+		expect(submitted.custom_pea_total_rm_consumption).toBeCloseTo(39.79125, 6);
 		expect(submitted.custom_pea_actual_duration_mins).toBe(60);
 		expect(submitted.custom_pea_production_time_mins).toBeLessThan(60);
 		expect(submitted.custom_pea_actual_spm).toBeCloseTo(

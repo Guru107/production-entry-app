@@ -78,6 +78,7 @@ def validate_stock_entry(doc: Document, method: str | None = None) -> None:
 	_validate_workstation_overlap(doc)
 	_validate_operator_overlap(doc)
 	_validate_workstation_downtime_overlap(doc)
+	_default_total_strokes(doc)
 	if is_joint_lh_rh_production(doc):
 		validate_and_apply_joint_production(doc)
 	else:
@@ -87,6 +88,14 @@ def validate_stock_entry(doc: Document, method: str | None = None) -> None:
 		_apply_rejection_entries(doc)
 	_validate_rejection_target_warehouses(doc)
 	_set_entry_metrics(doc)
+
+
+def _default_total_strokes(doc: Document) -> None:
+	if doc.get("purpose") != "Manufacture" or is_joint_lh_rh_production(doc):
+		return
+	if flt(doc.get("custom_pea_total_strokes")) > 0:
+		return
+	doc.set("custom_pea_total_strokes", flt(doc.get("fg_completed_qty")))
 
 
 def _stamp_late_entry_flag(doc: Document) -> None:
@@ -793,14 +802,7 @@ def _set_entry_metrics(doc) -> None:
 
 	deducted_loss_mins = _get_deducted_loss_minutes_for_entry(doc, actual_start, actual_end)
 	production_time_mins = max(duration_mins - deducted_loss_mins, 0)
-	total_strokes = max(
-		flt(
-			doc.get("custom_pea_total_strokes")
-			if is_joint_lh_rh_production(doc)
-			else doc.get("fg_completed_qty") or 0
-		),
-		0,
-	)
+	total_strokes = max(flt(doc.get("custom_pea_total_strokes")), 0)
 	actual_spm = (
 		(total_strokes / production_time_mins) if production_time_mins > 0 and total_strokes > 0 else 0
 	)

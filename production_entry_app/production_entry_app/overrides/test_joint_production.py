@@ -61,26 +61,28 @@ def _make_running_shift_through_api(masters: dict[str, Any]) -> object:
 
 
 class TestJointProductionCalculations(FrappeTestCase):
-	def test_joint_rm_consumption_rounds_up_to_complete_sheets(self) -> None:
-		self.assertEqual(
+	def test_joint_rm_consumption_adds_bom_sheet_capacity_shares(self) -> None:
+		self.assertAlmostEqual(
 			calculate_joint_rm_consumption(
-				lh_gross_qty=40,
-				lh_bom_quantity=40,
-				rh_gross_qty=41,
-				rh_bom_quantity=41,
-				rm_qty_per_sheet=49.125,
+				lh_gross_qty=39,
+				lh_bom_quantity=77,
+				rh_gross_qty=38,
+				rh_bom_quantity=77,
+				rm_qty_per_sheet=39.3,
 			),
-			49.125,
+			39.3,
+			places=6,
 		)
-		self.assertEqual(
+		self.assertAlmostEqual(
 			calculate_joint_rm_consumption(
-				lh_gross_qty=41,
-				lh_bom_quantity=40,
-				rh_gross_qty=41,
-				rh_bom_quantity=41,
-				rm_qty_per_sheet=49.125,
+				lh_gross_qty=77,
+				lh_bom_quantity=77,
+				rh_gross_qty=77,
+				rh_bom_quantity=77,
+				rm_qty_per_sheet=39.3,
 			),
-			98.25,
+			78.6,
+			places=6,
 		)
 
 	def test_output_value_is_allocated_by_bom_cost_weight(self) -> None:
@@ -211,9 +213,13 @@ class TestJointProductionItems(FrappeTestCase):
 
 		rows = materialize_joint_production_rows(doc)
 
-		self.assertEqual(doc.custom_pea_total_rm_consumption, 49.125)
+		self.assertAlmostEqual(doc.custom_pea_total_rm_consumption, 39.79125, places=6)
 		self.assertEqual(len([row for row in rows if row.get("s_warehouse")]), 1)
-		self.assertEqual(sum(row["qty"] for row in rows if row.get("s_warehouse")), 49.125)
+		self.assertAlmostEqual(
+			sum(row["qty"] for row in rows if row.get("s_warehouse")),
+			39.79125,
+			places=6,
+		)
 		self.assertEqual(
 			[
 				(row["custom_pea_joint_output_side"], row["qty"])
@@ -260,6 +266,29 @@ class TestJointProductionItems(FrappeTestCase):
 		self.assertEqual(scrap_rows[self.scrap_nos_item].stock_uom, "Nos")
 		self.assertAlmostEqual(scrap_rows[rh_only_scrap_item].qty, 0.205, places=6)
 
+	def test_fetch_items_rounds_aggregated_whole_number_scrap_half_up(self) -> None:
+		lh_bom = self._make_bom(
+			self.lh_item,
+			scrap_items=[(self.scrap_nos_item, 1, 4)],
+		)
+		rh_bom = self._make_bom(
+			self.rh_item,
+			scrap_items=[(self.scrap_nos_item, 1, 4)],
+		)
+		shift = make_running_shift(self.masters)
+		doc = self._make_joint_entry(shift, lh_bom=lh_bom, rh_bom=rh_bom)
+		doc.custom_pea_lh_gross_qty = 49
+		doc.custom_pea_rh_gross_qty = 1
+		doc.custom_pea_total_strokes = 49
+		doc.set("items", get_joint_production_items(json.dumps(doc.as_dict(), default=str)))
+
+		doc.insert(ignore_permissions=True)
+
+		scrap_row = next(row for row in doc.items if _is_scrap_row(row))
+		self.assertEqual(scrap_row.item_code, self.scrap_nos_item)
+		self.assertEqual(scrap_row.stock_uom, "Nos")
+		self.assertEqual(scrap_row.qty, 1)
+
 	def test_joint_repack_can_be_inserted_with_native_stock_entry_items(self) -> None:
 		shift = make_running_shift(self.masters)
 		doc = self._make_joint_entry(shift)
@@ -303,14 +332,15 @@ class TestJointProductionItems(FrappeTestCase):
 		)
 
 	def test_joint_rm_consumption_is_available_through_the_stock_entry_api(self) -> None:
-		self.assertEqual(
+		self.assertAlmostEqual(
 			get_joint_rm_consumption(
 				lh_bom=self.lh_bom,
 				rh_bom=self.rh_bom,
 				lh_gross_qty=101,
 				rh_gross_qty=41,
 			),
-			98.25,
+			69.7575,
+			places=6,
 		)
 
 	def test_total_rm_consumption_must_match_the_single_rm_item_total(self) -> None:
@@ -350,7 +380,7 @@ class TestJointProductionItems(FrappeTestCase):
 		rm_row.transfer_qty = 20
 		rh_row.qty = 20
 		rh_row.transfer_qty = 20
-		self._append_split_row(doc, rm_row, qty=29.125)
+		self._append_split_row(doc, rm_row, qty=19.79125)
 		self._append_split_row(doc, rh_row, qty=21)
 		doc.set("items", list(reversed(doc.items)))
 		expected_rows = len(doc.items)
@@ -358,9 +388,10 @@ class TestJointProductionItems(FrappeTestCase):
 		doc.insert(ignore_permissions=True)
 
 		self.assertEqual(len(doc.items), expected_rows)
-		self.assertEqual(
+		self.assertAlmostEqual(
 			sum(row.qty * row.conversion_factor for row in doc.items if row.s_warehouse),
-			49.125,
+			39.79125,
+			places=6,
 		)
 		self.assertEqual(
 			sum(
@@ -396,7 +427,7 @@ class TestJointProductionItems(FrappeTestCase):
 		rm_row.transfer_qty = 20
 		rm_row.batch_no = batches[0].name
 		rm_row.use_serial_batch_fields = 1
-		self._append_split_row(doc, rm_row, qty=29.125)
+		self._append_split_row(doc, rm_row, qty=19.79125)
 		doc.items[-1].batch_no = batches[1].name
 		doc.items[-1].use_serial_batch_fields = 1
 
@@ -894,15 +925,34 @@ class TestJointProductionItems(FrappeTestCase):
 	def test_api_e2e_shift_start_normal_manufacture_submit_and_cancel(self) -> None:
 		shift = _make_running_shift_through_api(self.masters)
 		self.assertEqual(shift.status, "Running")
+		frappe.db.set_value(
+			"Item",
+			self.masters["fg_item"],
+			{
+				"custom_pea_has_die_tool": 1,
+				"custom_pea_strokes_per_unit": 12,
+				"custom_pea_stroke_capacity": 10000,
+			},
+			update_modified=False,
+		)
+		frappe.db.delete("Die Tool Counter", {"die_tool_item": self.masters["fg_item"]})
 		draft = make_direct_manufacture_entry(
 			self.masters,
 			shift=shift.name,
 			fg_qty=100,
 			rejection_qty=2,
 		)
+		self.assertEqual(draft.custom_pea_total_strokes, 100)
+		draft.custom_pea_total_strokes = 40
 		doc = frappe.get_doc("Stock Entry", frappe.client.submit(draft.as_dict())["name"])
 
 		self.assertEqual(doc.docstatus, 1)
+		self.assertEqual(doc.custom_pea_total_strokes, 40)
+		self.assertAlmostEqual(doc.custom_pea_actual_spm, 40 / 45, places=6)
+		self.assertEqual(
+			frappe.db.get_value("Die Tool Counter", self.masters["fg_item"], "current_stroke_count"),
+			40,
+		)
 		self.assertTrue(
 			frappe.get_all(
 				"Stock Ledger Entry",
@@ -915,6 +965,10 @@ class TestJointProductionItems(FrappeTestCase):
 		doc.reload()
 
 		self.assertEqual(doc.docstatus, 2)
+		self.assertEqual(
+			frappe.db.get_value("Die Tool Counter", self.masters["fg_item"], "current_stroke_count"),
+			0,
+		)
 		self.assertFalse(
 			frappe.get_all(
 				"Stock Ledger Entry",

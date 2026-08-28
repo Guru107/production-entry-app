@@ -576,6 +576,39 @@ test.describe("Stock Entry validation matrix", () => {
 		expect(Number(savedStockEntry.custom_pea_ok_qty || 0)).toBe(90);
 	});
 
+	test("@regression total press strokes defaults from quantity and remains editable", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
+
+		const stockEntryPage = await openManufactureEntry(page, ctx, {
+			fgQty: 100,
+			rejectionQty: 0,
+		});
+		expect(
+			Number(
+				(await stockEntryPage.getFieldValues(["custom_pea_total_strokes"]))
+					.custom_pea_total_strokes || 0
+			)
+		).toBe(100);
+
+		await setFieldValue(page, "custom_pea_total_strokes", 40);
+		await setFieldValue(page, "fg_completed_qty", 120);
+		expect(
+			Number(
+				(await stockEntryPage.getFieldValues(["custom_pea_total_strokes"]))
+					.custom_pea_total_strokes || 0
+			)
+		).toBe(40);
+
+		await stockEntryPage.fetchItems();
+		await stockEntryPage.saveDraft();
+		const stockEntryName = await page.evaluate(() => window.cur_frm?.doc?.name);
+		const savedStockEntry = await getDoc(page, "Stock Entry", stockEntryName);
+		expect(Number(savedStockEntry.custom_pea_total_strokes || 0)).toBe(40);
+	});
+
 	test("@regression blocks overlapping stock entry when workstation is already in use", async ({
 		page,
 	}) => {

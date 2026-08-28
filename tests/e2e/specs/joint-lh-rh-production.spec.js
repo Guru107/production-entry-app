@@ -179,7 +179,7 @@ test.describe("Joint LH/RH production form", () => {
 		await setFieldValue(page, "from_warehouse", ctx.wip_warehouse);
 		await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
 		await form.fillJointProductionFields(ctx);
-		await form.waitForFieldValue("custom_pea_total_rm_consumption", 49.125);
+		await form.waitForFieldValue("custom_pea_total_rm_consumption", 39.79125);
 
 		await page.locator('[data-fieldname="custom_pea_joint_fetch_items"] button').click();
 		await page.waitForFunction(() => (window.cur_frm?.doc?.items || []).length === 5);
@@ -191,7 +191,8 @@ test.describe("Joint LH/RH production form", () => {
 			(row) => row.is_scrap_item || row.is_legacy_scrap_item || row.type === "Scrap"
 		);
 		expect(outgoingRows).toHaveLength(1);
-		expect(outgoingRows[0]).toMatchObject({ item_code: ctx.joint_rm_item, qty: 49.125 });
+		expect(outgoingRows[0].item_code).toBe(ctx.joint_rm_item);
+		expect(outgoingRows[0].qty).toBeCloseTo(39.79125, 6);
 		expect(sideRows.map((row) => row.custom_pea_joint_output_side).sort()).toEqual([
 			"LH",
 			"RH",

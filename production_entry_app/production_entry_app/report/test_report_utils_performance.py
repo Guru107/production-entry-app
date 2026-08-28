@@ -277,15 +277,20 @@ class TestReportUtilsPerformance(FrappeTestCase):
 		self.assertEqual(setup_map, {"STE-001": 15.0})
 		self.assertEqual(loss_map, {"STE-001": 30.0})
 
-	def test_entry_duration_and_stroke_helpers_cover_fallbacks(self) -> None:
+	def test_entry_duration_helpers_and_authoritative_strokes(self) -> None:
 		total_strokes, rejection_qty = report_utils.get_entry_total_strokes(
-			{"name": "STE-001", "fg_completed_qty": 0, "custom_pea_rejection_qty": 9},
+			{
+				"name": "STE-001",
+				"fg_completed_qty": 15,
+				"custom_pea_rejection_qty": 9,
+				"custom_pea_total_strokes": 7,
+			},
 			good_qty_map={"STE-001": 11},
 			rejection_qty_map={"STE-001": 3},
 			total_rejected_qty_map={"STE-001": 4},
 		)
 
-		self.assertEqual(total_strokes, 15.0)
+		self.assertEqual(total_strokes, 7.0)
 		self.assertEqual(rejection_qty, 3.0)
 		self.assertEqual(
 			report_utils.get_entry_production_minutes(

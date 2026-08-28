@@ -3762,11 +3762,12 @@ class TestDieToolCounter(FrappeTestCase):
 			rm_warehouse=self.rm_warehouse,
 		)
 		se.custom_pea_rejection_qty = 2
+		se.custom_pea_total_strokes = 7
 
 		on_submit_stock_entry(se, "on_submit")
 
 		counter = frappe.get_doc("Die Tool Counter", self.fg_item)
-		self.assertEqual(counter.current_stroke_count, (10 + 2) * 12)
+		self.assertEqual(counter.current_stroke_count, 7)
 		self.assertEqual(counter.stroke_capacity, 1000)
 
 	def test_atomic_increment_does_not_lose_updates(self) -> None:
@@ -3792,13 +3793,15 @@ class TestDieToolCounter(FrappeTestCase):
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
+		first.custom_pea_total_strokes = 5
+		second.custom_pea_total_strokes = 7
 
 		on_submit_stock_entry(first, "on_submit")
 		on_submit_stock_entry(second, "on_submit")
 
 		self.assertEqual(
 			float(frappe.db.get_value("Die Tool Counter", self.fg_item, "current_stroke_count") or 0),
-			36.0,
+			12.0,
 		)
 
 	def test_die_tool_counter_decrements_on_cancel(self) -> None:
@@ -3817,6 +3820,7 @@ class TestDieToolCounter(FrappeTestCase):
 			rm_warehouse=self.rm_warehouse,
 		)
 		se.custom_pea_rejection_qty = 1
+		se.custom_pea_total_strokes = 6
 
 		on_submit_stock_entry(se, "on_submit")
 		on_cancel_stock_entry(se, "on_cancel")
@@ -4090,7 +4094,7 @@ class TestDieToolCounter(FrappeTestCase):
 
 		self.assertFalse(frappe.db.exists("Die Tool Counter", self.fg_item))
 
-	def test_update_counter_ignores_when_strokes_per_unit_not_set(self) -> None:
+	def test_update_counter_uses_total_strokes_without_item_multiplier(self) -> None:
 		from production_entry_app.production_entry_app.utils.die_tool_counter import (
 			update_counter_for_stock_entry,
 		)
@@ -4101,13 +4105,17 @@ class TestDieToolCounter(FrappeTestCase):
 				"purpose": "Manufacture",
 				"fg_item": self.fg_item,
 				"fg_completed_qty": 10,
+				"custom_pea_total_strokes": 4,
 			}
 		)
 		update_counter_for_stock_entry(doc, direction=1)
 
-		self.assertFalse(frappe.db.exists("Die Tool Counter", self.fg_item))
+		self.assertEqual(
+			float(frappe.db.get_value("Die Tool Counter", self.fg_item, "current_stroke_count") or 0),
+			4.0,
+		)
 
-	def test_update_counter_ignores_when_total_units_zero(self) -> None:
+	def test_update_counter_ignores_when_total_strokes_zero(self) -> None:
 		from production_entry_app.production_entry_app.utils.die_tool_counter import (
 			update_counter_for_stock_entry,
 		)
@@ -4118,6 +4126,7 @@ class TestDieToolCounter(FrappeTestCase):
 				"fg_item": self.fg_item,
 				"fg_completed_qty": 0,
 				"custom_pea_rejection_qty": 0,
+				"custom_pea_total_strokes": 0,
 				"items": [],
 			}
 		)
@@ -4143,6 +4152,7 @@ class TestDieToolCounter(FrappeTestCase):
 				"purpose": "Manufacture",
 				"fg_item": self.fg_item,
 				"fg_completed_qty": 1,
+				"custom_pea_total_strokes": 10,
 			}
 		)
 
