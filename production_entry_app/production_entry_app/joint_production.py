@@ -499,14 +499,12 @@ def _get_joint_bom_details(bom_no: str) -> JointBomDetails:
 	if bom.docstatus != 1 or not bom.is_active:
 		frappe.throw(_("BOM {0} must be submitted and active.").format(bold_bom_no))
 	items = list(bom.get("items") or [])
-	if bom.meta.has_field("scrap_items"):
-		scrap_items = list(bom.get("scrap_items") or [])
-	else:
-		scrap_items = [
-			row
-			for row in (bom.get("secondary_items") or [])
-			if row.get("type") == "Scrap" or row.get("is_legacy")
-		]
+	secondary_scrap_items = [
+		row
+		for row in (bom.get("secondary_items") or [])
+		if row.get("type") == "Scrap" or row.get("is_legacy")
+	]
+	scrap_items = secondary_scrap_items or list(bom.get("scrap_items") or [])
 	if len(items) != 1:
 		frappe.throw(_("BOM {0} must contain exactly one raw material item.").format(bold_bom_no))
 	if flt(bom.quantity) <= 0:

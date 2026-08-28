@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from typing import Any
+from unittest.mock import patch
 
 import erpnext
 import frappe
@@ -18,6 +19,7 @@ from production_entry_app.production_entry_app.api import (
 from production_entry_app.production_entry_app.api_timeline import get_shift_timeline_data
 from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
 from production_entry_app.production_entry_app.joint_production import (
+	_get_joint_bom_details,
 	allocate_joint_output_value,
 	calculate_joint_rm_consumption,
 	materialize_joint_production_rows,
@@ -61,6 +63,45 @@ def _make_running_shift_through_api(masters: dict[str, Any]) -> object:
 
 
 class TestJointProductionCalculations(FrappeTestCase):
+	def test_v16_secondary_scrap_is_used_when_legacy_table_is_empty(self) -> None:
+		bom = frappe._dict(
+			name="BOM-JOINT-V16",
+			item="FG-V16",
+			docstatus=1,
+			is_active=1,
+			quantity=100,
+			total_cost=100,
+			meta=frappe._dict(has_field=lambda fieldname: fieldname == "scrap_items"),
+			items=[
+				frappe._dict(
+					item_code="RM-V16",
+					stock_qty=49.125,
+					qty=49.125,
+					stock_uom="Kg",
+					uom="Kg",
+				)
+			],
+			scrap_items=[],
+			secondary_items=[frappe._dict(type="Scrap", item_code="SCRAP-V16", qty=1.5, rate=10)],
+		)
+
+		with (
+			patch(
+				"production_entry_app.production_entry_app.joint_production.frappe.get_doc",
+				return_value=bom,
+			),
+			patch(
+				"production_entry_app.production_entry_app.joint_production._get_item_stock_uoms",
+				return_value={"SCRAP-V16": "Kg"},
+			),
+		):
+			details = _get_joint_bom_details(bom.name)
+
+		self.assertEqual(
+			[(row.item_code, row.qty, row.uom) for row in details.scrap_items],
+			[("SCRAP-V16", 1.5, "Kg")],
+		)
+
 	def test_normal_manufacture_rejects_explicit_non_positive_strokes(self) -> None:
 		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
 			_default_total_strokes,
