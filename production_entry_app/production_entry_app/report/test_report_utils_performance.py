@@ -10,6 +10,14 @@ from production_entry_app.production_entry_app.report import report_utils
 
 
 class TestReportUtilsPerformance(FrappeTestCase):
+	def test_non_scrap_criterion_supports_current_v16_secondary_item_type(self) -> None:
+		meta = frappe._dict(has_field=lambda fieldname: fieldname == "secondary_item_type")
+		with patch.object(report_utils.frappe, "get_meta", return_value=meta):
+			criterion = report_utils._get_non_scrap_item_criterion(report_utils.DocType("Stock Entry Detail"))
+
+		self.assertIn('"secondary_item_type"', str(criterion))
+		self.assertIn("Scrap", str(criterion))
+
 	def test_bom_parent_lookup_uses_report_permission_boundary_and_scoped_filters(self) -> None:
 		scope = {
 			"docstatus": 1,

@@ -744,6 +744,10 @@ def _get_non_scrap_item_criterion(stock_entry_detail: Any) -> Any:
 		criterion &= stock_entry_detail.is_scrap_item.isnull() | (stock_entry_detail.is_scrap_item == 0)
 	if meta.has_field("type"):
 		criterion &= stock_entry_detail.type.isnull() | (stock_entry_detail.type != "Scrap")
+	if meta.has_field("secondary_item_type"):
+		criterion &= stock_entry_detail.secondary_item_type.isnull() | (
+			stock_entry_detail.secondary_item_type != "Scrap"
+		)
 	if meta.has_field("is_legacy_scrap_item"):
 		criterion &= stock_entry_detail.is_legacy_scrap_item.isnull() | (
 			stock_entry_detail.is_legacy_scrap_item == 0
