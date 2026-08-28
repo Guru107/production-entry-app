@@ -188,7 +188,11 @@ test.describe("Joint LH/RH production form", () => {
 		const outgoingRows = values.items.filter((row) => row.s_warehouse);
 		const sideRows = values.items.filter((row) => row.custom_pea_joint_output_side);
 		const scrapRows = values.items.filter(
-			(row) => row.is_scrap_item || row.is_legacy_scrap_item || row.type === "Scrap"
+			(row) =>
+				row.is_scrap_item ||
+				row.is_legacy_scrap_item ||
+				row.secondary_item_type === "Scrap" ||
+				row.type === "Scrap"
 		);
 		expect(outgoingRows).toHaveLength(1);
 		expect(outgoingRows[0].item_code).toBe(ctx.joint_rm_item);

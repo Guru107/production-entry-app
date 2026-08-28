@@ -287,7 +287,11 @@ test.describe("Shift to Stock Entry integration", () => {
 				.every((row) => row.basic_rate > 0 && row.valuation_rate > 0)
 		).toBe(true);
 		const submittedScrapRows = submitted.items.filter(
-			(row) => row.is_scrap_item || row.is_legacy_scrap_item || row.type === "Scrap"
+			(row) =>
+				row.is_scrap_item ||
+				row.is_legacy_scrap_item ||
+				row.secondary_item_type === "Scrap" ||
+				row.type === "Scrap"
 		);
 		expect(submittedScrapRows).toHaveLength(2);
 		expect(submittedScrapRows.map((row) => row.item_code).sort()).toEqual(
