@@ -7,6 +7,7 @@ const {
 	_is_joint_doc,
 	_is_production_doc,
 	_did_leave_manufacture,
+	_clear_manufacture_data_on_leave,
 	_apply_native_manufacture_visibility,
 	_sync_native_get_items_access,
 	_apply_shift_detail_updates,
@@ -122,6 +123,200 @@ test("leaving joint production restores the user's prior Stock Entry Type", () =
 		assert.equal(frm.__peaStockEntryTypeBeforeJoint, undefined);
 	} finally {
 		global.frappe = originalFrappe;
+	}
+});
+
+test("manually selecting a non-joint Stock Entry Type exits joint production and clears joint data", () => {
+	const originalFrappe = global.frappe;
+	global.frappe = {
+		call(options) {
+			options.callback({ message: "Joint LH RH Repack" });
+		},
+	};
+	const frm = {
+		__peaStockEntryTypeBeforeJoint: "Manufacture",
+		fields_dict: {},
+		layout: { sections: [] },
+		doc: {
+			custom_pea_is_joint_lh_rh: 1,
+			stock_entry_type: "Manufacture",
+			custom_pea_shift: "SHIFT-001",
+			custom_pea_lh_bom: "BOM-LH",
+			custom_pea_lh_gross_qty: 40,
+			custom_pea_lh_rejection_qty: 1,
+			custom_pea_rh_bom: "BOM-RH",
+			custom_pea_rh_gross_qty: 41,
+			custom_pea_rh_rejection_qty: 2,
+			custom_pea_total_strokes: 41,
+			custom_pea_die_tool_item: "DIE-001",
+			custom_pea_total_rm_consumption: 49.125,
+			custom_pea_joint_scrap_qty: 3.25,
+			custom_pea_rejection_breakup: [{ output_side: "LH", qty: 1 }],
+			items: [{ item_code: "RM-001" }],
+		},
+		set_value(fieldname, value) {
+			this.doc[fieldname] = value;
+		},
+		clear_table(fieldname) {
+			this.doc[fieldname] = [];
+		},
+		get_field() {
+			return { df: { fieldtype: "Data" } };
+		},
+		refresh_fields() {},
+		refresh_field() {},
+		toggle_display() {},
+		toggle_reqd() {},
+		dirty() {},
+	};
+
+	try {
+		_sync_joint_stock_entry_type(frm, { source: "stock_entry_type" });
+
+		assert.equal(frm.doc.stock_entry_type, "Manufacture");
+		assert.equal(frm.doc.custom_pea_is_joint_lh_rh, 0);
+		assert.equal(frm.doc.custom_pea_shift, "SHIFT-001");
+		assert.equal(frm.doc.custom_pea_lh_bom, "");
+		assert.equal(frm.doc.custom_pea_rh_bom, "");
+		assert.equal(frm.doc.custom_pea_total_strokes, "");
+		assert.equal(frm.doc.custom_pea_die_tool_item, "");
+		assert.equal(frm.doc.custom_pea_total_rm_consumption, "");
+		assert.equal(frm.doc.custom_pea_joint_scrap_qty, "");
+		assert.deepEqual(frm.doc.custom_pea_rejection_breakup, []);
+		assert.deepEqual(frm.doc.items, []);
+	} finally {
+		global.frappe = originalFrappe;
+	}
+});
+
+test("manually selecting the joint Stock Entry Type enters joint production and clears normal data", () => {
+	const originalFrappe = global.frappe;
+	global.frappe = {
+		call(options) {
+			options.callback({ message: "Joint LH RH Repack" });
+		},
+	};
+	const frm = {
+		fields_dict: {},
+		layout: { sections: [] },
+		doc: {
+			custom_pea_is_joint_lh_rh: 0,
+			stock_entry_type: "Joint LH RH Repack",
+			custom_pea_stock_entry_purpose: "Repack",
+			custom_pea_shift: "SHIFT-001",
+			from_bom: 1,
+			bom_no: "BOM-NORMAL",
+			use_multi_level_bom: 1,
+			fg_completed_qty: 100,
+			custom_pea_rejection_qty: 2,
+			custom_pea_total_strokes: 50,
+			custom_pea_die_tool_item: "DIE-NORMAL",
+			custom_pea_rejection_breakup: [{ qty: 2 }],
+			items: [{ item_code: "FG-NORMAL", is_finished_item: 1 }],
+		},
+		get_field(fieldname) {
+			return {
+				df: {
+					fieldtype: ["from_bom", "use_multi_level_bom"].includes(fieldname)
+						? "Check"
+						: "Data",
+				},
+			};
+		},
+		clear_table(fieldname) {
+			this.doc[fieldname] = [];
+		},
+		refresh_fields() {},
+		refresh_field() {},
+		toggle_display() {},
+		toggle_reqd() {},
+		dirty() {},
+	};
+
+	try {
+		_sync_joint_stock_entry_type(frm, {
+			source: "stock_entry_type",
+			previousStockEntryType: "Manufacture",
+		});
+
+		assert.equal(frm.doc.stock_entry_type, "Joint LH RH Repack");
+		assert.equal(frm.doc.custom_pea_is_joint_lh_rh, 1);
+		assert.equal(frm.__peaStockEntryTypeBeforeJoint, "Manufacture");
+		assert.equal(frm.doc.custom_pea_shift, "SHIFT-001");
+		assert.equal(frm.doc.from_bom, 0);
+		assert.equal(frm.doc.bom_no, "");
+		assert.equal(frm.doc.use_multi_level_bom, 0);
+		assert.equal(frm.doc.fg_completed_qty, "");
+		assert.equal(frm.doc.custom_pea_rejection_qty, "");
+		assert.equal(frm.doc.custom_pea_total_strokes, "");
+		assert.equal(frm.doc.custom_pea_die_tool_item, "");
+		assert.deepEqual(frm.doc.custom_pea_rejection_breakup, []);
+		assert.deepEqual(frm.doc.items, []);
+	} finally {
+		global.frappe = originalFrappe;
+	}
+});
+
+test("joint type lookup defers manufacture cleanup so common Shift context survives", () => {
+	const originalFrappe = global.frappe;
+	const originalTranslate = global.__;
+	let jointTypeResponse;
+	global.__ = (text) => text;
+	global.frappe = {
+		call(options) {
+			jointTypeResponse = options.callback;
+		},
+	};
+	const frm = {
+		__pea_prev_stock_entry_purpose: "Manufacture",
+		fields_dict: {},
+		layout: { sections: [] },
+		doc: {
+			custom_pea_is_joint_lh_rh: 0,
+			stock_entry_type: "Joint LH RH Repack",
+			custom_pea_stock_entry_purpose: "Repack",
+			custom_pea_shift: "SHIFT-001",
+			custom_pea_actual_start_date: "2026-08-28 08:00:00",
+			custom_pea_workstation: "PRESS-001",
+			from_bom: 1,
+			bom_no: "BOM-NORMAL",
+			items: [{ item_code: "FG-NORMAL", is_finished_item: 1 }],
+		},
+		get_field(fieldname) {
+			return { df: { fieldtype: fieldname === "from_bom" ? "Check" : "Data" } };
+		},
+		clear_table(fieldname) {
+			this.doc[fieldname] = [];
+		},
+		refresh_fields() {},
+		refresh_field() {},
+		toggle_display() {},
+		toggle_reqd() {},
+		dirty() {},
+	};
+
+	try {
+		_sync_joint_stock_entry_type(frm, {
+			source: "stock_entry_type",
+			previousStockEntryType: "Manufacture",
+		});
+		_clear_manufacture_data_on_leave(frm);
+
+		assert.equal(frm.doc.custom_pea_shift, "SHIFT-001");
+		assert.equal(frm.doc.bom_no, "BOM-NORMAL");
+		assert.equal(frm.__peaDeferredManufactureCleanup, true);
+
+		jointTypeResponse({ message: "Joint LH RH Repack" });
+
+		assert.equal(frm.doc.custom_pea_is_joint_lh_rh, 1);
+		assert.equal(frm.doc.custom_pea_shift, "SHIFT-001");
+		assert.equal(frm.doc.custom_pea_actual_start_date, "2026-08-28 08:00:00");
+		assert.equal(frm.doc.custom_pea_workstation, "PRESS-001");
+		assert.equal(frm.doc.bom_no, "");
+		assert.equal(frm.__peaDeferredManufactureCleanup, undefined);
+	} finally {
+		global.frappe = originalFrappe;
+		global.__ = originalTranslate;
 	}
 });
 

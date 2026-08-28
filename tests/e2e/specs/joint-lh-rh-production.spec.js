@@ -162,6 +162,71 @@ test.describe("Joint LH/RH production form", () => {
 		expect(sectionTops.jointResources).toBeLessThan(sectionTops.workstation);
 	});
 
+	test("@regression Stock Entry Type changes reset joint and normal production state", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const stockEntryType = await ensureJointStockEntryType(page, lifecycle.getPrefix());
+		createdTypes.add(stockEntryType);
+		const form = new StockEntryPage(page);
+
+		await form.openNew();
+		await enableJointProduction(page, form, stockEntryType);
+		await setFieldValue(page, "company", ctx.company);
+		await setFieldValue(page, "custom_pea_shift", ctx.shift_name);
+		await setFieldValue(page, "from_warehouse", ctx.wip_warehouse);
+		await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
+		await form.fillJointProductionFields(ctx);
+		await form.fetchItems();
+
+		await setFieldValue(page, "stock_entry_type", "Manufacture");
+		await form.waitForFieldValue("custom_pea_is_joint_lh_rh", 0);
+		await form.waitForFieldValue("custom_pea_stock_entry_purpose", "Manufacture");
+
+		const manufactureState = await form.getFieldValues([
+			"custom_pea_shift",
+			"custom_pea_lh_bom",
+			"custom_pea_lh_gross_qty",
+			"custom_pea_rh_bom",
+			"custom_pea_rh_gross_qty",
+			"custom_pea_total_strokes",
+			"custom_pea_die_tool_item",
+			"custom_pea_total_rm_consumption",
+			"items",
+		]);
+		expect(manufactureState.custom_pea_shift).toBe(ctx.shift_name);
+		expect(manufactureState.custom_pea_lh_bom).toBeFalsy();
+		expect(Number(manufactureState.custom_pea_lh_gross_qty || 0)).toBe(0);
+		expect(manufactureState.custom_pea_rh_bom).toBeFalsy();
+		expect(Number(manufactureState.custom_pea_rh_gross_qty || 0)).toBe(0);
+		expect(Number(manufactureState.custom_pea_total_strokes || 0)).toBe(0);
+		expect(manufactureState.custom_pea_die_tool_item).toBeFalsy();
+		expect(Number(manufactureState.custom_pea_total_rm_consumption || 0)).toBe(0);
+		expect(manufactureState.items).toEqual([]);
+
+		await setFieldValue(page, "from_bom", 1);
+		await setFieldValue(page, "bom_no", ctx.bom);
+		await setFieldValue(page, "fg_completed_qty", 100);
+		await setFieldValue(page, "custom_pea_rejection_qty", 2);
+		await setFieldValue(page, "stock_entry_type", stockEntryType);
+		await form.waitForFieldValue("custom_pea_is_joint_lh_rh", 1);
+		await form.waitForFieldValue("custom_pea_stock_entry_purpose", "Repack");
+
+		const jointState = await form.getFieldValues([
+			"custom_pea_shift",
+			"from_bom",
+			"bom_no",
+			"fg_completed_qty",
+			"custom_pea_rejection_qty",
+		]);
+		expect(jointState.custom_pea_shift).toBe(ctx.shift_name);
+		expect(Number(jointState.from_bom || 0)).toBe(0);
+		expect(jointState.bom_no).toBeFalsy();
+		expect(Number(jointState.fg_completed_qty || 0)).toBe(0);
+		expect(Number(jointState.custom_pea_rejection_qty || 0)).toBe(0);
+	});
+
 	test("@smoke joint Fetch Items populates rows from both BOMs", async ({ page }) => {
 		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
