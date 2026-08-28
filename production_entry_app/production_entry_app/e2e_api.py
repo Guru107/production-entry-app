@@ -11,6 +11,7 @@ from production_entry_app.production_entry_app.api import (
 	_cleanup_orphan_stock_entry_loss_links,
 	reset_die_tool_counter,
 )
+from production_entry_app.production_entry_app.compat import IS_V16_OR_GREATER
 from production_entry_app.production_entry_app.utils.shift_time import get_shift_planned_end_datetime
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	cleanup_running_shifts,
@@ -463,11 +464,7 @@ def _ensure_e2e_joint_bom(
 		"is_active": 1,
 		"items": [{"item_code": rm_item, "qty": 49.125, "rate": 50}],
 	}
-	if frappe.get_meta("BOM", cached=True).has_field("scrap_items"):
-		values["scrap_items"] = [
-			{"item_code": scrap_item, "stock_qty": qty, "rate": rate} for scrap_item, qty, rate in scrap_items
-		]
-	else:
+	if IS_V16_OR_GREATER:
 		values["secondary_items"] = [
 			{
 				"type": "Scrap",
@@ -475,10 +472,15 @@ def _ensure_e2e_joint_bom(
 				"qty": qty,
 				"uom": frappe.db.get_value("Item", scrap_item, "stock_uom"),
 				"conversion_factor": 1,
+				"rate": rate,
 				"cost_allocation_per": 0,
 				"process_loss_per": 0,
 			}
-			for scrap_item, qty, _rate in scrap_items
+			for scrap_item, qty, rate in scrap_items
+		]
+	else:
+		values["scrap_items"] = [
+			{"item_code": scrap_item, "stock_qty": qty, "rate": rate} for scrap_item, qty, rate in scrap_items
 		]
 	bom = frappe.get_doc(values).insert(ignore_permissions=True)
 	bom.submit()
