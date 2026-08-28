@@ -183,13 +183,19 @@ def materialize_joint_production_rows(doc: Any) -> list[dict[str, Any]]:
 				"basic_rate": scrap.rate,
 			}
 		)
-		stock_entry_detail_meta = frappe.get_meta("Stock Entry Detail", cached=True)
-		if stock_entry_detail_meta.has_field("is_scrap_item"):
-			scrap_row["is_scrap_item"] = 1
-		else:
-			scrap_row["type"] = "Scrap"
+		_set_scrap_row_classification(scrap_row)
 		rows.append(scrap_row)
 	return rows
+
+
+def _set_scrap_row_classification(row: dict[str, Any]) -> None:
+	stock_entry_detail_meta = frappe.get_meta("Stock Entry Detail", cached=True)
+	if stock_entry_detail_meta.has_field("is_scrap_item"):
+		row["is_scrap_item"] = 1
+	elif stock_entry_detail_meta.has_field("secondary_item_type"):
+		row["secondary_item_type"] = "Scrap"
+	else:
+		row["type"] = "Scrap"
 
 
 def _build_joint_production_plan(doc: Any) -> JointProductionPlan:
@@ -445,7 +451,12 @@ def _set_joint_output_valuation(
 
 
 def _is_scrap_row(row: Any) -> bool:
-	return bool(row.get("is_scrap_item") or row.get("is_legacy_scrap_item") or row.get("type") == "Scrap")
+	return bool(
+		row.get("is_scrap_item")
+		or row.get("is_legacy_scrap_item")
+		or row.get("secondary_item_type") == "Scrap"
+		or row.get("type") == "Scrap"
+	)
 
 
 def _validate_joint_rejection_breakup(doc: Any, plan: JointProductionPlan) -> None:

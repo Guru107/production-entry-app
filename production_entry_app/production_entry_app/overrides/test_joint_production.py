@@ -20,6 +20,7 @@ from production_entry_app.production_entry_app.api_timeline import get_shift_tim
 from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
 from production_entry_app.production_entry_app.joint_production import (
 	_get_joint_bom_details,
+	_set_scrap_row_classification,
 	allocate_joint_output_value,
 	calculate_joint_rm_consumption,
 	materialize_joint_production_rows,
@@ -46,7 +47,12 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 
 
 def _is_scrap_row(row: Any) -> bool:
-	return bool(row.get("is_scrap_item") or row.get("is_legacy_scrap_item") or row.get("type") == "Scrap")
+	return bool(
+		row.get("is_scrap_item")
+		or row.get("is_legacy_scrap_item")
+		or row.get("secondary_item_type") == "Scrap"
+		or row.get("type") == "Scrap"
+	)
 
 
 def _make_running_shift_through_api(masters: dict[str, Any]) -> object:
@@ -63,6 +69,19 @@ def _make_running_shift_through_api(masters: dict[str, Any]) -> object:
 
 
 class TestJointProductionCalculations(FrappeTestCase):
+	def test_scrap_row_classification_supports_each_stock_entry_detail_schema(self) -> None:
+		for fieldname in ("is_scrap_item", "type", "secondary_item_type"):
+			with self.subTest(fieldname=fieldname):
+				row = {}
+				meta = frappe._dict(has_field=lambda candidate: candidate == fieldname)
+				with patch(
+					"production_entry_app.production_entry_app.joint_production.frappe.get_meta",
+					return_value=meta,
+				):
+					_set_scrap_row_classification(row)
+
+				self.assertTrue(_is_scrap_row(row))
+
 	def test_v16_secondary_scrap_supports_both_type_fieldnames(self) -> None:
 		for type_fieldname in ("type", "secondary_item_type"):
 			with self.subTest(type_fieldname=type_fieldname):
