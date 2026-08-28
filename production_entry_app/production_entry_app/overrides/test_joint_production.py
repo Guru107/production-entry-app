@@ -17,7 +17,6 @@ from production_entry_app.production_entry_app.api import (
 	get_joint_stock_entry_type,
 )
 from production_entry_app.production_entry_app.api_timeline import get_shift_timeline_data
-from production_entry_app.production_entry_app.compat import IS_V16_OR_GREATER
 from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
 from production_entry_app.production_entry_app.joint_production import (
 	_get_joint_bom_details,
@@ -1177,7 +1176,7 @@ class TestJointProductionItems(FrappeTestCase):
 			"is_active": 1,
 			"items": [{"item_code": self.rm_item, "qty": rm_qty, "rate": 50}],
 		}
-		if IS_V16_OR_GREATER:
+		if frappe.get_meta("BOM", cached=True).has_field("secondary_items"):
 			values["secondary_items"] = [
 				{
 					"type": "Scrap",

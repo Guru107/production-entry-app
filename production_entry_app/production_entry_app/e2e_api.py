@@ -11,7 +11,6 @@ from production_entry_app.production_entry_app.api import (
 	_cleanup_orphan_stock_entry_loss_links,
 	reset_die_tool_counter,
 )
-from production_entry_app.production_entry_app.compat import IS_V16_OR_GREATER
 from production_entry_app.production_entry_app.utils.shift_time import get_shift_planned_end_datetime
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	cleanup_running_shifts,
@@ -464,7 +463,7 @@ def _ensure_e2e_joint_bom(
 		"is_active": 1,
 		"items": [{"item_code": rm_item, "qty": 49.125, "rate": 50}],
 	}
-	if IS_V16_OR_GREATER:
+	if frappe.get_meta("BOM", cached=True).has_field("secondary_items"):
 		values["secondary_items"] = [
 			{
 				"type": "Scrap",
