@@ -502,7 +502,7 @@ def _get_joint_bom_details(bom_no: str) -> JointBomDetails:
 	secondary_scrap_items = [
 		row
 		for row in (bom.get("secondary_items") or [])
-		if row.get("type") == "Scrap" or row.get("is_legacy")
+		if row.get("secondary_item_type") == "Scrap" or row.get("type") == "Scrap" or row.get("is_legacy")
 	]
 	scrap_items = secondary_scrap_items or list(bom.get("scrap_items") or [])
 	if len(items) != 1:

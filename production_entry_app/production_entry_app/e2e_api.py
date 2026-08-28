@@ -464,9 +464,14 @@ def _ensure_e2e_joint_bom(
 		"items": [{"item_code": rm_item, "qty": 49.125, "rate": 50}],
 	}
 	if frappe.get_meta("BOM", cached=True).has_field("secondary_items"):
+		secondary_item_type_field = (
+			"secondary_item_type"
+			if frappe.get_meta("BOM Secondary Item", cached=True).has_field("secondary_item_type")
+			else "type"
+		)
 		values["secondary_items"] = [
 			{
-				"type": "Scrap",
+				secondary_item_type_field: "Scrap",
 				"item_code": scrap_item,
 				"qty": qty,
 				"uom": frappe.db.get_value("Item", scrap_item, "stock_uom"),

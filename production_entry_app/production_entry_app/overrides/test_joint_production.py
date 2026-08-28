@@ -63,44 +63,47 @@ def _make_running_shift_through_api(masters: dict[str, Any]) -> object:
 
 
 class TestJointProductionCalculations(FrappeTestCase):
-	def test_v16_secondary_scrap_is_used_when_legacy_table_is_empty(self) -> None:
-		bom = frappe._dict(
-			name="BOM-JOINT-V16",
-			item="FG-V16",
-			docstatus=1,
-			is_active=1,
-			quantity=100,
-			total_cost=100,
-			meta=frappe._dict(has_field=lambda fieldname: fieldname == "scrap_items"),
-			items=[
-				frappe._dict(
-					item_code="RM-V16",
-					stock_qty=49.125,
-					qty=49.125,
-					stock_uom="Kg",
-					uom="Kg",
+	def test_v16_secondary_scrap_supports_both_type_fieldnames(self) -> None:
+		for type_fieldname in ("type", "secondary_item_type"):
+			with self.subTest(type_fieldname=type_fieldname):
+				secondary_item = frappe._dict(item_code="SCRAP-V16", qty=1.5, rate=10)
+				secondary_item[type_fieldname] = "Scrap"
+				bom = frappe._dict(
+					name="BOM-JOINT-V16",
+					item="FG-V16",
+					docstatus=1,
+					is_active=1,
+					quantity=100,
+					total_cost=100,
+					items=[
+						frappe._dict(
+							item_code="RM-V16",
+							stock_qty=49.125,
+							qty=49.125,
+							stock_uom="Kg",
+							uom="Kg",
+						)
+					],
+					scrap_items=[],
+					secondary_items=[secondary_item],
 				)
-			],
-			scrap_items=[],
-			secondary_items=[frappe._dict(type="Scrap", item_code="SCRAP-V16", qty=1.5, rate=10)],
-		)
 
-		with (
-			patch(
-				"production_entry_app.production_entry_app.joint_production.frappe.get_doc",
-				return_value=bom,
-			),
-			patch(
-				"production_entry_app.production_entry_app.joint_production._get_item_stock_uoms",
-				return_value={"SCRAP-V16": "Kg"},
-			),
-		):
-			details = _get_joint_bom_details(bom.name)
+				with (
+					patch(
+						"production_entry_app.production_entry_app.joint_production.frappe.get_doc",
+						return_value=bom,
+					),
+					patch(
+						"production_entry_app.production_entry_app.joint_production._get_item_stock_uoms",
+						return_value={"SCRAP-V16": "Kg"},
+					),
+				):
+					details = _get_joint_bom_details(bom.name)
 
-		self.assertEqual(
-			[(row.item_code, row.qty, row.uom) for row in details.scrap_items],
-			[("SCRAP-V16", 1.5, "Kg")],
-		)
+				self.assertEqual(
+					[(row.item_code, row.qty, row.uom) for row in details.scrap_items],
+					[("SCRAP-V16", 1.5, "Kg")],
+				)
 
 	def test_normal_manufacture_rejects_explicit_non_positive_strokes(self) -> None:
 		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
@@ -1177,9 +1180,14 @@ class TestJointProductionItems(FrappeTestCase):
 			"items": [{"item_code": self.rm_item, "qty": rm_qty, "rate": 50}],
 		}
 		if frappe.get_meta("BOM", cached=True).has_field("secondary_items"):
+			secondary_item_type_field = (
+				"secondary_item_type"
+				if frappe.get_meta("BOM Secondary Item", cached=True).has_field("secondary_item_type")
+				else "type"
+			)
 			values["secondary_items"] = [
 				{
-					"type": "Scrap",
+					secondary_item_type_field: "Scrap",
 					"item_code": scrap_item,
 					"qty": qty,
 					"uom": frappe.db.get_value("Item", scrap_item, "stock_uom"),
