@@ -1433,7 +1433,7 @@ class TestE2EApi(FrappeTestCase):
 			)
 			stack.enter_context(
 				patch(
-					"production_entry_app.production_entry_app.e2e_api._ensure_e2e_joint_bom",
+					"production_entry_app.production_entry_app.e2e_api.ensure_joint_test_bom",
 					side_effect=["BOM-JOINT-LH", "BOM-JOINT-RH"],
 				)
 			)
@@ -1547,7 +1547,7 @@ class TestE2EApi(FrappeTestCase):
 			)
 			stack.enter_context(
 				patch(
-					"production_entry_app.production_entry_app.e2e_api._ensure_e2e_joint_bom",
+					"production_entry_app.production_entry_app.e2e_api.ensure_joint_test_bom",
 					side_effect=["BOM-JOINT-LH", "BOM-JOINT-RH"],
 				)
 			)
