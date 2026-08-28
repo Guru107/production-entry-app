@@ -22,4 +22,3 @@ def resolve_rejection_warehouse(doc: BaseDocument, preferred_warehouse: str | No
 			return warehouse
 
 	frappe.throw(_("Please set a Rejection Warehouse on the Shift or in Production Entry Settings."))
-
