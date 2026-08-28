@@ -7,7 +7,6 @@ from frappe.tests.utils import FrappeTestCase
 
 from production_entry_app.production_entry_app.report_access import (
 	PEA_REPORT_NAMES,
-	get_report_permission_query_conditions,
 	get_script,
 	run,
 )
@@ -76,23 +75,3 @@ class TestReadOnlyReportAccess(FrappeTestCase):
 
 		self.assertEqual(result, {"result": []})
 		core_run.assert_called_once_with(report_name=report_name, filters={})
-
-	def test_report_query_condition_limits_pea_read_only_to_allowlist(self) -> None:
-		with patch(
-			"production_entry_app.production_entry_app.report_access.frappe.get_roles",
-			return_value=["PEA Read Only"],
-		):
-			condition = get_report_permission_query_conditions("readonly@example.com")
-
-		self.assertIn("`tabReport`.`name` in", condition)
-		for report_name in PEA_REPORT_NAMES:
-			self.assertIn(frappe.db.escape(report_name), condition)
-
-	def test_report_query_condition_does_not_restrict_other_users(self) -> None:
-		with patch(
-			"production_entry_app.production_entry_app.report_access.frappe.get_roles",
-			return_value=["System Manager"],
-		):
-			condition = get_report_permission_query_conditions("manager@example.com")
-
-		self.assertEqual(condition, "")

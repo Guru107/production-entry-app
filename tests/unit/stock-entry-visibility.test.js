@@ -11,7 +11,11 @@ const {
 	_sync_native_get_items_access,
 	_apply_shift_detail_updates,
 	_apply_fetch_items_response,
+	_sync_joint_stock_entry_type,
+	_get_rejection_qty_for_visibility,
 	MANUFACTURE_FIELDS,
+	PEA_MANUFACTURE_FIELDS,
+	JOINT_ONLY_PEA_FIELDS,
 	MANUFACTURE_SECTIONS,
 	ALWAYS_HIDDEN_FIELDS,
 	ALWAYS_HIDDEN_SECTIONS,
@@ -52,7 +56,9 @@ test("joint LH/RH Repack uses the common production form without native BOM fiel
 
 test("manufacture visibility targets include key fields and sections", () => {
 	assert.ok(MANUFACTURE_FIELDS.includes("custom_pea_fetch_items"));
-	assert.ok(MANUFACTURE_FIELDS.includes("custom_pea_joint_fetch_items"));
+	assert.ok(!MANUFACTURE_FIELDS.includes("custom_pea_joint_fetch_items"));
+	assert.ok(!PEA_MANUFACTURE_FIELDS.includes("custom_pea_joint_fetch_items"));
+	assert.deepEqual(JOINT_ONLY_PEA_FIELDS, ["custom_pea_joint_fetch_items"]);
 	assert.ok(MANUFACTURE_FIELDS.includes("custom_pea_shift"));
 	assert.ok(MANUFACTURE_FIELDS.includes("custom_pea_actual_start_date_input"));
 	assert.ok(MANUFACTURE_FIELDS.includes("custom_pea_actual_start_time_input"));
@@ -65,6 +71,58 @@ test("manufacture visibility targets include key fields and sections", () => {
 	assert.ok(ALWAYS_HIDDEN_SECTIONS.includes("section_break_7qsm"));
 	assert.ok(MANUFACTURE_CLEAR_TABLE_FIELDS.includes("custom_pea_rejection_breakup"));
 	assert.ok(MANUFACTURE_CLEAR_TABLE_FIELDS.includes("items"));
+});
+
+test("rejection visibility quantity sums joint sides and uses normal rejection otherwise", () => {
+	const originalFlt = global.flt;
+	global.flt = Number;
+	try {
+		assert.equal(
+			_get_rejection_qty_for_visibility({
+				custom_pea_is_joint_lh_rh: 1,
+				custom_pea_lh_rejection_qty: 2,
+				custom_pea_rh_rejection_qty: 3,
+			}),
+			5
+		);
+		assert.equal(_get_rejection_qty_for_visibility({ custom_pea_rejection_qty: "4" }), 4);
+	} finally {
+		global.flt = originalFlt;
+	}
+});
+
+test("leaving joint production restores the user's prior Stock Entry Type", () => {
+	const originalFrappe = global.frappe;
+	const updates = [];
+	global.frappe = {
+		call(options) {
+			options.callback({ message: "Joint LH RH Repack" });
+		},
+	};
+	const frm = {
+		doc: {
+			custom_pea_is_joint_lh_rh: 1,
+			stock_entry_type: "Shearing",
+		},
+		set_value(fieldname, value) {
+			this.doc[fieldname] = value;
+			updates.push([fieldname, value]);
+		},
+	};
+
+	try {
+		_sync_joint_stock_entry_type(frm);
+		frm.doc.custom_pea_is_joint_lh_rh = 0;
+		_sync_joint_stock_entry_type(frm);
+
+		assert.deepEqual(updates, [
+			["stock_entry_type", "Joint LH RH Repack"],
+			["stock_entry_type", "Shearing"],
+		]);
+		assert.equal(frm.__peaStockEntryTypeBeforeJoint, undefined);
+	} finally {
+		global.frappe = originalFrappe;
+	}
 });
 
 test("leave-manufacture transition detector works", () => {

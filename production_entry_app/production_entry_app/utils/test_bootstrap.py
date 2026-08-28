@@ -4,7 +4,7 @@ from typing import Any
 
 import frappe
 from frappe import _
-from frappe.utils import getdate, nowdate
+from frappe.utils import flt, getdate, nowdate
 
 _PRODUCTION_ENTRY_SHIFT_SETTINGS_FIELDS: tuple[str, ...] = (
 	"shift_raw_material_warehouse",
@@ -213,6 +213,86 @@ def ensure_default_bom(fg_item: str, rm_item: str, company: str) -> str:
 			"items": [{"item_code": rm_item, "qty": 1, "rate": 50}],
 		}
 	).insert(ignore_permissions=True)
+	bom.submit()
+	return bom.name
+
+
+def ensure_joint_test_bom(
+	*,
+	item_code: str,
+	rm_item: str,
+	scrap_items: list[tuple[str, float, float]],
+	company: str,
+	bom_quantity: float = 100,
+	rm_qty: float = 49.125,
+	is_default: bool | None = None,
+) -> str:
+	"""Return a submitted BOM matching the requested quantities and scrap recipe.
+
+	ERPNext recalculates BOM Item rates from valuation during submission, so the
+	input RM rate is deliberately not part of fixture identity.
+	"""
+	for bom_name in frappe.get_all(
+		"BOM",
+		filters={"item": item_code, "company": company, "is_active": 1, "docstatus": 1},
+		pluck="name",
+	):
+		bom = frappe.get_doc("BOM", bom_name)
+		items = list(bom.get("items") or [])
+		bom_scrap = list(bom.get("secondary_items") or bom.get("scrap_items") or [])
+		actual_scrap = sorted(
+			(
+				row.get("item_code"),
+				flt(row.get("stock_qty") or row.get("qty"), 6),
+				flt(row.get("rate"), 6),
+			)
+			for row in bom_scrap
+			if row.get("secondary_item_type") in (None, "Scrap") and row.get("type") in (None, "Scrap")
+		)
+		expected_scrap = sorted((code, flt(qty, 6), flt(rate, 6)) for code, qty, rate in scrap_items)
+		if (
+			flt(bom.quantity, 6) == flt(bom_quantity, 6)
+			and (is_default is None or int(bom.is_default or 0) == int(is_default))
+			and len(items) == 1
+			and items[0].get("item_code") == rm_item
+			and flt(items[0].get("stock_qty") or items[0].get("qty"), 6) == flt(rm_qty, 6)
+			and actual_scrap == expected_scrap
+		):
+			return bom.name
+
+	values = {
+		"doctype": "BOM",
+		"item": item_code,
+		"company": company,
+		"quantity": bom_quantity,
+		"is_default": int(bool(is_default)),
+		"is_active": 1,
+		"items": [{"item_code": rm_item, "qty": rm_qty, "rate": 50}],
+	}
+	if frappe.get_meta("BOM", cached=True).has_field("secondary_items"):
+		type_field = (
+			"secondary_item_type"
+			if frappe.get_meta("BOM Secondary Item", cached=True).has_field("secondary_item_type")
+			else "type"
+		)
+		values["secondary_items"] = [
+			{
+				type_field: "Scrap",
+				"item_code": scrap_item,
+				"qty": qty,
+				"uom": frappe.db.get_value("Item", scrap_item, "stock_uom"),
+				"conversion_factor": 1,
+				"rate": rate,
+				"cost_allocation_per": 0,
+				"process_loss_per": 0,
+			}
+			for scrap_item, qty, rate in scrap_items
+		]
+	else:
+		values["scrap_items"] = [
+			{"item_code": scrap_item, "stock_qty": qty, "rate": rate} for scrap_item, qty, rate in scrap_items
+		]
+	bom = frappe.get_doc(values).insert(ignore_permissions=True)
 	bom.submit()
 	return bom.name
 

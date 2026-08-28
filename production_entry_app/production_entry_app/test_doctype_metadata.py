@@ -94,7 +94,8 @@ def test_joint_lh_rh_production_metadata_is_exported() -> None:
 		"Stock Entry-custom_pea_joint_fetch_items",
 		"Stock Entry Detail-custom_pea_joint_output_side",
 	}
-	assert not required_fields.difference(fields_by_name)
+	missing_fields = sorted(required_fields.difference(fields_by_name))
+	assert not missing_fields, f"Missing joint-production custom fields: {missing_fields}"
 	joint_flag = fields_by_name["Stock Entry-custom_pea_is_joint_lh_rh"]
 	assert not joint_flag.get("fetch_from")
 	assert not joint_flag.get("read_only")
@@ -104,8 +105,12 @@ def test_joint_lh_rh_production_metadata_is_exported() -> None:
 	assert fields_by_name["Stock Entry-custom_pea_joint_scrap_qty"].get("hidden") == 1
 
 	rejection_fields = {
-		field.get("fieldname"): field for field in assert_doctype_json("Rejection Breakup").get("fields", [])
+		field.get("fieldname"): field
+		for field in assert_doctype_json("Rejection Breakup").get("fields", [])
+		if field.get("fieldname")
 	}
+	missing_rejection_fields = sorted({"output_side", "item_code"}.difference(rejection_fields))
+	assert not missing_rejection_fields, f"Missing Rejection Breakup fields: {missing_rejection_fields}"
 	assert rejection_fields["output_side"]["options"] == "\nLH\nRH"
 	assert rejection_fields["item_code"]["options"] == "Item"
 

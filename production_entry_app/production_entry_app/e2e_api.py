@@ -20,6 +20,7 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	ensure_downtime_reason,
 	ensure_fiscal_year_for_date,
 	ensure_item,
+	ensure_joint_test_bom,
 	ensure_operator,
 	ensure_rejection_reason,
 	ensure_stock,
@@ -439,58 +440,6 @@ def _get_e2e_joint_item_codes(prefix: str) -> tuple[str, str, str, str, str]:
 	)
 
 
-def _ensure_e2e_joint_bom(
-	*,
-	item_code: str,
-	rm_item: str,
-	scrap_items: list[tuple[str, float, float]],
-	company: str,
-) -> str:
-	existing = frappe.db.get_value(
-		"BOM",
-		{"item": item_code, "company": company, "is_active": 1, "docstatus": 1},
-		"name",
-	)
-	if existing:
-		return existing
-
-	values = {
-		"doctype": "BOM",
-		"item": item_code,
-		"company": company,
-		"quantity": 100,
-		"is_default": 1,
-		"is_active": 1,
-		"items": [{"item_code": rm_item, "qty": 49.125, "rate": 50}],
-	}
-	if frappe.get_meta("BOM", cached=True).has_field("secondary_items"):
-		secondary_item_type_field = (
-			"secondary_item_type"
-			if frappe.get_meta("BOM Secondary Item", cached=True).has_field("secondary_item_type")
-			else "type"
-		)
-		values["secondary_items"] = [
-			{
-				secondary_item_type_field: "Scrap",
-				"item_code": scrap_item,
-				"qty": qty,
-				"uom": frappe.db.get_value("Item", scrap_item, "stock_uom"),
-				"conversion_factor": 1,
-				"rate": rate,
-				"cost_allocation_per": 0,
-				"process_loss_per": 0,
-			}
-			for scrap_item, qty, rate in scrap_items
-		]
-	else:
-		values["scrap_items"] = [
-			{"item_code": scrap_item, "stock_qty": qty, "rate": rate} for scrap_item, qty, rate in scrap_items
-		]
-	bom = frappe.get_doc(values).insert(ignore_permissions=True)
-	bom.submit()
-	return bom.name
-
-
 @frappe.whitelist()
 def bootstrap_e2e_context(prefix: str = "E2E", cleanup_running: int = 1) -> dict:
 	"""Create deterministic test masters for Playwright E2E tests."""
@@ -552,17 +501,19 @@ def bootstrap_e2e_context(prefix: str = "E2E", cleanup_running: int = 1) -> dict
 	if frappe.get_meta("Item", cached=True).has_field("custom_pea_has_die_tool"):
 		frappe.db.set_value("Item", joint_lh_item, "custom_pea_has_die_tool", 1, update_modified=False)
 	frappe.db.set_value("Item", joint_lh_item, "custom_pea_stroke_capacity", 10000, update_modified=False)
-	joint_lh_bom = _ensure_e2e_joint_bom(
+	joint_lh_bom = ensure_joint_test_bom(
 		item_code=joint_lh_item,
 		rm_item=joint_rm_item,
 		scrap_items=[(joint_scrap_item, 1.125, 10), (joint_scrap_nos_item, 2, 4)],
 		company=company,
+		is_default=True,
 	)
-	joint_rh_bom = _ensure_e2e_joint_bom(
+	joint_rh_bom = ensure_joint_test_bom(
 		item_code=joint_rh_item,
 		rm_item=joint_rm_item,
 		scrap_items=[(joint_scrap_item, 2.125, 10), (joint_scrap_nos_item, 20, 4)],
 		company=company,
+		is_default=True,
 	)
 	ensure_stock(joint_rm_item, wip_warehouse, company, target_qty=1000, posting_date=base_date)
 

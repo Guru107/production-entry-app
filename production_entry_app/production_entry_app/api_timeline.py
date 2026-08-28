@@ -6,7 +6,7 @@ from frappe.utils import flt
 
 from production_entry_app.production_entry_app.report.report_utils import (
 	get_entry_qty_maps,
-	get_finished_item_map,
+	get_finished_item_maps,
 )
 from production_entry_app.production_entry_app.utils.loss_time import build_interval_overlap_filters
 from production_entry_app.production_entry_app.utils.shift_time import combine_date_time
@@ -112,12 +112,12 @@ def get_shift_timeline_data(doctype: str, docname: str) -> dict:
 
 	names = [row.get("name") for row in rows if row.get("name")]
 	good_qty_by_entry, joint_rejection_qty_by_entry, _unused_fg_item_map = get_entry_qty_maps(names)
-	fg_item_by_entry = get_finished_item_map(names)
+	fg_item_by_entry, fg_item_label_by_entry = get_finished_item_maps(names)
 
 	entries = []
 	for row in rows:
 		entry_name = row.get("name")
-		good_qty = flt(good_qty_by_entry.get(entry_name, row.get("fg_qty") or 0))
+		good_qty = flt(good_qty_by_entry.get(entry_name) or row.get("fg_qty") or 0)
 		is_joint_production = bool(row.get("custom_pea_is_joint_lh_rh"))
 		rejection_qty = flt(
 			joint_rejection_qty_by_entry.get(entry_name, 0)
@@ -130,6 +130,7 @@ def get_shift_timeline_data(doctype: str, docname: str) -> dict:
 				"actual_start": str(row.get("actual_start")),
 				"actual_end": str(row.get("actual_end")),
 				"fg_item": fg_item_by_entry.get(entry_name),
+				"fg_item_label": fg_item_label_by_entry.get(entry_name),
 				"fg_qty": good_qty,
 				"rejection_qty": rejection_qty,
 				"ok_qty": good_qty if is_joint_production else good_qty - rejection_qty,

@@ -52,3 +52,16 @@ test("retryTransientRequest does not retry application failures", async () => {
 	);
 	assert.equal(attempts, 1);
 });
+
+test("retryTransientRequest surfaces the last transient failure after retries are exhausted", async () => {
+	let attempts = 0;
+	await assert.rejects(
+		() =>
+			retryTransientRequest(async () => {
+				attempts += 1;
+				throw new Error(`socket hang up ${attempts}`);
+			}),
+		/socket hang up 3/
+	);
+	assert.equal(attempts, 3);
+});

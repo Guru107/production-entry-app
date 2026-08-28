@@ -59,7 +59,7 @@ async function callFrappeMethod(page, method, args = {}) {
 		]
 			.filter(Boolean)
 			.join(" | ");
-		throw new Error(details || `Frappe call failed: ${method}`);
+		throw new Error(details || `Frappe call failed (${response.status()}): ${method}`);
 	}
 
 	return payload.message;

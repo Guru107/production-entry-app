@@ -18,6 +18,7 @@ from production_entry_app.production_entry_app.tests.support.manufacture_builder
 from production_entry_app.production_entry_app.utils.alternative_items import (
 	get_bom_alternative_allowed_items,
 )
+from production_entry_app.production_entry_app.utils.rejection_warehouse import resolve_rejection_warehouse
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	bootstrap_manufacturing_test_context,
 	cleanup_running_shifts,
@@ -310,20 +311,20 @@ class TestStockEntryHookPureHelpers(FrappeTestCase):
 		doc = frappe._dict({"custom_pea_shift": ""})
 		meta = type("Meta", (), {"has_field": lambda self, fieldname: True})()
 		with patch(
-			"production_entry_app.production_entry_app.overrides.stock_entry_hooks.frappe.get_meta",
+			"production_entry_app.production_entry_app.utils.rejection_warehouse.frappe.get_meta",
 			return_value=meta,
 		):
 			with patch(
-				"production_entry_app.production_entry_app.overrides.stock_entry_hooks.frappe.db.get_single_value",
+				"production_entry_app.production_entry_app.utils.rejection_warehouse.frappe.db.get_single_value",
 				return_value="Rejected WH",
 			):
-				self.assertEqual(stock_entry_hooks._get_rejection_warehouse(doc), "Rejected WH")
+				self.assertEqual(resolve_rejection_warehouse(doc), "Rejected WH")
 			with patch(
-				"production_entry_app.production_entry_app.overrides.stock_entry_hooks.frappe.db.get_single_value",
+				"production_entry_app.production_entry_app.utils.rejection_warehouse.frappe.db.get_single_value",
 				return_value=None,
 			):
 				with self.assertRaisesRegex(frappe.ValidationError, "Rejection Warehouse"):
-					stock_entry_hooks._get_rejection_warehouse(doc)
+					resolve_rejection_warehouse(doc)
 
 	def test_existing_rejection_target_warehouse_ignores_invalid_new_doc_candidates(self) -> None:
 		doc = frappe._dict(

@@ -18,6 +18,21 @@ class TestReportUtilsPerformance(FrappeTestCase):
 		self.assertIn('"secondary_item_type"', str(criterion))
 		self.assertIn("Scrap", str(criterion))
 
+	def test_non_scrap_criterion_uses_only_the_base_guard_without_optional_fields(self) -> None:
+		meta = frappe._dict(has_field=lambda _fieldname: False)
+		with patch.object(report_utils.frappe, "get_meta", return_value=meta):
+			criterion = report_utils._get_non_scrap_item_criterion(report_utils.DocType("Stock Entry Detail"))
+
+		criterion_sql = str(criterion)
+		self.assertIn('"name" IS NOT NULL', criterion_sql)
+		for optional_field in (
+			"is_scrap_item",
+			"type",
+			"secondary_item_type",
+			"is_legacy_scrap_item",
+		):
+			self.assertNotIn(optional_field, criterion_sql)
+
 	def test_bom_parent_lookup_uses_report_permission_boundary_and_scoped_filters(self) -> None:
 		scope = {
 			"docstatus": 1,

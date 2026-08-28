@@ -19,10 +19,12 @@ from production_entry_app.production_entry_app.api import (
 from production_entry_app.production_entry_app.api_timeline import get_shift_timeline_data
 from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
 from production_entry_app.production_entry_app.joint_production import (
+	_get_bom_scrap_item_details,
 	_get_joint_bom_details,
 	_set_scrap_row_classification,
 	allocate_joint_output_value,
 	calculate_joint_rm_consumption,
+	is_joint_lh_rh_production,
 	materialize_joint_production_rows,
 	validate_and_apply_joint_production,
 )
@@ -38,9 +40,11 @@ from production_entry_app.production_entry_app.tests.support.manufacture_builder
 	make_direct_manufacture_entry,
 	make_running_shift,
 )
+from production_entry_app.production_entry_app.utils.rejection_warehouse import resolve_rejection_warehouse
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	cleanup_running_shifts,
 	ensure_item,
+	ensure_joint_test_bom,
 	ensure_stock,
 	ensure_workstation,
 )
@@ -69,6 +73,19 @@ def _make_running_shift_through_api(masters: dict[str, Any]) -> object:
 
 
 class TestJointProductionCalculations(FrappeTestCase):
+	def test_scrap_rate_fallback_uses_the_correct_cross_version_total_field(self) -> None:
+		cases = (
+			(frappe._dict(doctype="BOM Secondary Item", item_code="SCRAP", qty=2, rate=0, cost=8), 4),
+			(
+				frappe._dict(doctype="BOM Scrap Item", item_code="SCRAP", stock_qty=2, rate=0, amount=10),
+				5,
+			),
+		)
+		for row, expected_rate in cases:
+			with self.subTest(doctype=row.doctype):
+				details = _get_bom_scrap_item_details(row, {"SCRAP": "Kg"})
+				self.assertEqual(details.rate, expected_rate)
+
 	def test_scrap_row_classification_supports_each_stock_entry_detail_schema(self) -> None:
 		for fieldname in ("is_scrap_item", "type", "secondary_item_type"):
 			with self.subTest(fieldname=fieldname):
@@ -199,6 +216,32 @@ class TestJointProductionCalculations(FrappeTestCase):
 		self.assertTrue(is_production_stock_entry({"purpose": "Repack", "custom_pea_is_joint_lh_rh": 1}))
 		self.assertFalse(is_production_stock_entry({"purpose": "Repack"}))
 
+	def test_joint_stock_entry_type_lookup_is_cached_on_the_document(self) -> None:
+		doc = frappe.new_doc("Stock Entry")
+		doc.stock_entry_type = "Joint LH RH Repack"
+		with patch.object(frappe.db, "get_value", return_value=1) as get_value:
+			self.assertTrue(is_joint_lh_rh_production(doc))
+			self.assertTrue(is_joint_lh_rh_production(doc))
+
+		get_value.assert_called_once_with(
+			"Stock Entry Type",
+			"Joint LH RH Repack",
+			"custom_pea_joint_lh_rh_production",
+		)
+
+	def test_rejection_warehouse_requires_explicit_shift_or_settings_configuration(self) -> None:
+		doc = frappe.new_doc("Stock Entry")
+		meta = frappe._dict(has_field=lambda fieldname: fieldname == "shift_rejection_warehouse")
+		with (
+			patch(
+				"production_entry_app.production_entry_app.utils.rejection_warehouse.frappe.get_meta",
+				return_value=meta,
+			),
+			patch.object(frappe.db, "get_single_value", return_value=None),
+			self.assertRaisesRegex(frappe.ValidationError, "set a Rejection Warehouse"),
+		):
+			resolve_rejection_warehouse(doc)
+
 
 class TestJointProductionStockEntryType(FrappeTestCase):
 	def tearDown(self) -> None:
@@ -271,6 +314,13 @@ class TestJointProductionItems(FrappeTestCase):
 	def tearDown(self) -> None:
 		frappe.db.rollback()
 		frappe.local.enable_perpetual_inventory = {}
+
+	def test_joint_bom_fixture_does_not_reuse_a_stale_scrap_recipe(self) -> None:
+		matching_bom = self._make_bom(self.lh_item, scrap_qty=1.125)
+		changed_bom = self._make_bom(self.lh_item, scrap_qty=9.5)
+
+		self.assertEqual(matching_bom, self.lh_bom)
+		self.assertNotEqual(changed_bom, matching_bom)
 
 	def test_builds_one_rm_two_side_outputs_rejection_and_joint_scrap(self) -> None:
 		doc = frappe.get_doc(
@@ -443,6 +493,25 @@ class TestJointProductionItems(FrappeTestCase):
 			places=6,
 		)
 
+	def test_joint_rm_consumption_api_requires_both_boms(self) -> None:
+		with self.assertRaisesRegex(frappe.ValidationError, "Select both LH and RH BOMs"):
+			get_joint_rm_consumption(
+				lh_bom=self.lh_bom,
+				rh_bom="",
+				lh_gross_qty=40,
+				rh_gross_qty=41,
+			)
+
+	def test_joint_valuation_rejects_scrap_value_above_consumed_rm_value(self) -> None:
+		shift = make_running_shift(self.masters)
+		doc = self._make_joint_entry(shift)
+		rm_row = next(row for row in doc.items if row.s_warehouse)
+		rm_row.basic_rate = 0
+		rm_row.basic_amount = 0
+
+		with self.assertRaisesRegex(frappe.ValidationError, "scrap value cannot exceed"):
+			validate_and_apply_joint_production(doc)
+
 	def test_joint_boms_reject_different_rm_quantities(self) -> None:
 		lh_bom = self._make_bom(self.lh_item, bom_quantity=77, rm_qty=39.3, scrap_qty=1.125)
 		rh_bom = self._make_bom(self.rh_item, bom_quantity=77, rm_qty=40, scrap_qty=2.125)
@@ -528,7 +597,16 @@ class TestJointProductionItems(FrappeTestCase):
 		for bom_name in (self.lh_bom, self.rh_bom):
 			bom = frappe.get_doc("BOM", bom_name)
 			scrap_rows = bom.get("scrap_items") or bom.get("secondary_items")
-			frappe.db.set_value(scrap_rows[0].doctype, scrap_rows[0].name, "rate", 0, update_modified=False)
+			zero_values = {"rate": 0}
+			for fieldname in ("cost", "base_amount", "amount"):
+				if scrap_rows[0].meta.has_field(fieldname):
+					zero_values[fieldname] = 0
+			frappe.db.set_value(
+				scrap_rows[0].doctype,
+				scrap_rows[0].name,
+				zero_values,
+				update_modified=False,
+			)
 			frappe.clear_document_cache("BOM", bom_name)
 		rm_row = next(row for row in doc.items if row.s_warehouse)
 		rm_row.qty = 20
@@ -822,6 +900,9 @@ class TestJointProductionItems(FrappeTestCase):
 					],
 				)
 				doc.set("items", get_joint_production_items(json.dumps(doc.as_dict(), default=str)))
+				rm_row = next(row for row in doc.items if row.s_warehouse)
+				rm_row.basic_rate = 50
+				rm_row.basic_amount = rm_row.qty * rm_row.conversion_factor * rm_row.basic_rate
 
 				validate_and_apply_joint_production(doc)
 
@@ -1153,6 +1234,9 @@ class TestJointProductionItems(FrappeTestCase):
 			"items",
 			get_joint_production_items(json.dumps(doc.as_dict(), default=str)),
 		)
+		rm_row = next(row for row in doc.items if row.s_warehouse)
+		rm_row.basic_rate = 50
+		rm_row.basic_amount = rm_row.qty * rm_row.conversion_factor * rm_row.basic_rate
 		return doc
 
 	def _append_split_row(self, doc: object, source_row: object, *, qty: float) -> None:
@@ -1191,38 +1275,11 @@ class TestJointProductionItems(FrappeTestCase):
 		scrap_items: list[tuple[str, float, float]] | None = None,
 	) -> str:
 		scrap_items = scrap_items or [(self.scrap_item, flt(scrap_qty), 10)]
-		values = {
-			"doctype": "BOM",
-			"item": item_code,
-			"company": self.masters["company"],
-			"quantity": bom_quantity,
-			"is_active": 1,
-			"items": [{"item_code": self.rm_item, "qty": rm_qty, "rate": 50}],
-		}
-		if frappe.get_meta("BOM", cached=True).has_field("secondary_items"):
-			secondary_item_type_field = (
-				"secondary_item_type"
-				if frappe.get_meta("BOM Secondary Item", cached=True).has_field("secondary_item_type")
-				else "type"
-			)
-			values["secondary_items"] = [
-				{
-					secondary_item_type_field: "Scrap",
-					"item_code": scrap_item,
-					"qty": qty,
-					"uom": frappe.db.get_value("Item", scrap_item, "stock_uom"),
-					"conversion_factor": 1,
-					"rate": rate,
-					"cost_allocation_per": 0,
-					"process_loss_per": 0,
-				}
-				for scrap_item, qty, rate in scrap_items
-			]
-		else:
-			values["scrap_items"] = [
-				{"item_code": scrap_item, "stock_qty": qty, "rate": rate}
-				for scrap_item, qty, rate in scrap_items
-			]
-		bom = frappe.get_doc(values).insert(ignore_permissions=True)
-		bom.submit()
-		return bom.name
+		return ensure_joint_test_bom(
+			item_code=item_code,
+			rm_item=self.rm_item,
+			scrap_items=scrap_items,
+			company=self.masters["company"],
+			bom_quantity=bom_quantity,
+			rm_qty=rm_qty,
+		)

@@ -355,6 +355,60 @@ class TestGetShiftTimelineData(FrappeTestCase):
 		result = get_shift_timeline_data("Workstation", self.workstation_a)
 		self.assertEqual(result["entries"][0]["fg_item"], self.fg_item)
 
+	def test_entry_keeps_link_safe_fg_item_and_exposes_combined_display_label(self) -> None:
+		from production_entry_app.production_entry_app.api_timeline import get_shift_timeline_data
+
+		shift = self._create_running_shift("2026-10-16")
+		entry_name = self._create_submitted_like_entry(
+			shift.name,
+			workstation=self.workstation_a,
+			operator=self.operator_a,
+			actual_start="2026-10-16 09:00:00",
+			actual_end="2026-10-16 10:00:00",
+		)
+		second_item = ensure_item("_TIMELINE_FG_SECOND")
+		frappe.get_doc(
+			{
+				"doctype": "Stock Entry Detail",
+				"parent": entry_name,
+				"parenttype": "Stock Entry",
+				"parentfield": "items",
+				"idx": 3,
+				"item_code": second_item,
+				"qty": 1,
+				"transfer_qty": 1,
+				"uom": "Nos",
+				"stock_uom": "Nos",
+				"conversion_factor": 1,
+				"t_warehouse": self.ctx["fg_warehouse"],
+				"is_finished_item": 1,
+			}
+		).db_insert()
+
+		result = get_shift_timeline_data("Workstation", self.workstation_a)
+
+		self.assertEqual(result["entries"][0]["fg_item"], self.fg_item)
+		self.assertEqual(result["entries"][0]["fg_item_label"], f"{self.fg_item} + {second_item}")
+
+	def test_entry_quantity_falls_back_to_header_when_finished_rows_are_unavailable(self) -> None:
+		from production_entry_app.production_entry_app.api_timeline import get_shift_timeline_data
+
+		shift = self._create_running_shift("2026-10-17")
+		entry_name = self._create_submitted_like_entry(
+			shift.name,
+			workstation=self.workstation_a,
+			operator=self.operator_a,
+			actual_start="2026-10-17 09:00:00",
+			actual_end="2026-10-17 10:00:00",
+			good_qty=37,
+		)
+		frappe.db.delete("Stock Entry Detail", {"parent": entry_name})
+		frappe.db.set_value("Stock Entry", entry_name, "fg_completed_qty", 37, update_modified=False)
+
+		result = get_shift_timeline_data("Workstation", self.workstation_a)
+
+		self.assertEqual(result["entries"][0]["fg_qty"], 37)
+
 	def test_entries_without_actual_times_excluded(self) -> None:
 		from production_entry_app.production_entry_app.api_timeline import get_shift_timeline_data
 

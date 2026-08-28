@@ -3323,7 +3323,7 @@ class TestShiftAggregateProductionEntries(FrappeTestCase):
 		get_list.assert_any_call(
 			"BOM",
 			filters={"name": ["in", [self.bom]]},
-			pluck="name",
+			fields=["name", "item"],
 			limit_page_length=0,
 		)
 

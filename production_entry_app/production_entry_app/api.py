@@ -31,7 +31,7 @@ _ALLOWED_STOCK_ENTRY_SHIFT_STATUSES: tuple[str, ...] = ("Running", "Completed")
 def get_joint_stock_entry_type() -> str:
 	if not frappe.has_permission("Stock Entry", "create"):
 		raise frappe.PermissionError
-	stock_entry_types = frappe.get_all(
+	stock_entry_types = frappe.get_list(
 		"Stock Entry Type",
 		filters={
 			"purpose": "Repack",
@@ -44,8 +44,6 @@ def get_joint_stock_entry_type() -> str:
 	if not stock_entry_types:
 		frappe.throw(_("Configure a Repack Stock Entry Type for Joint LH/RH Production first."))
 	stock_entry_type = stock_entry_types[0]
-	if not frappe.has_permission("Stock Entry Type", "read", stock_entry_type):
-		raise frappe.PermissionError
 	return stock_entry_type
 
 
@@ -58,6 +56,8 @@ def get_joint_rm_consumption(
 ) -> float:
 	if not frappe.has_permission("Stock Entry", "create"):
 		raise frappe.PermissionError
+	if not lh_bom or not rh_bom:
+		frappe.throw(_("Select both LH and RH BOMs."))
 	for bom_no in (lh_bom, rh_bom):
 		if not frappe.has_permission("BOM", "read", bom_no):
 			raise frappe.PermissionError

@@ -11,6 +11,8 @@ from frappe import _
 from frappe.query_builder import Case, DocType
 from frappe.query_builder.functions import Sum
 from frappe.utils import cint, flt, get_datetime
+from pypika import Table
+from pypika.terms import Criterion
 
 from production_entry_app.production_entry_app.utils.loss_time import (
 	SETUP_TIME_REASON,
@@ -550,9 +552,9 @@ def get_parent_breakup_reason_rows(
 	return query.run(as_dict=True)
 
 
-def get_finished_item_map(stock_entry_names: list[str]) -> dict[str, str]:
+def get_finished_item_maps(stock_entry_names: list[str]) -> tuple[dict[str, str], dict[str, str]]:
 	if not stock_entry_names:
-		return {}
+		return {}, {}
 
 	stock_entry_detail = DocType("Stock Entry Detail")
 	rows = (
@@ -565,6 +567,7 @@ def get_finished_item_map(stock_entry_names: list[str]) -> dict[str, str]:
 			| (stock_entry_detail.custom_pea_is_rejection_item == 0)
 		)
 		.where(_get_non_scrap_item_criterion(stock_entry_detail))
+		.orderby(stock_entry_detail.parent, stock_entry_detail.idx)
 	).run(as_dict=True)
 	items_by_parent: dict[str, list[str]] = defaultdict(list)
 	for row in rows:
@@ -572,7 +575,16 @@ def get_finished_item_map(stock_entry_names: list[str]) -> dict[str, str]:
 		item_code = row.get("item_code")
 		if parent and item_code and item_code not in items_by_parent[parent]:
 			items_by_parent[parent].append(item_code)
-	return {parent: " + ".join(item_codes) for parent, item_codes in items_by_parent.items()}
+	return (
+		{parent: item_codes[0] for parent, item_codes in items_by_parent.items()},
+		{parent: " + ".join(item_codes) for parent, item_codes in items_by_parent.items()},
+	)
+
+
+def get_finished_item_map(stock_entry_names: list[str]) -> dict[str, str]:
+	"""Return one valid Item code per Stock Entry for Link-field consumers."""
+	item_map, _label_map = get_finished_item_maps(stock_entry_names)
+	return item_map
 
 
 def get_item_bom_quality_facts(entries: list[dict], *, is_rework: bool) -> list[dict]:
@@ -668,8 +680,11 @@ def get_item_bom_quality_hotspot_rows(
 			"custom_pea_rejection_qty",
 			"custom_pea_rework_qty",
 			"bom_no",
+			"custom_pea_is_joint_lh_rh",
 			"custom_pea_lh_bom",
+			"custom_pea_lh_gross_qty",
 			"custom_pea_rh_bom",
+			"custom_pea_rh_gross_qty",
 		],
 	):
 		timeout_guard()
@@ -737,7 +752,7 @@ def _get_joint_output_item_map(stock_entry_names: list[str]) -> dict[tuple[str, 
 	}
 
 
-def _get_non_scrap_item_criterion(stock_entry_detail: Any) -> Any:
+def _get_non_scrap_item_criterion(stock_entry_detail: Table) -> Criterion:
 	meta = frappe.get_meta("Stock Entry Detail", cached=True)
 	criterion = stock_entry_detail.name.isnotnull()
 	if meta.has_field("is_scrap_item"):

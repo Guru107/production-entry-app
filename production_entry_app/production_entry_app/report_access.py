@@ -38,13 +38,6 @@ def _validate_report_name(report_name: str, user: str | None = None) -> None:
 		raise frappe.PermissionError
 
 
-def get_report_permission_query_conditions(user: str | None = None) -> str:
-	if not _is_pea_read_only(user):
-		return ""
-	allowed_names = ", ".join(frappe.db.escape(name) for name in sorted(PEA_REPORT_NAMES))
-	return f"`tabReport`.`name` in ({allowed_names})"
-
-
 @frappe.whitelist()
 def get_script(report_name: str) -> dict:
 	_validate_report_name(report_name)

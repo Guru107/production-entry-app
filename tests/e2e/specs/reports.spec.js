@@ -84,10 +84,9 @@ test.describe("Production reports", () => {
 		await reportsPage.setFilterByFieldname("company", ctx.company);
 		await reportsPage.runWithDateRange(ctx.shift_date, ctx.shift_date);
 
-		const filters = await reportsPage.getFilterValues();
-		const runtimeState = await reportsPage.getRuntimeState();
-		expect(filters.company).toBe(ctx.company);
-		expect(runtimeState.reportName).toBe("Stock Ledger");
+		await reportsPage.waitForRows(1);
+		const rows = await reportsPage.getRows();
+		expect(rows.length).toBeGreaterThan(0);
 	});
 
 	test("@smoke OEE report shows day-workstation aggregate row", async ({ page }) => {

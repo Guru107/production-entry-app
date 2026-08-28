@@ -15,7 +15,6 @@ const PEA_MANUFACTURE_FIELDS = [
 	"custom_pea_ok_qty",
 	"custom_pea_rework_qty",
 	"custom_pea_fetch_items",
-	"custom_pea_joint_fetch_items",
 	"custom_pea_rejection_breakup",
 	"custom_pea_shift",
 	"custom_pea_planned_start_date",
@@ -44,6 +43,7 @@ const PEA_MANUFACTURE_FIELDS = [
 ];
 
 const NORMAL_ONLY_PEA_FIELDS = ["custom_pea_rejection_qty", "custom_pea_rework_qty"];
+const JOINT_ONLY_PEA_FIELDS = ["custom_pea_joint_fetch_items"];
 
 const MANUFACTURE_FIELDS = [...NATIVE_MANUFACTURE_FIELDS, ...PEA_MANUFACTURE_FIELDS];
 
@@ -281,6 +281,7 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 			const bom =
 				selectedSide === "LH" ? frm.doc.custom_pea_lh_bom : frm.doc.custom_pea_rh_bom;
 			if (!bom) {
+				_rejectionSideRequestIds.delete(cdn);
 				frappe.model.set_value(cdt, cdn, "item_code", "");
 				return;
 			}
@@ -300,6 +301,11 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 				.catch((error) => {
 					if (_rejectionSideRequestIds.get(cdn) === requestId) {
 						_notify_call_error(__("Failed to load the joint output item."), error);
+					}
+				})
+				.finally(() => {
+					if (_rejectionSideRequestIds.get(cdn) === requestId) {
+						_rejectionSideRequestIds.delete(cdn);
 					}
 				});
 		},
@@ -425,6 +431,7 @@ function _apply_manufacture_visibility(frm) {
 	frm.toggle_display(PEA_MANUFACTURE_FIELDS, isProduction);
 	frm.toggle_display(PEA_MANUFACTURE_SECTIONS, isProduction);
 	frm.toggle_display(NORMAL_ONLY_PEA_FIELDS, isManufacture);
+	frm.toggle_display(JOINT_ONLY_PEA_FIELDS, _is_joint_doc(frm.doc));
 	if (isProduction) {
 		_expand_sections(frm, PEA_MANUFACTURE_SECTIONS);
 	}
@@ -491,10 +498,17 @@ function _clear_manufacture_data_on_leave(frm) {
 function _sync_joint_stock_entry_type(frm) {
 	const requestId = ++_jointStockEntryTypeRequestId;
 	if (!_is_joint_doc(frm.doc)) {
-		if (_normalize_purpose(frm.doc.custom_pea_stock_entry_purpose) === "Repack") {
-			frm.set_value("stock_entry_type", "Manufacture");
+		if (Object.prototype.hasOwnProperty.call(frm, "__peaStockEntryTypeBeforeJoint")) {
+			const previousStockEntryType = frm.__peaStockEntryTypeBeforeJoint;
+			delete frm.__peaStockEntryTypeBeforeJoint;
+			if (frm.doc.stock_entry_type !== previousStockEntryType) {
+				frm.set_value("stock_entry_type", previousStockEntryType || "");
+			}
 		}
 		return;
+	}
+	if (!Object.prototype.hasOwnProperty.call(frm, "__peaStockEntryTypeBeforeJoint")) {
+		frm.__peaStockEntryTypeBeforeJoint = frm.doc.stock_entry_type || "";
 	}
 
 	frappe.call({
@@ -839,17 +853,22 @@ function _toggle_rejection_breakup(frm) {
 		frm.toggle_reqd("custom_pea_rejection_breakup", false);
 		return;
 	}
-	const rejection_qty = _is_joint_doc(frm.doc)
-		? Number(frm.doc.custom_pea_lh_rejection_qty || 0) +
-		  Number(frm.doc.custom_pea_rh_rejection_qty || 0)
-		: typeof flt === "function"
-		? flt(frm.doc.custom_pea_rejection_qty)
-		: 0;
+	const rejection_qty = _get_rejection_qty_for_visibility(frm.doc);
 	const has_rejection = rejection_qty > 0;
 	const has_breakup_rows = (frm.doc.custom_pea_rejection_breakup || []).length > 0;
 	frm.toggle_display("custom_pea_rejection_breakup", has_rejection || has_breakup_rows);
 	frm.toggle_reqd("custom_pea_rejection_breakup", has_rejection);
 	_configure_rejection_breakup_grid(frm);
+}
+
+function _get_rejection_qty_for_visibility(doc) {
+	if (_is_joint_doc(doc)) {
+		return (
+			Number(doc.custom_pea_lh_rejection_qty || 0) +
+			Number(doc.custom_pea_rh_rejection_qty || 0)
+		);
+	}
+	return typeof flt === "function" ? flt(doc.custom_pea_rejection_qty) : 0;
 }
 
 function _configure_rejection_breakup_grid(frm) {
@@ -981,6 +1000,7 @@ if (typeof module !== "undefined" && module.exports) {
 		NATIVE_MANUFACTURE_FIELDS,
 		NATIVE_MANUFACTURE_SECTIONS,
 		PEA_MANUFACTURE_FIELDS,
+		JOINT_ONLY_PEA_FIELDS,
 		PEA_MANUFACTURE_SECTIONS,
 		MANUFACTURE_FIELDS,
 		MANUFACTURE_SECTIONS,
@@ -990,6 +1010,9 @@ if (typeof module !== "undefined" && module.exports) {
 		_sync_native_get_items_access,
 		_apply_shift_detail_updates,
 		_apply_fetch_items_response,
+		_apply_manufacture_visibility,
+		_sync_joint_stock_entry_type,
+		_get_rejection_qty_for_visibility,
 		_hide_native_get_items,
 		_show_native_get_items,
 	};

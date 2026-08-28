@@ -11,6 +11,7 @@ from frappe.query_builder import DocType
 from frappe.query_builder.functions import CustomFunction, Sum
 from frappe.utils import add_to_date, cint, flt, get_datetime
 
+from production_entry_app.production_entry_app.report.report_utils import is_production_stock_entry
 from production_entry_app.production_entry_app.utils.loss_time import (
 	build_interval_overlap_criterion,
 	build_interval_overlap_filters,
@@ -782,11 +783,7 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 		order_by="name asc",
 		limit_page_length=0,
 	)
-	entry_rows = [
-		row
-		for row in entry_rows
-		if row.get("purpose") in (None, "Manufacture") or row.get("custom_pea_is_joint_lh_rh")
-	]
+	entry_rows = [row for row in entry_rows if is_production_stock_entry(row)]
 	entry_names = [row.get("name") for row in entry_rows if row.get("name")]
 	item_by_entry = (
 		{
@@ -1008,11 +1005,7 @@ def get_shift_aggregate_production_entries(shift_name: str | None = None) -> lis
 		],
 		limit_page_length=0,
 	)
-	permitted_entries = [
-		row
-		for row in permitted_entries
-		if row.get("purpose") in (None, "Manufacture") or row.get("custom_pea_is_joint_lh_rh")
-	]
+	permitted_entries = [row for row in permitted_entries if is_production_stock_entry(row)]
 	permitted_entry_names = [row.get("name") for row in permitted_entries if row.get("name")]
 	if not permitted_entry_names:
 		return []
@@ -1024,14 +1017,16 @@ def get_shift_aggregate_production_entries(shift_name: str | None = None) -> lis
 			if bom_no
 		}
 	)
-	permitted_bom_names = frappe.get_list(
+	permitted_bom_rows = frappe.get_list(
 		"BOM",
 		filters={"name": ["in", requested_bom_names]},
-		pluck="name",
+		fields=["name", "item"],
 		limit_page_length=0,
 	)
+	permitted_bom_names = [row.get("name") for row in permitted_bom_rows if row.get("name")]
 	if not permitted_bom_names:
 		return []
+	item_by_bom = {row.get("name"): row.get("item") for row in permitted_bom_rows}
 
 	stock_entry = DocType("Stock Entry")
 	bom = DocType("BOM")
@@ -1098,15 +1093,6 @@ def get_shift_aggregate_production_entries(shift_name: str | None = None) -> lis
 			}
 		)
 
-	item_by_bom = {
-		row.get("name"): row.get("item")
-		for row in frappe.get_list(
-			"BOM",
-			filters={"name": ["in", permitted_bom_names]},
-			fields=["name", "item"],
-			limit_page_length=0,
-		)
-	}
 	joint_aggregates: dict[tuple[str, str], dict[str, float]] = {}
 	for entry in permitted_entries:
 		if not entry.get("custom_pea_is_joint_lh_rh"):
@@ -1130,7 +1116,7 @@ def get_shift_aggregate_production_entries(shift_name: str | None = None) -> lis
 			if entry.get("custom_pea_production_time_mins") is not None
 			else entry.get("custom_pea_actual_duration_mins")
 		)
-	for (lh_bom, rh_bom), aggregate in joint_aggregates.items():
+	for (lh_bom, rh_bom), aggregate in sorted(joint_aggregates.items()):
 		total_qty = flt(aggregate["total_qty"])
 		total_reject_qty = flt(aggregate["total_reject_qty"])
 		mins = flt(aggregate["mins"])

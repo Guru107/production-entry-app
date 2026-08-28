@@ -40,6 +40,7 @@ from production_entry_app.production_entry_app.utils.loss_time import (
 	merge_intervals,
 	resolve_time_interval_in_window,
 )
+from production_entry_app.production_entry_app.utils.rejection_warehouse import resolve_rejection_warehouse
 from production_entry_app.production_entry_app.utils.shift_time import (
 	combine_date_time,
 	get_shift_planned_end_datetime,
@@ -625,7 +626,7 @@ def _apply_rejection_entries(doc) -> None:
 		return
 
 	_validate_rejection_qty_against_finished_good(rejection_qty, fg_row)
-	rejection_warehouse = _get_rejection_warehouse(doc, preferred_warehouse=existing_rejection_t_warehouse)
+	rejection_warehouse = resolve_rejection_warehouse(doc, existing_rejection_t_warehouse)
 	fg_row.qty -= rejection_qty
 	_append_rejection_item_row(doc, fg_row, rejection_qty, rejection_warehouse)
 
@@ -720,27 +721,6 @@ def _find_finished_good_row(doc):
 		if row.get("is_finished_item"):
 			return row
 	return None
-
-
-def _get_rejection_warehouse(doc, preferred_warehouse: str | None = None) -> str:
-	"""Resolve rejection warehouse, honoring explicit row-level warehouse when present."""
-	if preferred_warehouse:
-		return preferred_warehouse
-
-	# Try from linked Shift
-	if doc.get("custom_pea_shift"):
-		shift_rejection_wh = frappe.db.get_value("Shift", doc.custom_pea_shift, "rejection_warehouse")
-		if shift_rejection_wh:
-			return shift_rejection_wh
-
-	# Try from Production Entry Settings
-	settings_meta = frappe.get_meta("Production Entry Settings", cached=True)
-	if settings_meta.has_field("shift_rejection_warehouse"):
-		wh = frappe.db.get_single_value("Production Entry Settings", "shift_rejection_warehouse")
-		if wh:
-			return wh
-
-	frappe.throw(_("Please set a Rejection Warehouse on the Shift or in Production Entry Settings."))
 
 
 def _get_existing_rejection_target_warehouse(doc) -> str | None:

@@ -348,7 +348,6 @@ def _add_entry_quantities_to_group(
 ) -> None:
 	shift_name = entry.get("custom_pea_shift")
 	group["total_strokes"] += total_strokes
-	group["rejection"] += rejection_qty
 	if entry.get("custom_pea_is_joint_lh_rh"):
 		group["quality_total"] += flt(entry.get("custom_pea_lh_gross_qty")) + flt(
 			entry.get("custom_pea_rh_gross_qty")
@@ -499,7 +498,6 @@ def _new_group(day: str, workstation: str) -> dict:
 		"first_shift_strokes": 0.0,
 		"second_shift_strokes": 0.0,
 		"total_strokes": 0.0,
-		"rejection": 0.0,
 		"quality_total": 0.0,
 		"quality_rejection": 0.0,
 		"standard_spm": 0.0,

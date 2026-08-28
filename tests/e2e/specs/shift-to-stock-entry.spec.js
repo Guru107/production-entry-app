@@ -3,6 +3,10 @@ const { bootstrapE2E, cleanupE2E } = require("../fixtures/test-data");
 const { getDoc, callFrappeMethod, setFieldValue } = require("../fixtures/frappe");
 const { expectValidationError } = require("../fixtures/assertions");
 const { registerE2ELifecycle } = require("../fixtures/lifecycle");
+const {
+	deleteJointStockEntryTypeIfExists,
+	ensureJointStockEntryType,
+} = require("../fixtures/joint-production");
 const { ShiftPage } = require("../pages/shift-page");
 const { StockEntryPage } = require("../pages/stock-entry-page");
 const { getRoute } = require("../utils/routing");
@@ -21,47 +25,6 @@ function uniqueFutureDate() {
 async function setupFreshContext(page, prefix) {
 	await cleanupE2E(page, prefix);
 	return await bootstrapE2E(page, prefix);
-}
-
-async function ensureJointStockEntryType(page, prefix) {
-	const existing = await callFrappeMethod(page, "frappe.client.get_list", {
-		doctype: "Stock Entry Type",
-		fields: JSON.stringify(["name"]),
-		filters: JSON.stringify({
-			purpose: "Repack",
-			custom_pea_joint_lh_rh_production: 1,
-		}),
-		order_by: "modified desc, name asc",
-		limit_page_length: 1,
-	});
-	if (existing?.length) return { name: existing[0].name, created: false };
-
-	const name = `${prefix} Joint LH RH`;
-	await callFrappeMethod(page, "frappe.client.insert", {
-		doc: JSON.stringify({
-			doctype: "Stock Entry Type",
-			name,
-			purpose: "Repack",
-			custom_pea_joint_lh_rh_production: 1,
-		}),
-	});
-	return { name, created: true };
-}
-
-async function deleteStockEntryTypeIfExists(page, name) {
-	if (!name) return;
-	const existing = await callFrappeMethod(page, "frappe.client.get_list", {
-		doctype: "Stock Entry Type",
-		fields: JSON.stringify(["name"]),
-		filters: JSON.stringify({ name }),
-		limit_page_length: 1,
-	});
-	if (existing?.length) {
-		await callFrappeMethod(page, "frappe.client.delete", {
-			doctype: "Stock Entry Type",
-			name,
-		});
-	}
 }
 
 async function setSystemFloatPrecision(page, prefix, precision) {
@@ -178,7 +141,7 @@ test.describe("Shift to Stock Entry integration", () => {
 
 	test.afterEach(async ({ page }) => {
 		for (const name of createdStockEntryTypes) {
-			await deleteStockEntryTypeIfExists(page, name);
+			await deleteJointStockEntryTypeIfExists(page, name);
 		}
 		createdStockEntryTypes.clear();
 	});
@@ -189,7 +152,7 @@ test.describe("Shift to Stock Entry integration", () => {
 		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 		const jointType = await ensureJointStockEntryType(page, lifecycle.getPrefix());
-		if (jointType.created) createdStockEntryTypes.add(jointType.name);
+		createdStockEntryTypes.add(jointType);
 		const shift = await getDoc(page, "Shift", ctx.shift_name);
 		const shiftPage = new ShiftPage(page);
 		await shiftPage.open(ctx.shift_name);
@@ -226,7 +189,7 @@ test.describe("Shift to Stock Entry integration", () => {
 		await expect(jointCheckbox).toBeVisible();
 		await expect(jointCheckbox).toBeEnabled();
 		await jointCheckbox.check();
-		await stockEntryPage.waitForFieldValue("stock_entry_type", jointType.name);
+		await stockEntryPage.waitForFieldValue("stock_entry_type", jointType);
 		await stockEntryPage.waitForFieldValue("custom_pea_stock_entry_purpose", "Repack");
 
 		const afterJoint = await stockEntryPage.getFieldValues([

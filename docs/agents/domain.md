@@ -11,7 +11,7 @@ If these files do not exist, proceed silently. Domain-modeling skills create the
 
 This is a single-context repository:
 
-```
+```text
 /
 ├── CONTEXT.md
 ├── docs/adr/
