@@ -13,6 +13,8 @@ const {
 	_apply_shift_detail_updates,
 	_apply_fetch_items_response,
 	_sync_joint_stock_entry_type,
+	_default_total_strokes_from_fg,
+	_mark_total_strokes_edited,
 	_get_rejection_qty_for_visibility,
 	MANUFACTURE_FIELDS,
 	PEA_MANUFACTURE_FIELDS,
@@ -22,6 +24,35 @@ const {
 	ALWAYS_HIDDEN_SECTIONS,
 	MANUFACTURE_CLEAR_TABLE_FIELDS,
 } = require("../../production_entry_app/public/js/stock_entry.js");
+
+test("manufacture strokes follow quantity until the operator edits them", async () => {
+	const frm = {
+		doc: {
+			__islocal: 1,
+			custom_pea_stock_entry_purpose: "Manufacture",
+			custom_pea_is_joint_lh_rh: 0,
+			fg_completed_qty: 100,
+			custom_pea_total_strokes: 0,
+		},
+		set_value(fieldname, value) {
+			this.doc[fieldname] = value;
+			return Promise.resolve();
+		},
+	};
+
+	await _default_total_strokes_from_fg(frm);
+	assert.equal(frm.doc.custom_pea_total_strokes, 100);
+
+	frm.doc.fg_completed_qty = 120;
+	await _default_total_strokes_from_fg(frm);
+	assert.equal(frm.doc.custom_pea_total_strokes, 120);
+
+	frm.doc.custom_pea_total_strokes = 40;
+	_mark_total_strokes_edited(frm);
+	frm.doc.fg_completed_qty = 130;
+	await _default_total_strokes_from_fg(frm);
+	assert.equal(frm.doc.custom_pea_total_strokes, 40);
+});
 
 test("normalize purpose trims whitespace and handles empty values", () => {
 	assert.equal(_normalize_purpose(" Manufacture "), "Manufacture");
@@ -150,7 +181,6 @@ test("manually selecting a non-joint Stock Entry Type exits joint production and
 			custom_pea_total_strokes: 41,
 			custom_pea_die_tool_item: "DIE-001",
 			custom_pea_total_rm_consumption: 49.125,
-			custom_pea_joint_scrap_qty: 3.25,
 			custom_pea_rejection_breakup: [{ output_side: "LH", qty: 1 }],
 			items: [{ item_code: "RM-001" }],
 		},
@@ -181,7 +211,6 @@ test("manually selecting a non-joint Stock Entry Type exits joint production and
 		assert.equal(frm.doc.custom_pea_total_strokes, "");
 		assert.equal(frm.doc.custom_pea_die_tool_item, "");
 		assert.equal(frm.doc.custom_pea_total_rm_consumption, "");
-		assert.equal(frm.doc.custom_pea_joint_scrap_qty, "");
 		assert.deepEqual(frm.doc.custom_pea_rejection_breakup, []);
 		assert.deepEqual(frm.doc.items, []);
 	} finally {

@@ -30,7 +30,7 @@ _ALLOWED_STOCK_ENTRY_SHIFT_STATUSES: tuple[str, ...] = ("Running", "Completed")
 @frappe.whitelist()
 def get_joint_stock_entry_type() -> str:
 	if not frappe.has_permission("Stock Entry", "create"):
-		raise frappe.PermissionError
+		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
 	stock_entry_types = frappe.get_list(
 		"Stock Entry Type",
 		filters={
@@ -55,12 +55,12 @@ def get_joint_rm_consumption(
 	rh_gross_qty: float,
 ) -> float:
 	if not frappe.has_permission("Stock Entry", "create"):
-		raise frappe.PermissionError
+		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
 	if not lh_bom or not rh_bom:
 		frappe.throw(_("Select both LH and RH BOMs."))
 	for bom_no in (lh_bom, rh_bom):
 		if not frappe.has_permission("BOM", "read", bom_no):
-			raise frappe.PermissionError
+			frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
 	return calculate_joint_rm_consumption_from_boms(
 		lh_bom_no=lh_bom,
 		rh_bom_no=rh_bom,
@@ -82,9 +82,9 @@ def get_joint_production_items(doc: str) -> list[dict]:
 	is_local_doc = bool(doc_dict.get("__islocal"))
 	if docname and not is_local_doc and frappe.db.exists("Stock Entry", docname):
 		if not frappe.has_permission("Stock Entry", "write", docname):
-			raise frappe.PermissionError
+			frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
 	elif not frappe.has_permission("Stock Entry", "create"):
-		raise frappe.PermissionError
+		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
 
 	for doctype, fieldname in (
 		("BOM", "custom_pea_lh_bom"),
@@ -96,7 +96,7 @@ def get_joint_production_items(doc: str) -> list[dict]:
 	):
 		name = doc_dict.get(fieldname)
 		if name and not frappe.has_permission(doctype, "read", name):
-			raise frappe.PermissionError
+			frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
 
 	stock_entry = frappe.new_doc("Stock Entry")
 	for fieldname in (
@@ -158,7 +158,7 @@ def get_shift_details_for_stock_entry(shift_name: str) -> dict:
 	if not shift_name:
 		return {}
 	if not frappe.has_permission("Shift", "read", shift_name):
-		raise frappe.PermissionError
+		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
 
 	shift = frappe.get_doc("Shift", shift_name)
 	if shift.status not in _ALLOWED_STOCK_ENTRY_SHIFT_STATUSES:
@@ -221,9 +221,9 @@ def get_items_with_rejection(doc: str) -> list[dict]:
 	is_local_doc = bool((doc_dict or {}).get("__islocal"))
 	if docname and not is_local_doc and frappe.db.exists("Stock Entry", docname):
 		if not frappe.has_permission("Stock Entry", "write", docname):
-			raise frappe.PermissionError
+			frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
 	elif not frappe.has_permission("Stock Entry", "create"):
-		raise frappe.PermissionError
+		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
 
 	for doctype, fieldname in (
 		("BOM", "bom_no"),
@@ -234,7 +234,7 @@ def get_items_with_rejection(doc: str) -> list[dict]:
 	):
 		name = doc_dict.get(fieldname)
 		if name and not frappe.has_permission(doctype, "read", name):
-			raise frappe.PermissionError
+			frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
 
 	se = frappe.new_doc("Stock Entry")
 	se.purpose = doc_dict.get("purpose", "Manufacture")
@@ -283,7 +283,7 @@ def get_die_tool_counter(die_tool_code: str) -> dict:
 	if not die_tool_code or not frappe.db.exists("Item", die_tool_code):
 		return _empty_die_tool_payload(die_tool_code)
 	if not frappe.has_permission("Item", "read", die_tool_code):
-		raise frappe.PermissionError
+		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
 	if not is_die_tool_enabled(die_tool_code):
 		return _empty_die_tool_payload(die_tool_code)
 
@@ -345,7 +345,7 @@ def reset_die_tool_counter(die_tool_code: str, maintenance_date: str | None = No
 	if not is_die_tool_enabled(die_tool_code):
 		frappe.throw(_("Die tool counter reset is not allowed because this item has no die tool."))
 	if not frappe.has_permission("Die Tool Maintenance Log", "create"):
-		raise frappe.PermissionError
+		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
 
 	maintenance_dt = get_datetime(maintenance_date) if maintenance_date else now_datetime()
 	maintenance_log = frappe.get_doc(

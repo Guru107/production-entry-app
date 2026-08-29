@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 import frappe
 from frappe import _
 from frappe.utils import flt
@@ -14,17 +16,34 @@ from production_entry_app.production_entry_app.utils.system_precision import (
 	get_system_float_precision,
 )
 
+TIMELINE_CACHE_PREFIX = "pea:timeline"
+
+
+def get_timeline_cache_prefix(doctype: str, docname: str, shift_name: str) -> str:
+	return f"{TIMELINE_CACHE_PREFIX}:{doctype}:{docname}:{shift_name}:"
+
+
+def invalidate_timeline_cache_for_stock_entry(doc: Any) -> None:
+	shift_name = doc.get("custom_pea_shift")
+	if not shift_name:
+		return
+	for doctype, fieldname in (
+		("Workstation", "custom_pea_workstation"),
+		("Operator", "custom_pea_operator"),
+	):
+		docname = doc.get(fieldname)
+		if docname:
+			frappe.cache().delete_keys(get_timeline_cache_prefix(doctype, docname, shift_name))
+
 
 def _get_timeline_cache_key(doctype: str, docname: str, shift_name: str) -> str:
 	"""Cache key includes shift's modified timestamp so any change to the shift
 	automatically invalidates the timeline cache."""
 	shift_modified = frappe.db.get_value("Shift", shift_name, "modified") or ""
-	return f"pea:timeline:admin:{doctype}:{docname}:{shift_name}:{shift_modified}"
+	return f"{get_timeline_cache_prefix(doctype, docname, shift_name)}{shift_modified}"
 
 
 def _set_cached_timeline_data(doctype: str, docname: str, shift_name: str, data: dict) -> None:
-	if frappe.session.user != "Administrator":
-		return
 	frappe.cache().set_value(
 		_get_timeline_cache_key(doctype, docname, shift_name),
 		data,
@@ -38,8 +57,6 @@ def _get_cached_timeline_data(doctype: str, docname: str, shift_name: str) -> di
 	Cache is keyed by the shift's modified timestamp, so any change to the shift
 	automatically produces a different key, making the cache stale.
 	"""
-	if frappe.session.user != "Administrator":
-		return None
 	return frappe.cache().get_value(_get_timeline_cache_key(doctype, docname, shift_name))
 
 
@@ -55,7 +72,7 @@ def get_shift_timeline_data(doctype: str, docname: str) -> dict:
 	if doctype not in ("Workstation", "Operator"):
 		frappe.throw(_("Invalid doctype for timeline data."))
 	if not frappe.has_permission(doctype, "read", docname):
-		raise frappe.PermissionError
+		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
 
 	running_shift = frappe.get_list(
 		"Shift",
@@ -69,11 +86,11 @@ def get_shift_timeline_data(doctype: str, docname: str) -> dict:
 
 	shift = running_shift[0]
 	if not frappe.has_permission("Shift", "read", shift.get("name")):
-		raise frappe.PermissionError
+		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
 	if not frappe.has_permission("Stock Entry", "read"):
-		raise frappe.PermissionError
+		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
 	if doctype == "Workstation" and not frappe.has_permission("Downtime Entry", "read"):
-		raise frappe.PermissionError
+		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
 	cached_data = _get_cached_timeline_data(doctype, docname, shift.get("name"))
 	if cached_data is not None:
 		return _with_float_precision(cached_data)

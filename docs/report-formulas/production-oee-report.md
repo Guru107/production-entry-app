@@ -2,12 +2,15 @@
 
 Source: `production_oee_report/production_oee_report.py`
 
-- `day`: Stock Entry `posting_date` group key.
+- `day`: linked Completed Shift `shift_date` group key.
 - `workstation`: Stock Entry `custom_pea_workstation` group key (`"Unassigned"` fallback).
 - `first_shift_strokes`: sum of entry `total_strokes` for rows whose linked shift label is `"1"`.
 - `second_shift_strokes`: sum of entry `total_strokes` for rows whose linked shift label is `"2"`.
-- `total_strokes`: sum of per-entry strokes (uses `fg_completed_qty` first; fallback reconstruction).
-- `rejection`: sum of per-entry rejection quantity.
+- `total_strokes`: sum of each entry's authoritative `custom_pea_total_strokes`.
+- `quality_total`: part-based production total: normal entries use good plus total rejected quantity;
+  Joint LH/RH entries use LH gross plus RH gross quantity.
+- `rejection`: part-based quality rejection: normal entries use non-rework rejection quantity; Joint
+  LH/RH entries use LH rejection plus RH rejection quantity.
 - `std_spm`: weighted average by production hours:
   - `std_spm = standard_spm_weighted_sum / duration_hours_sum`
   - `standard_spm_weighted_sum += custom_pea_standard_spm * entry_production_hours`
@@ -18,7 +21,7 @@ Source: `production_oee_report/production_oee_report.py`
 - `stroke_required`: `running_time * std_spm * 60`.
 - `act_spm`: `total_strokes / (running_time * 60)` if `running_time > 0` else `0`.
 - `productivity_pct`: `(act_spm / std_spm) * 100` if `std_spm > 0` else `0`.
-- `quality_pct`: `((total_strokes - rejection) / total_strokes) * 100` if `total_strokes > 0` else `0`.
+- `quality_pct`: `((quality_total - rejection) / quality_total) * 100` if `quality_total > 0` else `0`.
 - `availability_pct`: `(running_time / avl_time_hrs) * 100` if `avl_time_hrs > 0` else `0`.
 - `oee`: `(availability_pct + quality_pct + productivity_pct) / 3`.
 - `oee_mult_pct`: `(availability_pct * quality_pct * productivity_pct) / 10000`.

@@ -10,6 +10,27 @@ from production_entry_app.production_entry_app.report import report_utils
 
 
 class TestReportUtilsPerformance(FrappeTestCase):
+	def test_report_rows_use_native_report_permission_as_the_access_boundary(self) -> None:
+		with (
+			patch.object(report_utils.frappe, "has_permission", return_value=True) as has_permission,
+			patch.object(report_utils.frappe, "get_all", return_value=[{"name": "STE-001"}]) as get_all,
+		):
+			rows = report_utils.get_report_rows("Stock Entry", filters={"docstatus": 1})
+
+		self.assertEqual(rows, [{"name": "STE-001"}])
+		has_permission.assert_called_once_with("Shift", "report")
+		get_all.assert_called_once_with("Stock Entry", filters={"docstatus": 1})
+
+	def test_report_rows_reject_users_without_native_report_permission(self) -> None:
+		with (
+			patch.object(report_utils.frappe, "has_permission", return_value=False),
+			patch.object(report_utils.frappe, "get_all") as get_all,
+			self.assertRaises(frappe.PermissionError),
+		):
+			report_utils.get_report_rows("Stock Entry")
+
+		get_all.assert_not_called()
+
 	def test_non_scrap_criterion_supports_current_v16_secondary_item_type(self) -> None:
 		meta = frappe._dict(has_field=lambda fieldname: fieldname == "secondary_item_type")
 		with patch.object(report_utils.frappe, "get_meta", return_value=meta):
@@ -201,12 +222,12 @@ class TestReportUtilsPerformance(FrappeTestCase):
 					last_row={"posting_date": None, "name": "STE-001"},
 				)
 
-	def test_fetch_stock_entry_chunk_uses_permission_aware_list(self) -> None:
+	def test_fetch_stock_entry_chunk_uses_the_report_access_boundary(self) -> None:
 		with (
 			patch(
-				"production_entry_app.production_entry_app.report.report_utils.frappe.get_list",
+				"production_entry_app.production_entry_app.report.report_utils.get_report_rows",
 				return_value=[],
-			) as get_list,
+			) as get_report_rows,
 			patch(
 				"production_entry_app.production_entry_app.report.report_utils.frappe.qb.get_query"
 			) as get_query,
@@ -218,7 +239,7 @@ class TestReportUtilsPerformance(FrappeTestCase):
 				chunk_size=10,
 			)
 
-		get_list.assert_called_once_with(
+		get_report_rows.assert_called_once_with(
 			"Stock Entry",
 			filters=[["docstatus", "=", 1]],
 			or_filters=(
@@ -293,7 +314,7 @@ class TestReportUtilsPerformance(FrappeTestCase):
 			},
 		]
 		with patch(
-			"production_entry_app.production_entry_app.report.report_utils.frappe.get_all", return_value=rows
+			"production_entry_app.production_entry_app.report.report_utils.get_report_rows", return_value=rows
 		):
 			setup_map, loss_map = report_utils.get_loss_time_maps(["STE-001"])
 
@@ -345,6 +366,14 @@ class TestReportUtilsPerformance(FrappeTestCase):
 		self.assertEqual(columns[0]["precision"], 4)
 		self.assertNotIn("precision", columns[1])
 		get_precision.assert_called_once()
+
+		link_column = {"fieldname": "item_code", "fieldtype": "Link", "options": "Item"}
+		with (
+			patch.object(report_utils.frappe, "get_roles", return_value=["PEA Read Only"]),
+			patch.object(report_utils.frappe, "has_permission", return_value=False),
+		):
+			report_utils.apply_system_precision([link_column])
+		self.assertEqual(link_column, {"fieldname": "item_code", "fieldtype": "Link", "options": "Item"})
 
 		aggregates = report_utils.aggregate_efficiency_by_field(
 			[

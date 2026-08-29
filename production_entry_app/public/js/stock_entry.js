@@ -83,7 +83,6 @@ const PRODUCTION_MODE_SCALAR_FIELDS = [
 	"custom_pea_total_strokes",
 	"custom_pea_die_tool_item",
 	"custom_pea_total_rm_consumption",
-	"custom_pea_joint_scrap_qty",
 ];
 const PRODUCTION_MODE_CLEAR_TABLE_FIELDS = ["custom_pea_rejection_breakup", "items"];
 let _dieToolRequestId = 0;
@@ -196,6 +195,9 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 		},
 		fg_completed_qty(frm) {
 			_default_total_strokes_from_fg(frm);
+		},
+		custom_pea_total_strokes(frm) {
+			_mark_total_strokes_edited(frm);
 		},
 		custom_pea_is_joint_lh_rh(frm) {
 			_apply_native_manufacture_visibility(frm);
@@ -752,11 +754,22 @@ function _is_production_doc(doc) {
 
 function _default_total_strokes_from_fg(frm) {
 	if (!_is_manufacture_doc(frm.doc) || _is_joint_doc(frm.doc)) return;
-	if (Number(frm.doc.custom_pea_total_strokes || 0) !== 0) return;
+	if (!frm.doc.__islocal && Number(frm.doc.custom_pea_total_strokes || 0) !== 0) return;
+	if (frm.__peaTotalStrokesEdited) return;
 
 	const completedQty = Number(frm.doc.fg_completed_qty || 0);
 	if (completedQty > 0) {
-		return frm.set_value("custom_pea_total_strokes", completedQty);
+		frm.__peaSettingTotalStrokes = true;
+		const update = frm.set_value("custom_pea_total_strokes", completedQty);
+		return Promise.resolve(update).finally(() => {
+			frm.__peaSettingTotalStrokes = false;
+		});
+	}
+}
+
+function _mark_total_strokes_edited(frm) {
+	if (!frm.__peaSettingTotalStrokes) {
+		frm.__peaTotalStrokesEdited = true;
 	}
 }
 
@@ -820,22 +833,22 @@ function _setup_stock_entry_quick_entry(frm) {
 	if (!timeEntry) {
 		return;
 	}
-	const isManufacture = _is_production_doc(frm.doc);
+	const isProduction = _is_production_doc(frm.doc);
 	timeEntry.attach_datetime_split_chips(
 		frm,
 		"custom_pea_actual_start_date_input",
 		"custom_pea_actual_start_time_input",
 		"custom_pea_actual_start_date",
-		{ get_shift_ctx: () => _get_shift_ctx(frm), enabled: isManufacture }
+		{ get_shift_ctx: () => _get_shift_ctx(frm), enabled: isProduction }
 	);
 	timeEntry.attach_datetime_split_chips(
 		frm,
 		"custom_pea_actual_end_date_input",
 		"custom_pea_actual_end_time_input",
 		"custom_pea_actual_end_date",
-		{ get_shift_ctx: () => _get_shift_ctx(frm), enabled: isManufacture }
+		{ get_shift_ctx: () => _get_shift_ctx(frm), enabled: isProduction }
 	);
-	if (!isManufacture) {
+	if (!isProduction) {
 		return;
 	}
 	timeEntry.bind_committed_time_input(frm, "custom_pea_actual_start_time_input", () =>
@@ -1164,6 +1177,8 @@ if (typeof module !== "undefined" && module.exports) {
 		_apply_fetch_items_response,
 		_apply_manufacture_visibility,
 		_sync_joint_stock_entry_type,
+		_default_total_strokes_from_fg,
+		_mark_total_strokes_edited,
 		_get_rejection_qty_for_visibility,
 		_hide_native_get_items,
 		_show_native_get_items,

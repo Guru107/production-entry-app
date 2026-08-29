@@ -648,7 +648,7 @@ class TestGetShiftTimelineData(FrappeTestCase):
 		result = get_shift_timeline_data("Workstation", self.workstation_a)
 		self.assertIn("18:00", result["shift_end"])
 
-	def test_timeline_cache_is_disabled_for_non_administrator_users(self) -> None:
+	def test_timeline_cache_is_shared_after_permission_checks(self) -> None:
 		from production_entry_app.production_entry_app.api_timeline import (
 			_get_cached_timeline_data,
 			_set_cached_timeline_data,
@@ -669,9 +669,31 @@ class TestGetShiftTimelineData(FrappeTestCase):
 			_set_cached_timeline_data("Workstation", self.workstation_a, "SHIFT-001", {"entries": []})
 			cached = _get_cached_timeline_data("Workstation", self.workstation_a, "SHIFT-001")
 
-		self.assertIsNone(cached)
-		cache.get_value.assert_not_called()
-		cache.set_value.assert_not_called()
+		self.assertEqual(cached, {"entries": [{"name": "PRIVATE-ENTRY"}]})
+		cache.get_value.assert_called_once()
+		cache.set_value.assert_called_once()
+
+	def test_stock_entry_invalidates_workstation_and_operator_timeline_caches(self) -> None:
+		from production_entry_app.production_entry_app.api_timeline import (
+			invalidate_timeline_cache_for_stock_entry,
+		)
+
+		cache = MagicMock()
+		with patch(
+			"production_entry_app.production_entry_app.api_timeline.frappe.cache",
+			return_value=cache,
+		):
+			invalidate_timeline_cache_for_stock_entry(
+				frappe._dict(
+					custom_pea_shift="SHIFT-001",
+					custom_pea_workstation="PRESS-001",
+					custom_pea_operator="OP-001",
+				)
+			)
+
+		self.assertEqual(cache.delete_keys.call_count, 2)
+		cache.delete_keys.assert_any_call("pea:timeline:Workstation:PRESS-001:SHIFT-001:")
+		cache.delete_keys.assert_any_call("pea:timeline:Operator:OP-001:SHIFT-001:")
 
 	def test_timeline_cache_is_invalidated_when_running_shift_duration_changes(self) -> None:
 		"""When a Running shift's duration is updated, the timeline cache must be

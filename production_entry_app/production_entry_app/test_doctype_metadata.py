@@ -90,7 +90,6 @@ def test_joint_lh_rh_production_metadata_is_exported() -> None:
 		"Stock Entry-custom_pea_total_strokes",
 		"Stock Entry-custom_pea_die_tool_item",
 		"Stock Entry-custom_pea_total_rm_consumption",
-		"Stock Entry-custom_pea_joint_scrap_qty",
 		"Stock Entry-custom_pea_joint_fetch_items",
 		"Stock Entry Detail-custom_pea_joint_output_side",
 	}
@@ -102,7 +101,15 @@ def test_joint_lh_rh_production_metadata_is_exported() -> None:
 	total_rm_field = fields_by_name["Stock Entry-custom_pea_total_rm_consumption"]
 	assert total_rm_field.get("read_only") == 1
 	assert not total_rm_field.get("mandatory_depends_on")
-	assert fields_by_name["Stock Entry-custom_pea_joint_scrap_qty"].get("hidden") == 1
+	assert "Stock Entry-custom_pea_joint_scrap_qty" not in fields_by_name
+	for fieldname in (
+		"Stock Entry-custom_pea_lh_gross_qty",
+		"Stock Entry-custom_pea_lh_rejection_qty",
+		"Stock Entry-custom_pea_rh_gross_qty",
+		"Stock Entry-custom_pea_rh_rejection_qty",
+		"Stock Entry-custom_pea_total_strokes",
+	):
+		assert fields_by_name[fieldname].get("non_negative") == 1
 
 	rejection_fields = {
 		field.get("fieldname"): field

@@ -12,9 +12,11 @@ from frappe.model.meta import get_field_precision
 from frappe.query_builder import DocType
 from frappe.utils import flt, format_datetime, get_datetime, get_time
 
+from production_entry_app.production_entry_app.api_timeline import invalidate_timeline_cache_for_stock_entry
 from production_entry_app.production_entry_app.doctype.rejection_breakup.rejection_breakup import (
 	validate_rejection_breakup_row,
 )
+from production_entry_app.production_entry_app.doctype.shift.shift import invalidate_shift_summary_cache
 from production_entry_app.production_entry_app.joint_production import (
 	is_joint_lh_rh_production,
 	validate_and_apply_joint_production,
@@ -138,10 +140,8 @@ def on_trash_stock_entry(doc, method: str | None = None) -> None:
 
 
 def _invalidate_shift_metrics_cache(doc) -> None:
-	shift_name = doc.get("custom_pea_shift")
-	if not shift_name:
-		return
-	frappe.cache().delete_keys(f"pea:shift_summary:{shift_name}:")
+	invalidate_shift_summary_cache(doc.get("custom_pea_shift"))
+	invalidate_timeline_cache_for_stock_entry(doc)
 
 
 def _apply_shift_defaults(doc) -> None:
@@ -191,7 +191,7 @@ def _validate_linked_shift_can_accept_stock_entry(doc) -> None:
 	if not shift_name:
 		return
 	if not frappe.has_permission("Shift", "read", shift_name):
-		raise frappe.PermissionError
+		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
 
 	status = frappe.db.get_value("Shift", shift_name, "status")
 	if status not in _ALLOWED_STOCK_ENTRY_SHIFT_STATUSES:

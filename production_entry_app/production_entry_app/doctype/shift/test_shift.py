@@ -249,8 +249,8 @@ class TestShiftPureHelpers(FrappeTestCase):
 		summary = shift_module._empty_shift_summary()
 		self.assertEqual(summary["snapshot"]["entry_count"], 0)
 		self.assertEqual(
-			shift_module._get_shift_metrics_cache_key("SHIFT-001"),
-			"pea:shift_summary:SHIFT-001:admin",
+			shift_module._get_shift_summary_cache_key("SHIFT-001"),
+			"pea:shift_summary:SHIFT-001",
 		)
 		self.assertEqual(shift_module._with_shift_summary_float_precision({"snapshot": {}})["snapshot"], {})
 		with patch(
@@ -258,7 +258,7 @@ class TestShiftPureHelpers(FrappeTestCase):
 		) as cache_factory:
 			shift_module.invalidate_shift_summary_cache(None)
 			shift_module.invalidate_shift_summary_cache("SHIFT-001")
-		cache_factory.return_value.delete_keys.assert_called_once_with("pea:shift_summary:SHIFT-001:")
+		cache_factory.return_value.delete_value.assert_called_once_with("pea:shift_summary:SHIFT-001")
 
 	def test_shift_window_and_logged_downtime_helpers_handle_missing_data(self) -> None:
 		with patch(
@@ -322,7 +322,7 @@ class TestShiftPureHelpers(FrappeTestCase):
 		self.assertEqual(summary["snapshot"]["entry_count"], 0)
 		set_cache.assert_called_once()
 
-	def test_shift_summary_cache_is_disabled_for_non_administrator_users(self) -> None:
+	def test_shift_summary_cache_is_shared_after_permission_checks(self) -> None:
 		cache = MagicMock()
 		cache.get_value.return_value = {"snapshot": {"entry_count": 1}}
 		with (
@@ -338,9 +338,13 @@ class TestShiftPureHelpers(FrappeTestCase):
 			shift_module._set_cached_shift_summary("SHIFT-001", {"snapshot": {"entry_count": 0}})
 			cached = shift_module._get_cached_shift_summary("SHIFT-001")
 
-		self.assertIsNone(cached)
-		cache.get_value.assert_not_called()
-		cache.set_value.assert_not_called()
+		self.assertEqual(cached, {"snapshot": {"entry_count": 1}})
+		cache.get_value.assert_called_once_with("pea:shift_summary:SHIFT-001")
+		cache.set_value.assert_called_once_with(
+			"pea:shift_summary:SHIFT-001",
+			{"snapshot": {"entry_count": 0}},
+			expires_in_sec=shift_module.METRICS_CACHE_TTL_SEC,
+		)
 
 	def test_summary_and_aggregate_return_empty_when_shift_was_deleted(self) -> None:
 		with patch(
@@ -2696,7 +2700,7 @@ class TestShiftSummary(FrappeTestCase):
 				"planned_start_time": "08:00:00",
 			}
 		).insert()
-		frappe.cache().delete_keys(f"pea:shift_summary:{shift.name}:")
+		shift_module.invalidate_shift_summary_cache(shift.name)
 		return shift
 
 	def _create_submitted_like_entry(

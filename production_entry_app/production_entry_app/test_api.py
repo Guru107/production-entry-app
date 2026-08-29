@@ -830,8 +830,8 @@ class TestE2EApi(FrappeTestCase):
 			frappe.session.user = previous_user
 
 		self.assertEqual(cache.delete_keys.call_count, 2)
-		cache.delete_keys.assert_any_call("pea:timeline:admin:Workstation:E2E Workstation:SHIFT-001:")
-		cache.delete_keys.assert_any_call("pea:timeline:admin:Operator:E2E Operator:SHIFT-001:")
+		cache.delete_keys.assert_any_call("pea:timeline:Workstation:E2E Workstation:SHIFT-001:")
+		cache.delete_keys.assert_any_call("pea:timeline:Operator:E2E Operator:SHIFT-001:")
 
 	def test_safe_force_delete_logs_delete_failures(self) -> None:
 		with patch(

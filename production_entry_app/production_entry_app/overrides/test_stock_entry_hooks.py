@@ -3829,7 +3829,8 @@ class TestDieToolCounter(FrappeTestCase):
 		):
 			on_submit_stock_entry(doc, "on_submit")
 
-		cache_fn.return_value.delete_keys.assert_called_once_with(f"pea:shift_summary:{shift_name}:")
+		cache_fn.return_value.delete_value.assert_called_once_with(f"pea:shift_summary:{shift_name}")
+		cache_fn.return_value.delete_keys.assert_not_called()
 
 	def test_cache_invalidated_on_stock_entry_cancel(self) -> None:
 		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
@@ -3848,7 +3849,8 @@ class TestDieToolCounter(FrappeTestCase):
 		):
 			on_cancel_stock_entry(doc, "on_cancel")
 
-		cache_fn.return_value.delete_keys.assert_called_once_with(f"pea:shift_summary:{shift_name}:")
+		cache_fn.return_value.delete_value.assert_called_once_with(f"pea:shift_summary:{shift_name}")
+		cache_fn.return_value.delete_keys.assert_not_called()
 
 	def test_die_tool_counter_resets_on_maintenance_log_submit(self) -> None:
 		if frappe.db.exists("Die Tool Counter", self.fg_item):

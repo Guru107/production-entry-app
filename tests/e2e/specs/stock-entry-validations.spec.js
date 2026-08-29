@@ -593,8 +593,16 @@ test.describe("Stock Entry validation matrix", () => {
 			)
 		).toBe(100);
 
-		await setFieldValue(page, "custom_pea_total_strokes", 40);
 		await setFieldValue(page, "fg_completed_qty", 120);
+		expect(
+			Number(
+				(await stockEntryPage.getFieldValues(["custom_pea_total_strokes"]))
+					.custom_pea_total_strokes || 0
+			)
+		).toBe(120);
+
+		await setFieldValue(page, "custom_pea_total_strokes", 40);
+		await setFieldValue(page, "fg_completed_qty", 130);
 		expect(
 			Number(
 				(await stockEntryPage.getFieldValues(["custom_pea_total_strokes"]))

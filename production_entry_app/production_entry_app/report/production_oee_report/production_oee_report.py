@@ -288,7 +288,7 @@ def _get_entry_quantity_maps(
 def _get_stock_entry_loss_rows(entry_names: list[str]) -> list[dict]:
 	if not entry_names:
 		return []
-	return frappe.get_all(
+	return get_report_rows(
 		"Loss Entry",
 		filters={"parenttype": "Stock Entry", "parent": ["in", entry_names]},
 		fields=["parent", "downtime_reason", "shift", "start_time", "end_time"],
@@ -419,7 +419,7 @@ def _get_shift_duration_hours_by_name(shift_names: list[str]) -> dict[str, float
 
 
 def _get_planned_loss_hours_by_shift(shift_duration_hours_by_name: dict[str, float]) -> dict[str, float]:
-	loss_rows = frappe.get_all(
+	loss_rows = get_report_rows(
 		"Loss Entry",
 		filters={"parenttype": "Shift", "parent": ["in", list(shift_duration_hours_by_name.keys())]},
 		fields=["parent", "start_time", "end_time"],

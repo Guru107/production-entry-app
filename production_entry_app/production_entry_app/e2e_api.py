@@ -320,13 +320,17 @@ def _get_or_create_e2e_employee(prefix: str, company: str) -> str:
 
 
 def _clear_timeline_cache_for_context(ctx: dict, shift_name: str) -> None:
-	for doctype, docname in (
-		("Workstation", ctx.get("workstation")),
-		("Operator", ctx.get("operator")),
-	):
-		if not docname:
-			continue
-		frappe.cache().delete_keys(f"pea:timeline:admin:{doctype}:{docname}:{shift_name}:")
+	from production_entry_app.production_entry_app.api_timeline import (
+		invalidate_timeline_cache_for_stock_entry,
+	)
+
+	invalidate_timeline_cache_for_stock_entry(
+		frappe._dict(
+			custom_pea_shift=shift_name,
+			custom_pea_workstation=ctx.get("workstation"),
+			custom_pea_operator=ctx.get("operator"),
+		)
+	)
 
 
 def _build_e2e_shift_doc(

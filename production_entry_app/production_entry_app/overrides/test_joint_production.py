@@ -20,6 +20,7 @@ from production_entry_app.production_entry_app.api_timeline import get_shift_tim
 from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
 from production_entry_app.production_entry_app.joint_production import (
 	_get_bom_scrap_item_details,
+	_get_item_details,
 	_get_joint_bom_details,
 	_set_scrap_row_classification,
 	allocate_joint_output_value,
@@ -73,6 +74,23 @@ def _make_running_shift_through_api(masters: dict[str, Any]) -> object:
 
 
 class TestJointProductionCalculations(FrappeTestCase):
+	def test_joint_item_details_are_loaded_in_one_query(self) -> None:
+		with patch(
+			"production_entry_app.production_entry_app.joint_production.frappe.get_list",
+			return_value=[
+				{"name": "RM", "item_name": "Raw Material", "description": "RM", "stock_uom": "Kg"},
+				{"name": "FG", "item_name": "Finished Good", "description": "FG", "stock_uom": "Nos"},
+			],
+		) as get_list:
+			details = _get_item_details(["RM", "FG", "RM"])
+
+		self.assertEqual(set(details), {"RM", "FG"})
+		get_list.assert_called_once_with(
+			"Item",
+			filters={"name": ["in", ["RM", "FG"]]},
+			fields=["name", "item_name", "description", "stock_uom"],
+		)
+
 	def test_scrap_rate_fallback_uses_the_correct_cross_version_total_field(self) -> None:
 		cases = (
 			(frappe._dict(doctype="BOM Secondary Item", item_code="SCRAP", qty=2, rate=0, cost=8), 4),

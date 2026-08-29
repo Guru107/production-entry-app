@@ -4,16 +4,21 @@ This document defines shared rules used across script reports under `production_
 
 ## Base Data Scope
 
-- All report rows are built from submitted Manufacture Stock Entries:
+- All report rows are built from submitted Production Entries:
   - `docstatus = 1`
-  - `purpose = "Manufacture"`
+  - normal entries use `purpose = "Manufacture"`
+  - Joint LH/RH entries use `purpose = "Repack"` and `custom_pea_is_joint_lh_rh = 1`
+- Generic Repack entries are excluded.
 - Additional report filters (date, shift, workstation, operator, BOM, FG item) restrict row inclusion.
+- From/To Date filters select entries through linked Completed Shifts and `Shift.shift_date`; Stock Entry
+  `posting_date` does not determine date-range membership.
 
 ## Quantity Semantics
 
-- `fg_completed_qty` is treated as total strokes (OK + rejection) when it is `> 0`.
-- If `fg_completed_qty <= 0`, fallback reconstruction is used:
-  - `total_strokes = good_qty_map + rejection_qty`
+- `custom_pea_total_strokes` is the sole source for physical stroke counts in normal and Joint
+  Production Entries.
+- Good, rejection, and rework quantities remain part quantities derived from Stock Entry Detail and
+  Rejection Breakup rows; they are not inferred from strokes.
 - `rejection_qty` fallback:
   - use `custom_pea_rejection_qty` when `> 0`
   - else aggregate from `Stock Entry Detail` rejection rows
@@ -43,7 +48,11 @@ Production OEE Report uses:
 
 - `Availability (A) = running_time / avl_time_hrs * 100`
 - `Productivity (P) = act_spm / std_spm * 100`
-- `Quality (Q) = (total_strokes - rejection) / total_strokes * 100`
+- `Quality (Q) = (quality_total - quality_rejection) / quality_total * 100`
+- For normal Manufacture entries, `quality_total = good_qty + total_rejected_qty` and
+  `quality_rejection = non-rework rejection_qty`.
+- For Joint LH/RH entries, `quality_total = LH gross qty + RH gross qty` and
+  `quality_rejection = LH rejection qty + RH rejection qty`.
 - `OEE = (A + P + Q) / 3`
 - `OEE Mult % = (A * P * Q) / 10000`
 

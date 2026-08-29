@@ -146,6 +146,14 @@ def allocate_joint_output_value(
 
 def materialize_joint_production_rows(doc: Document) -> list[dict[str, Any]]:
 	plan = _build_joint_production_plan(doc)
+	item_details = _get_item_details(
+		[
+			plan.lh_bom.rm_item_code,
+			plan.lh_bom.item_code,
+			plan.rh_bom.item_code,
+			*(scrap.item_code for scrap in plan.scrap_items),
+		]
+	)
 	rejection_warehouse = (
 		resolve_rejection_warehouse(doc) if plan.lh_rejection_qty > 0 or plan.rh_rejection_qty > 0 else ""
 	)
@@ -155,6 +163,7 @@ def materialize_joint_production_rows(doc: Document) -> list[dict[str, Any]]:
 			item_code=plan.lh_bom.rm_item_code,
 			qty=plan.total_rm_consumption,
 			s_warehouse=doc.get("from_warehouse"),
+			item_details=item_details,
 		),
 	]
 	rows.extend(
@@ -165,6 +174,7 @@ def materialize_joint_production_rows(doc: Document) -> list[dict[str, Any]]:
 			rejection_qty=plan.lh_rejection_qty,
 			fg_warehouse=doc.get("to_warehouse"),
 			rejection_warehouse=rejection_warehouse,
+			item_details=item_details,
 		)
 	)
 	rows.extend(
@@ -175,6 +185,7 @@ def materialize_joint_production_rows(doc: Document) -> list[dict[str, Any]]:
 			rejection_qty=plan.rh_rejection_qty,
 			fg_warehouse=doc.get("to_warehouse"),
 			rejection_warehouse=rejection_warehouse,
+			item_details=item_details,
 		)
 	)
 	for scrap in plan.scrap_items:
@@ -182,6 +193,7 @@ def materialize_joint_production_rows(doc: Document) -> list[dict[str, Any]]:
 			item_code=scrap.item_code,
 			qty=scrap.qty,
 			t_warehouse=doc.get("to_warehouse"),
+			item_details=item_details,
 		)
 		scrap_row.update(
 			{
@@ -267,7 +279,7 @@ def _build_planned_scrap_items(
 
 	uom_names = set(uoms.values())
 	uom_rows = (
-		frappe.get_all(
+		frappe.get_list(
 			"UOM",
 			filters={"name": ("in", tuple(uom_names))},
 			fields=["name", "must_be_whole_number"],
@@ -557,7 +569,7 @@ def _get_item_stock_uoms(item_codes: Iterable[str]) -> dict[str, str]:
 		return {}
 	return {
 		row.name: row.stock_uom
-		for row in frappe.get_all(
+		for row in frappe.get_list(
 			"Item",
 			filters={"name": ["in", unique_item_codes]},
 			fields=["name", "stock_uom"],
@@ -605,13 +617,32 @@ def _build_side_rows(
 	rejection_qty: float,
 	fg_warehouse: str,
 	rejection_warehouse: str,
+	item_details: dict[str, frappe._dict],
 ) -> list[dict[str, Any]]:
 	rows: list[dict[str, Any]] = []
 	good_qty = gross_qty - rejection_qty
 	if good_qty > 0:
-		rows.append(_joint_output_row(side, bom, good_qty, fg_warehouse, is_rejection=False))
+		rows.append(
+			_joint_output_row(
+				side,
+				bom,
+				good_qty,
+				fg_warehouse,
+				is_rejection=False,
+				item_details=item_details,
+			)
+		)
 	if rejection_qty > 0:
-		rows.append(_joint_output_row(side, bom, rejection_qty, rejection_warehouse, is_rejection=True))
+		rows.append(
+			_joint_output_row(
+				side,
+				bom,
+				rejection_qty,
+				rejection_warehouse,
+				is_rejection=True,
+				item_details=item_details,
+			)
+		)
 	return rows
 
 
@@ -622,8 +653,14 @@ def _joint_output_row(
 	warehouse: str,
 	*,
 	is_rejection: bool,
+	item_details: dict[str, frappe._dict],
 ) -> dict[str, Any]:
-	row = _item_row(item_code=bom.item_code, qty=qty, t_warehouse=warehouse)
+	row = _item_row(
+		item_code=bom.item_code,
+		qty=qty,
+		t_warehouse=warehouse,
+		item_details=item_details,
+	)
 	row.update(
 		{
 			"bom_no": bom.name if not is_rejection else "",
@@ -644,13 +681,9 @@ def _item_row(
 	qty: float,
 	s_warehouse: str | None = None,
 	t_warehouse: str | None = None,
+	item_details: dict[str, frappe._dict],
 ) -> dict[str, Any]:
-	item = frappe.db.get_value(
-		"Item",
-		item_code,
-		["item_name", "description", "stock_uom"],
-		as_dict=True,
-	)
+	item = item_details[item_code]
 	return {
 		"item_code": item_code,
 		"item_name": item.item_name,
@@ -663,6 +696,16 @@ def _item_row(
 		"s_warehouse": s_warehouse,
 		"t_warehouse": t_warehouse,
 	}
+
+
+def _get_item_details(item_codes: Iterable[str]) -> dict[str, frappe._dict]:
+	unique_item_codes = list(dict.fromkeys(item_codes))
+	rows = frappe.get_list(
+		"Item",
+		filters={"name": ["in", unique_item_codes]},
+		fields=["name", "item_name", "description", "stock_uom"],
+	)
+	return {row.get("name"): frappe._dict(row) for row in rows}
 
 
 def validate_stock_entry_type(doc: Document, method: str | None = None) -> None:

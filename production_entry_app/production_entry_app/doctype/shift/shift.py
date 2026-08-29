@@ -217,7 +217,7 @@ def get_linked_downtime_entries(shift_name: str | None = None) -> list[dict]:
 	if not shift_exists and shift_name.startswith("new-"):
 		return []
 	if not frappe.has_permission("Shift", "read", shift_name):
-		raise frappe.PermissionError
+		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
 	if not shift_exists:
 		return []
 
@@ -256,7 +256,7 @@ def check_running_shift_conflict(shift_name: str) -> dict:
 	if not shift_name:
 		return {"has_conflict": False, "conflicting_shifts": []}
 	if not frappe.has_permission("Shift", "read", shift_name):
-		raise frappe.PermissionError
+		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
 
 	current_shift = frappe.db.get_value(
 		"Shift",
@@ -324,22 +324,14 @@ def _empty_shift_summary() -> dict:
 
 
 def _get_shift_summary_cache_key(shift_name: str) -> str:
-	return f"pea:shift_summary:{shift_name}:admin"
-
-
-def _get_shift_metrics_cache_key(shift_name: str) -> str:
-	return _get_shift_summary_cache_key(shift_name)
+	return f"pea:shift_summary:{shift_name}"
 
 
 def _get_cached_shift_summary(shift_name: str) -> dict | None:
-	if frappe.session.user != "Administrator":
-		return None
 	return frappe.cache().get_value(_get_shift_summary_cache_key(shift_name))
 
 
 def _set_cached_shift_summary(shift_name: str, summary: dict) -> None:
-	if frappe.session.user != "Administrator":
-		return
 	frappe.cache().set_value(
 		_get_shift_summary_cache_key(shift_name), summary, expires_in_sec=METRICS_CACHE_TTL_SEC
 	)
@@ -354,7 +346,7 @@ def _with_shift_summary_float_precision(summary: dict) -> dict:
 def invalidate_shift_summary_cache(shift_name: str | None) -> None:
 	if not shift_name:
 		return
-	frappe.cache().delete_keys(f"pea:shift_summary:{shift_name}:")
+	frappe.cache().delete_value(_get_shift_summary_cache_key(shift_name))
 
 
 def invalidate_shift_summary_for_shift(doc, method: str | None = None) -> None:
@@ -735,12 +727,12 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 	if not shift_exists and shift_name.startswith("new-"):
 		return _empty_shift_summary()
 	if not frappe.has_permission("Shift", "read", shift_name):
-		raise frappe.PermissionError
+		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
 	if not shift_exists:
 		return _empty_shift_summary()
 	for doctype in ("Stock Entry", "BOM", "Downtime Entry"):
 		if not frappe.has_permission(doctype, "read"):
-			raise frappe.PermissionError
+			frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
 	cached_summary = _get_cached_shift_summary(shift_name)
 	if cached_summary is not None:
 		return _with_shift_summary_float_precision(cached_summary)
@@ -973,12 +965,12 @@ def get_shift_aggregate_production_entries(shift_name: str | None = None) -> lis
 	if not shift_exists and shift_name.startswith("new-"):
 		return []
 	if not frappe.has_permission("Shift", "read", shift_name):
-		raise frappe.PermissionError
+		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
 	if not shift_exists:
 		return []
 	for doctype in ("Stock Entry", "BOM"):
 		if not frappe.has_permission(doctype, "read"):
-			raise frappe.PermissionError
+			frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
 	float_precision = get_system_float_precision()
 	permitted_entries = frappe.get_list(
 		"Stock Entry",

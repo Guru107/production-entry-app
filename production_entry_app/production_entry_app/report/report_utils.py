@@ -41,11 +41,17 @@ _STOCK_ENTRY_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
 
 
 def get_report_rows(doctype: str, **kwargs: Any) -> list[dict]:
-	"""Read report source rows without granting PEA Read Only access to the source DocType."""
-	if frappe.has_permission(doctype, "read"):
-		return frappe.get_list(doctype, **kwargs)
-	if "PEA Read Only" not in frappe.get_roles() or not frappe.has_permission("Shift", "report"):
-		raise frappe.PermissionError
+	"""Read internal report data after Frappe's native Shift report permission check.
+
+	PEA reports use Shift as their reference DocType. Frappe intentionally allows
+	Report permission without granting direct read access to every source DocType,
+	so report internals must not apply a second, conflicting DocType read check.
+	"""
+	if not frappe.has_permission("Shift", "report"):
+		frappe.throw(
+			_("You do not have permission to access Production Entry reports."),
+			frappe.PermissionError,
+		)
 	return frappe.get_all(doctype, **kwargs)
 
 
@@ -778,7 +784,7 @@ def get_parent_loss_metrics(stock_entry_names: list[str]) -> dict[str, dict[str,
 	parent_metrics: dict[str, dict[str, float]] = {
 		name: {"setup_mins": 0.0, "loss_mins": 0.0} for name in stock_entry_names
 	}
-	loss_rows = frappe.get_all(
+	loss_rows = get_report_rows(
 		"Loss Entry",
 		filters={"parenttype": "Stock Entry", "parent": ["in", stock_entry_names]},
 		fields=["parent", "downtime_reason", "start_time", "end_time"],
@@ -877,14 +883,6 @@ def apply_system_precision(columns: list[dict]) -> list[dict]:
 	for column in columns:
 		if column.get("fieldtype") in {"Float", "Percent"}:
 			column["precision"] = precision
-		if (
-			column.get("fieldtype") == "Link"
-			and column.get("options")
-			and "PEA Read Only" in frappe.get_roles()
-			and not frappe.has_permission(column.get("options"), "read")
-		):
-			column["fieldtype"] = "Data"
-			column.pop("options", None)
 	return columns
 
 
