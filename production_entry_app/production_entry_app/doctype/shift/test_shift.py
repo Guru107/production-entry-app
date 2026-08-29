@@ -2712,6 +2712,7 @@ class TestShiftSummary(FrappeTestCase):
 		duration_mins: float = 0,
 		production_time_mins: float | None | object = _USE_DURATION,
 		standard_spm: float = 0,
+		total_strokes: float | None = None,
 		workstation: str | None = None,
 		fg_item: str | None = None,
 		bom_no: str | None = None,
@@ -2733,6 +2734,7 @@ class TestShiftSummary(FrappeTestCase):
 				"custom_pea_actual_duration_mins": duration_mins,
 				"custom_pea_production_time_mins": production_minutes,
 				"custom_pea_standard_spm": standard_spm,
+				"custom_pea_total_strokes": total_qty if total_strokes is None else total_strokes,
 				"custom_pea_workstation": workstation,
 				"bom_no": bom_no,
 				"docstatus": docstatus,
@@ -2896,6 +2898,7 @@ class TestShiftSummary(FrappeTestCase):
 			duration_mins=30,
 			production_time_mins=20,
 			standard_spm=2,
+			total_strokes=30,
 			workstation="WS-A",
 		)
 		self._create_submitted_like_entry(
@@ -2905,6 +2908,7 @@ class TestShiftSummary(FrappeTestCase):
 			duration_mins=20,
 			production_time_mins=20,
 			standard_spm=2,
+			total_strokes=20,
 			workstation="WS-B",
 		)
 		summary = get_shift_summary(shift.name)
@@ -2914,10 +2918,10 @@ class TestShiftSummary(FrappeTestCase):
 		self.assertAlmostEqual(float(summary["snapshot"]["ok_qty"]), 90.0, places=6)
 		self.assertAlmostEqual(float(summary["snapshot"]["rejection_pct"]), 10.0, places=6)
 		self.assertAlmostEqual(float(summary["snapshot"]["recorded_production_mins"]), 40.0, places=6)
-		self.assertAlmostEqual(float(summary["snapshot"]["overall_throughput_spm"]), 2.5, places=6)
+		self.assertAlmostEqual(float(summary["snapshot"]["overall_throughput_spm"]), 1.25, places=6)
 		self.assertAlmostEqual(float(summary["snapshot"]["overall_ok_spm"]), 2.25, places=6)
 		self.assertAlmostEqual(float(summary["snapshot"]["target_coverage_pct"]), 100.0, places=6)
-		self.assertAlmostEqual(float(summary["snapshot"]["overall_shift_efficiency_pct"]), 125.0, places=6)
+		self.assertAlmostEqual(float(summary["snapshot"]["overall_shift_efficiency_pct"]), 62.5, places=6)
 		self.assertFalse(summary["completeness"]["show_banner"])
 
 	def test_hides_efficiency_when_target_coverage_below_threshold(self) -> None:
@@ -3232,6 +3236,7 @@ class TestShiftAggregateProductionEntries(FrappeTestCase):
 		rejection_qty: float,
 		duration_mins: float,
 		production_time_mins: float | None | object = _USE_DURATION,
+		total_strokes: float | None = None,
 		bom_no: str | None = None,
 		purpose: str = "Manufacture",
 	) -> str:
@@ -3250,6 +3255,7 @@ class TestShiftAggregateProductionEntries(FrappeTestCase):
 				"custom_pea_rejection_qty": rejection_qty,
 				"custom_pea_actual_duration_mins": duration_mins,
 				"custom_pea_production_time_mins": production_minutes,
+				"custom_pea_total_strokes": good_qty if total_strokes is None else total_strokes,
 				"docstatus": 1,
 			}
 		)
@@ -3342,6 +3348,7 @@ class TestShiftAggregateProductionEntries(FrappeTestCase):
 			good_qty=100,
 			rejection_qty=5,
 			duration_mins=60,
+			total_strokes=60,
 			bom_no=self.bom,
 		)
 		self._create_submitted_like_entry(
@@ -3349,6 +3356,7 @@ class TestShiftAggregateProductionEntries(FrappeTestCase):
 			good_qty=50,
 			rejection_qty=3,
 			duration_mins=30,
+			total_strokes=30,
 			bom_no=self.bom,
 		)
 		rows = get_shift_aggregate_production_entries(shift.name)
@@ -3358,7 +3366,7 @@ class TestShiftAggregateProductionEntries(FrappeTestCase):
 		self.assertEqual(float(rows[0]["total_qty"]), 150.0)
 		self.assertEqual(float(rows[0]["total_reject_qty"]), 8.0)
 		self.assertEqual(float(rows[0]["total_ok_qty"]), 142.0)
-		expected_avg_spm = 142 / 90
+		expected_avg_spm = 90 / 90
 		derived_abs_tol = 1e-6
 		self.assertAlmostEqual(float(rows[0]["avg_spm"]), expected_avg_spm, delta=derived_abs_tol)
 

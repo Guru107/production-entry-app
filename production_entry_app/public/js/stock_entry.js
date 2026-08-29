@@ -138,7 +138,14 @@ if (typeof window !== "undefined" && window.erpnext && erpnext.stock && erpnext.
 
 if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 	frappe.ui.form.on("Stock Entry", {
+		setup(frm) {
+			_initialize_total_strokes_default_state(frm);
+		},
+		before_load(frm) {
+			_initialize_total_strokes_default_state(frm);
+		},
 		onload(frm) {
+			_initialize_total_strokes_default_state(frm);
 			_set_prev_purpose(frm);
 			_set_prev_stock_entry_type(frm);
 			_sync_native_get_items_access(frm);
@@ -146,6 +153,7 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 			_apply_manufacture_visibility(frm);
 		},
 		refresh(frm) {
+			_initialize_total_strokes_default_state(frm);
 			_set_prev_purpose(frm);
 			_set_prev_stock_entry_type(frm);
 			_sync_native_get_items_access(frm);
@@ -195,9 +203,6 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 		},
 		fg_completed_qty(frm) {
 			_default_total_strokes_from_fg(frm);
-		},
-		custom_pea_total_strokes(frm) {
-			_mark_total_strokes_edited(frm);
 		},
 		custom_pea_is_joint_lh_rh(frm) {
 			_apply_native_manufacture_visibility(frm);
@@ -520,6 +525,7 @@ function _clear_manufacture_data_on_leave(frm) {
 function _clear_manufacture_data(frm) {
 	_shiftDetailsRequestId++;
 	_dieToolRequestId++;
+	delete frm.__peaTotalStrokesDefaultState;
 
 	const refreshFieldnames = new Set();
 	const scalarChanged = _clear_manufacture_scalar_fields(frm, refreshFieldnames);
@@ -641,6 +647,7 @@ function _sync_joint_stock_entry_type(
 
 function _clear_production_mode_data(frm) {
 	_dieToolRequestId++;
+	delete frm.__peaTotalStrokesDefaultState;
 	frm.__peaJointRmRequestId = (frm.__peaJointRmRequestId || 0) + 1;
 	if (frm.__peaJointRmTimer) {
 		clearTimeout(frm.__peaJointRmTimer);
@@ -752,24 +759,31 @@ function _is_production_doc(doc) {
 	return _is_manufacture_doc(doc) || _is_joint_doc(doc);
 }
 
+function _initialize_total_strokes_default_state(frm) {
+	if (frm.__peaTotalStrokesDefaultState) {
+		return frm.__peaTotalStrokesDefaultState;
+	}
+	const completedQty = Number(frm.doc?.fg_completed_qty || 0);
+	frm.__peaTotalStrokesDefaultState = {
+		lastCompletedQty: completedQty,
+	};
+	return frm.__peaTotalStrokesDefaultState;
+}
+
 function _default_total_strokes_from_fg(frm) {
 	if (!_is_manufacture_doc(frm.doc) || _is_joint_doc(frm.doc)) return;
-	if (!frm.doc.__islocal && Number(frm.doc.custom_pea_total_strokes || 0) !== 0) return;
-	if (frm.__peaTotalStrokesEdited) return;
+	const state = _initialize_total_strokes_default_state(frm);
+	const currentTotalStrokes = Number(frm.doc.custom_pea_total_strokes || 0);
+	if (currentTotalStrokes > 0 && currentTotalStrokes !== state.lastCompletedQty) {
+		return;
+	}
 
 	const completedQty = Number(frm.doc.fg_completed_qty || 0);
 	if (completedQty > 0) {
-		frm.__peaSettingTotalStrokes = true;
 		const update = frm.set_value("custom_pea_total_strokes", completedQty);
 		return Promise.resolve(update).finally(() => {
-			frm.__peaSettingTotalStrokes = false;
+			state.lastCompletedQty = completedQty;
 		});
-	}
-}
-
-function _mark_total_strokes_edited(frm) {
-	if (!frm.__peaSettingTotalStrokes) {
-		frm.__peaTotalStrokesEdited = true;
 	}
 }
 
@@ -1177,8 +1191,8 @@ if (typeof module !== "undefined" && module.exports) {
 		_apply_fetch_items_response,
 		_apply_manufacture_visibility,
 		_sync_joint_stock_entry_type,
+		_initialize_total_strokes_default_state,
 		_default_total_strokes_from_fg,
-		_mark_total_strokes_edited,
 		_get_rejection_qty_for_visibility,
 		_hide_native_get_items,
 		_show_native_get_items,

@@ -159,23 +159,25 @@ class TestJointProductionCalculations(FrappeTestCase):
 					[("SCRAP-V16", 1.5, "Kg")],
 				)
 
-	def test_normal_manufacture_rejects_explicit_non_positive_strokes(self) -> None:
+	def test_normal_manufacture_defaults_zero_strokes_and_rejects_negative_strokes(self) -> None:
 		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
 			_default_total_strokes,
 		)
 
-		for total_strokes in (0, -1):
-			with self.subTest(total_strokes=total_strokes):
-				entry = frappe.get_doc(
-					{
-						"doctype": "Stock Entry",
-						"purpose": "Manufacture",
-						"fg_completed_qty": 100,
-						"custom_pea_total_strokes": total_strokes,
-					}
-				)
-				with self.assertRaisesRegex(frappe.ValidationError, "greater than zero"):
-					_default_total_strokes(entry)
+		entry = frappe.get_doc(
+			{
+				"doctype": "Stock Entry",
+				"purpose": "Manufacture",
+				"fg_completed_qty": 100,
+				"custom_pea_total_strokes": 0,
+			}
+		)
+		_default_total_strokes(entry)
+		self.assertEqual(entry.custom_pea_total_strokes, 100)
+
+		entry.custom_pea_total_strokes = -1
+		with self.assertRaisesRegex(frappe.ValidationError, "greater than zero"):
+			_default_total_strokes(entry)
 
 	def test_joint_rm_consumption_adds_bom_sheet_capacity_shares(self) -> None:
 		self.assertAlmostEqual(
@@ -498,6 +500,25 @@ class TestJointProductionItems(FrappeTestCase):
 			},
 			{"LH", "RH"},
 		)
+
+	def test_joint_items_api_fails_cleanly_when_an_item_cannot_be_loaded(self) -> None:
+		shift = make_running_shift(self.masters)
+		doc = self._make_joint_entry(shift)
+		doc.set("items", [])
+		original_get_list = frappe.get_list
+
+		def omit_rh_item(doctype: str, *args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+			rows = original_get_list(doctype, *args, **kwargs)
+			if doctype == "Item":
+				return [row for row in rows if row.get("name") != self.rh_item]
+			return rows
+
+		with patch(
+			"production_entry_app.production_entry_app.joint_production.frappe.get_list",
+			side_effect=omit_rh_item,
+		):
+			with self.assertRaisesRegex(frappe.ValidationError, "Unable to load Item"):
+				get_joint_production_items(json.dumps(doc.as_dict(), default=str))
 
 	def test_joint_rm_consumption_is_available_through_the_stock_entry_api(self) -> None:
 		self.assertAlmostEqual(

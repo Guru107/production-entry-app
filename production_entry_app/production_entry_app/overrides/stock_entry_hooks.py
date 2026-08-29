@@ -53,6 +53,12 @@ _DEFAULT_START_BUFFER_MINS: int = 60
 _DEFAULT_END_BUFFER_MINS: int = 60
 _MAX_BUFFER_MINS: int = 480
 _ALLOWED_STOCK_ENTRY_SHIFT_STATUSES: tuple[str, ...] = ("Running", "Completed")
+
+
+def _safe_bold(value: Any) -> str:
+	return frappe.bold(frappe.utils.escape_html(str(value)))
+
+
 _COMMON_OVERLAP_FIELDS: tuple[str, ...] = (
 	"purpose",
 	"custom_pea_shift",
@@ -97,7 +103,7 @@ def _default_total_strokes(doc: Document) -> None:
 	if doc.get("purpose") != "Manufacture" or is_joint_lh_rh_production(doc):
 		return
 	total_strokes = doc.get("custom_pea_total_strokes")
-	if total_strokes in (None, ""):
+	if total_strokes in (None, "") or flt(total_strokes) == 0:
 		doc.set("custom_pea_total_strokes", flt(doc.get("fg_completed_qty")))
 		return
 	if flt(total_strokes) <= 0:
@@ -120,12 +126,12 @@ def _stamp_late_entry_flag(doc: Document) -> None:
 
 def on_submit_stock_entry(doc, method: str | None = None) -> None:
 	update_counter_for_stock_entry(doc, direction=1)
-	_invalidate_shift_metrics_cache(doc)
+	_invalidate_shift_dependent_caches(doc)
 
 
 def on_cancel_stock_entry(doc, method: str | None = None) -> None:
 	update_counter_for_stock_entry(doc, direction=-1)
-	_invalidate_shift_metrics_cache(doc)
+	_invalidate_shift_dependent_caches(doc)
 
 
 def on_trash_stock_entry(doc, method: str | None = None) -> None:
@@ -139,7 +145,7 @@ def on_trash_stock_entry(doc, method: str | None = None) -> None:
 	)
 
 
-def _invalidate_shift_metrics_cache(doc) -> None:
+def _invalidate_shift_dependent_caches(doc: Document) -> None:
 	invalidate_shift_summary_cache(doc.get("custom_pea_shift"))
 	invalidate_timeline_cache_for_stock_entry(doc)
 
@@ -199,8 +205,8 @@ def _validate_linked_shift_can_accept_stock_entry(doc) -> None:
 			_(
 				"Only Running or Completed shifts can be linked in Stock Entry. Selected shift {0} is {1}."
 			).format(
-				frappe.bold(frappe.utils.escape_html(str(shift_name))),
-				frappe.bold(frappe.utils.escape_html(str(status or _("not found")))),
+				_safe_bold(shift_name),
+				_safe_bold(status or _("not found")),
 			)
 		)
 
@@ -370,8 +376,8 @@ def _validate_workstation_overlap(doc) -> None:
 
 	frappe.throw(
 		_("Workstation {0} is already in use by {1} during this time period.").format(
-			frappe.bold(frappe.utils.escape_html(str(workstation))),
-			frappe.bold(frappe.utils.escape_html(str(conflict["name"]))),
+			_safe_bold(workstation),
+			_safe_bold(conflict["name"]),
 		)
 	)
 
@@ -388,8 +394,8 @@ def _validate_operator_overlap(doc) -> None:
 
 	frappe.throw(
 		_("Operator {0} is already assigned to {1} during this time period.").format(
-			frappe.bold(frappe.utils.escape_html(str(operator))),
-			frappe.bold(frappe.utils.escape_html(str(conflict["name"]))),
+			_safe_bold(operator),
+			_safe_bold(conflict["name"]),
 		)
 	)
 
@@ -413,8 +419,8 @@ def _validate_workstation_downtime_overlap(doc) -> None:
 		_(
 			"Workstation {0} has a downtime entry ({1}) from {2} to {3} that overlaps with this production entry."
 		).format(
-			frappe.bold(frappe.utils.escape_html(str(workstation))),
-			frappe.bold(frappe.utils.escape_html(str(conflict["name"]))),
+			_safe_bold(workstation),
+			_safe_bold(conflict["name"]),
 			format_datetime(conflict["from_time"]),
 			format_datetime(conflict["to_time"]),
 		)
@@ -519,7 +525,7 @@ def _validate_direct_manufacture_alternative_row(
 		frappe.throw(
 			_("Row {0}: BOM item {1} does not allow alternative items.").format(
 				row.idx,
-				frappe.bold(frappe.utils.escape_html(str(original_item))),
+				_safe_bold(original_item),
 			),
 			ValidationError,
 		)
@@ -527,8 +533,8 @@ def _validate_direct_manufacture_alternative_row(
 		frappe.throw(
 			_("Row {0}: Item {1} is not configured as an alternative for BOM item {2}.").format(
 				row.idx,
-				frappe.bold(frappe.utils.escape_html(str(item_code))),
-				frappe.bold(frappe.utils.escape_html(str(original_item))),
+				_safe_bold(item_code),
+				_safe_bold(original_item),
 			),
 			ValidationError,
 		)
@@ -542,8 +548,8 @@ def _validate_bom_contains_item(
 	frappe.throw(
 		_("Row {0}: Item {1} is not part of BOM {2}.").format(
 			row.idx,
-			frappe.bold(frappe.utils.escape_html(str(item_code))),
-			frappe.bold(frappe.utils.escape_html(str(bom_no))),
+			_safe_bold(item_code),
+			_safe_bold(bom_no),
 		),
 		ValidationError,
 	)

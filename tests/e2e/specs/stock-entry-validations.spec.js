@@ -600,9 +600,21 @@ test.describe("Stock Entry validation matrix", () => {
 					.custom_pea_total_strokes || 0
 			)
 		).toBe(120);
+		await stockEntryPage.fetchItems();
+		await stockEntryPage.saveDraft();
+		const stockEntryName = await page.evaluate(() => window.cur_frm?.doc?.name);
+		await stockEntryPage.open(stockEntryName);
+
+		await setFieldValue(page, "fg_completed_qty", 130);
+		expect(
+			Number(
+				(await stockEntryPage.getFieldValues(["custom_pea_total_strokes"]))
+					.custom_pea_total_strokes || 0
+			)
+		).toBe(130);
 
 		await setFieldValue(page, "custom_pea_total_strokes", 40);
-		await setFieldValue(page, "fg_completed_qty", 130);
+		await setFieldValue(page, "fg_completed_qty", 140);
 		expect(
 			Number(
 				(await stockEntryPage.getFieldValues(["custom_pea_total_strokes"]))
@@ -612,14 +624,11 @@ test.describe("Stock Entry validation matrix", () => {
 
 		await stockEntryPage.fetchItems();
 		await stockEntryPage.saveDraft();
-		const stockEntryName = await page.evaluate(() => window.cur_frm?.doc?.name);
 		const savedStockEntry = await getDoc(page, "Stock Entry", stockEntryName);
 		expect(Number(savedStockEntry.custom_pea_total_strokes || 0)).toBe(40);
 	});
 
-	test("@regression manufacture requires a positive total press stroke count", async ({
-		page,
-	}) => {
+	test("@regression zero total press strokes defaults from quantity", async ({ page }) => {
 		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 
@@ -629,9 +638,11 @@ test.describe("Stock Entry validation matrix", () => {
 		});
 		await stockEntryPage.fetchItems();
 		await setFieldValue(page, "custom_pea_total_strokes", 0);
-		await stockEntryPage.attemptSaveDraft();
+		await stockEntryPage.saveDraft();
 
-		await expectValidationError(page, /Total Press Strokes must be greater than zero/i);
+		const stockEntryName = await page.evaluate(() => window.cur_frm?.doc?.name);
+		const savedStockEntry = await getDoc(page, "Stock Entry", stockEntryName);
+		expect(Number(savedStockEntry.custom_pea_total_strokes || 0)).toBe(100);
 	});
 
 	test("@regression blocks overlapping stock entry when workstation is already in use", async ({

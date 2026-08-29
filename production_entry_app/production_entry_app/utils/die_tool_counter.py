@@ -15,14 +15,14 @@ from production_entry_app.production_entry_app.joint_production import (
 )
 
 
-def update_counter_for_stock_entry(doc, direction: int = 1) -> None:
+def update_counter_for_stock_entry(doc: Document, direction: int = 1) -> None:
 	if is_joint_lh_rh_production(doc):
-		_update_joint_counter_for_stock_entry(doc, direction)
-		return
-	if doc.get("purpose") != "Manufacture":
+		item_code = doc.get("custom_pea_die_tool_item")
+	elif doc.get("purpose") == "Manufacture":
+		item_code = _get_fg_item_code(doc)
+	else:
 		return
 
-	item_code = _get_fg_item_code(doc)
 	if not item_code:
 		return
 	if not is_die_tool_enabled(item_code):
@@ -32,14 +32,6 @@ def update_counter_for_stock_entry(doc, direction: int = 1) -> None:
 	if total_strokes <= 0:
 		return
 
-	_update_counter(item_code, total_strokes * direction)
-
-
-def _update_joint_counter_for_stock_entry(doc: Document, direction: int) -> None:
-	item_code = doc.get("custom_pea_die_tool_item")
-	total_strokes = float(doc.get("custom_pea_total_strokes") or 0)
-	if not item_code or total_strokes <= 0 or not is_die_tool_enabled(item_code):
-		return
 	_update_counter(item_code, total_strokes * direction)
 
 

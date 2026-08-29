@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from typing import Any
-
 import frappe
 from frappe import _
+from frappe.model.document import Document
 from frappe.utils import flt
 
 from production_entry_app.production_entry_app.report.report_utils import (
@@ -16,14 +15,14 @@ from production_entry_app.production_entry_app.utils.system_precision import (
 	get_system_float_precision,
 )
 
-TIMELINE_CACHE_PREFIX = "pea:timeline"
+TIMELINE_CACHE_PREFIX: str = "pea:timeline"
 
 
 def get_timeline_cache_prefix(doctype: str, docname: str, shift_name: str) -> str:
 	return f"{TIMELINE_CACHE_PREFIX}:{doctype}:{docname}:{shift_name}:"
 
 
-def invalidate_timeline_cache_for_stock_entry(doc: Any) -> None:
+def invalidate_timeline_cache_for_stock_entry(doc: Document) -> None:
 	shift_name = doc.get("custom_pea_shift")
 	if not shift_name:
 		return

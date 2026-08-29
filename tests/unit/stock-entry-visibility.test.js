@@ -13,8 +13,8 @@ const {
 	_apply_shift_detail_updates,
 	_apply_fetch_items_response,
 	_sync_joint_stock_entry_type,
+	_initialize_total_strokes_default_state,
 	_default_total_strokes_from_fg,
-	_mark_total_strokes_edited,
 	_get_rejection_qty_for_visibility,
 	MANUFACTURE_FIELDS,
 	PEA_MANUFACTURE_FIELDS,
@@ -48,10 +48,37 @@ test("manufacture strokes follow quantity until the operator edits them", async 
 	assert.equal(frm.doc.custom_pea_total_strokes, 120);
 
 	frm.doc.custom_pea_total_strokes = 40;
-	_mark_total_strokes_edited(frm);
 	frm.doc.fg_completed_qty = 130;
 	await _default_total_strokes_from_fg(frm);
 	assert.equal(frm.doc.custom_pea_total_strokes, 40);
+});
+
+test("saved manufacture strokes keep following quantity only while auto-derived", async () => {
+	const makeForm = (totalStrokes) => ({
+		doc: {
+			__islocal: 0,
+			custom_pea_stock_entry_purpose: "Manufacture",
+			custom_pea_is_joint_lh_rh: 0,
+			fg_completed_qty: 100,
+			custom_pea_total_strokes: totalStrokes,
+		},
+		set_value(fieldname, value) {
+			this.doc[fieldname] = value;
+			return Promise.resolve();
+		},
+	});
+
+	const autoDerived = makeForm(100);
+	_initialize_total_strokes_default_state(autoDerived);
+	autoDerived.doc.fg_completed_qty = 120;
+	await _default_total_strokes_from_fg(autoDerived);
+	assert.equal(autoDerived.doc.custom_pea_total_strokes, 120);
+
+	const manuallyEdited = makeForm(40);
+	_initialize_total_strokes_default_state(manuallyEdited);
+	manuallyEdited.doc.fg_completed_qty = 120;
+	await _default_total_strokes_from_fg(manuallyEdited);
+	assert.equal(manuallyEdited.doc.custom_pea_total_strokes, 40);
 });
 
 test("normalize purpose trims whitespace and handles empty values", () => {

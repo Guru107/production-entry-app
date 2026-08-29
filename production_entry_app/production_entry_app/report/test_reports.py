@@ -1448,6 +1448,17 @@ class TestProductionReports(FrappeTestCase):
 				{"rejection_reason": "Crack", "qty": 2, "is_rework": 0},
 			],
 		)
+		finished_row = frappe.db.get_value(
+			"Stock Entry Detail",
+			{"parent": entry.name, "is_finished_item": 1, "custom_pea_is_rejection_item": 0},
+			"name",
+		)
+		frappe.db.set_value(
+			"Stock Entry Detail",
+			finished_row,
+			{"qty": 47.5, "conversion_factor": 2, "transfer_qty": 95},
+			update_modified=False,
+		)
 
 		metrics = get_parent_quantity_metrics([entry.name], include_rework=True)[entry.name]
 		self.assertEqual(float(metrics["good_qty"]), 95.0)

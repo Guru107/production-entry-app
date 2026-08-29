@@ -17,8 +17,8 @@ from production_entry_app.production_entry_app.doctype.rejection_breakup.rejecti
 )
 from production_entry_app.production_entry_app.utils.rejection_warehouse import resolve_rejection_warehouse
 
-WHOLE_NUMBER_QUANTUM = Decimal("1")
-VALUATION_TOLERANCE = 1e-9
+WHOLE_NUMBER_QUANTUM: Decimal = Decimal("1")
+VALUATION_TOLERANCE: float = 1e-9
 
 
 @dataclass(frozen=True)
@@ -705,7 +705,15 @@ def _get_item_details(item_codes: Iterable[str]) -> dict[str, frappe._dict]:
 		filters={"name": ["in", unique_item_codes]},
 		fields=["name", "item_name", "description", "stock_uom"],
 	)
-	return {row.get("name"): frappe._dict(row) for row in rows}
+	details = {row.get("name"): frappe._dict(row) for row in rows}
+	missing_item_codes = [item_code for item_code in unique_item_codes if item_code not in details]
+	if missing_item_codes:
+		frappe.throw(
+			_("Unable to load Item(s): {0}.").format(
+				", ".join(frappe.utils.escape_html(str(item_code)) for item_code in missing_item_codes)
+			)
+		)
+	return details
 
 
 def validate_stock_entry_type(doc: Document, method: str | None = None) -> None:

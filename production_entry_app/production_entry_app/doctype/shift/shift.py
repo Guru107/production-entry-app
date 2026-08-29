@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import datetime
 from collections.abc import Callable
-from typing import Any
+from typing import Any, NamedTuple
 
 import frappe
 from frappe import _
@@ -46,6 +46,15 @@ RUNNING_SHIFT_SERVER_COMPUTED_FIELDS: frozenset[str] = frozenset(
 		"shift_title",
 	}
 )
+
+
+class _EntrySummaryQuantities(NamedTuple):
+	total_qty: float
+	ok_qty: float
+	rejection_qty: float
+	total_strokes: float
+
+
 RUNNING_SHIFT_MUTABLE_FIELDS: frozenset[str] = (
 	RUNNING_SHIFT_USER_EDITABLE_FIELDS | RUNNING_SHIFT_SERVER_COMPUTED_FIELDS
 )
@@ -426,13 +435,13 @@ def _top_reason_rows(reason_totals: dict[str, float], key_name: str = "reason") 
 	]
 
 
-def _get_entry_summary_quantities(entry: dict) -> tuple[float, float, float, float]:
+def _get_entry_summary_quantities(entry: dict) -> _EntrySummaryQuantities:
 	if entry.get("custom_pea_is_joint_lh_rh"):
 		total_qty = flt(entry.get("custom_pea_lh_gross_qty")) + flt(entry.get("custom_pea_rh_gross_qty"))
 		rejection_qty = flt(entry.get("custom_pea_lh_rejection_qty")) + flt(
 			entry.get("custom_pea_rh_rejection_qty")
 		)
-		return (
+		return _EntrySummaryQuantities(
 			total_qty,
 			max(total_qty - rejection_qty, 0),
 			rejection_qty,
@@ -440,7 +449,12 @@ def _get_entry_summary_quantities(entry: dict) -> tuple[float, float, float, flo
 		)
 	total_qty = flt(entry.get("fg_completed_qty") or 0)
 	rejection_qty = flt(entry.get("custom_pea_rejection_qty") or 0)
-	return total_qty, max(total_qty - rejection_qty, 0), rejection_qty, total_qty
+	return _EntrySummaryQuantities(
+		total_qty,
+		max(total_qty - rejection_qty, 0),
+		rejection_qty,
+		flt(entry.get("custom_pea_total_strokes")),
+	)
 
 
 def _build_workstation_summary_rows(entries: list[dict]) -> tuple[list[dict], dict | None]:
@@ -1035,11 +1049,12 @@ def get_shift_aggregate_production_entries(shift_name: str | None = None) -> lis
 		bom.item.as_("item_code"),
 		Sum(stock_entry.fg_completed_qty).as_("total_qty"),
 		Sum(stock_entry.custom_pea_rejection_qty).as_("total_reject_qty"),
+		Sum(stock_entry.custom_pea_total_strokes).as_("total_strokes"),
 		Sum(stock_entry.custom_pea_actual_duration_mins).as_("total_duration_mins"),
 	]
 	if has_production_time_field:
 		select_fields.insert(
-			4,
+			5,
 			Sum(production_time_expr).as_("total_production_mins"),
 		)
 	rows = (
@@ -1072,7 +1087,8 @@ def get_shift_aggregate_production_entries(shift_name: str | None = None) -> lis
 			if total_production_mins is not None
 			else (row.get("total_duration_mins") or 0),
 		)
-		avg_spm = (total_ok_qty / total_duration_mins) if total_duration_mins > 0 else 0
+		total_strokes = flt(row.get("total_strokes") or 0)
+		avg_spm = (total_strokes / total_duration_mins) if total_duration_mins > 0 else 0
 		result.append(
 			{
 				"bom_used": row.get("bom_used"),

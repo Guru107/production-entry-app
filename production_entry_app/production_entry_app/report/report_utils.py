@@ -328,17 +328,17 @@ def _fetch_stock_entry_chunk(
 	chunk_size: int,
 	last_row: dict | None = None,
 ) -> list[dict]:
-	permission_filters = _as_permission_aware_filters(filters)
+	query_filters = _as_list_filters(filters)
 
 	if order_by == "name asc":
 		if last_row:
 			last_name = last_row.get("name")
 			if not last_name:
 				frappe.throw(_("Missing Stock Entry name for keyset pagination."))
-			permission_filters.append(["name", ">", last_name])
+			query_filters.append(["name", ">", last_name])
 		return get_report_rows(
 			"Stock Entry",
-			filters=permission_filters,
+			filters=query_filters,
 			or_filters=_PRODUCTION_STOCK_ENTRY_OR_FILTERS,
 			fields=fields,
 			order_by=order_by,
@@ -353,7 +353,7 @@ def _fetch_stock_entry_chunk(
 		same_day_rows = get_report_rows(
 			"Stock Entry",
 			filters=[
-				*permission_filters,
+				*query_filters,
 				["posting_date", "=", last_posting_date],
 				["name", ">", last_name],
 			],
@@ -367,7 +367,7 @@ def _fetch_stock_entry_chunk(
 			return same_day_rows
 		later_rows = get_report_rows(
 			"Stock Entry",
-			filters=[*permission_filters, ["posting_date", ">", last_posting_date]],
+			filters=[*query_filters, ["posting_date", ">", last_posting_date]],
 			or_filters=_PRODUCTION_STOCK_ENTRY_OR_FILTERS,
 			fields=fields,
 			order_by=order_by,
@@ -377,7 +377,7 @@ def _fetch_stock_entry_chunk(
 
 	return get_report_rows(
 		"Stock Entry",
-		filters=permission_filters,
+		filters=query_filters,
 		or_filters=_PRODUCTION_STOCK_ENTRY_OR_FILTERS,
 		fields=fields,
 		order_by=order_by,
@@ -385,7 +385,7 @@ def _fetch_stock_entry_chunk(
 	)
 
 
-def _as_permission_aware_filters(filters: dict) -> list[list]:
+def _as_list_filters(filters: dict) -> list[list]:
 	result = []
 	for fieldname, value in filters.items():
 		if isinstance(value, list | tuple) and len(value) == 2:
@@ -416,7 +416,7 @@ def get_entry_qty_maps(
 			.select(
 				stock_entry_detail.parent,
 				stock_entry_detail.item_code,
-				Sum(stock_entry_detail.qty).as_("qty"),
+				Sum(stock_entry_detail.qty * stock_entry_detail.conversion_factor).as_("qty"),
 			)
 			.where(stock_entry_detail.parent.isin(stock_entry_names))
 			.where(stock_entry_detail.is_finished_item == 1)
@@ -458,7 +458,11 @@ def get_parent_quantity_metrics(
 		)
 		& _get_non_scrap_item_criterion(stock_entry_detail)
 	)
-	good_qty_case = Case().when(good_item_criterion, stock_entry_detail.qty).else_(0)
+	good_qty_case = (
+		Case()
+		.when(good_item_criterion, stock_entry_detail.qty * stock_entry_detail.conversion_factor)
+		.else_(0)
+	)
 	qty_rows = (
 		frappe.qb.from_(stock_entry_detail)
 		.select(
@@ -587,12 +591,6 @@ def get_finished_item_maps(stock_entry_names: list[str]) -> tuple[dict[str, str]
 	)
 
 
-def get_finished_item_map(stock_entry_names: list[str]) -> dict[str, str]:
-	"""Return one valid Item code per Stock Entry for Link-field consumers."""
-	item_map, _label_map = get_finished_item_maps(stock_entry_names)
-	return item_map
-
-
 def get_item_bom_quality_facts(entries: list[dict], *, is_rework: bool) -> list[dict]:
 	"""Return normal or joint output facts for item/BOM quality reports."""
 	entry_names = [entry.get("name") for entry in entries if entry.get("name")]
@@ -600,7 +598,7 @@ def get_item_bom_quality_facts(entries: list[dict], *, is_rework: bool) -> list[
 		return []
 
 	parent_metrics = get_parent_quantity_metrics(entry_names, include_rework=is_rework)
-	item_by_entry = get_finished_item_map(entry_names)
+	item_by_entry, _item_labels = get_finished_item_maps(entry_names)
 	breakup_rows = get_parent_breakup_reason_rows(entry_names, is_rework=is_rework)
 	joint_items = _get_joint_output_item_map(entry_names)
 	quality_by_output: dict[tuple[str, str], float] = defaultdict(float)

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import NamedTuple
+
 import frappe
 from frappe import _
 from frappe.utils import flt, get_time
@@ -44,6 +46,12 @@ LOSS_REASON_TO_BUCKET: dict[str, str] = {
 	"No Helper": "no_helper",
 	"Power Off": "power_off",
 }
+
+
+class _EntryQuantityMaps(NamedTuple):
+	good_qty: dict[str, float]
+	rejection_qty: dict[str, float]
+	total_rejected_qty: dict[str, float]
 
 
 def execute(filters: dict | None = None):
@@ -270,7 +278,7 @@ def _get_stock_entry_fields() -> list[str]:
 
 def _get_entry_quantity_maps(
 	entry_names: list[str],
-) -> tuple[dict[str, float], dict[str, float], dict[str, float]]:
+) -> _EntryQuantityMaps:
 	parent_quantity_metrics = get_parent_quantity_metrics(entry_names)
 	good_qty_map = {
 		parent: flt(metrics.get("good_qty") or 0) for parent, metrics in parent_quantity_metrics.items()
@@ -282,7 +290,7 @@ def _get_entry_quantity_maps(
 		parent: flt(metrics.get("total_rejected_qty") or 0)
 		for parent, metrics in parent_quantity_metrics.items()
 	}
-	return good_qty_map, rejection_qty_map, total_rejected_qty_map
+	return _EntryQuantityMaps(good_qty_map, rejection_qty_map, total_rejected_qty_map)
 
 
 def _get_stock_entry_loss_rows(entry_names: list[str]) -> list[dict]:
@@ -305,7 +313,7 @@ def _add_stock_entry_to_group(
 	groups: dict[tuple[str, str], dict],
 	entry_meta_by_name: dict[str, dict[str, str]],
 	entry: frappe._dict,
-	quantity_maps: tuple[dict[str, float], dict[str, float], dict[str, float]],
+	quantity_maps: _EntryQuantityMaps,
 	shift_labels: dict[str, str],
 ) -> None:
 	day = str(entry.get("production_date") or "")
@@ -320,19 +328,10 @@ def _add_stock_entry_to_group(
 			"shift": entry.get("custom_pea_shift") or "",
 		}
 	group = groups.setdefault((day, workstation), _new_group(day, workstation))
-	total_strokes, rejection_qty = get_entry_total_strokes(
-		entry,
-		rejection_qty_map=quantity_maps[1],
-	)
-	entry_good_qty = flt(quantity_maps[0].get(entry_name) or 0)
-	entry_total_rejected_qty = flt(quantity_maps[2].get(entry_name) or 0)
 	_add_entry_quantities_to_group(
 		group,
 		entry,
-		total_strokes,
-		rejection_qty,
-		entry_good_qty,
-		entry_total_rejected_qty,
+		quantity_maps,
 		shift_labels,
 	)
 
@@ -340,12 +339,16 @@ def _add_stock_entry_to_group(
 def _add_entry_quantities_to_group(
 	group: dict,
 	entry: frappe._dict,
-	total_strokes: float,
-	rejection_qty: float,
-	good_qty: float,
-	total_rejected_qty: float,
+	quantity_maps: _EntryQuantityMaps,
 	shift_labels: dict[str, str],
 ) -> None:
+	entry_name = entry.get("name")
+	total_strokes, rejection_qty = get_entry_total_strokes(
+		entry,
+		rejection_qty_map=quantity_maps.rejection_qty,
+	)
+	good_qty = flt(quantity_maps.good_qty.get(entry_name) or 0)
+	total_rejected_qty = flt(quantity_maps.total_rejected_qty.get(entry_name) or 0)
 	shift_name = entry.get("custom_pea_shift")
 	group["total_strokes"] += total_strokes
 	if entry.get("custom_pea_is_joint_lh_rh"):
