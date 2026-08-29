@@ -126,7 +126,11 @@ test.describe("Joint LH/RH production form", () => {
 		expect(await form.isFieldVisible("custom_pea_lh_bom")).toBe(true);
 		expect(await form.isFieldVisible("custom_pea_rh_bom")).toBe(true);
 		expect(await form.isFieldVisible("custom_pea_total_strokes")).toBe(true);
-		expect(await form.isFieldVisible("custom_pea_total_rm_consumption")).toBe(true);
+		expect(
+			await page.evaluate(() =>
+				Boolean(window.cur_frm?.fields_dict?.custom_pea_total_rm_consumption)
+			)
+		).toBe(true);
 		expect(await form.isFieldVisible("custom_pea_joint_fetch_items")).toBe(true);
 		expect(await form.isFieldVisible("custom_pea_shift")).toBe(true);
 		expect(await form.isSectionVisible("bom_info_section")).toBe(false);
@@ -242,6 +246,7 @@ test.describe("Joint LH/RH production form", () => {
 		await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
 		await form.fillJointProductionFields(ctx);
 		await form.waitForFieldValue("custom_pea_total_rm_consumption", 39.79125);
+		expect(await form.isFieldVisible("custom_pea_total_rm_consumption")).toBe(true);
 
 		await page.locator('[data-fieldname="custom_pea_joint_fetch_items"] button').click();
 		await page.waitForFunction(() => (window.cur_frm?.doc?.items || []).length === 5);
