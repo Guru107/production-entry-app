@@ -26,8 +26,8 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 
 
 class TestBranchWarehouseSettings(FrappeTestCase):
-	def test_each_missing_warehouse_role_has_a_validation_message(self) -> None:
-		for fieldname in WAREHOUSE_FIELDS:
+	def test_each_required_production_warehouse_has_a_validation_message(self) -> None:
+		for fieldname in ("work_in_progress_warehouse", "rejection_warehouse", "scrap_warehouse"):
 			with (
 				self.subTest(fieldname=fieldname),
 				self.assertRaisesRegex(frappe.ValidationError, "Please set a"),

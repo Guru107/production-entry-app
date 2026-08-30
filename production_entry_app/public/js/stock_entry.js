@@ -962,7 +962,7 @@ function _apply_shift_details_response(frm, selectedShift, reqId, data) {
 	}
 	const isCurrentRequest = () =>
 		reqId === _shiftDetailsRequestId && frm.doc.custom_pea_shift === selectedShift;
-	_apply_shift_detail_updates(frm, data, isCurrentRequest).then((applied) => {
+	_apply_shift_detail_updates(frm, data, { isCurrentRequest }).then((applied) => {
 		if (applied && isCurrentRequest()) {
 			_sync_stock_entry_helper_fields(frm);
 			_setup_stock_entry_quick_entry(frm);
@@ -970,37 +970,48 @@ function _apply_shift_details_response(frm, selectedShift, reqId, data) {
 	});
 }
 
-async function _apply_shift_detail_updates(frm, data, isCurrentRequest = () => true) {
-	const fieldMap = {
-		company: "company",
-		branch: "branch",
-		custom_pea_planned_start_date: "custom_pea_planned_start_date",
-		custom_pea_planned_end_date: "custom_pea_planned_end_date",
-		from_warehouse: "from_warehouse",
-		to_warehouse: "to_warehouse",
-	};
-	for (const [sourceField, targetField] of Object.entries(fieldMap)) {
+async function _apply_shift_detail_updates(
+	frm,
+	data,
+	{ isCurrentRequest = () => true, clearWarehouses = false } = {}
+) {
+	const warehouseFields = ["from_warehouse", "to_warehouse"];
+	const fields = [
+		"company",
+		"branch",
+		"custom_pea_planned_start_date",
+		"custom_pea_planned_end_date",
+		...warehouseFields,
+	];
+	for (const fieldname of fields) {
 		if (!isCurrentRequest()) {
 			return false;
 		}
-		if (frm.doc?.work_order && ["from_warehouse", "to_warehouse"].includes(targetField)) {
+		if (
+			warehouseFields.includes(fieldname) &&
+			(frm.doc?.work_order || (!clearWarehouses && !data[fieldname]))
+		) {
 			continue;
 		}
-		if (Object.prototype.hasOwnProperty.call(data, sourceField)) {
-			await _set_form_value_if_present(frm, targetField, data[sourceField]);
+		if (Object.prototype.hasOwnProperty.call(data, fieldname)) {
+			await _set_form_value_if_present(frm, fieldname, data[fieldname]);
 		}
 	}
 	return true;
 }
 
 function _clear_shift_derived_fields(frm) {
-	return _apply_shift_detail_updates(frm, {
-		branch: "",
-		custom_pea_planned_start_date: "",
-		custom_pea_planned_end_date: "",
-		from_warehouse: "",
-		to_warehouse: "",
-	});
+	return _apply_shift_detail_updates(
+		frm,
+		{
+			branch: "",
+			custom_pea_planned_start_date: "",
+			custom_pea_planned_end_date: "",
+			from_warehouse: "",
+			to_warehouse: "",
+		},
+		{ clearWarehouses: true }
+	);
 }
 
 async function _set_form_value_if_present(frm, fieldname, value) {

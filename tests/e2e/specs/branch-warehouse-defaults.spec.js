@@ -20,6 +20,7 @@ test.describe("Branch warehouse defaults", () => {
 	let jointType;
 	let user;
 	let workOrder;
+	// Register first: cancel/delete Work Orders before lifecycle teardown removes their linked fixtures.
 	test.afterEach(async ({ page }) => {
 		if (workOrder) {
 			await callFrappeMethod(page, "frappe.client.cancel", {
@@ -212,8 +213,13 @@ test.describe("Branch warehouse defaults", () => {
 			await form.openNew();
 			await setFieldValue(page, "stock_entry_type", joint ? jointType : "Manufacture");
 			await setFieldValue(page, "company", ctx.company);
+			await setFieldValue(page, "from_warehouse", ctx.wip_warehouse);
+			await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
 			await setFieldValue(page, "custom_pea_shift", ctx.shift_name);
 			await form.waitForFieldValue("branch", ctx.branch);
+			await page.evaluate(() => frappe.after_ajax());
+			await form.waitForFieldValue("from_warehouse", ctx.wip_warehouse);
+			await form.waitForFieldValue("to_warehouse", ctx.fg_warehouse);
 			const values = await form.getFieldValues([
 				"custom_pea_shift",
 				"company",
@@ -223,8 +229,6 @@ test.describe("Branch warehouse defaults", () => {
 			expect(values.company).toBe(ctx.company);
 			expect(values.custom_pea_planned_start_date).toContain(ctx.shift_date);
 			await expect(page.locator(".modal:visible")).toHaveCount(0);
-			await setFieldValue(page, "from_warehouse", ctx.wip_warehouse);
-			await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
 			if (joint) {
 				await form.fillJointProductionFields(ctx);
 			} else {
@@ -240,6 +244,11 @@ test.describe("Branch warehouse defaults", () => {
 					.filter((row) => row.s_warehouse)
 					.every((row) => row.s_warehouse === ctx.wip_warehouse)
 			).toBeTruthy();
+			await setFieldValue(page, "custom_pea_shift", "");
+			await page.waitForFunction(() => !cur_frm.doc.custom_pea_planned_end_date);
+			await page.evaluate(() => frappe.after_ajax());
+			await form.waitForFieldValue("from_warehouse", "");
+			await form.waitForFieldValue("to_warehouse", "");
 		}
 	});
 

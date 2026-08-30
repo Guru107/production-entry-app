@@ -6,7 +6,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt, getdate, nowdate
 
-_PRODUCTION_ENTRY_SHIFT_SETTINGS_FIELDS: tuple[str, ...] = (
+PRODUCTION_ENTRY_SHIFT_SETTINGS_FIELDS: tuple[str, ...] = (
 	"branch_warehouse_defaults",
 	"shift_start_buffer_mins",
 	"shift_end_buffer_mins",
@@ -127,7 +127,7 @@ def ensure_item(item_code: str, *, item_group: str = "Products", stock_uom: str 
 
 def ensure_production_entry_settings_shift_fields() -> None:
 	meta = frappe.get_meta("Production Entry Settings", cached=True)
-	if all(meta.has_field(fieldname) for fieldname in _PRODUCTION_ENTRY_SHIFT_SETTINGS_FIELDS):
+	if all(meta.has_field(fieldname) for fieldname in PRODUCTION_ENTRY_SHIFT_SETTINGS_FIELDS):
 		return
 	frappe.reload_doc("production_entry_app", "doctype", "branch_warehouse_default")
 	frappe.reload_doc("production_entry_app", "doctype", "production_entry_settings")

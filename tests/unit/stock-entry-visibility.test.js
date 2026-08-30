@@ -480,13 +480,17 @@ test("shift detail updates clear present empty values instead of leaving stale f
 		},
 	};
 
-	await _apply_shift_detail_updates(frm, {
-		company: "Test Company",
-		branch: "",
-		custom_pea_planned_start_date: null,
-		custom_pea_planned_end_date: "2026-02-22 16:00:00",
-		from_warehouse: undefined,
-	});
+	await _apply_shift_detail_updates(
+		frm,
+		{
+			company: "Test Company",
+			branch: "",
+			custom_pea_planned_start_date: null,
+			custom_pea_planned_end_date: "2026-02-22 16:00:00",
+			from_warehouse: undefined,
+		},
+		{ clearWarehouses: true }
+	);
 
 	assert.deepEqual(updates, [
 		["company", "Test Company"],
@@ -521,6 +525,28 @@ test("shift selection preserves Work Order warehouses while applying its dates a
 		branch: "BRANCH-1",
 		custom_pea_planned_start_date: "2026-08-30 08:00:00",
 	});
+});
+
+test("Shift selection without warehouse defaults preserves manually entered headers", async () => {
+	for (const emptyValue of [null, undefined, ""]) {
+		const frm = {
+			doc: { from_warehouse: "Manual WIP", to_warehouse: "Manual FG" },
+			fields_dict: { branch: {}, from_warehouse: {}, to_warehouse: {} },
+			async set_value(fieldname, value) {
+				this.doc[fieldname] = value;
+			},
+		};
+		await _apply_shift_detail_updates(frm, {
+			branch: "BRANCH-1",
+			from_warehouse: emptyValue,
+			to_warehouse: emptyValue,
+		});
+		assert.deepEqual(frm.doc, {
+			branch: "BRANCH-1",
+			from_warehouse: "Manual WIP",
+			to_warehouse: "Manual FG",
+		});
+	}
 });
 
 test("shift detail updates skip absent fields without aborting later updates", async () => {
@@ -574,7 +600,7 @@ test("shift detail updates stop when the request becomes stale", async () => {
 			branch: "Old Branch",
 			custom_pea_planned_start_date: "2026-02-22 08:00:00",
 		},
-		() => current
+		{ isCurrentRequest: () => current }
 	);
 
 	assert.equal(applied, false);

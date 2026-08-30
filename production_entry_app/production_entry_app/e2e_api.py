@@ -15,6 +15,7 @@ from production_entry_app.production_entry_app.api import (
 )
 from production_entry_app.production_entry_app.utils.shift_time import get_shift_planned_end_datetime
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
+	PRODUCTION_ENTRY_SHIFT_SETTINGS_FIELDS,
 	cleanup_running_shifts,
 	ensure_branch,
 	ensure_default_bom,
@@ -34,11 +35,6 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	set_test_branch_warehouse_defaults,
 )
 
-_E2E_SETTINGS_FIELDS: tuple[str, ...] = (
-	"branch_warehouse_defaults",
-	"shift_start_buffer_mins",
-	"shift_end_buffer_mins",
-)
 _E2E_SYSTEM_SETTINGS_FIELDS: tuple[str, ...] = ("float_precision",)
 _E2E_RESERVED_USER_EMAIL_PREFIX: str = "e2e-user-"
 _E2E_RESERVED_ROLE_PREFIX: str = "E2E ROLE "
@@ -103,7 +99,7 @@ def _get_e2e_shift_names_cache_key(prefix: str) -> str:
 def _get_production_entry_settings_snapshot() -> dict[str, Any]:
 	ensure_production_entry_settings_shift_fields()
 	settings = frappe.get_single("Production Entry Settings").as_dict()
-	return {fieldname: settings.get(fieldname) for fieldname in _E2E_SETTINGS_FIELDS}
+	return {fieldname: settings.get(fieldname) for fieldname in PRODUCTION_ENTRY_SHIFT_SETTINGS_FIELDS}
 
 
 def _get_manufacturing_settings_snapshot() -> dict[str, Any]:
@@ -146,7 +142,7 @@ def _restore_production_entry_settings(snapshot: dict[str, Any] | None) -> None:
 		return
 	ensure_production_entry_settings_shift_fields()
 	settings = frappe.get_single("Production Entry Settings")
-	for fieldname in _E2E_SETTINGS_FIELDS:
+	for fieldname in PRODUCTION_ENTRY_SHIFT_SETTINGS_FIELDS:
 		settings.set(fieldname, snapshot.get(fieldname))
 	settings.save(ignore_permissions=True)
 	frappe.clear_document_cache("Production Entry Settings")
