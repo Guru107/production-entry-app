@@ -287,11 +287,11 @@ test.describe("Branch warehouse defaults", () => {
 						body: JSON.stringify({ message: null }),
 					})
 				);
-				const response = page.waitForResponse((response) =>
+				const responsePromise = page.waitForResponse((response) =>
 					response.url().includes("api.get_shift_details_for_stock_entry")
 				);
 				await setFieldValue(page, "custom_pea_shift", ctx.shift_name);
-				expect((await response).status()).toBe(status);
+				expect((await responsePromise).status()).toBe(status);
 				await expect
 					.poll(
 						async () =>
