@@ -633,37 +633,70 @@ test.describe("Stock Entry validation matrix", () => {
 	}) => {
 		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
-		const manualEntry = await openManufactureEntry(page, ctx, { fgQty: 100 });
+		const form = await openManufactureEntry(page, ctx, { fgQty: 100 });
 		await setFieldValue(page, "custom_pea_total_strokes", 40);
-		await manualEntry.fetchItems();
-		await manualEntry.saveDraft();
+		await form.fetchItems();
+		await form.saveDraft();
 		const manualEntryName = await page.evaluate(() => window.cur_frm.doc.name);
 
-		const automaticEntry = await openManufactureEntry(page, ctx, {
+		await form.openNew();
+		await form.setManufactureFields(ctx, {
 			fgQty: 40,
 			actualStart: `${ctx.shift_date} 09:00:00`,
 			actualEnd: `${ctx.shift_date} 10:00:00`,
 		});
-		await automaticEntry.fetchItems();
-		await automaticEntry.saveDraft();
+		await form.fetchItems();
+		await form.saveDraft();
 
-		// Route within Desk so Frappe reuses its Stock Entry form instance.
-		await page.evaluate(async (name) => {
-			await frappe.set_route("Form", "Stock Entry", name);
-			await frappe.after_ajax();
-		}, manualEntryName);
-		await page.waitForFunction((name) => window.cur_frm?.doc?.name === name, manualEntryName);
+		await form.openInDesk(manualEntryName);
 		await setFieldValue(page, "fg_completed_qty", 120);
 		expect(
 			Number(
-				(await manualEntry.getFieldValues(["custom_pea_total_strokes"]))
-					.custom_pea_total_strokes
+				(await form.getFieldValues(["custom_pea_total_strokes"])).custom_pea_total_strokes
 			)
 		).toBe(40);
-		await manualEntry.fetchItems();
-		await manualEntry.saveDraft();
+		await form.fetchItems();
+		await form.saveDraft();
 		const savedEntry = await getDoc(page, "Stock Entry", manualEntryName);
 		expect(Number(savedEntry.custom_pea_total_strokes)).toBe(40);
+	});
+
+	test("@regression total press strokes preserve external manual edits after reload", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
+		const form = await openManufactureEntry(page, ctx, { fgQty: 100 });
+		await form.fetchItems();
+		await form.saveDraft();
+		const name = await page.evaluate(() => window.cur_frm.doc.name);
+
+		// Another client changes quantity but explicitly retains 100 physical strokes.
+		const externalDoc = await getDoc(page, "Stock Entry", name);
+		externalDoc.fg_completed_qty = 120;
+		externalDoc.custom_pea_total_strokes = 100;
+		externalDoc.items = await callFrappeMethod(
+			page,
+			"production_entry_app.production_entry_app.api.get_items_with_rejection",
+			{ doc: JSON.stringify(externalDoc) }
+		);
+		const externallySaved = await callFrappeMethod(page, "frappe.client.save", {
+			doc: JSON.stringify(externalDoc),
+		});
+		expect(Number(externallySaved.fg_completed_qty)).toBe(120);
+		expect(Number(externallySaved.custom_pea_total_strokes)).toBe(100);
+		await form.reload();
+		await setFieldValue(page, "fg_completed_qty", 130);
+		expect(
+			Number(
+				(await form.getFieldValues(["custom_pea_total_strokes"])).custom_pea_total_strokes
+			)
+		).toBe(100);
+		await form.fetchItems();
+		await form.saveDraft();
+		expect(Number((await getDoc(page, "Stock Entry", name)).custom_pea_total_strokes)).toBe(
+			100
+		);
 	});
 
 	test("@regression zero total press strokes defaults from quantity", async ({ page }) => {

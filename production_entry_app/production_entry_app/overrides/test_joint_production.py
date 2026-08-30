@@ -32,6 +32,7 @@ from production_entry_app.production_entry_app.joint_production import (
 from production_entry_app.production_entry_app.report.report_utils import (
 	get_entry_qty_maps,
 	get_entry_total_strokes,
+	get_finished_item_maps,
 	get_parent_quantity_metrics,
 	is_production_stock_entry,
 )
@@ -334,6 +335,28 @@ class TestJointProductionItems(FrappeTestCase):
 	def tearDown(self) -> None:
 		frappe.db.rollback()
 		frappe.local.enable_perpetual_inventory = {}
+
+	def test_report_item_maps_choose_first_good_output_in_detail_order(self) -> None:
+		shift = make_running_shift(self.masters)
+		doc = self._make_joint_entry(shift)
+		lh_row = next(
+			row
+			for row in doc.items
+			if row.custom_pea_joint_output_side == "LH" and not row.custom_pea_is_rejection_item
+		)
+		lh_row.qty = 20
+		lh_row.transfer_qty = 20
+		self._append_split_row(doc, lh_row, qty=19)
+		doc.insert(ignore_permissions=True)
+
+		good_qty, rejected_qty, item_map = get_entry_qty_maps([doc.name], include_fg_item=True)
+		first_items, labels = get_finished_item_maps([doc.name])
+
+		self.assertEqual(item_map, {doc.name: self.lh_item})
+		self.assertEqual(first_items, item_map)
+		self.assertEqual(labels, {doc.name: f"{self.lh_item} + {self.rh_item}"})
+		self.assertEqual(good_qty[doc.name], 80)
+		self.assertEqual(rejected_qty[doc.name], 1)
 
 	def test_joint_bom_fixture_does_not_reuse_a_stale_scrap_recipe(self) -> None:
 		matching_bom = self._make_bom(self.lh_item, scrap_qty=1.125)

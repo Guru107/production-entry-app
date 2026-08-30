@@ -22,13 +22,13 @@ from production_entry_app.production_entry_app.utils.system_precision import (
 	get_system_float_precision,
 )
 
-_MAX_FG_ITEM_PARENT_MATCHES = 5000
+_MAX_FG_ITEM_PARENT_MATCHES: int = 5000
 _MAX_BOM_PARENT_MATCHES: int = 5000
-_DEFAULT_REPORT_CHUNK_SIZE = 1000
-_DEFAULT_MAX_STOCK_ENTRY_ROWS = 100000
-_DEFAULT_INTERACTIVE_REPORT_TIMEOUT_SEC = 5.0
+_DEFAULT_REPORT_CHUNK_SIZE: int = 1000
+_DEFAULT_MAX_STOCK_ENTRY_ROWS: int = 100000
+_DEFAULT_INTERACTIVE_REPORT_TIMEOUT_SEC: float = 5.0
 _NO_MATCHING_SHIFT: str = "__no_matching_completed_shift__"
-_SUPPORTED_STOCK_ENTRY_ORDER_BY = frozenset({"name asc", "posting_date asc, name asc"})
+_SUPPORTED_STOCK_ENTRY_ORDER_BY: frozenset[str] = frozenset({"name asc", "posting_date asc, name asc"})
 _PRODUCTION_STOCK_ENTRY_OR_FILTERS: tuple[tuple[str, str, Any], ...] = (
 	("purpose", "=", "Manufacture"),
 	("custom_pea_is_joint_lh_rh", "=", 1),
@@ -179,7 +179,6 @@ def _should_enforce_interactive_report_timeout() -> bool:
 def get_stock_entries_for_fg_item(item_code: str) -> list[str]:
 	stock_entry_detail = DocType("Stock Entry Detail")
 	stock_entry = DocType("Stock Entry")
-	non_scrap_criterion = _get_non_scrap_item_criterion(stock_entry_detail)
 	rows = (
 		frappe.qb.from_(stock_entry_detail)
 		.inner_join(stock_entry)
@@ -190,12 +189,7 @@ def get_stock_entries_for_fg_item(item_code: str) -> list[str]:
 			# Keep parent-level constraints here because this helper is reused independently
 			# from report filter builders.
 			(stock_entry_detail.item_code == item_code)
-			& (stock_entry_detail.is_finished_item == 1)
-			& (
-				stock_entry_detail.custom_pea_is_rejection_item.isnull()
-				| (stock_entry_detail.custom_pea_is_rejection_item == 0)
-			)
-			& non_scrap_criterion
+			& _get_good_output_criterion(stock_entry_detail)
 			& (stock_entry.docstatus == 1)
 			& (
 				(stock_entry.purpose == "Manufacture")
@@ -410,23 +404,7 @@ def get_entry_qty_maps(
 		good_qty_map[parent] = flt(metrics.get("good_qty") or 0)
 
 	if include_fg_item:
-		stock_entry_detail = DocType("Stock Entry Detail")
-		good_rows = (
-			frappe.qb.from_(stock_entry_detail)
-			.select(
-				stock_entry_detail.parent,
-				stock_entry_detail.item_code,
-			)
-			.where(stock_entry_detail.parent.isin(stock_entry_names))
-			.where(_get_good_output_criterion(stock_entry_detail))
-			.groupby(stock_entry_detail.parent, stock_entry_detail.item_code)
-		).run(as_dict=True)
-		for row in good_rows:
-			parent = row.get("parent")
-			if not parent:
-				continue
-			if row.get("item_code"):
-				fg_item_map[parent] = row.get("item_code")
+		fg_item_map, _item_labels = get_finished_item_maps(stock_entry_names)
 
 	rejection_qty_map: dict[str, float] = {}
 	for parent, metrics in parent_metrics.items():
@@ -560,12 +538,7 @@ def get_finished_item_maps(stock_entry_names: list[str]) -> tuple[dict[str, str]
 		frappe.qb.from_(stock_entry_detail)
 		.select(stock_entry_detail.parent, stock_entry_detail.item_code)
 		.where(stock_entry_detail.parent.isin(stock_entry_names))
-		.where(stock_entry_detail.is_finished_item == 1)
-		.where(
-			stock_entry_detail.custom_pea_is_rejection_item.isnull()
-			| (stock_entry_detail.custom_pea_is_rejection_item == 0)
-		)
-		.where(_get_non_scrap_item_criterion(stock_entry_detail))
+		.where(_get_good_output_criterion(stock_entry_detail))
 		.orderby(stock_entry_detail.parent, stock_entry_detail.idx)
 	).run(as_dict=True)
 	items_by_parent: dict[str, list[str]] = defaultdict(list)

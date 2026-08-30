@@ -139,13 +139,14 @@ if (typeof window !== "undefined" && window.erpnext && erpnext.stock && erpnext.
 if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 	frappe.ui.form.on("Stock Entry", {
 		setup(frm) {
+			// Capture the baseline during initial form setup.
 			_initialize_total_strokes_default_state(frm);
 		},
 		before_load(frm) {
+			// Desk reuses this form when loading a different document.
 			_initialize_total_strokes_default_state(frm);
 		},
 		onload(frm) {
-			_initialize_total_strokes_default_state(frm);
 			_set_prev_purpose(frm);
 			_set_prev_stock_entry_type(frm);
 			_sync_native_get_items_access(frm);
@@ -153,6 +154,7 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 			_apply_manufacture_visibility(frm);
 		},
 		refresh(frm) {
+			// Covers cached navigation, reloads, and the new-to-saved document rename.
 			_initialize_total_strokes_default_state(frm);
 			_set_prev_purpose(frm);
 			_set_prev_stock_entry_type(frm);
@@ -763,13 +765,16 @@ function _initialize_total_strokes_default_state(frm) {
 	const documentName = frm.doc?.name;
 	if (
 		frm.__peaTotalStrokesDefaultState &&
-		frm.__peaTotalStrokesDefaultState.documentName === documentName
+		frm.__peaTotalStrokesDefaultState.documentName === documentName &&
+		frm.__peaTotalStrokesDefaultState.document === frm.doc
 	) {
 		return frm.__peaTotalStrokesDefaultState;
 	}
 	const completedQty = Number(frm.doc?.fg_completed_qty || 0);
 	frm.__peaTotalStrokesDefaultState = {
 		documentName,
+		// reload_doc replaces the document object even when its name is unchanged.
+		document: frm.doc,
 		defaultStrokeValue: completedQty,
 	};
 	return frm.__peaTotalStrokesDefaultState;

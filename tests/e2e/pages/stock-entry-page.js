@@ -34,6 +34,22 @@ class StockEntryPage {
 		await this.page.waitForFunction((docname) => window.cur_frm?.doc?.name === docname, name);
 	}
 
+	async openInDesk(name) {
+		// Preserve the Desk and its reused Stock Entry form instance.
+		await this.page.evaluate(async (docname) => {
+			await frappe.set_route("Form", "Stock Entry", docname);
+			await frappe.after_ajax();
+		}, name);
+		await this.page.waitForFunction((docname) => window.cur_frm?.doc?.name === docname, name);
+	}
+
+	async reload() {
+		await this.page.evaluate(async () => {
+			await window.cur_frm.reload_doc();
+			await frappe.after_ajax();
+		});
+	}
+
 	async fillManufactureEntry(ctx) {
 		await setFieldValue(this.page, "stock_entry_type", "Manufacture");
 		await setFieldValue(this.page, "custom_pea_stock_entry_purpose", "Manufacture");

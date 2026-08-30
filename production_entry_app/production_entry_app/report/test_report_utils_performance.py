@@ -252,46 +252,6 @@ class TestReportUtilsPerformance(FrappeTestCase):
 		)
 		get_query.assert_not_called()
 
-	def test_get_entry_qty_maps_includes_finished_item_map(self) -> None:
-		class _Query:
-			def select(self, *_args: Any, **_kwargs: Any) -> _Query:
-				return self
-
-			def where(self, *_args: Any, **_kwargs: Any) -> _Query:
-				return self
-
-			def groupby(self, *_args: Any, **_kwargs: Any) -> _Query:
-				return self
-
-			def run(self, **_kwargs: Any) -> list[dict[str, str | int]]:
-				return [
-					{"parent": "STE-001", "item_code": "FG-001", "qty": 10},
-					{"parent": "", "item_code": "FG-SKIP", "qty": 1},
-				]
-
-		with patch(
-			"production_entry_app.production_entry_app.report.report_utils.get_parent_quantity_metrics",
-			return_value={"STE-001": {"good_qty": 8, "rejection_qty": 2}},
-		):
-			with (
-				patch(
-					"production_entry_app.production_entry_app.report.report_utils.frappe.qb.from_",
-					return_value=_Query(),
-				),
-				patch(
-					"production_entry_app.production_entry_app.report.report_utils.frappe.get_meta"
-				) as get_meta,
-			):
-				get_meta.return_value.has_field.return_value = True
-				good_qty_map, rejection_qty_map, fg_item_map = report_utils.get_entry_qty_maps(
-					["STE-001"],
-					include_fg_item=True,
-				)
-
-		self.assertEqual(good_qty_map, {"STE-001": 8.0})
-		self.assertEqual(rejection_qty_map, {"STE-001": 2.0})
-		self.assertEqual(fg_item_map, {"STE-001": "FG-001"})
-
 	def test_get_loss_time_maps_splits_setup_and_non_setup_minutes(self) -> None:
 		rows = [
 			{
