@@ -23,11 +23,11 @@ from production_entry_app.production_entry_app.utils.system_precision import (
 )
 
 _MAX_FG_ITEM_PARENT_MATCHES = 5000
-_MAX_BOM_PARENT_MATCHES = 5000
+_MAX_BOM_PARENT_MATCHES: int = 5000
 _DEFAULT_REPORT_CHUNK_SIZE = 1000
 _DEFAULT_MAX_STOCK_ENTRY_ROWS = 100000
 _DEFAULT_INTERACTIVE_REPORT_TIMEOUT_SEC = 5.0
-_NO_MATCHING_SHIFT = "__no_matching_completed_shift__"
+_NO_MATCHING_SHIFT: str = "__no_matching_completed_shift__"
 _SUPPORTED_STOCK_ENTRY_ORDER_BY = frozenset({"name asc", "posting_date asc, name asc"})
 _PRODUCTION_STOCK_ENTRY_OR_FILTERS: tuple[tuple[str, str, Any], ...] = (
 	("purpose", "=", "Manufacture"),
@@ -416,15 +416,9 @@ def get_entry_qty_maps(
 			.select(
 				stock_entry_detail.parent,
 				stock_entry_detail.item_code,
-				Sum(stock_entry_detail.qty * stock_entry_detail.conversion_factor).as_("qty"),
 			)
 			.where(stock_entry_detail.parent.isin(stock_entry_names))
-			.where(stock_entry_detail.is_finished_item == 1)
-			.where(
-				stock_entry_detail.custom_pea_is_rejection_item.isnull()
-				| (stock_entry_detail.custom_pea_is_rejection_item == 0)
-			)
-			.where(_get_non_scrap_item_criterion(stock_entry_detail))
+			.where(_get_good_output_criterion(stock_entry_detail))
 			.groupby(stock_entry_detail.parent, stock_entry_detail.item_code)
 		).run(as_dict=True)
 		for row in good_rows:
@@ -450,17 +444,12 @@ def get_parent_quantity_metrics(
 		return {}
 
 	stock_entry_detail = DocType("Stock Entry Detail")
-	good_item_criterion = (
-		(stock_entry_detail.is_finished_item == 1)
-		& (
-			stock_entry_detail.custom_pea_is_rejection_item.isnull()
-			| (stock_entry_detail.custom_pea_is_rejection_item == 0)
-		)
-		& _get_non_scrap_item_criterion(stock_entry_detail)
-	)
 	good_qty_case = (
 		Case()
-		.when(good_item_criterion, stock_entry_detail.qty * stock_entry_detail.conversion_factor)
+		.when(
+			_get_good_output_criterion(stock_entry_detail),
+			stock_entry_detail.qty * stock_entry_detail.conversion_factor,
+		)
 		.else_(0)
 	)
 	qty_rows = (
@@ -754,6 +743,17 @@ def _get_joint_output_item_map(stock_entry_names: list[str]) -> dict[tuple[str, 
 		for row in rows
 		if row.get("parent") and row.get("custom_pea_joint_output_side") and row.get("item_code")
 	}
+
+
+def _get_good_output_criterion(stock_entry_detail: Table) -> Criterion:
+	return (
+		(stock_entry_detail.is_finished_item == 1)
+		& (
+			stock_entry_detail.custom_pea_is_rejection_item.isnull()
+			| (stock_entry_detail.custom_pea_is_rejection_item == 0)
+		)
+		& _get_non_scrap_item_criterion(stock_entry_detail)
+	)
 
 
 def _get_non_scrap_item_criterion(stock_entry_detail: Table) -> Criterion:

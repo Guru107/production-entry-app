@@ -628,6 +628,44 @@ test.describe("Stock Entry validation matrix", () => {
 		expect(Number(savedStockEntry.custom_pea_total_strokes || 0)).toBe(40);
 	});
 
+	test("@regression total press strokes preserve manual values across document navigation", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
+		const manualEntry = await openManufactureEntry(page, ctx, { fgQty: 100 });
+		await setFieldValue(page, "custom_pea_total_strokes", 40);
+		await manualEntry.fetchItems();
+		await manualEntry.saveDraft();
+		const manualEntryName = await page.evaluate(() => window.cur_frm.doc.name);
+
+		const automaticEntry = await openManufactureEntry(page, ctx, {
+			fgQty: 40,
+			actualStart: `${ctx.shift_date} 09:00:00`,
+			actualEnd: `${ctx.shift_date} 10:00:00`,
+		});
+		await automaticEntry.fetchItems();
+		await automaticEntry.saveDraft();
+
+		// Route within Desk so Frappe reuses its Stock Entry form instance.
+		await page.evaluate(async (name) => {
+			await frappe.set_route("Form", "Stock Entry", name);
+			await frappe.after_ajax();
+		}, manualEntryName);
+		await page.waitForFunction((name) => window.cur_frm?.doc?.name === name, manualEntryName);
+		await setFieldValue(page, "fg_completed_qty", 120);
+		expect(
+			Number(
+				(await manualEntry.getFieldValues(["custom_pea_total_strokes"]))
+					.custom_pea_total_strokes
+			)
+		).toBe(40);
+		await manualEntry.fetchItems();
+		await manualEntry.saveDraft();
+		const savedEntry = await getDoc(page, "Stock Entry", manualEntryName);
+		expect(Number(savedEntry.custom_pea_total_strokes)).toBe(40);
+	});
+
 	test("@regression zero total press strokes defaults from quantity", async ({ page }) => {
 		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());

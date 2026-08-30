@@ -760,12 +760,17 @@ function _is_production_doc(doc) {
 }
 
 function _initialize_total_strokes_default_state(frm) {
-	if (frm.__peaTotalStrokesDefaultState) {
+	const documentName = frm.doc?.name;
+	if (
+		frm.__peaTotalStrokesDefaultState &&
+		frm.__peaTotalStrokesDefaultState.documentName === documentName
+	) {
 		return frm.__peaTotalStrokesDefaultState;
 	}
 	const completedQty = Number(frm.doc?.fg_completed_qty || 0);
 	frm.__peaTotalStrokesDefaultState = {
-		lastCompletedQty: completedQty,
+		documentName,
+		defaultStrokeValue: completedQty,
 	};
 	return frm.__peaTotalStrokesDefaultState;
 }
@@ -774,7 +779,7 @@ function _default_total_strokes_from_fg(frm) {
 	if (!_is_manufacture_doc(frm.doc) || _is_joint_doc(frm.doc)) return;
 	const state = _initialize_total_strokes_default_state(frm);
 	const currentTotalStrokes = Number(frm.doc.custom_pea_total_strokes || 0);
-	if (currentTotalStrokes > 0 && currentTotalStrokes !== state.lastCompletedQty) {
+	if (currentTotalStrokes > 0 && currentTotalStrokes !== state.defaultStrokeValue) {
 		return;
 	}
 
@@ -782,7 +787,7 @@ function _default_total_strokes_from_fg(frm) {
 	if (completedQty > 0) {
 		const update = frm.set_value("custom_pea_total_strokes", completedQty);
 		return Promise.resolve(update).finally(() => {
-			state.lastCompletedQty = completedQty;
+			state.defaultStrokeValue = completedQty;
 		});
 	}
 }

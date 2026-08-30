@@ -1053,10 +1053,7 @@ def get_shift_aggregate_production_entries(shift_name: str | None = None) -> lis
 		Sum(stock_entry.custom_pea_actual_duration_mins).as_("total_duration_mins"),
 	]
 	if has_production_time_field:
-		select_fields.insert(
-			5,
-			Sum(production_time_expr).as_("total_production_mins"),
-		)
+		select_fields.append(Sum(production_time_expr).as_("total_production_mins"))
 	rows = (
 		frappe.qb.from_(stock_entry)
 		.inner_join(bom)
