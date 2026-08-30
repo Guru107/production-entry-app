@@ -48,8 +48,10 @@ def ensure_stock_entry_branch_field() -> None:
 
 	Native Frappe User Permissions on Branch then isolate Stock Entry by branch.
 	Reuses an existing `branch` field (native or from another app) — never duplicates.
+	New fields follow production's Details layout without replacing its field-order customization.
 	"""
-	if frappe.get_meta("Stock Entry", cached=True).has_field("branch"):
+	meta = frappe.get_meta("Stock Entry", cached=True)
+	if meta.has_field("branch"):
 		return
 	frappe.get_doc(
 		{
@@ -59,7 +61,7 @@ def ensure_stock_entry_branch_field() -> None:
 			"label": "Branch",
 			"fieldtype": "Link",
 			"options": "Branch",
-			"insert_after": "company",
+			"insert_after": "custom_department" if meta.has_field("custom_department") else "posting_time",
 			"module": "Production Entry App",
 			"read_only": 1,
 		}
