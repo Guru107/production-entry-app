@@ -994,17 +994,13 @@ async function _apply_shift_detail_updates(frm, data, isCurrentRequest = () => t
 }
 
 function _clear_shift_derived_fields(frm) {
-	return (async () => {
-		for (const fieldname of [
-			"branch",
-			"custom_pea_planned_start_date",
-			"custom_pea_planned_end_date",
-			"from_warehouse",
-			"to_warehouse",
-		]) {
-			await _set_form_value_if_present(frm, fieldname, "");
-		}
-	})();
+	return _apply_shift_detail_updates(frm, {
+		branch: "",
+		custom_pea_planned_start_date: "",
+		custom_pea_planned_end_date: "",
+		from_warehouse: "",
+		to_warehouse: "",
+	});
 }
 
 async function _set_form_value_if_present(frm, fieldname, value) {

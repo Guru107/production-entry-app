@@ -154,9 +154,17 @@ test.describe("Branch warehouse defaults", () => {
 		await setFieldValue(page, "stock_entry_type", "Manufacture");
 		await setFieldValue(page, "company", ctx.company);
 		await setFieldValue(page, "work_order", workOrder);
-		await form.waitForFieldValue("to_warehouse", ctx.fg_warehouse);
+		await page.evaluate(() => frappe.after_ajax());
+		await setFieldValue(page, "from_warehouse", ctx.wip_warehouse);
+		await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
 		await setFieldValue(page, "custom_pea_shift", ctx.shift_name);
-		await page.waitForFunction(() => Boolean(cur_frm.doc.custom_pea_planned_end_date));
+		await page.evaluate(() => frappe.after_ajax());
+		expect(
+			await form.getFieldValues(["custom_pea_shift", "custom_pea_planned_end_date"])
+		).toMatchObject({
+			custom_pea_shift: ctx.shift_name,
+			custom_pea_planned_end_date: expect.stringContaining(ctx.shift_date),
+		});
 		await form.waitForFieldValue("to_warehouse", ctx.fg_warehouse);
 		await setFieldValue(page, "fg_completed_qty", 40);
 		expect((await form.getFieldValues(["work_order"])).work_order).toBe(workOrder);
@@ -171,6 +179,13 @@ test.describe("Branch warehouse defaults", () => {
 		);
 		expect(scrap.length).toBeGreaterThan(0);
 		expect(scrap.map((row) => row.t_warehouse)).toEqual(scrap.map(() => ctx.fg_warehouse));
+		await setFieldValue(page, "custom_pea_shift", "");
+		await page.waitForFunction(() => !cur_frm.doc.custom_pea_planned_end_date);
+		await page.evaluate(() => frappe.after_ajax());
+		expect(await form.getFieldValues(["from_warehouse", "to_warehouse"])).toEqual({
+			from_warehouse: ctx.wip_warehouse,
+			to_warehouse: ctx.fg_warehouse,
+		});
 	});
 
 	test("@regression Shift selection without WIP keeps context and allows manual warehouses", async ({
