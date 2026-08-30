@@ -230,7 +230,11 @@ class TestTestSetup(FrappeTestCase):
 
 	def test_install_skip_test_records_compat_wraps_v16_make_test_records(self) -> None:
 		from frappe.tests import utils as frappe_test_utils
-		from frappe.tests.utils import generators
+
+		try:
+			from frappe.tests.utils import generators
+		except ImportError:
+			self.skipTest("Frappe v16 test-record generators are not available on this version")
 
 		original = Mock(return_value=[("Item", 1)])
 		original_utils_make_test_records = frappe_test_utils.make_test_records

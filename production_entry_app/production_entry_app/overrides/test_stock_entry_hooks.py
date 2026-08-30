@@ -496,6 +496,7 @@ def _create_test_shift(
 
 	doc_data = {
 		"doctype": "Shift",
+		"company": resolve_test_company(),
 		"department": department,
 		"shift_label": shift_label,
 		"shift_duration": "8",

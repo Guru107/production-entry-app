@@ -3507,6 +3507,7 @@ class TestProductionReports(FrappeTestCase):
 		shift = frappe.get_doc(
 			{
 				"doctype": "Shift",
+				"company": self.company,
 				"department": department,
 				"shift_label": shift_label,
 				"shift_duration": "8",

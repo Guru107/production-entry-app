@@ -1207,6 +1207,7 @@ class TestShift(FrappeTestCase):
 				"shift_duration": "8",
 				"shift_date": shift_date,
 				"planned_start_time": "08:00:00",
+				"company": company,
 				"work_in_progress_warehouse": initial_wip,
 			}
 		).insert()
@@ -2677,6 +2678,7 @@ class TestShiftSummary(FrappeTestCase):
 			{
 				"doctype": "Shift",
 				"department": dept,
+				"company": self.ctx["company"],
 				"branch": branch,
 				"shift_label": shift_label,
 				"shift_duration": "8",
@@ -3227,6 +3229,7 @@ class TestShiftAggregateProductionEntries(FrappeTestCase):
 			{
 				"doctype": "Shift",
 				"department": dept,
+				"company": self.ctx["company"],
 				"branch": branch,
 				"shift_label": shift_label,
 				"shift_duration": "8",

@@ -537,6 +537,13 @@ class TestJointProductionItems(FrappeTestCase):
 		self.assertGreater(scrap["qty"], 0)
 
 	def test_materializes_every_bom_scrap_item_with_mixed_uoms(self) -> None:
+		# Cost these additional BOMs from actual RM stock, not an empty-bin fallback.
+		ensure_stock(
+			self.rm_item,
+			self.masters["wip_warehouse"],
+			self.masters["company"],
+			target_qty=100,
+		)
 		rh_only_scrap_item = ensure_item(
 			f"_Joint_RH_Only_Scrap_{frappe.generate_hash(length=6)}",
 			stock_uom="Kg",

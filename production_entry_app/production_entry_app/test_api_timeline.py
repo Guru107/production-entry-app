@@ -70,6 +70,7 @@ class TestGetShiftTimelineData(FrappeTestCase):
 		shift = frappe.get_doc(
 			{
 				"doctype": "Shift",
+				"company": self.ctx["company"],
 				"department": department,
 				"shift_label": shift_label,
 				"shift_duration": "8",
