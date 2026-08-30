@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 import frappe
 from frappe import _
 from frappe.model.document import Document
@@ -28,13 +30,11 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	ensure_workstation,
 	resolve_test_branch,
 	resolve_test_company,
+	set_test_branch_warehouse_defaults,
 )
 
 _E2E_SETTINGS_FIELDS: tuple[str, ...] = (
-	"shift_wip_warehouse",
-	"shift_raw_material_warehouse",
-	"shift_rejection_warehouse",
-	"shift_scrap_warehouse",
+	"branch_warehouse_defaults",
 	"shift_start_buffer_mins",
 	"shift_end_buffer_mins",
 )
@@ -48,6 +48,7 @@ def _ensure_e2e_settings_fields_loaded() -> None:
 	meta = frappe.get_meta("Production Entry Settings", cached=True)
 	if all(meta.has_field(fieldname) for fieldname in _E2E_SETTINGS_FIELDS):
 		return
+	frappe.reload_doc("production_entry_app", "doctype", "branch_warehouse_default")
 	frappe.reload_doc("production_entry_app", "doctype", "production_entry_settings")
 	frappe.clear_document_cache("Production Entry Settings")
 
@@ -107,15 +108,13 @@ def _get_e2e_shift_names_cache_key(prefix: str) -> str:
 	return f"pea:e2e:shift-names:{prefix or 'E2E'}"
 
 
-def _get_production_entry_settings_snapshot() -> dict[str, str | int | None]:
+def _get_production_entry_settings_snapshot() -> dict[str, Any]:
 	_ensure_e2e_settings_fields_loaded()
-	return {
-		fieldname: frappe.db.get_single_value("Production Entry Settings", fieldname)
-		for fieldname in _E2E_SETTINGS_FIELDS
-	}
+	settings = frappe.get_single("Production Entry Settings").as_dict()
+	return {fieldname: settings.get(fieldname) for fieldname in _E2E_SETTINGS_FIELDS}
 
 
-def _get_manufacturing_settings_snapshot() -> dict[str, str | int | None]:
+def _get_manufacturing_settings_snapshot() -> dict[str, Any]:
 	"""Backward-compatible alias for test helpers still importing the old name."""
 	return _get_production_entry_settings_snapshot()
 
@@ -150,16 +149,18 @@ def _cache_e2e_shift_name(prefix: str, shift_name: str | None) -> None:
 	frappe.cache().set_value(cache_key, [*cached_names, shift_name])
 
 
-def _restore_production_entry_settings(snapshot: dict[str, str | int | None] | None) -> None:
+def _restore_production_entry_settings(snapshot: dict[str, Any] | None) -> None:
 	if not snapshot:
 		return
 	_ensure_e2e_settings_fields_loaded()
+	settings = frappe.get_single("Production Entry Settings")
 	for fieldname in _E2E_SETTINGS_FIELDS:
-		frappe.db.set_single_value("Production Entry Settings", fieldname, snapshot.get(fieldname))
+		settings.set(fieldname, snapshot.get(fieldname))
+	settings.save(ignore_permissions=True)
 	frappe.clear_document_cache("Production Entry Settings")
 
 
-def _restore_manufacturing_settings(snapshot: dict[str, str | int | None] | None) -> None:
+def _restore_manufacturing_settings(snapshot: dict[str, Any] | None) -> None:
 	"""Backward-compatible alias for test helpers still importing the old name."""
 	_restore_production_entry_settings(snapshot)
 
@@ -462,6 +463,7 @@ def bootstrap_e2e_context(prefix: str = "E2E", cleanup_running: int = 1) -> dict
 	rm_warehouse = ensure_warehouse(f"{prefix} RM - {abbr}", company)
 	fg_warehouse = ensure_warehouse(f"{prefix} FG - {abbr}", company)
 	rejection_warehouse = ensure_warehouse(f"{prefix} Rejection - {abbr}", company)
+	scrap_warehouse = ensure_warehouse(f"{prefix} Scrap - {abbr}", company)
 	if frappe.get_meta("Warehouse", cached=True).has_field("is_rejected_warehouse"):
 		frappe.db.set_value(
 			"Warehouse", rejection_warehouse, "is_rejected_warehouse", 1, update_modified=False
@@ -485,9 +487,14 @@ def bootstrap_e2e_context(prefix: str = "E2E", cleanup_running: int = 1) -> dict
 	ensure_downtime_reason("JH Activity")
 	ensure_downtime_reason("Dinner")
 
-	frappe.db.set_single_value("Production Entry Settings", "shift_wip_warehouse", wip_warehouse)
-	frappe.db.set_single_value("Production Entry Settings", "shift_raw_material_warehouse", rm_warehouse)
-	frappe.db.set_single_value("Production Entry Settings", "shift_rejection_warehouse", rejection_warehouse)
+	set_test_branch_warehouse_defaults(
+		company,
+		branch,
+		work_in_progress_warehouse=wip_warehouse,
+		raw_material_warehouse=rm_warehouse,
+		rejection_warehouse=rejection_warehouse,
+		scrap_warehouse=scrap_warehouse,
+	)
 	frappe.db.set_single_value("Production Entry Settings", "shift_start_buffer_mins", 60)
 	frappe.db.set_single_value("Production Entry Settings", "shift_end_buffer_mins", 60)
 	frappe.clear_document_cache("Production Entry Settings")
@@ -543,6 +550,7 @@ def bootstrap_e2e_context(prefix: str = "E2E", cleanup_running: int = 1) -> dict
 		"fg_warehouse": fg_warehouse,
 		"rejection_warehouse": rejection_warehouse,
 		"fg_item": fg_item,
+		"scrap_warehouse": scrap_warehouse,
 		"rm_item": rm_item,
 		"operator": operator_name,
 		"workstation": workstation_name,
@@ -565,7 +573,9 @@ def set_e2e_system_float_precision(prefix: str = "E2E", precision: int = 3) -> d
 	_assert_e2e_api_allowed()
 	_cache_e2e_settings_snapshot(prefix)
 	frappe.db.set_single_value("System Settings", "float_precision", cint(precision))
-	frappe.clear_cache()
+	# A global cache clear also discards the snapshots needed by E2E cleanup.
+	frappe.clear_cache(doctype="System Settings")
+	frappe.clear_cache(user=frappe.session.user)
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit - tests need deterministic persisted setup
 	return {"float_precision": cint(precision)}
 
@@ -737,6 +747,7 @@ def _cleanup_e2e_master_data(prefix: str) -> None:
 		f"{prefix} RM - {abbr}",
 		f"{prefix} FG - {abbr}",
 		f"{prefix} Rejection - {abbr}",
+		f"{prefix} Scrap - {abbr}",
 	):
 		if frappe.db.exists("Warehouse", warehouse_name):
 			_safe_force_delete("Warehouse", warehouse_name, context="cleanup_e2e_context")

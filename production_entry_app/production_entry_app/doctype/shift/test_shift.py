@@ -656,15 +656,19 @@ class TestShiftPureHelpers(FrappeTestCase):
 		with patch.object(shift, "get_doc_before_save", return_value=before):
 			self.assertFalse(shift._planned_losses_changed())
 
-	def test_warehouse_defaults_skip_existing_values_and_missing_settings_fields(self) -> None:
+	def test_warehouse_defaults_preserve_explicit_values_without_branch_defaults(self) -> None:
+		from production_entry_app.production_entry_app.utils.test_bootstrap import (
+			ensure_warehouse,
+			resolve_test_company,
+		)
+
 		shift = frappe.new_doc("Shift")
-		shift.raw_material_warehouse = "Existing RM"
-		with patch(
-			"production_entry_app.production_entry_app.doctype.shift.shift.frappe.get_meta",
-			return_value=type("Meta", (), {"has_field": lambda self, fieldname: False})(),
-		):
-			shift._set_warehouse_defaults_from_production_entry_settings()
-		self.assertEqual(shift.raw_material_warehouse, "Existing RM")
+		shift.company = resolve_test_company()
+		shift.branch = None
+		warehouse = ensure_warehouse("_Explicit Shift RM", shift.company)
+		shift.raw_material_warehouse = warehouse
+		shift._set_warehouse_defaults_from_production_entry_settings()
+		self.assertEqual(shift.raw_material_warehouse, warehouse)
 
 
 class TestShift(FrappeTestCase):

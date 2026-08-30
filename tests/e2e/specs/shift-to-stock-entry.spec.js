@@ -433,7 +433,7 @@ test.describe("Shift to Stock Entry integration", () => {
 		page,
 	}) => {
 		await page.goto(getRoute("/home"));
-		const prefix = `${lifecycle.getPrefix()}-shift-aggregate-precision`;
+		const prefix = lifecycle.getPrefix();
 		const ctx = await setupFreshContext(page, prefix);
 		await setSystemFloatPrecision(page, prefix, 4);
 
@@ -473,7 +473,7 @@ test.describe("Shift to Stock Entry integration", () => {
 		page,
 	}) => {
 		await page.goto(getRoute("/home"));
-		const prefix = `${lifecycle.getPrefix()}-timeline-precision`;
+		const prefix = lifecycle.getPrefix();
 		const ctx = await setupFreshContext(page, prefix);
 		await setSystemFloatPrecision(page, prefix, 4);
 

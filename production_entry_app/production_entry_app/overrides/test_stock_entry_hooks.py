@@ -32,6 +32,7 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	get_company_abbr,
 	resolve_test_branch,
 	resolve_test_company,
+	set_test_branch_warehouse_defaults,
 )
 
 
@@ -308,23 +309,12 @@ class TestStockEntryHookPureHelpers(FrappeTestCase):
 				stock_entry_hooks._validate_rejection_target_warehouses(doc)
 
 	def test_rejection_warehouse_uses_settings_fallback_and_throws_when_missing(self) -> None:
-		doc = frappe._dict({"custom_pea_shift": ""})
-		meta = type("Meta", (), {"has_field": lambda self, fieldname: True})()
-		with patch(
-			"production_entry_app.production_entry_app.utils.rejection_warehouse.frappe.get_meta",
-			return_value=meta,
-		):
-			with patch(
-				"production_entry_app.production_entry_app.utils.rejection_warehouse.frappe.db.get_single_value",
-				return_value="Rejected WH",
-			):
-				self.assertEqual(resolve_rejection_warehouse(doc), "Rejected WH")
-			with patch(
-				"production_entry_app.production_entry_app.utils.rejection_warehouse.frappe.db.get_single_value",
-				return_value=None,
-			):
-				with self.assertRaisesRegex(frappe.ValidationError, "Rejection Warehouse"):
-					resolve_rejection_warehouse(doc)
+		ctx = bootstrap_manufacturing_test_context("Rejection Branch Defaults")
+		doc = frappe._dict({"company": ctx["company"], "branch": ctx["branch"]})
+		self.assertEqual(resolve_rejection_warehouse(doc), ctx["rejection_warehouse"])
+		doc.branch = None
+		with self.assertRaisesRegex(frappe.ValidationError, "Rejection Warehouse"):
+			resolve_rejection_warehouse(doc)
 
 	def test_existing_rejection_target_warehouse_ignores_invalid_new_doc_candidates(self) -> None:
 		doc = frappe._dict(
@@ -1579,14 +1569,14 @@ class TestStockEntryHooks(FrappeTestCase):
 	def test_shift_defaults_warehouses_from_production_entry_settings(self) -> None:
 		scrap_warehouse = _get_or_create_warehouse("SE Hook Scrap Warehouse", self.company)
 		ensure_production_entry_settings_shift_fields()
-		frappe.db.set_single_value(
-			"Production Entry Settings", "shift_raw_material_warehouse", self.rm_warehouse
+		set_test_branch_warehouse_defaults(
+			self.company,
+			ensure_branch(resolve_test_branch() or "_Test Branch"),
+			raw_material_warehouse=self.rm_warehouse,
+			work_in_progress_warehouse=self.wip_warehouse,
+			rejection_warehouse=self.rejection_warehouse,
+			scrap_warehouse=scrap_warehouse,
 		)
-		frappe.db.set_single_value("Production Entry Settings", "shift_wip_warehouse", self.wip_warehouse)
-		frappe.db.set_single_value(
-			"Production Entry Settings", "shift_rejection_warehouse", self.rejection_warehouse
-		)
-		frappe.db.set_single_value("Production Entry Settings", "shift_scrap_warehouse", scrap_warehouse)
 
 		shift = _create_test_shift(shift_date="2026-04-18", wip_warehouse=None, rejection_warehouse=None)
 
@@ -1597,14 +1587,17 @@ class TestStockEntryHooks(FrappeTestCase):
 
 	def test_rejection_warehouse_uses_production_entry_settings_fallback(self) -> None:
 		ensure_production_entry_settings_shift_fields()
-		frappe.db.set_single_value(
-			"Production Entry Settings", "shift_rejection_warehouse", self.rejection_warehouse
+		set_test_branch_warehouse_defaults(
+			self.company,
+			ensure_branch(resolve_test_branch() or "_Test Branch"),
+			rejection_warehouse=self.rejection_warehouse,
 		)
 		shift = _create_test_shift(
 			shift_date="2026-04-19",
 			wip_warehouse=self.wip_warehouse,
 			rejection_warehouse=None,
 		)
+		frappe.db.set_value("Shift", shift.name, "rejection_warehouse", None)
 
 		se = _create_manufacture_stock_entry(
 			company=self.company,

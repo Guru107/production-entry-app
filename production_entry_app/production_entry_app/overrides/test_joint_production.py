@@ -12,6 +12,7 @@ from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_to_date, flt, get_datetime
 
 from production_entry_app.production_entry_app.api import (
+	get_items_with_rejection,
 	get_joint_production_items,
 	get_joint_rm_consumption,
 	get_joint_stock_entry_type,
@@ -49,6 +50,7 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	ensure_joint_test_bom,
 	ensure_stock,
 	ensure_workstation,
+	set_test_branch_warehouse_defaults,
 )
 
 
@@ -252,15 +254,8 @@ class TestJointProductionCalculations(FrappeTestCase):
 
 	def test_rejection_warehouse_requires_explicit_shift_or_settings_configuration(self) -> None:
 		doc = frappe.new_doc("Stock Entry")
-		meta = frappe._dict(has_field=lambda fieldname: fieldname == "shift_rejection_warehouse")
-		with (
-			patch(
-				"production_entry_app.production_entry_app.utils.rejection_warehouse.frappe.get_meta",
-				return_value=meta,
-			),
-			patch.object(frappe.db, "get_single_value", return_value=None),
-			self.assertRaisesRegex(frappe.ValidationError, "set a Rejection Warehouse"),
-		):
+		doc.branch = None
+		with self.assertRaisesRegex(frappe.ValidationError, "set a Rejection Warehouse"):
 			resolve_rejection_warehouse(doc)
 
 
@@ -306,6 +301,136 @@ class TestJointProductionStockEntryType(FrappeTestCase):
 
 
 class TestJointProductionItems(FrappeTestCase):
+	def test_fetch_items_defaults_survive_joint_draft_save(self) -> None:
+		shift = make_running_shift(self.masters)
+		doc = self._make_joint_entry(shift)
+		frappe.db.set_value("Shift", shift.name, "work_in_progress_warehouse", None)
+		doc.from_warehouse = None
+		doc.to_warehouse = None
+		doc.branch = self.masters["branch"]
+		for shift_name in (shift.name, None):
+			with self.subTest(shift=shift_name):
+				entry = frappe.copy_doc(doc)
+				entry.custom_pea_shift = shift_name
+				entry.set("items", get_joint_production_items(json.dumps(entry.as_dict(), default=str)))
+				entry.insert(ignore_permissions=True)
+				entry.submit()
+				self.assertEqual(entry.docstatus, 1)
+				self.assertEqual(
+					{row.s_warehouse for row in entry.items if row.s_warehouse},
+					{self.masters["wip_warehouse"]},
+				)
+				self.assertEqual(
+					{row.t_warehouse for row in entry.items if _is_scrap_row(row)},
+					{self.masters["scrap_warehouse"]},
+				)
+				entry.cancel()
+
+	def test_fetch_defaults_cannot_bypass_warehouse_read_permission(self) -> None:
+		shift = make_running_shift(self.masters)
+		doc = self._make_joint_entry(shift)
+		payload = doc.as_dict()
+		payload.update(from_warehouse=None, to_warehouse=None)
+		for joint in (True, False):
+			with self.subTest(joint=joint):
+				if not joint:
+					payload.update(
+						purpose="Manufacture",
+						stock_entry_type="Manufacture",
+						custom_pea_is_joint_lh_rh=0,
+						bom_no=self.lh_bom,
+						fg_completed_qty=40,
+					)
+				fetch = get_joint_production_items if joint else get_items_with_rejection
+				with patch.object(
+					frappe,
+					"has_permission",
+					side_effect=lambda doctype, *args, **kwargs: doctype != "Warehouse",
+				):
+					with self.assertRaises(frappe.PermissionError):
+						fetch(json.dumps(payload, default=str))
+
+	def test_fetch_items_routes_both_flows_to_shift_warehouses(self) -> None:
+		shift = make_running_shift(self.masters)
+		doc = self._make_joint_entry(shift)
+		set_test_branch_warehouse_defaults(
+			self.masters["company"],
+			self.masters["branch"],
+			scrap_warehouse=self.masters["rm_warehouse"],
+			rejection_warehouse=self.masters["fg_warehouse"],
+		)
+		for joint in (True, False):
+			with self.subTest(joint=joint):
+				payload = doc.as_dict()
+				if not joint:
+					payload.update(
+						purpose="Manufacture",
+						stock_entry_type="Manufacture",
+						custom_pea_is_joint_lh_rh=0,
+						bom_no=self.lh_bom,
+						fg_completed_qty=40,
+						custom_pea_rejection_qty=1,
+					)
+				fetch = get_joint_production_items if joint else get_items_with_rejection
+				rows = fetch(json.dumps(payload, default=str))
+				self.assertEqual(
+					{row["s_warehouse"] for row in rows if row.get("s_warehouse")},
+					{self.masters["wip_warehouse"]},
+				)
+				self.assertEqual(
+					{row["t_warehouse"] for row in rows if _is_scrap_row(row)},
+					{self.masters["scrap_warehouse"]},
+				)
+				self.assertEqual(
+					{row["t_warehouse"] for row in rows if row.get("custom_pea_is_rejection_item")},
+					{self.masters["rejection_warehouse"]},
+				)
+				self.assertEqual(
+					{
+						row["t_warehouse"]
+						for row in rows
+						if row.get("t_warehouse")
+						and not _is_scrap_row(row)
+						and not row.get("custom_pea_is_rejection_item")
+					},
+					{self.masters["fg_warehouse"]},
+				)
+
+	def test_fetch_items_without_shift_uses_company_branch_defaults(self) -> None:
+		shift = make_running_shift(self.masters)
+		doc = self._make_joint_entry(shift)
+		for joint in (True, False):
+			with self.subTest(joint=joint):
+				payload = doc.as_dict()
+				payload.update(
+					custom_pea_shift=None,
+					branch=self.masters["branch"],
+					from_warehouse=None,
+					to_warehouse=None,
+				)
+				if not joint:
+					payload.update(
+						purpose="Manufacture",
+						stock_entry_type="Manufacture",
+						custom_pea_is_joint_lh_rh=0,
+						bom_no=self.lh_bom,
+						fg_completed_qty=40,
+						custom_pea_rejection_qty=1,
+					)
+				fetch = get_joint_production_items if joint else get_items_with_rejection
+				rows = fetch(json.dumps(payload, default=str))
+				self.assertEqual(
+					{row["s_warehouse"] for row in rows if row.get("s_warehouse")},
+					{self.masters["wip_warehouse"]},
+				)
+				self.assertEqual(
+					{row["t_warehouse"] for row in rows if _is_scrap_row(row)},
+					{self.masters["scrap_warehouse"]},
+				)
+				payload["branch"] = None
+				with self.assertRaisesRegex(frappe.ValidationError, "Work In Progress Warehouse"):
+					fetch(json.dumps(payload, default=str))
+
 	def setUp(self) -> None:
 		self.masters = bootstrap_manufacture_masters()
 		suffix = frappe.generate_hash(length=6)
@@ -371,6 +496,7 @@ class TestJointProductionItems(FrappeTestCase):
 				"doctype": "Stock Entry",
 				"purpose": "Repack",
 				"company": self.masters["company"],
+				"branch": self.masters["branch"],
 				"from_warehouse": self.masters["wip_warehouse"],
 				"to_warehouse": self.masters["fg_warehouse"],
 				"custom_pea_is_joint_lh_rh": 1,

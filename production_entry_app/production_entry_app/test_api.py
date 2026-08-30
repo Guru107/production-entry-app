@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from contextlib import ExitStack
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -64,6 +64,12 @@ def _meta_stub(has_field_result: bool) -> object:
 def _patch_bootstrap_settings_reads(
 	stack: ExitStack, *, company_code: str = "TC", single_value: int = 3
 ) -> None:
+	stack.enter_context(
+		patch("production_entry_app.production_entry_app.e2e_api._cache_e2e_settings_snapshot")
+	)
+	stack.enter_context(
+		patch("production_entry_app.production_entry_app.e2e_api.set_test_branch_warehouse_defaults")
+	)
 	stack.enter_context(
 		patch(
 			"production_entry_app.production_entry_app.e2e_api.frappe.db.get_value",
@@ -177,10 +183,12 @@ class TestE2EApi(FrappeTestCase):
 				) as clear_cache:
 					_ensure_e2e_settings_fields_loaded()
 
-		reload_doc.assert_called_once_with(
-			"production_entry_app",
-			"doctype",
-			"production_entry_settings",
+		self.assertEqual(
+			reload_doc.call_args_list,
+			[
+				call("production_entry_app", "doctype", "branch_warehouse_default"),
+				call("production_entry_app", "doctype", "production_entry_settings"),
+			],
 		)
 		clear_cache.assert_called_once_with("Production Entry Settings")
 
@@ -601,6 +609,10 @@ class TestE2EApi(FrappeTestCase):
 		with (
 			patch("production_entry_app.production_entry_app.api.frappe.has_permission", return_value=True),
 			patch("production_entry_app.production_entry_app.api.frappe.get_doc", return_value=shift_doc),
+			patch(
+				"production_entry_app.production_entry_app.api.get_shift_warehouses",
+				return_value={"work_in_progress_warehouse": "WIP Warehouse"},
+			),
 		):
 			updated_result = get_shift_details_for_stock_entry(shift_doc.name)
 
@@ -1038,6 +1050,7 @@ class TestE2EApi(FrappeTestCase):
 		bom.cancel.assert_called_once()
 		self.assertGreaterEqual(safe_force_delete.call_count, 8)
 		safe_force_delete.assert_any_call("Stock Entry", "STE-DRAFT", context="cleanup_e2e_context")
+		safe_force_delete.assert_any_call("Warehouse", "E2E Scrap - TC", context="cleanup_e2e_context")
 		self.assertGreaterEqual(log_error.call_count, 3)
 
 	def test_collect_reserved_e2e_prefixes_derives_item_and_workstation_names(self) -> None:
@@ -1388,7 +1401,7 @@ class TestE2EApi(FrappeTestCase):
 			stack.enter_context(
 				patch(
 					"production_entry_app.production_entry_app.e2e_api.ensure_warehouse",
-					side_effect=["WIP", "RM", "FG", "REJ"],
+					side_effect=["WIP", "RM", "FG", "REJ", "SCRAP"],
 				)
 			)
 			stack.enter_context(
@@ -1502,7 +1515,7 @@ class TestE2EApi(FrappeTestCase):
 			stack.enter_context(
 				patch(
 					"production_entry_app.production_entry_app.e2e_api.ensure_warehouse",
-					side_effect=["WIP", "RM", "FG", "REJ"],
+					side_effect=["WIP", "RM", "FG", "REJ", "SCRAP"],
 				)
 			)
 			stack.enter_context(
@@ -1626,7 +1639,9 @@ class TestE2EApi(FrappeTestCase):
 		self.assertEqual(result, {"float_precision": 4})
 		cache_snapshot.assert_called_once_with("E2E-FLOAT")
 		set_single_value.assert_called_once_with("System Settings", "float_precision", 4)
-		clear_cache.assert_called_once()
+		self.assertEqual(clear_cache.call_count, 2)
+		clear_cache.assert_any_call(doctype="System Settings")
+		clear_cache.assert_any_call(user=frappe.session.user)
 		commit.assert_called_once()
 
 	def test_create_e2e_submitted_stock_entry_appends_rejection_breakup_and_returns_doc(self) -> None:

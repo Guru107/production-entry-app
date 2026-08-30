@@ -384,6 +384,8 @@ test.describe("Joint LH/RH production form", () => {
 		await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
 		await setFieldValue(page, "custom_pea_lh_gross_qty", 40);
 		await setFieldValue(page, "custom_pea_rh_gross_qty", 41);
+		await setFieldValue(page, "custom_pea_total_strokes", 41);
+		await setFieldValue(page, "custom_pea_die_tool_item", ctx.joint_lh_item);
 		await page.locator('[data-fieldname="custom_pea_joint_fetch_items"] button').click();
 		await page.waitForFunction(() => (window.cur_frm?.doc?.items || []).length > 0);
 		expect(
@@ -509,16 +511,18 @@ test.describe("Joint LH/RH production form", () => {
 
 	test("@regression joint Fetch Items shows required-header validation", async ({ page }) => {
 		await page.goto(getRoute("/home"));
-		await bootstrapE2E(page, lifecycle.getPrefix());
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 		const stockEntryType = await ensureJointStockEntryType(page, lifecycle.getPrefix());
 		createdTypes.add(stockEntryType);
 		const form = new StockEntryPage(page);
 
 		await form.openNew();
 		await enableJointProduction(page, form, stockEntryType);
+		await setFieldValue(page, "company", ctx.company);
+		await setFieldValue(page, "custom_pea_shift", ctx.shift_name);
 		await setFieldValue(page, "custom_pea_lh_gross_qty", 40);
 		await setFieldValue(page, "custom_pea_rh_gross_qty", 41);
-		await form.fetchItems();
+		await page.locator('[data-fieldname="custom_pea_joint_fetch_items"] button').click();
 
 		await expectValidationError(page, /LH BOM is required/i);
 	});
@@ -577,7 +581,9 @@ test.describe("Joint LH/RH production form", () => {
 				"production_entry_app.production_entry_app.api.get_joint_production_items",
 				{ doc: JSON.stringify({ doctype: "Stock Entry", purpose: "Repack" }) }
 			)
-		).rejects.toThrow(/403|PermissionError|Not permitted|Insufficient Permission/i);
+		).rejects.toThrow(
+			/403|PermissionError|Not permitted|Insufficient Permission|do not have permission/i
+		);
 	});
 
 	test("@regression users without Stock Entry access cannot change total press strokes", async ({

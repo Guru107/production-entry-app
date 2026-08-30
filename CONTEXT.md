@@ -34,3 +34,18 @@ _Avoid_: Posting date, transaction date
 An inclusive From Date and To Date that selects Completed Shifts by Production Date and, through them, their
 submitted Production Entries. Entries without a Shift and entries belonging to non-Completed Shifts are excluded.
 _Avoid_: Posting-date range, entry-date range
+
+## Warehouse defaults
+
+Production Entry Settings holds one warehouse-default row per Company and Branch. A Shift's explicit
+warehouse values take precedence over its matching settings row; there is no global fallback. New Shifts
+copy only missing values. Existing Shifts keep their chosen warehouses when settings change.
+
+Production consumption defaults to WIP, not the Raw Material Warehouse. Both Fetch Items flows preserve
+explicit source/target headers, route rejection to the Rejection Warehouse and scrap to the Scrap Warehouse,
+and fail clearly when a required destination is missing. Every configured warehouse must belong to the
+selected Company. Work Order-only flows keep ERPNext's native warehouse configuration, and Fetch Items
+does not introduce a save/submit override of manually selected row warehouses.
+
+The trade-off is explicit branch setup instead of a convenient but unsafe global fallback. Small, indexed
+settings lookups are resolved per request, avoiding stale cached defaults and historical data rewrites.

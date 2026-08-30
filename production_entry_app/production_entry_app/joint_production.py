@@ -15,7 +15,11 @@ from frappe.utils import cint, flt
 from production_entry_app.production_entry_app.doctype.rejection_breakup.rejection_breakup import (
 	validate_rejection_breakup_row,
 )
-from production_entry_app.production_entry_app.utils.rejection_warehouse import resolve_rejection_warehouse
+from production_entry_app.production_entry_app.utils.production_warehouses import (
+	get_production_warehouses,
+	require_warehouse,
+	set_production_header_warehouses,
+)
 
 WHOLE_NUMBER_QUANTUM: Decimal = Decimal("1")
 VALUATION_TOLERANCE: float = 1e-9
@@ -145,6 +149,8 @@ def allocate_joint_output_value(
 
 
 def materialize_joint_production_rows(doc: Document) -> list[dict[str, Any]]:
+	warehouses = get_production_warehouses(doc)
+	set_production_header_warehouses(doc, warehouses)
 	plan = _build_joint_production_plan(doc)
 	item_details = _get_item_details(
 		[
@@ -155,7 +161,9 @@ def materialize_joint_production_rows(doc: Document) -> list[dict[str, Any]]:
 		]
 	)
 	rejection_warehouse = (
-		resolve_rejection_warehouse(doc) if plan.lh_rejection_qty > 0 or plan.rh_rejection_qty > 0 else ""
+		require_warehouse(warehouses, "rejection_warehouse")
+		if plan.lh_rejection_qty > 0 or plan.rh_rejection_qty > 0
+		else ""
 	)
 
 	rows = [
@@ -192,7 +200,7 @@ def materialize_joint_production_rows(doc: Document) -> list[dict[str, Any]]:
 		scrap_row = _item_row(
 			item_code=scrap.item_code,
 			qty=scrap.qty,
-			t_warehouse=doc.get("to_warehouse"),
+			t_warehouse=require_warehouse(warehouses, "scrap_warehouse"),
 			item_details=item_details,
 		)
 		scrap_row.update(
@@ -524,11 +532,11 @@ def _validate_joint_header(doc: Document) -> None:
 		("custom_pea_lh_bom", _("LH BOM")),
 		("custom_pea_rh_bom", _("RH BOM")),
 		("custom_pea_die_tool_item", _("Die Tool Item")),
-		("from_warehouse", _("Source Warehouse")),
-		("to_warehouse", _("Target Warehouse")),
 	):
 		if not doc.get(fieldname):
 			frappe.throw(_("{0} is required for joint LH/RH production.").format(label))
+	# Warehouses are required by Fetch Items, not by recipe validation: native Repack
+	# clears mixed-direction headers on save. ERPNext validates the actual item rows.
 	if flt(doc.get("custom_pea_total_strokes")) <= 0:
 		frappe.throw(_("Total Press Strokes must be greater than zero."))
 

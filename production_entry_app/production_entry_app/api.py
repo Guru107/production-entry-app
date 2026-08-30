@@ -8,6 +8,7 @@ from frappe import _
 from frappe.utils import get_datetime, get_time, now_datetime
 
 from production_entry_app.production_entry_app.joint_production import (
+	_is_scrap_row,
 	calculate_joint_rm_consumption_from_boms,
 	materialize_joint_production_rows,
 )
@@ -18,6 +19,12 @@ from production_entry_app.production_entry_app.utils.die_tool_counter import (
 	_get_or_create_counter,
 	get_counter_health,
 	is_die_tool_enabled,
+)
+from production_entry_app.production_entry_app.utils.production_warehouses import (
+	get_production_warehouses,
+	get_shift_warehouses,
+	require_warehouse,
+	set_production_header_warehouses,
 )
 from production_entry_app.production_entry_app.utils.shift_time import get_shift_planned_end_datetime
 from production_entry_app.production_entry_app.utils.system_precision import (
@@ -103,6 +110,7 @@ def get_joint_production_items(doc: str) -> list[dict]:
 		"purpose",
 		"stock_entry_type",
 		"company",
+		"branch",
 		"from_warehouse",
 		"to_warehouse",
 		"custom_pea_shift",
@@ -186,13 +194,14 @@ def get_shift_details_for_stock_entry(shift_name: str) -> dict:
 		shift_duration=shift.shift_duration,
 	)
 
+	wip_warehouse = require_warehouse(get_shift_warehouses(shift), "work_in_progress_warehouse")
 	return {
 		"company": shift.company,
 		"branch": shift.branch,
 		"custom_pea_planned_start_date": str(planned_start) if planned_start else None,
 		"custom_pea_planned_end_date": str(planned_end) if planned_end else None,
-		"from_warehouse": shift.work_in_progress_warehouse,
-		"to_warehouse": shift.work_in_progress_warehouse,
+		"from_warehouse": wip_warehouse,
+		"to_warehouse": wip_warehouse,
 	}
 
 
@@ -240,6 +249,7 @@ def get_items_with_rejection(doc: str) -> list[dict]:
 	se.purpose = doc_dict.get("purpose", "Manufacture")
 	se.stock_entry_type = doc_dict.get("stock_entry_type", "Manufacture")
 	se.company = doc_dict.get("company")
+	se.branch = doc_dict.get("branch")
 	se.from_bom = 1
 	se.bom_no = doc_dict.get("bom_no")
 	se.fg_completed_qty = float(doc_dict.get("fg_completed_qty") or 0)
@@ -252,7 +262,17 @@ def get_items_with_rejection(doc: str) -> list[dict]:
 	se.custom_pea_shift = doc_dict.get("custom_pea_shift")
 	se.work_order = doc_dict.get("work_order")
 
+	# Work Order-only flows retain ERPNext's own warehouse configuration.
+	use_production_defaults = se.purpose == "Manufacture" and (not se.work_order or se.custom_pea_shift)
+	warehouses = get_production_warehouses(se) if use_production_defaults else {}
+	if use_production_defaults:
+		set_production_header_warehouses(se, warehouses)
 	se.get_items()
+	if use_production_defaults:
+		for row in se.items:
+			if _is_scrap_row(row):
+				row.t_warehouse = require_warehouse(warehouses, "scrap_warehouse")
+		se.set_actual_qty()
 	apply_direct_manufacture_alternative_flags(se)
 	_apply_rejection_entries(se)
 

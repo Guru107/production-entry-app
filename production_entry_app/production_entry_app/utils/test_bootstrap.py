@@ -7,10 +7,7 @@ from frappe import _
 from frappe.utils import flt, getdate, nowdate
 
 _PRODUCTION_ENTRY_SHIFT_SETTINGS_FIELDS: tuple[str, ...] = (
-	"shift_raw_material_warehouse",
-	"shift_wip_warehouse",
-	"shift_rejection_warehouse",
-	"shift_scrap_warehouse",
+	"branch_warehouse_defaults",
 	"shift_start_buffer_mins",
 	"shift_end_buffer_mins",
 )
@@ -132,8 +129,26 @@ def ensure_production_entry_settings_shift_fields() -> None:
 	meta = frappe.get_meta("Production Entry Settings", cached=True)
 	if all(meta.has_field(fieldname) for fieldname in _PRODUCTION_ENTRY_SHIFT_SETTINGS_FIELDS):
 		return
+	frappe.reload_doc("production_entry_app", "doctype", "branch_warehouse_default")
 	frappe.reload_doc("production_entry_app", "doctype", "production_entry_settings")
 	frappe.clear_document_cache("Production Entry Settings")
+
+
+def set_test_branch_warehouse_defaults(company: str, branch: str, **warehouses: str | None) -> None:
+	"""Update only the test's Company/Branch row; test cleanup restores the snapshot."""
+	settings = frappe.get_single("Production Entry Settings")
+	row = next(
+		(
+			row
+			for row in settings.branch_warehouse_defaults
+			if row.company == company and row.branch == branch
+		),
+		None,
+	)
+	if row is None:
+		row = settings.append("branch_warehouse_defaults", {"company": company, "branch": branch})
+	row.update(warehouses)
+	settings.save(ignore_permissions=True)
 
 
 def ensure_rejection_reason(name: str) -> None:
@@ -393,14 +408,14 @@ def bootstrap_manufacturing_test_context(prefix: str) -> dict[str, Any]:
 		frappe.db.set_value(
 			"Warehouse", rejection_warehouse, "is_rejected_warehouse", 1, update_modified=False
 		)
-	frappe.db.set_single_value("Production Entry Settings", "shift_raw_material_warehouse", rm_warehouse)
-	frappe.db.set_single_value("Production Entry Settings", "shift_wip_warehouse", wip_warehouse)
-	frappe.db.set_single_value("Production Entry Settings", "shift_rejection_warehouse", rejection_warehouse)
-	frappe.db.set_single_value("Production Entry Settings", "raw_material_warehouse", rm_warehouse)
-	frappe.db.set_single_value("Production Entry Settings", "work_in_progress_warehouse", wip_warehouse)
-	frappe.db.set_single_value("Production Entry Settings", "rejection_warehouse", rejection_warehouse)
-	frappe.db.set_single_value("Production Entry Settings", "scrap_warehouse", scrap_warehouse)
-	frappe.clear_document_cache("Production Entry Settings")
+	set_test_branch_warehouse_defaults(
+		company,
+		branch,
+		raw_material_warehouse=rm_warehouse,
+		work_in_progress_warehouse=wip_warehouse,
+		rejection_warehouse=rejection_warehouse,
+		scrap_warehouse=scrap_warehouse,
+	)
 	return {
 		"company": company,
 		"branch": branch,

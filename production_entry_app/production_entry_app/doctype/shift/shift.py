@@ -17,6 +17,10 @@ from production_entry_app.production_entry_app.utils.loss_time import (
 	build_interval_overlap_filters,
 	get_loss_duration_minutes,
 )
+from production_entry_app.production_entry_app.utils.production_warehouses import (
+	get_shift_warehouses,
+	validate_warehouse_companies,
+)
 from production_entry_app.production_entry_app.utils.shift_time import combine_date_time
 from production_entry_app.production_entry_app.utils.system_precision import (
 	get_system_float_precision,
@@ -1178,11 +1182,14 @@ class Shift(Document):
 
 	def before_insert(self) -> None:
 		self._set_defaults()
+		self._ensure_company()
+		self._ensure_branch()
 		self._set_warehouse_defaults_from_production_entry_settings()
 
 	def validate(self) -> None:
 		self._ensure_company()
 		self._ensure_branch()
+		validate_warehouse_companies([self])
 		self._validate_status()
 		self._validate_field_locking()
 		self._calculate_planned_end_time_and_dates()
@@ -1557,26 +1564,5 @@ class Shift(Document):
 			self.append("planned_losses", row)
 
 	def _set_warehouse_defaults_from_production_entry_settings(self) -> None:
-		"""Best-effort: populate missing warehouse defaults from Production Entry Settings."""
-
-		settings_doctype = "Production Entry Settings"
-
-		field_map = {
-			"raw_material_warehouse": "shift_raw_material_warehouse",
-			"work_in_progress_warehouse": "shift_wip_warehouse",
-			"rejection_warehouse": "shift_rejection_warehouse",
-			"scrap_warehouse": "shift_scrap_warehouse",
-		}
-
-		settings_meta = frappe.get_meta(settings_doctype, cached=True)
-
-		for target_field, settings_field in field_map.items():
-			if getattr(self, target_field, None):
-				continue
-
-			if not settings_meta.has_field(settings_field):
-				continue
-
-			value = frappe.db.get_single_value(settings_doctype, settings_field)
-			if value:
-				setattr(self, target_field, value)
+		"""Populate only missing values from this Shift's Company/Branch configuration."""
+		self.update(get_shift_warehouses(self))
