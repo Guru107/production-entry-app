@@ -656,20 +656,6 @@ class TestShiftPureHelpers(FrappeTestCase):
 		with patch.object(shift, "get_doc_before_save", return_value=before):
 			self.assertFalse(shift._planned_losses_changed())
 
-	def test_warehouse_defaults_preserve_explicit_values_without_branch_defaults(self) -> None:
-		from production_entry_app.production_entry_app.utils.test_bootstrap import (
-			ensure_warehouse,
-			resolve_test_company,
-		)
-
-		shift = frappe.new_doc("Shift")
-		shift.company = resolve_test_company()
-		shift.branch = None
-		warehouse = ensure_warehouse("_Explicit Shift RM", shift.company)
-		shift.raw_material_warehouse = warehouse
-		shift._set_warehouse_defaults_from_production_entry_settings()
-		self.assertEqual(shift.raw_material_warehouse, warehouse)
-
 
 class TestShift(FrappeTestCase):
 	def setUp(self) -> None:
@@ -2842,6 +2828,29 @@ class TestShiftSummary(FrappeTestCase):
 		self.assertEqual(float(summary["logged_downtime"]["total_mins"]), 0.0)
 		self.assertFalse(summary["logged_downtime"]["recorded"])
 		self.assertTrue(summary["completeness"]["show_banner"])
+
+	def test_summary_item_label_excludes_finished_scrap_and_rejection_rows(self) -> None:
+		shift = self._create_shift("2026-09-11")
+		entry = self._create_submitted_like_entry(
+			shift.name, total_qty=10, rejection_qty=1, fg_item="SUMMARY-GOOD"
+		)
+		for idx, marker in enumerate(("is_scrap_item", "custom_pea_is_rejection_item"), start=2):
+			values = {
+				"doctype": "Stock Entry Detail",
+				"parenttype": "Stock Entry",
+				"parent": entry,
+				"parentfield": "items",
+				"idx": idx,
+				"item_code": "SUMMARY-NOT-GOOD",
+				"is_finished_item": 1,
+				marker: 1,
+			}
+			if marker == "is_scrap_item" and not frappe.get_meta("Stock Entry Detail").has_field(marker):
+				values["secondary_item_type"] = "Scrap"
+			frappe.get_doc(values).db_insert()
+			shift_module.invalidate_shift_summary_cache(shift.name)
+			summary = shift_module.get_shift_summary(shift.name)
+			self.assertEqual(summary["exceptions"]["item_boms"][0]["item_code"], "SUMMARY-GOOD")
 
 	def test_returns_zeroed_summary_when_shift_name_missing(self) -> None:
 		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary

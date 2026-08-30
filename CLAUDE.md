@@ -265,8 +265,9 @@ production.
 ### Permissions
 
 - Check the minimum required permission — `read`, `write`, or a specific role.
-- Child table permissions must **match the parent DocType** roles. A Manufacturing User who
-  can create a Shift must also be able to read/write its `Loss Entry` child rows.
+- Child table access must follow the parent DocType. Frappe v15/v16 checks child permissions
+  through `has_child_permission()` on the parent; an empty child `permissions` array is valid.
+  Do not duplicate parent roles on a child to implement access control.
 - Do not use `ignore_permissions=True` outside of test/E2E helpers.
 
 ---

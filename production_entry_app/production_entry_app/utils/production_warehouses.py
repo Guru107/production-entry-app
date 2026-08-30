@@ -83,6 +83,7 @@ def require_warehouse(warehouses: dict, fieldname: str) -> str:
 	warehouse = warehouses.get(fieldname)
 	if not warehouse:
 		labels = {
+			"raw_material_warehouse": _("Raw Material Warehouse"),
 			"work_in_progress_warehouse": _("Work In Progress Warehouse"),
 			"rejection_warehouse": _("Rejection Warehouse"),
 			"scrap_warehouse": _("Scrap Warehouse"),

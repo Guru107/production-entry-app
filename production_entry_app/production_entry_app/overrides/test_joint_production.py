@@ -474,11 +474,10 @@ class TestJointProductionItems(FrappeTestCase):
 		self._append_split_row(doc, lh_row, qty=19)
 		doc.insert(ignore_permissions=True)
 
-		good_qty, rejected_qty, item_map = get_entry_qty_maps([doc.name], include_fg_item=True)
+		good_qty, rejected_qty = get_entry_qty_maps([doc.name])
 		first_items, labels = get_finished_item_maps([doc.name])
 
-		self.assertEqual(item_map, {doc.name: self.lh_item})
-		self.assertEqual(first_items, item_map)
+		self.assertEqual(first_items, {doc.name: self.lh_item})
 		self.assertEqual(labels, {doc.name: f"{self.lh_item} + {self.rh_item}"})
 		self.assertEqual(good_qty[doc.name], 80)
 		self.assertEqual(rejected_qty[doc.name], 1)
@@ -1237,7 +1236,7 @@ class TestJointProductionItems(FrappeTestCase):
 			delta=(10**-currency_precision) * len(sle_value_by_detail),
 		)
 		self.assertEqual(get_parent_quantity_metrics([doc.name])[doc.name]["good_qty"], 80)
-		_, _, fg_item_map = get_entry_qty_maps([doc.name], include_fg_item=True)
+		fg_item_map, _item_labels = get_finished_item_maps([doc.name])
 		self.assertNotEqual(fg_item_map.get(doc.name), self.scrap_item)
 		self.assertEqual(
 			frappe.db.get_value("Die Tool Counter", self.lh_item, "current_stroke_count"),

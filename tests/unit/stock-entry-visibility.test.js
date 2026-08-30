@@ -497,6 +497,32 @@ test("shift detail updates clear present empty values instead of leaving stale f
 	]);
 });
 
+test("shift selection preserves Work Order warehouses while applying its dates and branch", async () => {
+	const updates = {};
+	const frm = {
+		doc: { work_order: "WO-1" },
+		fields_dict: {
+			branch: {},
+			custom_pea_planned_start_date: {},
+			from_warehouse: {},
+			to_warehouse: {},
+		},
+		async set_value(fieldname, value) {
+			updates[fieldname] = value;
+		},
+	};
+	await _apply_shift_detail_updates(frm, {
+		branch: "BRANCH-1",
+		custom_pea_planned_start_date: "2026-08-30 08:00:00",
+		from_warehouse: "SHIFT-WIP",
+		to_warehouse: "SHIFT-WIP",
+	});
+	assert.deepEqual(updates, {
+		branch: "BRANCH-1",
+		custom_pea_planned_start_date: "2026-08-30 08:00:00",
+	});
+});
+
 test("shift detail updates skip absent fields without aborting later updates", async () => {
 	const updates = [];
 	const frm = {

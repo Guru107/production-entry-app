@@ -204,7 +204,7 @@ class TestTestBootstrap(FrappeTestCase):
 		self.assertTrue(frappe.db.exists("Company", context["company"]))
 
 	def test_bootstrap_manufacturing_test_context_resets_shift_warehouse_defaults(self) -> None:
-		context = bootstrap_manufacturing_test_context("Bootstrap Stale")
+		bootstrap_manufacturing_test_context("Bootstrap Stale")
 		context = bootstrap_manufacturing_test_context("Bootstrap Fresh")
 		defaults = get_branch_warehouse_defaults(context["company"], context["branch"])
 		self.assertEqual(defaults["work_in_progress_warehouse"], context["wip_warehouse"])
@@ -219,7 +219,7 @@ class TestTestBootstrap(FrappeTestCase):
 				original = _get_production_entry_settings_snapshot()
 				_cache_e2e_settings_snapshot(prefix)
 				if snapshot_key == "manufacturing_settings":
-					frappe.cache().set_value(f"pea:e2e:settings:{prefix}", {snapshot_key: original})
+					frappe.cache().set_value(_get_e2e_settings_cache_key(prefix), {snapshot_key: original})
 				bootstrap_manufacturing_test_context("Bootstrap Changed")
 				frappe.db.set_single_value("Production Entry Settings", "shift_start_buffer_mins", 33)
 				_restore_cached_e2e_settings(prefix)

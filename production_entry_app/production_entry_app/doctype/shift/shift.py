@@ -11,7 +11,10 @@ from frappe.query_builder import DocType
 from frappe.query_builder.functions import CustomFunction, Sum
 from frappe.utils import add_to_date, cint, flt, get_datetime
 
-from production_entry_app.production_entry_app.report.report_utils import is_production_stock_entry
+from production_entry_app.production_entry_app.report.report_utils import (
+	get_finished_item_maps,
+	is_production_stock_entry,
+)
 from production_entry_app.production_entry_app.utils.loss_time import (
 	build_interval_overlap_criterion,
 	build_interval_overlap_filters,
@@ -795,19 +798,7 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 	)
 	entry_rows = [row for row in entry_rows if is_production_stock_entry(row)]
 	entry_names = [row.get("name") for row in entry_rows if row.get("name")]
-	item_by_entry = (
-		{
-			row.get("parent"): row.get("item_code")
-			for row in frappe.get_all(
-				"Stock Entry Detail",
-				filters={"parent": ["in", entry_names], "is_finished_item": 1},
-				fields=["parent", "item_code"],
-				order_by="idx asc",
-			)
-		}
-		if entry_names
-		else {}
-	)
+	item_by_entry, _item_labels = get_finished_item_maps(entry_names)
 	bom_names = sorted(
 		{
 			bom_no
@@ -1184,7 +1175,7 @@ class Shift(Document):
 		self._set_defaults()
 		self._ensure_company()
 		self._ensure_branch()
-		self._set_warehouse_defaults_from_production_entry_settings()
+		self.update(get_shift_warehouses(self))
 
 	def validate(self) -> None:
 		self._ensure_company()
@@ -1562,7 +1553,3 @@ class Shift(Document):
 		self.planned_losses = []
 		for row in entries:
 			self.append("planned_losses", row)
-
-	def _set_warehouse_defaults_from_production_entry_settings(self) -> None:
-		"""Populate only missing values from this Shift's Company/Branch configuration."""
-		self.update(get_shift_warehouses(self))

@@ -394,7 +394,7 @@ def _get_joint_row_role(row: BaseDocument, plan: JointProductionPlan) -> str:
 
 	side = row.get("custom_pea_joint_output_side")
 	is_rejection = bool(row.get("custom_pea_is_rejection_item"))
-	is_scrap = _is_scrap_row(row)
+	is_scrap = is_scrap_row(row)
 	item_code = row.get("item_code")
 
 	if has_source:
@@ -443,7 +443,7 @@ def _set_joint_output_valuation(
 	rows = doc.get("items") or []
 	scrap_rates = {scrap.item_code: scrap.rate for scrap in plan.scrap_items}
 	for row in rows:
-		if _is_scrap_row(row):
+		if is_scrap_row(row):
 			row.set_basic_rate_manually = 1
 			row.basic_rate = scrap_rates[row.get("item_code")]
 			row.basic_amount = flt(
@@ -454,7 +454,7 @@ def _set_joint_output_valuation(
 		flt(row.get("basic_amount")) for row in rows if row.get("s_warehouse") and not row.get("t_warehouse")
 	)
 	scrap_value = sum(
-		_get_row_stock_qty(row) * flt(row.get("basic_rate")) for row in rows if _is_scrap_row(row)
+		_get_row_stock_qty(row) * flt(row.get("basic_rate")) for row in rows if is_scrap_row(row)
 	)
 	net_production_value = outgoing_value - scrap_value
 	if net_production_value < -VALUATION_TOLERANCE:
@@ -468,7 +468,7 @@ def _set_joint_output_valuation(
 	)
 	for side in ("LH", "RH"):
 		side_rows = [
-			row for row in rows if row.get("custom_pea_joint_output_side") == side and not _is_scrap_row(row)
+			row for row in rows if row.get("custom_pea_joint_output_side") == side and not is_scrap_row(row)
 		]
 		side_qty = sum(_get_row_stock_qty(row) for row in side_rows)
 		if side_qty <= 0:
@@ -487,7 +487,7 @@ def _set_joint_output_valuation(
 	doc.calculate_rate_and_amount(reset_outgoing_rate=False)
 
 
-def _is_scrap_row(row: BaseDocument) -> bool:
+def is_scrap_row(row: BaseDocument) -> bool:
 	return bool(
 		row.get("is_scrap_item")
 		or row.get("is_legacy_scrap_item")

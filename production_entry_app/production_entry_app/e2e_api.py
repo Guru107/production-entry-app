@@ -24,6 +24,7 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	ensure_item,
 	ensure_joint_test_bom,
 	ensure_operator,
+	ensure_production_entry_settings_shift_fields,
 	ensure_rejection_reason,
 	ensure_stock,
 	ensure_warehouse,
@@ -42,15 +43,6 @@ _E2E_SYSTEM_SETTINGS_FIELDS: tuple[str, ...] = ("float_precision",)
 _E2E_RESERVED_USER_EMAIL_PREFIX: str = "e2e-user-"
 _E2E_RESERVED_ROLE_PREFIX: str = "E2E ROLE "
 _E2E_RESERVED_DOWNTIME_PREFIX: str = "E2E-DOWNTIME-"
-
-
-def _ensure_e2e_settings_fields_loaded() -> None:
-	meta = frappe.get_meta("Production Entry Settings", cached=True)
-	if all(meta.has_field(fieldname) for fieldname in _E2E_SETTINGS_FIELDS):
-		return
-	frappe.reload_doc("production_entry_app", "doctype", "branch_warehouse_default")
-	frappe.reload_doc("production_entry_app", "doctype", "production_entry_settings")
-	frappe.clear_document_cache("Production Entry Settings")
 
 
 @frappe.whitelist()
@@ -109,7 +101,7 @@ def _get_e2e_shift_names_cache_key(prefix: str) -> str:
 
 
 def _get_production_entry_settings_snapshot() -> dict[str, Any]:
-	_ensure_e2e_settings_fields_loaded()
+	ensure_production_entry_settings_shift_fields()
 	settings = frappe.get_single("Production Entry Settings").as_dict()
 	return {fieldname: settings.get(fieldname) for fieldname in _E2E_SETTINGS_FIELDS}
 
@@ -152,7 +144,7 @@ def _cache_e2e_shift_name(prefix: str, shift_name: str | None) -> None:
 def _restore_production_entry_settings(snapshot: dict[str, Any] | None) -> None:
 	if not snapshot:
 		return
-	_ensure_e2e_settings_fields_loaded()
+	ensure_production_entry_settings_shift_fields()
 	settings = frappe.get_single("Production Entry Settings")
 	for fieldname in _E2E_SETTINGS_FIELDS:
 		settings.set(fieldname, snapshot.get(fieldname))
@@ -451,7 +443,7 @@ def bootstrap_e2e_context(prefix: str = "E2E", cleanup_running: int = 1) -> dict
 	_assert_e2e_api_allowed()
 	if cint(cleanup_running):
 		cleanup_running_shifts()
-	_ensure_e2e_settings_fields_loaded()
+	ensure_production_entry_settings_shift_fields()
 	_cache_e2e_settings_snapshot(prefix)
 	company = resolve_test_company()
 	abbr = frappe.db.get_value("Company", company, "abbr") or "TC"

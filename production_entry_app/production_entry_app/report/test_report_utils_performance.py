@@ -10,6 +10,25 @@ from production_entry_app.production_entry_app.report import report_utils
 
 
 class TestReportUtilsPerformance(FrappeTestCase):
+	def test_quantity_maps_batch_entries_without_querying_finished_item_labels(self) -> None:
+		from production_entry_app.production_entry_app.tests.support.manufacture_builders import (
+			bootstrap_manufacture_masters,
+			make_direct_manufacture_entry,
+			make_running_shift,
+		)
+
+		masters = bootstrap_manufacture_masters()
+		shift = make_running_shift(masters)
+		entry = make_direct_manufacture_entry(masters, shift=shift.name, fg_qty=100, rejection_qty=2)
+		# Warm metadata before measuring the two aggregate queries, independent of batch size.
+		report_utils.get_entry_qty_maps([entry.name])
+		with self.assertQueryCount(2):
+			good, rejected = report_utils.get_entry_qty_maps([entry.name, "MISSING-ENTRY"])
+		self.assertEqual(good, {entry.name: 98, "MISSING-ENTRY": 0})
+		self.assertEqual(rejected, {entry.name: 2, "MISSING-ENTRY": 0})
+		with self.assertQueryCount(0):
+			self.assertEqual(report_utils.get_entry_qty_maps([]), ({}, {}))
+
 	def test_report_rows_use_native_report_permission_as_the_access_boundary(self) -> None:
 		with (
 			patch.object(report_utils.frappe, "has_permission", return_value=True) as has_permission,

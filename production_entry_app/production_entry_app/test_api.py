@@ -22,7 +22,6 @@ from production_entry_app.production_entry_app.e2e_api import (
 	_cleanup_reserved_e2e_artifacts,
 	_collect_reserved_e2e_prefixes,
 	_e2e_base_date,
-	_ensure_e2e_settings_fields_loaded,
 	_get_candidate_e2e_stock_entries,
 	_get_e2e_shift_names_cache_key,
 	_get_or_create_e2e_employee,
@@ -44,7 +43,11 @@ from production_entry_app.production_entry_app.e2e_api import (
 from production_entry_app.production_entry_app.utils.alternative_items import (
 	apply_direct_manufacture_alternative_flags,
 )
-from production_entry_app.production_entry_app.utils.test_bootstrap import ensure_stock, save_test_user
+from production_entry_app.production_entry_app.utils.test_bootstrap import (
+	ensure_production_entry_settings_shift_fields,
+	ensure_stock,
+	save_test_user,
+)
 
 
 def _meta_stub(has_field_result: bool) -> object:
@@ -172,7 +175,7 @@ class TestE2EApi(FrappeTestCase):
 		stock_entry.insert.assert_called_once_with(ignore_permissions=True)
 		stock_entry.submit.assert_called_once_with()
 
-	def test_ensure_e2e_settings_fields_loaded_reloads_when_meta_is_stale(self) -> None:
+	def test_settings_fields_reload_when_meta_is_stale(self) -> None:
 		with patch(
 			"production_entry_app.production_entry_app.e2e_api.frappe.get_meta",
 			return_value=_meta_stub(False),
@@ -181,7 +184,7 @@ class TestE2EApi(FrappeTestCase):
 				with patch(
 					"production_entry_app.production_entry_app.e2e_api.frappe.clear_document_cache"
 				) as clear_cache:
-					_ensure_e2e_settings_fields_loaded()
+					ensure_production_entry_settings_shift_fields()
 
 		self.assertEqual(
 			reload_doc.call_args_list,
@@ -1377,7 +1380,9 @@ class TestE2EApi(FrappeTestCase):
 				patch("production_entry_app.production_entry_app.e2e_api.cleanup_running_shifts")
 			)
 			stack.enter_context(
-				patch("production_entry_app.production_entry_app.e2e_api._ensure_e2e_settings_fields_loaded")
+				patch(
+					"production_entry_app.production_entry_app.e2e_api.ensure_production_entry_settings_shift_fields"
+				)
 			)
 			stack.enter_context(
 				patch(
@@ -1491,7 +1496,9 @@ class TestE2EApi(FrappeTestCase):
 				patch("production_entry_app.production_entry_app.e2e_api.cleanup_running_shifts")
 			)
 			stack.enter_context(
-				patch("production_entry_app.production_entry_app.e2e_api._ensure_e2e_settings_fields_loaded")
+				patch(
+					"production_entry_app.production_entry_app.e2e_api.ensure_production_entry_settings_shift_fields"
+				)
 			)
 			stack.enter_context(
 				patch(

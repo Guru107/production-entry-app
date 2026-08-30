@@ -138,10 +138,6 @@ if (typeof window !== "undefined" && window.erpnext && erpnext.stock && erpnext.
 
 if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 	frappe.ui.form.on("Stock Entry", {
-		setup(frm) {
-			// Capture the baseline during initial form setup.
-			_initialize_total_strokes_default_state(frm);
-		},
 		before_load(frm) {
 			// Desk reuses this form when loading a different document.
 			_initialize_total_strokes_default_state(frm);
@@ -986,6 +982,9 @@ async function _apply_shift_detail_updates(frm, data, isCurrentRequest = () => t
 	for (const [sourceField, targetField] of Object.entries(fieldMap)) {
 		if (!isCurrentRequest()) {
 			return false;
+		}
+		if (frm.doc?.work_order && ["from_warehouse", "to_warehouse"].includes(targetField)) {
+			continue;
 		}
 		if (Object.prototype.hasOwnProperty.call(data, sourceField)) {
 			await _set_form_value_if_present(frm, targetField, data[sourceField]);

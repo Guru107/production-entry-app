@@ -17,9 +17,23 @@ async function openSettings(page) {
 }
 
 test.describe("Branch warehouse defaults", () => {
-	const lifecycle = registerE2ELifecycle(test);
 	let jointType;
 	let user;
+	let workOrder;
+	test.afterEach(async ({ page }) => {
+		if (workOrder) {
+			await callFrappeMethod(page, "frappe.client.cancel", {
+				doctype: "Work Order",
+				name: workOrder,
+			});
+			await callFrappeMethod(page, "frappe.client.delete", {
+				doctype: "Work Order",
+				name: workOrder,
+			});
+		}
+		workOrder = null;
+	});
+	const lifecycle = registerE2ELifecycle(test);
 	test.afterEach(async ({ page }) => {
 		if (jointType) await deleteJointStockEntryTypeIfExists(page, jointType);
 		if (user) await deleteUserIfExists(page, user);
@@ -112,6 +126,105 @@ test.describe("Branch warehouse defaults", () => {
 			cur_frm.save().catch(() => {});
 		}, ctx);
 		await expectValidationError(page, /Duplicate warehouse defaults/);
+	});
+
+	test("@regression Work Order Fetch Items retains native scrap warehouse with a Shift", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const draft = await callFrappeMethod(page, "frappe.client.insert", {
+			doc: JSON.stringify({
+				doctype: "Work Order",
+				company: ctx.company,
+				production_item: ctx.joint_lh_item,
+				bom_no: ctx.joint_lh_bom,
+				qty: 40,
+				skip_transfer: 1,
+				source_warehouse: ctx.wip_warehouse,
+				wip_warehouse: ctx.wip_warehouse,
+				fg_warehouse: ctx.fg_warehouse,
+				scrap_warehouse: ctx.fg_warehouse,
+			}),
+		});
+		workOrder = draft.name;
+		await callFrappeMethod(page, "frappe.client.submit", { doc: JSON.stringify(draft) });
+		const form = new StockEntryPage(page);
+		await form.openNew();
+		await setFieldValue(page, "stock_entry_type", "Manufacture");
+		await setFieldValue(page, "company", ctx.company);
+		await setFieldValue(page, "work_order", workOrder);
+		await form.waitForFieldValue("to_warehouse", ctx.fg_warehouse);
+		await setFieldValue(page, "custom_pea_shift", ctx.shift_name);
+		await page.waitForFunction(() => Boolean(cur_frm.doc.custom_pea_planned_end_date));
+		await form.waitForFieldValue("to_warehouse", ctx.fg_warehouse);
+		await setFieldValue(page, "fg_completed_qty", 40);
+		expect((await form.getFieldValues(["work_order"])).work_order).toBe(workOrder);
+		await form.fetchItems();
+		const rows = await page.evaluate(() => cur_frm.doc.items);
+		const scrap = rows.filter(
+			(row) =>
+				row.is_scrap_item ||
+				row.is_legacy_scrap_item ||
+				row.secondary_item_type === "Scrap" ||
+				row.type === "Scrap"
+		);
+		expect(scrap.length).toBeGreaterThan(0);
+		expect(scrap.map((row) => row.t_warehouse)).toEqual(scrap.map(() => ctx.fg_warehouse));
+	});
+
+	test("@regression Shift selection without WIP keeps context and allows manual warehouses", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		jointType = await ensureJointStockEntryType(page, lifecycle.getPrefix());
+		const settings = await getDoc(
+			page,
+			"Production Entry Settings",
+			"Production Entry Settings"
+		);
+		settings.branch_warehouse_defaults.find(
+			(row) => row.company === ctx.company && row.branch === ctx.branch
+		).work_in_progress_warehouse = null;
+		await callFrappeMethod(page, "frappe.client.save", { doc: JSON.stringify(settings) });
+		const shift = await getDoc(page, "Shift", ctx.shift_name);
+		shift.work_in_progress_warehouse = null;
+		await callFrappeMethod(page, "frappe.client.save", { doc: JSON.stringify(shift) });
+		for (const joint of [false, true]) {
+			const form = new StockEntryPage(page);
+			await form.openNew();
+			await setFieldValue(page, "stock_entry_type", joint ? jointType : "Manufacture");
+			await setFieldValue(page, "company", ctx.company);
+			await setFieldValue(page, "custom_pea_shift", ctx.shift_name);
+			await form.waitForFieldValue("branch", ctx.branch);
+			const values = await form.getFieldValues([
+				"custom_pea_shift",
+				"company",
+				"custom_pea_planned_start_date",
+			]);
+			expect(values.custom_pea_shift).toBe(ctx.shift_name);
+			expect(values.company).toBe(ctx.company);
+			expect(values.custom_pea_planned_start_date).toContain(ctx.shift_date);
+			await expect(page.locator(".modal:visible")).toHaveCount(0);
+			await setFieldValue(page, "from_warehouse", ctx.wip_warehouse);
+			await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
+			if (joint) {
+				await form.fillJointProductionFields(ctx);
+			} else {
+				await setFieldValue(page, "from_bom", 1);
+				await setFieldValue(page, "bom_no", ctx.bom);
+				await setFieldValue(page, "fg_completed_qty", 40);
+			}
+			await form.fetchItems();
+			const rows = await page.evaluate(() => cur_frm.doc.items);
+			expect(rows.length).toBeGreaterThan(1);
+			expect(
+				rows
+					.filter((row) => row.s_warehouse)
+					.every((row) => row.s_warehouse === ctx.wip_warehouse)
+			).toBeTruthy();
+		}
 	});
 
 	test("@regression PEA User can read but cannot edit branch settings", async ({ page }) => {

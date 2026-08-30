@@ -8,8 +8,8 @@ from frappe import _
 from frappe.utils import get_datetime, get_time, now_datetime
 
 from production_entry_app.production_entry_app.joint_production import (
-	_is_scrap_row,
 	calculate_joint_rm_consumption_from_boms,
+	is_scrap_row,
 	materialize_joint_production_rows,
 )
 from production_entry_app.production_entry_app.utils.alternative_items import (
@@ -194,7 +194,7 @@ def get_shift_details_for_stock_entry(shift_name: str) -> dict:
 		shift_duration=shift.shift_duration,
 	)
 
-	wip_warehouse = require_warehouse(get_shift_warehouses(shift), "work_in_progress_warehouse")
+	wip_warehouse = get_shift_warehouses(shift).get("work_in_progress_warehouse")
 	return {
 		"company": shift.company,
 		"branch": shift.branch,
@@ -262,15 +262,15 @@ def get_items_with_rejection(doc: str) -> list[dict]:
 	se.custom_pea_shift = doc_dict.get("custom_pea_shift")
 	se.work_order = doc_dict.get("work_order")
 
-	# Work Order-only flows retain ERPNext's own warehouse configuration.
-	use_production_defaults = se.purpose == "Manufacture" and (not se.work_order or se.custom_pea_shift)
+	# Work Orders retain ERPNext's warehouse configuration even when linked to a Shift.
+	use_production_defaults = se.purpose == "Manufacture" and not se.work_order
 	warehouses = get_production_warehouses(se) if use_production_defaults else {}
 	if use_production_defaults:
 		set_production_header_warehouses(se, warehouses)
 	se.get_items()
 	if use_production_defaults:
 		for row in se.items:
-			if _is_scrap_row(row):
+			if is_scrap_row(row):
 				row.t_warehouse = require_warehouse(warehouses, "scrap_warehouse")
 		se.set_actual_qty()
 	apply_direct_manufacture_alternative_flags(se)

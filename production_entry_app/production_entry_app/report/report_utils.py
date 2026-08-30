@@ -391,26 +391,21 @@ def _as_list_filters(filters: dict) -> list[list]:
 
 def get_entry_qty_maps(
 	stock_entry_names: list[str],
-	include_fg_item: bool = False,
-) -> tuple[dict[str, float], dict[str, float], dict[str, str]]:
+) -> tuple[dict[str, float], dict[str, float]]:
 	if not stock_entry_names:
-		return {}, {}, {}
+		return {}, {}
 
 	parent_metrics = get_parent_quantity_metrics(stock_entry_names)
 
 	good_qty_map: dict[str, float] = {}
-	fg_item_map: dict[str, str] = {}
 	for parent, metrics in parent_metrics.items():
 		good_qty_map[parent] = flt(metrics.get("good_qty") or 0)
-
-	if include_fg_item:
-		fg_item_map, _item_labels = get_finished_item_maps(stock_entry_names)
 
 	rejection_qty_map: dict[str, float] = {}
 	for parent, metrics in parent_metrics.items():
 		rejection_qty_map[parent] = flt(metrics.get("rejection_qty") or 0)
 
-	return good_qty_map, rejection_qty_map, fg_item_map
+	return good_qty_map, rejection_qty_map
 
 
 def get_parent_quantity_metrics(

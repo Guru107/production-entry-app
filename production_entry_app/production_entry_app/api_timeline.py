@@ -127,7 +127,7 @@ def get_shift_timeline_data(doctype: str, docname: str) -> dict:
 	)
 
 	names = [row.get("name") for row in rows if row.get("name")]
-	good_qty_by_entry, joint_rejection_qty_by_entry, _unused_fg_item_map = get_entry_qty_maps(names)
+	good_qty_by_entry, joint_rejection_qty_by_entry = get_entry_qty_maps(names)
 	fg_item_by_entry, fg_item_label_by_entry = get_finished_item_maps(names)
 
 	entries = []
