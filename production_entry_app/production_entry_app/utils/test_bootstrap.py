@@ -245,11 +245,19 @@ def ensure_joint_test_bom(
 	"""Return a submitted BOM matching the requested quantities and scrap recipe.
 
 	ERPNext recalculates BOM Item rates from valuation during submission, so the
-	input RM rate is deliberately not part of fixture identity.
+	input RM rate is deliberately not part of fixture identity. Fixture scrap rates
+	are in Company currency, regardless of the current user's currency default.
 	"""
+	company_currency = frappe.get_cached_value("Company", company, "default_currency")
 	for bom_name in frappe.get_all(
 		"BOM",
-		filters={"item": item_code, "company": company, "is_active": 1, "docstatus": 1},
+		filters={
+			"item": item_code,
+			"company": company,
+			"currency": company_currency,
+			"is_active": 1,
+			"docstatus": 1,
+		},
 		pluck="name",
 	):
 		bom = frappe.get_doc("BOM", bom_name)
@@ -279,6 +287,8 @@ def ensure_joint_test_bom(
 		"doctype": "BOM",
 		"item": item_code,
 		"company": company,
+		"currency": company_currency,
+		"conversion_rate": 1,
 		"quantity": bom_quantity,
 		"is_default": int(bool(is_default)),
 		"is_active": 1,

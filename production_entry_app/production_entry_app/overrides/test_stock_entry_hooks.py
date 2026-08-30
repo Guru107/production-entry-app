@@ -1741,6 +1741,7 @@ class TestStockEntryHooks(FrappeTestCase):
 				"shift_duration": "8",
 				"shift_date": "2090-01-24",
 				"planned_start_time": "08:00:00",
+				"company": self.company,
 				"work_in_progress_warehouse": self.wip_warehouse,
 			}
 		).insert()

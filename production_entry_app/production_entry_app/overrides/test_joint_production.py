@@ -489,6 +489,19 @@ class TestJointProductionItems(FrappeTestCase):
 		self.assertEqual(matching_bom, self.lh_bom)
 		self.assertNotEqual(changed_bom, matching_bom)
 
+	def test_joint_bom_fixture_uses_company_currency_not_user_currency(self) -> None:
+		company_currency = frappe.get_cached_value("Company", self.masters["company"], "default_currency")
+		other_currency = "USD" if company_currency != "USD" else "INR"
+		item = ensure_item(f"_Joint_Currency_{frappe.generate_hash(length=6)}")
+		template = frappe.new_doc("BOM").as_dict()
+		template.update(currency=other_currency, conversion_rate=80)
+		with patch.dict(frappe.local.new_doc_templates, {"BOM": template}):
+			bom = frappe.get_doc("BOM", self._make_bom(item, scrap_qty=1.125))
+
+		self.assertEqual(bom.currency, company_currency)
+		self.assertEqual(bom.conversion_rate, 1)
+		self.assertGreater(bom.total_cost, 0)
+
 	def test_builds_one_rm_two_side_outputs_rejection_and_joint_scrap(self) -> None:
 		doc = frappe.get_doc(
 			{
