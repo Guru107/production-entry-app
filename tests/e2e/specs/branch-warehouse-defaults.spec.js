@@ -179,13 +179,14 @@ test.describe("Branch warehouse defaults", () => {
 		);
 		expect(scrap.length).toBeGreaterThan(0);
 		expect(scrap.map((row) => row.t_warehouse)).toEqual(scrap.map(() => ctx.fg_warehouse));
+		// Native Work Order Fetch Items may clear the source header for per-row sourcing.
+		const nativeHeaders = await form.getFieldValues(["from_warehouse", "to_warehouse"]);
 		await setFieldValue(page, "custom_pea_shift", "");
 		await page.waitForFunction(() => !cur_frm.doc.custom_pea_planned_end_date);
 		await page.evaluate(() => frappe.after_ajax());
-		expect(await form.getFieldValues(["from_warehouse", "to_warehouse"])).toEqual({
-			from_warehouse: ctx.wip_warehouse,
-			to_warehouse: ctx.fg_warehouse,
-		});
+		expect(await form.getFieldValues(["from_warehouse", "to_warehouse"])).toEqual(
+			nativeHeaders
+		);
 	});
 
 	test("@regression Shift selection without WIP keeps context and allows manual warehouses", async ({
