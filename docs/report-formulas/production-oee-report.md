@@ -23,8 +23,7 @@ Source: `production_oee_report/production_oee_report.py`
 - `productivity_pct`: `(act_spm / std_spm) * 100` if `std_spm > 0` else `0`.
 - `quality_pct`: `((quality_total - rejection) / quality_total) * 100` if `quality_total > 0` else `0`.
 - `availability_pct`: `(running_time / avl_time_hrs) * 100` if `avl_time_hrs > 0` else `0`.
-- `oee`: `(availability_pct + quality_pct + productivity_pct) / 3`.
-- `oee_mult_pct`: `(availability_pct * quality_pct * productivity_pct) / 10000`.
+- `oee_mult_pct` (OEE %): `(availability_pct * quality_pct * productivity_pct) / 10000`.
 
 Loss bucket columns (`setup_1st`, `setup_2nd`, `trial_1st`, ...):
 - Built only from Stock Entry child `Loss Entry` rows.

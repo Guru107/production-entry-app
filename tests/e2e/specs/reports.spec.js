@@ -121,6 +121,10 @@ test.describe("Production reports", () => {
 		expect(Boolean(seededRow)).toBeTruthy();
 		expect(Number(seededRow.total_strokes || 0)).toBeGreaterThan(0);
 		expect(Number(seededRow.other_1st || 0)).toBe(2);
+		const labels = await reportsPage.getColumnLabels();
+		expect(labels.filter((label) => label.startsWith("OEE"))).toEqual(["OEE %"]);
+		expect(seededRow).toHaveProperty("oee_mult_pct");
+		expect(seededRow).not.toHaveProperty("oee");
 	});
 
 	test("@regression date-driven reports use Completed Shift date instead of Posting Date", async ({

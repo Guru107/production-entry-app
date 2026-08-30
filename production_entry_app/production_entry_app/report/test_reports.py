@@ -371,7 +371,7 @@ class TestProductionReports(FrappeTestCase):
 
 		self.assertEqual(result["result"], [])
 
-	def test_production_oee_report_columns_match_v2_schema(self) -> None:
+	def test_production_oee_report_columns_expose_only_multiplicative_oee(self) -> None:
 		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
 			execute,
 		)
@@ -393,7 +393,6 @@ class TestProductionReports(FrappeTestCase):
 				"productivity_pct",
 				"quality_pct",
 				"availability_pct",
-				"oee",
 				"oee_mult_pct",
 				"avl_time_hrs",
 				"setup_1st",
@@ -422,6 +421,8 @@ class TestProductionReports(FrappeTestCase):
 				"running_time",
 			],
 		)
+		oee_columns = [column for column in columns if column["fieldname"].startswith("oee")]
+		self.assertEqual([column["label"] for column in oee_columns], ["OEE %"])
 
 	def test_report_metric_columns_follow_system_precision(self) -> None:
 		from production_entry_app.production_entry_app.report.daily_strokes_spm_monitor.daily_strokes_spm_monitor import (
@@ -587,6 +588,7 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(float(rows[0]["productivity_pct"]), 12.5)
 		self.assertEqual(float(rows[0]["quality_pct"]), 100.0)
 		self.assertEqual(float(rows[0]["oee_mult_pct"]), 12.5)
+		self.assertNotIn("oee", rows[0])
 		self.assertEqual(float(rows[0]["first_shift_strokes"]), 120.0)
 		self.assertEqual(float(rows[0]["second_shift_strokes"]), 0.0)
 		self.assertEqual(float(rows[0]["running_time"]), 8.0)

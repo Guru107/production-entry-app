@@ -111,9 +111,8 @@ def _get_columns() -> list[dict]:
 			"fieldtype": "Percent",
 			"width": 130,
 		},
-		{"label": _("OEE"), "fieldname": "oee", "fieldtype": "Percent", "width": 90},
 		{
-			"label": _("OEE Mult %"),
+			"label": _("OEE %"),
 			"fieldname": "oee_mult_pct",
 			"fieldtype": "Percent",
 			"width": 100,
@@ -183,7 +182,6 @@ def _get_rows(filters: dict, timeout_guard) -> list[dict]:
 		quality_total = flt(group["quality_total"])
 		quality_pct = flt(((quality_total - rejection) / quality_total) * 100) if quality_total > 0 else 0
 		availability_pct = flt((raw_running_time / avl_time_hrs) * 100) if avl_time_hrs > 0 else 0
-		oee = flt((availability_pct + quality_pct + productivity_pct) / 3)
 		oee_mult_pct = flt((availability_pct * quality_pct * productivity_pct) / 10000)
 
 		row = {
@@ -199,7 +197,6 @@ def _get_rows(filters: dict, timeout_guard) -> list[dict]:
 			"productivity_pct": productivity_pct,
 			"quality_pct": quality_pct,
 			"availability_pct": availability_pct,
-			"oee": oee,
 			"oee_mult_pct": oee_mult_pct,
 			"avl_time_hrs": avl_time_hrs,
 			"total_loss_time": total_loss_time,

@@ -53,8 +53,7 @@ Production OEE Report uses:
   `quality_rejection = non-rework rejection_qty`.
 - For Joint LH/RH entries, `quality_total = LH gross qty + RH gross qty` and
   `quality_rejection = LH rejection qty + RH rejection qty`.
-- `OEE = (A + P + Q) / 3`
-- `OEE Mult % = (A * P * Q) / 10000`
+- `OEE % = (A * P * Q) / 10000`
 
 Planned losses are applied at report-row scope (linked shifts for that row):
 
