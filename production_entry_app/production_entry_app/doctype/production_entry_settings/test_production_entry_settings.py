@@ -12,7 +12,6 @@ from production_entry_app.production_entry_app.tests.support.manufacture_builder
 	bootstrap_manufacture_masters,
 )
 from production_entry_app.production_entry_app.utils.production_warehouses import (
-	WAREHOUSE_FIELDS,
 	require_warehouse,
 )
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
@@ -27,10 +26,15 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 
 class TestBranchWarehouseSettings(FrappeTestCase):
 	def test_each_required_production_warehouse_has_a_validation_message(self) -> None:
-		for fieldname in ("work_in_progress_warehouse", "rejection_warehouse", "scrap_warehouse"):
+		# Keep the expected roles independent of production's mapping so missing roles fail the test.
+		for fieldname, label in (
+			("work_in_progress_warehouse", "Work In Progress Warehouse"),
+			("rejection_warehouse", "Rejection Warehouse"),
+			("scrap_warehouse", "Scrap Warehouse"),
+		):
 			with (
 				self.subTest(fieldname=fieldname),
-				self.assertRaisesRegex(frappe.ValidationError, "Please set a"),
+				self.assertRaisesRegex(frappe.ValidationError, f"Please set a {label} on the Shift"),
 			):
 				require_warehouse({}, fieldname)
 

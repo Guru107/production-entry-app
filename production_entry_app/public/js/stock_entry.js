@@ -921,7 +921,7 @@ function _get_shift_ctx(frm) {
 function _handle_shift_change(frm) {
 	if (!frm.doc.custom_pea_shift) {
 		_shiftDetailsRequestId++;
-		_clear_shift_derived_fields(frm).finally(() => {
+		_clear_shift_derived_fields(frm, { clearWarehouses: true }).finally(() => {
 			_sync_stock_entry_helper_fields(frm);
 			_setup_stock_entry_quick_entry(frm);
 		});
@@ -1000,7 +1000,7 @@ async function _apply_shift_detail_updates(
 	return true;
 }
 
-function _clear_shift_derived_fields(frm) {
+function _clear_shift_derived_fields(frm, { clearWarehouses = false } = {}) {
 	return _apply_shift_detail_updates(
 		frm,
 		{
@@ -1010,7 +1010,7 @@ function _clear_shift_derived_fields(frm) {
 			from_warehouse: "",
 			to_warehouse: "",
 		},
-		{ clearWarehouses: true }
+		{ clearWarehouses }
 	);
 }
 

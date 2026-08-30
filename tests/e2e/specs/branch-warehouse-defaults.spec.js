@@ -252,6 +252,79 @@ test.describe("Branch warehouse defaults", () => {
 		}
 	});
 
+	for (const joint of [false, true]) {
+		for (const status of [200, 500]) {
+			test(`@regression ${joint ? "joint" : "manufacture"} Shift lookup ${
+				status === 200 ? "null response" : "error"
+			} preserves manual warehouses`, async ({ page }) => {
+				await page.goto(getRoute("/home"));
+				const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+				if (joint)
+					jointType = await ensureJointStockEntryType(page, lifecycle.getPrefix());
+				const form = new StockEntryPage(page);
+				await form.openNew();
+				await setFieldValue(page, "stock_entry_type", joint ? jointType : "Manufacture");
+				await setFieldValue(page, "company", ctx.company);
+				await setFieldValue(page, "from_warehouse", ctx.wip_warehouse);
+				await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
+				await setFieldValue(page, "branch", ctx.branch);
+				await setFieldValue(
+					page,
+					"custom_pea_planned_start_date",
+					`${ctx.shift_date} 08:00:00`
+				);
+				await setFieldValue(
+					page,
+					"custom_pea_planned_end_date",
+					`${ctx.shift_date} 16:00:00`
+				);
+				const endpoint =
+					"**/api/method/production_entry_app.production_entry_app.api.get_shift_details_for_stock_entry";
+				await page.route(endpoint, (route) =>
+					route.fulfill({
+						status,
+						contentType: "application/json",
+						body: JSON.stringify({ message: null }),
+					})
+				);
+				const response = page.waitForResponse((response) =>
+					response.url().includes("api.get_shift_details_for_stock_entry")
+				);
+				await setFieldValue(page, "custom_pea_shift", ctx.shift_name);
+				expect((await response).status()).toBe(status);
+				await expect
+					.poll(
+						async () =>
+							(
+								await form.getFieldValues(["custom_pea_planned_end_date"])
+							).custom_pea_planned_end_date
+					)
+					.toBeFalsy();
+				await page.evaluate(() => frappe.after_ajax());
+				expect(
+					await form.getFieldValues([
+						"custom_pea_shift",
+						"from_warehouse",
+						"to_warehouse",
+						"branch",
+						"custom_pea_planned_start_date",
+					])
+				).toEqual({
+					custom_pea_shift: ctx.shift_name,
+					from_warehouse: ctx.wip_warehouse,
+					to_warehouse: ctx.fg_warehouse,
+					branch: "",
+					custom_pea_planned_start_date: "",
+				});
+				if (status === 500) {
+					await expectValidationError(page, /Failed to fetch shift details/);
+				} else {
+					await expect(page.locator(".modal:visible")).toHaveCount(0);
+				}
+			});
+		}
+	}
+
 	test("@regression PEA User can read but cannot edit branch settings", async ({ page }) => {
 		await page.goto(getRoute("/home"));
 		await bootstrapE2E(page, lifecycle.getPrefix());
