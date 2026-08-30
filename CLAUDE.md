@@ -279,8 +279,10 @@ production.
   validation for required fields.
 - Add `"search_index": 1` to every field used in `filters` in `frappe.get_all()` /
   `frappe.qb` queries (e.g., `shift_date`, `status`, `supervisor`).
-- Add `"min_value"` / `"max_value"` to numeric fields with known bounds (percentages 0–100,
-  buffer minutes 0–480).
+- Add `"non_negative": 1` to numeric fields that cannot go below zero (quantities, stroke
+  counts, durations). Frappe v15/v16 DocField has no `min_value` / `max_value` properties —
+  upper bounds (percentages 0–100, buffer minutes 0–480) must be enforced in `validate()`
+  with `frappe.throw()`, not in the DocType JSON.
 - Add `"is_active"` Check field (default 1) to all master-data DocTypes to enable soft-deletion
   without breaking historical links.
 - Use `"allow_rename": 0` on master data that is referenced in fixture-installed records.
