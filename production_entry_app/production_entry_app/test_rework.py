@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from production_entry_app.production_entry_app import rework
+from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
+	before_submit_stock_entry,
+)
 from production_entry_app.production_entry_app.tests.support.manufacture_builders import ensure_item
 from production_entry_app.production_entry_app.tests.support.rework_builders import (
 	insert_pending_rework_source,
@@ -60,12 +65,67 @@ class TestPendingReworkPool(FrappeTestCase):
 
 		StockEntry = frappe.qb.DocType("Stock Entry")
 		(
-			frappe.qb.update(StockEntry)
-			.set(StockEntry.docstatus, 2)
-			.where(StockEntry.name == rework_entry)
+			frappe.qb.update(StockEntry).set(StockEntry.docstatus, 2).where(StockEntry.name == rework_entry)
 		).run()
 
 		self.assertEqual(rework.get_pending_rework(self.item_a)[0]["pending_qty"], 5.0)
+
+	def test_concurrent_submits_serialize_before_writes_and_second_sees_fresh_pool(self) -> None:
+		source_name = self._insert_production_source(
+			stock_entry_type=self.normal_type,
+			breakups=[(None, 5)],
+			rejection_items=[self.item_a],
+		)
+		first_name = f"POOL-CONCURRENT-1-{frappe.generate_hash(length=8)}"
+		second_name = f"POOL-CONCURRENT-2-{frappe.generate_hash(length=8)}"
+		for name in (first_name, second_name):
+			self._insert_stock_entry(name, self.rework_type, docstatus=0)
+			self._insert_stock_entry_item(name, self.item_a, 4)
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit - make drafts visible to both connections
+
+		first_locked = threading.Event()
+		release_first = threading.Event()
+		second_started = threading.Event()
+		second_done = threading.Event()
+		site = frappe.local.site
+		try:
+			with ThreadPoolExecutor(max_workers=2) as executor:
+				first = executor.submit(
+					_run_rework_submission_transaction,
+					site,
+					first_name,
+					self.rework_type,
+					self.item_a,
+					4,
+					first_locked,
+					release_first,
+					None,
+				)
+				self.assertTrue(first_locked.wait(5), "first transaction did not acquire the item lock")
+				second = executor.submit(
+					_run_rework_submission_transaction,
+					site,
+					second_name,
+					self.rework_type,
+					self.item_a,
+					4,
+					None,
+					None,
+					second_started,
+					second_done,
+				)
+				self.assertTrue(second_started.wait(5), "second transaction did not start")
+				self.assertFalse(second_done.wait(0.3), "second transaction bypassed the item lock")
+				release_first.set()
+				self.assertEqual(first.result(timeout=5), "submitted")
+				self.assertEqual(second.result(timeout=5), "rejected")
+		finally:
+			release_first.set()
+			_cleanup_committed_concurrency_records(
+				stock_entries=[source_name, first_name, second_name],
+				stock_entry_types=[self.normal_type, self.joint_type, self.rework_type],
+				items=[self.item_a, self.item_b],
+			)
 
 	def test_submission_rejects_aggregate_item_overdraw_and_excludes_itself(self) -> None:
 		self._insert_production_source(
@@ -195,3 +255,67 @@ class TestPendingReworkPool(FrappeTestCase):
 			items=[frappe._dict(item_code=item_code, qty=qty) for item_code, qty in items],
 			flags=frappe._dict(),
 		)
+
+
+def _run_rework_submission_transaction(
+	site: str,
+	stock_entry_name: str,
+	stock_entry_type: str,
+	item_code: str,
+	qty: float,
+	locked: threading.Event | None,
+	release: threading.Event | None,
+	started: threading.Event | None,
+	done: threading.Event | None = None,
+) -> str:
+	frappe.init(site=site)
+	frappe.connect()
+	try:
+		frappe.db.begin()
+		if started:
+			started.set()
+		doc = frappe._dict(
+			name=stock_entry_name,
+			stock_entry_type=stock_entry_type,
+			items=[frappe._dict(item_code=item_code, qty=qty)],
+			flags=frappe._dict(),
+		)
+		try:
+			before_submit_stock_entry(doc)
+		except frappe.ValidationError:
+			frappe.db.rollback()
+			return "rejected"
+		if locked:
+			locked.set()
+		if release and not release.wait(5):
+			raise TimeoutError("timed out waiting to release the first rework submission")
+		StockEntry = frappe.qb.DocType("Stock Entry")
+		(
+			frappe.qb.update(StockEntry)
+			.set(StockEntry.docstatus, 1)
+			.where(StockEntry.name == stock_entry_name)
+		).run()
+		frappe.db.commit()
+		return "submitted"
+	finally:
+		if done:
+			done.set()
+		frappe.destroy()
+
+
+def _cleanup_committed_concurrency_records(
+	*,
+	stock_entries: list[str],
+	stock_entry_types: list[str],
+	items: list[str],
+) -> None:
+	frappe.db.delete("Rejection Breakup", {"parent": ["in", stock_entries]})
+	frappe.db.delete("Stock Entry Detail", {"parent": ["in", stock_entries]})
+	frappe.db.delete("Stock Entry", {"name": ["in", stock_entries]})
+	for stock_entry_type in stock_entry_types:
+		if frappe.db.exists("Stock Entry Type", stock_entry_type):
+			frappe.delete_doc("Stock Entry Type", stock_entry_type, force=True, ignore_permissions=True)
+	for item_code in items:
+		if frappe.db.exists("Item", item_code):
+			frappe.delete_doc("Item", item_code, force=True, ignore_permissions=True)
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit - persist explicit committed-fixture cleanup

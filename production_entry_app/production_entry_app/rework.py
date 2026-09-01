@@ -19,14 +19,15 @@ def get_pending_rework(item_code: str | None = None) -> list[dict[str, Any]]:
 	item_codes = [item_code] if item_code else None
 	pending_by_item = _get_pending_rework_by_item(item_codes=item_codes)
 	return [
-		{"item_code": code, "pending_qty": flt(pending_by_item[code], 6)}
-		for code in sorted(pending_by_item)
+		{"item_code": code, "pending_qty": flt(pending_by_item[code], 6)} for code in sorted(pending_by_item)
 	]
 
 
 def validate_rework_submission(doc: Document) -> None:
 	"""Reject a submitted rework entry that consumes more than the derived pool.
 
+	This must run from ``before_submit``, before the Stock Entry is written as submitted,
+	so every competing transaction acquires locks in Item -> Stock Entry order.
 	Item-row locks serialize rework submissions for the same items. The pool is read
 	after acquiring the locks, so a waiting transaction sees the preceding committed
 	consumption before it validates. Sorted locking avoids cross-item deadlocks.
@@ -120,10 +121,7 @@ def _get_rework_produced(
 	query = (
 		frappe.qb.from_(RejectionBreakup)
 		.join(StockEntry)
-		.on(
-			(RejectionBreakup.parent == StockEntry.name)
-			& (RejectionBreakup.parenttype == "Stock Entry")
-		)
+		.on((RejectionBreakup.parent == StockEntry.name) & (RejectionBreakup.parenttype == "Stock Entry"))
 		.join(StockEntryDetail)
 		.on(
 			(StockEntryDetail.parent == StockEntry.name)
@@ -156,10 +154,7 @@ def _get_rework_consumed(
 	query = (
 		frappe.qb.from_(StockEntryDetail)
 		.join(StockEntry)
-		.on(
-			(StockEntryDetail.parent == StockEntry.name)
-			& (StockEntryDetail.parenttype == "Stock Entry")
-		)
+		.on((StockEntryDetail.parent == StockEntry.name) & (StockEntryDetail.parenttype == "Stock Entry"))
 		.join(StockEntryType)
 		.on(StockEntry.stock_entry_type == StockEntryType.name)
 		.select(StockEntryDetail.item_code, Sum(StockEntryDetail.qty).as_("qty"))

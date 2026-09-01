@@ -220,8 +220,11 @@ def _stamp_late_entry_flag(doc: Document) -> None:
 	doc.custom_pea_is_late_entry = is_late
 
 
-def on_submit_stock_entry(doc, method: str | None = None) -> None:
+def before_submit_stock_entry(doc: Document, method: str | None = None) -> None:
 	validate_rework_submission(doc)
+
+
+def on_submit_stock_entry(doc, method: str | None = None) -> None:
 	update_counter_for_stock_entry(doc, direction=1)
 	_invalidate_shift_dependent_caches(doc)
 
