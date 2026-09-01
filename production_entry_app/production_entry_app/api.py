@@ -55,6 +55,27 @@ def get_joint_stock_entry_type() -> str:
 
 
 @frappe.whitelist()
+def get_rework_stock_entry_type() -> str:
+	if not frappe.has_permission("Stock Entry", "create"):
+		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
+	stock_entry_types = frappe.get_list(
+		"Stock Entry Type",
+		filters={
+			"purpose": "Material Transfer",
+			"custom_pea_rework_entry": 1,
+		},
+		order_by="modified desc, name asc",
+		pluck="name",
+		limit=2,
+	)
+	if not stock_entry_types:
+		frappe.throw(_("Configure a Material Transfer Stock Entry Type for Rework first."))
+	if len(stock_entry_types) > 1:
+		frappe.throw(_("Only one Material Transfer Stock Entry Type can be configured for Rework."))
+	return stock_entry_types[0]
+
+
+@frappe.whitelist()
 def get_joint_rm_consumption(
 	lh_bom: str,
 	rh_bom: str,

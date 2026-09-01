@@ -18,6 +18,7 @@ REQUIRED_SEARCH_INDEXES: dict[str, set[str]] = {
 
 REQUIRED_CUSTOM_FIELD_SEARCH_INDEXES: set[str] = {
 	"Stock Entry Type-custom_pea_joint_lh_rh_production",
+	"Stock Entry Type-custom_pea_rework_entry",
 	"Stock Entry-custom_pea_is_joint_lh_rh",
 	"Stock Entry-custom_pea_shift",
 	"Stock Entry-custom_pea_workstation",
