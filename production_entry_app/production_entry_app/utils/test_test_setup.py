@@ -9,8 +9,8 @@ from production_entry_app.production_entry_app.utils import test_setup
 
 
 class TestTestSetup(FrappeTestCase):
-	def test_make_test_records_resolver_returns_native_generator(self) -> None:
-		self.assertTrue(callable(test_setup._get_make_test_records()))
+	def test_native_company_bootstrap_has_no_recursive_generator_seam(self) -> None:
+		self.assertFalse(hasattr(test_setup, "_get_make_test_records"))
 
 	def test_company_defaults_configure_existing_stock_adjustment_account(self) -> None:
 		with (
@@ -55,21 +55,38 @@ class TestTestSetup(FrappeTestCase):
 		)
 		clear_document_cache.assert_called_once_with("Company", "_Test Company")
 
-	def test_missing_test_company_is_created_with_native_erpnext_records(self) -> None:
-		make_test_records = Mock()
+	def test_missing_test_company_is_created_from_native_erpnext_fixture(self) -> None:
+		company_doc = Mock()
 		with (
 			patch(
 				"production_entry_app.production_entry_app.utils.test_setup.frappe.db.exists",
 				side_effect=[False, True],
 			),
 			patch(
-				"production_entry_app.production_entry_app.utils.test_setup._get_make_test_records",
-				return_value=make_test_records,
-			),
+				"production_entry_app.production_entry_app.utils.test_setup.frappe.get_test_records",
+			) as get_test_records,
+			patch(
+				"production_entry_app.production_entry_app.utils.test_setup.frappe.get_doc",
+				return_value=company_doc,
+			) as get_doc,
 		):
 			self.assertEqual(test_setup._ensure_test_company(), "_Test Company")
 
-		make_test_records.assert_called_once_with("Company", commit=True)
+		get_test_records.assert_not_called()
+		get_doc.assert_called_once_with(
+			{
+				"doctype": "Company",
+				"company_name": "_Test Company",
+				"abbr": "_TC",
+				"country": "India",
+				"default_currency": "INR",
+				"domain": "Manufacturing",
+				"create_chart_of_accounts_based_on": "Standard Template",
+				"chart_of_accounts": "Standard",
+				"enable_perpetual_inventory": 0,
+			}
+		)
+		company_doc.insert.assert_called_once_with(ignore_permissions=True)
 
 	def test_existing_test_company_does_not_regenerate_native_records(self) -> None:
 		with (
@@ -78,12 +95,14 @@ class TestTestSetup(FrappeTestCase):
 				return_value=True,
 			),
 			patch(
-				"production_entry_app.production_entry_app.utils.test_setup._get_make_test_records"
-			) as get_make_test_records,
+				"production_entry_app.production_entry_app.utils.test_setup.frappe.get_test_records"
+			) as get_test_records,
+			patch("production_entry_app.production_entry_app.utils.test_setup.frappe.get_doc") as get_doc,
 		):
 			self.assertEqual(test_setup._ensure_test_company(), "_Test Company")
 
-		get_make_test_records.assert_not_called()
+		get_test_records.assert_not_called()
+		get_doc.assert_not_called()
 
 	def test_missing_native_test_company_fails_fast_after_bootstrap(self) -> None:
 		with (
@@ -92,7 +111,7 @@ class TestTestSetup(FrappeTestCase):
 				return_value=False,
 			),
 			patch(
-				"production_entry_app.production_entry_app.utils.test_setup._get_make_test_records",
+				"production_entry_app.production_entry_app.utils.test_setup.frappe.get_doc",
 				return_value=Mock(),
 			),
 			self.assertRaisesRegex(RuntimeError, "did not create _Test Company"),

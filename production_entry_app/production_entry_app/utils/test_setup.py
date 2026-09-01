@@ -15,18 +15,25 @@ _ERPNEXT_TEST_FISCAL_YEAR_LOOKAHEAD_YEARS = 25
 _TEST_COMPANY = "_Test Company"
 
 
-def _get_make_test_records() -> Callable[..., Any]:
-	try:
-		from frappe.tests.utils.generators import make_test_records
-	except ImportError:
-		from frappe.test_runner import make_test_records
-
-	return make_test_records
+def _insert_native_test_company() -> None:
+	frappe.get_doc(
+		{
+			"doctype": "Company",
+			"company_name": _TEST_COMPANY,
+			"abbr": "_TC",
+			"country": "India",
+			"default_currency": "INR",
+			"domain": "Manufacturing",
+			"create_chart_of_accounts_based_on": "Standard Template",
+			"chart_of_accounts": "Standard",
+			"enable_perpetual_inventory": 0,
+		}
+	).insert(ignore_permissions=True)
 
 
 def _ensure_test_company() -> str:
 	if not frappe.db.exists("Company", _TEST_COMPANY):
-		_get_make_test_records()("Company", commit=True)
+		_insert_native_test_company()
 
 	if not frappe.db.exists("Company", _TEST_COMPANY):
 		raise RuntimeError("ERPNext test setup did not create _Test Company")
