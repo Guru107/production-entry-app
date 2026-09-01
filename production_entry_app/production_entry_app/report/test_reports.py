@@ -630,10 +630,13 @@ class TestProductionReports(FrappeTestCase):
 		self.assertAlmostEqual(float(rows[0]["quality_pct"]), (175 / 180) * 100, places=6)
 
 	def test_production_oee_quality_counts_rework_consistently_across_production_modes(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
 		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
 			execute,
 		)
 
+		entry_ok_quantities = []
+		shift_snapshots = []
 		for production_date, is_joint in (("2026-06-08", False), ("2026-06-09", True)):
 			shift = self._create_shift_for_label(production_date, "1", clear_planned_losses=True)
 			entry = self._create_mock_submitted_entry_with_breakup(
@@ -644,7 +647,10 @@ class TestProductionReports(FrappeTestCase):
 				actual_end=f"{production_date} 09:00:00",
 				fg_qty=100,
 				shift_name=shift.name,
-				breakup_rows=[{"rejection_reason": "Burr", "qty": 5, "is_rework": 1}],
+				breakup_rows=[
+					{"rejection_reason": "Burr", "qty": 3, "is_rework": 1},
+					{"rejection_reason": "Crack", "qty": 2, "is_rework": 0},
+				],
 			)
 			if is_joint:
 				frappe.db.set_value(
@@ -660,9 +666,15 @@ class TestProductionReports(FrappeTestCase):
 					},
 					update_modified=False,
 				)
+			entry.reload()
+			entry_ok_quantities.append(float(entry.custom_pea_ok_qty))
+			shift_snapshots.append(get_shift_summary(shift.name)["snapshot"])
 
 		_, rows = execute({"from_date": "2026-06-08", "to_date": "2026-06-09"})
 
+		self.assertEqual(entry_ok_quantities, [95.0, 95.0])
+		self.assertEqual([float(row["ok_qty"]) for row in shift_snapshots], [95.0, 95.0])
+		self.assertEqual([float(row["rejection_pct"]) for row in shift_snapshots], [5.0, 5.0])
 		self.assertEqual(len(rows), 2)
 		self.assertEqual([float(row["quality_pct"]) for row in rows], [95.0, 95.0])
 		self.assertEqual([float(row["rejection"]) for row in rows], [5.0, 5.0])

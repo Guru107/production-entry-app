@@ -1270,12 +1270,8 @@ class TestStockEntryHooks(FrappeTestCase):
 
 		se.save()
 
-		expected_ok_qty = max(
-			float(se.get("fg_completed_qty") or 0) - float(se.get("custom_pea_rejection_qty") or 0),
-			0,
-		)
 		total_strokes = float(se.get("custom_pea_total_strokes") or 0)
-		self.assertEqual(float(se.custom_pea_ok_qty), expected_ok_qty)
+		self.assertEqual(float(se.custom_pea_ok_qty), 90.0)
 		self.assertEqual(float(se.custom_pea_actual_duration_mins), 100.0)
 		# Planned losses overlapping 08:00-09:40: Shift Start Up (10) + Tea Break (10) = 20 min.
 		# JH Activity (10:00-10:10) is outside the entry window.
@@ -1348,10 +1344,7 @@ class TestStockEntryHooks(FrappeTestCase):
 
 		# Wall-clock duration remains 60 mins, but production time is 30 mins after losses.
 		total_strokes = float(se.get("custom_pea_total_strokes") or 0)
-		ok_qty = max(
-			float(se.get("fg_completed_qty") or 0) - float(se.get("custom_pea_rejection_qty") or 0),
-			0,
-		)
+		ok_qty = 100.0
 		expected_spm = (total_strokes / 30.0) if total_strokes > 0 else 0.0
 		expected_cycle_time = (1800.0 / total_strokes) if total_strokes > 0 else 0.0
 		self.assertEqual(float(se.custom_pea_actual_duration_mins), 60.0)

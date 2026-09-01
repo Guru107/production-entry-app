@@ -1023,7 +1023,24 @@ def _get_shift_planned_losses_for_metrics(
 
 
 def _get_ok_units_for_metrics(doc) -> float:
-	return get_entry_output_quantities(doc).ok_qty
+	normal_metrics = None
+	if not is_joint_lh_rh_production(doc):
+		good_qty = sum(
+			flt(row.get("qty")) * flt(row.get("conversion_factor") or 1)
+			for row in doc.get("items") or []
+			if row.get("is_finished_item")
+			and not row.get("custom_pea_is_rejection_item")
+			and not row.get("is_scrap_item")
+			and not row.get("is_legacy_scrap_item")
+			and row.get("type") != "Scrap"
+			and row.get("secondary_item_type") != "Scrap"
+		)
+		if good_qty > 0:
+			normal_metrics = {
+				"good_qty": good_qty,
+				"total_rejected_qty": flt(doc.get("custom_pea_rejection_qty") or 0),
+			}
+	return get_entry_output_quantities(doc, normal_metrics=normal_metrics).ok_qty
 
 
 def _set_if_field(doc, meta, fieldname: str, value) -> None:

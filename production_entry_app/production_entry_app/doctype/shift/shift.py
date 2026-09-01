@@ -14,6 +14,7 @@ from frappe.utils import add_to_date, cint, flt, get_datetime
 from production_entry_app.production_entry_app.report.report_utils import (
 	get_entry_output_quantities,
 	get_finished_item_maps,
+	get_parent_quantity_metrics,
 	is_production_stock_entry,
 )
 from production_entry_app.production_entry_app.utils.loss_time import (
@@ -443,8 +444,11 @@ def _top_reason_rows(reason_totals: dict[str, float], key_name: str = "reason") 
 	]
 
 
-def _get_entry_summary_quantities(entry: dict) -> _EntrySummaryQuantities:
-	quantities = get_entry_output_quantities(entry)
+def _get_entry_summary_quantities(
+	entry: dict,
+	normal_metrics: dict | None = None,
+) -> _EntrySummaryQuantities:
+	quantities = get_entry_output_quantities(entry, normal_metrics=normal_metrics)
 	return _EntrySummaryQuantities(
 		quantities.total_qty,
 		quantities.ok_qty,
@@ -453,7 +457,10 @@ def _get_entry_summary_quantities(entry: dict) -> _EntrySummaryQuantities:
 	)
 
 
-def _build_workstation_summary_rows(entries: list[dict]) -> tuple[list[dict], dict | None]:
+def _build_workstation_summary_rows(
+	entries: list[dict],
+	parent_quantity_metrics: dict[str, dict[str, float]] | None = None,
+) -> tuple[list[dict], dict | None]:
 	aggregates: dict[str, dict] = {}
 	for entry in entries:
 		workstation = entry.get("custom_pea_workstation") or "Unassigned"
@@ -470,7 +477,10 @@ def _build_workstation_summary_rows(entries: list[dict]) -> tuple[list[dict], di
 				"standard_weighted_sum": 0.0,
 			},
 		)
-		total_qty, ok_qty, rejection_qty, total_strokes = _get_entry_summary_quantities(entry)
+		total_qty, ok_qty, rejection_qty, total_strokes = _get_entry_summary_quantities(
+			entry,
+			(parent_quantity_metrics or {}).get(entry.get("name")),
+		)
 		production_mins = _get_entry_production_minutes(entry)
 		standard_spm = flt(entry.get("custom_pea_standard_spm") or 0)
 		aggregate["total_qty"] += total_qty
@@ -526,7 +536,10 @@ def _build_workstation_summary_rows(entries: list[dict]) -> tuple[list[dict], di
 	return worst_rows, best_row
 
 
-def _build_item_bom_rows(entries: list[dict]) -> list[dict]:
+def _build_item_bom_rows(
+	entries: list[dict],
+	parent_quantity_metrics: dict[str, dict[str, float]] | None = None,
+) -> list[dict]:
 	aggregates: dict[str, dict] = {}
 	for entry in entries:
 		item_code = entry.get("item_code") or entry.get("fg_item") or _("Unknown Item")
@@ -543,7 +556,10 @@ def _build_item_bom_rows(entries: list[dict]) -> list[dict]:
 				"rejection_qty": 0.0,
 			},
 		)
-		total_qty, ok_qty, rejection_qty, _total_strokes = _get_entry_summary_quantities(entry)
+		total_qty, ok_qty, rejection_qty, _total_strokes = _get_entry_summary_quantities(
+			entry,
+			(parent_quantity_metrics or {}).get(entry.get("name")),
+		)
 		aggregate["total_qty"] += total_qty
 		aggregate["ok_qty"] += ok_qty
 		aggregate["rejection_qty"] += rejection_qty
@@ -787,6 +803,7 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 	)
 	entry_rows = [row for row in entry_rows if is_production_stock_entry(row)]
 	entry_names = [row.get("name") for row in entry_rows if row.get("name")]
+	parent_quantity_metrics = get_parent_quantity_metrics(entry_names)
 	item_by_entry, _item_labels = get_finished_item_maps(entry_names)
 	bom_names = sorted(
 		{
@@ -853,7 +870,10 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 	target_covered_mins = 0.0
 	weighted_target_sum = 0.0
 	for row in entry_rows:
-		entry_total, _entry_ok, entry_rejection, entry_strokes = _get_entry_summary_quantities(row)
+		entry_total, _entry_ok, entry_rejection, entry_strokes = _get_entry_summary_quantities(
+			row,
+			parent_quantity_metrics.get(row.get("name")),
+		)
 		total_qty += entry_total
 		total_strokes += entry_strokes
 		rejection_qty += entry_rejection
@@ -908,7 +928,10 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 	planned_shift_mins = flt(shift.get("shift_duration") or 0) * 60
 	planned_usable_mins = max(planned_shift_mins - planned_loss_mins, 0)
 
-	workstation_rows, best_workstation = _build_workstation_summary_rows(entry_rows)
+	workstation_rows, best_workstation = _build_workstation_summary_rows(
+		entry_rows,
+		parent_quantity_metrics,
+	)
 	summary = {
 		"float_precision": get_system_float_precision(),
 		"snapshot": {
@@ -933,7 +956,7 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 		},
 		"exceptions": {
 			"workstations": workstation_rows,
-			"item_boms": _build_item_bom_rows(entry_rows),
+			"item_boms": _build_item_bom_rows(entry_rows, parent_quantity_metrics),
 			"unplanned_loss_reasons": _top_reason_rows(unplanned_loss_reason_totals),
 		},
 		"logged_downtime": {

@@ -18,7 +18,10 @@ from production_entry_app.production_entry_app.api import (
 	get_joint_stock_entry_type,
 )
 from production_entry_app.production_entry_app.api_timeline import get_shift_timeline_data
-from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
+from production_entry_app.production_entry_app.doctype.shift.shift import (
+	_get_entry_summary_quantities,
+	get_shift_summary,
+)
 from production_entry_app.production_entry_app.joint_production import (
 	_get_bom_scrap_item_details,
 	_get_item_details,
@@ -31,6 +34,7 @@ from production_entry_app.production_entry_app.joint_production import (
 	validate_and_apply_joint_production,
 )
 from production_entry_app.production_entry_app.report.report_utils import (
+	get_entry_output_quantities,
 	get_entry_qty_maps,
 	get_entry_total_strokes,
 	get_finished_item_maps,
@@ -77,6 +81,42 @@ def _make_running_shift_through_api(masters: dict[str, Any]) -> object:
 
 
 class TestJointProductionCalculations(FrappeTestCase):
+	def test_right_first_time_quantities_match_across_production_modes(self) -> None:
+		normal_entry = frappe._dict(
+			purpose="Manufacture",
+			fg_completed_qty=100,
+			custom_pea_rejection_qty=5,
+			custom_pea_rework_qty=3,
+			custom_pea_total_strokes=100,
+		)
+		joint_entry = frappe._dict(
+			purpose="Repack",
+			custom_pea_is_joint_lh_rh=1,
+			custom_pea_lh_gross_qty=40,
+			custom_pea_lh_rejection_qty=2,
+			custom_pea_rh_gross_qty=60,
+			custom_pea_rh_rejection_qty=3,
+			custom_pea_rework_qty=3,
+			custom_pea_total_strokes=100,
+		)
+		normal_report_metrics = {
+			"good_qty": 95,
+			"rejection_qty": 2,
+			"rework_qty": 3,
+			"total_rejected_qty": 5,
+		}
+
+		normal_report_quantities = get_entry_output_quantities(
+			normal_entry,
+			normal_metrics=normal_report_metrics,
+		)
+		joint_report_quantities = get_entry_output_quantities(joint_entry)
+
+		self.assertEqual(normal_report_quantities, joint_report_quantities)
+		self.assertEqual(tuple(normal_report_quantities), (100, 95, 5))
+		self.assertEqual(_get_entry_summary_quantities(normal_entry), (100, 95, 5, 100))
+		self.assertEqual(_get_entry_summary_quantities(joint_entry), (100, 95, 5, 100))
+
 	def test_joint_item_details_are_loaded_in_one_query(self) -> None:
 		with patch(
 			"production_entry_app.production_entry_app.joint_production.frappe.get_list",
