@@ -110,6 +110,24 @@ def _get_rework_produced(
 	exclude_stock_entry: str | None,
 	lock_rows: bool,
 ) -> list[frappe._dict]:
+	query, _stock_entry, StockEntryDetail, RejectionBreakup = _build_rework_produced_query(
+		item_codes=item_codes,
+		exclude_stock_entry=exclude_stock_entry,
+	)
+	query = query.select(StockEntryDetail.item_code, Sum(RejectionBreakup.qty).as_("qty")).groupby(
+		StockEntryDetail.item_code
+	)
+	if lock_rows:
+		query = query.for_update()
+	return query.run(as_dict=True)
+
+
+def _build_rework_produced_query(
+	*,
+	item_codes: list[str] | None = None,
+	exclude_stock_entry: str | None = None,
+) -> tuple[Any, Any, Any, Any]:
+	"""Build the submitted rework-flagged source scope shared by pool consumers."""
 	StockEntry = frappe.qb.DocType("Stock Entry")
 	StockEntryDetail = frappe.qb.DocType("Stock Entry Detail")
 	RejectionBreakup = frappe.qb.DocType("Rejection Breakup")
@@ -129,18 +147,14 @@ def _get_rework_produced(
 			& (StockEntryDetail.custom_pea_is_rejection_item == 1)
 			& item_matches_breakup
 		)
-		.select(StockEntryDetail.item_code, Sum(RejectionBreakup.qty).as_("qty"))
 		.where(StockEntry.docstatus == 1)
 		.where(RejectionBreakup.is_rework == 1)
-		.groupby(StockEntryDetail.item_code)
 	)
 	if item_codes is not None:
 		query = query.where(StockEntryDetail.item_code.isin(item_codes))
 	if exclude_stock_entry:
 		query = query.where(StockEntry.name != exclude_stock_entry)
-	if lock_rows:
-		query = query.for_update()
-	return query.run(as_dict=True)
+	return query, StockEntry, StockEntryDetail, RejectionBreakup
 
 
 def _get_rework_consumed(
