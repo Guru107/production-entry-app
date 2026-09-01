@@ -12,6 +12,8 @@ const {
 	_hide_native_get_items,
 	_apply_shift_detail_updates,
 	_handle_shift_change,
+	_sync_rework_source_warehouse,
+	_default_rework_item_source,
 	_apply_fetch_items_response,
 	_sync_joint_stock_entry_type,
 	_initialize_total_strokes_default_state,
@@ -87,6 +89,168 @@ test("selecting Shift on rework keeps it context-only", () => {
 		assert.equal(frm.doc.branch, "Original Branch");
 		assert.equal(frm.doc.from_warehouse, "Rejection Warehouse");
 		assert.equal(frm.doc.to_warehouse, "Good Warehouse");
+	} finally {
+		global.frappe = originalFrappe;
+	}
+});
+
+test("configured rejection warehouse defaults blank rework header and item sources", async () => {
+	const originalFrappe = global.frappe;
+	let request;
+	const row = { doctype: "Stock Entry Detail", name: "ROW-1", s_warehouse: "" };
+	global.frappe = {
+		call(options) {
+			request = options;
+		},
+		model: {
+			set_value(_doctype, _name, fieldname, value) {
+				row[fieldname] = value;
+				return Promise.resolve();
+			},
+		},
+	};
+	const frm = {
+		doc: {
+			stock_entry_type: "Rework Material Transfer",
+			__pea_rework_stock_entry_type: "Rework Material Transfer",
+			company: "Test Company",
+			branch: "Test Branch",
+			from_warehouse: "",
+			items: [row],
+		},
+		set_value(fieldname, value) {
+			this.doc[fieldname] = value;
+			return Promise.resolve();
+		},
+		refresh_field() {},
+	};
+
+	try {
+		_sync_rework_source_warehouse(frm);
+		assert.equal(
+			request.method,
+			"production_entry_app.production_entry_app.api.get_rework_source_warehouse"
+		);
+		assert.deepEqual(request.args, { company: "Test Company", branch: "Test Branch" });
+		request.callback({ message: "Rejection Warehouse" });
+		await new Promise((resolve) => setImmediate(resolve));
+
+		assert.equal(frm.doc.from_warehouse, "Rejection Warehouse");
+		assert.equal(row.s_warehouse, "Rejection Warehouse");
+	} finally {
+		global.frappe = originalFrappe;
+	}
+});
+
+test("rework source default preserves an explicit source for route validation", async () => {
+	const originalFrappe = global.frappe;
+	let request;
+	const row = {
+		doctype: "Stock Entry Detail",
+		name: "ROW-1",
+		s_warehouse: "Wrong Warehouse",
+	};
+	global.frappe = {
+		call(options) {
+			request = options;
+		},
+		model: { set_value() {} },
+	};
+	const frm = {
+		doc: {
+			stock_entry_type: "Rework Material Transfer",
+			__pea_rework_stock_entry_type: "Rework Material Transfer",
+			company: "Test Company",
+			branch: "Test Branch",
+			from_warehouse: "Wrong Warehouse",
+			items: [row],
+		},
+		set_value() {
+			throw new Error("explicit header source must not be replaced");
+		},
+		refresh_field() {},
+	};
+
+	try {
+		_sync_rework_source_warehouse(frm);
+		request.callback({ message: "Rejection Warehouse" });
+		await new Promise((resolve) => setImmediate(resolve));
+		assert.equal(frm.doc.from_warehouse, "Wrong Warehouse");
+		assert.equal(row.s_warehouse, "Wrong Warehouse");
+	} finally {
+		global.frappe = originalFrappe;
+	}
+});
+
+test("changing branch replaces the prior automatic rework source", async () => {
+	const originalFrappe = global.frappe;
+	let request;
+	const row = {
+		doctype: "Stock Entry Detail",
+		name: "ROW-1",
+		s_warehouse: "Old Rejection Warehouse",
+	};
+	global.frappe = {
+		call(options) {
+			request = options;
+		},
+		model: {
+			set_value(_doctype, _name, fieldname, value) {
+				row[fieldname] = value;
+				return Promise.resolve();
+			},
+		},
+	};
+	const frm = {
+		__peaReworkSourceWarehouseDefault: "Old Rejection Warehouse",
+		doc: {
+			stock_entry_type: "Rework Material Transfer",
+			__pea_rework_stock_entry_type: "Rework Material Transfer",
+			company: "Test Company",
+			branch: "New Branch",
+			from_warehouse: "Old Rejection Warehouse",
+			items: [row],
+		},
+		set_value(fieldname, value) {
+			this.doc[fieldname] = value;
+			return Promise.resolve();
+		},
+		refresh_field() {},
+	};
+
+	try {
+		_sync_rework_source_warehouse(frm);
+		request.callback({ message: "New Rejection Warehouse" });
+		await new Promise((resolve) => setImmediate(resolve));
+		assert.equal(frm.doc.from_warehouse, "New Rejection Warehouse");
+		assert.equal(row.s_warehouse, "New Rejection Warehouse");
+	} finally {
+		global.frappe = originalFrappe;
+	}
+});
+
+test("new rework item rows inherit the configured header source", async () => {
+	const originalFrappe = global.frappe;
+	const row = { doctype: "Stock Entry Detail", name: "ROW-1", s_warehouse: "" };
+	global.frappe = {
+		model: {
+			set_value(_doctype, _name, fieldname, value) {
+				row[fieldname] = value;
+				return Promise.resolve();
+			},
+		},
+	};
+	const frm = {
+		doc: {
+			stock_entry_type: "Rework Material Transfer",
+			__pea_rework_stock_entry_type: "Rework Material Transfer",
+			from_warehouse: "Rejection Warehouse",
+		},
+	};
+
+	try {
+		await _default_rework_item_source(frm, row);
+		assert.equal(row.s_warehouse, "Rejection Warehouse");
 	} finally {
 		global.frappe = originalFrappe;
 	}

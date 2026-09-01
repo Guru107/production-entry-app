@@ -86,6 +86,22 @@ def is_rework_stock_entry(doc: Document) -> bool:
 	return is_rework
 
 
+def apply_rework_source_warehouse(doc: Document) -> None:
+	"""Default blank Rework sources without hiding invalid explicit overrides."""
+	if not is_rework_stock_entry(doc):
+		return
+	rejection_warehouse = get_branch_warehouse_defaults(doc.get("company"), doc.get("branch")).get(
+		"rejection_warehouse"
+	)
+	if not rejection_warehouse:
+		return
+	if not doc.get("from_warehouse"):
+		doc.from_warehouse = rejection_warehouse
+	for row in doc.get("items") or []:
+		if not row.get("s_warehouse"):
+			row.s_warehouse = rejection_warehouse
+
+
 def _validate_rework_route(doc: Document) -> None:
 	"""Keep pool consumption on the configured rejection-to-good route."""
 	warehouses = get_branch_warehouse_defaults(doc.get("company"), doc.get("branch"))
@@ -95,6 +111,12 @@ def _validate_rework_route(doc: Document) -> None:
 			_("Set the configured Rejection Warehouse for this Company and Branch before submitting Rework.")
 		)
 	blocked_targets = {rejection_warehouse, warehouses.get("scrap_warehouse")}
+	if doc.get("from_warehouse") and doc.get("from_warehouse") != rejection_warehouse:
+		frappe.throw(
+			_("Rework must use the configured Rejection Warehouse {0} as its source.").format(
+				frappe.bold(frappe.utils.escape_html(rejection_warehouse))
+			)
+		)
 	for row in doc.get("items") or []:
 		if flt(row.get("qty")) <= 0:
 			continue

@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from production_entry_app.production_entry_app import rework
+from production_entry_app.production_entry_app import api, rework
 from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
 	before_submit_stock_entry,
 )
@@ -187,6 +187,38 @@ class TestPendingReworkPool(FrappeTestCase):
 		):
 			rework.validate_rework_submission(doc)
 
+	def test_rework_source_defaults_from_company_and_branch_configuration(self) -> None:
+		doc = self._routed_rework_doc(source="", target="Good Warehouse")
+		with patch.object(
+			rework,
+			"get_branch_warehouse_defaults",
+			return_value={"rejection_warehouse": "Rejection Warehouse"},
+		):
+			rework.apply_rework_source_warehouse(doc)
+
+		self.assertEqual(doc.from_warehouse, "Rejection Warehouse")
+		self.assertEqual(doc.get("items")[0].s_warehouse, "Rejection Warehouse")
+
+	def test_rework_source_default_preserves_explicit_override_for_route_validation(self) -> None:
+		doc = self._routed_rework_doc(source="Wrong Warehouse", target="Good Warehouse")
+		with patch.object(
+			rework,
+			"get_branch_warehouse_defaults",
+			return_value={"rejection_warehouse": "Rejection Warehouse"},
+		):
+			rework.apply_rework_source_warehouse(doc)
+
+		self.assertEqual(doc.from_warehouse, "Wrong Warehouse")
+		self.assertEqual(doc.get("items")[0].s_warehouse, "Wrong Warehouse")
+
+	def test_rework_source_default_returns_when_configuration_is_missing(self) -> None:
+		doc = self._routed_rework_doc(source="", target="Good Warehouse")
+		with patch.object(rework, "get_branch_warehouse_defaults", return_value={}):
+			rework.apply_rework_source_warehouse(doc)
+
+		self.assertFalse(doc.from_warehouse)
+		self.assertFalse(doc.get("items")[0].s_warehouse)
+
 	def test_submission_requires_a_configured_rejection_warehouse(self) -> None:
 		doc = self._routed_rework_doc(source="Rejection Warehouse", target="Good Warehouse")
 		with (
@@ -197,6 +229,7 @@ class TestPendingReworkPool(FrappeTestCase):
 
 	def test_route_validation_ignores_zero_quantity_rows(self) -> None:
 		doc = self._routed_rework_doc(source="Wrong Warehouse", target="Scrap Warehouse")
+		doc.from_warehouse = "Rejection Warehouse"
 		doc.get("items")[0].qty = 0
 		with patch.object(
 			rework,
@@ -207,6 +240,46 @@ class TestPendingReworkPool(FrappeTestCase):
 			},
 		):
 			rework._validate_rework_route(doc)
+
+	def test_rework_source_api_checks_permissions_and_returns_configured_warehouse(self) -> None:
+		with (
+			patch.object(api.frappe, "has_permission", side_effect=[True, True]) as has_permission,
+			patch.object(
+				api,
+				"get_branch_warehouse_defaults",
+				return_value={"rejection_warehouse": "Rejection Warehouse"},
+			),
+		):
+			self.assertEqual(
+				api.get_rework_source_warehouse("Test Company", "Test Branch"),
+				"Rejection Warehouse",
+			)
+
+		self.assertEqual(
+			has_permission.call_args_list,
+			[
+				call("Stock Entry", "create"),
+				call("Warehouse", "read", "Rejection Warehouse"),
+			],
+		)
+
+	def test_rework_source_api_rejects_missing_stock_entry_or_warehouse_access(self) -> None:
+		with (
+			patch.object(api.frappe, "has_permission", return_value=False),
+			self.assertRaises(frappe.PermissionError),
+		):
+			api.get_rework_source_warehouse("Test Company", "Test Branch")
+
+		with (
+			patch.object(api.frappe, "has_permission", side_effect=[True, False]),
+			patch.object(
+				api,
+				"get_branch_warehouse_defaults",
+				return_value={"rejection_warehouse": "Restricted Warehouse"},
+			),
+			self.assertRaises(frappe.PermissionError),
+		):
+			api.get_rework_source_warehouse("Test Company", "Test Branch")
 
 	def test_submission_rejects_rejection_or_scrap_target_warehouses(self) -> None:
 		for target in ("Rejection Warehouse", "Scrap Warehouse"):

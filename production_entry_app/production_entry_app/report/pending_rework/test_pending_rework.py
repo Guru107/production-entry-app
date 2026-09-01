@@ -269,7 +269,9 @@ class TestPendingReworkReport(FrappeTestCase):
 	def _set_bin_balance(self, qty: float) -> None:
 		bin_name = frappe.db.get_value("Bin", {"item_code": self.item, "warehouse": self.warehouse})
 		if not bin_name:
-			bin_name = frappe.get_doc(
-				{"doctype": "Bin", "item_code": self.item, "warehouse": self.warehouse}
-			).insert(ignore_permissions=True).name
+			bin_name = (
+				frappe.get_doc({"doctype": "Bin", "item_code": self.item, "warehouse": self.warehouse})
+				.insert(ignore_permissions=True)
+				.name
+			)
 		frappe.db.set_value("Bin", bin_name, "actual_qty", qty, update_modified=False)

@@ -36,8 +36,8 @@ async function fillReworkEntry(page, context, options = {}) {
 	}, context.rework_stock_entry_type);
 	await setFieldValue(page, "company", context.company);
 	await setFieldValue(page, "branch", context.branch);
+	await stockEntryPage.waitForFieldValue("from_warehouse", context.rejection_warehouse);
 	await stockEntryPage.setPostingDate(context.shift_date);
-	await setFieldValue(page, "from_warehouse", context.rejection_warehouse);
 	await setFieldValue(page, "to_warehouse", context.fg_warehouse);
 	await setFieldValue(page, "custom_pea_rework_type", context.rework_type);
 	await stockEntryPage.waitForFieldValue(
@@ -45,20 +45,23 @@ async function fillReworkEntry(page, context, options = {}) {
 		context.rework_workstation
 	);
 	await page.evaluate(
-		async ({ itemCode, qty, sourceWarehouse, targetWarehouse }) => {
+		async ({ itemCode, qty, targetWarehouse }) => {
 			cur_frm.clear_table("items");
 			const row = cur_frm.add_child("items");
 			await frappe.model.set_value(row.doctype, row.name, "item_code", itemCode);
 			await frappe.after_ajax();
 			await frappe.model.set_value(row.doctype, row.name, "qty", qty);
-			await frappe.model.set_value(row.doctype, row.name, "s_warehouse", sourceWarehouse);
 			await frappe.model.set_value(row.doctype, row.name, "t_warehouse", targetWarehouse);
+			if (row.s_warehouse !== cur_frm.doc.from_warehouse) {
+				throw new Error(
+					"Rework item source did not inherit the configured rejection warehouse"
+				);
+			}
 			cur_frm.refresh_field("items");
 		},
 		{
 			itemCode: context.fg_item,
 			qty: options.qty ?? 5,
-			sourceWarehouse: context.rejection_warehouse,
 			targetWarehouse: context.fg_warehouse,
 		}
 	);

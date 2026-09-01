@@ -5,7 +5,7 @@ import json
 
 import frappe
 from frappe import _
-from frappe.utils import cint, get_datetime, get_time, now_datetime
+from frappe.utils import get_datetime, get_time, now_datetime
 
 from production_entry_app.production_entry_app.joint_production import (
 	calculate_joint_rm_consumption_from_boms,
@@ -21,6 +21,7 @@ from production_entry_app.production_entry_app.utils.die_tool_counter import (
 	is_die_tool_enabled,
 )
 from production_entry_app.production_entry_app.utils.production_warehouses import (
+	get_branch_warehouse_defaults,
 	get_production_warehouses,
 	get_shift_warehouses,
 	require_warehouse,
@@ -73,6 +74,17 @@ def get_rework_stock_entry_type() -> str:
 	if len(stock_entry_types) > 1:
 		frappe.throw(_("Only one Material Transfer Stock Entry Type can be configured for Rework."))
 	return stock_entry_types[0]
+
+
+@frappe.whitelist()
+def get_rework_source_warehouse(company: str, branch: str) -> str:
+	"""Return the configured rejection source used to create Rework Stock Entries."""
+	if not frappe.has_permission("Stock Entry", "create"):
+		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
+	warehouse = get_branch_warehouse_defaults(company, branch).get("rejection_warehouse") or ""
+	if warehouse and not frappe.has_permission("Warehouse", "read", warehouse):
+		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
+	return warehouse
 
 
 @frappe.whitelist()
@@ -179,7 +191,7 @@ def _cleanup_orphan_stock_entry_loss_links(shift_name: str) -> None:
 
 
 @frappe.whitelist()
-def get_shift_details_for_stock_entry(shift_name: str, context_only: int = 0) -> dict:
+def get_shift_details_for_stock_entry(shift_name: str) -> dict:
 	"""Return shift details to auto-populate Stock Entry fields.
 
 	Called from the Stock Entry client script when custom_pea_shift is set.
@@ -199,9 +211,6 @@ def get_shift_details_for_stock_entry(shift_name: str, context_only: int = 0) ->
 				frappe.bold(frappe.utils.escape_html(str(shift.status or _("not found")))),
 			)
 		)
-	if cint(context_only):
-		return {}
-
 	planned_start = None
 	if shift.shift_date and shift.planned_start_time:
 		planned_start = datetime.datetime.combine(

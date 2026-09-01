@@ -76,6 +76,8 @@ class TestReworkLifecycle(FrappeTestCase):
 		good_before = self._stock_qty(self.masters["fg_warehouse"])
 		rework_entry = self._make_rework_entry(shift.shift_date)
 		rework_entry.insert(ignore_permissions=True)
+		self.assertEqual(rework_entry.from_warehouse, self.masters["rejection_warehouse"])
+		self.assertEqual(rework_entry.items[0].s_warehouse, self.masters["rejection_warehouse"])
 		rework_entry.submit()
 
 		self.assertEqual(rework.get_pending_rework(self.masters["fg_item"])[0]["pending_qty"], 0)
@@ -139,9 +141,9 @@ class TestReworkLifecycle(FrappeTestCase):
 			{
 				"doctype": "Stock Entry",
 				"company": self.masters["company"],
+				"branch": self.masters["branch"],
 				"purpose": "Material Transfer",
 				"stock_entry_type": self.entry_type,
-				"from_warehouse": self.masters["rejection_warehouse"],
 				"to_warehouse": self.masters["fg_warehouse"],
 				"set_posting_time": 1,
 				"posting_date": posting_date,
@@ -158,7 +160,6 @@ class TestReworkLifecycle(FrappeTestCase):
 			{
 				"item_code": self.masters["fg_item"],
 				"qty": 5,
-				"s_warehouse": self.masters["rejection_warehouse"],
 				"t_warehouse": self.masters["fg_warehouse"],
 			},
 		)

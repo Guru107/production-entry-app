@@ -23,6 +23,7 @@ from production_entry_app.production_entry_app.joint_production import (
 )
 from production_entry_app.production_entry_app.report.report_utils import get_entry_output_quantities
 from production_entry_app.production_entry_app.rework import (
+	apply_rework_source_warehouse,
 	is_rework_stock_entry,
 	validate_rework_submission,
 )
@@ -116,6 +117,7 @@ def validate_stock_entry(doc: Document, method: str | None = None) -> None:
 
 
 def before_validate_stock_entry(doc: Document, method: str | None = None) -> None:
+	apply_rework_source_warehouse(doc)
 	_validate_rework_fields(doc)
 	_apply_rework_cost(doc)
 

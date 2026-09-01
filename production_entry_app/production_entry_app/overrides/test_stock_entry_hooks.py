@@ -1696,17 +1696,6 @@ class TestStockEntryHooks(FrappeTestCase):
 		self.assertIn("2026-04-22 00:00:00", result.get("custom_pea_planned_end_date") or "")
 		self.assertEqual(result.get("from_warehouse"), self.wip_warehouse)
 
-	def test_get_shift_details_for_rework_returns_context_only(self) -> None:
-		from production_entry_app.production_entry_app.api import get_shift_details_for_stock_entry
-
-		shift = _create_test_shift(
-			shift_date="2026-04-20",
-			planned_start_time="08:00:00",
-			wip_warehouse=self.wip_warehouse,
-		)
-
-		self.assertEqual(get_shift_details_for_stock_entry(shift.name, context_only=1), {})
-
 	def test_get_shift_details_for_stock_entry_api_allows_completed_shift(self) -> None:
 		from production_entry_app.production_entry_app.api import get_shift_details_for_stock_entry
 

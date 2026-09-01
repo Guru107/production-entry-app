@@ -136,9 +136,7 @@ def _get_contributions(
 			break
 		if max_rows > 0 and len(rows) + len(chunk) > max_rows:
 			frappe.throw(
-				_("Pending Rework exceeds {0} contributing rows. Filter by Item and retry.").format(
-					max_rows
-				)
+				_("Pending Rework exceeds {0} contributing rows. Filter by Item and retry.").format(max_rows)
 			)
 		rows.extend(chunk)
 		last_breakup_name = chunk[-1].get("breakup_name")
@@ -169,10 +167,7 @@ def _fetch_contribution_chunk(
 	if last_breakup_name and last_detail_name:
 		query = query.where(
 			(RejectionBreakup.name > last_breakup_name)
-			| (
-				(RejectionBreakup.name == last_breakup_name)
-				& (StockEntryDetail.name > last_detail_name)
-			)
+			| ((RejectionBreakup.name == last_breakup_name) & (StockEntryDetail.name > last_detail_name))
 		)
 	return (
 		query.orderby(RejectionBreakup.name)
@@ -196,11 +191,7 @@ def _get_bin_balances(
 	for offset in range(0, len(item_codes), effective_chunk_size):
 		item_chunk = item_codes[offset : offset + effective_chunk_size]
 		warehouses = sorted(
-			{
-				warehouse
-				for item_code, warehouse in pairs
-				if item_code in item_chunk and warehouse
-			}
+			{warehouse for item_code, warehouse in pairs if item_code in item_chunk and warehouse}
 		)
 		for row in get_report_rows(
 			"Bin",
