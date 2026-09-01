@@ -9,6 +9,9 @@ from production_entry_app.production_entry_app.utils import test_setup
 
 
 class TestTestSetup(FrappeTestCase):
+	def test_make_test_records_resolver_returns_native_generator(self) -> None:
+		self.assertTrue(callable(test_setup._get_make_test_records()))
+
 	def test_company_defaults_configure_existing_stock_adjustment_account(self) -> None:
 		with (
 			patch(
@@ -17,7 +20,7 @@ class TestTestSetup(FrappeTestCase):
 			),
 			patch(
 				"production_entry_app.production_entry_app.utils.test_setup.frappe.db.get_value",
-				side_effect=[None, "Stock Adjustment - _TC"],
+				side_effect=[None, "Stock Adjustment - _TC", "Stock Adjustment - _TC"],
 			) as get_value,
 			patch(
 				"production_entry_app.production_entry_app.utils.test_setup.frappe.db.set_value"
@@ -35,7 +38,12 @@ class TestTestSetup(FrappeTestCase):
 		get_value.assert_any_call("Company", "_Test Company", "stock_adjustment_account")
 		get_value.assert_any_call(
 			"Account",
-			{"company": "_Test Company", "account_type": "Stock Adjustment", "is_group": 0},
+			{
+				"company": "_Test Company",
+				"account_type": "Stock Adjustment",
+				"is_group": 0,
+				"disabled": 0,
+			},
 			"name",
 		)
 		set_value.assert_called_once_with(
@@ -46,6 +54,84 @@ class TestTestSetup(FrappeTestCase):
 			update_modified=False,
 		)
 		clear_document_cache.assert_called_once_with("Company", "_Test Company")
+
+	def test_missing_test_company_is_created_with_native_erpnext_records(self) -> None:
+		make_test_records = Mock()
+		with (
+			patch(
+				"production_entry_app.production_entry_app.utils.test_setup.frappe.db.exists",
+				side_effect=[False, True],
+			),
+			patch(
+				"production_entry_app.production_entry_app.utils.test_setup._get_make_test_records",
+				return_value=make_test_records,
+			),
+		):
+			self.assertEqual(test_setup._ensure_test_company(), "_Test Company")
+
+		make_test_records.assert_called_once_with("Company", commit=True)
+
+	def test_existing_test_company_does_not_regenerate_native_records(self) -> None:
+		with (
+			patch(
+				"production_entry_app.production_entry_app.utils.test_setup.frappe.db.exists",
+				return_value=True,
+			),
+			patch(
+				"production_entry_app.production_entry_app.utils.test_setup._get_make_test_records"
+			) as get_make_test_records,
+		):
+			self.assertEqual(test_setup._ensure_test_company(), "_Test Company")
+
+		get_make_test_records.assert_not_called()
+
+	def test_missing_native_test_company_fails_fast_after_bootstrap(self) -> None:
+		with (
+			patch(
+				"production_entry_app.production_entry_app.utils.test_setup.frappe.db.exists",
+				return_value=False,
+			),
+			patch(
+				"production_entry_app.production_entry_app.utils.test_setup._get_make_test_records",
+				return_value=Mock(),
+			),
+			self.assertRaisesRegex(RuntimeError, "did not create _Test Company"),
+		):
+			test_setup._ensure_test_company()
+
+	def test_company_defaults_fail_fast_without_usable_stock_adjustment_account(self) -> None:
+		with (
+			patch(
+				"production_entry_app.production_entry_app.utils.test_setup._ensure_test_company",
+				return_value="_Test Company",
+			),
+			patch(
+				"production_entry_app.production_entry_app.utils.test_setup"
+				"._get_usable_stock_adjustment_account",
+				return_value=None,
+			),
+			patch(
+				"production_entry_app.production_entry_app.utils.test_setup.frappe.db.get_value",
+				return_value=None,
+			),
+			self.assertRaisesRegex(RuntimeError, "no usable Stock Adjustment Account"),
+		):
+			test_setup._ensure_company_defaults()
+
+	def test_configured_stock_adjustment_account_is_reused(self) -> None:
+		with (
+			patch(
+				"production_entry_app.production_entry_app.utils.test_setup.frappe.db.get_value",
+				return_value="Stock Adjustment - _TC",
+			),
+			patch(
+				"production_entry_app.production_entry_app.utils.test_setup.frappe.db.exists",
+				return_value=True,
+			),
+		):
+			account = test_setup._get_usable_stock_adjustment_account("_Test Company")
+
+		self.assertEqual(account, "Stock Adjustment - _TC")
 
 	def test_before_tests_skips_core_record_creation_when_records_exist(self) -> None:
 		with (
