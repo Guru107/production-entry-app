@@ -137,6 +137,31 @@ def _ensure_item_die_tool_fields() -> None:
 
 
 class TestStockEntryHookPureHelpers(FrappeTestCase):
+	def test_rework_shift_is_context_only_and_skips_production_defaults(self) -> None:
+		doc = frappe._dict(
+			custom_pea_shift="SHIFT-REWORK",
+			stock_entry_type="Rework Material Transfer",
+			flags=frappe._dict(),
+		)
+		with (
+			patch.object(stock_entry_hooks, "is_rework_stock_entry", return_value=True),
+			patch.object(
+				stock_entry_hooks, "_validate_linked_shift_can_accept_stock_entry"
+			) as validate_shift,
+			patch.object(stock_entry_hooks, "_apply_shift_defaults") as apply_defaults,
+			patch.object(stock_entry_hooks, "_stamp_late_entry_flag") as stamp_late,
+			patch.object(stock_entry_hooks, "_sync_unplanned_loss_shift_links") as sync_losses,
+			patch.object(stock_entry_hooks, "_validate_rework_fields"),
+			patch.object(stock_entry_hooks, "is_joint_lh_rh_production", return_value=False),
+			patch.object(stock_entry_hooks, "_set_entry_metrics"),
+		):
+			stock_entry_hooks.validate_stock_entry(doc)
+
+		validate_shift.assert_called_once_with(doc)
+		apply_defaults.assert_not_called()
+		stamp_late.assert_not_called()
+		sync_losses.assert_not_called()
+
 	def test_on_trash_stock_entry_deletes_loss_rows_for_parent(self) -> None:
 		doc = frappe._dict({"name": "MAT-STE-UNIT-001"})
 		with patch(
@@ -1670,6 +1695,17 @@ class TestStockEntryHooks(FrappeTestCase):
 		self.assertIn("2026-04-21 16:00:00", result.get("custom_pea_planned_start_date") or "")
 		self.assertIn("2026-04-22 00:00:00", result.get("custom_pea_planned_end_date") or "")
 		self.assertEqual(result.get("from_warehouse"), self.wip_warehouse)
+
+	def test_get_shift_details_for_rework_returns_context_only(self) -> None:
+		from production_entry_app.production_entry_app.api import get_shift_details_for_stock_entry
+
+		shift = _create_test_shift(
+			shift_date="2026-04-20",
+			planned_start_time="08:00:00",
+			wip_warehouse=self.wip_warehouse,
+		)
+
+		self.assertEqual(get_shift_details_for_stock_entry(shift.name, context_only=1), {})
 
 	def test_get_shift_details_for_stock_entry_api_allows_completed_shift(self) -> None:
 		from production_entry_app.production_entry_app.api import get_shift_details_for_stock_entry

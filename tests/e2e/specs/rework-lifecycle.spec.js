@@ -35,6 +35,7 @@ async function fillReworkEntry(page, context, options = {}) {
 		);
 	}, context.rework_stock_entry_type);
 	await setFieldValue(page, "company", context.company);
+	await setFieldValue(page, "branch", context.branch);
 	await stockEntryPage.setPostingDate(context.shift_date);
 	await setFieldValue(page, "from_warehouse", context.rejection_warehouse);
 	await setFieldValue(page, "to_warehouse", context.fg_warehouse);
@@ -114,6 +115,12 @@ async function expectSaveValidation(page, pattern) {
 	await Promise.all([message, save]);
 }
 
+async function expectSubmitValidation(page, pattern) {
+	const message = expectValidationError(page, pattern, 30_000);
+	const submit = saveForm(page, "Submit").catch(() => {});
+	await Promise.all([message, submit]);
+}
+
 test.describe("Rework full lifecycle", () => {
 	const lifecycle = registerE2ELifecycle(test);
 
@@ -122,6 +129,21 @@ test.describe("Rework full lifecycle", () => {
 	}) => {
 		const context = await seedLifecycle(page, lifecycle.getPrefix());
 		const stockEntryPage = await fillReworkEntry(page, context);
+		await setFieldValue(page, "custom_pea_shift", context.shift_name);
+		await expect(page.locator('[data-fieldname="custom_pea_shift"]')).toBeVisible();
+		expect(
+			await page.evaluate(() => ({
+				company: cur_frm.doc.company,
+				branch: cur_frm.doc.branch,
+				fromWarehouse: cur_frm.doc.from_warehouse,
+				toWarehouse: cur_frm.doc.to_warehouse,
+			}))
+		).toEqual({
+			company: context.company,
+			branch: context.branch,
+			fromWarehouse: context.rejection_warehouse,
+			toWarehouse: context.fg_warehouse,
+		});
 		await stockEntryPage.saveAndSubmit();
 		const reworkEntry = await page.evaluate(() => window.cur_frm?.doc?.name);
 		const submitted = await getDoc(page, "Stock Entry", reworkEntry);
@@ -218,5 +240,31 @@ test.describe("Rework full lifecycle", () => {
 		await saveForm(page, "Submit").catch(() => {});
 
 		await expectValidationError(page, /requested 6.*Available quantity is 5/i);
+	});
+
+	test("@regression rejects wrong rework source and target routes", async ({ page }) => {
+		const context = await seedLifecycle(page, lifecycle.getPrefix());
+		const stockEntryPage = await fillReworkEntry(page, context);
+		await page.evaluate(
+			({ wrongSource, wrongTarget }) => {
+				cur_frm.doc.items[0].s_warehouse = wrongSource;
+				cur_frm.doc.items[0].t_warehouse = wrongTarget;
+				cur_frm.refresh_field("items");
+			},
+			{ wrongSource: context.wip_warehouse, wrongTarget: context.scrap_warehouse }
+		);
+		await stockEntryPage.saveDraft();
+		await expectSubmitValidation(page, /configured Rejection Warehouse/i);
+
+		await page.evaluate(
+			({ source, target }) => {
+				cur_frm.doc.items[0].s_warehouse = source;
+				cur_frm.doc.items[0].t_warehouse = target;
+				cur_frm.refresh_field("items");
+			},
+			{ source: context.rejection_warehouse, target: context.scrap_warehouse }
+		);
+		await page.evaluate(() => cur_frm.save());
+		await expectSubmitValidation(page, /good target warehouse/i);
 	});
 });

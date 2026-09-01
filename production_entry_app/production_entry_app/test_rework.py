@@ -89,7 +89,10 @@ class TestPendingReworkPool(FrappeTestCase):
 		second_done = threading.Event()
 		site = frappe.local.site
 		try:
-			with ThreadPoolExecutor(max_workers=2) as executor:
+			with (
+				patch.object(rework, "_validate_rework_route"),
+				ThreadPoolExecutor(max_workers=2) as executor,
+			):
 				first = executor.submit(
 					_run_rework_submission_transaction,
 					site,
@@ -141,13 +144,15 @@ class TestPendingReworkPool(FrappeTestCase):
 			frappe.ValidationError,
 			rf"{self.item_a}.*Available quantity is 4",
 		):
-			rework.validate_rework_submission(doc)
+			with patch.object(rework, "_validate_rework_route"):
+				rework.validate_rework_submission(doc)
 
 	def test_submission_locks_items_before_reading_pool(self) -> None:
 		doc = self._rework_doc("REWORK-CONCURRENT", [(self.item_b, 1), (self.item_a, 1)])
 		events: list[tuple[str, object]] = []
 
 		with (
+			patch.object(rework, "_validate_rework_route"),
 			patch.object(
 				rework,
 				"_lock_items_for_rework_submission",
@@ -167,10 +172,87 @@ class TestPendingReworkPool(FrappeTestCase):
 		self.assertEqual(events[1][1]["exclude_stock_entry"], doc.name)
 		self.assertTrue(events[1][1]["lock_rows"])
 
+	def test_submission_requires_configured_rejection_warehouse_as_source(self) -> None:
+		doc = self._routed_rework_doc(source="Unrelated Warehouse", target="Good Warehouse")
+		with (
+			patch.object(
+				rework,
+				"get_branch_warehouse_defaults",
+				return_value={
+					"rejection_warehouse": "Rejection Warehouse",
+					"scrap_warehouse": "Scrap Warehouse",
+				},
+			),
+			self.assertRaisesRegex(frappe.ValidationError, "configured Rejection Warehouse"),
+		):
+			rework.validate_rework_submission(doc)
+
+	def test_submission_requires_a_configured_rejection_warehouse(self) -> None:
+		doc = self._routed_rework_doc(source="Rejection Warehouse", target="Good Warehouse")
+		with (
+			patch.object(rework, "get_branch_warehouse_defaults", return_value={}),
+			self.assertRaisesRegex(frappe.ValidationError, "Set the configured Rejection Warehouse"),
+		):
+			rework._validate_rework_route(doc)
+
+	def test_route_validation_ignores_zero_quantity_rows(self) -> None:
+		doc = self._routed_rework_doc(source="Wrong Warehouse", target="Scrap Warehouse")
+		doc.get("items")[0].qty = 0
+		with patch.object(
+			rework,
+			"get_branch_warehouse_defaults",
+			return_value={
+				"rejection_warehouse": "Rejection Warehouse",
+				"scrap_warehouse": "Scrap Warehouse",
+			},
+		):
+			rework._validate_rework_route(doc)
+
+	def test_submission_rejects_rejection_or_scrap_target_warehouses(self) -> None:
+		for target in ("Rejection Warehouse", "Scrap Warehouse"):
+			with self.subTest(target=target):
+				doc = self._routed_rework_doc(source="Rejection Warehouse", target=target)
+				with (
+					patch.object(
+						rework,
+						"get_branch_warehouse_defaults",
+						return_value={
+							"rejection_warehouse": "Rejection Warehouse",
+							"scrap_warehouse": "Scrap Warehouse",
+						},
+					),
+					self.assertRaisesRegex(frappe.ValidationError, "good target warehouse"),
+				):
+					rework._validate_rework_route(doc)
+
+	def test_submission_accepts_rejection_to_good_warehouse_route(self) -> None:
+		doc = self._routed_rework_doc(source="Rejection Warehouse", target="Good Warehouse")
+		with (
+			patch.object(
+				rework,
+				"get_branch_warehouse_defaults",
+				return_value={
+					"rejection_warehouse": "Rejection Warehouse",
+					"scrap_warehouse": "Scrap Warehouse",
+				},
+			),
+			patch.object(rework, "_lock_items_for_rework_submission"),
+			patch.object(rework, "_get_pending_rework_by_item", return_value={self.item_a: 1}),
+		):
+			rework._validate_rework_route(doc)
+
 	def test_api_requires_stock_entry_read_permission(self) -> None:
 		with patch.object(rework.frappe, "has_permission", return_value=False):
 			with self.assertRaises(frappe.PermissionError):
 				rework.get_pending_rework()
+
+	def test_rework_type_classification_is_cached_on_document(self) -> None:
+		doc = self._rework_doc("REWORK-CACHE", [])
+		with patch.object(rework.frappe.db, "get_value", return_value=1) as get_value:
+			self.assertTrue(rework.is_rework_stock_entry(doc))
+			self.assertTrue(rework.is_rework_stock_entry(doc))
+
+		get_value.assert_called_once_with("Stock Entry Type", self.rework_type, "custom_pea_rework_entry")
 
 	def test_pool_query_count_is_constant_for_multiple_items(self) -> None:
 		self._insert_production_source(
@@ -255,6 +337,16 @@ class TestPendingReworkPool(FrappeTestCase):
 			items=[frappe._dict(item_code=item_code, qty=qty) for item_code, qty in items],
 			flags=frappe._dict(),
 		)
+
+	def _routed_rework_doc(self, *, source: str, target: str) -> frappe._dict:
+		doc = self._rework_doc("REWORK-ROUTING", [(self.item_a, 1)])
+		doc.company = "Test Company"
+		doc.branch = "Test Branch"
+		doc.from_warehouse = source
+		doc.to_warehouse = target
+		doc.get("items")[0].s_warehouse = source
+		doc.get("items")[0].t_warehouse = target
+		return doc
 
 
 def _run_rework_submission_transaction(

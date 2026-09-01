@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import frappe
+from frappe.model.document import Document
 from frappe.tests.utils import FrappeTestCase
 
 from production_entry_app.production_entry_app.overrides.stock_entry_hooks import validate_stock_entry
@@ -95,7 +96,7 @@ class TestReworkStockEntryFields(FrappeTestCase):
 
 		validate_stock_entry(doc)
 
-	def _make_rework_entry(self):
+	def _make_rework_entry(self) -> Document:
 		doc = frappe.new_doc("Stock Entry")
 		doc.purpose = "Material Transfer"
 		doc.stock_entry_type = self.rework_stock_entry_type

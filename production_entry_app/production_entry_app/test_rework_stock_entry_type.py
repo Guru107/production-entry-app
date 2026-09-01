@@ -14,16 +14,8 @@ class TestReworkStockEntryType(FrappeTestCase):
 
 	def test_configured_rework_material_transfer_type_is_resolved(self) -> None:
 		expected = f"Rework Material Transfer {frappe.generate_hash(length=6)}"
-		frappe.get_doc(
-			{
-				"doctype": "Stock Entry Type",
-				"name": expected,
-				"purpose": "Material Transfer",
-				"custom_pea_rework_entry": 1,
-			}
-		).insert(ignore_permissions=True)
-
-		self.assertEqual(api.get_rework_stock_entry_type(), expected)
+		with patch.object(api.frappe, "get_list", return_value=[expected]):
+			self.assertEqual(api.get_rework_stock_entry_type(), expected)
 
 	def test_rework_stock_entry_type_requires_material_transfer_purpose(self) -> None:
 		doc = frappe.get_doc(
@@ -39,21 +31,17 @@ class TestReworkStockEntryType(FrappeTestCase):
 			doc.insert(ignore_permissions=True)
 
 	def test_multiple_rework_stock_entry_types_are_rejected(self) -> None:
-		for suffix in ("A", "B"):
-			frappe.get_doc(
-				{
-					"doctype": "Stock Entry Type",
-					"name": f"Rework Material Transfer {suffix} {frappe.generate_hash(length=6)}",
-					"purpose": "Material Transfer",
-					"custom_pea_rework_entry": 1,
-				}
-			).insert(ignore_permissions=True)
-
-		with self.assertRaisesRegex(frappe.ValidationError, "Only one.*Rework"):
+		with (
+			patch.object(api.frappe, "get_list", return_value=["Rework A", "Rework B"]),
+			self.assertRaisesRegex(frappe.ValidationError, "Only one.*Rework"),
+		):
 			api.get_rework_stock_entry_type()
 
 	def test_missing_rework_stock_entry_type_has_clear_error(self) -> None:
-		with self.assertRaisesRegex(frappe.ValidationError, "Configure a Material Transfer.*Rework"):
+		with (
+			patch.object(api.frappe, "get_list", return_value=[]),
+			self.assertRaisesRegex(frappe.ValidationError, "Configure a Material Transfer.*Rework"),
+		):
 			api.get_rework_stock_entry_type()
 
 	def test_stock_entry_type_cannot_be_joint_and_rework(self) -> None:

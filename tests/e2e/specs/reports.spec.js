@@ -5,21 +5,12 @@ const { ShiftPage } = require("../pages/shift-page");
 const { StockEntryPage } = require("../pages/stock-entry-page");
 const { getDoc, callFrappeMethod } = require("../fixtures/frappe");
 const { registerE2ELifecycle } = require("../fixtures/lifecycle");
-const { deleteUserIfExists, ensureUser } = require("../fixtures/users");
-const { getRoute, getRouteRegex } = require("../utils/routing");
+const { deleteUserIfExists, ensureUser, loginAs } = require("../fixtures/users");
+const { getRoute } = require("../utils/routing");
 
 const ADMIN_USERNAME = process.env.PLAYWRIGHT_USERNAME || "Administrator";
 const ADMIN_PASSWORD = process.env.PLAYWRIGHT_PASSWORD || "123";
 const TEST_PASSWORD = process.env.PLAYWRIGHT_TEST_USER_PASSWORD || "E2eT3st!Pass#2026";
-
-async function loginAs(page, username, password) {
-	const response = await page.request.post("/api/method/login", {
-		form: { usr: username, pwd: password },
-	});
-	expect(response.ok()).toBeTruthy();
-	await page.goto(getRoute("/home"));
-	await expect(page).toHaveURL(getRouteRegex("/home"));
-}
 
 async function setupFreshContext(page, prefix) {
 	await cleanupE2E(page, prefix);

@@ -12,12 +12,15 @@ from production_entry_app.production_entry_app.tests.support.rework_builders imp
 	insert_pending_rework_source,
 )
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
+	ensure_branch,
 	ensure_item,
 	ensure_operator,
 	ensure_stock,
 	ensure_warehouse,
 	ensure_workstation,
+	resolve_test_branch,
 	resolve_test_company,
+	set_test_branch_warehouse_defaults,
 )
 
 
@@ -168,8 +171,14 @@ class TestReworkAdditionalCosts(FrappeTestCase):
 		frappe.clear_document_cache("Company", self.company)
 		frappe.local.enable_perpetual_inventory = {self.company: 1}
 		item_code = ensure_item(f"_Rework Cost Item {suffix}")
-		source_warehouse = ensure_warehouse(f"_Rework Cost Source {suffix}", self.company)
+		source_warehouse = ensure_warehouse(f"_Rework Cost Rejection {suffix}", self.company)
 		target_warehouse = ensure_warehouse(f"_Rework Cost Target {suffix}", self.company)
+		branch = ensure_branch(resolve_test_branch() or "_Test Branch")
+		set_test_branch_warehouse_defaults(
+			self.company,
+			branch,
+			rejection_warehouse=source_warehouse,
+		)
 		ensure_stock(item_code, source_warehouse, self.company, target_qty=10)
 		insert_pending_rework_source(
 			stock_entry_type=None,
@@ -177,6 +186,7 @@ class TestReworkAdditionalCosts(FrappeTestCase):
 			rejection_items=[item_code],
 		)
 		doc = self._make_rework_entry()
+		doc.branch = branch
 		doc.from_warehouse = source_warehouse
 		doc.to_warehouse = target_warehouse
 		doc.append(

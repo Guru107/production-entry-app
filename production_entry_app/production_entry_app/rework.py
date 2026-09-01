@@ -9,6 +9,10 @@ from frappe.model.document import Document
 from frappe.query_builder.functions import Sum
 from frappe.utils import flt
 
+from production_entry_app.production_entry_app.utils.production_warehouses import (
+	get_branch_warehouse_defaults,
+)
+
 
 @frappe.whitelist()
 def get_pending_rework(item_code: str | None = None) -> list[dict[str, Any]]:
@@ -32,8 +36,9 @@ def validate_rework_submission(doc: Document) -> None:
 	after acquiring the locks, so a waiting transaction sees the preceding committed
 	consumption before it validates. Sorted locking avoids cross-item deadlocks.
 	"""
-	if not _is_rework_stock_entry(doc):
+	if not is_rework_stock_entry(doc):
 		return
+	_validate_rework_route(doc)
 
 	requested_by_item: defaultdict[str, float] = defaultdict(float)
 	for row in doc.get("items") or []:
@@ -65,7 +70,8 @@ def validate_rework_submission(doc: Document) -> None:
 		)
 
 
-def _is_rework_stock_entry(doc: Document) -> bool:
+def is_rework_stock_entry(doc: Document) -> bool:
+	"""Return whether the selected Stock Entry Type is marked for rework."""
 	stock_entry_type = doc.get("stock_entry_type")
 	flags = getattr(doc, "flags", None)
 	cached = flags.get("pea_rework_stock_entry_type") if flags is not None else None
@@ -78,6 +84,35 @@ def _is_rework_stock_entry(doc: Document) -> bool:
 	if flags is not None:
 		flags.pea_rework_stock_entry_type = (stock_entry_type, is_rework)
 	return is_rework
+
+
+def _validate_rework_route(doc: Document) -> None:
+	"""Keep pool consumption on the configured rejection-to-good route."""
+	warehouses = get_branch_warehouse_defaults(doc.get("company"), doc.get("branch"))
+	rejection_warehouse = warehouses.get("rejection_warehouse")
+	if not rejection_warehouse:
+		frappe.throw(
+			_("Set the configured Rejection Warehouse for this Company and Branch before submitting Rework.")
+		)
+	blocked_targets = {rejection_warehouse, warehouses.get("scrap_warehouse")}
+	for row in doc.get("items") or []:
+		if flt(row.get("qty")) <= 0:
+			continue
+		source = row.get("s_warehouse") or doc.get("from_warehouse")
+		target = row.get("t_warehouse") or doc.get("to_warehouse")
+		if source != rejection_warehouse:
+			frappe.throw(
+				_("Rework item {0} must use the configured Rejection Warehouse {1} as its source.").format(
+					frappe.bold(frappe.utils.escape_html(row.get("item_code") or "")),
+					frappe.bold(frappe.utils.escape_html(rejection_warehouse)),
+				)
+			)
+		if not target or target in blocked_targets:
+			frappe.throw(
+				_(
+					"Rework item {0} must move to a good target warehouse, not a rejection or scrap warehouse."
+				).format(frappe.bold(frappe.utils.escape_html(row.get("item_code") or "")))
+			)
 
 
 def _lock_items_for_rework_submission(item_codes: list[str]) -> None:

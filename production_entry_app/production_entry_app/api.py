@@ -5,7 +5,7 @@ import json
 
 import frappe
 from frappe import _
-from frappe.utils import get_datetime, get_time, now_datetime
+from frappe.utils import cint, get_datetime, get_time, now_datetime
 
 from production_entry_app.production_entry_app.joint_production import (
 	calculate_joint_rm_consumption_from_boms,
@@ -179,7 +179,7 @@ def _cleanup_orphan_stock_entry_loss_links(shift_name: str) -> None:
 
 
 @frappe.whitelist()
-def get_shift_details_for_stock_entry(shift_name: str) -> dict:
+def get_shift_details_for_stock_entry(shift_name: str, context_only: int = 0) -> dict:
 	"""Return shift details to auto-populate Stock Entry fields.
 
 	Called from the Stock Entry client script when custom_pea_shift is set.
@@ -199,6 +199,8 @@ def get_shift_details_for_stock_entry(shift_name: str) -> dict:
 				frappe.bold(frappe.utils.escape_html(str(shift.status or _("not found")))),
 			)
 		)
+	if cint(context_only):
+		return {}
 
 	planned_start = None
 	if shift.shift_date and shift.planned_start_time:

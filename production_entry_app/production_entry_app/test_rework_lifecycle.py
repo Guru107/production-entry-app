@@ -3,6 +3,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import frappe
+from frappe.model.document import Document
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import get_datetime
 
@@ -131,7 +132,7 @@ class TestReworkLifecycle(FrappeTestCase):
 		frappe.db.set_single_value("Production Entry Settings", "rework_expense_account", expense_account)
 		return expense_account
 
-	def _make_rework_entry(self, posting_date: object):
+	def _make_rework_entry(self, posting_date: object) -> Document:
 		start = get_datetime(f"{posting_date} 10:00:00")
 		end = get_datetime(f"{posting_date} 11:00:00")
 		doc = frappe.get_doc(
@@ -196,5 +197,22 @@ class TestReworkLifecycleE2ESeed(FrappeTestCase):
 				),
 				1,
 			)
+		finally:
+			e2e_api._cleanup_e2e_context(prefix)
+
+	def test_cleanup_then_reseed_same_lifecycle_prefix_is_isolated(self) -> None:
+		prefix = f"E2E_REWORK_RERUN_{frappe.generate_hash(length=6)}"
+		try:
+			with patch.object(e2e_api, "_assert_e2e_api_allowed"):
+				first = e2e_api.create_e2e_rework_lifecycle_source(prefix=prefix, qty=5)
+			first_source = first["source_entry"]
+
+			self.assertEqual(e2e_api._cleanup_e2e_context(prefix), {"ok": True})
+			self.assertFalse(frappe.db.exists("Stock Entry", first_source))
+
+			with patch.object(e2e_api, "_assert_e2e_api_allowed"):
+				second = e2e_api.create_e2e_rework_lifecycle_source(prefix=prefix, qty=5)
+			self.assertTrue(frappe.db.exists("Stock Entry", second["source_entry"]))
+			self.assertEqual(second["pending_qty"], 5)
 		finally:
 			e2e_api._cleanup_e2e_context(prefix)

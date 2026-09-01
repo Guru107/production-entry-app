@@ -253,7 +253,7 @@ def _is_allow_e2e_tests_enabled() -> bool:
 
 
 def _assert_e2e_api_allowed() -> None:
-	frappe.only_for(("Administrator", "System Manager"))
+	frappe.only_for("Administrator")
 	if not _is_developer_mode_enabled():
 		frappe.throw(_("E2E bootstrap APIs are only available in developer mode."), frappe.PermissionError)
 	if not _is_allow_e2e_tests_enabled():
@@ -351,6 +351,7 @@ def _safe_cancel_and_delete(doctype: str, name: str, *, context: str) -> None:
 			title="E2E cleanup delete failed",
 			message=f"{context}: unable to cancel/delete {doctype} {name}",
 		)
+		raise
 
 
 def _get_or_create_e2e_employee(prefix: str, company: str) -> str:
@@ -727,9 +728,11 @@ def _cleanup_e2e_stock_entries(targets: dict[str, object]) -> None:
 					title="E2E cleanup cancel failed",
 					message=f"Unable to cancel Stock Entry {se.name}",
 				)
-				continue
+				raise
 		if se.docstatus in (0, 2):
-			_safe_force_delete("Stock Entry", se.name, context="cleanup_e2e_context")
+			frappe.delete_doc("Stock Entry", se.name, ignore_permissions=True, force=True)
+			if frappe.db.exists("Stock Entry", se.name):
+				frappe.throw(_("E2E cleanup retained Stock Entry {0}.").format(se.name))
 
 
 def _cleanup_e2e_downtime_entries(targets: dict[str, object]) -> None:
@@ -851,9 +854,9 @@ def _cleanup_e2e_context(prefix: str = "E2E") -> dict:
 	result: dict[str, object] = {"ok": True}
 	try:
 		targets = _get_e2e_cleanup_targets(prefix)
-		_cleanup_e2e_shifts(prefix, targets)
 		_cleanup_e2e_rework_lifecycle_entries(prefix)
 		_cleanup_e2e_stock_entries(targets)
+		_cleanup_e2e_shifts(prefix, targets)
 		_cleanup_e2e_downtime_entries(targets)
 		_cleanup_e2e_master_data(prefix)
 	except Exception:
@@ -905,7 +908,7 @@ def _cleanup_reserved_e2e_artifacts() -> dict[str, object]:
 		filters={"name": ("like", f"{_E2E_RESERVED_USER_EMAIL_PREFIX}%@example.com")},
 		pluck="name",
 	):
-		_safe_force_delete("User", email, context="cleanup_reserved_e2e_artifacts")
+		frappe.db.set_value("User", email, "enabled", 0, update_modified=False)
 
 	for role_name in frappe.get_all(
 		"Role", filters={"name": ("like", f"{_E2E_RESERVED_ROLE_PREFIX}%")}, pluck="name"

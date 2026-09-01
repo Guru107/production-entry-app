@@ -11,6 +11,7 @@ const {
 	_apply_native_manufacture_visibility,
 	_hide_native_get_items,
 	_apply_shift_detail_updates,
+	_handle_shift_change,
 	_apply_fetch_items_response,
 	_sync_joint_stock_entry_type,
 	_initialize_total_strokes_default_state,
@@ -36,12 +37,16 @@ test("selecting the configured Rework Stock Entry Type shows rework fields", () 
 		},
 	};
 	const visibility = [];
+	const refreshed = [];
 	const frm = {
 		doc: { stock_entry_type: "Rework Material Transfer" },
 		toggle_display(fieldnames, visible) {
 			visibility.push([fieldnames, visible]);
 		},
 		refresh_fields() {},
+		refresh_field(fieldname) {
+			refreshed.push(fieldname);
+		},
 	};
 
 	try {
@@ -49,6 +54,39 @@ test("selecting the configured Rework Stock Entry Type shows rework fields", () 
 
 		assert.equal(frm.doc.__pea_rework_stock_entry_type, "Rework Material Transfer");
 		assert.deepEqual(visibility, [[REWORK_FIELDS, true]]);
+		assert.deepEqual(refreshed, ["custom_pea_shift"]);
+	} finally {
+		global.frappe = originalFrappe;
+	}
+});
+
+test("selecting Shift on rework keeps it context-only", () => {
+	const originalFrappe = global.frappe;
+	let callCount = 0;
+	global.frappe = {
+		call() {
+			callCount += 1;
+		},
+	};
+	const frm = {
+		doc: {
+			stock_entry_type: "Rework Material Transfer",
+			__pea_rework_stock_entry_type: "Rework Material Transfer",
+			custom_pea_shift: "SHIFT-REWORK",
+			company: "Original Company",
+			branch: "Original Branch",
+			from_warehouse: "Rejection Warehouse",
+			to_warehouse: "Good Warehouse",
+		},
+	};
+
+	try {
+		_handle_shift_change(frm);
+		assert.equal(callCount, 0);
+		assert.equal(frm.doc.company, "Original Company");
+		assert.equal(frm.doc.branch, "Original Branch");
+		assert.equal(frm.doc.from_warehouse, "Rejection Warehouse");
+		assert.equal(frm.doc.to_warehouse, "Good Warehouse");
 	} finally {
 		global.frappe = originalFrappe;
 	}

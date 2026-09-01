@@ -569,6 +569,7 @@ function _sync_rework_mode_from_stock_entry_type(frm, { previousStockEntryType =
 			_clear_rework_data(frm);
 		}
 		frm.refresh_fields?.(REWORK_FIELDS);
+		frm.refresh_field?.("custom_pea_shift");
 		frm.toggle_display(REWORK_FIELDS, selectedStockEntryType === reworkStockEntryType);
 	};
 	if (Object.prototype.hasOwnProperty.call(frm.doc, "__pea_rework_stock_entry_type")) {
@@ -1024,6 +1025,9 @@ function _get_shift_ctx(frm) {
 }
 
 function _handle_shift_change(frm) {
+	if (_is_rework_doc(frm.doc)) {
+		return;
+	}
 	if (!frm.doc.custom_pea_shift) {
 		_shiftDetailsRequestId++;
 		_clear_shift_derived_fields(frm, { clearWarehouses: true }).finally(() => {
@@ -1308,6 +1312,7 @@ if (typeof module !== "undefined" && module.exports) {
 		ALWAYS_HIDDEN_SECTIONS,
 		MANUFACTURE_CLEAR_TABLE_FIELDS,
 		_apply_shift_detail_updates,
+		_handle_shift_change,
 		_apply_fetch_items_response,
 		_apply_manufacture_visibility,
 		_sync_joint_stock_entry_type,

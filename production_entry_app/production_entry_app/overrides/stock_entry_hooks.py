@@ -22,7 +22,10 @@ from production_entry_app.production_entry_app.joint_production import (
 	validate_and_apply_joint_production,
 )
 from production_entry_app.production_entry_app.report.report_utils import get_entry_output_quantities
-from production_entry_app.production_entry_app.rework import validate_rework_submission
+from production_entry_app.production_entry_app.rework import (
+	is_rework_stock_entry,
+	validate_rework_submission,
+)
 from production_entry_app.production_entry_app.utils.alternative_items import (
 	apply_direct_manufacture_alternative_flags,
 	get_bom_alternative_allowed_items,
@@ -86,11 +89,13 @@ def validate_stock_entry(doc: Document, method: str | None = None) -> None:
 	1. Auto-fills fields from linked Shift (if custom_pea_shift is set).
 	2. Handles rejection quantity logic (if custom_pea_rejection_qty > 0).
 	"""
+	is_rework = is_rework_stock_entry(doc)
 	if doc.get("custom_pea_shift"):
 		_validate_linked_shift_can_accept_stock_entry(doc)
-		_apply_shift_defaults(doc)
-	_stamp_late_entry_flag(doc)
-	_sync_unplanned_loss_shift_links(doc)
+		if not is_rework:
+			_apply_shift_defaults(doc)
+			_stamp_late_entry_flag(doc)
+			_sync_unplanned_loss_shift_links(doc)
 
 	_validate_rework_fields(doc)
 	_validate_actual_times(doc)
@@ -115,23 +120,8 @@ def before_validate_stock_entry(doc: Document, method: str | None = None) -> Non
 	_apply_rework_cost(doc)
 
 
-def _is_rework_stock_entry(doc: Document) -> bool:
-	stock_entry_type = doc.get("stock_entry_type")
-	if not stock_entry_type:
-		return False
-	cached = doc.flags.get("pea_rework_stock_entry_type")
-	if cached and cached[0] == stock_entry_type:
-		return bool(cached[1])
-	is_rework_type = bool(
-		stock_entry_type
-		and frappe.db.get_value("Stock Entry Type", stock_entry_type, "custom_pea_rework_entry")
-	)
-	doc.flags.pea_rework_stock_entry_type = (stock_entry_type, is_rework_type)
-	return is_rework_type
-
-
 def _validate_rework_fields(doc: Document) -> None:
-	if not _is_rework_stock_entry(doc):
+	if not is_rework_stock_entry(doc):
 		if any(doc.get(fieldname) for fieldname in _REWORK_FIELDS):
 			frappe.throw(_("Rework fields can only be used with the configured Rework Stock Entry Type."))
 		return
@@ -158,7 +148,7 @@ def _validate_rework_fields(doc: Document) -> None:
 
 
 def _apply_rework_cost(doc: Document) -> None:
-	if not _is_rework_stock_entry(doc):
+	if not is_rework_stock_entry(doc):
 		return
 
 	for index in range(len(doc.get("additional_costs") or []) - 1, -1, -1):
@@ -227,14 +217,14 @@ def before_submit_stock_entry(doc: Document, method: str | None = None) -> None:
 
 
 def on_submit_stock_entry(doc, method: str | None = None) -> None:
-	if _is_rework_stock_entry(doc):
+	if is_rework_stock_entry(doc):
 		return
 	update_counter_for_stock_entry(doc, direction=1)
 	_invalidate_shift_dependent_caches(doc)
 
 
 def on_cancel_stock_entry(doc, method: str | None = None) -> None:
-	if _is_rework_stock_entry(doc):
+	if is_rework_stock_entry(doc):
 		return
 	update_counter_for_stock_entry(doc, direction=-1)
 	_invalidate_shift_dependent_caches(doc)

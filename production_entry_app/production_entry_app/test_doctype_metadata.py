@@ -12,6 +12,7 @@ ROLE_FIXTURE = APP_ROOT / "production_entry_app" / "fixtures" / "role.json"
 EXPECTED_PEA_ROLE_NAMES = ("PEA User", "PEA Read Only")
 
 REQUIRED_SEARCH_INDEXES: dict[str, set[str]] = {
+	"Rejection Breakup": {"is_rework"},
 	"Rework Type": {"is_active"},
 	"Shift": {"branch", "shift_date", "status"},
 }
@@ -146,6 +147,10 @@ def test_rework_stock_entry_metadata_is_exported() -> None:
 	for name in set(rework_fields).difference({"Stock Entry-custom_pea_rework_cost"}):
 		assert fields_by_name[name].get("mandatory_depends_on") == fields_by_name[name].get("depends_on")
 	assert fields_by_name["Stock Entry-custom_pea_rework_cost"].get("read_only") == 1
+	assert fields_by_name["Stock Entry-custom_pea_rework_cost"].get("non_negative") == 1
+	assert "__pea_rework_stock_entry_type" in fields_by_name["Stock Entry-custom_pea_shift"].get(
+		"depends_on", ""
+	)
 
 	rework_operator = assert_doctype_json("Rework Operator")
 	assert rework_operator["istable"] == 1

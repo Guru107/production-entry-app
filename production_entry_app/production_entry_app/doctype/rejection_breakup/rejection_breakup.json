@@ -48,7 +48,8 @@
    "fieldname": "is_rework",
    "fieldtype": "Check",
    "in_list_view": 1,
-   "label": "Rework"
+	"label": "Rework",
+	"search_index": 1
   },
   {
    "fieldname": "remark",
