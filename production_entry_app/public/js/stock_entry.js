@@ -102,6 +102,7 @@ let _reworkSourceWarehouseRequestId = 0;
 const _rejectionSideRequestIds = new Map();
 const JOINT_RM_DEBOUNCE_MS = 300;
 const REWORK_TYPE_DEBOUNCE_MS = 300;
+const REWORK_SOURCE_DEBOUNCE_MS = 300;
 
 function _hide_native_get_items(frm) {
 	frm.toggle_display("get_items", false);
@@ -195,10 +196,10 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 			_setup_stock_entry_quick_entry(frm);
 		},
 		company(frm) {
-			_sync_rework_source_warehouse(frm);
+			_schedule_rework_source_warehouse(frm);
 		},
 		branch(frm) {
-			_sync_rework_source_warehouse(frm);
+			_schedule_rework_source_warehouse(frm);
 		},
 		custom_pea_stock_entry_purpose(frm) {
 			_hide_native_get_items(frm);
@@ -585,7 +586,7 @@ function _sync_rework_mode_from_stock_entry_type(frm, { previousStockEntryType =
 		frm.refresh_field?.("custom_pea_shift");
 		frm.toggle_display(REWORK_FIELDS, selectedStockEntryType === reworkStockEntryType);
 		if (selectedStockEntryType === reworkStockEntryType) {
-			_sync_rework_source_warehouse(frm);
+			_schedule_rework_source_warehouse(frm);
 		}
 	};
 	if (Object.prototype.hasOwnProperty.call(frm.doc, "__pea_rework_stock_entry_type")) {
@@ -610,13 +611,34 @@ function _sync_rework_mode_from_stock_entry_type(frm, { previousStockEntryType =
 	});
 }
 
-function _sync_rework_source_warehouse(frm) {
+function _schedule_rework_source_warehouse(frm) {
+	if (frm.__peaReworkSourceWarehouseTimer) {
+		clearTimeout(frm.__peaReworkSourceWarehouseTimer);
+		frm.__peaReworkSourceWarehouseTimer = null;
+	}
 	const requestId = ++_reworkSourceWarehouseRequestId;
 	if (!_is_rework_doc(frm.doc) || !frm.doc.company || !frm.doc.branch) {
 		return;
 	}
 	const company = frm.doc.company;
 	const branch = frm.doc.branch;
+	frm.__peaReworkSourceWarehouseTimer = setTimeout(() => {
+		frm.__peaReworkSourceWarehouseTimer = null;
+		_sync_rework_source_warehouse(frm, { requestId, company, branch });
+	}, REWORK_SOURCE_DEBOUNCE_MS);
+}
+
+function _sync_rework_source_warehouse(
+	frm,
+	{
+		requestId = ++_reworkSourceWarehouseRequestId,
+		company = frm.doc.company,
+		branch = frm.doc.branch,
+	} = {}
+) {
+	if (!_is_rework_doc(frm.doc) || !company || !branch) {
+		return;
+	}
 	frappe.call({
 		method: "production_entry_app.production_entry_app.api.get_rework_source_warehouse",
 		args: { company, branch },
@@ -1395,6 +1417,7 @@ if (typeof module !== "undefined" && module.exports) {
 		_apply_shift_detail_updates,
 		_handle_shift_change,
 		_sync_rework_source_warehouse,
+		_schedule_rework_source_warehouse,
 		_default_rework_item_source,
 		_apply_fetch_items_response,
 		_apply_manufacture_visibility,

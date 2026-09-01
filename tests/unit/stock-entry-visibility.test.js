@@ -13,6 +13,7 @@ const {
 	_apply_shift_detail_updates,
 	_handle_shift_change,
 	_sync_rework_source_warehouse,
+	_schedule_rework_source_warehouse,
 	_default_rework_item_source,
 	_apply_fetch_items_response,
 	_sync_joint_stock_entry_type,
@@ -224,6 +225,86 @@ test("changing branch replaces the prior automatic rework source", async () => {
 		await new Promise((resolve) => setImmediate(resolve));
 		assert.equal(frm.doc.from_warehouse, "New Rejection Warehouse");
 		assert.equal(row.s_warehouse, "New Rejection Warehouse");
+	} finally {
+		global.frappe = originalFrappe;
+	}
+});
+
+test("rework source requests debounce rapid type company and branch changes", (t) => {
+	t.mock.timers.enable({ apis: ["setTimeout"] });
+	const originalFrappe = global.frappe;
+	const requests = [];
+	global.frappe = {
+		call(options) {
+			requests.push(options);
+		},
+	};
+	const frm = {
+		doc: {
+			stock_entry_type: "Rework Material Transfer",
+			__pea_rework_stock_entry_type: "Rework Material Transfer",
+			company: "Company A",
+			branch: "Branch A",
+			items: [],
+		},
+	};
+
+	try {
+		_schedule_rework_source_warehouse(frm);
+		frm.doc.company = "Company B";
+		_schedule_rework_source_warehouse(frm);
+		frm.doc.branch = "Branch B";
+		_schedule_rework_source_warehouse(frm);
+
+		assert.equal(requests.length, 0);
+		t.mock.timers.tick(299);
+		assert.equal(requests.length, 0);
+		t.mock.timers.tick(1);
+		assert.equal(requests.length, 1);
+		assert.deepEqual(requests[0].args, { company: "Company B", branch: "Branch B" });
+	} finally {
+		global.frappe = originalFrappe;
+	}
+});
+
+test("rework source keeps the latest in-flight response after debouncing", async (t) => {
+	t.mock.timers.enable({ apis: ["setTimeout"] });
+	const originalFrappe = global.frappe;
+	const requests = [];
+	global.frappe = {
+		call(options) {
+			requests.push(options);
+		},
+		model: { set_value() {} },
+	};
+	const frm = {
+		doc: {
+			stock_entry_type: "Rework Material Transfer",
+			__pea_rework_stock_entry_type: "Rework Material Transfer",
+			company: "Test Company",
+			branch: "Branch A",
+			from_warehouse: "",
+			items: [],
+		},
+		set_value(fieldname, value) {
+			this.doc[fieldname] = value;
+			return Promise.resolve();
+		},
+		refresh_field() {},
+	};
+
+	try {
+		_schedule_rework_source_warehouse(frm);
+		t.mock.timers.tick(300);
+		frm.doc.branch = "Branch B";
+		_schedule_rework_source_warehouse(frm);
+		t.mock.timers.tick(300);
+		assert.equal(requests.length, 2);
+
+		requests[1].callback({ message: "Branch B Rejection" });
+		requests[0].callback({ message: "Branch A Rejection" });
+		await new Promise((resolve) => setImmediate(resolve));
+		assert.equal(frm.doc.from_warehouse, "Branch B Rejection");
 	} finally {
 		global.frappe = originalFrappe;
 	}

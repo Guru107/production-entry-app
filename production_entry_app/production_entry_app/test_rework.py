@@ -460,7 +460,7 @@ def _run_rework_submission_transaction(
 			.set(StockEntry.docstatus, 1)
 			.where(StockEntry.name == stock_entry_name)
 		).run()
-		frappe.db.commit()
+		frappe.db.commit()  # Publish T1 for T2's separate current-read connection.  # nosemgrep
 		return "submitted"
 	finally:
 		if done:
