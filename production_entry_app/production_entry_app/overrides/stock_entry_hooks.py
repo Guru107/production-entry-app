@@ -22,6 +22,7 @@ from production_entry_app.production_entry_app.joint_production import (
 	validate_and_apply_joint_production,
 )
 from production_entry_app.production_entry_app.report.report_utils import get_entry_output_quantities
+from production_entry_app.production_entry_app.rework import validate_rework_submission
 from production_entry_app.production_entry_app.utils.alternative_items import (
 	apply_direct_manufacture_alternative_flags,
 	get_bom_alternative_allowed_items,
@@ -220,6 +221,7 @@ def _stamp_late_entry_flag(doc: Document) -> None:
 
 
 def on_submit_stock_entry(doc, method: str | None = None) -> None:
+	validate_rework_submission(doc)
 	update_counter_for_stock_entry(doc, direction=1)
 	_invalidate_shift_dependent_caches(doc)
 

@@ -8,6 +8,9 @@ from production_entry_app.production_entry_app.overrides.stock_entry_hooks impor
 	before_validate_stock_entry,
 	validate_stock_entry,
 )
+from production_entry_app.production_entry_app.tests.support.rework_builders import (
+	insert_pending_rework_source,
+)
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	ensure_item,
 	ensure_operator,
@@ -168,6 +171,11 @@ class TestReworkAdditionalCosts(FrappeTestCase):
 		source_warehouse = ensure_warehouse(f"_Rework Cost Source {suffix}", self.company)
 		target_warehouse = ensure_warehouse(f"_Rework Cost Target {suffix}", self.company)
 		ensure_stock(item_code, source_warehouse, self.company, target_qty=10)
+		insert_pending_rework_source(
+			stock_entry_type=None,
+			breakups=[(None, 10)],
+			rejection_items=[item_code],
+		)
 		doc = self._make_rework_entry()
 		doc.from_warehouse = source_warehouse
 		doc.to_warehouse = target_warehouse
