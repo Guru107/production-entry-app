@@ -117,6 +117,8 @@ def before_validate_stock_entry(doc: Document, method: str | None = None) -> Non
 
 def _is_rework_stock_entry(doc: Document) -> bool:
 	stock_entry_type = doc.get("stock_entry_type")
+	if not stock_entry_type:
+		return False
 	cached = doc.flags.get("pea_rework_stock_entry_type")
 	if cached and cached[0] == stock_entry_type:
 		return bool(cached[1])
@@ -225,11 +227,15 @@ def before_submit_stock_entry(doc: Document, method: str | None = None) -> None:
 
 
 def on_submit_stock_entry(doc, method: str | None = None) -> None:
+	if _is_rework_stock_entry(doc):
+		return
 	update_counter_for_stock_entry(doc, direction=1)
 	_invalidate_shift_dependent_caches(doc)
 
 
 def on_cancel_stock_entry(doc, method: str | None = None) -> None:
+	if _is_rework_stock_entry(doc):
+		return
 	update_counter_for_stock_entry(doc, direction=-1)
 	_invalidate_shift_dependent_caches(doc)
 
