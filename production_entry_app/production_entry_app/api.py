@@ -5,7 +5,7 @@ import json
 
 import frappe
 from frappe import _
-from frappe.utils import get_datetime, get_time, now_datetime
+from frappe.utils import cint, get_datetime, get_time, now_datetime
 
 from production_entry_app.production_entry_app.joint_production import (
 	calculate_joint_rm_consumption_from_boms,
@@ -56,7 +56,7 @@ def get_joint_stock_entry_type() -> str:
 
 
 @frappe.whitelist()
-def get_rework_stock_entry_type() -> str:
+def get_rework_stock_entry_type(required: int = 1) -> str:
 	if not frappe.has_permission("Stock Entry", "create"):
 		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
 	stock_entry_types = frappe.get_list(
@@ -70,6 +70,8 @@ def get_rework_stock_entry_type() -> str:
 		limit=2,
 	)
 	if not stock_entry_types:
+		if not cint(required):
+			return ""
 		frappe.throw(_("Configure a Material Transfer Stock Entry Type for Rework first."))
 	if len(stock_entry_types) > 1:
 		frappe.throw(_("Only one Material Transfer Stock Entry Type can be configured for Rework."))

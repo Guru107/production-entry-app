@@ -44,6 +44,10 @@ class TestReworkStockEntryType(FrappeTestCase):
 		):
 			api.get_rework_stock_entry_type()
 
+	def test_passive_rework_stock_entry_type_discovery_allows_missing_configuration(self) -> None:
+		with patch.object(api.frappe, "get_list", return_value=[]):
+			self.assertEqual(api.get_rework_stock_entry_type(required="0"), "")
+
 	def test_stock_entry_type_cannot_be_joint_and_rework(self) -> None:
 		doc = frappe.get_doc(
 			{
@@ -60,5 +64,6 @@ class TestReworkStockEntryType(FrappeTestCase):
 
 	def test_rework_stock_entry_type_resolution_requires_stock_entry_create_permission(self) -> None:
 		with patch.object(api.frappe, "has_permission", return_value=False):
-			with self.assertRaises(frappe.PermissionError):
-				api.get_rework_stock_entry_type()
+			for required in (1, 0):
+				with self.subTest(required=required), self.assertRaises(frappe.PermissionError):
+					api.get_rework_stock_entry_type(required=required)

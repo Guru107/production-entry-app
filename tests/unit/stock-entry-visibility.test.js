@@ -36,6 +36,7 @@ test("selecting the configured Rework Stock Entry Type shows rework fields", () 
 	const originalFrappe = global.frappe;
 	global.frappe = {
 		call(options) {
+			assert.deepEqual(options.args, { required: 0 });
 			options.callback({ message: "Rework Material Transfer" });
 		},
 	};
@@ -58,6 +59,48 @@ test("selecting the configured Rework Stock Entry Type shows rework fields", () 
 		assert.equal(frm.doc.__pea_rework_stock_entry_type, "Rework Material Transfer");
 		assert.deepEqual(visibility, [[REWORK_FIELDS, true]]);
 		assert.deepEqual(refreshed, ["custom_pea_shift"]);
+	} finally {
+		global.frappe = originalFrappe;
+	}
+});
+
+test("passive Rework Stock Entry Type discovery tolerates missing configuration", () => {
+	const originalFrappe = global.frappe;
+	let errorShown = false;
+	const methods = [];
+	global.frappe = {
+		call(options) {
+			methods.push(options.method);
+			assert.deepEqual(options.args, { required: 0 });
+			options.callback({ message: "" });
+		},
+		msgprint() {
+			errorShown = true;
+		},
+	};
+	const visibility = [];
+	const frm = {
+		doc: {
+			stock_entry_type: "Manufacture",
+			company: "Test Company",
+			branch: "Test Branch",
+		},
+		toggle_display(fieldnames, visible) {
+			visibility.push([fieldnames, visible]);
+		},
+		refresh_fields() {},
+		refresh_field() {},
+	};
+
+	try {
+		_sync_rework_mode_from_stock_entry_type(frm);
+
+		assert.equal(frm.doc.__pea_rework_stock_entry_type, "");
+		assert.deepEqual(visibility, [[REWORK_FIELDS, false]]);
+		assert.equal(errorShown, false);
+		assert.deepEqual(methods, [
+			"production_entry_app.production_entry_app.api.get_rework_stock_entry_type",
+		]);
 	} finally {
 		global.frappe = originalFrappe;
 	}

@@ -20,6 +20,8 @@ class StockEntryPage {
 		await this.page.waitForFunction(
 			() => window.cur_frm?.doctype === "Stock Entry" && window.cur_frm?.is_new?.()
 		);
+		await this.page.evaluate(async () => frappe.after_ajax());
+		await expect(this.page.locator(".modal.show")).toHaveCount(0);
 	}
 
 	async open(name) {

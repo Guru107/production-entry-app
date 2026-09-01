@@ -595,6 +595,7 @@ function _sync_rework_mode_from_stock_entry_type(frm, { previousStockEntryType =
 	}
 	frappe.call({
 		method: "production_entry_app.production_entry_app.api.get_rework_stock_entry_type",
+		args: { required: 0 },
 		callback(r) {
 			if (
 				requestId !== _reworkStockEntryTypeRequestId ||
