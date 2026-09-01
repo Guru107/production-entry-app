@@ -7,6 +7,17 @@ const {
 } = require("../fixtures/frappe");
 const { escapeRegexLiteral, getRoute, getRoutePrefix } = require("../utils/routing");
 
+function isStockEntryFormSettled() {
+	const frm = window.cur_frm;
+	if (frm?.doctype !== "Stock Entry" || !frm?.is_new?.()) {
+		return false;
+	}
+	return (
+		Object.prototype.hasOwnProperty.call(frm.doc || {}, "__pea_rework_stock_entry_type") ||
+		Boolean(document.querySelector(".modal.show"))
+	);
+}
+
 class StockEntryPage {
 	constructor(page) {
 		this.page = page;
@@ -17,10 +28,13 @@ class StockEntryPage {
 		await expect(this.page).toHaveURL(
 			new RegExp(`/${getRoutePrefix()}/stock-entry/(?:new|new-stock-entry-)`)
 		);
-		await this.page.waitForFunction(
-			() => window.cur_frm?.doctype === "Stock Entry" && window.cur_frm?.is_new?.()
+		await retryOnContextDestroyed(
+			this.page,
+			async () => {
+				await this.page.waitForFunction(isStockEntryFormSettled);
+			},
+			5
 		);
-		await this.page.evaluate(async () => frappe.after_ajax());
 		await expect(this.page.locator(".modal.show")).toHaveCount(0);
 	}
 
@@ -406,4 +420,4 @@ class StockEntryPage {
 	}
 }
 
-module.exports = { StockEntryPage };
+module.exports = { isStockEntryFormSettled, StockEntryPage };
