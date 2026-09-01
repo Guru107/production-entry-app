@@ -9,13 +9,12 @@ const { escapeRegexLiteral, getRoute, getRoutePrefix } = require("../utils/routi
 
 function isStockEntryFormSettled() {
 	const frm = window.cur_frm;
-	if (frm?.doctype !== "Stock Entry" || !frm?.is_new?.()) {
-		return false;
-	}
-	return (
-		Object.prototype.hasOwnProperty.call(frm.doc || {}, "__pea_rework_stock_entry_type") ||
-		Boolean(document.querySelector(".modal.show"))
+	const reworkDiscoveryFinished = Boolean(
+		frm?.doctype === "Stock Entry" &&
+			frm?.is_new?.() &&
+			Object.prototype.hasOwnProperty.call(frm.doc || {}, "__pea_rework_stock_entry_type")
 	);
+	return reworkDiscoveryFinished || Boolean(document.querySelector(".modal.show"));
 }
 
 class StockEntryPage {
