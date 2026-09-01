@@ -21,6 +21,23 @@ def _ensure_company_defaults() -> None:
 	if not company:
 		return
 
+	stock_adjustment_account = frappe.db.get_value("Company", company, "stock_adjustment_account")
+	if not stock_adjustment_account:
+		stock_adjustment_account = frappe.db.get_value(
+			"Account",
+			{"company": company, "account_type": "Stock Adjustment", "is_group": 0},
+			"name",
+		)
+		if stock_adjustment_account:
+			frappe.db.set_value(
+				"Company",
+				company,
+				"stock_adjustment_account",
+				stock_adjustment_account,
+				update_modified=False,
+			)
+			frappe.clear_document_cache("Company", company)
+
 	frappe.db.set_single_value("Global Defaults", "default_company", company)
 	frappe.defaults.set_user_default("company", company)
 

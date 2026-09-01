@@ -9,6 +9,44 @@ from production_entry_app.production_entry_app.utils import test_setup
 
 
 class TestTestSetup(FrappeTestCase):
+	def test_company_defaults_configure_existing_stock_adjustment_account(self) -> None:
+		with (
+			patch(
+				"production_entry_app.production_entry_app.utils.test_setup.frappe.db.exists",
+				return_value=True,
+			),
+			patch(
+				"production_entry_app.production_entry_app.utils.test_setup.frappe.db.get_value",
+				side_effect=[None, "Stock Adjustment - _TC"],
+			) as get_value,
+			patch(
+				"production_entry_app.production_entry_app.utils.test_setup.frappe.db.set_value"
+			) as set_value,
+			patch("production_entry_app.production_entry_app.utils.test_setup.frappe.db.set_single_value"),
+			patch(
+				"production_entry_app.production_entry_app.utils.test_setup.frappe.defaults.set_user_default"
+			),
+			patch(
+				"production_entry_app.production_entry_app.utils.test_setup.frappe.clear_document_cache"
+			) as clear_document_cache,
+		):
+			test_setup._ensure_company_defaults()
+
+		get_value.assert_any_call("Company", "_Test Company", "stock_adjustment_account")
+		get_value.assert_any_call(
+			"Account",
+			{"company": "_Test Company", "account_type": "Stock Adjustment", "is_group": 0},
+			"name",
+		)
+		set_value.assert_called_once_with(
+			"Company",
+			"_Test Company",
+			"stock_adjustment_account",
+			"Stock Adjustment - _TC",
+			update_modified=False,
+		)
+		clear_document_cache.assert_called_once_with("Company", "_Test Company")
+
 	def test_before_tests_skips_core_record_creation_when_records_exist(self) -> None:
 		with (
 			patch(
