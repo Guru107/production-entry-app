@@ -2,7 +2,7 @@ const { test, expect } = require("@playwright/test");
 
 const { callFrappeMethod } = require("../fixtures/frappe");
 const { registerE2ELifecycle } = require("../fixtures/lifecycle");
-const { deleteUserIfExists, ensureUser } = require("../fixtures/users");
+const { deleteUserIfExists, ensureUser, loginAs } = require("../fixtures/users");
 const { ReportsPage } = require("../pages/reports-page");
 const { getRoute } = require("../utils/routing");
 
@@ -11,14 +11,6 @@ const ADMIN_USERNAME =
 const ADMIN_PASSWORD =
 	process.env.PLAYWRIGHT_ADMIN_PASSWORD || process.env.PLAYWRIGHT_PASSWORD || "123";
 const TEST_PASSWORD = process.env.PLAYWRIGHT_TEST_USER_PASSWORD || "E2eT3st!Pass#2026";
-
-async function loginAs(page, username, password) {
-	const response = await page.request.post("/api/method/login", {
-		form: { usr: username, pwd: password },
-	});
-	expect(response.ok()).toBeTruthy();
-	await page.goto(getRoute("/home"));
-}
 
 async function seedRegisterRow(page, prefix) {
 	return await callFrappeMethod(

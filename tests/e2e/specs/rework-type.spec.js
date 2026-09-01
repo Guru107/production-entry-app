@@ -2,7 +2,7 @@ const { test, expect } = require("@playwright/test");
 
 const { expectValidationError } = require("../fixtures/assertions");
 const { callFrappeMethod, saveForm, setFieldValue } = require("../fixtures/frappe");
-const { deleteUserIfExists, ensureUser } = require("../fixtures/users");
+const { deleteUserIfExists, ensureUser, loginAs } = require("../fixtures/users");
 const { getRoute } = require("../utils/routing");
 
 const ADMIN_USERNAME = process.env.PLAYWRIGHT_USERNAME || "Administrator";
@@ -13,14 +13,6 @@ const UNAUTHORIZED_USER = "e2e_rework_type_no_access@example.com";
 async function openDeskHome(page) {
 	await page.goto(getRoute("/home"));
 	await page.waitForFunction(() => Boolean(window.frappe?.csrf_token));
-}
-
-async function loginAs(page, username, password) {
-	const response = await page.request.post("/api/method/login", {
-		form: { usr: username, pwd: password },
-	});
-	expect(response.ok()).toBeTruthy();
-	await openDeskHome(page);
 }
 
 async function openNewReworkType(page) {

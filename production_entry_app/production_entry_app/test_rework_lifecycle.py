@@ -1,0 +1,200 @@
+from __future__ import annotations
+
+from unittest.mock import patch
+
+import frappe
+from frappe.tests.utils import FrappeTestCase
+from frappe.utils import get_datetime
+
+from production_entry_app.production_entry_app import e2e_api, rework
+from production_entry_app.production_entry_app.report.pending_rework import pending_rework
+from production_entry_app.production_entry_app.report.rework_register import rework_register
+from production_entry_app.production_entry_app.tests.support.manufacture_builders import (
+	bootstrap_manufacture_masters,
+	make_direct_manufacture_entry,
+	make_running_shift,
+)
+from production_entry_app.production_entry_app.utils.test_bootstrap import (
+	ensure_operator,
+	ensure_workstation,
+)
+
+
+class TestReworkLifecycle(FrappeTestCase):
+	def setUp(self) -> None:
+		frappe.db.rollback()
+		self.masters = bootstrap_manufacture_masters()
+		self.suffix = frappe.generate_hash(length=6)
+		self.entry_type = f"Lifecycle Rework Transfer {self.suffix}"
+		self.rework_type = f"Lifecycle Rework Type {self.suffix}"
+		self.workstation = f"Lifecycle Rework Workstation {self.suffix}"
+		self.operator = f"Lifecycle Rework Operator {self.suffix}"
+		self.expense_account = self._ensure_rework_expense_account()
+		ensure_workstation(self.workstation, standard_spm=10)
+		frappe.db.set_value("Workstation", self.workstation, "hour_rate", 120, update_modified=False)
+		ensure_operator(self.operator)
+		frappe.get_doc(
+			{
+				"doctype": "Stock Entry Type",
+				"name": self.entry_type,
+				"purpose": "Material Transfer",
+				"custom_pea_rework_entry": 1,
+			}
+		).insert(ignore_permissions=True)
+		frappe.get_doc(
+			{
+				"doctype": "Rework Type",
+				"rework_type_name": self.rework_type,
+				"default_workstation": self.workstation,
+				"is_active": 1,
+			}
+		).insert(ignore_permissions=True)
+
+	def tearDown(self) -> None:
+		frappe.set_user("Administrator")
+		frappe.db.rollback()
+
+	def test_production_rejection_rework_submit_reports_and_cancel(self) -> None:
+		shift = make_running_shift(self.masters)
+		source = make_direct_manufacture_entry(
+			self.masters,
+			shift=shift.name,
+			fg_qty=100,
+			rejection_qty=5,
+		)
+		source.custom_pea_rejection_breakup[0].is_rework = 1
+		source.save(ignore_permissions=True)
+		source.submit()
+
+		self.assertEqual(rework.get_pending_rework(self.masters["fg_item"])[0]["pending_qty"], 5)
+		pending_before = pending_rework.execute({"item_code": self.masters["fg_item"]})[1]
+		self.assertEqual(pending_before[0]["derived_pending_qty"], 5)
+		self.assertEqual(pending_before[0]["rejection_warehouse_balance"], 5)
+
+		rejection_before = self._stock_qty(self.masters["rejection_warehouse"])
+		good_before = self._stock_qty(self.masters["fg_warehouse"])
+		rework_entry = self._make_rework_entry(shift.shift_date)
+		rework_entry.insert(ignore_permissions=True)
+		rework_entry.submit()
+
+		self.assertEqual(rework.get_pending_rework(self.masters["fg_item"])[0]["pending_qty"], 0)
+		self.assertEqual(self._stock_qty(self.masters["rejection_warehouse"]), rejection_before - 5)
+		self.assertEqual(self._stock_qty(self.masters["fg_warehouse"]), good_before + 5)
+		self.assertAlmostEqual(rework_entry.custom_pea_rework_cost, 120, places=6)
+		self.assertAlmostEqual(rework_entry.items[0].additional_cost, 120, places=6)
+		self.assertGreater(rework_entry.items[0].valuation_rate, rework_entry.items[0].basic_rate)
+
+		pending_after_submit = pending_rework.execute({"item_code": self.masters["fg_item"]})[1]
+		register_after_submit = rework_register.execute(
+			{
+				"from_date": str(shift.shift_date),
+				"to_date": str(shift.shift_date),
+				"item_code": self.masters["fg_item"],
+			}
+		)[1]
+		self.assertEqual(pending_after_submit, [])
+		self.assertEqual([row["rework_entry"] for row in register_after_submit], [rework_entry.name])
+		self.assertEqual(register_after_submit[0]["total_qty"], 5)
+		self.assertEqual(register_after_submit[0]["computed_cost"], 120)
+
+		rework_entry.cancel()
+
+		self.assertEqual(rework.get_pending_rework(self.masters["fg_item"])[0]["pending_qty"], 5)
+		self.assertEqual(self._stock_qty(self.masters["rejection_warehouse"]), rejection_before)
+		self.assertEqual(self._stock_qty(self.masters["fg_warehouse"]), good_before)
+		pending_after_cancel = pending_rework.execute({"item_code": self.masters["fg_item"]})[1]
+		register_after_cancel = rework_register.execute(
+			{
+				"from_date": str(shift.shift_date),
+				"to_date": str(shift.shift_date),
+				"item_code": self.masters["fg_item"],
+			}
+		)[1]
+		self.assertEqual(pending_after_cancel[0]["derived_pending_qty"], 5)
+		self.assertEqual(pending_after_cancel[0]["rejection_warehouse_balance"], 5)
+		self.assertEqual(register_after_cancel, [])
+
+	def _ensure_rework_expense_account(self) -> str:
+		company = self.masters["company"]
+		expense_account = frappe.db.get_value("Company", company, "default_operating_cost_account")
+		if not expense_account:
+			expense_account = frappe.db.get_value(
+				"Account",
+				{
+					"company": company,
+					"account_type": "Expenses Included In Valuation",
+					"is_group": 0,
+				},
+				"name",
+			)
+		self.assertTrue(expense_account)
+		frappe.db.set_single_value("Production Entry Settings", "rework_expense_account", expense_account)
+		return expense_account
+
+	def _make_rework_entry(self, posting_date: object):
+		start = get_datetime(f"{posting_date} 10:00:00")
+		end = get_datetime(f"{posting_date} 11:00:00")
+		doc = frappe.get_doc(
+			{
+				"doctype": "Stock Entry",
+				"company": self.masters["company"],
+				"purpose": "Material Transfer",
+				"stock_entry_type": self.entry_type,
+				"from_warehouse": self.masters["rejection_warehouse"],
+				"to_warehouse": self.masters["fg_warehouse"],
+				"set_posting_time": 1,
+				"posting_date": posting_date,
+				"posting_time": "11:00:00",
+				"custom_pea_rework_type": self.rework_type,
+				"custom_pea_rework_workstation": self.workstation,
+				"custom_pea_rework_actual_start": start,
+				"custom_pea_rework_actual_end": end,
+			}
+		)
+		doc.append("custom_pea_rework_operators", {"operator": self.operator})
+		doc.append(
+			"items",
+			{
+				"item_code": self.masters["fg_item"],
+				"qty": 5,
+				"s_warehouse": self.masters["rejection_warehouse"],
+				"t_warehouse": self.masters["fg_warehouse"],
+			},
+		)
+		return doc
+
+	def _stock_qty(self, warehouse: str) -> float:
+		return float(
+			frappe.db.get_value(
+				"Bin",
+				{"item_code": self.masters["fg_item"], "warehouse": warehouse},
+				"actual_qty",
+			)
+			or 0
+		)
+
+
+class TestReworkLifecycleE2ESeed(FrappeTestCase):
+	def tearDown(self) -> None:
+		frappe.set_user("Administrator")
+		frappe.db.rollback()
+
+	def test_e2e_seed_creates_a_real_rework_flagged_production_source(self) -> None:
+		prefix = f"E2E_REWORK_LIFECYCLE_{frappe.generate_hash(length=6)}"
+		try:
+			with patch.object(e2e_api, "_assert_e2e_api_allowed"):
+				context = e2e_api.create_e2e_rework_lifecycle_source(prefix=prefix, qty=5)
+
+			self.assertEqual(context["pending_qty"], 5)
+			self.assertEqual(context["rejection_warehouse_qty"], 5)
+			self.assertEqual(context["rework_workstation"], context["workstation"])
+			self.assertEqual(
+				frappe.db.get_value(
+					"Rejection Breakup",
+					{"parent": context["source_entry"]},
+					"is_rework",
+				),
+				1,
+			)
+		finally:
+			e2e_api._cleanup_e2e_context(prefix)

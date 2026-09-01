@@ -6,7 +6,7 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 from frappe.query_builder import DocType
-from frappe.utils import add_to_date, cint, get_datetime
+from frappe.utils import add_to_date, cint, flt, get_datetime
 from pypika import Order
 
 from production_entry_app.production_entry_app.api import (
@@ -32,6 +32,7 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	ensure_workstation,
 	resolve_test_branch,
 	resolve_test_company,
+	save_test_user,
 	set_test_branch_warehouse_defaults,
 )
 
@@ -39,6 +40,50 @@ _E2E_SYSTEM_SETTINGS_FIELDS: tuple[str, ...] = ("float_precision",)
 _E2E_RESERVED_USER_EMAIL_PREFIX: str = "e2e-user-"
 _E2E_RESERVED_ROLE_PREFIX: str = "E2E ROLE "
 _E2E_RESERVED_DOWNTIME_PREFIX: str = "E2E-DOWNTIME-"
+
+
+@frappe.whitelist()
+def ensure_e2e_user(
+	email: str,
+	first_name: str,
+	password: str,
+	roles: str | list[str] | None = None,
+) -> dict:
+	"""Create or reset one reserved browser-test user without Frappe's creation throttle."""
+	_assert_e2e_api_allowed()
+	email_value = (email or "").strip().lower()
+	if not email_value.startswith(_E2E_RESERVED_USER_EMAIL_PREFIX) or not email_value.endswith(
+		"@example.com"
+	):
+		frappe.throw(_("email must identify a reserved E2E test user."), frappe.ValidationError)
+	if not password:
+		frappe.throw(_("password is required."), frappe.ValidationError)
+	requested_roles = frappe.parse_json(roles) if isinstance(roles, str) else list(roles or [])
+	missing_roles = [role for role in requested_roles if not frappe.db.exists("Role", role)]
+	if missing_roles:
+		frappe.throw(
+			_("Role {0} does not exist.").format(frappe.bold(frappe.utils.escape_html(missing_roles[0]))),
+			frappe.ValidationError,
+		)
+
+	user = (
+		frappe.get_doc("User", email_value)
+		if frappe.db.exists("User", email_value)
+		else frappe.new_doc("User")
+	)
+	user.email = email_value
+	user.first_name = (first_name or "").strip() or email_value.split("@", 1)[0]
+	user.enabled = 1
+	user.user_type = "System User"
+	user.send_welcome_email = 0
+	user.set("roles", [])
+	for role in requested_roles:
+		user.append("roles", {"role": role})
+	user.new_password = password
+	save_test_user(user)
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit - browser login needs the user immediately
+	frappe.clear_cache(user=email_value)
+	return {"email": email_value, "roles": requested_roles}
 
 
 @frappe.whitelist()
@@ -114,6 +159,14 @@ def _get_system_settings_snapshot() -> dict[str, str | int | None]:
 	}
 
 
+def _get_rework_stock_entry_type_snapshot() -> list[str]:
+	return frappe.get_all(
+		"Stock Entry Type",
+		filters={"custom_pea_rework_entry": 1},
+		pluck="name",
+	)
+
+
 def _cache_e2e_settings_snapshot(prefix: str) -> None:
 	cache_key = _get_e2e_settings_cache_key(prefix)
 	if frappe.cache().get_value(cache_key):
@@ -122,6 +175,7 @@ def _cache_e2e_settings_snapshot(prefix: str) -> None:
 		cache_key,
 		{
 			"production_entry_settings": _get_production_entry_settings_snapshot(),
+			"rework_stock_entry_types": _get_rework_stock_entry_type_snapshot(),
 			"system_settings": _get_system_settings_snapshot(),
 		},
 	)
@@ -160,6 +214,20 @@ def _restore_system_settings(snapshot: dict[str, str | int | None] | None) -> No
 		frappe.db.set_single_value("System Settings", fieldname, snapshot.get(fieldname))
 
 
+def _restore_rework_stock_entry_types(names: list[str] | None) -> None:
+	if names is None:
+		return
+	StockEntryType = DocType("Stock Entry Type")
+	frappe.qb.update(StockEntryType).set(StockEntryType.custom_pea_rework_entry, 0).where(
+		StockEntryType.custom_pea_rework_entry == 1
+	).run()
+	existing_names = [name for name in (names or []) if frappe.db.exists("Stock Entry Type", name)]
+	if existing_names:
+		frappe.qb.update(StockEntryType).set(StockEntryType.custom_pea_rework_entry, 1).where(
+			StockEntryType.name.isin(existing_names)
+		).run()
+
+
 def _restore_cached_e2e_settings(prefix: str) -> None:
 	cache_key = _get_e2e_settings_cache_key(prefix)
 	snapshot = frappe.cache().get_value(cache_key)
@@ -168,6 +236,7 @@ def _restore_cached_e2e_settings(prefix: str) -> None:
 			"manufacturing_settings"
 		)
 		_restore_production_entry_settings(settings_snapshot)
+		_restore_rework_stock_entry_types(snapshot.get("rework_stock_entry_types"))
 		_restore_system_settings(snapshot.get("system_settings"))
 		frappe.cache().delete_value(cache_key)
 
@@ -184,7 +253,7 @@ def _is_allow_e2e_tests_enabled() -> bool:
 
 
 def _assert_e2e_api_allowed() -> None:
-	frappe.only_for("Administrator")
+	frappe.only_for(("Administrator", "System Manager"))
 	if not _is_developer_mode_enabled():
 		frappe.throw(_("E2E bootstrap APIs are only available in developer mode."), frappe.PermissionError)
 	if not _is_allow_e2e_tests_enabled():
@@ -673,6 +742,18 @@ def _cleanup_e2e_downtime_entries(targets: dict[str, object]) -> None:
 		_safe_force_delete("Downtime Entry", name, context="cleanup_e2e_context")
 
 
+def _cleanup_e2e_rework_lifecycle_entries(prefix: str) -> None:
+	rework_type = f"{prefix} Rework Type"
+	for name in frappe.get_all(
+		"Stock Entry",
+		filters={"custom_pea_rework_type": rework_type},
+		pluck="name",
+	):
+		if name.startswith("E2E-REWORK-REGISTER-"):
+			continue
+		_safe_cancel_and_delete("Stock Entry", name, context="cleanup_e2e_context")
+
+
 def _cleanup_e2e_master_data(prefix: str) -> None:
 	_cleanup_e2e_rework_register_rows(prefix)
 	target_operator = f"{prefix} Operator"
@@ -771,6 +852,7 @@ def _cleanup_e2e_context(prefix: str = "E2E") -> dict:
 	try:
 		targets = _get_e2e_cleanup_targets(prefix)
 		_cleanup_e2e_shifts(prefix, targets)
+		_cleanup_e2e_rework_lifecycle_entries(prefix)
 		_cleanup_e2e_stock_entries(targets)
 		_cleanup_e2e_downtime_entries(targets)
 		_cleanup_e2e_master_data(prefix)
@@ -866,27 +948,13 @@ def create_e2e_submitted_stock_entry(
 	actual_start_time = actual_start_time or "08:00:00"
 	actual_end_time = actual_end_time or "09:00:00"
 
-	doc = frappe.get_doc(
-		{
-			"doctype": "Stock Entry",
-			"stock_entry_type": "Manufacture",
-			"purpose": "Manufacture",
-			"company": ctx["company"],
-			"from_bom": 1,
-			"bom_no": ctx["bom"],
-			"from_warehouse": ctx["wip_warehouse"],
-			"to_warehouse": ctx["fg_warehouse"],
-			"fg_completed_qty": 100,
-			"custom_pea_shift": shift.name,
-			"custom_pea_operator": ctx["operator"],
-			"custom_pea_workstation": ctx["workstation"],
-			"custom_pea_rejection_qty": float(rejection_qty or 0),
-			"custom_pea_actual_start_date": f"{shift_date} {actual_start_time}",
-			"custom_pea_actual_end_date": f"{shift_date} {actual_end_time}",
-			"set_posting_time": 1,
-			"posting_date": shift_date,
-			"posting_time": actual_end_time,
-		}
+	doc = _build_e2e_manufacture_entry(
+		ctx,
+		shift_name=shift.name,
+		shift_date=shift_date,
+		rejection_qty=flt(rejection_qty),
+		actual_start_time=actual_start_time,
+		actual_end_time=actual_end_time,
 	)
 	_finalize_e2e_submitted_stock_entry(
 		doc,
@@ -903,6 +971,118 @@ def create_e2e_submitted_stock_entry(
 		"posting_date": shift_date,
 		"shift_name": shift.name,
 		"branch": getattr(doc, "branch", None),
+	}
+
+
+@frappe.whitelist()
+def create_e2e_rework_lifecycle_source(prefix: str = "E2E", qty: float = 5) -> dict:
+	"""Create a submitted, rework-flagged production rejection for browser lifecycle tests."""
+	_assert_e2e_api_allowed()
+	prefix_value = (prefix or "").strip()
+	if prefix_value != "E2E" and not prefix_value.startswith("E2E_"):
+		frappe.throw(_("Prefix must identify a reserved E2E context."), frappe.ValidationError)
+	rework_qty = flt(qty)
+	if rework_qty <= 0:
+		frappe.throw(_("Rework quantity must be greater than zero."), frappe.ValidationError)
+
+	ctx = bootstrap_e2e_context(prefix=prefix_value)
+	stock_entry_type = f"{prefix_value} Rework Transfer"
+	rework_type = f"{prefix_value} Rework Type"
+	StockEntryType = DocType("Stock Entry Type")
+	frappe.qb.update(StockEntryType).set(StockEntryType.custom_pea_rework_entry, 0).where(
+		StockEntryType.custom_pea_rework_entry == 1
+	).run()
+	if not frappe.db.exists("Stock Entry Type", stock_entry_type):
+		frappe.get_doc(
+			{
+				"doctype": "Stock Entry Type",
+				"name": stock_entry_type,
+				"purpose": "Material Transfer",
+				"custom_pea_rework_entry": 1,
+			}
+		).insert(ignore_permissions=True)
+	else:
+		frappe.db.set_value(
+			"Stock Entry Type",
+			stock_entry_type,
+			{"purpose": "Material Transfer", "custom_pea_rework_entry": 1},
+			update_modified=False,
+		)
+	if not frappe.db.exists("Rework Type", rework_type):
+		frappe.get_doc(
+			{
+				"doctype": "Rework Type",
+				"rework_type_name": rework_type,
+				"default_workstation": ctx["workstation"],
+				"is_active": 1,
+			}
+		).insert(ignore_permissions=True)
+	else:
+		frappe.db.set_value(
+			"Rework Type",
+			rework_type,
+			{"default_workstation": ctx["workstation"], "is_active": 1},
+			update_modified=False,
+		)
+	frappe.db.set_value("Workstation", ctx["workstation"], "hour_rate", 120, update_modified=False)
+	expense_account = frappe.db.get_single_value(
+		"Production Entry Settings", "rework_expense_account"
+	) or frappe.db.get_value("Company", ctx["company"], "default_operating_cost_account")
+	if not expense_account:
+		expense_account = frappe.db.get_value(
+			"Account",
+			{
+				"company": ctx["company"],
+				"account_type": "Expenses Included In Valuation",
+				"is_group": 0,
+			},
+			"name",
+		)
+	if not expense_account:
+		frappe.throw(_("Configure a rework expense account before running the E2E lifecycle."))
+
+	shift = frappe.get_doc("Shift", ctx["shift_name"])
+	shift_date = str(shift.shift_date)
+	doc = _build_e2e_manufacture_entry(
+		ctx,
+		shift_name=shift.name,
+		shift_date=shift_date,
+		rejection_qty=rework_qty,
+		actual_start_time="08:00:00",
+		actual_end_time="09:00:00",
+	)
+	_finalize_e2e_submitted_stock_entry(
+		doc,
+		rejection_qty=rework_qty,
+		wip_warehouse=ctx["wip_warehouse"],
+		fg_warehouse=ctx["fg_warehouse"],
+		rejection_is_rework=True,
+	)
+
+	from production_entry_app.production_entry_app.rework import _get_pending_rework_by_item
+
+	pending_qty = _get_pending_rework_by_item(item_codes=[ctx["fg_item"]]).get(ctx["fg_item"], 0)
+	rejection_warehouse_qty = frappe.db.get_value(
+		"Bin",
+		{"item_code": ctx["fg_item"], "warehouse": ctx["rejection_warehouse"]},
+		"actual_qty",
+	)
+	good_warehouse_qty = frappe.db.get_value(
+		"Bin",
+		{"item_code": ctx["fg_item"], "warehouse": ctx["fg_warehouse"]},
+		"actual_qty",
+	)
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit - browser tests need persisted lifecycle data
+	return {
+		**ctx,
+		"source_entry": doc.name,
+		"rework_stock_entry_type": stock_entry_type,
+		"rework_type": rework_type,
+		"rework_workstation": ctx["workstation"],
+		"expense_account": expense_account,
+		"pending_qty": flt(pending_qty),
+		"rejection_warehouse_qty": flt(rejection_warehouse_qty),
+		"good_warehouse_qty": flt(good_warehouse_qty),
 	}
 
 
@@ -1024,12 +1204,46 @@ def create_e2e_rework_register_row(
 	}
 
 
+def _build_e2e_manufacture_entry(
+	ctx: dict,
+	*,
+	shift_name: str,
+	shift_date: str,
+	rejection_qty: float,
+	actual_start_time: str,
+	actual_end_time: str,
+) -> Document:
+	return frappe.get_doc(
+		{
+			"doctype": "Stock Entry",
+			"stock_entry_type": "Manufacture",
+			"purpose": "Manufacture",
+			"company": ctx["company"],
+			"from_bom": 1,
+			"bom_no": ctx["bom"],
+			"from_warehouse": ctx["wip_warehouse"],
+			"to_warehouse": ctx["fg_warehouse"],
+			"fg_completed_qty": 100,
+			"custom_pea_shift": shift_name,
+			"custom_pea_operator": ctx["operator"],
+			"custom_pea_workstation": ctx["workstation"],
+			"custom_pea_rejection_qty": rejection_qty,
+			"custom_pea_actual_start_date": f"{shift_date} {actual_start_time}",
+			"custom_pea_actual_end_date": f"{shift_date} {actual_end_time}",
+			"set_posting_time": 1,
+			"posting_date": shift_date,
+			"posting_time": actual_end_time,
+		}
+	)
+
+
 def _finalize_e2e_submitted_stock_entry(
 	doc: Document,
 	*,
 	rejection_qty: float,
 	wip_warehouse: str | None,
 	fg_warehouse: str | None,
+	rejection_is_rework: bool = False,
 ) -> Document:
 	doc.get_items()
 	for row in doc.get("items") or []:
@@ -1039,7 +1253,12 @@ def _finalize_e2e_submitted_stock_entry(
 			row.t_warehouse = fg_warehouse
 	if float(rejection_qty or 0) > 0:
 		doc.append(
-			"custom_pea_rejection_breakup", {"rejection_reason": "Burr", "qty": float(rejection_qty or 0)}
+			"custom_pea_rejection_breakup",
+			{
+				"rejection_reason": "Burr",
+				"qty": float(rejection_qty or 0),
+				"is_rework": int(rejection_is_rework),
+			},
 		)
 	doc.insert(ignore_permissions=True)
 	doc.submit()
