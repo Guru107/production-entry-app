@@ -10,13 +10,17 @@ const ADMIN_PASSWORD = process.env.PLAYWRIGHT_PASSWORD || "123";
 const TEST_PASSWORD = process.env.PLAYWRIGHT_TEST_USER_PASSWORD || "E2eT3st!Pass#2026";
 const UNAUTHORIZED_USER = "e2e_rework_type_no_access@example.com";
 
+async function openDeskHome(page) {
+	await page.goto(getRoute("/home"));
+	await page.waitForFunction(() => Boolean(window.frappe?.csrf_token));
+}
+
 async function loginAs(page, username, password) {
 	const response = await page.request.post("/api/method/login", {
 		form: { usr: username, pwd: password },
 	});
 	expect(response.ok()).toBeTruthy();
-	await page.goto(getRoute("/home"));
-	await page.waitForFunction(() => Boolean(window.frappe?.csrf_token));
+	await openDeskHome(page);
 }
 
 async function openNewReworkType(page) {
@@ -56,7 +60,9 @@ test.describe("Rework Type master", () => {
 			expect(await page.evaluate(() => window.cur_frm?.doc?.is_active)).toBe(0);
 
 			await page.goto(getRoute("/rework-type"));
-			await expect(page.locator(".list-row-container").filter({ hasText: name })).toBeVisible();
+			await expect(
+				page.locator(".list-row-container").filter({ hasText: name })
+			).toBeVisible();
 		} finally {
 			await deleteReworkTypeIfExists(page, name);
 		}
@@ -71,8 +77,7 @@ test.describe("Rework Type master", () => {
 	});
 
 	test("@regression blocks users without Rework Type access", async ({ page }) => {
-		await page.goto(getRoute("/home"));
-		await page.waitForFunction(() => Boolean(window.frappe?.csrf_token));
+		await openDeskHome(page);
 		await deleteUserIfExists(page, UNAUTHORIZED_USER);
 		await ensureUser(page, {
 			email: UNAUTHORIZED_USER,
