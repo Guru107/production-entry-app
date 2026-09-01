@@ -36,6 +36,7 @@ from production_entry_app.production_entry_app.e2e_api import (
 	cleanup_e2e_context,
 	create_e2e_downtime_entry,
 	create_e2e_full_shift_stock_entries,
+	create_e2e_rework_register_row,
 	create_e2e_submitted_stock_entry,
 	reset_e2e_die_tool_counter,
 	set_e2e_system_float_precision,
@@ -100,6 +101,7 @@ class TestE2EApi(FrappeTestCase):
 			"cleanup_reserved_e2e_artifacts",
 			"create_e2e_submitted_stock_entry",
 			"create_e2e_full_shift_stock_entries",
+			"create_e2e_rework_register_row",
 			"create_e2e_downtime_entry",
 			"reset_e2e_die_tool_counter",
 			"set_e2e_access_control",
@@ -112,6 +114,7 @@ class TestE2EApi(FrappeTestCase):
 
 		assert callable(e2e_api.bootstrap_e2e_context)
 		assert callable(e2e_api.cleanup_e2e_context)
+		assert callable(e2e_api.create_e2e_rework_register_row)
 
 	def test_assert_e2e_api_allowed_calls_only_for_administrator(self) -> None:
 		with patch("production_entry_app.production_entry_app.e2e_api.frappe.only_for") as only_for:
@@ -248,6 +251,8 @@ class TestE2EApi(FrappeTestCase):
 				cleanup_e2e_context(prefix="E2E-Guard")
 			with self.assertRaises(frappe.PermissionError):
 				create_e2e_submitted_stock_entry(prefix="E2E-Guard")
+			with self.assertRaises(frappe.PermissionError):
+				create_e2e_rework_register_row(prefix="E2E-Guard")
 			with self.assertRaises(frappe.PermissionError):
 				reset_e2e_die_tool_counter(prefix="E2E_GUARD_W0")
 

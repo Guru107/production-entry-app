@@ -230,7 +230,7 @@ class TestNativeShiftPermissions(FrappeTestCase):
 			filters={"module": "Production Entry App", "is_standard": "Yes", "disabled": 0},
 			pluck="name",
 		)
-		self.assertEqual(len(report_names), 19)
+		self.assertEqual(len(report_names), 20)
 		shift_report_names = frappe.get_all(
 			"Report",
 			filters={"ref_doctype": "Shift", "disabled": 0},

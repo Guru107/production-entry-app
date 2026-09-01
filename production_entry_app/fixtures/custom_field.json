@@ -116,6 +116,7 @@
   "insert_after": "custom_pea_is_joint_lh_rh",
   "depends_on": "eval:doc.__pea_rework_stock_entry_type && doc.stock_entry_type==doc.__pea_rework_stock_entry_type",
   "mandatory_depends_on": "eval:doc.__pea_rework_stock_entry_type && doc.stock_entry_type==doc.__pea_rework_stock_entry_type",
+  "search_index": 1,
   "module": "Production Entry App",
   "permlevel": 0
  },
@@ -130,6 +131,7 @@
   "insert_after": "custom_pea_rework_type",
   "depends_on": "eval:doc.__pea_rework_stock_entry_type && doc.stock_entry_type==doc.__pea_rework_stock_entry_type",
   "mandatory_depends_on": "eval:doc.__pea_rework_stock_entry_type && doc.stock_entry_type==doc.__pea_rework_stock_entry_type",
+  "search_index": 1,
   "module": "Production Entry App",
   "permlevel": 0
  },

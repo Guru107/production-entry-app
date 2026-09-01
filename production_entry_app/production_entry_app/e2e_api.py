@@ -674,6 +674,7 @@ def _cleanup_e2e_downtime_entries(targets: dict[str, object]) -> None:
 
 
 def _cleanup_e2e_master_data(prefix: str) -> None:
+	_cleanup_e2e_rework_register_rows(prefix)
 	target_operator = f"{prefix} Operator"
 	target_workstation = f"{prefix} Workstation"
 	target_fg_item = f"_{prefix}_FG_Item"
@@ -739,6 +740,24 @@ def _cleanup_e2e_master_data(prefix: str) -> None:
 	):
 		if frappe.db.exists("Warehouse", warehouse_name):
 			_safe_force_delete("Warehouse", warehouse_name, context="cleanup_e2e_context")
+
+
+def _cleanup_e2e_rework_register_rows(prefix: str) -> None:
+	entry_names = frappe.get_all(
+		"Stock Entry",
+		filters={"name": ("like", f"E2E-REWORK-REGISTER-{prefix}-%")},
+		pluck="name",
+	)
+	if entry_names:
+		frappe.db.delete("Stock Entry Detail", {"parent": ("in", entry_names)})
+		frappe.db.delete("Rework Operator", {"parent": ("in", entry_names)})
+		frappe.db.delete("Stock Entry", {"name": ("in", entry_names)})
+	for doctype, name in (
+		("Rework Type", f"{prefix} Rework Type"),
+		("Stock Entry Type", f"{prefix} Rework Transfer"),
+	):
+		if frappe.db.exists(doctype, name):
+			_safe_force_delete(doctype, name, context="cleanup_e2e_context")
 
 
 def _finalize_e2e_cleanup(prefix: str, result: dict[str, object]) -> dict[str, object]:
@@ -884,6 +903,124 @@ def create_e2e_submitted_stock_entry(
 		"posting_date": shift_date,
 		"shift_name": shift.name,
 		"branch": getattr(doc, "branch", None),
+	}
+
+
+@frappe.whitelist()
+def create_e2e_rework_register_row(
+	prefix: str = "E2E",
+	qty: float = 4,
+	cost: float = 240,
+) -> dict:
+	"""Seed one submitted report row without exercising the Rework Operation lifecycle."""
+	_assert_e2e_api_allowed()
+	prefix_value = (prefix or "").strip()
+	if prefix_value != "E2E" and not prefix_value.startswith("E2E_"):
+		frappe.throw(_("Prefix must identify a reserved E2E context."), frappe.ValidationError)
+	ctx = bootstrap_e2e_context(prefix=prefix_value, cleanup_running=0)
+	stock_entry_type = f"{prefix_value} Rework Transfer"
+	rework_type = f"{prefix_value} Rework Type"
+	if not frappe.db.exists("Stock Entry Type", stock_entry_type):
+		frappe.get_doc(
+			{
+				"doctype": "Stock Entry Type",
+				"name": stock_entry_type,
+				"purpose": "Material Transfer",
+				"custom_pea_rework_entry": 1,
+			}
+		).insert(ignore_permissions=True)
+	if not frappe.db.exists("Rework Type", rework_type):
+		frappe.get_doc(
+			{
+				"doctype": "Rework Type",
+				"rework_type_name": rework_type,
+				"is_active": 1,
+			}
+		).insert(ignore_permissions=True)
+
+	entry_name = f"E2E-REWORK-REGISTER-{prefix_value}-{frappe.generate_hash(length=8)}"
+	actual_start = f"{ctx['shift_date']} 08:00:00"
+	actual_end = f"{ctx['shift_date']} 10:00:00"
+	StockEntry = frappe.qb.DocType("Stock Entry")
+	(
+		frappe.qb.into(StockEntry)
+		.columns(
+			StockEntry.name,
+			StockEntry.docstatus,
+			StockEntry.purpose,
+			StockEntry.stock_entry_type,
+			StockEntry.posting_date,
+			StockEntry.custom_pea_rework_type,
+			StockEntry.custom_pea_rework_workstation,
+			StockEntry.custom_pea_rework_actual_start,
+			StockEntry.custom_pea_rework_actual_end,
+			StockEntry.custom_pea_rework_cost,
+		)
+		.insert(
+			entry_name,
+			1,
+			"Material Transfer",
+			stock_entry_type,
+			ctx["shift_date"],
+			rework_type,
+			ctx["workstation"],
+			actual_start,
+			actual_end,
+			float(cost),
+		)
+	).run()
+	StockEntryDetail = frappe.qb.DocType("Stock Entry Detail")
+	(
+		frappe.qb.into(StockEntryDetail)
+		.columns(
+			StockEntryDetail.name,
+			StockEntryDetail.parent,
+			StockEntryDetail.parenttype,
+			StockEntryDetail.parentfield,
+			StockEntryDetail.idx,
+			StockEntryDetail.item_code,
+			StockEntryDetail.qty,
+		)
+		.insert(
+			frappe.generate_hash(length=10),
+			entry_name,
+			"Stock Entry",
+			"items",
+			1,
+			ctx["joint_lh_item"],
+			float(qty),
+		)
+	).run()
+	ReworkOperator = frappe.qb.DocType("Rework Operator")
+	(
+		frappe.qb.into(ReworkOperator)
+		.columns(
+			ReworkOperator.name,
+			ReworkOperator.parent,
+			ReworkOperator.parenttype,
+			ReworkOperator.parentfield,
+			ReworkOperator.idx,
+			ReworkOperator.operator,
+		)
+		.insert(
+			frappe.generate_hash(length=10),
+			entry_name,
+			"Stock Entry",
+			"custom_pea_rework_operators",
+			1,
+			ctx["operator"],
+		)
+	).run()
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit - required for report read-after-write checks
+	return {
+		"name": entry_name,
+		"posting_date": ctx["shift_date"],
+		"rework_type": rework_type,
+		"workstation": ctx["workstation"],
+		"item_code": ctx["joint_lh_item"],
+		"operator": ctx["operator"],
+		"qty": float(qty),
+		"cost": float(cost),
 	}
 
 
