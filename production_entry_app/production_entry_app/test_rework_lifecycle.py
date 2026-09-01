@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import datetime
 from unittest.mock import patch
 
 import frappe
 from frappe.model.document import Document
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils import get_datetime, get_time
+from frappe.utils import get_datetime
 
 from production_entry_app.production_entry_app import e2e_api, rework
 from production_entry_app.production_entry_app.report.pending_rework import pending_rework
@@ -67,6 +68,7 @@ class TestReworkLifecycle(FrappeTestCase):
 		source.set_posting_time = 1
 		source.posting_time = "10:00:00"
 		source.save(ignore_permissions=True)
+		funding_entry = self._make_source_funding_entry(source)
 		source.submit()
 
 		self.assertEqual(rework.get_pending_rework(self.masters["fg_item"])[0]["pending_qty"], 5)
@@ -77,7 +79,8 @@ class TestReworkLifecycle(FrappeTestCase):
 		rejection_before = self._stock_qty(self.masters["rejection_warehouse"])
 		good_before = self._stock_qty(self.masters["fg_warehouse"])
 		rework_entry = self._make_rework_entry(shift.shift_date)
-		self.assertLess(get_time(source.posting_time), get_time(rework_entry.posting_time))
+		self.assertLessEqual(self._posting_datetime(funding_entry), self._posting_datetime(source))
+		self.assertLessEqual(self._posting_datetime(source), self._posting_datetime(rework_entry))
 		rework_entry.insert(ignore_permissions=True)
 		self.assertEqual(rework_entry.from_warehouse, self.masters["rejection_warehouse"])
 		self.assertEqual(rework_entry.items[0].s_warehouse, self.masters["rejection_warehouse"])
@@ -136,6 +139,37 @@ class TestReworkLifecycle(FrappeTestCase):
 		self.assertTrue(expense_account)
 		frappe.db.set_single_value("Production Entry Settings", "rework_expense_account", expense_account)
 		return expense_account
+
+	def _make_source_funding_entry(self, source: Document) -> Document:
+		items = [
+			{
+				"item_code": row.item_code,
+				"qty": row.qty,
+				"t_warehouse": row.s_warehouse,
+				"basic_rate": row.basic_rate or 50,
+			}
+			for row in source.items
+			if row.s_warehouse and float(row.qty or 0) > 0
+		]
+		self.assertTrue(items)
+		funding_entry = frappe.get_doc(
+			{
+				"doctype": "Stock Entry",
+				"company": self.masters["company"],
+				"purpose": "Material Receipt",
+				"stock_entry_type": "Material Receipt",
+				"set_posting_time": 1,
+				"posting_date": source.posting_date,
+				"posting_time": "09:00:00",
+				"items": items,
+			}
+		).insert(ignore_permissions=True)
+		funding_entry.submit()
+		return funding_entry
+
+	@staticmethod
+	def _posting_datetime(doc: Document) -> datetime.datetime:
+		return get_datetime(f"{doc.posting_date} {doc.posting_time}")
 
 	def _make_rework_entry(self, posting_date: object) -> Document:
 		start = get_datetime(f"{posting_date} 10:00:00")
