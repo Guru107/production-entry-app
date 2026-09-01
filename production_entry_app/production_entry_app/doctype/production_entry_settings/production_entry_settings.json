@@ -7,7 +7,8 @@
  "field_order": [
   "branch_warehouse_defaults",
   "shift_start_buffer_mins",
-  "shift_end_buffer_mins"
+  "shift_end_buffer_mins",
+  "rework_expense_account"
  ],
  "fields": [
   {
@@ -32,6 +33,13 @@
    "label": "Shift End Buffer (Minutes)",
    "max_value": "480",
    "min_value": "0"
+  },
+  {
+   "description": "Expense account credited when rework labour cost is capitalized into inventory. Falls back to the Company's Default Operating Cost Account.",
+   "fieldname": "rework_expense_account",
+   "fieldtype": "Link",
+   "label": "Rework Expense Account",
+   "options": "Account"
   }
  ],
  "hide_toolbar": 1,

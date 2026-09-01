@@ -109,12 +109,22 @@ def validate_stock_entry(doc: Document, method: str | None = None) -> None:
 	_set_entry_metrics(doc)
 
 
+def before_validate_stock_entry(doc: Document, method: str | None = None) -> None:
+	_validate_rework_fields(doc)
+	_apply_rework_cost(doc)
+
+
 def _is_rework_stock_entry(doc: Document) -> bool:
 	stock_entry_type = doc.get("stock_entry_type")
-	return bool(
+	cached = doc.flags.get("pea_rework_stock_entry_type")
+	if cached and cached[0] == stock_entry_type:
+		return bool(cached[1])
+	is_rework_type = bool(
 		stock_entry_type
 		and frappe.db.get_value("Stock Entry Type", stock_entry_type, "custom_pea_rework_entry")
 	)
+	doc.flags.pea_rework_stock_entry_type = (stock_entry_type, is_rework_type)
+	return is_rework_type
 
 
 def _validate_rework_fields(doc: Document) -> None:
@@ -142,6 +152,46 @@ def _validate_rework_fields(doc: Document) -> None:
 				_safe_bold(inactive_operators[0])
 			)
 		)
+
+
+def _apply_rework_cost(doc: Document) -> None:
+	if not _is_rework_stock_entry(doc):
+		return
+
+	for index in range(len(doc.get("additional_costs") or []) - 1, -1, -1):
+		if doc.additional_costs[index].get("custom_pea_is_rework_cost"):
+			doc.additional_costs.pop(index)
+
+	actual_start = _as_datetime(doc.get("custom_pea_rework_actual_start"))
+	actual_end = _as_datetime(doc.get("custom_pea_rework_actual_end"))
+	if not actual_start or not actual_end or actual_end <= actual_start:
+		frappe.throw(_("Rework duration must be greater than zero."))
+
+	operator_count = len([row for row in doc.get("custom_pea_rework_operators") or [] if row.get("operator")])
+	hour_rate = flt(frappe.db.get_value("Workstation", doc.get("custom_pea_rework_workstation"), "hour_rate"))
+	duration_hours = (actual_end - actual_start).total_seconds() / 3600
+	rework_cost = flt(duration_hours * operator_count * hour_rate, 6)
+	expense_account = frappe.db.get_single_value(
+		"Production Entry Settings", "rework_expense_account"
+	) or frappe.db.get_value("Company", doc.get("company"), "default_operating_cost_account")
+	if not expense_account:
+		frappe.throw(
+			_(
+				"Set Rework Expense Account in Production Entry Settings or Default Operating Cost Account "
+				"on Company {0}."
+			).format(_safe_bold(doc.get("company") or ""))
+		)
+
+	doc.set("custom_pea_rework_cost", rework_cost)
+	doc.append(
+		"additional_costs",
+		{
+			"expense_account": expense_account,
+			"description": _("Rework Cost"),
+			"amount": rework_cost,
+			"custom_pea_is_rework_cost": 1,
+		},
+	)
 
 
 def _default_total_strokes(doc: Document) -> None:

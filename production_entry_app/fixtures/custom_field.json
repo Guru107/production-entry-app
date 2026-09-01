@@ -1,6 +1,20 @@
 [
  {
   "doctype": "Custom Field",
+  "name": "Landed Cost Taxes and Charges-custom_pea_is_rework_cost",
+  "dt": "Landed Cost Taxes and Charges",
+  "fieldname": "custom_pea_is_rework_cost",
+  "fieldtype": "Check",
+  "label": "Rework Cost",
+  "default": "0",
+  "hidden": 1,
+  "read_only": 1,
+  "insert_after": "amount",
+  "module": "Production Entry App",
+  "permlevel": 0
+ },
+ {
+  "doctype": "Custom Field",
   "name": "Downtime Entry-custom_pea_shift",
   "dt": "Downtime Entry",
   "fieldname": "custom_pea_shift",
