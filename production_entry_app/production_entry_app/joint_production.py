@@ -23,18 +23,12 @@ from production_entry_app.production_entry_app.utils.production_warehouses impor
 
 WHOLE_NUMBER_QUANTUM: Decimal = Decimal("1")
 VALUATION_TOLERANCE: float = 1e-9
+RM_QTY_TOLERANCE: float = 1e-6
+QTY_PRECISION: int = 6
 
 
 @dataclass(frozen=True)
-class JointBomScrapItem:
-	item_code: str
-	qty: float
-	uom: str
-	rate: float
-
-
-@dataclass(frozen=True)
-class JointPlannedScrapItem:
+class JointScrapItem:
 	item_code: str
 	qty: float
 	uom: str
@@ -54,7 +48,7 @@ class JointBomDetails:
 	rm_item_code: str
 	rm_qty: float
 	rm_uom: str
-	scrap_items: tuple[JointBomScrapItem, ...]
+	scrap_items: tuple[JointScrapItem, ...]
 
 	@property
 	def unit_cost(self) -> float:
@@ -70,7 +64,7 @@ class JointProductionPlan:
 	rh_gross_qty: float
 	rh_rejection_qty: float
 	total_rm_consumption: float
-	scrap_items: tuple[JointPlannedScrapItem, ...]
+	scrap_items: tuple[JointScrapItem, ...]
 
 	@property
 	def expected_role_quantities(self) -> dict[str, float]:
@@ -271,7 +265,7 @@ def _build_planned_scrap_items(
 	lh_gross_qty: float,
 	rh_bom: JointBomDetails,
 	rh_gross_qty: float,
-) -> tuple[JointPlannedScrapItem, ...]:
+) -> tuple[JointScrapItem, ...]:
 	quantities: defaultdict[str, float] = defaultdict(float)
 	values: defaultdict[str, float] = defaultdict(float)
 	uoms: dict[str, str] = {}
@@ -296,7 +290,7 @@ def _build_planned_scrap_items(
 		else []
 	)
 	whole_number_uoms = {row.get("name") for row in uom_rows if row.get("must_be_whole_number")}
-	planned_items: list[JointPlannedScrapItem] = []
+	planned_items: list[JointScrapItem] = []
 	for item_code, precise_qty in quantities.items():
 		uom = uoms[item_code]
 		qty = (
@@ -304,10 +298,11 @@ def _build_planned_scrap_items(
 			if uom in whole_number_uoms
 			else precise_qty
 		)
+		# Native Stock Entry cannot post a zero-quantity row; the omitted value remains in output valuation.
 		if qty <= 0:
 			continue
 		planned_items.append(
-			JointPlannedScrapItem(
+			JointScrapItem(
 				item_code=item_code,
 				qty=qty,
 				uom=uom,
@@ -363,7 +358,7 @@ def _validate_joint_item_rows(doc: Document, plan: JointProductionPlan) -> None:
 
 	for role, expected_qty in plan.expected_role_quantities.items():
 		actual_qty = actual_quantities.get(role, 0)
-		if flt(actual_qty, 6) != flt(expected_qty, 6):
+		if flt(actual_qty, QTY_PRECISION) != flt(expected_qty, QTY_PRECISION):
 			_throw_stale_joint_rows(
 				_("{0} is {1}; expected {2}.").format(
 					_get_joint_role_label(role),
@@ -498,8 +493,8 @@ def is_scrap_row(row: BaseDocument) -> bool:
 
 def _validate_joint_rejection_breakup(doc: Document, plan: JointProductionPlan) -> None:
 	expected = {
-		"LH": flt(plan.lh_rejection_qty, 6),
-		"RH": flt(plan.rh_rejection_qty, 6),
+		"LH": flt(plan.lh_rejection_qty, QTY_PRECISION),
+		"RH": flt(plan.rh_rejection_qty, QTY_PRECISION),
 	}
 	actual = {"LH": 0.0, "RH": 0.0}
 	items = {
@@ -516,11 +511,11 @@ def _validate_joint_rejection_breakup(doc: Document, plan: JointProductionPlan) 
 			row.set("item_code", items[side])
 		elif row.get("item_code") != items[side]:
 			frappe.throw(_("Joint rejection breakup Item must match the selected {0} BOM.").format(side))
-		actual[side] += flt(row_qty, 6)
+		actual[side] += flt(row_qty, QTY_PRECISION)
 		if row.get("is_rework"):
 			rework_qty += row_qty
 	for side in ("LH", "RH"):
-		if flt(actual[side], 6) != expected[side]:
+		if flt(actual[side], QTY_PRECISION) != expected[side]:
 			frappe.throw(_("{0} rejection breakup total must equal {0} Rejection Quantity.").format(side))
 	doc.custom_pea_rework_qty = flt(rework_qty)
 
@@ -585,7 +580,7 @@ def _get_item_stock_uoms(item_codes: Iterable[str]) -> dict[str, str]:
 	}
 
 
-def _get_bom_scrap_item_details(scrap: BaseDocument, stock_uom_by_item: dict[str, str]) -> JointBomScrapItem:
+def _get_bom_scrap_item_details(scrap: BaseDocument, stock_uom_by_item: dict[str, str]) -> JointScrapItem:
 	qty = flt(scrap.get("stock_qty") or scrap.get("qty"))
 	rate = flt(scrap.get("rate"))
 	if not rate and qty > 0:
@@ -595,7 +590,7 @@ def _get_bom_scrap_item_details(scrap: BaseDocument, stock_uom_by_item: dict[str
 			else flt(scrap.get("base_amount") or scrap.get("amount"))
 		)
 		rate = total_value / qty
-	return JointBomScrapItem(
+	return JointScrapItem(
 		item_code=scrap.item_code,
 		qty=qty,
 		uom=stock_uom_by_item[scrap.item_code],
@@ -606,7 +601,7 @@ def _get_bom_scrap_item_details(scrap: BaseDocument, stock_uom_by_item: dict[str
 def _validate_joint_bom_pair(lh_bom: JointBomDetails, rh_bom: JointBomDetails) -> None:
 	if (lh_bom.rm_item_code, lh_bom.rm_uom) != (rh_bom.rm_item_code, rh_bom.rm_uom):
 		frappe.throw(_("LH and RH BOMs must use the same raw material item and UOM."))
-	if abs(lh_bom.rm_qty - rh_bom.rm_qty) > 0.000001:
+	if abs(lh_bom.rm_qty - rh_bom.rm_qty) > RM_QTY_TOLERANCE:
 		frappe.throw(_("LH and RH BOMs must use the same raw material quantity."))
 
 

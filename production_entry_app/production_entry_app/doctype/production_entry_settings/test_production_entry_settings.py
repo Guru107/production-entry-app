@@ -38,6 +38,13 @@ class TestBranchWarehouseSettings(FrappeTestCase):
 			):
 				require_warehouse({}, fieldname)
 
+	def test_raw_material_warehouse_has_a_clear_validation_message(self) -> None:
+		with self.assertRaisesRegex(
+			frappe.ValidationError,
+			"Please set a Raw Material Warehouse on the Shift",
+		):
+			require_warehouse({}, "raw_material_warehouse")
+
 	def tearDown(self) -> None:
 		frappe.db.rollback()
 

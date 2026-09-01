@@ -50,9 +50,9 @@ Production OEE Report uses:
 - `Productivity (P) = act_spm / std_spm * 100`
 - `Quality (Q) = (quality_total - quality_rejection) / quality_total * 100`
 - For normal Manufacture entries, `quality_total = good_qty + total_rejected_qty` and
-  `quality_rejection = non-rework rejection_qty`.
+  `quality_rejection = total_rejected_qty`, including rework.
 - For Joint LH/RH entries, `quality_total = LH gross qty + RH gross qty` and
-  `quality_rejection = LH rejection qty + RH rejection qty`.
+  `quality_rejection = LH rejection qty + RH rejection qty`, including rework.
 - `OEE % = (A * P * Q) / 10000`
 
 Planned losses are applied at report-row scope (linked shifts for that row):

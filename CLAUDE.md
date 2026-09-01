@@ -297,8 +297,7 @@ bench --site development.localhost migrate
 
 ### Fixtures
 
-Fixture JSONs live in `production_entry_app/fixtures/`. The inner
-`production_entry_app/production_entry_app/fixtures/` directory is a copy — keep both in sync.
+Fixture JSONs live in `production_entry_app/fixtures/`.
 Run `bench export-fixtures` after changing fixture data.
 
 ---

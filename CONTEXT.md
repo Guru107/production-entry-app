@@ -25,6 +25,13 @@ in that BOM. In Joint Production, each side consumes its proportional share of r
 shares are added: `side gross quantity x BOM raw-material quantity / BOM quantity`.
 _Avoid_: Per-side sheet count, shared maximum consumption
 
+**Whole-number Scrap Boundary**:
+Joint Production aggregates scrap by item before rounding whole-number UOMs with half-up rounding. A positive
+aggregate below `0.5` rounds to zero and is omitted because native Stock Entry rows cannot represent zero quantity;
+its calculated value remains allocated to the joint outputs. For a positive rounded quantity, the rate is
+recalculated so the pre-round aggregate scrap value is preserved.
+_Avoid_: Per-side rounding, zero-quantity scrap row
+
 **Production Date**:
 The `shift_date` of the Completed Shift to which a submitted Production Entry belongs. Operational reports use
 this date for range membership and period grouping, regardless of the Stock Entry posting date.

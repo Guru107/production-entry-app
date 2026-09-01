@@ -4,7 +4,7 @@ import datetime
 import time
 from collections import defaultdict
 from collections.abc import Iterator
-from typing import Any
+from typing import Any, NamedTuple
 
 import frappe
 from frappe import _
@@ -38,6 +38,12 @@ _STOCK_ENTRY_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
 	"custom_pea_shift": ("custom_pea_shift", "custom_shift"),
 	"custom_pea_operator": ("custom_pea_operator", "custom_operator"),
 }
+
+
+class EntryOutputQuantities(NamedTuple):
+	total_qty: float
+	ok_qty: float
+	rejection_qty: float
 
 
 def get_report_rows(doctype: str, **kwargs: Any) -> list[dict]:
@@ -109,6 +115,30 @@ def is_production_stock_entry(entry: dict) -> bool:
 	if "purpose" not in entry and "custom_pea_is_joint_lh_rh" not in entry:
 		return True
 	return entry.get("purpose") == "Manufacture" or bool(entry.get("custom_pea_is_joint_lh_rh"))
+
+
+def get_entry_output_quantities(
+	entry: dict,
+	*,
+	normal_metrics: dict | None = None,
+) -> EntryOutputQuantities:
+	"""Return gross, OK, and rejected part quantities with one cross-mode meaning.
+
+	Reports should pass their batched child-row metrics for normal Manufacture
+	entries. Document hooks can use the header fields directly.
+	"""
+	if entry.get("custom_pea_is_joint_lh_rh"):
+		total_qty = flt(entry.get("custom_pea_lh_gross_qty")) + flt(entry.get("custom_pea_rh_gross_qty"))
+		rejection_qty = flt(entry.get("custom_pea_lh_rejection_qty")) + flt(
+			entry.get("custom_pea_rh_rejection_qty")
+		)
+	elif normal_metrics is not None:
+		rejection_qty = flt(normal_metrics.get("total_rejected_qty") or 0)
+		total_qty = flt(normal_metrics.get("good_qty") or 0) + rejection_qty
+	else:
+		total_qty = flt(entry.get("fg_completed_qty") or 0)
+		rejection_qty = flt(entry.get("custom_pea_rejection_qty") or 0)
+	return EntryOutputQuantities(total_qty, max(total_qty - rejection_qty, 0), rejection_qty)
 
 
 def get_stock_entry_alias_fields(base_fields: list[str], alias_keys: tuple[str, ...]) -> list[str]:
@@ -653,7 +683,7 @@ def get_item_bom_quality_hotspot_rows(
 		for fact in get_item_bom_quality_facts(entries, is_rework=is_rework):
 			if requested_bom and fact.get("bom_no") != requested_bom:
 				continue
-			group = (fact.get("item_code") or "Unknown", fact.get("bom_no") or "")
+			group = (fact.get("item_code") or _("Unknown"), fact.get("bom_no") or "")
 			row = agg.setdefault(
 				group,
 				{"entries": set(), "total_qty": 0.0, "quality_qty": 0.0, "reason_totals": {}},

@@ -627,6 +627,58 @@ class TestJointProductionItems(FrappeTestCase):
 			)
 		)
 
+	def test_bom_quantity_one_preserves_joint_calculations_through_submit_and_cancel(self) -> None:
+		lh_bom = self._make_bom(
+			self.lh_item,
+			bom_quantity=1,
+			rm_qty=0.5,
+			scrap_qty=0.1,
+		)
+		rh_bom = self._make_bom(
+			self.rh_item,
+			bom_quantity=1,
+			rm_qty=0.5,
+			scrap_qty=0.2,
+		)
+		shift = make_running_shift(self.masters)
+		doc = self._make_joint_entry(shift, lh_bom=lh_bom, rh_bom=rh_bom)
+		doc.custom_pea_lh_gross_qty = 4
+		doc.custom_pea_lh_rejection_qty = 1
+		doc.custom_pea_rh_gross_qty = 5
+		doc.custom_pea_rh_rejection_qty = 0
+		doc.custom_pea_total_strokes = 5
+		doc.set("items", get_joint_production_items(json.dumps(doc.as_dict(), default=str)))
+		rm_row = next(row for row in doc.items if row.s_warehouse)
+		rm_row.basic_rate = 50
+		rm_row.basic_amount = rm_row.qty * rm_row.conversion_factor * rm_row.basic_rate
+
+		doc.insert(ignore_permissions=True)
+
+		self.assertAlmostEqual(doc.custom_pea_total_rm_consumption, 4.5, places=6)
+		scrap_row = next(row for row in doc.items if _is_scrap_row(row))
+		self.assertAlmostEqual(scrap_row.qty, 1.4, places=6)
+		self.assertAlmostEqual(scrap_row.basic_amount, 14, places=6)
+		output_rows = [row for row in doc.items if row.t_warehouse and not _is_scrap_row(row)]
+		self.assertEqual(sum(row.qty for row in output_rows), 9)
+		self.assertTrue(all(row.basic_rate > 0 for row in output_rows))
+
+		doc.submit()
+		self.assertTrue(
+			frappe.get_all(
+				"Stock Ledger Entry",
+				filters={"voucher_no": doc.name, "is_cancelled": 0},
+				pluck="name",
+			)
+		)
+		doc.cancel()
+		self.assertFalse(
+			frappe.get_all(
+				"Stock Ledger Entry",
+				filters={"voucher_no": doc.name, "is_cancelled": 0},
+				pluck="name",
+			)
+		)
+
 	def test_joint_repack_can_be_inserted_with_native_stock_entry_items(self) -> None:
 		shift = make_running_shift(self.masters)
 		doc = self._make_joint_entry(shift)

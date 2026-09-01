@@ -9,7 +9,7 @@ const {
 	_did_leave_manufacture,
 	_clear_manufacture_data_on_leave,
 	_apply_native_manufacture_visibility,
-	_sync_native_get_items_access,
+	_hide_native_get_items,
 	_apply_shift_detail_updates,
 	_apply_fetch_items_response,
 	_sync_joint_stock_entry_type,
@@ -687,7 +687,7 @@ test("native get_items remains hidden for non-manufacture documents", () => {
 			calls.push(["set_df_property", fieldname, property, value]);
 		},
 	};
-	_sync_native_get_items_access(frm);
+	_hide_native_get_items(frm);
 
 	assert.deepEqual(calls.slice(-3), [
 		["toggle_display", "get_items", false],
@@ -707,7 +707,7 @@ test("native get_items stays hidden for manufacture documents until explicitly s
 			calls.push(["set_df_property", fieldname, property, value]);
 		},
 	};
-	_sync_native_get_items_access(frm);
+	_hide_native_get_items(frm);
 
 	assert.deepEqual(calls.slice(-3), [
 		["toggle_display", "get_items", false],

@@ -127,6 +127,35 @@ test.describe("Production reports", () => {
 		expect(seededRow).not.toHaveProperty("oee");
 	});
 
+	test("@regression OEE quality counts rework as rejected output", async ({ page }) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
+		const seeded = await createSubmittedStockEntryForReports(
+			page,
+			ctx,
+			5,
+			[],
+			[{ rejection_reason: "Burr", qty: 5, is_rework: 1 }]
+		);
+
+		const reportsPage = new ReportsPage(page);
+		await reportsPage.open("Production OEE Report");
+		await reportsPage.runWithDateRange(seeded.production_date, seeded.production_date);
+		await reportsPage.setFilterByFieldname("custom_pea_workstation", ctx.workstation);
+		await reportsPage.clickRefresh();
+		await reportsPage.waitForRows(1);
+
+		const rows = await reportsPage.getRows();
+		const seededRow = rows.find(
+			(row) =>
+				String(row.day || "").includes(seeded.production_date) &&
+				row.workstation === ctx.workstation
+		);
+		expect(Boolean(seededRow)).toBeTruthy();
+		expect(Number(seededRow.rejection)).toBe(5);
+		expect(Number(seededRow.quality_pct)).toBe(95);
+	});
+
 	test("@regression date-driven reports use Completed Shift date instead of Posting Date", async ({
 		page,
 	}) => {

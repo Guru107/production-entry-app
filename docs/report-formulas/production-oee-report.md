@@ -7,10 +7,10 @@ Source: `production_oee_report/production_oee_report.py`
 - `first_shift_strokes`: sum of entry `total_strokes` for rows whose linked shift label is `"1"`.
 - `second_shift_strokes`: sum of entry `total_strokes` for rows whose linked shift label is `"2"`.
 - `total_strokes`: sum of each entry's authoritative `custom_pea_total_strokes`.
-- `quality_total`: part-based production total: normal entries use good plus total rejected quantity;
+- `quality_total`: part-based gross production total: normal entries use good plus total rejected quantity;
   Joint LH/RH entries use LH gross plus RH gross quantity.
-- `rejection`: part-based quality rejection: normal entries use non-rework rejection quantity; Joint
-  LH/RH entries use LH rejection plus RH rejection quantity.
+- `rejection`: part-based quality rejection, including rework: normal entries use total rejected quantity;
+  Joint LH/RH entries use LH rejection plus RH rejection quantity.
 - `std_spm`: weighted average by production hours:
   - `std_spm = standard_spm_weighted_sum / duration_hours_sum`
   - `standard_spm_weighted_sum += custom_pea_standard_spm * entry_production_hours`

@@ -12,6 +12,7 @@ from frappe.query_builder.functions import CustomFunction, Sum
 from frappe.utils import add_to_date, cint, flt, get_datetime
 
 from production_entry_app.production_entry_app.report.report_utils import (
+	get_entry_output_quantities,
 	get_finished_item_maps,
 	is_production_stock_entry,
 )
@@ -443,23 +444,11 @@ def _top_reason_rows(reason_totals: dict[str, float], key_name: str = "reason") 
 
 
 def _get_entry_summary_quantities(entry: dict) -> _EntrySummaryQuantities:
-	if entry.get("custom_pea_is_joint_lh_rh"):
-		total_qty = flt(entry.get("custom_pea_lh_gross_qty")) + flt(entry.get("custom_pea_rh_gross_qty"))
-		rejection_qty = flt(entry.get("custom_pea_lh_rejection_qty")) + flt(
-			entry.get("custom_pea_rh_rejection_qty")
-		)
-		return _EntrySummaryQuantities(
-			total_qty,
-			max(total_qty - rejection_qty, 0),
-			rejection_qty,
-			flt(entry.get("custom_pea_total_strokes")),
-		)
-	total_qty = flt(entry.get("fg_completed_qty") or 0)
-	rejection_qty = flt(entry.get("custom_pea_rejection_qty") or 0)
+	quantities = get_entry_output_quantities(entry)
 	return _EntrySummaryQuantities(
-		total_qty,
-		max(total_qty - rejection_qty, 0),
-		rejection_qty,
+		quantities.total_qty,
+		quantities.ok_qty,
+		quantities.rejection_qty,
 		flt(entry.get("custom_pea_total_strokes")),
 	)
 

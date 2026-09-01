@@ -21,6 +21,7 @@ from production_entry_app.production_entry_app.joint_production import (
 	is_joint_lh_rh_production,
 	validate_and_apply_joint_production,
 )
+from production_entry_app.production_entry_app.report.report_utils import get_entry_output_quantities
 from production_entry_app.production_entry_app.utils.alternative_items import (
 	apply_direct_manufacture_alternative_flags,
 	get_bom_alternative_allowed_items,
@@ -923,15 +924,7 @@ def _get_shift_planned_losses_for_metrics(
 
 
 def _get_ok_units_for_metrics(doc) -> float:
-	if is_joint_lh_rh_production(doc):
-		gross_qty = flt(doc.get("custom_pea_lh_gross_qty")) + flt(doc.get("custom_pea_rh_gross_qty"))
-		rejection_qty = flt(doc.get("custom_pea_lh_rejection_qty")) + flt(
-			doc.get("custom_pea_rh_rejection_qty")
-		)
-		return max(gross_qty - rejection_qty, 0)
-	fg_completed_qty = flt(doc.get("fg_completed_qty") or 0)
-	rejection_qty_field = flt(doc.get("custom_pea_rejection_qty") or 0)
-	return max(fg_completed_qty - rejection_qty_field, 0)
+	return get_entry_output_quantities(doc).ok_qty
 
 
 def _set_if_field(doc, meta, fieldname: str, value) -> None:

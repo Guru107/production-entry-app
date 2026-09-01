@@ -97,16 +97,6 @@ function _hide_native_get_items(frm) {
 	frm.set_df_property("get_items", "read_only", 1);
 }
 
-function _show_native_get_items(frm) {
-	frm.toggle_display("get_items", true);
-	frm.set_df_property("get_items", "hidden", 0);
-	frm.set_df_property("get_items", "read_only", 0);
-}
-
-function _sync_native_get_items_access(frm) {
-	_hide_native_get_items(frm);
-}
-
 // Suppress ERPNext's auto-populate on fg_completed_qty change for Manufacture
 // entries so the user can set both Qty to Manufacture and Rejection Qty before
 // explicitly clicking "Fetch Items".
@@ -145,7 +135,7 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 		onload(frm) {
 			_set_prev_purpose(frm);
 			_set_prev_stock_entry_type(frm);
-			_sync_native_get_items_access(frm);
+			_hide_native_get_items(frm);
 			_apply_native_manufacture_visibility(frm);
 			_apply_manufacture_visibility(frm);
 		},
@@ -154,7 +144,7 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 			_initialize_total_strokes_default_state(frm);
 			_set_prev_purpose(frm);
 			_set_prev_stock_entry_type(frm);
-			_sync_native_get_items_access(frm);
+			_hide_native_get_items(frm);
 			_apply_native_manufacture_visibility(frm);
 			// Set filter to show shifts that can accept post-facto entries.
 			frm.set_query("custom_pea_shift", function () {
@@ -172,7 +162,7 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 
 			_ensure_use_multi_level_bom_unchecked(frm);
 			_apply_manufacture_visibility(frm);
-			_hide_standard_get_items(frm);
+			_hide_native_get_items(frm);
 			_sync_stock_entry_helper_fields(frm);
 			_setup_stock_entry_quick_entry(frm);
 		},
@@ -183,7 +173,7 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 				previousStockEntryType,
 			});
 			_set_prev_stock_entry_type(frm);
-			_sync_native_get_items_access(frm);
+			_hide_native_get_items(frm);
 			_apply_native_manufacture_visibility(frm);
 			// custom_pea_stock_entry_purpose is fetched via fetch_from and will re-trigger visibility.
 			_apply_manufacture_visibility(frm);
@@ -191,7 +181,7 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 			_setup_stock_entry_quick_entry(frm);
 		},
 		custom_pea_stock_entry_purpose(frm) {
-			_sync_native_get_items_access(frm);
+			_hide_native_get_items(frm);
 			_apply_native_manufacture_visibility(frm);
 			_clear_manufacture_data_on_leave(frm);
 			_apply_manufacture_visibility(frm);
@@ -225,16 +215,16 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 			_schedule_joint_rm_consumption(frm);
 		},
 		from_bom(frm) {
-			_sync_native_get_items_access(frm);
+			_hide_native_get_items(frm);
 			_apply_native_manufacture_visibility(frm);
 			_ensure_use_multi_level_bom_unchecked(frm);
-			_hide_standard_get_items(frm);
+			_hide_native_get_items(frm);
 			_apply_manufacture_visibility(frm);
 		},
 		bom_no(frm) {
-			_sync_native_get_items_access(frm);
+			_hide_native_get_items(frm);
 			_apply_native_manufacture_visibility(frm);
-			_hide_standard_get_items(frm);
+			_hide_native_get_items(frm);
 			_apply_manufacture_visibility(frm);
 		},
 		custom_pea_actual_start_date_input(frm) {
@@ -424,11 +414,6 @@ function _load_joint_rm_consumption(frm, requestId) {
 	});
 }
 
-function _hide_standard_get_items(frm) {
-	// Hide the standard "Get Items" button field — our "Fetch Items" replaces it.
-	_hide_native_get_items(frm);
-}
-
 function _apply_fetch_items_response(frm, items) {
 	if (!items || !items.length) return false;
 	frm.clear_table("items");
@@ -526,8 +511,12 @@ function _clear_manufacture_data(frm) {
 	delete frm.__peaTotalStrokesDefaultState;
 
 	const refreshFieldnames = new Set();
-	const scalarChanged = _clear_manufacture_scalar_fields(frm, refreshFieldnames);
-	const tableChanged = _clear_manufacture_table_fields(frm, refreshFieldnames);
+	const scalarChanged = _clear_scalar_fields(frm, MANUFACTURE_FIELDS, refreshFieldnames);
+	const tableChanged = _clear_table_fields(
+		frm,
+		MANUFACTURE_CLEAR_TABLE_FIELDS,
+		refreshFieldnames
+	);
 	const changed = scalarChanged || tableChanged;
 
 	if (refreshFieldnames.size > 0) {
@@ -546,72 +535,76 @@ function _sync_joint_stock_entry_type(
 ) {
 	const requestId = ++_jointStockEntryTypeRequestId;
 	if (source === "stock_entry_type") {
-		const selectedStockEntryType = frm.doc.stock_entry_type || "";
-		const applySelectedType = (jointStockEntryType) => {
-			if (
-				requestId !== _jointStockEntryTypeRequestId ||
-				frm.doc.stock_entry_type !== selectedStockEntryType
-			) {
-				return;
-			}
-			if (frm.__peaJointStockEntryTypeLookup?.requestId === requestId) {
-				delete frm.__peaJointStockEntryTypeLookup;
-			}
-			frm.__peaJointStockEntryType = jointStockEntryType || "";
-			const shouldBeJoint =
-				Boolean(jointStockEntryType) && selectedStockEntryType === jointStockEntryType;
-			if (frm.__peaDeferredManufactureCleanup) {
-				delete frm.__peaDeferredManufactureCleanup;
-				if (!shouldBeJoint) {
-					_clear_manufacture_data(frm);
-				}
-			}
-			if (shouldBeJoint === _is_joint_doc(frm.doc)) {
-				return;
-			}
+		_sync_joint_mode_from_stock_entry_type(frm, requestId, previousStockEntryType);
+		return;
+	}
+	_sync_stock_entry_type_from_joint_mode(frm, requestId);
+}
 
-			if (shouldBeJoint) {
-				frm.__peaStockEntryTypeBeforeJoint = previousStockEntryType;
-			} else {
-				delete frm.__peaStockEntryTypeBeforeJoint;
+function _sync_joint_mode_from_stock_entry_type(frm, requestId, previousStockEntryType) {
+	const selectedStockEntryType = frm.doc.stock_entry_type || "";
+	const applySelectedType = (jointStockEntryType) => {
+		if (
+			requestId !== _jointStockEntryTypeRequestId ||
+			frm.doc.stock_entry_type !== selectedStockEntryType
+		) {
+			return;
+		}
+		if (frm.__peaJointStockEntryTypeLookup?.requestId === requestId) {
+			delete frm.__peaJointStockEntryTypeLookup;
+		}
+		frm.__peaJointStockEntryType = jointStockEntryType || "";
+		const shouldBeJoint =
+			Boolean(jointStockEntryType) && selectedStockEntryType === jointStockEntryType;
+		if (frm.__peaDeferredManufactureCleanup) {
+			delete frm.__peaDeferredManufactureCleanup;
+			if (!shouldBeJoint) {
+				_clear_manufacture_data(frm);
 			}
-			_clear_production_mode_data(frm);
-			frm.doc.custom_pea_is_joint_lh_rh = shouldBeJoint ? 1 : 0;
-			frm.refresh_field?.("custom_pea_is_joint_lh_rh");
-			frm.dirty?.();
-			_apply_manufacture_visibility(frm);
-		};
-
-		if (Object.prototype.hasOwnProperty.call(frm, "__peaJointStockEntryType")) {
-			applySelectedType(frm.__peaJointStockEntryType);
+		}
+		if (shouldBeJoint === _is_joint_doc(frm.doc)) {
 			return;
 		}
 
-		frm.__peaJointStockEntryTypeLookup = {
-			requestId,
-			stockEntryType: selectedStockEntryType,
-		};
-		frappe.call({
-			method: "production_entry_app.production_entry_app.api.get_joint_stock_entry_type",
-			callback(r) {
-				applySelectedType(r.message);
-			},
-			error(error) {
-				if (requestId !== _jointStockEntryTypeRequestId) return;
-				delete frm.__peaJointStockEntryTypeLookup;
-				if (frm.__peaDeferredManufactureCleanup) {
-					delete frm.__peaDeferredManufactureCleanup;
-					_clear_manufacture_data(frm);
-				}
-				_notify_call_error(
-					__("Failed to identify the Joint LH/RH Stock Entry Type."),
-					error
-				);
-			},
-		});
+		if (shouldBeJoint) {
+			frm.__peaStockEntryTypeBeforeJoint = previousStockEntryType;
+		} else {
+			delete frm.__peaStockEntryTypeBeforeJoint;
+		}
+		_clear_production_mode_data(frm);
+		frm.doc.custom_pea_is_joint_lh_rh = shouldBeJoint ? 1 : 0;
+		frm.refresh_field?.("custom_pea_is_joint_lh_rh");
+		frm.dirty?.();
+		_apply_manufacture_visibility(frm);
+	};
+
+	if (Object.prototype.hasOwnProperty.call(frm, "__peaJointStockEntryType")) {
+		applySelectedType(frm.__peaJointStockEntryType);
 		return;
 	}
 
+	frm.__peaJointStockEntryTypeLookup = {
+		requestId,
+		stockEntryType: selectedStockEntryType,
+	};
+	frappe.call({
+		method: "production_entry_app.production_entry_app.api.get_joint_stock_entry_type",
+		callback(r) {
+			applySelectedType(r.message);
+		},
+		error(error) {
+			if (requestId !== _jointStockEntryTypeRequestId) return;
+			delete frm.__peaJointStockEntryTypeLookup;
+			if (frm.__peaDeferredManufactureCleanup) {
+				delete frm.__peaDeferredManufactureCleanup;
+				_clear_manufacture_data(frm);
+			}
+			_notify_call_error(__("Failed to identify the Joint LH/RH Stock Entry Type."), error);
+		},
+	});
+}
+
+function _sync_stock_entry_type_from_joint_mode(frm, requestId) {
 	if (!_is_joint_doc(frm.doc)) {
 		_clear_production_mode_data(frm);
 		if (Object.prototype.hasOwnProperty.call(frm, "__peaStockEntryTypeBeforeJoint")) {
@@ -653,27 +646,18 @@ function _clear_production_mode_data(frm) {
 	}
 
 	const refreshFieldnames = new Set();
-	let changed = false;
-	for (const fieldname of PRODUCTION_MODE_SCALAR_FIELDS) {
-		if (!Object.prototype.hasOwnProperty.call(frm.doc, fieldname)) continue;
-		const fieldtype = frm.get_field?.(fieldname)?.df?.fieldtype || "";
-		const clearValue = fieldtype === "Check" ? 0 : "";
-		if (frm.doc[fieldname] === clearValue) continue;
-		frm.doc[fieldname] = clearValue;
-		refreshFieldnames.add(fieldname);
-		changed = true;
-	}
-	for (const fieldname of PRODUCTION_MODE_CLEAR_TABLE_FIELDS) {
-		const rows = frm.doc[fieldname];
-		if (!Array.isArray(rows) || rows.length === 0) continue;
-		if (typeof frm.clear_table === "function") {
-			frm.clear_table(fieldname);
-		} else {
-			frm.doc[fieldname] = [];
-		}
-		refreshFieldnames.add(fieldname);
-		changed = true;
-	}
+	const scalarChanged = _clear_scalar_fields(
+		frm,
+		PRODUCTION_MODE_SCALAR_FIELDS,
+		refreshFieldnames,
+		{ onlyExisting: true }
+	);
+	const tableChanged = _clear_table_fields(
+		frm,
+		PRODUCTION_MODE_CLEAR_TABLE_FIELDS,
+		refreshFieldnames
+	);
+	const changed = scalarChanged || tableChanged;
 	if (refreshFieldnames.size > 0) {
 		frm.refresh_fields?.(Array.from(refreshFieldnames));
 	}
@@ -683,16 +667,17 @@ function _clear_production_mode_data(frm) {
 	}
 }
 
-function _clear_manufacture_scalar_fields(frm, refreshFieldnames) {
+function _clear_scalar_fields(frm, fieldnames, refreshFieldnames, { onlyExisting = false } = {}) {
 	let changed = false;
-	for (const fieldname of MANUFACTURE_FIELDS) {
-		changed = _clear_manufacture_scalar_field(frm, fieldname, refreshFieldnames) || changed;
+	for (const fieldname of fieldnames) {
+		if (onlyExisting && !Object.prototype.hasOwnProperty.call(frm.doc, fieldname)) continue;
+		changed = _clear_scalar_field(frm, fieldname, refreshFieldnames) || changed;
 	}
 	return changed;
 }
 
-function _clear_manufacture_scalar_field(frm, fieldname, refreshFieldnames) {
-	const field = frm.get_field(fieldname);
+function _clear_scalar_field(frm, fieldname, refreshFieldnames) {
+	const field = frm.get_field?.(fieldname);
 	const fieldtype = field?.df?.fieldtype || "";
 	if (_is_layout_or_table_field(fieldtype)) {
 		return false;
@@ -717,14 +702,18 @@ function _is_layout_or_table_field(fieldtype) {
 	].includes(fieldtype);
 }
 
-function _clear_manufacture_table_fields(frm, refreshFieldnames) {
+function _clear_table_fields(frm, fieldnames, refreshFieldnames) {
 	let changed = false;
-	for (const tableField of MANUFACTURE_CLEAR_TABLE_FIELDS) {
+	for (const tableField of fieldnames) {
 		const rows = frm.doc?.[tableField] || [];
 		if (!Array.isArray(rows) || rows.length === 0) {
 			continue;
 		}
-		frm.clear_table(tableField);
+		if (typeof frm.clear_table === "function") {
+			frm.clear_table(tableField);
+		} else {
+			frm.doc[tableField] = [];
+		}
 		refreshFieldnames.add(tableField);
 		changed = true;
 	}
@@ -1202,7 +1191,6 @@ if (typeof module !== "undefined" && module.exports) {
 		ALWAYS_HIDDEN_FIELDS,
 		ALWAYS_HIDDEN_SECTIONS,
 		MANUFACTURE_CLEAR_TABLE_FIELDS,
-		_sync_native_get_items_access,
 		_apply_shift_detail_updates,
 		_apply_fetch_items_response,
 		_apply_manufacture_visibility,
@@ -1211,6 +1199,5 @@ if (typeof module !== "undefined" && module.exports) {
 		_default_total_strokes_from_fg,
 		_get_rejection_qty_for_visibility,
 		_hide_native_get_items,
-		_show_native_get_items,
 	};
 }

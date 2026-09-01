@@ -629,6 +629,44 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(float(rows[0]["first_shift_strokes"]), 70.0)
 		self.assertAlmostEqual(float(rows[0]["quality_pct"]), (175 / 180) * 100, places=6)
 
+	def test_production_oee_quality_counts_rework_consistently_across_production_modes(self) -> None:
+		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
+			execute,
+		)
+
+		for production_date, is_joint in (("2026-06-08", False), ("2026-06-09", True)):
+			shift = self._create_shift_for_label(production_date, "1", clear_planned_losses=True)
+			entry = self._create_mock_submitted_entry_with_breakup(
+				posting_date=production_date,
+				planned_start=f"{production_date} 08:00:00",
+				planned_end=f"{production_date} 09:00:00",
+				actual_start=f"{production_date} 08:00:00",
+				actual_end=f"{production_date} 09:00:00",
+				fg_qty=100,
+				shift_name=shift.name,
+				breakup_rows=[{"rejection_reason": "Burr", "qty": 5, "is_rework": 1}],
+			)
+			if is_joint:
+				frappe.db.set_value(
+					"Stock Entry",
+					entry.name,
+					{
+						"purpose": "Repack",
+						"custom_pea_is_joint_lh_rh": 1,
+						"custom_pea_lh_gross_qty": 40,
+						"custom_pea_lh_rejection_qty": 5,
+						"custom_pea_rh_gross_qty": 60,
+						"custom_pea_rh_rejection_qty": 0,
+					},
+					update_modified=False,
+				)
+
+		_, rows = execute({"from_date": "2026-06-08", "to_date": "2026-06-09"})
+
+		self.assertEqual(len(rows), 2)
+		self.assertEqual([float(row["quality_pct"]) for row in rows], [95.0, 95.0])
+		self.assertEqual([float(row["rejection"]) for row in rows], [5.0, 5.0])
+
 	def test_production_oee_report_shift_split_and_loss_bucket_mapping(self) -> None:
 		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
 			execute,
@@ -1531,7 +1569,8 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(float(operator_rows[0]["rework_qty"]), 3.0)
 		self.assertEqual(float(workstation_rows[0]["rejection_qty"]), 2.0)
 		self.assertEqual(float(workstation_rows[0]["rework_qty"]), 3.0)
-		self.assertEqual(float(oee_rows[0]["rejection"]), 2.0)
+		self.assertEqual(float(oee_rows[0]["rejection"]), 5.0)
+		self.assertEqual(float(oee_rows[0]["quality_pct"]), 95.0)
 		self.assertEqual(float(daily_rows[0]["rejection"]), 2.0)
 		self.assertEqual(float(daily_rows[0]["rework"]), 3.0)
 
