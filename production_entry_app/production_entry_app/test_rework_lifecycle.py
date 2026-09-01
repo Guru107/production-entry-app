@@ -5,7 +5,7 @@ from unittest.mock import patch
 import frappe
 from frappe.model.document import Document
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils import get_datetime
+from frappe.utils import get_datetime, get_time
 
 from production_entry_app.production_entry_app import e2e_api, rework
 from production_entry_app.production_entry_app.report.pending_rework import pending_rework
@@ -64,6 +64,8 @@ class TestReworkLifecycle(FrappeTestCase):
 			rejection_qty=5,
 		)
 		source.custom_pea_rejection_breakup[0].is_rework = 1
+		source.set_posting_time = 1
+		source.posting_time = "10:00:00"
 		source.save(ignore_permissions=True)
 		source.submit()
 
@@ -75,6 +77,7 @@ class TestReworkLifecycle(FrappeTestCase):
 		rejection_before = self._stock_qty(self.masters["rejection_warehouse"])
 		good_before = self._stock_qty(self.masters["fg_warehouse"])
 		rework_entry = self._make_rework_entry(shift.shift_date)
+		self.assertLess(get_time(source.posting_time), get_time(rework_entry.posting_time))
 		rework_entry.insert(ignore_permissions=True)
 		self.assertEqual(rework_entry.from_warehouse, self.masters["rejection_warehouse"])
 		self.assertEqual(rework_entry.items[0].s_warehouse, self.masters["rejection_warehouse"])

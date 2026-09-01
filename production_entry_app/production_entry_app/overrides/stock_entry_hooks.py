@@ -93,10 +93,11 @@ def validate_stock_entry(doc: Document, method: str | None = None) -> None:
 	is_rework = is_rework_stock_entry(doc)
 	if doc.get("custom_pea_shift"):
 		_validate_linked_shift_can_accept_stock_entry(doc)
-		if not is_rework:
+	if not is_rework:
+		if doc.get("custom_pea_shift"):
 			_apply_shift_defaults(doc)
-			_stamp_late_entry_flag(doc)
-			_sync_unplanned_loss_shift_links(doc)
+		_stamp_late_entry_flag(doc)
+		_sync_unplanned_loss_shift_links(doc)
 
 	_validate_rework_fields(doc)
 	_validate_actual_times(doc)
