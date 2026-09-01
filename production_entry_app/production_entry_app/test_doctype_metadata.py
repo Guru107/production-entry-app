@@ -126,6 +126,43 @@ def test_joint_lh_rh_production_metadata_is_exported() -> None:
 	assert rejection_fields["item_code"]["options"] == "Item"
 
 
+def test_rework_stock_entry_metadata_is_exported() -> None:
+	fields_by_name = {field.get("name"): field for field in load_custom_field_fixture() if field.get("name")}
+	rework_fields = {
+		"Stock Entry-custom_pea_rework_type": ("Link", "Rework Type"),
+		"Stock Entry-custom_pea_rework_workstation": ("Link", "Workstation"),
+		"Stock Entry-custom_pea_rework_actual_start": ("Datetime", None),
+		"Stock Entry-custom_pea_rework_actual_end": ("Datetime", None),
+		"Stock Entry-custom_pea_rework_operators": ("Table", "Rework Operator"),
+		"Stock Entry-custom_pea_rework_cost": ("Currency", None),
+	}
+
+	for name, (fieldtype, options) in rework_fields.items():
+		field = fields_by_name[name]
+		assert field["fieldtype"] == fieldtype
+		assert field.get("options") == options
+		assert "stock_entry_type" in field.get("depends_on", "")
+
+	for name in set(rework_fields).difference({"Stock Entry-custom_pea_rework_cost"}):
+		assert fields_by_name[name].get("mandatory_depends_on") == fields_by_name[name].get("depends_on")
+	assert fields_by_name["Stock Entry-custom_pea_rework_cost"].get("read_only") == 1
+
+	rework_operator = assert_doctype_json("Rework Operator")
+	assert rework_operator["istable"] == 1
+	assert rework_operator["permissions"] == []
+	assert rework_operator["field_order"] == ["operator"]
+	assert rework_operator["fields"] == [
+		{
+			"fieldname": "operator",
+			"fieldtype": "Link",
+			"in_list_view": 1,
+			"label": "Operator",
+			"options": "Operator",
+			"reqd": 1,
+		}
+	]
+
+
 def test_settings_has_no_access_control_fields() -> None:
 	fields_by_name = {
 		field.get("fieldname"): field
@@ -219,6 +256,7 @@ def load_tests(
 			test_no_app_custom_field_uses_nonzero_permlevel,
 			test_stock_entry_detail_rejection_flag_uses_cross_version_anchor,
 			test_joint_lh_rh_production_metadata_is_exported,
+			test_rework_stock_entry_metadata_is_exported,
 			test_settings_has_no_access_control_fields,
 			test_pea_roles_are_shipped,
 			test_workspace_has_forms_and_reports_cards,

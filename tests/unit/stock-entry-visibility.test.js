@@ -16,6 +16,9 @@ const {
 	_initialize_total_strokes_default_state,
 	_default_total_strokes_from_fg,
 	_get_rejection_qty_for_visibility,
+	_sync_rework_mode_from_stock_entry_type,
+	_schedule_rework_workstation_default,
+	REWORK_FIELDS,
 	MANUFACTURE_FIELDS,
 	PEA_MANUFACTURE_FIELDS,
 	JOINT_ONLY_PEA_FIELDS,
@@ -24,6 +27,423 @@ const {
 	ALWAYS_HIDDEN_SECTIONS,
 	MANUFACTURE_CLEAR_TABLE_FIELDS,
 } = require("../../production_entry_app/public/js/stock_entry.js");
+
+test("selecting the configured Rework Stock Entry Type shows rework fields", () => {
+	const originalFrappe = global.frappe;
+	global.frappe = {
+		call(options) {
+			options.callback({ message: "Rework Material Transfer" });
+		},
+	};
+	const visibility = [];
+	const frm = {
+		doc: { stock_entry_type: "Rework Material Transfer" },
+		toggle_display(fieldnames, visible) {
+			visibility.push([fieldnames, visible]);
+		},
+		refresh_fields() {},
+	};
+
+	try {
+		_sync_rework_mode_from_stock_entry_type(frm);
+
+		assert.equal(frm.doc.__pea_rework_stock_entry_type, "Rework Material Transfer");
+		assert.deepEqual(visibility, [[REWORK_FIELDS, true]]);
+	} finally {
+		global.frappe = originalFrappe;
+	}
+});
+
+test("leaving the Rework Stock Entry Type clears all rework-owned fields", () => {
+	const originalFrappe = global.frappe;
+	global.frappe = {
+		call(options) {
+			options.callback({ message: "Rework Material Transfer" });
+		},
+	};
+	const frm = {
+		doc: {
+			stock_entry_type: "Material Transfer",
+			custom_pea_rework_type: "Deburring",
+			custom_pea_rework_workstation: "Rework Workstation",
+			custom_pea_rework_actual_start: "2026-09-01 08:00:00",
+			custom_pea_rework_actual_end: "2026-09-01 09:00:00",
+			custom_pea_rework_operators: [{ operator: "Operator One" }],
+			custom_pea_rework_cost: 50,
+		},
+		get_field(fieldname) {
+			return {
+				df: { fieldtype: fieldname === "custom_pea_rework_cost" ? "Currency" : "Data" },
+			};
+		},
+		clear_table(fieldname) {
+			this.doc[fieldname] = [];
+		},
+		refresh_fields() {},
+		toggle_display() {},
+		dirty() {},
+	};
+	frm.__peaReworkTypeTimer = setTimeout(() => {}, 10_000);
+
+	try {
+		_sync_rework_mode_from_stock_entry_type(frm, {
+			previousStockEntryType: "Rework Material Transfer",
+		});
+
+		assert.equal(frm.doc.custom_pea_rework_type, "");
+		assert.equal(frm.doc.custom_pea_rework_workstation, "");
+		assert.equal(frm.doc.custom_pea_rework_actual_start, "");
+		assert.equal(frm.doc.custom_pea_rework_actual_end, "");
+		assert.deepEqual(frm.doc.custom_pea_rework_operators, []);
+		assert.equal(frm.doc.custom_pea_rework_cost, "");
+	} finally {
+		global.frappe = originalFrappe;
+	}
+});
+
+test("Rework Type workstation default is debounced and last selection wins", async (t) => {
+	t.mock.timers.enable({ apis: ["setTimeout"] });
+	const originalFrappe = global.frappe;
+	const requests = new Map();
+	global.frappe = {
+		db: {
+			get_value(_doctype, name) {
+				return new Promise((resolve, reject) => requests.set(name, { resolve, reject }));
+			},
+		},
+	};
+	const frm = {
+		doc: {
+			stock_entry_type: "Rework Material Transfer",
+			__pea_rework_stock_entry_type: "Rework Material Transfer",
+			custom_pea_rework_type: "Deburring",
+			custom_pea_rework_workstation: "Old Workstation",
+		},
+		set_value(fieldname, value) {
+			this.doc[fieldname] = value;
+		},
+	};
+
+	try {
+		_schedule_rework_workstation_default(frm);
+		assert.equal(requests.size, 0);
+		t.mock.timers.tick(300);
+		assert.ok(requests.has("Deburring"));
+
+		frm.doc.custom_pea_rework_type = "Polishing";
+		_schedule_rework_workstation_default(frm);
+		t.mock.timers.tick(300);
+		assert.ok(requests.has("Polishing"));
+
+		requests.get("Polishing").resolve({ message: { default_workstation: "Polishing Bench" } });
+		await Promise.resolve();
+		requests.get("Deburring").resolve({ message: { default_workstation: "Deburring Bench" } });
+		await Promise.resolve();
+
+		assert.equal(frm.doc.custom_pea_rework_workstation, "Polishing Bench");
+	} finally {
+		global.frappe = originalFrappe;
+	}
+});
+
+test("Stock Entry registers the Rework Type defaulting handler", () => {
+	const modulePath = "../../production_entry_app/public/js/stock_entry.js";
+	const moduleId = require.resolve(modulePath);
+	const cachedModule = require.cache[moduleId];
+	const originalFrappe = global.frappe;
+	const originalFlt = global.flt;
+	const originalWindow = global.window;
+	const registered = {};
+	delete require.cache[moduleId];
+	global.flt = Number;
+	global.window = {};
+	global.frappe = {
+		call(options) {
+			const message = options.method.endsWith("get_rework_stock_entry_type")
+				? "Rework Material Transfer"
+				: "Joint LH RH Repack";
+			options.callback({ message });
+		},
+		ui: {
+			form: {
+				on(doctype, handlers) {
+					registered[doctype] = handlers;
+				},
+			},
+		},
+	};
+	const frm = {
+		doc: {
+			stock_entry_type: "Rework Material Transfer",
+			custom_pea_stock_entry_purpose: "Material Transfer",
+			custom_pea_is_joint_lh_rh: 0,
+			custom_pea_rework_type: "",
+			custom_pea_rework_operators: [],
+			items: [],
+		},
+		fields_dict: {},
+		layout: { sections: [] },
+		clear_table(fieldname) {
+			this.doc[fieldname] = [];
+		},
+		dirty() {},
+		get_field() {
+			return { df: { fieldtype: "Data" } };
+		},
+		refresh_field() {},
+		refresh_fields() {},
+		set_df_property() {},
+		set_value(fieldname, value) {
+			this.doc[fieldname] = value;
+		},
+		toggle_display() {},
+		toggle_reqd() {},
+	};
+
+	try {
+		require(modulePath);
+		assert.equal(typeof registered["Stock Entry"].custom_pea_rework_type, "function");
+		registered["Stock Entry"].onload(frm);
+		assert.equal(frm.doc.__pea_rework_stock_entry_type, "Rework Material Transfer");
+
+		frm.__pea_prev_stock_entry_type = "Rework Material Transfer";
+		frm.doc.stock_entry_type = "Material Transfer";
+		frm.doc.custom_pea_rework_type = "Deburring";
+		registered["Stock Entry"].stock_entry_type(frm);
+		assert.equal(frm.doc.custom_pea_rework_type, "");
+
+		registered["Stock Entry"].custom_pea_rework_type(frm);
+	} finally {
+		if (cachedModule) {
+			require.cache[moduleId] = cachedModule;
+		} else {
+			delete require.cache[moduleId];
+		}
+		global.frappe = originalFrappe;
+		global.flt = originalFlt;
+		global.window = originalWindow;
+	}
+});
+
+test("stale Rework Stock Entry Type lookup responses do not change visibility", () => {
+	const originalFrappe = global.frappe;
+	const callbacks = [];
+	global.frappe = {
+		call(options) {
+			callbacks.push(options.callback);
+		},
+	};
+	const visibility = [];
+	const frm = {
+		doc: { stock_entry_type: "Material Transfer" },
+		refresh_fields() {},
+		toggle_display(_fieldnames, visible) {
+			visibility.push(visible);
+		},
+	};
+
+	try {
+		_sync_rework_mode_from_stock_entry_type(frm);
+		frm.doc.stock_entry_type = "Rework Material Transfer";
+		_sync_rework_mode_from_stock_entry_type(frm);
+		callbacks[0]({ message: "Rework Material Transfer" });
+		callbacks[1]({ message: "Rework Material Transfer" });
+
+		assert.deepEqual(visibility, [true]);
+	} finally {
+		global.frappe = originalFrappe;
+	}
+});
+
+test("cached Rework Stock Entry Type applies without another server call", () => {
+	const originalFrappe = global.frappe;
+	let callCount = 0;
+	global.frappe = { call: () => (callCount += 1) };
+	const visibility = [];
+	const frm = {
+		doc: {
+			stock_entry_type: "Rework Material Transfer",
+			__pea_rework_stock_entry_type: "Rework Material Transfer",
+		},
+		refresh_fields() {},
+		toggle_display(_fieldnames, visible) {
+			visibility.push(visible);
+		},
+	};
+
+	try {
+		_sync_rework_mode_from_stock_entry_type(frm);
+		assert.equal(callCount, 0);
+		assert.deepEqual(visibility, [true]);
+	} finally {
+		global.frappe = originalFrappe;
+	}
+});
+
+test("current Rework Stock Entry Type lookup failures notify the user", () => {
+	const originalFrappe = global.frappe;
+	const originalTranslate = global.__;
+	const messages = [];
+	global.__ = (text) => text;
+	global.frappe = {
+		call(options) {
+			options.error(new Error("lookup unavailable"));
+		},
+		msgprint(message) {
+			messages.push(message);
+		},
+	};
+
+	try {
+		_sync_rework_mode_from_stock_entry_type({
+			doc: { stock_entry_type: "Material Transfer" },
+		});
+		assert.deepEqual(messages, [
+			"Failed to identify the Rework Stock Entry Type. lookup unavailable",
+		]);
+	} finally {
+		global.frappe = originalFrappe;
+		global.__ = originalTranslate;
+	}
+});
+
+test("Rework Workstation defaulting cancels a pending debounce", async (t) => {
+	t.mock.timers.enable({ apis: ["setTimeout"] });
+	const originalFrappe = global.frappe;
+	const requestedTypes = [];
+	global.frappe = {
+		db: {
+			get_value(_doctype, name) {
+				requestedTypes.push(name);
+				return Promise.resolve({ message: { default_workstation: "Bench" } });
+			},
+		},
+	};
+	const frm = {
+		doc: {
+			stock_entry_type: "Rework Material Transfer",
+			__pea_rework_stock_entry_type: "Rework Material Transfer",
+			custom_pea_rework_type: "Deburring",
+		},
+		set_value(fieldname, value) {
+			this.doc[fieldname] = value;
+		},
+	};
+
+	try {
+		_schedule_rework_workstation_default(frm);
+		frm.doc.custom_pea_rework_type = "Polishing";
+		_schedule_rework_workstation_default(frm);
+		t.mock.timers.tick(300);
+		await Promise.resolve();
+
+		assert.deepEqual(requestedTypes, ["Polishing"]);
+	} finally {
+		global.frappe = originalFrappe;
+	}
+});
+
+test("Rework Workstation defaulting preserves an override made while loading", async (t) => {
+	t.mock.timers.enable({ apis: ["setTimeout"] });
+	const originalFrappe = global.frappe;
+	let resolveRequest;
+	global.frappe = {
+		db: {
+			get_value() {
+				return new Promise((resolve) => (resolveRequest = resolve));
+			},
+		},
+	};
+	const frm = {
+		doc: {
+			stock_entry_type: "Rework Material Transfer",
+			__pea_rework_stock_entry_type: "Rework Material Transfer",
+			custom_pea_rework_type: "Deburring",
+		},
+		set_value(fieldname, value) {
+			this.doc[fieldname] = value;
+		},
+	};
+
+	try {
+		_schedule_rework_workstation_default(frm);
+		t.mock.timers.tick(300);
+		frm.doc.custom_pea_rework_workstation = "Manual Bench";
+		resolveRequest({ message: { default_workstation: "Default Bench" } });
+		await Promise.resolve();
+
+		assert.equal(frm.doc.custom_pea_rework_workstation, "Manual Bench");
+	} finally {
+		global.frappe = originalFrappe;
+	}
+});
+
+test("Rework Workstation defaulting returns when Rework Type is empty", () => {
+	const originalFrappe = global.frappe;
+	global.frappe = { db: { get_value: () => Promise.resolve() } };
+	const frm = {
+		doc: {
+			stock_entry_type: "Rework Material Transfer",
+			__pea_rework_stock_entry_type: "Rework Material Transfer",
+			custom_pea_rework_type: "",
+			custom_pea_rework_workstation: "Stale Bench",
+		},
+		set_value(fieldname, value) {
+			this.doc[fieldname] = value;
+		},
+	};
+
+	try {
+		_schedule_rework_workstation_default(frm);
+		assert.equal(frm.doc.custom_pea_rework_workstation, "");
+		assert.equal(frm.__peaReworkTypeTimer, undefined);
+	} finally {
+		global.frappe = originalFrappe;
+	}
+});
+
+test("current Rework Workstation default failures notify the user", async (t) => {
+	t.mock.timers.enable({ apis: ["setTimeout"] });
+	const originalFrappe = global.frappe;
+	const originalTranslate = global.__;
+	const messages = [];
+	global.__ = (text) => text;
+	global.frappe = {
+		db: {
+			get_value() {
+				return Promise.reject(new Error("network unavailable"));
+			},
+		},
+		msgprint(message) {
+			messages.push(message);
+		},
+	};
+	const frm = {
+		doc: {
+			stock_entry_type: "Rework Material Transfer",
+			__pea_rework_stock_entry_type: "Rework Material Transfer",
+			custom_pea_rework_type: "Deburring",
+			custom_pea_rework_workstation: "",
+		},
+		set_value(fieldname, value) {
+			this.doc[fieldname] = value;
+		},
+	};
+
+	try {
+		_schedule_rework_workstation_default(frm);
+		t.mock.timers.tick(300);
+		await Promise.resolve();
+		await Promise.resolve();
+
+		assert.deepEqual(messages, [
+			"Failed to load the default Rework Workstation. network unavailable",
+		]);
+	} finally {
+		global.frappe = originalFrappe;
+		global.__ = originalTranslate;
+	}
+});
 
 test("manufacture strokes follow quantity until the operator edits them", async () => {
 	const frm = {

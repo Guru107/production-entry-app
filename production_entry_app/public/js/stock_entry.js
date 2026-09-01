@@ -85,11 +85,22 @@ const PRODUCTION_MODE_SCALAR_FIELDS = [
 	"custom_pea_total_rm_consumption",
 ];
 const PRODUCTION_MODE_CLEAR_TABLE_FIELDS = ["custom_pea_rejection_breakup", "items"];
+const REWORK_SCALAR_FIELDS = [
+	"custom_pea_rework_type",
+	"custom_pea_rework_workstation",
+	"custom_pea_rework_actual_start",
+	"custom_pea_rework_actual_end",
+	"custom_pea_rework_cost",
+];
+const REWORK_TABLE_FIELDS = ["custom_pea_rework_operators"];
+const REWORK_FIELDS = [...REWORK_SCALAR_FIELDS, ...REWORK_TABLE_FIELDS];
 let _dieToolRequestId = 0;
 let _shiftDetailsRequestId = 0;
 let _jointStockEntryTypeRequestId = 0;
+let _reworkStockEntryTypeRequestId = 0;
 const _rejectionSideRequestIds = new Map();
 const JOINT_RM_DEBOUNCE_MS = 300;
+const REWORK_TYPE_DEBOUNCE_MS = 300;
 
 function _hide_native_get_items(frm) {
 	frm.toggle_display("get_items", false);
@@ -135,6 +146,7 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 		onload(frm) {
 			_set_prev_purpose(frm);
 			_set_prev_stock_entry_type(frm);
+			_sync_rework_mode_from_stock_entry_type(frm);
 			_hide_native_get_items(frm);
 			_apply_native_manufacture_visibility(frm);
 			_apply_manufacture_visibility(frm);
@@ -172,6 +184,7 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 				source: "stock_entry_type",
 				previousStockEntryType,
 			});
+			_sync_rework_mode_from_stock_entry_type(frm, { previousStockEntryType });
 			_set_prev_stock_entry_type(frm);
 			_hide_native_get_items(frm);
 			_apply_native_manufacture_visibility(frm);
@@ -288,6 +301,9 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 		},
 		custom_pea_joint_fetch_items(frm) {
 			return frm.trigger("custom_pea_fetch_items");
+		},
+		custom_pea_rework_type(frm) {
+			_schedule_rework_workstation_default(frm);
 		},
 		custom_pea_shift(frm) {
 			_handle_shift_change(frm);
@@ -539,6 +555,106 @@ function _sync_joint_stock_entry_type(
 		return;
 	}
 	_sync_stock_entry_type_from_joint_mode(frm, requestId);
+}
+
+function _sync_rework_mode_from_stock_entry_type(frm, { previousStockEntryType = "" } = {}) {
+	const requestId = ++_reworkStockEntryTypeRequestId;
+	const selectedStockEntryType = frm.doc.stock_entry_type || "";
+	const applyReworkStockEntryType = (reworkStockEntryType) => {
+		frm.doc.__pea_rework_stock_entry_type = reworkStockEntryType;
+		if (
+			previousStockEntryType === reworkStockEntryType &&
+			selectedStockEntryType !== reworkStockEntryType
+		) {
+			_clear_rework_data(frm);
+		}
+		frm.refresh_fields?.(REWORK_FIELDS);
+		frm.toggle_display(REWORK_FIELDS, selectedStockEntryType === reworkStockEntryType);
+	};
+	if (Object.prototype.hasOwnProperty.call(frm.doc, "__pea_rework_stock_entry_type")) {
+		applyReworkStockEntryType(frm.doc.__pea_rework_stock_entry_type || "");
+		return;
+	}
+	frappe.call({
+		method: "production_entry_app.production_entry_app.api.get_rework_stock_entry_type",
+		callback(r) {
+			if (
+				requestId !== _reworkStockEntryTypeRequestId ||
+				frm.doc.stock_entry_type !== selectedStockEntryType
+			) {
+				return;
+			}
+			applyReworkStockEntryType(r.message || "");
+		},
+		error(error) {
+			if (requestId !== _reworkStockEntryTypeRequestId) return;
+			_notify_call_error(__("Failed to identify the Rework Stock Entry Type."), error);
+		},
+	});
+}
+
+function _clear_rework_data(frm) {
+	frm.__peaReworkTypeRequestId = (frm.__peaReworkTypeRequestId || 0) + 1;
+	if (frm.__peaReworkTypeTimer) {
+		clearTimeout(frm.__peaReworkTypeTimer);
+		frm.__peaReworkTypeTimer = null;
+	}
+	const refreshFieldnames = new Set();
+	const scalarChanged = _clear_scalar_fields(frm, REWORK_SCALAR_FIELDS, refreshFieldnames, {
+		onlyExisting: true,
+	});
+	const tableChanged = _clear_table_fields(frm, REWORK_TABLE_FIELDS, refreshFieldnames);
+	if (refreshFieldnames.size > 0) {
+		frm.refresh_fields?.(Array.from(refreshFieldnames));
+	}
+	if (scalarChanged || tableChanged) {
+		frm.dirty?.();
+	}
+}
+
+function _is_rework_doc(doc) {
+	return Boolean(
+		doc?.__pea_rework_stock_entry_type &&
+			doc.stock_entry_type === doc.__pea_rework_stock_entry_type
+	);
+}
+
+function _schedule_rework_workstation_default(frm) {
+	if (frm.__peaReworkTypeTimer) {
+		clearTimeout(frm.__peaReworkTypeTimer);
+		frm.__peaReworkTypeTimer = null;
+	}
+	const requestId = (frm.__peaReworkTypeRequestId || 0) + 1;
+	frm.__peaReworkTypeRequestId = requestId;
+	const selectedReworkType = frm.doc.custom_pea_rework_type || "";
+	frm.set_value("custom_pea_rework_workstation", "");
+	if (!_is_rework_doc(frm.doc) || !selectedReworkType) {
+		return;
+	}
+
+	frm.__peaReworkTypeTimer = setTimeout(() => {
+		frm.__peaReworkTypeTimer = null;
+		frappe.db
+			.get_value("Rework Type", selectedReworkType, "default_workstation")
+			.then((response) => {
+				if (
+					requestId !== frm.__peaReworkTypeRequestId ||
+					frm.doc.custom_pea_rework_type !== selectedReworkType ||
+					!_is_rework_doc(frm.doc) ||
+					frm.doc.custom_pea_rework_workstation
+				) {
+					return;
+				}
+				frm.set_value(
+					"custom_pea_rework_workstation",
+					response?.message?.default_workstation || ""
+				);
+			})
+			.catch((error) => {
+				if (requestId !== frm.__peaReworkTypeRequestId) return;
+				_notify_call_error(__("Failed to load the default Rework Workstation."), error);
+			});
+	}, REWORK_TYPE_DEBOUNCE_MS);
 }
 
 function _sync_joint_mode_from_stock_entry_type(frm, requestId, previousStockEntryType) {
@@ -1195,6 +1311,9 @@ if (typeof module !== "undefined" && module.exports) {
 		_apply_fetch_items_response,
 		_apply_manufacture_visibility,
 		_sync_joint_stock_entry_type,
+		_sync_rework_mode_from_stock_entry_type,
+		_schedule_rework_workstation_default,
+		REWORK_FIELDS,
 		_initialize_total_strokes_default_state,
 		_default_total_strokes_from_fg,
 		_get_rejection_qty_for_visibility,

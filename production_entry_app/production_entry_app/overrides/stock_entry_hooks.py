@@ -54,6 +54,14 @@ _DEFAULT_START_BUFFER_MINS: int = 60
 _DEFAULT_END_BUFFER_MINS: int = 60
 _MAX_BUFFER_MINS: int = 480
 _ALLOWED_STOCK_ENTRY_SHIFT_STATUSES: tuple[str, ...] = ("Running", "Completed")
+_REWORK_FIELDS: tuple[str, ...] = (
+	"custom_pea_rework_type",
+	"custom_pea_rework_workstation",
+	"custom_pea_rework_actual_start",
+	"custom_pea_rework_actual_end",
+	"custom_pea_rework_operators",
+	"custom_pea_rework_cost",
+)
 
 
 def _safe_bold(value: Any) -> str:
@@ -83,6 +91,7 @@ def validate_stock_entry(doc: Document, method: str | None = None) -> None:
 	_stamp_late_entry_flag(doc)
 	_sync_unplanned_loss_shift_links(doc)
 
+	_validate_rework_fields(doc)
 	_validate_actual_times(doc)
 	_validate_unplanned_losses_within_actual_window(doc)
 	_validate_workstation_overlap(doc)
@@ -98,6 +107,41 @@ def validate_stock_entry(doc: Document, method: str | None = None) -> None:
 		_apply_rejection_entries(doc)
 	_validate_rejection_target_warehouses(doc)
 	_set_entry_metrics(doc)
+
+
+def _is_rework_stock_entry(doc: Document) -> bool:
+	stock_entry_type = doc.get("stock_entry_type")
+	return bool(
+		stock_entry_type
+		and frappe.db.get_value("Stock Entry Type", stock_entry_type, "custom_pea_rework_entry")
+	)
+
+
+def _validate_rework_fields(doc: Document) -> None:
+	if not _is_rework_stock_entry(doc):
+		if any(doc.get(fieldname) for fieldname in _REWORK_FIELDS):
+			frappe.throw(_("Rework fields can only be used with the configured Rework Stock Entry Type."))
+		return
+	actual_start = _as_datetime(doc.get("custom_pea_rework_actual_start"))
+	actual_end = _as_datetime(doc.get("custom_pea_rework_actual_end"))
+	if actual_start and actual_end and actual_end <= actual_start:
+		frappe.throw(_("Rework Actual End must be after Rework Actual Start."))
+	operator_names = [
+		row.get("operator") for row in doc.get("custom_pea_rework_operators") or [] if row.get("operator")
+	]
+	if not operator_names:
+		frappe.throw(_("Rework requires at least one active Operator."))
+	inactive_operators = frappe.get_all(
+		"Operator",
+		filters={"name": ["in", operator_names], "is_active": 0},
+		pluck="name",
+	)
+	if inactive_operators:
+		frappe.throw(
+			_("Operator {0} is inactive and cannot be assigned to Rework.").format(
+				_safe_bold(inactive_operators[0])
+			)
+		)
 
 
 def _default_total_strokes(doc: Document) -> None:
