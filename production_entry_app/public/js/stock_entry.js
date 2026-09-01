@@ -576,6 +576,8 @@ function _sync_rework_mode_from_stock_entry_type(frm, { previousStockEntryType =
 	const selectedStockEntryType = frm.doc.stock_entry_type || "";
 	const applyReworkStockEntryType = (reworkStockEntryType) => {
 		frm.doc.__pea_rework_stock_entry_type = reworkStockEntryType;
+		const isReworkType =
+			Boolean(reworkStockEntryType) && selectedStockEntryType === reworkStockEntryType;
 		if (
 			previousStockEntryType === reworkStockEntryType &&
 			selectedStockEntryType !== reworkStockEntryType
@@ -584,8 +586,8 @@ function _sync_rework_mode_from_stock_entry_type(frm, { previousStockEntryType =
 		}
 		frm.refresh_fields?.(REWORK_FIELDS);
 		frm.refresh_field?.("custom_pea_shift");
-		frm.toggle_display(REWORK_FIELDS, selectedStockEntryType === reworkStockEntryType);
-		if (selectedStockEntryType === reworkStockEntryType) {
+		frm.toggle_display(REWORK_FIELDS, isReworkType);
+		if (isReworkType) {
 			_schedule_rework_source_warehouse(frm);
 		}
 	};

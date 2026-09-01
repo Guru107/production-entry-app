@@ -64,7 +64,7 @@ test("selecting the configured Rework Stock Entry Type shows rework fields", () 
 	}
 });
 
-test("passive Rework Stock Entry Type discovery tolerates missing configuration", () => {
+test("blank new Stock Entry hides Rework fields when passive discovery finds no configuration", () => {
 	const originalFrappe = global.frappe;
 	let errorShown = false;
 	const methods = [];
@@ -81,7 +81,7 @@ test("passive Rework Stock Entry Type discovery tolerates missing configuration"
 	const visibility = [];
 	const frm = {
 		doc: {
-			stock_entry_type: "Manufacture",
+			stock_entry_type: "",
 			company: "Test Company",
 			branch: "Test Branch",
 		},
