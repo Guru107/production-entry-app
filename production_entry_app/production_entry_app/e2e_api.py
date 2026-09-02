@@ -40,6 +40,10 @@ _E2E_SYSTEM_SETTINGS_FIELDS: tuple[str, ...] = ("float_precision",)
 _E2E_RESERVED_USER_EMAIL_PREFIX: str = "e2e-user-"
 _E2E_RESERVED_ROLE_PREFIX: str = "E2E ROLE "
 _E2E_RESERVED_DOWNTIME_PREFIX: str = "E2E-DOWNTIME-"
+_E2E_PRODUCTION_ENTRY_SETTINGS_FIELDS: tuple[str, ...] = (
+	*PRODUCTION_ENTRY_SHIFT_SETTINGS_FIELDS,
+	"rework_expense_account",
+)
 
 
 @frappe.whitelist()
@@ -144,7 +148,9 @@ def _get_e2e_shift_names_cache_key(prefix: str) -> str:
 def _get_production_entry_settings_snapshot() -> dict[str, Any]:
 	ensure_production_entry_settings_shift_fields()
 	settings = frappe.get_single("Production Entry Settings").as_dict()
-	return {fieldname: settings.get(fieldname) for fieldname in PRODUCTION_ENTRY_SHIFT_SETTINGS_FIELDS}
+	return {  # pragma: no branch - coverage.py reports a synthetic Python 3.13 comprehension exit
+		fieldname: settings.get(fieldname) for fieldname in _E2E_PRODUCTION_ENTRY_SETTINGS_FIELDS
+	}
 
 
 def _get_manufacturing_settings_snapshot() -> dict[str, Any]:
@@ -169,9 +175,10 @@ def _get_rework_stock_entry_type_snapshot() -> list[str]:
 
 def _cache_e2e_settings_snapshot(prefix: str) -> None:
 	cache_key = _get_e2e_settings_cache_key(prefix)
-	if frappe.cache().get_value(cache_key):
+	cache = frappe.cache()
+	if cache.get_value(cache_key):
 		return
-	frappe.cache().set_value(
+	cache.set_value(
 		cache_key,
 		{
 			"production_entry_settings": _get_production_entry_settings_snapshot(),
@@ -196,8 +203,9 @@ def _restore_production_entry_settings(snapshot: dict[str, Any] | None) -> None:
 		return
 	ensure_production_entry_settings_shift_fields()
 	settings = frappe.get_single("Production Entry Settings")
-	for fieldname in PRODUCTION_ENTRY_SHIFT_SETTINGS_FIELDS:
-		settings.set(fieldname, snapshot.get(fieldname))
+	for fieldname in _E2E_PRODUCTION_ENTRY_SETTINGS_FIELDS:
+		if fieldname in snapshot:
+			settings.set(fieldname, snapshot[fieldname])
 	settings.save(ignore_permissions=True)
 	frappe.clear_document_cache("Production Entry Settings")
 
@@ -230,7 +238,8 @@ def _restore_rework_stock_entry_types(names: list[str] | None) -> None:
 
 def _restore_cached_e2e_settings(prefix: str) -> None:
 	cache_key = _get_e2e_settings_cache_key(prefix)
-	snapshot = frappe.cache().get_value(cache_key)
+	cache = frappe.cache()
+	snapshot = cache.get_value(cache_key)
 	if snapshot:
 		settings_snapshot = snapshot.get("production_entry_settings") or snapshot.get(
 			"manufacturing_settings"
@@ -238,10 +247,9 @@ def _restore_cached_e2e_settings(prefix: str) -> None:
 		_restore_production_entry_settings(settings_snapshot)
 		_restore_rework_stock_entry_types(snapshot.get("rework_stock_entry_types"))
 		_restore_system_settings(snapshot.get("system_settings"))
-		frappe.cache().delete_value(cache_key)
-
+		cache.delete_value(cache_key)
 	shift_names_key = _get_e2e_shift_names_cache_key(prefix)
-	frappe.cache().delete_value(shift_names_key)
+	cache.delete_value(shift_names_key)
 
 
 def _is_developer_mode_enabled() -> bool:
@@ -977,6 +985,44 @@ def create_e2e_submitted_stock_entry(
 	}
 
 
+def _is_valid_e2e_expense_account(account: str | None, company: str) -> bool:
+	if not account:
+		return False
+	account_details = frappe.db.get_value(
+		"Account", account, ["company", "is_group", "root_type", "disabled"], as_dict=True
+	)
+	return bool(
+		account_details
+		and account_details.get("company") == company
+		and not cint(account_details.get("is_group"))
+		and account_details.get("root_type") == "Expense"
+		and not cint(account_details.get("disabled"))
+	)
+
+
+def _configure_e2e_rework_expense_account(company: str) -> str:
+	expense_account = frappe.db.get_single_value("Production Entry Settings", "rework_expense_account")
+	if not _is_valid_e2e_expense_account(expense_account, company):
+		expense_account = frappe.db.get_value("Company", company, "default_operating_cost_account")
+		if not _is_valid_e2e_expense_account(expense_account, company):
+			expense_account = frappe.db.get_value(
+				"Account",
+				{
+					"company": company,
+					"account_type": "Expenses Included In Valuation",
+					"is_group": 0,
+					"disabled": 0,
+				},
+				"name",
+			)
+	if not expense_account:
+		frappe.throw(_("Configure a rework expense account before running the E2E lifecycle."))
+
+	frappe.db.set_single_value("Production Entry Settings", "rework_expense_account", expense_account)
+	frappe.clear_document_cache("Production Entry Settings")
+	return str(expense_account)
+
+
 @frappe.whitelist()
 def create_e2e_rework_lifecycle_source(prefix: str = "E2E", qty: float = 5) -> dict:
 	"""Create a submitted, rework-flagged production rejection for browser lifecycle tests."""
@@ -1028,21 +1074,7 @@ def create_e2e_rework_lifecycle_source(prefix: str = "E2E", qty: float = 5) -> d
 			update_modified=False,
 		)
 	frappe.db.set_value("Workstation", ctx["workstation"], "hour_rate", 120, update_modified=False)
-	expense_account = frappe.db.get_single_value(
-		"Production Entry Settings", "rework_expense_account"
-	) or frappe.db.get_value("Company", ctx["company"], "default_operating_cost_account")
-	if not expense_account:
-		expense_account = frappe.db.get_value(
-			"Account",
-			{
-				"company": ctx["company"],
-				"account_type": "Expenses Included In Valuation",
-				"is_group": 0,
-			},
-			"name",
-		)
-	if not expense_account:
-		frappe.throw(_("Configure a rework expense account before running the E2E lifecycle."))
+	expense_account = _configure_e2e_rework_expense_account(ctx["company"])
 
 	shift = frappe.get_doc("Shift", ctx["shift_name"])
 	shift_date = str(shift.shift_date)

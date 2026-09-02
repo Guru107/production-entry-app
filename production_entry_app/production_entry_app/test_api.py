@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, call, patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from production_entry_app.production_entry_app import e2e_api
 from production_entry_app.production_entry_app.api import (
 	_cleanup_orphan_stock_entry_loss_links,
 	get_die_tool_counter,
@@ -202,6 +203,126 @@ class TestE2EApi(FrappeTestCase):
 			with self.assertRaisesRegex(frappe.ValidationError, "greater than zero"):
 				create_e2e_rework_lifecycle_source(prefix="E2E_REWORK", qty=0)
 
+	def test_rework_expense_account_snapshot_restore_preserves_legacy_and_null_values(self) -> None:
+		settings = MagicMock()
+		settings.as_dict.return_value = {
+			"shift_start_buffer_mins": 30,
+			"rework_expense_account": "Original Rework Expense - TC",
+		}
+		with (
+			patch.object(e2e_api, "ensure_production_entry_settings_shift_fields"),
+			patch.object(e2e_api.frappe, "get_single", return_value=settings),
+			patch.object(e2e_api.frappe, "clear_document_cache") as clear_document_cache,
+		):
+			snapshot = e2e_api._get_production_entry_settings_snapshot()
+			self.assertEqual(snapshot["rework_expense_account"], "Original Rework Expense - TC")
+			for restore_snapshot, expected_calls in (
+				(
+					snapshot,
+					[
+						call("shift_start_buffer_mins", 30),
+						call("rework_expense_account", "Original Rework Expense - TC"),
+					],
+				),
+				({"shift_start_buffer_mins": 45}, [call("shift_start_buffer_mins", 45)]),
+				({"rework_expense_account": None}, [call("rework_expense_account", None)]),
+			):
+				with self.subTest(snapshot=restore_snapshot):
+					settings.reset_mock()
+					e2e_api._restore_production_entry_settings(restore_snapshot)
+					for expected_call in expected_calls:
+						self.assertIn(expected_call, settings.set.call_args_list)
+					if "rework_expense_account" not in restore_snapshot:
+						self.assertNotIn(call("rework_expense_account", None), settings.set.call_args_list)
+
+		self.assertEqual(clear_document_cache.call_count, 3)
+
+	def test_e2e_expense_account_validation_rejects_unsuitable_accounts(self) -> None:
+		invalid_accounts = (
+			(None, None),
+			("Missing - TC", None),
+			(
+				"Wrong Company - WC",
+				{"company": "Wrong Company", "is_group": 0, "root_type": "Expense", "disabled": 0},
+			),
+			(
+				"Group - TC",
+				{"company": "_Test Company", "is_group": 1, "root_type": "Expense", "disabled": 0},
+			),
+			("Asset - TC", {"company": "_Test Company", "is_group": 0, "root_type": "Asset", "disabled": 0}),
+			(
+				"Disabled - TC",
+				{"company": "_Test Company", "is_group": 0, "root_type": "Expense", "disabled": 1},
+			),
+		)
+		for account_name, account_details in invalid_accounts:
+			with (
+				self.subTest(account=account_name),
+				patch.object(e2e_api.frappe.db, "get_value", return_value=account_details),
+			):
+				self.assertFalse(e2e_api._is_valid_e2e_expense_account(account_name, "_Test Company"))
+
+	def test_e2e_rework_expense_account_selects_valid_candidates(self) -> None:
+		valid_details = {
+			"company": "_Test Company",
+			"is_group": 0,
+			"root_type": "Expense",
+			"disabled": 0,
+		}
+		cases = (
+			("Configured - TC", None, "Configured - TC", {"Configured - TC": valid_details}),
+			(None, "Operating Cost - TC", "Operating Cost - TC", {"Operating Cost - TC": valid_details}),
+			(
+				"Wrong Company - WC",
+				"Operating Cost - TC",
+				"Operating Cost - TC",
+				{
+					"Wrong Company - WC": {**valid_details, "company": "Wrong Company"},
+					"Operating Cost - TC": valid_details,
+				},
+			),
+			(
+				"Disabled - TC",
+				None,
+				"Fallback - TC",
+				{
+					"Disabled - TC": {**valid_details, "disabled": 1},
+				},
+			),
+		)
+		for configured, company_default, expected, accounts in cases:
+
+			def get_value(doctype, name_or_filters, *_args, **_kwargs):
+				if doctype == "Company":
+					return company_default
+				if isinstance(name_or_filters, dict):
+					self.assertEqual(name_or_filters["disabled"], 0)
+					return "Fallback - TC"
+				return accounts.get(name_or_filters)
+
+			with (
+				self.subTest(configured=configured),
+				patch.object(e2e_api.frappe.db, "get_single_value", return_value=configured),
+				patch.object(e2e_api.frappe.db, "get_value", side_effect=get_value),
+				patch.object(e2e_api.frappe.db, "set_single_value") as set_single_value,
+				patch.object(e2e_api.frappe, "clear_document_cache"),
+			):
+				self.assertEqual(e2e_api._configure_e2e_rework_expense_account("_Test Company"), expected)
+				set_single_value.assert_called_once_with(
+					"Production Entry Settings", "rework_expense_account", expected
+				)
+
+	def test_e2e_rework_expense_account_requires_a_valid_fallback(self) -> None:
+		with (
+			patch.object(e2e_api.frappe.db, "get_single_value", return_value=None),
+			patch.object(e2e_api.frappe.db, "get_value", return_value=None),
+			patch.object(e2e_api.frappe.db, "set_single_value") as set_single_value,
+			self.assertRaisesRegex(frappe.ValidationError, "Configure a rework expense account"),
+		):
+			e2e_api._configure_e2e_rework_expense_account("_Test Company")
+
+		set_single_value.assert_not_called()
+
 	def test_cleanup_e2e_rework_lifecycle_entries_skips_synthetic_rows(self) -> None:
 		with patch(
 			"production_entry_app.production_entry_app.e2e_api.frappe.get_all",
@@ -308,6 +429,35 @@ class TestE2EApi(FrappeTestCase):
 
 		get_settings.assert_not_called()
 		cache.set_value.assert_not_called()
+
+	def test_cache_e2e_settings_snapshot_caches_all_global_settings(self) -> None:
+		cache = MagicMock()
+		cache.get_value.return_value = None
+		with (
+			patch("production_entry_app.production_entry_app.e2e_api.frappe.cache", return_value=cache),
+			patch(
+				"production_entry_app.production_entry_app.e2e_api._get_production_entry_settings_snapshot",
+				return_value={"rework_expense_account": "Expense - TC"},
+			),
+			patch(
+				"production_entry_app.production_entry_app.e2e_api._get_rework_stock_entry_type_snapshot",
+				return_value=["Rework"],
+			),
+			patch(
+				"production_entry_app.production_entry_app.e2e_api._get_system_settings_snapshot",
+				return_value={"float_precision": 3},
+			),
+		):
+			_cache_e2e_settings_snapshot("E2E-CACHED")
+
+		cache.set_value.assert_called_once_with(
+			"pea:e2e:settings:E2E-CACHED",
+			{
+				"production_entry_settings": {"rework_expense_account": "Expense - TC"},
+				"rework_stock_entry_types": ["Rework"],
+				"system_settings": {"float_precision": 3},
+			},
+		)
 
 	def test_cache_e2e_shift_name_skips_empty_and_duplicate_names(self) -> None:
 		cache = MagicMock()
