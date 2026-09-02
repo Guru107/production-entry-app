@@ -106,6 +106,14 @@ async function getReworkVisibilityState(page) {
 	});
 }
 
+async function waitForReworkVisibilityState(page, expectedState) {
+	await expect
+		.poll(() => getReworkVisibilityState(page), {
+			message: "Rework classification and fields did not finish rendering",
+		})
+		.toEqual(expectedState);
+}
+
 async function getBinQty(page, itemCode, warehouse) {
 	const result = await callFrappeMethod(page, "frappe.client.get_value", {
 		doctype: "Bin",
@@ -168,7 +176,7 @@ test.describe("Rework full lifecycle", () => {
 		).toEqual({ ...expectedVisibleState, unsaved: false });
 
 		await page.reload();
-		await stockEntryPage.waitForSectionVisible("custom_pea_rework_details_section");
+		await waitForReworkVisibilityState(page, { ...expectedVisibleState, unsaved: false });
 		await setFieldValue(page, "remarks", `E2E rework save visibility ${Date.now()}`);
 
 		const beforeSave = await getReworkVisibilityState(page);
