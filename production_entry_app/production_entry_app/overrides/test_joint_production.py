@@ -49,11 +49,13 @@ from production_entry_app.production_entry_app.tests.support.manufacture_builder
 )
 from production_entry_app.production_entry_app.utils.rejection_warehouse import resolve_rejection_warehouse
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
+	build_joint_bom_scrap_row,
 	cleanup_running_shifts,
 	ensure_item,
 	ensure_joint_test_bom,
 	ensure_stock,
 	ensure_workstation,
+	get_joint_bom_scrap_rate,
 	set_test_branch_warehouse_defaults,
 )
 
@@ -81,6 +83,42 @@ def _make_running_shift_through_api(masters: dict[str, Any]) -> object:
 
 
 class TestJointProductionCalculations(FrappeTestCase):
+	def test_joint_bom_scrap_fixture_supports_rate_schema(self) -> None:
+		meta = frappe._dict(has_field=lambda fieldname: fieldname == "rate")
+
+		row = build_joint_bom_scrap_row(
+			secondary_item_meta=meta,
+			item_code="SCRAP-OLD",
+			qty=2,
+			rate=7,
+			uom="Kg",
+		)
+
+		self.assertEqual(row["rate"], 7)
+		self.assertEqual(row["type"], "Scrap")
+		self.assertNotIn("valuation_type", row)
+		self.assertEqual(get_joint_bom_scrap_rate(frappe._dict(row)), 7)
+
+	def test_joint_bom_scrap_fixture_supports_manual_cost_schema(self) -> None:
+		meta = frappe._dict(
+			has_field=lambda fieldname: fieldname in {"secondary_item_type", "valuation_type", "cost"}
+		)
+
+		row = build_joint_bom_scrap_row(
+			secondary_item_meta=meta,
+			item_code="SCRAP-NEW",
+			qty=2,
+			rate=7,
+			uom="Kg",
+		)
+
+		self.assertEqual(row["valuation_type"], "Manual")
+		self.assertEqual(row["cost"], 14)
+		self.assertNotIn("rate", row)
+		self.assertEqual(get_joint_bom_scrap_rate(frappe._dict(row)), 7)
+		self.assertEqual(get_joint_bom_scrap_rate(frappe._dict(cost=14, stock_qty=2)), 7)
+		self.assertEqual(get_joint_bom_scrap_rate(frappe._dict(cost=14, stock_qty=0, qty=0)), 0)
+
 	def test_right_first_time_quantities_match_across_production_modes(self) -> None:
 		normal_entry = frappe._dict(
 			purpose="Manufacture",
@@ -896,8 +934,8 @@ class TestJointProductionItems(FrappeTestCase):
 		for bom_name in (self.lh_bom, self.rh_bom):
 			bom = frappe.get_doc("BOM", bom_name)
 			scrap_rows = bom.get("scrap_items") or bom.get("secondary_items")
-			zero_values = {"rate": 0}
-			for fieldname in ("cost", "base_amount", "amount"):
+			zero_values = {}
+			for fieldname in ("rate", "cost", "base_amount", "amount"):
 				if scrap_rows[0].meta.has_field(fieldname):
 					zero_values[fieldname] = 0
 			frappe.db.set_value(
