@@ -574,15 +574,24 @@ function _sync_joint_stock_entry_type(
 function _sync_rework_mode_from_stock_entry_type(frm, { previousStockEntryType = "" } = {}) {
 	const requestId = ++_reworkStockEntryTypeRequestId;
 	const selectedStockEntryType = frm.doc.stock_entry_type || "";
+	const previousReworkStockEntryType = frm.doc.__pea_rework_stock_entry_type || "";
+	if (
+		previousReworkStockEntryType &&
+		previousStockEntryType === previousReworkStockEntryType &&
+		selectedStockEntryType !== previousReworkStockEntryType
+	) {
+		frm.__peaPendingReworkExit = true;
+	}
 	const applyReworkStockEntryType = (reworkStockEntryType) => {
 		frm.doc.__pea_rework_stock_entry_type = reworkStockEntryType;
+		frm.doc.__pea_rework_stock_entry_type_checked = selectedStockEntryType;
 		const isReworkType =
 			Boolean(reworkStockEntryType) && selectedStockEntryType === reworkStockEntryType;
-		if (
-			previousStockEntryType === reworkStockEntryType &&
-			selectedStockEntryType !== reworkStockEntryType
-		) {
-			_clear_rework_data(frm);
+		if (frm.__peaPendingReworkExit) {
+			delete frm.__peaPendingReworkExit;
+			if (!isReworkType) {
+				_clear_rework_data(frm);
+			}
 		}
 		frm.refresh_fields?.(REWORK_FIELDS);
 		frm.refresh_field?.("custom_pea_shift");
@@ -591,13 +600,23 @@ function _sync_rework_mode_from_stock_entry_type(frm, { previousStockEntryType =
 			_schedule_rework_source_warehouse(frm);
 		}
 	};
-	if (Object.prototype.hasOwnProperty.call(frm.doc, "__pea_rework_stock_entry_type")) {
+	const hasCachedReworkType = Object.prototype.hasOwnProperty.call(
+		frm.doc,
+		"__pea_rework_stock_entry_type"
+	);
+	const checkedStockEntryType = frm.doc.__pea_rework_stock_entry_type_checked;
+	if (
+		hasCachedReworkType &&
+		(checkedStockEntryType === selectedStockEntryType ||
+			(checkedStockEntryType === undefined &&
+				frm.doc.__pea_rework_stock_entry_type === selectedStockEntryType))
+	) {
 		applyReworkStockEntryType(frm.doc.__pea_rework_stock_entry_type || "");
 		return;
 	}
 	frappe.call({
 		method: "production_entry_app.production_entry_app.api.get_rework_stock_entry_type",
-		args: { required: 0 },
+		args: { required: 0, stock_entry_type: selectedStockEntryType },
 		callback(r) {
 			if (
 				requestId !== _reworkStockEntryTypeRequestId ||

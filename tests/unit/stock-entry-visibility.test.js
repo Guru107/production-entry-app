@@ -32,11 +32,16 @@ const {
 	MANUFACTURE_CLEAR_TABLE_FIELDS,
 } = require("../../production_entry_app/public/js/stock_entry.js");
 
-test("selecting the configured Rework Stock Entry Type shows rework fields", () => {
+test("selecting a marked Rework Stock Entry Type shows fields under ambiguous canonical setup", () => {
 	const originalFrappe = global.frappe;
+	let callCount = 0;
 	global.frappe = {
 		call(options) {
-			assert.deepEqual(options.args, { required: 0 });
+			callCount += 1;
+			assert.deepEqual(options.args, {
+				required: 0,
+				stock_entry_type: "Rework Material Transfer",
+			});
 			options.callback({ message: "Rework Material Transfer" });
 		},
 	};
@@ -55,10 +60,15 @@ test("selecting the configured Rework Stock Entry Type shows rework fields", () 
 
 	try {
 		_sync_rework_mode_from_stock_entry_type(frm);
+		_sync_rework_mode_from_stock_entry_type(frm);
 
 		assert.equal(frm.doc.__pea_rework_stock_entry_type, "Rework Material Transfer");
-		assert.deepEqual(visibility, [[REWORK_FIELDS, true]]);
-		assert.deepEqual(refreshed, ["custom_pea_shift"]);
+		assert.equal(callCount, 1);
+		assert.deepEqual(visibility, [
+			[REWORK_FIELDS, true],
+			[REWORK_FIELDS, true],
+		]);
+		assert.deepEqual(refreshed, ["custom_pea_shift", "custom_pea_shift"]);
 	} finally {
 		global.frappe = originalFrappe;
 	}
@@ -71,7 +81,7 @@ test("blank new Stock Entry hides Rework fields when passive discovery finds no 
 	global.frappe = {
 		call(options) {
 			methods.push(options.method);
-			assert.deepEqual(options.args, { required: 0 });
+			assert.deepEqual(options.args, { required: 0, stock_entry_type: "" });
 			options.callback({ message: "" });
 		},
 		msgprint() {
@@ -101,6 +111,42 @@ test("blank new Stock Entry hides Rework fields when passive discovery finds no 
 		assert.deepEqual(methods, [
 			"production_entry_app.production_entry_app.api.get_rework_stock_entry_type",
 		]);
+	} finally {
+		global.frappe = originalFrappe;
+	}
+});
+
+test("selecting Rework after cached ordinary type performs a selected-type lookup", () => {
+	const originalFrappe = global.frappe;
+	const requests = [];
+	global.frappe = {
+		call(options) {
+			requests.push(options);
+		},
+	};
+	const visibility = [];
+	const frm = {
+		doc: { stock_entry_type: "Material Transfer" },
+		toggle_display(_fieldnames, visible) {
+			visibility.push(visible);
+		},
+		refresh_fields() {},
+		refresh_field() {},
+	};
+
+	try {
+		_sync_rework_mode_from_stock_entry_type(frm);
+		requests[0].callback({ message: "" });
+		frm.doc.stock_entry_type = "Rework Material Transfer";
+		_sync_rework_mode_from_stock_entry_type(frm);
+
+		assert.equal(requests.length, 2);
+		assert.deepEqual(requests[1].args, {
+			required: 0,
+			stock_entry_type: "Rework Material Transfer",
+		});
+		requests[1].callback({ message: "Rework Material Transfer" });
+		assert.deepEqual(visibility, [false, true]);
 	} finally {
 		global.frappe = originalFrappe;
 	}
@@ -384,12 +430,18 @@ test("leaving the Rework Stock Entry Type clears all rework-owned fields", () =>
 	const originalFrappe = global.frappe;
 	global.frappe = {
 		call(options) {
-			options.callback({ message: "Rework Material Transfer" });
+			assert.deepEqual(options.args, {
+				required: 0,
+				stock_entry_type: "Material Transfer",
+			});
+			options.callback({ message: "" });
 		},
 	};
 	const frm = {
 		doc: {
 			stock_entry_type: "Material Transfer",
+			__pea_rework_stock_entry_type: "Rework Material Transfer",
+			__pea_rework_stock_entry_type_checked: "Rework Material Transfer",
 			custom_pea_rework_type: "Deburring",
 			custom_pea_rework_workstation: "Rework Workstation",
 			custom_pea_rework_actual_start: "2026-09-01 08:00:00",
@@ -576,6 +628,101 @@ test("stale Rework Stock Entry Type lookup responses do not change visibility", 
 		callbacks[1]({ message: "Rework Material Transfer" });
 
 		assert.deepEqual(visibility, [true]);
+	} finally {
+		global.frappe = originalFrappe;
+	}
+});
+
+test("latest ordinary lookup clears Rework data after an intermediate response is stale", () => {
+	const originalFrappe = global.frappe;
+	const callbacks = [];
+	global.frappe = {
+		call(options) {
+			callbacks.push(options.callback);
+		},
+	};
+	let clearCount = 0;
+	let dirtyCount = 0;
+	const frm = {
+		doc: {
+			stock_entry_type: "Ordinary B",
+			__pea_rework_stock_entry_type: "Rework A",
+			__pea_rework_stock_entry_type_checked: "Rework A",
+			custom_pea_rework_type: "Deburring",
+			custom_pea_rework_workstation: "Rework Workstation",
+			custom_pea_rework_actual_start: "2026-09-01 08:00:00",
+			custom_pea_rework_actual_end: "2026-09-01 09:00:00",
+			custom_pea_rework_operators: [{ operator: "Operator One" }],
+			custom_pea_rework_cost: 50,
+		},
+		get_field(fieldname) {
+			return {
+				df: { fieldtype: fieldname === "custom_pea_rework_cost" ? "Currency" : "Data" },
+			};
+		},
+		clear_table(fieldname) {
+			clearCount += 1;
+			this.doc[fieldname] = [];
+		},
+		dirty() {
+			dirtyCount += 1;
+		},
+		refresh_fields() {},
+		refresh_field() {},
+		toggle_display() {},
+	};
+
+	try {
+		_sync_rework_mode_from_stock_entry_type(frm, { previousStockEntryType: "Rework A" });
+		frm.doc.stock_entry_type = "Ordinary C";
+		_sync_rework_mode_from_stock_entry_type(frm, { previousStockEntryType: "Ordinary B" });
+
+		callbacks[0]({ message: "" });
+		assert.equal(frm.doc.custom_pea_rework_type, "Deburring");
+		callbacks[1]({ message: "" });
+
+		assert.equal(frm.doc.custom_pea_rework_type, "");
+		assert.deepEqual(frm.doc.custom_pea_rework_operators, []);
+		assert.equal(clearCount, 1);
+		assert.equal(dirtyCount, 1);
+	} finally {
+		global.frappe = originalFrappe;
+	}
+});
+
+test("changing between marked Rework Stock Entry Types preserves Rework data", () => {
+	const originalFrappe = global.frappe;
+	global.frappe = {
+		call(options) {
+			options.callback({ message: "Rework B" });
+		},
+	};
+	const visibility = [];
+	const frm = {
+		doc: {
+			stock_entry_type: "Rework B",
+			__pea_rework_stock_entry_type: "Rework A",
+			__pea_rework_stock_entry_type_checked: "Rework A",
+			custom_pea_rework_type: "Deburring",
+			custom_pea_rework_operators: [{ operator: "Operator One" }],
+		},
+		clear_table() {
+			assert.fail("Rework data must not be cleared");
+		},
+		refresh_fields() {},
+		refresh_field() {},
+		toggle_display(_fieldnames, visible) {
+			visibility.push(visible);
+		},
+	};
+
+	try {
+		_sync_rework_mode_from_stock_entry_type(frm, { previousStockEntryType: "Rework A" });
+
+		assert.equal(frm.doc.custom_pea_rework_type, "Deburring");
+		assert.deepEqual(frm.doc.custom_pea_rework_operators, [{ operator: "Operator One" }]);
+		assert.deepEqual(visibility, [true]);
+		assert.equal(frm.__peaPendingReworkExit, undefined);
 	} finally {
 		global.frappe = originalFrappe;
 	}

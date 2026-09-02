@@ -56,9 +56,27 @@ def get_joint_stock_entry_type() -> str:
 
 
 @frappe.whitelist()
-def get_rework_stock_entry_type(required: int = 1) -> str:
+def get_rework_stock_entry_type(required: int = 1, stock_entry_type: str | None = None) -> str:
 	if not frappe.has_permission("Stock Entry", "create"):
 		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
+	if stock_entry_type is not None:
+		if not stock_entry_type:
+			return ""
+		if not frappe.has_permission("Stock Entry Type", "read", stock_entry_type):
+			frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
+		selected_type = frappe.db.get_value(
+			"Stock Entry Type",
+			stock_entry_type,
+			["purpose", "custom_pea_rework_entry"],
+			as_dict=True,
+		)
+		if (
+			selected_type
+			and selected_type.purpose == "Material Transfer"
+			and selected_type.custom_pea_rework_entry
+		):
+			return stock_entry_type
+		return ""
 	stock_entry_types = frappe.get_list(
 		"Stock Entry Type",
 		filters={

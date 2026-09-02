@@ -19,10 +19,9 @@ async function deleteDocIfExists(page, doctype, name) {
 }
 
 test.describe("Rework fields on Stock Entry", () => {
-	test("@regression loads an ordinary Stock Entry silently when Rework setup is ambiguous", async ({
+	test("@regression shows selected Rework fields when Rework setup is ambiguous", async ({
 		page,
 	}) => {
-		const stockEntryPage = new StockEntryPage(page);
 		const suffix = Date.now();
 		const stockEntryTypes = [
 			`${PREFIX}_AMBIGUOUS_A_${suffix}`,
@@ -44,13 +43,45 @@ test.describe("Rework fields on Stock Entry", () => {
 				createdStockEntryTypes.push(name);
 			}
 
-			await stockEntryPage.openNew();
+			await page.goto(getRoute("/stock-entry/new"));
 			await page.waitForFunction(
-				() => window.cur_frm?.doc?.__pea_rework_stock_entry_type === ""
+				() => window.cur_frm?.doctype === "Stock Entry" && window.cur_frm?.is_new?.()
 			);
 
+			await setFieldValue(page, "stock_entry_type", stockEntryTypes[0]);
+			await expect
+				.poll(async () => {
+					return await page.evaluate(() => {
+						const frm = window.cur_frm;
+						return {
+							stockEntryType: frm?.doc?.stock_entry_type || "",
+							reworkMarker: frm?.doc?.__pea_rework_stock_entry_type || "",
+							reworkTypeVisible: Boolean(
+								frm
+									?.get_field?.("custom_pea_rework_type")
+									?.$wrapper?.is(":visible")
+							),
+							workstationVisible: Boolean(
+								frm
+									?.get_field?.("custom_pea_rework_workstation")
+									?.$wrapper?.is(":visible")
+							),
+							operatorsVisible: Boolean(
+								frm
+									?.get_field?.("custom_pea_rework_operators")
+									?.$wrapper?.is(":visible")
+							),
+						};
+					});
+				})
+				.toEqual({
+					stockEntryType: stockEntryTypes[0],
+					reworkMarker: stockEntryTypes[0],
+					reworkTypeVisible: true,
+					workstationVisible: true,
+					operatorsVisible: true,
+				});
 			await expect(page.locator(".modal.show")).toHaveCount(0);
-			expect(await stockEntryPage.isFieldVisible("custom_pea_rework_type")).toBe(false);
 		} finally {
 			await page.goto(getRoute("/home")).catch(() => {});
 			for (const name of createdStockEntryTypes) {
@@ -61,38 +92,30 @@ test.describe("Rework fields on Stock Entry", () => {
 
 	test("@regression shows, validates, defaults, and clears rework fields", async ({ page }) => {
 		const stockEntryPage = new StockEntryPage(page);
-		const reworkType = `${PREFIX} ${Date.now()}`;
+		const suffix = Date.now();
+		const reworkType = `${PREFIX} ${suffix}`;
 		let contextBootstrapped = false;
-		let reworkStockEntryType = "";
+		const reworkStockEntryType = `${PREFIX} Material Transfer ${suffix}`;
+		let createdReworkType = false;
 		let createdReworkStockEntryType = false;
 
 		try {
+			await page.goto(getRoute("/home"));
 			const context = await callFrappeMethod(
 				page,
 				"production_entry_app.production_entry_app.e2e_api.bootstrap_e2e_context",
 				{ prefix: PREFIX }
 			);
 			contextBootstrapped = true;
-			try {
-				reworkStockEntryType = await callFrappeMethod(
-					page,
-					"production_entry_app.production_entry_app.api.get_rework_stock_entry_type"
-				);
-			} catch (error) {
-				if (!String(error?.message || "").match(/Configure a Material Transfer/i)) {
-					throw error;
-				}
-				reworkStockEntryType = `${PREFIX} Material Transfer`;
-				await callFrappeMethod(page, "frappe.client.insert", {
-					doc: JSON.stringify({
-						doctype: "Stock Entry Type",
-						name: reworkStockEntryType,
-						purpose: "Material Transfer",
-						custom_pea_rework_entry: 1,
-					}),
-				});
-				createdReworkStockEntryType = true;
-			}
+			await callFrappeMethod(page, "frappe.client.insert", {
+				doc: JSON.stringify({
+					doctype: "Stock Entry Type",
+					name: reworkStockEntryType,
+					purpose: "Material Transfer",
+					custom_pea_rework_entry: 1,
+				}),
+			});
+			createdReworkStockEntryType = true;
 
 			await callFrappeMethod(page, "frappe.client.insert", {
 				doc: JSON.stringify({
@@ -101,6 +124,7 @@ test.describe("Rework fields on Stock Entry", () => {
 					default_workstation: context.workstation,
 				}),
 			});
+			createdReworkType = true;
 
 			await stockEntryPage.openNew();
 			await setFieldValue(page, "stock_entry_type", reworkStockEntryType);
@@ -114,7 +138,10 @@ test.describe("Rework fields on Stock Entry", () => {
 			}, reworkStockEntryType);
 
 			await stockEntryPage.attemptSaveDraft();
-			await expectValidationError(page, /Rework Type.*mandatory|Mandatory.*Rework Type/i);
+			await expectValidationError(
+				page,
+				/Rework Type.*(?:mandatory|required)|Mandatory.*Rework Type/i
+			);
 			await page.keyboard.press("Escape");
 
 			await setFieldValue(page, "custom_pea_rework_type", reworkType);
@@ -154,7 +181,9 @@ test.describe("Rework fields on Stock Entry", () => {
 			expect(await stockEntryPage.isFieldVisible("custom_pea_rework_type")).toBe(false);
 		} finally {
 			await page.goto(getRoute("/home")).catch(() => {});
-			await deleteDocIfExists(page, "Rework Type", reworkType);
+			if (createdReworkType) {
+				await deleteDocIfExists(page, "Rework Type", reworkType);
+			}
 			if (createdReworkStockEntryType) {
 				await deleteDocIfExists(page, "Stock Entry Type", reworkStockEntryType);
 			}

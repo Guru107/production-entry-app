@@ -52,6 +52,49 @@ class TestReworkStockEntryType(FrappeTestCase):
 		with patch.object(api.frappe, "get_list", return_value=["Rework A", "Rework B"]):
 			self.assertEqual(api.get_rework_stock_entry_type(required="0"), "")
 
+	def test_selected_rework_stock_entry_type_is_identified_independently(self) -> None:
+		with patch.object(
+			api.frappe.db,
+			"get_value",
+			return_value=frappe._dict(purpose="Material Transfer", custom_pea_rework_entry=1),
+		):
+			self.assertEqual(
+				api.get_rework_stock_entry_type(stock_entry_type="Rework A", required="0"),
+				"Rework A",
+			)
+
+	def test_selected_non_rework_stock_entry_type_returns_blank(self) -> None:
+		for selected_type in (
+			frappe._dict(purpose="Material Transfer", custom_pea_rework_entry=0),
+			frappe._dict(purpose="Repack", custom_pea_rework_entry=1),
+			None,
+		):
+			with (
+				self.subTest(selected_type=selected_type),
+				patch.object(api.frappe.db, "get_value", return_value=selected_type),
+			):
+				self.assertEqual(
+					api.get_rework_stock_entry_type(stock_entry_type="Selected Type", required="0"),
+					"",
+				)
+
+	def test_blank_selected_stock_entry_type_returns_without_a_lookup(self) -> None:
+		with patch.object(api.frappe.db, "get_value") as get_value:
+			self.assertEqual(api.get_rework_stock_entry_type(stock_entry_type="", required="0"), "")
+		get_value.assert_not_called()
+
+	def test_selected_rework_stock_entry_type_requires_read_permission(self) -> None:
+		def has_permission(doctype: str, ptype: str, doc: str | None = None) -> bool:
+			return doctype == "Stock Entry" and ptype == "create" and doc is None
+
+		with (
+			patch.object(api.frappe, "has_permission", side_effect=has_permission),
+			patch.object(api.frappe.db, "get_value") as get_value,
+			self.assertRaises(frappe.PermissionError),
+		):
+			api.get_rework_stock_entry_type(stock_entry_type="Rework A", required=0)
+		get_value.assert_not_called()
+
 	def test_stock_entry_type_cannot_be_joint_and_rework(self) -> None:
 		doc = frappe.get_doc(
 			{
@@ -71,3 +114,5 @@ class TestReworkStockEntryType(FrappeTestCase):
 			for required in (1, 0):
 				with self.subTest(required=required), self.assertRaises(frappe.PermissionError):
 					api.get_rework_stock_entry_type(required=required)
+			with self.assertRaises(frappe.PermissionError):
+				api.get_rework_stock_entry_type(stock_entry_type="Rework A", required=0)
