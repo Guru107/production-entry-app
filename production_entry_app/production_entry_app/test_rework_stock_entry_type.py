@@ -48,6 +48,10 @@ class TestReworkStockEntryType(FrappeTestCase):
 		with patch.object(api.frappe, "get_list", return_value=[]):
 			self.assertEqual(api.get_rework_stock_entry_type(required="0"), "")
 
+	def test_passive_rework_stock_entry_type_discovery_allows_ambiguous_configuration(self) -> None:
+		with patch.object(api.frappe, "get_list", return_value=["Rework A", "Rework B"]):
+			self.assertEqual(api.get_rework_stock_entry_type(required="0"), "")
+
 	def test_stock_entry_type_cannot_be_joint_and_rework(self) -> None:
 		doc = frappe.get_doc(
 			{

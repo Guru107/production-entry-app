@@ -74,6 +74,8 @@ def get_rework_stock_entry_type(required: int = 1) -> str:
 			return ""
 		frappe.throw(_("Configure a Material Transfer Stock Entry Type for Rework first."))
 	if len(stock_entry_types) > 1:
+		if not cint(required):
+			return ""
 		frappe.throw(_("Only one Material Transfer Stock Entry Type can be configured for Rework."))
 	return stock_entry_types[0]
 

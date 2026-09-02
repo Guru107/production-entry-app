@@ -19,6 +19,46 @@ async function deleteDocIfExists(page, doctype, name) {
 }
 
 test.describe("Rework fields on Stock Entry", () => {
+	test("@regression loads an ordinary Stock Entry silently when Rework setup is ambiguous", async ({
+		page,
+	}) => {
+		const stockEntryPage = new StockEntryPage(page);
+		const suffix = Date.now();
+		const stockEntryTypes = [
+			`${PREFIX}_AMBIGUOUS_A_${suffix}`,
+			`${PREFIX}_AMBIGUOUS_B_${suffix}`,
+		];
+		const createdStockEntryTypes = [];
+
+		await page.goto(getRoute("/home"));
+		try {
+			for (const name of stockEntryTypes) {
+				await callFrappeMethod(page, "frappe.client.insert", {
+					doc: JSON.stringify({
+						doctype: "Stock Entry Type",
+						name,
+						purpose: "Material Transfer",
+						custom_pea_rework_entry: 1,
+					}),
+				});
+				createdStockEntryTypes.push(name);
+			}
+
+			await stockEntryPage.openNew();
+			await page.waitForFunction(
+				() => window.cur_frm?.doc?.__pea_rework_stock_entry_type === ""
+			);
+
+			await expect(page.locator(".modal.show")).toHaveCount(0);
+			expect(await stockEntryPage.isFieldVisible("custom_pea_rework_type")).toBe(false);
+		} finally {
+			await page.goto(getRoute("/home")).catch(() => {});
+			for (const name of createdStockEntryTypes) {
+				await deleteDocIfExists(page, "Stock Entry Type", name);
+			}
+		}
+	});
+
 	test("@regression shows, validates, defaults, and clears rework fields", async ({ page }) => {
 		const stockEntryPage = new StockEntryPage(page);
 		const reworkType = `${PREFIX} ${Date.now()}`;
