@@ -524,7 +524,7 @@ test("Rework Type workstation default is debounced and last selection wins", asy
 	}
 });
 
-test("Stock Entry registers the Rework Type defaulting handler", () => {
+test("Stock Entry refresh restores Rework classification stripped by draft save", () => {
 	const modulePath = "../../production_entry_app/public/js/stock_entry.js";
 	const moduleId = require.resolve(modulePath);
 	const cachedModule = require.cache[moduleId];
@@ -532,14 +532,16 @@ test("Stock Entry registers the Rework Type defaulting handler", () => {
 	const originalFlt = global.flt;
 	const originalWindow = global.window;
 	const registered = {};
+	let reworkLookupCount = 0;
+	const refreshedFields = [];
 	delete require.cache[moduleId];
 	global.flt = Number;
 	global.window = {};
 	global.frappe = {
 		call(options) {
-			const message = options.method.endsWith("get_rework_stock_entry_type")
-				? "Rework Material Transfer"
-				: "Joint LH RH Repack";
+			const isReworkLookup = options.method.endsWith("get_rework_stock_entry_type");
+			if (isReworkLookup) reworkLookupCount += 1;
+			const message = isReworkLookup ? "Rework Material Transfer" : "Joint LH RH Repack";
 			options.callback({ message });
 		},
 		ui: {
@@ -569,7 +571,10 @@ test("Stock Entry registers the Rework Type defaulting handler", () => {
 			return { df: { fieldtype: "Data" } };
 		},
 		refresh_field() {},
-		refresh_fields() {},
+		refresh_fields(fieldnames) {
+			refreshedFields.push(...fieldnames);
+		},
+		set_query() {},
 		set_df_property() {},
 		set_value(fieldname, value) {
 			this.doc[fieldname] = value;
@@ -582,7 +587,18 @@ test("Stock Entry registers the Rework Type defaulting handler", () => {
 		require(modulePath);
 		assert.equal(typeof registered["Stock Entry"].custom_pea_rework_type, "function");
 		registered["Stock Entry"].onload(frm);
+		registered["Stock Entry"].refresh(frm);
 		assert.equal(frm.doc.__pea_rework_stock_entry_type, "Rework Material Transfer");
+		assert.equal(reworkLookupCount, 1);
+		registered["Stock Entry"].refresh(frm);
+		assert.equal(reworkLookupCount, 1, "cached refresh must not repeat the lookup");
+
+		delete frm.doc.__pea_rework_stock_entry_type;
+		delete frm.doc.__pea_rework_stock_entry_type_checked;
+		registered["Stock Entry"].refresh(frm);
+		assert.equal(frm.doc.__pea_rework_stock_entry_type, "Rework Material Transfer");
+		assert.equal(reworkLookupCount, 1, "post-save refresh must reuse the form cache");
+		assert.ok(refreshedFields.includes("custom_pea_rework_details_section"));
 
 		frm.__pea_prev_stock_entry_type = "Rework Material Transfer";
 		frm.doc.stock_entry_type = "Material Transfer";
@@ -600,6 +616,107 @@ test("Stock Entry registers the Rework Type defaulting handler", () => {
 		global.frappe = originalFrappe;
 		global.flt = originalFlt;
 		global.window = originalWindow;
+	}
+});
+
+test("same-type Rework classification refreshes share one in-flight lookup", () => {
+	const originalFrappe = global.frappe;
+	const requests = [];
+	global.frappe = {
+		call(options) {
+			requests.push(options);
+		},
+	};
+	const frm = {
+		doc: { stock_entry_type: "Rework A" },
+		refresh_fields() {},
+		refresh_field() {},
+		toggle_display() {},
+	};
+
+	try {
+		_sync_rework_mode_from_stock_entry_type(frm);
+		_sync_rework_mode_from_stock_entry_type(frm);
+		assert.equal(requests.length, 1);
+
+		requests[0].callback({ message: "Rework A" });
+		frm.doc = { stock_entry_type: "Rework A" };
+		_sync_rework_mode_from_stock_entry_type(frm);
+		assert.equal(requests.length, 1, "resolved form cache must survive doc replacement");
+		assert.equal(frm.doc.__pea_rework_stock_entry_type, "Rework A");
+	} finally {
+		global.frappe = originalFrappe;
+	}
+});
+
+test("Rework classification cache is keyed by type and failed lookups can retry", () => {
+	const originalFrappe = global.frappe;
+	const originalTranslate = global.__;
+	const requests = [];
+	const messages = [];
+	global.__ = (text) => text;
+	global.frappe = {
+		call(options) {
+			requests.push(options);
+		},
+		msgprint(message) {
+			messages.push(message);
+		},
+	};
+	const frm = {
+		doc: { stock_entry_type: "Rework A" },
+		refresh_fields() {},
+		refresh_field() {},
+		toggle_display() {},
+	};
+
+	try {
+		_sync_rework_mode_from_stock_entry_type(frm);
+		requests[0].callback({ message: "Rework A" });
+
+		frm.doc = { stock_entry_type: "Ordinary B" };
+		_sync_rework_mode_from_stock_entry_type(frm);
+		assert.equal(requests.length, 2, "a different type requires its own lookup");
+		frm.doc = { stock_entry_type: "Ordinary C" };
+		_sync_rework_mode_from_stock_entry_type(frm);
+		assert.equal(requests.length, 3, "a newer selected type must start its own lookup");
+		requests[1].error(new Error("stale failure"));
+		assert.deepEqual(messages, []);
+		requests[2].error(new Error("temporary failure"));
+		_sync_rework_mode_from_stock_entry_type(frm);
+		assert.equal(requests.length, 4, "failed in-flight state must be cleared for retry");
+		requests[3].callback({ message: "" });
+		assert.equal(frm.doc.__pea_rework_stock_entry_type, "");
+		assert.equal(messages.length, 1);
+	} finally {
+		global.frappe = originalFrappe;
+		global.__ = originalTranslate;
+	}
+});
+
+test("cached ordinary Stock Entry Type applies without another server call", () => {
+	const originalFrappe = global.frappe;
+	let callCount = 0;
+	global.frappe = { call: () => (callCount += 1) };
+	const visibility = [];
+	const frm = {
+		doc: {
+			stock_entry_type: "Material Transfer",
+			__pea_rework_stock_entry_type: "",
+			__pea_rework_stock_entry_type_checked: "Material Transfer",
+		},
+		refresh_fields() {},
+		toggle_display(_fieldnames, visible) {
+			visibility.push(visible);
+		},
+	};
+
+	try {
+		_sync_rework_mode_from_stock_entry_type(frm);
+		assert.equal(callCount, 0);
+		assert.deepEqual(visibility, [false]);
+	} finally {
+		global.frappe = originalFrappe;
 	}
 });
 

@@ -86,6 +86,26 @@ async function fillReworkEntry(page, context, options = {}) {
 	return stockEntryPage;
 }
 
+async function getReworkVisibilityState(page) {
+	return await page.evaluate(() => {
+		const frm = window.cur_frm;
+		const section = (frm?.layout?.sections || []).find(
+			(entry) => entry?.df?.fieldname === "custom_pea_rework_details_section"
+		);
+		const reworkType = frm?.get_field?.("custom_pea_rework_type");
+		return {
+			stockEntryType: frm?.doc?.stock_entry_type || "",
+			reworkMarker: frm?.doc?.__pea_rework_stock_entry_type || "",
+			sectionVisible:
+				Boolean(section?.wrapper) &&
+				!section.wrapper.hasClass("hide-control") &&
+				!section.wrapper.hasClass("empty-section"),
+			reworkTypeVisible: Boolean(reworkType?.$wrapper) && reworkType.$wrapper.is(":visible"),
+			unsaved: Boolean(frm?.doc?.__unsaved),
+		};
+	});
+}
+
 async function getBinQty(page, itemCode, warehouse) {
 	const result = await callFrappeMethod(page, "frappe.client.get_value", {
 		doctype: "Bin",
@@ -126,6 +146,44 @@ async function expectSubmitValidation(page, pattern) {
 
 test.describe("Rework full lifecycle", () => {
 	const lifecycle = registerE2ELifecycle(test);
+
+	test("@smoke @regression keeps Rework Details visible after editing and saving a draft", async ({
+		page,
+	}) => {
+		const context = await seedLifecycle(page, lifecycle.getPrefix());
+		const stockEntryPage = await fillReworkEntry(page, context);
+		const expectedVisibleState = {
+			stockEntryType: context.rework_stock_entry_type,
+			reworkMarker: context.rework_stock_entry_type,
+			sectionVisible: true,
+			reworkTypeVisible: true,
+		};
+		await stockEntryPage.saveDraft();
+		const afterInitialSave = await getReworkVisibilityState(page);
+		expect(
+			afterInitialSave,
+			`Rework visibility changed on the new-to-saved transition: ${JSON.stringify(
+				afterInitialSave
+			)}`
+		).toEqual({ ...expectedVisibleState, unsaved: false });
+
+		await page.reload();
+		await stockEntryPage.waitForSectionVisible("custom_pea_rework_details_section");
+		await setFieldValue(page, "remarks", `E2E rework save visibility ${Date.now()}`);
+
+		const beforeSave = await getReworkVisibilityState(page);
+		await stockEntryPage.saveDraft();
+		const afterSave = await getReworkVisibilityState(page);
+
+		expect(beforeSave).toEqual({ ...expectedVisibleState, unsaved: true });
+		expect(
+			afterSave,
+			`Rework visibility changed across draft save: ${JSON.stringify({
+				beforeSave,
+				afterSave,
+			})}`
+		).toEqual({ ...expectedVisibleState, unsaved: false });
+	});
 
 	test("@regression submits, values, reports, authorizes, and cancels rework", async ({
 		page,

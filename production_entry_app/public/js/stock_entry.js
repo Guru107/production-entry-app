@@ -94,6 +94,7 @@ const REWORK_SCALAR_FIELDS = [
 ];
 const REWORK_TABLE_FIELDS = ["custom_pea_rework_operators"];
 const REWORK_FIELDS = [...REWORK_SCALAR_FIELDS, ...REWORK_TABLE_FIELDS];
+const REWORK_LAYOUT_FIELDS = ["custom_pea_rework_details_section", ...REWORK_FIELDS];
 let _dieToolRequestId = 0;
 let _shiftDetailsRequestId = 0;
 let _jointStockEntryTypeRequestId = 0;
@@ -148,7 +149,6 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 		onload(frm) {
 			_set_prev_purpose(frm);
 			_set_prev_stock_entry_type(frm);
-			_sync_rework_mode_from_stock_entry_type(frm);
 			_hide_native_get_items(frm);
 			_apply_native_manufacture_visibility(frm);
 			_apply_manufacture_visibility(frm);
@@ -158,6 +158,7 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 			_initialize_total_strokes_default_state(frm);
 			_set_prev_purpose(frm);
 			_set_prev_stock_entry_type(frm);
+			_sync_rework_mode_from_stock_entry_type(frm);
 			_hide_native_get_items(frm);
 			_apply_native_manufacture_visibility(frm);
 			// Set filter to show shifts that can accept post-facto entries.
@@ -572,7 +573,6 @@ function _sync_joint_stock_entry_type(
 }
 
 function _sync_rework_mode_from_stock_entry_type(frm, { previousStockEntryType = "" } = {}) {
-	const requestId = ++_reworkStockEntryTypeRequestId;
 	const selectedStockEntryType = frm.doc.stock_entry_type || "";
 	const previousReworkStockEntryType = frm.doc.__pea_rework_stock_entry_type || "";
 	if (
@@ -583,6 +583,10 @@ function _sync_rework_mode_from_stock_entry_type(frm, { previousStockEntryType =
 		frm.__peaPendingReworkExit = true;
 	}
 	const applyReworkStockEntryType = (reworkStockEntryType) => {
+		if (!frm.__peaReworkStockEntryTypeCache) {
+			frm.__peaReworkStockEntryTypeCache = Object.create(null);
+		}
+		frm.__peaReworkStockEntryTypeCache[selectedStockEntryType] = reworkStockEntryType;
 		frm.doc.__pea_rework_stock_entry_type = reworkStockEntryType;
 		frm.doc.__pea_rework_stock_entry_type_checked = selectedStockEntryType;
 		const isReworkType =
@@ -593,7 +597,7 @@ function _sync_rework_mode_from_stock_entry_type(frm, { previousStockEntryType =
 				_clear_rework_data(frm);
 			}
 		}
-		frm.refresh_fields?.(REWORK_FIELDS);
+		frm.refresh_fields?.(REWORK_LAYOUT_FIELDS);
 		frm.refresh_field?.("custom_pea_shift");
 		frm.toggle_display(REWORK_FIELDS, isReworkType);
 		if (isReworkType) {
@@ -614,10 +618,32 @@ function _sync_rework_mode_from_stock_entry_type(frm, { previousStockEntryType =
 		applyReworkStockEntryType(frm.doc.__pea_rework_stock_entry_type || "");
 		return;
 	}
+	const cachedReworkTypes = frm.__peaReworkStockEntryTypeCache;
+	if (
+		cachedReworkTypes &&
+		Object.prototype.hasOwnProperty.call(cachedReworkTypes, selectedStockEntryType)
+	) {
+		applyReworkStockEntryType(cachedReworkTypes[selectedStockEntryType]);
+		return;
+	}
+	if (frm.__peaReworkStockEntryTypeLookup?.stockEntryType === selectedStockEntryType) {
+		return;
+	}
+	const requestId = ++_reworkStockEntryTypeRequestId;
+	frm.__peaReworkStockEntryTypeLookup = {
+		requestId,
+		stockEntryType: selectedStockEntryType,
+	};
+	const clearPendingLookup = () => {
+		if (frm.__peaReworkStockEntryTypeLookup?.requestId === requestId) {
+			delete frm.__peaReworkStockEntryTypeLookup;
+		}
+	};
 	frappe.call({
 		method: "production_entry_app.production_entry_app.api.get_rework_stock_entry_type",
 		args: { required: 0, stock_entry_type: selectedStockEntryType },
 		callback(r) {
+			clearPendingLookup();
 			if (
 				requestId !== _reworkStockEntryTypeRequestId ||
 				frm.doc.stock_entry_type !== selectedStockEntryType
@@ -627,7 +653,13 @@ function _sync_rework_mode_from_stock_entry_type(frm, { previousStockEntryType =
 			applyReworkStockEntryType(r.message || "");
 		},
 		error(error) {
-			if (requestId !== _reworkStockEntryTypeRequestId) return;
+			clearPendingLookup();
+			if (
+				requestId !== _reworkStockEntryTypeRequestId ||
+				frm.doc.stock_entry_type !== selectedStockEntryType
+			) {
+				return;
+			}
 			_notify_call_error(__("Failed to identify the Rework Stock Entry Type."), error);
 		},
 	});
