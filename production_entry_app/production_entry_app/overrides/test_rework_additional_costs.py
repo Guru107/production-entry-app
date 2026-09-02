@@ -144,8 +144,18 @@ class TestReworkAdditionalCosts(FrappeTestCase):
 		with self.assertRaisesRegex(frappe.ValidationError, "Rework duration must be greater than zero"):
 			before_validate_stock_entry(doc)
 
+	def test_rework_cost_is_not_built_without_workstation(self) -> None:
+		doc = self._make_rework_entry()
+		doc.custom_pea_rework_workstation = None
+
+		with self.assertRaisesRegex(frappe.ValidationError, "Rework Workstation is required"):
+			before_validate_stock_entry(doc)
+
+		self.assertFalse(doc.additional_costs)
+
 	def test_submit_uses_native_valuation_and_gl_and_cancel_reverses_them(self) -> None:
 		suffix = frappe.generate_hash(length=6)
+		posting_date = "2092-09-01"
 		stock_account = frappe.db.get_value(
 			"Account",
 			{"company": self.company, "account_type": "Stock", "is_group": 0},
@@ -180,13 +190,14 @@ class TestReworkAdditionalCosts(FrappeTestCase):
 			branch,
 			rejection_warehouse=source_warehouse,
 		)
-		ensure_stock(item_code, source_warehouse, self.company, target_qty=10)
+		ensure_stock(item_code, source_warehouse, self.company, target_qty=10, posting_date=posting_date)
 		insert_pending_rework_source(
 			stock_entry_type=None,
 			breakups=[(None, 10)],
 			rejection_items=[item_code],
 		)
 		doc = self._make_rework_entry()
+		doc.posting_date = posting_date
 		doc.branch = branch
 		doc.from_warehouse = source_warehouse
 		doc.to_warehouse = target_warehouse

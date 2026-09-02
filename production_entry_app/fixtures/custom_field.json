@@ -205,7 +205,7 @@
   "fieldtype": "Currency",
   "label": "Rework Cost",
   "read_only": 1,
-	"non_negative": 1,
+  "non_negative": 1,
   "insert_after": "custom_pea_rework_operators",
   "depends_on": "eval:doc.__pea_rework_stock_entry_type && doc.stock_entry_type==doc.__pea_rework_stock_entry_type",
   "module": "Production Entry App",

@@ -59,6 +59,22 @@ class TestReworkStockEntryFields(FrappeTestCase):
 		with self.assertRaisesRegex(frappe.ValidationError, "Inactive Rework Operator.*is inactive"):
 			validate_stock_entry(doc)
 
+	def test_rework_requires_rework_type(self) -> None:
+		doc = self._make_rework_entry()
+		doc.custom_pea_rework_type = None
+		doc.append("custom_pea_rework_operators", {"operator": self.active_operator})
+
+		with self.assertRaisesRegex(frappe.ValidationError, "Rework Type is required"):
+			validate_stock_entry(doc)
+
+	def test_rework_requires_workstation(self) -> None:
+		doc = self._make_rework_entry()
+		doc.custom_pea_rework_workstation = None
+		doc.append("custom_pea_rework_operators", {"operator": self.active_operator})
+
+		with self.assertRaisesRegex(frappe.ValidationError, "Rework Workstation is required"):
+			validate_stock_entry(doc)
+
 	def test_non_rework_entries_reject_all_rework_owned_fields(self) -> None:
 		values = {
 			"custom_pea_rework_type": "Deburring",
@@ -93,6 +109,17 @@ class TestReworkStockEntryFields(FrappeTestCase):
 		doc = self._make_rework_entry()
 		doc.branch = "Nashik"
 		doc.append("custom_pea_rework_operators", {"operator": self.active_operator})
+		doc.append("items", {"item_code": "FG001SHR", "branch": "_Test Branch"})
+
+		validate_stock_entry(doc)
+
+		self.assertEqual(doc.items[0].branch, "Nashik")
+
+	def test_non_rework_item_branch_is_synced_from_stock_entry_branch(self) -> None:
+		doc = frappe.new_doc("Stock Entry")
+		doc.purpose = "Material Transfer"
+		doc.stock_entry_type = self.normal_stock_entry_type
+		doc.branch = "Nashik"
 		doc.append("items", {"item_code": "FG001SHR", "branch": "_Test Branch"})
 
 		validate_stock_entry(doc)

@@ -13,6 +13,10 @@ from production_entry_app.production_entry_app.utils.production_warehouses impor
 	get_branch_warehouse_defaults,
 )
 
+REWORK_QTY_PRECISION: int = 6
+REWORK_COST_PRECISION: int = 6
+SECONDS_PER_HOUR: int = 3600
+
 
 @frappe.whitelist()
 def get_pending_rework(item_code: str | None = None) -> list[dict[str, Any]]:
@@ -23,7 +27,8 @@ def get_pending_rework(item_code: str | None = None) -> list[dict[str, Any]]:
 	item_codes = [item_code] if item_code else None
 	pending_by_item = _get_pending_rework_by_item(item_codes=item_codes)
 	return [
-		{"item_code": code, "pending_qty": flt(pending_by_item[code], 6)} for code in sorted(pending_by_item)
+		{"item_code": code, "pending_qty": flt(pending_by_item[code], REWORK_QTY_PRECISION)}
+		for code in sorted(pending_by_item)
 	]
 
 
@@ -57,8 +62,8 @@ def validate_rework_submission(doc: Document) -> None:
 		lock_rows=True,
 	)
 	for item_code in item_codes:
-		requested_qty = flt(requested_by_item[item_code], 6)
-		available_qty = flt(pending_by_item.get(item_code), 6)
+		requested_qty = flt(requested_by_item[item_code], REWORK_QTY_PRECISION)
+		available_qty = flt(pending_by_item.get(item_code), REWORK_QTY_PRECISION)
 		if requested_qty <= available_qty:
 			continue
 		frappe.throw(

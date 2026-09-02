@@ -11,10 +11,16 @@ from production_entry_app.production_entry_app.report.report_utils import (
 	get_report_rows,
 	new_interactive_report_timeout_guard,
 )
+from production_entry_app.production_entry_app.rework import (
+	REWORK_COST_PRECISION,
+	REWORK_QTY_PRECISION,
+	SECONDS_PER_HOUR,
+)
 
 _ENTRY_CHUNK_SIZE = 500
 _MAX_ENTRY_ROWS = 10_000
 _CHILD_PARENT_CHUNK_SIZE = 500
+_ITEM_FILTER_MATCH_LIMIT = _MAX_ENTRY_ROWS + 1
 _ENTRY_FIELDS = [
 	"name",
 	"posting_date",
@@ -110,7 +116,7 @@ def _get_rows(filters: dict) -> list[dict]:
 				"item_code": filters["item_code"],
 			},
 			pluck="parent",
-			limit_page_length=10_001,
+			limit_page_length=_ITEM_FILTER_MATCH_LIMIT,
 		)
 		db_filters["name"] = ["in", matching_parents or ["__no_matching_rework_entry__"]]
 	entries = _get_entries(db_filters, rework_entry_types)
@@ -149,12 +155,17 @@ def _get_rows(filters: dict) -> list[dict]:
 				"rework_entry": entry.name,
 				"rework_type": entry.custom_pea_rework_type,
 				"workstation": entry.custom_pea_rework_workstation,
-				"items": ", ".join(f"{row.item_code} ({flt(row.qty, 6):g})" for row in items),
-				"total_qty": flt(sum(flt(row.qty) for row in items), 6),
-				"duration_hours": flt((end - start).total_seconds() / 3600, 6),
+				"items": ", ".join(
+					f"{row.item_code} ({flt(row.qty, REWORK_QTY_PRECISION):g})" for row in items
+				),
+				"total_qty": flt(sum(flt(row.qty) for row in items), REWORK_QTY_PRECISION),
+				"duration_hours": flt(
+					(end - start).total_seconds() / SECONDS_PER_HOUR,
+					REWORK_QTY_PRECISION,
+				),
 				"operator_names": ", ".join(operators),
 				"operator_count": len(operators),
-				"computed_cost": flt(entry.custom_pea_rework_cost, 6),
+				"computed_cost": flt(entry.custom_pea_rework_cost, REWORK_COST_PRECISION),
 			}
 		)
 	return rows

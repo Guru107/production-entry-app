@@ -23,6 +23,8 @@ from production_entry_app.production_entry_app.joint_production import (
 )
 from production_entry_app.production_entry_app.report.report_utils import get_entry_output_quantities
 from production_entry_app.production_entry_app.rework import (
+	REWORK_COST_PRECISION,
+	SECONDS_PER_HOUR,
 	apply_rework_source_warehouse,
 	is_rework_stock_entry,
 	validate_rework_submission,
@@ -126,6 +128,7 @@ def before_validate_stock_entry(doc: Document, method: str | None = None) -> Non
 
 
 def _sync_item_branches_from_header(doc: Document) -> None:
+	"""Keep item-row accounting dimensions aligned with the Stock Entry header."""
 	branch = doc.get("branch")
 	if not branch:
 		return
@@ -142,6 +145,10 @@ def _validate_rework_fields(doc: Document) -> None:
 		if any(doc.get(fieldname) for fieldname in _REWORK_FIELDS):
 			frappe.throw(_("Rework fields can only be used with the configured Rework Stock Entry Type."))
 		return
+	if not doc.get("custom_pea_rework_type"):
+		frappe.throw(_("Rework Type is required for Rework."))
+	if not doc.get("custom_pea_rework_workstation"):
+		frappe.throw(_("Rework Workstation is required for Rework."))
 	actual_start = _as_datetime(doc.get("custom_pea_rework_actual_start"))
 	actual_end = _as_datetime(doc.get("custom_pea_rework_actual_end"))
 	if actual_start and actual_end and actual_end <= actual_start:
@@ -179,8 +186,8 @@ def _apply_rework_cost(doc: Document) -> None:
 
 	operator_count = len([row for row in doc.get("custom_pea_rework_operators") or [] if row.get("operator")])
 	hour_rate = flt(frappe.db.get_value("Workstation", doc.get("custom_pea_rework_workstation"), "hour_rate"))
-	duration_hours = (actual_end - actual_start).total_seconds() / 3600
-	rework_cost = flt(duration_hours * operator_count * hour_rate, 6)
+	duration_hours = (actual_end - actual_start).total_seconds() / SECONDS_PER_HOUR
+	rework_cost = flt(duration_hours * operator_count * hour_rate, REWORK_COST_PRECISION)
 	expense_account = frappe.db.get_single_value(
 		"Production Entry Settings", "rework_expense_account"
 	) or frappe.db.get_value("Company", doc.get("company"), "default_operating_cost_account")
