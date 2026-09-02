@@ -168,6 +168,62 @@ def test_rework_stock_entry_metadata_is_exported() -> None:
 	]
 
 
+def test_rework_fields_have_a_dedicated_two_column_section() -> None:
+	fields_by_name = {field.get("name"): field for field in load_custom_field_fixture() if field.get("name")}
+
+	def field(fieldname: str) -> dict:
+		return fields_by_name[f"Stock Entry-{fieldname}"]
+
+	rework_condition = field("custom_pea_rework_type")["depends_on"]
+
+	assert field("custom_pea_shift")["insert_after"] == "custom_pea_is_joint_lh_rh"
+	assert field("custom_pea_rework_details_section") == {
+		"doctype": "Custom Field",
+		"name": "Stock Entry-custom_pea_rework_details_section",
+		"dt": "Stock Entry",
+		"fieldname": "custom_pea_rework_details_section",
+		"fieldtype": "Section Break",
+		"label": "Rework Details",
+		"insert_after": "apply_putaway_rule",
+		"depends_on": rework_condition,
+		"module": "Production Entry App",
+		"permlevel": 0,
+	}
+	assert field("custom_pea_rework_type")["insert_after"] == "custom_pea_rework_details_section"
+	assert field("custom_pea_rework_actual_start")["insert_after"] == "custom_pea_rework_type"
+	assert field("custom_pea_rework_actual_end")["insert_after"] == "custom_pea_rework_actual_start"
+	assert field("custom_pea_rework_column_break") == {
+		"doctype": "Custom Field",
+		"name": "Stock Entry-custom_pea_rework_column_break",
+		"dt": "Stock Entry",
+		"fieldname": "custom_pea_rework_column_break",
+		"fieldtype": "Column Break",
+		"insert_after": "custom_pea_rework_actual_end",
+		"module": "Production Entry App",
+		"permlevel": 0,
+	}
+	assert field("custom_pea_rework_workstation")["insert_after"] == "custom_pea_rework_column_break"
+	assert field("custom_pea_rework_operators")["insert_after"] == "custom_pea_rework_workstation"
+	assert field("custom_pea_rework_cost")["insert_after"] == "custom_pea_rework_operators"
+	assert field("custom_pea_rework_details_end_section") == {
+		"doctype": "Custom Field",
+		"name": "Stock Entry-custom_pea_rework_details_end_section",
+		"dt": "Stock Entry",
+		"fieldname": "custom_pea_rework_details_end_section",
+		"fieldtype": "Section Break",
+		"insert_after": "custom_pea_rework_cost",
+		"module": "Production Entry App",
+		"permlevel": 0,
+	}
+
+
+def test_metadata_load_tests_includes_rework_layout_contract() -> None:
+	suite = load_tests(unittest.TestLoader(), unittest.TestSuite(), None)
+	loaded_functions = {test_case._testFunc for test_case in suite}
+
+	assert test_rework_fields_have_a_dedicated_two_column_section in loaded_functions
+
+
 def test_settings_has_no_access_control_fields() -> None:
 	fields_by_name = {
 		field.get("fieldname"): field
@@ -262,6 +318,8 @@ def load_tests(
 			test_stock_entry_detail_rejection_flag_uses_cross_version_anchor,
 			test_joint_lh_rh_production_metadata_is_exported,
 			test_rework_stock_entry_metadata_is_exported,
+			test_rework_fields_have_a_dedicated_two_column_section,
+			test_metadata_load_tests_includes_rework_layout_contract,
 			test_settings_has_no_access_control_fields,
 			test_pea_roles_are_shipped,
 			test_workspace_has_forms_and_reports_cards,

@@ -82,6 +82,113 @@ test.describe("Rework fields on Stock Entry", () => {
 					operatorsVisible: true,
 				});
 			await expect(page.locator(".modal.show")).toHaveCount(0);
+
+			const layout = await page.evaluate(() => {
+				const frm = window.cur_frm;
+				const sections = frm?.layout?.sections || [];
+				const section = sections.find(
+					(entry) => entry?.df?.fieldname === "custom_pea_rework_details_section"
+				);
+				const stockEntrySection = frm?.get_field?.("stock_entry_type")?.section;
+				const placement = (fieldname) => {
+					const wrapper = frm?.get_field?.(fieldname)?.$wrapper;
+					return {
+						section:
+							wrapper?.closest?.(".form-section")?.attr?.("data-fieldname") || "",
+						column: wrapper?.closest?.(".form-column")?.attr?.("data-fieldname") || "",
+					};
+				};
+				return {
+					label: section?.df?.label || "",
+					visible:
+						Boolean(section?.wrapper) && !section.wrapper.hasClass("hide-control"),
+					stockEntrySectionTop:
+						frm
+							?.get_field?.("stock_entry_type")
+							?.$wrapper?.closest?.(".form-section")?.[0]
+							?.getBoundingClientRect?.().top ?? null,
+					reworkSectionTop: section?.wrapper?.[0]?.getBoundingClientRect?.().top ?? null,
+					stockEntrySectionIndex: sections.indexOf(stockEntrySection),
+					reworkSectionIndex: sections.indexOf(section),
+					columnFieldOrder: (section?.columns || []).map((column) =>
+						column.wrapper
+							.children("form")
+							.children(".frappe-control")
+							.map((_index, control) => control.dataset.fieldname)
+							.get()
+					),
+					nextNativeField: (() => {
+						const fields = frm?.meta?.fields || [];
+						const costIndex = fields.findIndex(
+							(field) => field.fieldname === "custom_pea_rework_cost"
+						);
+						const field = fields
+							.slice(costIndex + 1)
+							.find((candidate) => !candidate.is_custom_field);
+						const control = field ? frm?.fields_dict?.[field.fieldname] : null;
+						const wrapper = control?.$wrapper || control?.wrapper;
+						return {
+							fieldname: field?.fieldname || "",
+							section:
+								wrapper?.closest?.(".form-section")?.attr?.("data-fieldname") ||
+								"",
+						};
+					})(),
+					placements: Object.fromEntries(
+						[
+							"custom_pea_rework_type",
+							"custom_pea_rework_actual_start",
+							"custom_pea_rework_actual_end",
+							"custom_pea_rework_workstation",
+							"custom_pea_rework_operators",
+							"custom_pea_rework_cost",
+						].map((fieldname) => [fieldname, placement(fieldname)])
+					),
+				};
+			});
+			expect(layout.label).toBe("Rework Details");
+			expect(layout.visible).toBe(true);
+			expect(layout.reworkSectionTop).toBeGreaterThan(layout.stockEntrySectionTop);
+			expect(layout.reworkSectionIndex).toBe(layout.stockEntrySectionIndex + 1);
+			expect(layout.columnFieldOrder).toEqual([
+				[
+					"custom_pea_rework_type",
+					"custom_pea_rework_actual_start",
+					"custom_pea_rework_actual_end",
+				],
+				[
+					"custom_pea_rework_workstation",
+					"custom_pea_rework_operators",
+					"custom_pea_rework_cost",
+				],
+			]);
+			expect(layout.nextNativeField.fieldname).toBeTruthy();
+			expect(layout.nextNativeField.section).not.toBe("custom_pea_rework_details_section");
+			const leftColumn = layout.placements.custom_pea_rework_type.column;
+			const rightColumn = layout.placements.custom_pea_rework_workstation.column;
+			expect(leftColumn).toBeTruthy();
+			expect(rightColumn).toBe("custom_pea_rework_column_break");
+			expect(leftColumn).not.toBe(rightColumn);
+			for (const fieldname of [
+				"custom_pea_rework_type",
+				"custom_pea_rework_actual_start",
+				"custom_pea_rework_actual_end",
+			]) {
+				expect(layout.placements[fieldname]).toEqual({
+					section: "custom_pea_rework_details_section",
+					column: leftColumn,
+				});
+			}
+			for (const fieldname of [
+				"custom_pea_rework_workstation",
+				"custom_pea_rework_operators",
+				"custom_pea_rework_cost",
+			]) {
+				expect(layout.placements[fieldname]).toEqual({
+					section: "custom_pea_rework_details_section",
+					column: rightColumn,
+				});
+			}
 		} finally {
 			await page.goto(getRoute("/home")).catch(() => {});
 			for (const name of createdStockEntryTypes) {
@@ -179,6 +286,9 @@ test.describe("Rework fields on Stock Entry", () => {
 				);
 			});
 			expect(await stockEntryPage.isFieldVisible("custom_pea_rework_type")).toBe(false);
+			expect(
+				await stockEntryPage.isSectionVisible("custom_pea_rework_details_section")
+			).toBe(false);
 		} finally {
 			await page.goto(getRoute("/home")).catch(() => {});
 			if (createdReworkType) {
