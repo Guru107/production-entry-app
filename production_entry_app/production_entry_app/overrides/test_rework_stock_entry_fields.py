@@ -89,6 +89,16 @@ class TestReworkStockEntryFields(FrappeTestCase):
 
 		validate_stock_entry(doc)
 
+	def test_item_branch_is_synced_from_stock_entry_branch(self) -> None:
+		doc = self._make_rework_entry()
+		doc.branch = "Nashik"
+		doc.append("custom_pea_rework_operators", {"operator": self.active_operator})
+		doc.append("items", {"item_code": "FG001SHR", "branch": "_Test Branch"})
+
+		validate_stock_entry(doc)
+
+		self.assertEqual(doc.items[0].branch, "Nashik")
+
 	def test_non_rework_entry_without_rework_fields_passes_validation(self) -> None:
 		doc = frappe.new_doc("Stock Entry")
 		doc.purpose = "Material Transfer"

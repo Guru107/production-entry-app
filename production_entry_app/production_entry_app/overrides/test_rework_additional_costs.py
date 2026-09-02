@@ -173,7 +173,8 @@ class TestReworkAdditionalCosts(FrappeTestCase):
 		item_code = ensure_item(f"_Rework Cost Item {suffix}")
 		source_warehouse = ensure_warehouse(f"_Rework Cost Rejection {suffix}", self.company)
 		target_warehouse = ensure_warehouse(f"_Rework Cost Target {suffix}", self.company)
-		branch = ensure_branch(resolve_test_branch() or "_Test Branch")
+		branch = ensure_branch(f"_Rework Cost Header Branch {suffix}")
+		stale_row_branch = ensure_branch(f"_Rework Cost Row Branch {suffix}")
 		set_test_branch_warehouse_defaults(
 			self.company,
 			branch,
@@ -196,12 +197,14 @@ class TestReworkAdditionalCosts(FrappeTestCase):
 				"qty": 10,
 				"s_warehouse": source_warehouse,
 				"t_warehouse": target_warehouse,
+				"branch": stale_row_branch,
 			},
 		)
 		doc.insert(ignore_permissions=True)
 		doc.submit()
 
 		detail = doc.items[0]
+		self.assertEqual(detail.branch, branch)
 		self.assertAlmostEqual(detail.additional_cost, 360, places=6)
 		self.assertAlmostEqual(detail.valuation_rate - detail.basic_rate, 36, places=6)
 		sles = frappe.get_all(
@@ -216,8 +219,9 @@ class TestReworkAdditionalCosts(FrappeTestCase):
 		gl_entries = frappe.get_all(
 			"GL Entry",
 			filters={"voucher_no": doc.name, "is_cancelled": 0},
-			fields=["account", "debit", "credit"],
+			fields=["account", "debit", "credit", "branch"],
 		)
+		self.assertEqual({row.branch for row in gl_entries}, {branch})
 		expense_credit = sum(
 			float(row.credit or 0) - float(row.debit or 0)
 			for row in gl_entries

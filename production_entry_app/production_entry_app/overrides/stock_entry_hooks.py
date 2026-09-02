@@ -114,13 +114,27 @@ def validate_stock_entry(doc: Document, method: str | None = None) -> None:
 		_validate_direct_manufacture_alternative_items(doc)
 		_apply_rejection_entries(doc)
 	_validate_rejection_target_warehouses(doc)
+	_sync_item_branches_from_header(doc)
 	_set_entry_metrics(doc)
 
 
 def before_validate_stock_entry(doc: Document, method: str | None = None) -> None:
+	_sync_item_branches_from_header(doc)
 	apply_rework_source_warehouse(doc)
 	_validate_rework_fields(doc)
 	_apply_rework_cost(doc)
+
+
+def _sync_item_branches_from_header(doc: Document) -> None:
+	branch = doc.get("branch")
+	if not branch:
+		return
+	if not frappe.get_meta("Stock Entry", cached=True).has_field("branch"):
+		return
+	if not frappe.get_meta("Stock Entry Detail", cached=True).has_field("branch"):
+		return
+	for row in doc.get("items") or []:
+		row.branch = branch
 
 
 def _validate_rework_fields(doc: Document) -> None:
