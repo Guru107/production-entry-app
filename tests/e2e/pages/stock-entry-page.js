@@ -7,14 +7,32 @@ const {
 } = require("../fixtures/frappe");
 const { escapeRegexLiteral, getRoute, getRoutePrefix } = require("../utils/routing");
 
-function isStockEntryFormSettled() {
+const STOCK_ENTRY_READY_TIMEOUT_MS = 10_000;
+
+function isStockEntryReady(requireAjaxIdle) {
+	if (document.querySelector(".modal.show")) {
+		return true;
+	}
 	const frm = window.cur_frm;
-	const reworkDiscoveryFinished = Boolean(
-		frm?.doctype === "Stock Entry" &&
-			frm?.is_new?.() &&
-			Object.prototype.hasOwnProperty.call(frm.doc || {}, "__pea_rework_stock_entry_type")
+	if (frm?.doctype !== "Stock Entry" || !frm?.is_new?.()) {
+		return false;
+	}
+	return !requireAjaxIdle || window.frappe?.request?.ajax_count === 0;
+}
+
+async function waitForStockEntryReady(page) {
+	await retryOnContextDestroyed(
+		page,
+		async () => {
+			await page.waitForFunction(isStockEntryReady, false, {
+				timeout: STOCK_ENTRY_READY_TIMEOUT_MS,
+			});
+			await page.waitForFunction(isStockEntryReady, true, {
+				timeout: STOCK_ENTRY_READY_TIMEOUT_MS,
+			});
+		},
+		5
 	);
-	return reworkDiscoveryFinished || Boolean(document.querySelector(".modal.show"));
 }
 
 class StockEntryPage {
@@ -27,13 +45,7 @@ class StockEntryPage {
 		await expect(this.page).toHaveURL(
 			new RegExp(`/${getRoutePrefix()}/stock-entry/(?:new|new-stock-entry-)`)
 		);
-		await retryOnContextDestroyed(
-			this.page,
-			async () => {
-				await this.page.waitForFunction(isStockEntryFormSettled);
-			},
-			5
-		);
+		await waitForStockEntryReady(this.page);
 		await expect(this.page.locator(".modal.show")).toHaveCount(0);
 	}
 
@@ -419,4 +431,8 @@ class StockEntryPage {
 	}
 }
 
-module.exports = { isStockEntryFormSettled, StockEntryPage };
+module.exports = {
+	isStockEntryReady,
+	StockEntryPage,
+	waitForStockEntryReady,
+};

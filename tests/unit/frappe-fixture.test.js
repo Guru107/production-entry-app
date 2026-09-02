@@ -2,7 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const { retryTransientRequest } = require("../e2e/fixtures/test-data");
-const { callFrappeMethod } = require("../e2e/fixtures/frappe");
+const { callFrappeMethod, retryOnContextDestroyed } = require("../e2e/fixtures/frappe");
 
 test("callFrappeMethod fails before POST when CSRF token is unavailable", async () => {
 	let evaluateCalls = 0;
@@ -24,6 +24,28 @@ test("callFrappeMethod fails before POST when CSRF token is unavailable", async 
 		/Unable to read CSRF token after retries/
 	);
 	assert.equal(evaluateCalls, 3);
+});
+
+test("retryOnContextDestroyed bounds the recovery wait before retrying", async () => {
+	let attempts = 0;
+	const waits = [];
+	const page = {
+		async waitForFunction(predicate, argument, options) {
+			waits.push({ argument, options });
+		},
+	};
+
+	const result = await retryOnContextDestroyed(page, async () => {
+		attempts += 1;
+		if (attempts === 1) {
+			throw new Error("Execution context was destroyed");
+		}
+		return "ready";
+	});
+
+	assert.equal(result, "ready");
+	assert.equal(attempts, 2);
+	assert.deepEqual(waits, [{ argument: undefined, options: { timeout: 5000 } }]);
 });
 
 test("retryTransientRequest retries a socket reset for idempotent E2E setup calls", async () => {
