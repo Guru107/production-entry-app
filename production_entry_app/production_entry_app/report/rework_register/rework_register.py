@@ -21,6 +21,7 @@ _ENTRY_CHUNK_SIZE = 500
 _MAX_ENTRY_ROWS = 10_000
 _CHILD_PARENT_CHUNK_SIZE = 500
 _ITEM_FILTER_MATCH_LIMIT = _MAX_ENTRY_ROWS + 1
+_NO_MATCHING_REWORK_ENTRY = "__no_matching_rework_entry__"
 _ENTRY_FIELDS = [
 	"name",
 	"posting_date",
@@ -118,7 +119,7 @@ def _get_rows(filters: dict) -> list[dict]:
 			pluck="parent",
 			limit_page_length=_ITEM_FILTER_MATCH_LIMIT,
 		)
-		db_filters["name"] = ["in", matching_parents or ["__no_matching_rework_entry__"]]
+		db_filters["name"] = ["in", matching_parents or [_NO_MATCHING_REWORK_ENTRY]]
 	entries = _get_entries(db_filters, rework_entry_types)
 	parent_names = [entry.name for entry in entries]
 	if not parent_names:

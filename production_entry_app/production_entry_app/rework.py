@@ -12,6 +12,9 @@ from frappe.utils import flt
 from production_entry_app.production_entry_app.utils.production_warehouses import (
 	get_branch_warehouse_defaults,
 )
+from production_entry_app.production_entry_app.utils.stock_entry_type_flags import (
+	is_rework_stock_entry_type,
+)
 
 REWORK_QTY_PRECISION: int = 6
 REWORK_COST_PRECISION: int = 6
@@ -77,18 +80,7 @@ def validate_rework_submission(doc: Document) -> None:
 
 def is_rework_stock_entry(doc: Document) -> bool:
 	"""Return whether the selected Stock Entry Type is marked for rework."""
-	stock_entry_type = doc.get("stock_entry_type")
-	flags = getattr(doc, "flags", None)
-	cached = flags.get("pea_rework_stock_entry_type") if flags is not None else None
-	if cached and cached[0] == stock_entry_type:
-		return bool(cached[1])
-	is_rework = bool(
-		stock_entry_type
-		and frappe.db.get_value("Stock Entry Type", stock_entry_type, "custom_pea_rework_entry")
-	)
-	if flags is not None:
-		flags.pea_rework_stock_entry_type = (stock_entry_type, is_rework)
-	return is_rework
+	return is_rework_stock_entry_type(doc)
 
 
 def apply_rework_source_warehouse(doc: Document) -> None:

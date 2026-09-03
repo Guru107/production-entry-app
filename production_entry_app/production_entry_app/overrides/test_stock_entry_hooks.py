@@ -3454,9 +3454,9 @@ class TestOverlapValidation(FrappeTestCase):
 			operator=self.operator_1,
 		)
 
-		joint.db_insert()
-		stock_entry_hooks._validate_workstation_overlap(joint)
-		stock_entry_hooks._validate_operator_overlap(joint)
+		with patch.object(stock_entry_hooks, "validate_and_apply_joint_production", return_value=None):
+			joint.save()
+			joint.save()
 
 		self.assertTrue(bool(joint.name))
 
@@ -3488,7 +3488,7 @@ class TestOverlapValidation(FrappeTestCase):
 
 		self.assertTrue(bool(manufacture.name))
 
-	def test_overlap_allows_adjacent_times_for_same_workstation_and_operator(self) -> None:
+	def test_overlap_allows_adjacent_joint_repack_for_same_workstation_and_operator(self) -> None:
 		shift = _create_test_shift(
 			shift_date="2026-05-05",
 			shift_label="2",
@@ -3503,7 +3503,7 @@ class TestOverlapValidation(FrappeTestCase):
 			operator=self.operator_1,
 		)
 		first.save()
-		second = self._create_entry(
+		second = self._create_joint_repack_entry(
 			shift_name=shift.name,
 			start="2026-05-05 17:00:00",
 			end="2026-05-05 18:00:00",
@@ -3511,7 +3511,8 @@ class TestOverlapValidation(FrappeTestCase):
 			operator=self.operator_1,
 		)
 
-		second.save()
+		with patch.object(stock_entry_hooks, "validate_and_apply_joint_production", return_value=None):
+			second.save()
 
 		self.assertTrue(bool(second.name))
 

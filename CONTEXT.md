@@ -12,6 +12,9 @@ _Avoid_: Manufacturing entry, operation entry
 **Joint Production**:
 One physical stamping operation that consumes common raw material and produces paired LH and RH outputs while
 tracking each side's gross quantity and rejection quantity separately.
+Operational validation classifies Joint Production from selected Stock Entry Type
+`custom_pea_joint_lh_rh_production`; submitted-entry reports use saved Stock Entry header marker
+`custom_pea_is_joint_lh_rh`.
 _Avoid_: Combined production, dual production
 
 **Total Press Strokes**:

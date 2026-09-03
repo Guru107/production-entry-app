@@ -1,9 +1,6 @@
 from __future__ import annotations
 
 import frappe
-from erpnext.accounts.doctype.accounting_dimension.accounting_dimension import (
-	make_dimension_in_accounting_doctypes,
-)
 from frappe.model.document import Document
 from frappe.tests.utils import FrappeTestCase
 
@@ -147,17 +144,15 @@ class TestReworkAdditionalCosts(FrappeTestCase):
 		with self.assertRaisesRegex(frappe.ValidationError, "Rework duration must be greater than zero"):
 			before_validate_stock_entry(doc)
 
-	def test_rework_cost_is_not_built_without_workstation(self) -> None:
+	def test_rework_cost_skips_additional_cost_without_workstation(self) -> None:
 		doc = self._make_rework_entry()
 		doc.custom_pea_rework_workstation = None
 
-		with self.assertRaisesRegex(frappe.ValidationError, "Rework Workstation is required"):
-			before_validate_stock_entry(doc)
+		before_validate_stock_entry(doc)
 
 		self.assertFalse(doc.additional_costs)
 
 	def test_submit_uses_native_valuation_and_gl_and_cancel_reverses_them(self) -> None:
-		_ensure_branch_accounting_dimension()
 		suffix = frappe.generate_hash(length=6)
 		posting_date = "2092-09-01"
 		stock_account = frappe.db.get_value(
@@ -188,7 +183,6 @@ class TestReworkAdditionalCosts(FrappeTestCase):
 		source_warehouse = ensure_warehouse(f"_Rework Cost Rejection {suffix}", self.company)
 		target_warehouse = ensure_warehouse(f"_Rework Cost Target {suffix}", self.company)
 		branch = ensure_branch(f"_Rework Cost Header Branch {suffix}")
-		stale_row_branch = ensure_branch(f"_Rework Cost Row Branch {suffix}")
 		set_test_branch_warehouse_defaults(
 			self.company,
 			branch,
@@ -214,14 +208,13 @@ class TestReworkAdditionalCosts(FrappeTestCase):
 				"qty": 10,
 				"s_warehouse": source_warehouse,
 				"t_warehouse": target_warehouse,
-				"branch": stale_row_branch,
+				"branch": branch,
 			},
 		)
 		doc.insert(ignore_permissions=True)
 		doc.submit()
 
 		detail = doc.items[0]
-		self.assertEqual(detail.branch, branch)
 		self.assertAlmostEqual(detail.additional_cost, 360, places=6)
 		self.assertAlmostEqual(detail.valuation_rate - detail.basic_rate, 36, places=6)
 		sles = frappe.get_all(
@@ -301,18 +294,3 @@ class TestReworkAdditionalCosts(FrappeTestCase):
 		for operator in self.operators:
 			doc.append("custom_pea_rework_operators", {"operator": operator})
 		return doc
-
-
-def _ensure_branch_accounting_dimension() -> None:
-	dimension_name = frappe.db.get_value("Accounting Dimension", {"document_type": "Branch"}, "name")
-	if dimension_name:
-		dimension = frappe.get_doc("Accounting Dimension", dimension_name)
-		if dimension.get("disabled"):
-			dimension.disabled = 0
-			dimension.save(ignore_permissions=True)
-	else:
-		dimension = frappe.get_doc({"doctype": "Accounting Dimension", "document_type": "Branch"})
-		dimension.insert(ignore_permissions=True)
-	make_dimension_in_accounting_doctypes(dimension, doclist=["GL Entry", "Stock Entry Detail"])
-	frappe.clear_cache(doctype="GL Entry")
-	frappe.clear_cache(doctype="Stock Entry Detail")

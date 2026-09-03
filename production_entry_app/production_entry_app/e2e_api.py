@@ -40,6 +40,7 @@ _E2E_SYSTEM_SETTINGS_FIELDS: tuple[str, ...] = ("float_precision",)
 _E2E_RESERVED_USER_EMAIL_PREFIX: str = "e2e-user-"
 _E2E_RESERVED_ROLE_PREFIX: str = "E2E ROLE "
 _E2E_RESERVED_DOWNTIME_PREFIX: str = "E2E-DOWNTIME-"
+_E2E_REWORK_REGISTER_PREFIX: str = "E2E-REWORK-REGISTER-"
 _E2E_PRODUCTION_ENTRY_SETTINGS_FIELDS: tuple[str, ...] = (
 	*PRODUCTION_ENTRY_SHIFT_SETTINGS_FIELDS,
 	"rework_expense_account",
@@ -760,7 +761,7 @@ def _cleanup_e2e_rework_lifecycle_entries(prefix: str) -> None:
 		filters={"custom_pea_rework_type": rework_type},
 		pluck="name",
 	):
-		if name.startswith("E2E-REWORK-REGISTER-"):
+		if name.startswith(_E2E_REWORK_REGISTER_PREFIX):
 			continue
 		_safe_cancel_and_delete("Stock Entry", name, context="cleanup_e2e_context")
 
@@ -837,7 +838,7 @@ def _cleanup_e2e_master_data(prefix: str) -> None:
 def _cleanup_e2e_rework_register_rows(prefix: str) -> None:
 	entry_names = frappe.get_all(
 		"Stock Entry",
-		filters={"name": ("like", f"E2E-REWORK-REGISTER-{prefix}-%")},
+		filters={"name": ("like", f"{_E2E_REWORK_REGISTER_PREFIX}{prefix}-%")},
 		pluck="name",
 	)
 	if entry_names:
@@ -1153,7 +1154,7 @@ def create_e2e_rework_register_row(
 			}
 		).insert(ignore_permissions=True)
 
-	entry_name = f"E2E-REWORK-REGISTER-{prefix_value}-{frappe.generate_hash(length=8)}"
+	entry_name = f"{_E2E_REWORK_REGISTER_PREFIX}{prefix_value}-{frappe.generate_hash(length=8)}"
 	actual_start = f"{ctx['shift_date']} 08:00:00"
 	actual_end = f"{ctx['shift_date']} 10:00:00"
 	StockEntry = frappe.qb.DocType("Stock Entry")

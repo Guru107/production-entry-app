@@ -58,6 +58,9 @@ from production_entry_app.production_entry_app.utils.shift_time import (
 	combine_date_time,
 	get_shift_planned_end_datetime,
 )
+from production_entry_app.production_entry_app.utils.stock_entry_type_flags import (
+	is_joint_lh_rh_stock_entry_type,
+)
 from production_entry_app.production_entry_app.utils.system_precision import get_system_float_precision
 
 _DEFAULT_START_BUFFER_MINS: int = 60
@@ -125,7 +128,6 @@ def validate_stock_entry(doc: Document, method: str | None = None) -> None:
 
 def before_validate_stock_entry(doc: Document, method: str | None = None) -> None:
 	apply_rework_source_warehouse(doc)
-	_validate_rework_fields(doc)
 	_apply_rework_cost(doc)
 
 
@@ -167,6 +169,9 @@ def _apply_rework_cost(doc: Document) -> None:
 	for index in range(len(doc.get("additional_costs") or []) - 1, -1, -1):
 		if doc.additional_costs[index].get("custom_pea_is_rework_cost"):
 			doc.additional_costs.pop(index)
+
+	if not doc.get("custom_pea_rework_workstation"):
+		return
 
 	actual_start = _as_datetime(doc.get("custom_pea_rework_actual_start"))
 	actual_end = _as_datetime(doc.get("custom_pea_rework_actual_end"))
@@ -457,19 +462,7 @@ def _should_check_overlap(doc: Document) -> bool:
 def _is_production_overlap_entry(doc: Document) -> bool:
 	return bool(
 		doc.get("purpose") == "Manufacture"
-		or (doc.get("purpose") == "Repack" and _is_joint_lh_rh_stock_entry_type(doc))
-	)
-
-
-def _is_joint_lh_rh_stock_entry_type(doc: Document) -> bool:
-	stock_entry_type = doc.get("stock_entry_type")
-	return bool(
-		stock_entry_type
-		and frappe.db.get_value(
-			"Stock Entry Type",
-			stock_entry_type,
-			"custom_pea_joint_lh_rh_production",
-		)
+		or (doc.get("purpose") == "Repack" and is_joint_lh_rh_stock_entry_type(doc))
 	)
 
 
@@ -570,10 +563,7 @@ def _find_overlapping_stock_entry(doc: Document, fieldname: str, fieldvalue: str
 		.select(stock_entry.name)
 		.where(stock_entry.docstatus != 2)
 		.where(stock_entry.custom_pea_shift.isnotnull())
-		.where(
-			(stock_entry.purpose == "Manufacture")
-			| ((stock_entry.purpose == "Repack") & (stock_entry_type.custom_pea_joint_lh_rh_production == 1))
-		)
+		.where(_get_production_overlap_entry_criterion(stock_entry, stock_entry_type))
 		.where(stock_entry[fieldname] == fieldvalue)
 		.where(
 			build_interval_overlap_criterion(
@@ -589,6 +579,13 @@ def _find_overlapping_stock_entry(doc: Document, fieldname: str, fieldvalue: str
 
 	conflict = query.limit(1).run(as_dict=True)
 	return conflict[0] if conflict else None
+
+
+def _get_production_overlap_entry_criterion(stock_entry: Any, stock_entry_type: Any) -> Any:
+	"""Return the Stock Entry scope that consumes workstation/operator capacity."""
+	return (stock_entry.purpose == "Manufacture") | (
+		(stock_entry.purpose == "Repack") & (stock_entry_type.custom_pea_joint_lh_rh_production == 1)
+	)
 
 
 def _find_overlapping_downtime_entry(

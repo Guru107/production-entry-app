@@ -20,6 +20,9 @@ from production_entry_app.production_entry_app.utils.production_warehouses impor
 	require_warehouse,
 	set_production_header_warehouses,
 )
+from production_entry_app.production_entry_app.utils.stock_entry_type_flags import (
+	is_joint_lh_rh_stock_entry_type,
+)
 
 WHOLE_NUMBER_QUANTUM: Decimal = Decimal("1")
 VALUATION_TOLERANCE: float = 1e-9
@@ -313,23 +316,7 @@ def _build_planned_scrap_items(
 
 
 def _is_joint_stock_entry_type(doc: Document) -> bool:
-	stock_entry_type = doc.get("stock_entry_type")
-	if not stock_entry_type:
-		return False
-	flags = getattr(doc, "flags", None)
-	cached = flags.get("pea_joint_stock_entry_type") if flags is not None else None
-	if cached and cached[0] == stock_entry_type:
-		return bool(cached[1])
-	is_joint_type = bool(
-		frappe.db.get_value(
-			"Stock Entry Type",
-			stock_entry_type,
-			"custom_pea_joint_lh_rh_production",
-		)
-	)
-	if flags is not None:
-		flags.pea_joint_stock_entry_type = (stock_entry_type, is_joint_type)
-	return is_joint_type
+	return is_joint_lh_rh_stock_entry_type(doc)
 
 
 def is_joint_lh_rh_production(doc: Document) -> bool:
