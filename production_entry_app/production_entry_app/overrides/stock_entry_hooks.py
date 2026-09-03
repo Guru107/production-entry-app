@@ -77,6 +77,7 @@ def _safe_bold(value: Any) -> str:
 
 _COMMON_OVERLAP_FIELDS: tuple[str, ...] = (
 	"purpose",
+	"stock_entry_type",
 	"custom_pea_shift",
 	"custom_pea_actual_start_date",
 	"custom_pea_actual_end_date",
@@ -134,10 +135,10 @@ def _sync_item_branches_from_header(doc: Document) -> None:
 		return
 	if not frappe.get_meta("Stock Entry", cached=True).has_field("branch"):
 		return
-	if not frappe.get_meta("Stock Entry Detail", cached=True).has_field("branch"):
-		return
+	detail_has_branch = frappe.get_meta("Stock Entry Detail", cached=True).has_field("branch")
 	for row in doc.get("items") or []:
-		row.branch = branch
+		if detail_has_branch or row.get("branch") is not None:
+			row.branch = branch
 
 
 def _validate_rework_fields(doc: Document) -> None:
@@ -456,12 +457,31 @@ def _as_datetime(value) -> datetime.datetime | None:
 	return get_datetime(value)
 
 
-def _should_check_overlap(doc) -> bool:
+def _should_check_overlap(doc: Document) -> bool:
 	return bool(
-		doc.get("purpose") == "Manufacture"
-		and doc.get("custom_pea_shift")
+		doc.get("custom_pea_shift")
 		and doc.get("custom_pea_actual_start_date")
 		and doc.get("custom_pea_actual_end_date")
+		and _is_production_overlap_entry(doc)
+	)
+
+
+def _is_production_overlap_entry(doc: Document) -> bool:
+	return bool(
+		doc.get("purpose") == "Manufacture"
+		or (doc.get("purpose") == "Repack" and _is_joint_lh_rh_stock_entry_type(doc))
+	)
+
+
+def _is_joint_lh_rh_stock_entry_type(doc: Document) -> bool:
+	stock_entry_type = doc.get("stock_entry_type")
+	return bool(
+		stock_entry_type
+		and frappe.db.get_value(
+			"Stock Entry Type",
+			stock_entry_type,
+			"custom_pea_joint_lh_rh_production",
+		)
 	)
 
 
@@ -554,12 +574,18 @@ def _find_overlapping_stock_entry(doc, fieldname: str, fieldvalue: str | None) -
 	start = _as_datetime(doc.get("custom_pea_actual_start_date"))
 	end = _as_datetime(doc.get("custom_pea_actual_end_date"))
 	stock_entry = DocType("Stock Entry")
+	stock_entry_type = DocType("Stock Entry Type")
 	query = (
 		frappe.qb.from_(stock_entry)
+		.left_join(stock_entry_type)
+		.on(stock_entry.stock_entry_type == stock_entry_type.name)
 		.select(stock_entry.name)
 		.where(stock_entry.docstatus != 2)
-		.where(stock_entry.purpose == "Manufacture")
 		.where(stock_entry.custom_pea_shift.isnotnull())
+		.where(
+			(stock_entry.purpose == "Manufacture")
+			| ((stock_entry.purpose == "Repack") & (stock_entry_type.custom_pea_joint_lh_rh_production == 1))
+		)
 		.where(stock_entry[fieldname] == fieldvalue)
 		.where(
 			build_interval_overlap_criterion(

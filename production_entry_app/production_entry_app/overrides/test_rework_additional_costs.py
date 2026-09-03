@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import frappe
+from erpnext.accounts.doctype.accounting_dimension.accounting_dimension import (
+	make_dimension_in_accounting_doctypes,
+)
 from frappe.model.document import Document
 from frappe.tests.utils import FrappeTestCase
 
@@ -154,6 +157,7 @@ class TestReworkAdditionalCosts(FrappeTestCase):
 		self.assertFalse(doc.additional_costs)
 
 	def test_submit_uses_native_valuation_and_gl_and_cancel_reverses_them(self) -> None:
+		_ensure_branch_accounting_dimension()
 		suffix = frappe.generate_hash(length=6)
 		posting_date = "2092-09-01"
 		stock_account = frappe.db.get_value(
@@ -197,7 +201,9 @@ class TestReworkAdditionalCosts(FrappeTestCase):
 			rejection_items=[item_code],
 		)
 		doc = self._make_rework_entry()
+		doc.set_posting_time = 1
 		doc.posting_date = posting_date
+		doc.posting_time = "00:00:00"
 		doc.branch = branch
 		doc.from_warehouse = source_warehouse
 		doc.to_warehouse = target_warehouse
@@ -295,3 +301,18 @@ class TestReworkAdditionalCosts(FrappeTestCase):
 		for operator in self.operators:
 			doc.append("custom_pea_rework_operators", {"operator": operator})
 		return doc
+
+
+def _ensure_branch_accounting_dimension() -> None:
+	dimension_name = frappe.db.get_value("Accounting Dimension", {"document_type": "Branch"}, "name")
+	if dimension_name:
+		dimension = frappe.get_doc("Accounting Dimension", dimension_name)
+		if dimension.get("disabled"):
+			dimension.disabled = 0
+			dimension.save(ignore_permissions=True)
+	else:
+		dimension = frappe.get_doc({"doctype": "Accounting Dimension", "document_type": "Branch"})
+		dimension.insert(ignore_permissions=True)
+	make_dimension_in_accounting_doctypes(dimension, doclist=["GL Entry", "Stock Entry Detail"])
+	frappe.clear_cache(doctype="GL Entry")
+	frappe.clear_cache(doctype="Stock Entry Detail")
