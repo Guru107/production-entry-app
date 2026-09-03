@@ -137,8 +137,17 @@ def _sync_item_branches_from_header(doc: Document) -> None:
 		return
 	detail_has_branch = frappe.get_meta("Stock Entry Detail", cached=True).has_field("branch")
 	for row in doc.get("items") or []:
-		if detail_has_branch or row.get("branch") is not None:
+		if detail_has_branch or _document_has_field(row, "branch"):
 			row.branch = branch
+
+
+def _document_has_field(doc: Any, fieldname: str) -> bool:
+	if getattr(doc, "meta", None) and doc.meta.has_field(fieldname):
+		return True
+	as_dict = getattr(doc, "as_dict", None)
+	if callable(as_dict):
+		return fieldname in as_dict()
+	return fieldname in doc
 
 
 def _validate_rework_fields(doc: Document) -> None:
