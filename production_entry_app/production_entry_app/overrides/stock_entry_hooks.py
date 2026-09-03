@@ -21,7 +21,10 @@ from production_entry_app.production_entry_app.joint_production import (
 	is_joint_lh_rh_production,
 	validate_and_apply_joint_production,
 )
-from production_entry_app.production_entry_app.report.report_utils import get_entry_output_quantities
+from production_entry_app.production_entry_app.report.report_utils import (
+	get_entry_output_quantities,
+	is_good_output_row,
+)
 from production_entry_app.production_entry_app.rework import (
 	REWORK_COST_PRECISION,
 	SECONDS_PER_HOUR,
@@ -117,37 +120,13 @@ def validate_stock_entry(doc: Document, method: str | None = None) -> None:
 		_validate_direct_manufacture_alternative_items(doc)
 		_apply_rejection_entries(doc)
 	_validate_rejection_target_warehouses(doc)
-	_sync_item_branches_from_header(doc)
 	_set_entry_metrics(doc)
 
 
 def before_validate_stock_entry(doc: Document, method: str | None = None) -> None:
-	_sync_item_branches_from_header(doc)
 	apply_rework_source_warehouse(doc)
 	_validate_rework_fields(doc)
 	_apply_rework_cost(doc)
-
-
-def _sync_item_branches_from_header(doc: Document) -> None:
-	"""Keep item-row accounting dimensions aligned with the Stock Entry header."""
-	branch = doc.get("branch")
-	if not branch:
-		return
-	if not frappe.get_meta("Stock Entry", cached=True).has_field("branch"):
-		return
-	detail_has_branch = frappe.get_meta("Stock Entry Detail", cached=True).has_field("branch")
-	for row in doc.get("items") or []:
-		if detail_has_branch or _document_has_field(row, "branch"):
-			row.branch = branch
-
-
-def _document_has_field(doc: Any, fieldname: str) -> bool:
-	if getattr(doc, "meta", None) and doc.meta.has_field(fieldname):
-		return True
-	as_dict = getattr(doc, "as_dict", None)
-	if callable(as_dict):
-		return fieldname in as_dict()
-	return fieldname in doc
 
 
 def _validate_rework_fields(doc: Document) -> None:
@@ -250,21 +229,21 @@ def before_submit_stock_entry(doc: Document, method: str | None = None) -> None:
 	validate_rework_submission(doc)
 
 
-def on_submit_stock_entry(doc, method: str | None = None) -> None:
+def on_submit_stock_entry(doc: Document, method: str | None = None) -> None:
 	if is_rework_stock_entry(doc):
 		return
 	update_counter_for_stock_entry(doc, direction=1)
 	_invalidate_shift_dependent_caches(doc)
 
 
-def on_cancel_stock_entry(doc, method: str | None = None) -> None:
+def on_cancel_stock_entry(doc: Document, method: str | None = None) -> None:
 	if is_rework_stock_entry(doc):
 		return
 	update_counter_for_stock_entry(doc, direction=-1)
 	_invalidate_shift_dependent_caches(doc)
 
 
-def on_trash_stock_entry(doc, method: str | None = None) -> None:
+def on_trash_stock_entry(doc: Document, method: str | None = None) -> None:
 	"""Defensively delete Stock Entry loss rows in case table cleanup misses them."""
 	frappe.db.delete(
 		"Loss Entry",
@@ -280,7 +259,7 @@ def _invalidate_shift_dependent_caches(doc: Document) -> None:
 	invalidate_timeline_cache_for_stock_entry(doc)
 
 
-def _apply_shift_defaults(doc) -> None:
+def _apply_shift_defaults(doc: Document) -> None:
 	"""Populate Stock Entry fields from the linked Shift document.
 
 	For draft/new Stock Entries, applies current Shift values.
@@ -321,7 +300,7 @@ def _apply_shift_defaults(doc) -> None:
 			doc.to_warehouse = shift.work_in_progress_warehouse
 
 
-def _validate_linked_shift_can_accept_stock_entry(doc) -> None:
+def _validate_linked_shift_can_accept_stock_entry(doc: Document) -> None:
 	"""Allow linking finalized or active shifts on Stock Entry."""
 	shift_name = doc.get("custom_pea_shift")
 	if not shift_name:
@@ -341,14 +320,14 @@ def _validate_linked_shift_can_accept_stock_entry(doc) -> None:
 		)
 
 
-def _sync_unplanned_loss_shift_links(doc) -> None:
+def _sync_unplanned_loss_shift_links(doc: Document) -> None:
 	"""Keep unplanned loss rows linked to the currently selected shift."""
 	shift_name = doc.get("custom_pea_shift") or ""
 	for row in doc.get("custom_pea_unplanned_losses") or []:
 		row.shift = shift_name
 
 
-def _validate_actual_times(doc) -> None:
+def _validate_actual_times(doc: Document) -> None:
 	"""Validate that actual start/end are within planned window plus configured buffers."""
 	planned_start, planned_end, actual_start, actual_end = _get_planned_actual_windows(doc)
 	if not planned_start or not planned_end:
@@ -460,7 +439,7 @@ def _get_shift_buffer_minutes(fieldname: str, default_value: int) -> int:
 	return default_value
 
 
-def _as_datetime(value) -> datetime.datetime | None:
+def _as_datetime(value: Any) -> datetime.datetime | None:
 	if not value:
 		return None
 	return get_datetime(value)
@@ -494,7 +473,7 @@ def _is_joint_lh_rh_stock_entry_type(doc: Document) -> bool:
 	)
 
 
-def _did_overlap_inputs_change(doc, fieldnames: tuple[str, ...]) -> bool:
+def _did_overlap_inputs_change(doc: Document, fieldnames: tuple[str, ...]) -> bool:
 	if doc.is_new():
 		return True
 
@@ -513,7 +492,7 @@ def _did_overlap_inputs_change(doc, fieldnames: tuple[str, ...]) -> bool:
 	return False
 
 
-def _validate_workstation_overlap(doc) -> None:
+def _validate_workstation_overlap(doc: Document) -> None:
 	workstation = doc.get("custom_pea_workstation")
 	if not workstation:
 		return
@@ -531,7 +510,7 @@ def _validate_workstation_overlap(doc) -> None:
 	)
 
 
-def _validate_operator_overlap(doc) -> None:
+def _validate_operator_overlap(doc: Document) -> None:
 	operator = doc.get("custom_pea_operator")
 	if not operator:
 		return
@@ -549,7 +528,7 @@ def _validate_operator_overlap(doc) -> None:
 	)
 
 
-def _validate_workstation_downtime_overlap(doc) -> None:
+def _validate_workstation_downtime_overlap(doc: Document) -> None:
 	if not _should_check_overlap(doc):
 		return
 	workstation = doc.get("custom_pea_workstation")
@@ -576,7 +555,7 @@ def _validate_workstation_downtime_overlap(doc) -> None:
 	)
 
 
-def _find_overlapping_stock_entry(doc, fieldname: str, fieldvalue: str | None) -> dict | None:
+def _find_overlapping_stock_entry(doc: Document, fieldname: str, fieldvalue: str | None) -> dict | None:
 	if not _should_check_overlap(doc) or not fieldvalue:
 		return None
 
@@ -726,7 +705,7 @@ def _is_configured_item_alternative(original_item: str, alternative_item: str) -
 	)
 
 
-def _validate_rejection_breakup(doc) -> None:
+def _validate_rejection_breakup(doc: Document) -> None:
 	rejection_qty = float(doc.get("custom_pea_rejection_qty") or 0)
 	if rejection_qty <= 0:
 		doc.custom_pea_rework_qty = 0
@@ -763,7 +742,7 @@ def _get_rejection_breakup_abs_tol(doc: Document, breakup_rows: list[Any]) -> fl
 	return 0.5 * (10 ** (-effective_precision))
 
 
-def _get_docfield_precision(doctype: str, fieldname: str, row) -> int:
+def _get_docfield_precision(doctype: str, fieldname: str, row: Any) -> int:
 	df = frappe.get_meta(doctype, cached=True).get_field(fieldname)
 	if not df:
 		return 3
@@ -772,7 +751,7 @@ def _get_docfield_precision(doctype: str, fieldname: str, row) -> int:
 	return max(int(get_field_precision(df, row) or 3), 0)
 
 
-def _apply_rejection_entries(doc) -> None:
+def _apply_rejection_entries(doc: Document) -> None:
 	"""Handle rejection quantity: deduct from FG row and add rejection row."""
 	rejection_qty = float(doc.get("custom_pea_rejection_qty") or 0)
 	existing_rejection_t_warehouse = _get_existing_rejection_target_warehouse(doc)
@@ -851,7 +830,7 @@ def _validate_rejection_target_warehouses(doc: Document) -> None:
 			)
 
 
-def _remove_existing_rejection_rows(doc) -> None:
+def _remove_existing_rejection_rows(doc: Document) -> None:
 	"""Remove rows marked as rejection items and restore their qty to the FG row."""
 	items_to_keep = []
 	total_rejection_qty = 0
@@ -876,7 +855,7 @@ def _remove_existing_rejection_rows(doc) -> None:
 		row.idx = idx
 
 
-def _find_finished_good_row(doc):
+def _find_finished_good_row(doc: Document) -> Any:
 	"""Find and return the finished good row from Stock Entry items."""
 	for row in doc.get("items", []):
 		if row.get("is_finished_item"):
@@ -884,7 +863,7 @@ def _find_finished_good_row(doc):
 	return None
 
 
-def _get_existing_rejection_target_warehouse(doc) -> str | None:
+def _get_existing_rejection_target_warehouse(doc: Document) -> str | None:
 	candidates = [
 		row
 		for row in doc.get("items", [])
@@ -916,7 +895,7 @@ def _is_rejected_warehouse(warehouse: str | None) -> bool:
 	return bool(frappe.db.get_value("Warehouse", warehouse, "is_rejected_warehouse"))
 
 
-def _set_entry_metrics(doc) -> None:
+def _set_entry_metrics(doc: Document) -> None:
 	"""Compute read-only entry metrics used by operators and supervisors."""
 	meta = frappe.get_meta("Stock Entry", cached=True)
 	_set_die_tool_health_metrics(doc, meta)
@@ -977,7 +956,7 @@ def _build_metrics_note(duration_mins: float, deducted_loss_mins: float) -> str:
 
 
 def _get_deducted_loss_minutes_for_entry(
-	doc,
+	doc: Document,
 	actual_start: datetime.datetime,
 	actual_end: datetime.datetime,
 ) -> float:
@@ -1077,18 +1056,13 @@ def _get_shift_planned_losses_for_metrics(
 	return planned_rows, shift_start, shift_end
 
 
-def _get_ok_units_for_metrics(doc) -> float:
+def _get_ok_units_for_metrics(doc: Document) -> float:
 	normal_metrics = None
 	if not is_joint_lh_rh_production(doc):
 		good_qty = sum(
 			flt(row.get("qty")) * flt(row.get("conversion_factor") or 1)
 			for row in doc.get("items") or []
-			if row.get("is_finished_item")
-			and not row.get("custom_pea_is_rejection_item")
-			and not row.get("is_scrap_item")
-			and not row.get("is_legacy_scrap_item")
-			and row.get("type") != "Scrap"
-			and row.get("secondary_item_type") != "Scrap"
+			if is_good_output_row(row)
 		)
 		if good_qty > 0:
 			normal_metrics = {
@@ -1098,12 +1072,12 @@ def _get_ok_units_for_metrics(doc) -> float:
 	return get_entry_output_quantities(doc, normal_metrics=normal_metrics).ok_qty
 
 
-def _set_if_field(doc, meta, fieldname: str, value) -> None:
+def _set_if_field(doc: Document, meta: Any, fieldname: str, value: Any) -> None:
 	if meta.has_field(fieldname):
 		doc.set(fieldname, value)
 
 
-def _set_die_tool_health_metrics(doc, meta) -> None:
+def _set_die_tool_health_metrics(doc: Document, meta: Any) -> None:
 	item_code = _get_fg_item_code_for_metrics(doc)
 	if not item_code or not is_die_tool_enabled(item_code):
 		_set_if_field(doc, meta, "custom_pea_die_tool_utilization_pct", 0)
@@ -1130,7 +1104,7 @@ def _set_die_tool_health_metrics(doc, meta) -> None:
 	_set_if_field(doc, meta, "custom_pea_die_tool_maintenance_due", maintenance_due)
 
 
-def _get_fg_item_code_for_metrics(doc) -> str | None:
+def _get_fg_item_code_for_metrics(doc: Document) -> str | None:
 	if is_joint_lh_rh_production(doc):
 		return doc.get("custom_pea_die_tool_item")
 	if doc.get("fg_item"):

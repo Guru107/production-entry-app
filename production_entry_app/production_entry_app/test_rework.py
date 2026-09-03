@@ -54,6 +54,18 @@ class TestPendingReworkPool(FrappeTestCase):
 			[{"item_code": self.item_b, "pending_qty": 4.0}],
 		)
 
+	def test_pool_counts_split_joint_rejection_detail_rows_once(self) -> None:
+		self._insert_production_source(
+			stock_entry_type=self.joint_type,
+			breakups=[(self.item_a, 5)],
+			rejection_items=[self.item_a, self.item_a],
+		)
+
+		self.assertEqual(
+			rework.get_pending_rework(self.item_a),
+			[{"item_code": self.item_a, "pending_qty": 5.0}],
+		)
+
 	def test_cancelled_rework_entry_restores_derived_availability(self) -> None:
 		self._insert_production_source(
 			stock_entry_type=self.normal_type,
