@@ -3413,6 +3413,108 @@ class TestOverlapValidation(FrappeTestCase):
 		second.save()
 		self.assertTrue(bool(second.name))
 
+	def test_overlap_blocks_joint_repack_when_workstation_and_operator_match_manufacture(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-05-02",
+			shift_label="2",
+			planned_start_time="16:00:00",
+			wip_warehouse=self.wip_warehouse,
+		)
+		manufacture = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-02 16:00:00",
+			end="2026-05-02 17:00:00",
+			workstation=self.workstation_1,
+			operator=self.operator_1,
+		)
+		manufacture.save()
+		joint = self._create_joint_repack_entry(
+			shift_name=shift.name,
+			start="2026-05-02 16:30:00",
+			end="2026-05-02 17:30:00",
+			workstation=self.workstation_1,
+			operator=self.operator_1,
+		)
+
+		with self.assertRaisesRegex(ValidationError, rf"Workstation.*{re.escape(manufacture.name)}"):
+			joint.save()
+
+	def test_joint_repack_overlap_allows_resave_with_same_resources(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-05-03",
+			shift_label="2",
+			planned_start_time="16:00:00",
+			wip_warehouse=self.wip_warehouse,
+		)
+		joint = self._create_joint_repack_entry(
+			shift_name=shift.name,
+			start="2026-05-03 16:00:00",
+			end="2026-05-03 17:00:00",
+			workstation=self.workstation_1,
+			operator=self.operator_1,
+		)
+
+		joint.db_insert()
+		stock_entry_hooks._validate_workstation_overlap(joint)
+		stock_entry_hooks._validate_operator_overlap(joint)
+
+		self.assertTrue(bool(joint.name))
+
+	def test_overlap_excludes_cancelled_joint_repack_for_workstation_and_operator(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-05-04",
+			shift_label="2",
+			planned_start_time="16:00:00",
+			wip_warehouse=self.wip_warehouse,
+		)
+		joint = self._create_joint_repack_entry(
+			shift_name=shift.name,
+			start="2026-05-04 16:00:00",
+			end="2026-05-04 17:00:00",
+			workstation=self.workstation_1,
+			operator=self.operator_1,
+		)
+		joint.db_insert()
+		frappe.db.set_value("Stock Entry", joint.name, "docstatus", 2, update_modified=False)
+		manufacture = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-04 16:30:00",
+			end="2026-05-04 17:30:00",
+			workstation=self.workstation_1,
+			operator=self.operator_1,
+		)
+
+		manufacture.save()
+
+		self.assertTrue(bool(manufacture.name))
+
+	def test_overlap_allows_adjacent_times_for_same_workstation_and_operator(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-05-05",
+			shift_label="2",
+			planned_start_time="16:00:00",
+			wip_warehouse=self.wip_warehouse,
+		)
+		first = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-05 16:00:00",
+			end="2026-05-05 17:00:00",
+			workstation=self.workstation_1,
+			operator=self.operator_1,
+		)
+		first.save()
+		second = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-05 17:00:00",
+			end="2026-05-05 18:00:00",
+			workstation=self.workstation_1,
+			operator=self.operator_1,
+		)
+
+		second.save()
+
+		self.assertTrue(bool(second.name))
+
 	def test_downtime_overlap_blocks_workstation_with_downtime(self) -> None:
 		shift = _create_test_shift(
 			shift_date="2026-05-02",
@@ -3431,6 +3533,29 @@ class TestOverlapValidation(FrappeTestCase):
 			shift_name=shift.name,
 			start="2026-05-02 16:30:00",
 			end="2026-05-02 17:30:00",
+			workstation=self.workstation_1,
+		)
+		with self.assertRaisesRegex(ValidationError, "downtime"):
+			se.save()
+
+	def test_downtime_overlap_blocks_joint_repack_with_downtime(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-05-06",
+			shift_label="2",
+			planned_start_time="16:00:00",
+			wip_warehouse=self.wip_warehouse,
+		)
+		_create_downtime_entry(
+			workstation=self.workstation_1,
+			operator=self.employee_name,
+			from_time="2026-05-06 16:00:00",
+			to_time="2026-05-06 17:00:00",
+		)
+
+		se = self._create_joint_repack_entry(
+			shift_name=shift.name,
+			start="2026-05-06 16:30:00",
+			end="2026-05-06 17:30:00",
 			workstation=self.workstation_1,
 		)
 		with self.assertRaisesRegex(ValidationError, "downtime"):

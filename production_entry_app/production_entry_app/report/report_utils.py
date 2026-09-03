@@ -758,6 +758,25 @@ def _get_good_output_criterion(stock_entry_detail: Table) -> Criterion:
 	)
 
 
+def is_good_output_row(row: Any) -> bool:
+	"""Return whether a Stock Entry Detail row represents finished good output."""
+	# Keep this in-memory predicate aligned with _get_good_output_criterion().
+	return (
+		bool(row.get("is_finished_item"))
+		and not row.get("custom_pea_is_rejection_item")
+		and _is_non_scrap_row(row)
+	)
+
+
+def _is_non_scrap_row(row: Any) -> bool:
+	return (
+		not row.get("is_scrap_item")
+		and not row.get("is_legacy_scrap_item")
+		and row.get("type") != "Scrap"
+		and row.get("secondary_item_type") != "Scrap"
+	)
+
+
 def _get_non_scrap_item_criterion(stock_entry_detail: Table) -> Criterion:
 	meta = frappe.get_meta("Stock Entry Detail", cached=True)
 	criterion = stock_entry_detail.name.isnotnull()

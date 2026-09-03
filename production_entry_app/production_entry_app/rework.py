@@ -6,7 +6,7 @@ from typing import Any
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.query_builder.functions import Sum
+from frappe.query_builder.functions import Min, Sum
 from frappe.utils import flt
 
 from production_entry_app.production_entry_app.utils.production_warehouses import (
@@ -172,12 +172,12 @@ def _get_rework_produced(
 	exclude_stock_entry: str | None,
 	lock_rows: bool,
 ) -> list[frappe._dict]:
-	query, _stock_entry, StockEntryDetail, RejectionBreakup = _build_rework_produced_query(
+	query, _stock_entry, RejectionDetail, RejectionBreakup = _build_rework_produced_query(
 		item_codes=item_codes,
 		exclude_stock_entry=exclude_stock_entry,
 	)
-	query = query.select(StockEntryDetail.item_code, Sum(RejectionBreakup.qty).as_("qty")).groupby(
-		StockEntryDetail.item_code
+	query = query.select(RejectionDetail.item_code, Sum(RejectionBreakup.qty).as_("qty")).groupby(
+		RejectionDetail.item_code
 	)
 	if lock_rows:
 		query = query.for_update()
@@ -192,31 +192,38 @@ def _build_rework_produced_query(
 	"""Build the submitted rework-flagged source scope shared by pool consumers."""
 	StockEntry = frappe.qb.DocType("Stock Entry")
 	StockEntryDetail = frappe.qb.DocType("Stock Entry Detail")
+	RejectionDetail = (
+		frappe.qb.from_(StockEntryDetail)
+		.select(
+			Min(StockEntryDetail.name).as_("name"),
+			StockEntryDetail.parent,
+			StockEntryDetail.item_code,
+			Min(StockEntryDetail.t_warehouse).as_("t_warehouse"),
+		)
+		.where(StockEntryDetail.parenttype == "Stock Entry")
+		.where(StockEntryDetail.custom_pea_is_rejection_item == 1)
+		.groupby(StockEntryDetail.parent, StockEntryDetail.item_code)
+	).as_("rejection_detail")
 	RejectionBreakup = frappe.qb.DocType("Rejection Breakup")
 	item_matches_breakup = (
 		(RejectionBreakup.item_code.isnull())
 		| (RejectionBreakup.item_code == "")
-		| (RejectionBreakup.item_code == StockEntryDetail.item_code)
+		| (RejectionBreakup.item_code == RejectionDetail.item_code)
 	)
 	query = (
 		frappe.qb.from_(RejectionBreakup)
 		.join(StockEntry)
 		.on((RejectionBreakup.parent == StockEntry.name) & (RejectionBreakup.parenttype == "Stock Entry"))
-		.join(StockEntryDetail)
-		.on(
-			(StockEntryDetail.parent == StockEntry.name)
-			& (StockEntryDetail.parenttype == "Stock Entry")
-			& (StockEntryDetail.custom_pea_is_rejection_item == 1)
-			& item_matches_breakup
-		)
+		.join(RejectionDetail)
+		.on((RejectionDetail.parent == StockEntry.name) & item_matches_breakup)
 		.where(StockEntry.docstatus == 1)
 		.where(RejectionBreakup.is_rework == 1)
 	)
 	if item_codes is not None:
-		query = query.where(StockEntryDetail.item_code.isin(item_codes))
+		query = query.where(RejectionDetail.item_code.isin(item_codes))
 	if exclude_stock_entry:
 		query = query.where(StockEntry.name != exclude_stock_entry)
-	return query, StockEntry, StockEntryDetail, RejectionBreakup
+	return query, StockEntry, RejectionDetail, RejectionBreakup
 
 
 def _get_rework_consumed(

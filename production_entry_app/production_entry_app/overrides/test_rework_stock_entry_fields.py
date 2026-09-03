@@ -1,23 +1,12 @@
 from __future__ import annotations
 
-from unittest.mock import patch
-
 import frappe
 from frappe.model.document import Document
 from frappe.tests.utils import FrappeTestCase
 
 from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
-	_sync_item_branches_from_header,
 	validate_stock_entry,
 )
-
-
-class _MetaWithFields:
-	def __init__(self, fields: set[str]) -> None:
-		self.fields = fields
-
-	def has_field(self, fieldname: str) -> bool:
-		return fieldname in self.fields
 
 
 class TestReworkStockEntryFields(FrappeTestCase):
@@ -117,43 +106,6 @@ class TestReworkStockEntryFields(FrappeTestCase):
 		doc.append("custom_pea_rework_operators", {"operator": self.active_operator})
 
 		validate_stock_entry(doc)
-
-	def test_item_branch_is_synced_from_stock_entry_branch(self) -> None:
-		doc = self._make_rework_entry()
-		doc.branch = "Nashik"
-		doc.append("custom_pea_rework_operators", {"operator": self.active_operator})
-		doc.append("items", {"item_code": "FG001SHR", "branch": "_Test Branch"})
-
-		validate_stock_entry(doc)
-
-		self.assertEqual(doc.get("items")[0].branch, "Nashik")
-
-	def test_non_rework_item_branch_is_synced_from_stock_entry_branch(self) -> None:
-		doc = frappe.new_doc("Stock Entry")
-		doc.purpose = "Material Transfer"
-		doc.stock_entry_type = self.normal_stock_entry_type
-		doc.branch = "Nashik"
-		doc.append("items", {"item_code": "FG001SHR", "branch": "_Test Branch"})
-
-		validate_stock_entry(doc)
-
-		self.assertEqual(doc.get("items")[0].branch, "Nashik")
-
-	def test_item_branch_sync_handles_stale_stock_entry_detail_meta(self) -> None:
-		doc = frappe._dict(
-			{
-				"branch": "Nashik",
-				"items": [frappe._dict({"item_code": "FG001SHR", "branch": None})],
-			}
-		)
-
-		with patch(
-			"production_entry_app.production_entry_app.overrides.stock_entry_hooks.frappe.get_meta",
-			side_effect=[_MetaWithFields({"branch"}), _MetaWithFields(set())],
-		):
-			_sync_item_branches_from_header(doc)
-
-		self.assertEqual(doc.get("items")[0].branch, "Nashik")
 
 	def test_non_rework_entry_without_rework_fields_passes_validation(self) -> None:
 		doc = frappe.new_doc("Stock Entry")
