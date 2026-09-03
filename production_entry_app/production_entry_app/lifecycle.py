@@ -50,39 +50,12 @@ def _warn_if_e2e_enabled_on_non_test_site() -> None:
 
 
 def _setup_app() -> None:
-	ensure_stock_entry_branch_field()
 	ensure_rework_details_layout()
 	performance_indexes.ensure_performance_indexes_with_recovery()
 	frappe.logger("production_entry_app").info(
-		"Production Entry App setup ran: Stock Entry layout and performance indexes were reconciled "
-		"during sync/migrate."
+		"Production Entry App setup ran: Rework Stock Entry layout and performance indexes were "
+		"reconciled during sync/migrate."
 	)
-
-
-def ensure_stock_entry_branch_field() -> None:
-	"""Add a persisted `branch` Link field to Stock Entry only if none exists.
-
-	Native Frappe User Permissions on Branch then isolate Stock Entry by branch.
-	Reuses an existing `branch` field (native or from another app) — never duplicates.
-	New fields follow production's Details layout without replacing its field-order customization.
-	"""
-	meta = frappe.get_meta("Stock Entry", cached=True)
-	if meta.has_field("branch"):
-		return
-	frappe.get_doc(
-		{
-			"doctype": "Custom Field",
-			"dt": "Stock Entry",
-			"fieldname": "branch",
-			"label": "Branch",
-			"fieldtype": "Link",
-			"options": "Branch",
-			"insert_after": "custom_department" if meta.has_field("custom_department") else "posting_time",
-			"module": "Production Entry App",
-			"read_only": 1,
-		}
-	).insert(ignore_permissions=True)
-	frappe.clear_cache(doctype="Stock Entry")
 
 
 def ensure_rework_details_layout() -> None:
