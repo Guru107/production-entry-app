@@ -18,7 +18,10 @@ from production_entry_app.production_entry_app.api import (
 	get_joint_stock_entry_type,
 )
 from production_entry_app.production_entry_app.api_timeline import get_shift_timeline_data
-from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
+from production_entry_app.production_entry_app.doctype.shift.shift import (
+	_get_entry_summary_quantities,
+	get_shift_summary,
+)
 from production_entry_app.production_entry_app.joint_production import (
 	_get_bom_scrap_item_details,
 	_get_item_details,
@@ -31,6 +34,7 @@ from production_entry_app.production_entry_app.joint_production import (
 	validate_and_apply_joint_production,
 )
 from production_entry_app.production_entry_app.report.report_utils import (
+	get_entry_output_quantities,
 	get_entry_qty_maps,
 	get_entry_total_strokes,
 	get_finished_item_maps,
@@ -45,11 +49,13 @@ from production_entry_app.production_entry_app.tests.support.manufacture_builder
 )
 from production_entry_app.production_entry_app.utils.rejection_warehouse import resolve_rejection_warehouse
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
+	build_joint_bom_scrap_row,
 	cleanup_running_shifts,
 	ensure_item,
 	ensure_joint_test_bom,
 	ensure_stock,
 	ensure_workstation,
+	get_joint_bom_scrap_rate,
 	set_test_branch_warehouse_defaults,
 )
 
@@ -77,6 +83,78 @@ def _make_running_shift_through_api(masters: dict[str, Any]) -> object:
 
 
 class TestJointProductionCalculations(FrappeTestCase):
+	def test_joint_bom_scrap_fixture_supports_rate_schema(self) -> None:
+		meta = frappe._dict(has_field=lambda fieldname: fieldname == "rate")
+
+		row = build_joint_bom_scrap_row(
+			secondary_item_meta=meta,
+			item_code="SCRAP-OLD",
+			qty=2,
+			rate=7,
+			uom="Kg",
+		)
+
+		self.assertEqual(row["rate"], 7)
+		self.assertEqual(row["type"], "Scrap")
+		self.assertNotIn("valuation_type", row)
+		self.assertEqual(get_joint_bom_scrap_rate(frappe._dict(row)), 7)
+
+	def test_joint_bom_scrap_fixture_supports_manual_cost_schema(self) -> None:
+		meta = frappe._dict(
+			has_field=lambda fieldname: fieldname in {"secondary_item_type", "valuation_type", "cost"}
+		)
+
+		row = build_joint_bom_scrap_row(
+			secondary_item_meta=meta,
+			item_code="SCRAP-NEW",
+			qty=2,
+			rate=7,
+			uom="Kg",
+		)
+
+		self.assertEqual(row["valuation_type"], "Manual")
+		self.assertEqual(row["cost"], 14)
+		self.assertNotIn("rate", row)
+		self.assertEqual(get_joint_bom_scrap_rate(frappe._dict(row)), 7)
+		self.assertEqual(get_joint_bom_scrap_rate(frappe._dict(cost=14, stock_qty=2)), 7)
+		self.assertEqual(get_joint_bom_scrap_rate(frappe._dict(cost=14, stock_qty=0, qty=0)), 0)
+
+	def test_right_first_time_quantities_match_across_production_modes(self) -> None:
+		normal_entry = frappe._dict(
+			purpose="Manufacture",
+			fg_completed_qty=100,
+			custom_pea_rejection_qty=5,
+			custom_pea_rework_qty=3,
+			custom_pea_total_strokes=100,
+		)
+		joint_entry = frappe._dict(
+			purpose="Repack",
+			custom_pea_is_joint_lh_rh=1,
+			custom_pea_lh_gross_qty=40,
+			custom_pea_lh_rejection_qty=2,
+			custom_pea_rh_gross_qty=60,
+			custom_pea_rh_rejection_qty=3,
+			custom_pea_rework_qty=3,
+			custom_pea_total_strokes=100,
+		)
+		normal_report_metrics = {
+			"good_qty": 95,
+			"rejection_qty": 2,
+			"rework_qty": 3,
+			"total_rejected_qty": 5,
+		}
+
+		normal_report_quantities = get_entry_output_quantities(
+			normal_entry,
+			normal_metrics=normal_report_metrics,
+		)
+		joint_report_quantities = get_entry_output_quantities(joint_entry)
+
+		self.assertEqual(normal_report_quantities, joint_report_quantities)
+		self.assertEqual(tuple(normal_report_quantities), (100, 95, 5))
+		self.assertEqual(_get_entry_summary_quantities(normal_entry), (100, 95, 5, 100))
+		self.assertEqual(_get_entry_summary_quantities(joint_entry), (100, 95, 5, 100))
+
 	def test_joint_item_details_are_loaded_in_one_query(self) -> None:
 		with patch(
 			"production_entry_app.production_entry_app.joint_production.frappe.get_list",
@@ -856,8 +934,8 @@ class TestJointProductionItems(FrappeTestCase):
 		for bom_name in (self.lh_bom, self.rh_bom):
 			bom = frappe.get_doc("BOM", bom_name)
 			scrap_rows = bom.get("scrap_items") or bom.get("secondary_items")
-			zero_values = {"rate": 0}
-			for fieldname in ("cost", "base_amount", "amount"):
+			zero_values = {}
+			for fieldname in ("rate", "cost", "base_amount", "amount"):
 				if scrap_rows[0].meta.has_field(fieldname):
 					zero_values[fieldname] = 0
 			frappe.db.set_value(

@@ -42,6 +42,31 @@ An inclusive From Date and To Date that selects Completed Shifts by Production D
 submitted Production Entries. Entries without a Shift and entries belonging to non-Completed Shifts are excluded.
 _Avoid_: Posting-date range, entry-date range
 
+**Rework Operation**:
+A native Material Transfer Stock Entry, using the configured rework Stock Entry Type, that moves successfully
+reworked quantity from the Rejection Warehouse to the good warehouse and loads its labour cost onto that stock
+through one native additional-cost row. It records the Rework Type, Workstation, actual start/end times, and the
+named Operators involved. Quantity not reworked stays in the Rejection Warehouse. See ADR 0002.
+_Avoid_: Rework entry document type, rework repack
+
+**Rework Type**:
+Master data naming the corrective operation performed on rework-flagged parts, such as Deburring. It may name a
+default Workstation. It is distinct from a Rejection Reason, which records why a part was rejected.
+_Avoid_: Rejection reason, rework reason
+
+**Pending Rework Pool**:
+The derived, per-item quantity awaiting rework: rework-flagged quantity from submitted Production Entries minus
+quantity consumed by submitted Rework Operations. It is fungible per item — Rework Operations do not attribute
+parts back to source entries. Manual scrap write-offs do not drain it, so reports show it beside the actual
+Rejection Warehouse balance.
+_Avoid_: Rework backlog document, rework warehouse balance
+
+**Right-First-Time Quality**:
+The OEE Quality convention in which rework-flagged quantity counts as a quality loss at production time, in both
+normal Manufacture and Joint Production, because the part was not good on its first pass. Rework Operations
+themselves are excluded from OEE and utilization.
+_Avoid_: Scrap-only quality, mode-specific rework treatment
+
 ## Warehouse defaults
 
 Production Entry Settings holds one warehouse-default row per Company and Branch. A Shift's explicit

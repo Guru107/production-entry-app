@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import ClassVar
 from unittest.mock import patch
 
@@ -137,6 +138,56 @@ def _ensure_item_die_tool_fields() -> None:
 
 
 class TestStockEntryHookPureHelpers(FrappeTestCase):
+	def test_non_rework_without_shift_clears_derived_shift_state(self) -> None:
+		doc = frappe._dict(
+			custom_pea_shift="",
+			stock_entry_type="Manufacture",
+			flags=frappe._dict(),
+		)
+		with (
+			patch.object(stock_entry_hooks, "is_rework_stock_entry", return_value=False),
+			patch.object(
+				stock_entry_hooks, "_validate_linked_shift_can_accept_stock_entry"
+			) as validate_shift,
+			patch.object(stock_entry_hooks, "_apply_shift_defaults") as apply_defaults,
+			patch.object(stock_entry_hooks, "_stamp_late_entry_flag") as stamp_late,
+			patch.object(stock_entry_hooks, "_sync_unplanned_loss_shift_links") as sync_losses,
+			patch.object(stock_entry_hooks, "_validate_rework_fields"),
+			patch.object(stock_entry_hooks, "is_joint_lh_rh_production", return_value=False),
+			patch.object(stock_entry_hooks, "_set_entry_metrics"),
+		):
+			stock_entry_hooks.validate_stock_entry(doc)
+
+		validate_shift.assert_not_called()
+		apply_defaults.assert_not_called()
+		stamp_late.assert_called_once_with(doc)
+		sync_losses.assert_called_once_with(doc)
+
+	def test_rework_shift_is_context_only_and_skips_production_defaults(self) -> None:
+		doc = frappe._dict(
+			custom_pea_shift="SHIFT-REWORK",
+			stock_entry_type="Rework Material Transfer",
+			flags=frappe._dict(),
+		)
+		with (
+			patch.object(stock_entry_hooks, "is_rework_stock_entry", return_value=True),
+			patch.object(
+				stock_entry_hooks, "_validate_linked_shift_can_accept_stock_entry"
+			) as validate_shift,
+			patch.object(stock_entry_hooks, "_apply_shift_defaults") as apply_defaults,
+			patch.object(stock_entry_hooks, "_stamp_late_entry_flag") as stamp_late,
+			patch.object(stock_entry_hooks, "_sync_unplanned_loss_shift_links") as sync_losses,
+			patch.object(stock_entry_hooks, "_validate_rework_fields"),
+			patch.object(stock_entry_hooks, "is_joint_lh_rh_production", return_value=False),
+			patch.object(stock_entry_hooks, "_set_entry_metrics"),
+		):
+			stock_entry_hooks.validate_stock_entry(doc)
+
+		validate_shift.assert_called_once_with(doc)
+		apply_defaults.assert_not_called()
+		stamp_late.assert_not_called()
+		sync_losses.assert_not_called()
+
 	def test_on_trash_stock_entry_deletes_loss_rows_for_parent(self) -> None:
 		doc = frappe._dict({"name": "MAT-STE-UNIT-001"})
 		with patch(
@@ -1270,12 +1321,8 @@ class TestStockEntryHooks(FrappeTestCase):
 
 		se.save()
 
-		expected_ok_qty = max(
-			float(se.get("fg_completed_qty") or 0) - float(se.get("custom_pea_rejection_qty") or 0),
-			0,
-		)
 		total_strokes = float(se.get("custom_pea_total_strokes") or 0)
-		self.assertEqual(float(se.custom_pea_ok_qty), expected_ok_qty)
+		self.assertEqual(float(se.custom_pea_ok_qty), 90.0)
 		self.assertEqual(float(se.custom_pea_actual_duration_mins), 100.0)
 		# Planned losses overlapping 08:00-09:40: Shift Start Up (10) + Tea Break (10) = 20 min.
 		# JH Activity (10:00-10:10) is outside the entry window.
@@ -1348,10 +1395,7 @@ class TestStockEntryHooks(FrappeTestCase):
 
 		# Wall-clock duration remains 60 mins, but production time is 30 mins after losses.
 		total_strokes = float(se.get("custom_pea_total_strokes") or 0)
-		ok_qty = max(
-			float(se.get("fg_completed_qty") or 0) - float(se.get("custom_pea_rejection_qty") or 0),
-			0,
-		)
+		ok_qty = 100.0
 		expected_spm = (total_strokes / 30.0) if total_strokes > 0 else 0.0
 		expected_cycle_time = (1800.0 / total_strokes) if total_strokes > 0 else 0.0
 		self.assertEqual(float(se.custom_pea_actual_duration_mins), 60.0)
@@ -2582,6 +2626,25 @@ class TestOverlapValidation(FrappeTestCase):
 		cls.fg_warehouse = context["fg_warehouse"]
 		cls.fg_item = _get_or_create_item("_Test FG Item For Shift")
 		cls.rm_item = _get_or_create_item("_Test RM Item For Shift")
+		cls.plain_repack_type = f"Plain Repack {frappe.generate_hash(length=6)}"
+		if not frappe.db.exists("Stock Entry Type", cls.plain_repack_type):
+			frappe.get_doc(
+				{
+					"doctype": "Stock Entry Type",
+					"name": cls.plain_repack_type,
+					"purpose": "Repack",
+				}
+			).insert(ignore_permissions=True)
+		cls.joint_repack_type = f"Joint Repack {frappe.generate_hash(length=6)}"
+		if not frappe.db.exists("Stock Entry Type", cls.joint_repack_type):
+			frappe.get_doc(
+				{
+					"doctype": "Stock Entry Type",
+					"name": cls.joint_repack_type,
+					"purpose": "Repack",
+					"custom_pea_joint_lh_rh_production": 1,
+				}
+			).insert(ignore_permissions=True)
 		cls.workstation_1 = "SE Hook WS-1"
 		cls.workstation_2 = "SE Hook WS-2"
 		cls.operator_1 = "SE Hook Operator-1"
@@ -2601,6 +2664,8 @@ class TestOverlapValidation(FrappeTestCase):
 		self.fg_warehouse = self.__class__.fg_warehouse
 		self.fg_item = self.__class__.fg_item
 		self.rm_item = self.__class__.rm_item
+		self.plain_repack_type = self.__class__.plain_repack_type
+		self.joint_repack_type = self.__class__.joint_repack_type
 		self.employee_name = self.__class__.employee_name
 
 	def tearDown(self) -> None:
@@ -2617,6 +2682,14 @@ class TestOverlapValidation(FrappeTestCase):
 					pluck="name",
 				):
 					frappe.db.set_value("Shift", name, "status", "Completed", update_modified=False)
+		for stock_entry_type in (cls.plain_repack_type, cls.joint_repack_type):
+			if frappe.db.exists("Stock Entry Type", stock_entry_type):
+				frappe.delete_doc(
+					"Stock Entry Type",
+					stock_entry_type,
+					force=True,
+					ignore_permissions=True,
+				)
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed to persist cleanup
 		super().tearDownClass()
 
@@ -2629,6 +2702,7 @@ class TestOverlapValidation(FrappeTestCase):
 		workstation: str | None = None,
 		operator: str | None = None,
 		purpose: str = "Manufacture",
+		stock_entry_type: str | None = None,
 	) -> frappe.Document:
 		if purpose == "Manufacture":
 			se = _create_manufacture_stock_entry(
@@ -2643,8 +2717,8 @@ class TestOverlapValidation(FrappeTestCase):
 			se = frappe.get_doc(
 				{
 					"doctype": "Stock Entry",
-					"purpose": "Material Transfer",
-					"stock_entry_type": "Material Transfer",
+					"purpose": purpose,
+					"stock_entry_type": stock_entry_type or "Material Transfer",
 					"company": self.company,
 					"items": [
 						{
@@ -2670,6 +2744,94 @@ class TestOverlapValidation(FrappeTestCase):
 			se.custom_pea_operator = operator
 		return se
 
+	def _create_repack_entry(
+		self,
+		*,
+		shift_name: str | None,
+		start: str | None = None,
+		end: str | None = None,
+		workstation: str | None = None,
+		operator: str | None = None,
+		stock_entry_type: str | None = None,
+	) -> frappe.Document:
+		se = frappe.get_doc(
+			{
+				"doctype": "Stock Entry",
+				"purpose": "Repack",
+				"stock_entry_type": stock_entry_type or self.joint_repack_type,
+				"company": self.company,
+			}
+		)
+		se.append(
+			"items",
+			{
+				"item_code": self.rm_item,
+				"qty": 1,
+				"basic_rate": 50,
+				"s_warehouse": self.rm_warehouse,
+				"is_finished_item": 0,
+			},
+		)
+		se.append(
+			"items",
+			{
+				"item_code": self.fg_item,
+				"qty": 1,
+				"basic_rate": 50,
+				"is_finished_item": 1,
+				"t_warehouse": self.fg_warehouse,
+			},
+		)
+		if shift_name:
+			se.custom_pea_shift = shift_name
+		if start:
+			se.custom_pea_actual_start_date = start
+		if end:
+			se.custom_pea_actual_end_date = end
+		if workstation:
+			se.custom_pea_workstation = workstation
+		if operator:
+			se.custom_pea_operator = operator
+		return se
+
+	def _create_joint_repack_entry(
+		self,
+		*,
+		shift_name: str | None,
+		start: str | None = None,
+		end: str | None = None,
+		workstation: str | None = None,
+		operator: str | None = None,
+		stock_entry_type: str | None = None,
+	) -> frappe.Document:
+		return self._create_repack_entry(
+			shift_name=shift_name,
+			start=start,
+			end=end,
+			workstation=workstation,
+			operator=operator,
+			stock_entry_type=stock_entry_type or self.joint_repack_type,
+		)
+
+	def _create_plain_repack_entry(
+		self,
+		*,
+		shift_name: str | None,
+		start: str | None = None,
+		end: str | None = None,
+		workstation: str | None = None,
+		operator: str | None = None,
+		stock_entry_type: str | None = None,
+	) -> frappe.Document:
+		return self._create_repack_entry(
+			shift_name=shift_name,
+			start=start,
+			end=end,
+			workstation=workstation,
+			operator=operator,
+			stock_entry_type=stock_entry_type or self.plain_repack_type,
+		)
+
 	def test_workstation_overlap_blocks_overlapping_entry(self) -> None:
 		shift = _create_test_shift(shift_date="2026-05-01", wip_warehouse=self.wip_warehouse)
 		first = self._create_entry(
@@ -2686,7 +2848,7 @@ class TestOverlapValidation(FrappeTestCase):
 			end="2026-05-01 09:30:00",
 			workstation=self.workstation_1,
 		)
-		with self.assertRaisesRegex(ValidationError, "Workstation"):
+		with self.assertRaisesRegex(ValidationError, rf"Workstation.*{re.escape(first.name)}"):
 			second.save()
 
 	def test_workstation_overlap_allows_different_workstations(self) -> None:
@@ -2855,8 +3017,156 @@ class TestOverlapValidation(FrappeTestCase):
 			workstation=self.workstation_1,
 			operator=self.operator_1,
 		)
-		with self.assertRaisesRegex(ValidationError, "Workstation"):
+		with self.assertRaisesRegex(ValidationError, rf"Workstation.*{re.escape(first.name)}"):
 			second.save()
+
+	def test_workstation_overlap_blocks_joint_repack(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-05-07",
+			shift_label="2",
+			planned_start_time="16:00:00",
+			wip_warehouse=self.wip_warehouse,
+		)
+		manufacture = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-07 16:00:00",
+			end="2026-05-07 17:00:00",
+			workstation=self.workstation_1,
+		)
+		manufacture.save()
+
+		joint = self._create_joint_repack_entry(
+			shift_name=shift.name,
+			start="2026-05-07 16:30:00",
+			end="2026-05-07 17:30:00",
+			workstation=self.workstation_1,
+		)
+		with self.assertRaisesRegex(ValidationError, rf"Workstation.*{re.escape(manufacture.name)}"):
+			joint.save()
+
+	def test_workstation_overlap_blocks_joint_repack_by_existing_joint_repack(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-05-06",
+			shift_label="2",
+			planned_start_time="16:00:00",
+			wip_warehouse=self.wip_warehouse,
+		)
+		first = self._create_joint_repack_entry(
+			shift_name=shift.name,
+			start="2026-05-06 16:00:00",
+			end="2026-05-06 17:00:00",
+			workstation=self.workstation_1,
+		)
+		first.db_insert()
+
+		second = self._create_joint_repack_entry(
+			shift_name=shift.name,
+			start="2026-05-06 16:30:00",
+			end="2026-05-06 17:30:00",
+			workstation=self.workstation_1,
+		)
+		with self.assertRaisesRegex(ValidationError, rf"Workstation.*{re.escape(first.name)}"):
+			second.save()
+
+	def test_workstation_overlap_blocks_manufacture_by_existing_joint_repack(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-05-05",
+			shift_label="2",
+			planned_start_time="16:00:00",
+			wip_warehouse=self.wip_warehouse,
+		)
+		joint = self._create_joint_repack_entry(
+			shift_name=shift.name,
+			start="2026-05-05 16:00:00",
+			end="2026-05-05 17:00:00",
+			workstation=self.workstation_1,
+		)
+		joint.db_insert()
+
+		manufacture = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-05 16:30:00",
+			end="2026-05-05 17:30:00",
+			workstation=self.workstation_1,
+		)
+		with self.assertRaisesRegex(ValidationError, rf"Workstation.*{re.escape(joint.name)}"):
+			manufacture.save()
+
+	def test_workstation_overlap_skips_plain_repack(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-05-04",
+			shift_label="2",
+			planned_start_time="16:00:00",
+			wip_warehouse=self.wip_warehouse,
+		)
+		existing = self._create_plain_repack_entry(
+			shift_name=shift.name,
+			start="2026-05-04 16:00:00",
+			end="2026-05-04 17:00:00",
+			workstation=self.workstation_1,
+		)
+		existing.save()
+
+		overlapping = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-04 16:30:00",
+			end="2026-05-04 17:30:00",
+			workstation=self.workstation_1,
+		)
+		overlapping.save()
+		self.assertTrue(bool(overlapping.name))
+
+	def test_workstation_overlap_runs_when_repack_type_changes_to_joint(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-05-04",
+			shift_label="2",
+			planned_start_time="16:00:00",
+			wip_warehouse=self.wip_warehouse,
+		)
+		existing = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-04 16:00:00",
+			end="2026-05-04 17:00:00",
+			workstation=self.workstation_1,
+		)
+		existing.save()
+		repack = self._create_plain_repack_entry(
+			shift_name=shift.name,
+			start="2026-05-04 16:30:00",
+			end="2026-05-04 17:30:00",
+			workstation=self.workstation_1,
+		)
+		repack.save()
+
+		repack.stock_entry_type = self.joint_repack_type
+
+		with self.assertRaisesRegex(ValidationError, rf"Workstation.*{re.escape(existing.name)}"):
+			repack.save()
+
+	def test_workstation_overlap_uses_stock_entry_type_not_header_flag_for_plain_repack(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-05-04",
+			shift_label="2",
+			planned_start_time="16:00:00",
+			wip_warehouse=self.wip_warehouse,
+		)
+		existing = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-04 16:00:00",
+			end="2026-05-04 17:00:00",
+			workstation=self.workstation_1,
+		)
+		existing.save()
+		repack = self._create_plain_repack_entry(
+			shift_name=shift.name,
+			start="2026-05-04 16:30:00",
+			end="2026-05-04 17:30:00",
+			workstation=self.workstation_1,
+		)
+		repack.custom_pea_is_joint_lh_rh = 1
+
+		with self.assertRaisesRegex(ValidationError, "Select a Stock Entry Type configured"):
+			repack.save()
 
 	def test_operator_overlap_blocks_overlapping_entry(self) -> None:
 		shift = _create_test_shift(shift_date="2026-05-08", wip_warehouse=self.wip_warehouse)
@@ -2874,8 +3184,103 @@ class TestOverlapValidation(FrappeTestCase):
 			end="2026-05-08 09:30:00",
 			operator=self.operator_1,
 		)
-		with self.assertRaisesRegex(ValidationError, "Operator"):
+		with self.assertRaisesRegex(ValidationError, rf"Operator.*{re.escape(first.name)}"):
 			second.save()
+
+	def test_operator_overlap_blocks_joint_repack(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-05-07",
+			planned_start_time="16:00:00",
+			wip_warehouse=self.wip_warehouse,
+		)
+		manufacture = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-07 16:00:00",
+			end="2026-05-07 17:00:00",
+			operator=self.operator_1,
+		)
+		manufacture.save()
+
+		joint = self._create_joint_repack_entry(
+			shift_name=shift.name,
+			start="2026-05-07 16:30:00",
+			end="2026-05-07 17:30:00",
+			operator=self.operator_1,
+		)
+		with self.assertRaisesRegex(ValidationError, rf"Operator.*{re.escape(manufacture.name)}"):
+			joint.save()
+
+	def test_operator_overlap_blocks_joint_repack_by_existing_joint_repack(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-05-06",
+			shift_label="2",
+			planned_start_time="16:00:00",
+			wip_warehouse=self.wip_warehouse,
+		)
+		first = self._create_joint_repack_entry(
+			shift_name=shift.name,
+			start="2026-05-06 16:00:00",
+			end="2026-05-06 17:00:00",
+			operator=self.operator_1,
+		)
+		first.db_insert()
+
+		second = self._create_joint_repack_entry(
+			shift_name=shift.name,
+			start="2026-05-06 16:30:00",
+			end="2026-05-06 17:30:00",
+			operator=self.operator_1,
+		)
+		with self.assertRaisesRegex(ValidationError, rf"Operator.*{re.escape(first.name)}"):
+			second.save()
+
+	def test_operator_overlap_blocks_manufacture_by_existing_joint_repack(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-05-05",
+			shift_label="2",
+			planned_start_time="16:00:00",
+			wip_warehouse=self.wip_warehouse,
+		)
+		joint = self._create_joint_repack_entry(
+			shift_name=shift.name,
+			start="2026-05-05 16:00:00",
+			end="2026-05-05 17:00:00",
+			operator=self.operator_1,
+		)
+		joint.db_insert()
+
+		manufacture = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-05 16:30:00",
+			end="2026-05-05 17:30:00",
+			operator=self.operator_1,
+		)
+		with self.assertRaisesRegex(ValidationError, rf"Operator.*{re.escape(joint.name)}"):
+			manufacture.save()
+
+	def test_operator_overlap_skips_plain_repack(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-05-04",
+			shift_label="2",
+			planned_start_time="16:00:00",
+			wip_warehouse=self.wip_warehouse,
+		)
+		existing = self._create_plain_repack_entry(
+			shift_name=shift.name,
+			start="2026-05-04 16:00:00",
+			end="2026-05-04 17:00:00",
+			operator=self.operator_1,
+		)
+		existing.save()
+
+		overlapping = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-04 16:30:00",
+			end="2026-05-04 17:30:00",
+			operator=self.operator_1,
+		)
+		overlapping.save()
+		self.assertTrue(bool(overlapping.name))
 
 	def test_operator_overlap_allows_different_operators(self) -> None:
 		shift = _create_test_shift(shift_date="2026-05-09", wip_warehouse=self.wip_warehouse)
@@ -3175,6 +3580,30 @@ class TestOverlapValidation(FrappeTestCase):
 			workstation=self.workstation_1,
 			operator=self.operator_1,
 			purpose="Material Transfer",
+		)
+		second.save()
+		self.assertTrue(bool(second.name))
+
+	def test_no_overlap_validation_for_plain_repack(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-05-07",
+			shift_label="2",
+			planned_start_time="16:00:00",
+			wip_warehouse=self.wip_warehouse,
+		)
+		first = self._create_plain_repack_entry(
+			shift_name=shift.name,
+			start="2026-05-07 16:00:00",
+			end="2026-05-07 17:00:00",
+			workstation=self.workstation_1,
+		)
+		first.save()
+
+		second = self._create_plain_repack_entry(
+			shift_name=shift.name,
+			start="2026-05-07 16:30:00",
+			end="2026-05-07 17:30:00",
+			workstation=self.workstation_1,
 		)
 		second.save()
 		self.assertTrue(bool(second.name))

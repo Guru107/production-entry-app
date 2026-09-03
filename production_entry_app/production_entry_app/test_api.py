@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, call, patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from production_entry_app.production_entry_app import e2e_api
 from production_entry_app.production_entry_app.api import (
 	_cleanup_orphan_stock_entry_loss_links,
 	get_die_tool_counter,
@@ -19,6 +20,8 @@ from production_entry_app.production_entry_app.e2e_api import (
 	_cache_e2e_shift_name,
 	_cleanup_e2e_context,
 	_cleanup_e2e_downtime_entries,
+	_cleanup_e2e_rework_lifecycle_entries,
+	_cleanup_e2e_stock_entries,
 	_cleanup_reserved_e2e_artifacts,
 	_collect_reserved_e2e_prefixes,
 	_e2e_base_date,
@@ -36,7 +39,10 @@ from production_entry_app.production_entry_app.e2e_api import (
 	cleanup_e2e_context,
 	create_e2e_downtime_entry,
 	create_e2e_full_shift_stock_entries,
+	create_e2e_rework_lifecycle_source,
+	create_e2e_rework_register_row,
 	create_e2e_submitted_stock_entry,
+	ensure_e2e_user,
 	reset_e2e_die_tool_counter,
 	set_e2e_system_float_precision,
 )
@@ -100,6 +106,7 @@ class TestE2EApi(FrappeTestCase):
 			"cleanup_reserved_e2e_artifacts",
 			"create_e2e_submitted_stock_entry",
 			"create_e2e_full_shift_stock_entries",
+			"create_e2e_rework_register_row",
 			"create_e2e_downtime_entry",
 			"reset_e2e_die_tool_counter",
 			"set_e2e_access_control",
@@ -112,8 +119,224 @@ class TestE2EApi(FrappeTestCase):
 
 		assert callable(e2e_api.bootstrap_e2e_context)
 		assert callable(e2e_api.cleanup_e2e_context)
+		assert callable(e2e_api.create_e2e_rework_lifecycle_source)
+		assert callable(e2e_api.create_e2e_rework_register_row)
+		assert callable(e2e_api.ensure_e2e_user)
 
-	def test_assert_e2e_api_allowed_calls_only_for_administrator(self) -> None:
+	def test_ensure_e2e_user_uses_throttle_safe_reserved_user_helper(self) -> None:
+		user = MagicMock()
+		with ExitStack() as stack:
+			stack.enter_context(
+				patch("production_entry_app.production_entry_app.e2e_api._assert_e2e_api_allowed")
+			)
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.e2e_api.frappe.db.exists",
+					side_effect=lambda doctype, _name: doctype == "Role",
+				)
+			)
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.e2e_api.frappe.new_doc",
+					return_value=user,
+				)
+			)
+			save_user = stack.enter_context(
+				patch("production_entry_app.production_entry_app.e2e_api.save_test_user")
+			)
+			commit = stack.enter_context(
+				patch("production_entry_app.production_entry_app.e2e_api.frappe.db.commit")
+			)
+			clear_cache = stack.enter_context(
+				patch("production_entry_app.production_entry_app.e2e_api.frappe.clear_cache")
+			)
+			result = ensure_e2e_user(
+				"E2E-USER-REWORK@example.com",
+				"Rework Reader",
+				"ephemeral-password",
+				json.dumps(["PEA Read Only"]),
+			)
+
+		self.assertEqual(
+			result,
+			{"email": "e2e-user-rework@example.com", "roles": ["PEA Read Only"]},
+		)
+		self.assertEqual(user.email, "e2e-user-rework@example.com")
+		self.assertEqual(user.first_name, "Rework Reader")
+		self.assertEqual(user.new_password, "ephemeral-password")
+		user.set.assert_called_once_with("roles", [])
+		user.append.assert_called_once_with("roles", {"role": "PEA Read Only"})
+		save_user.assert_called_once_with(user)
+		commit.assert_called_once_with()
+		clear_cache.assert_called_once_with(user="e2e-user-rework@example.com")
+
+	def test_ensure_e2e_user_rejects_non_reserved_email(self) -> None:
+		with patch("production_entry_app.production_entry_app.e2e_api._assert_e2e_api_allowed"):
+			with self.assertRaisesRegex(frappe.ValidationError, "reserved E2E test user"):
+				ensure_e2e_user(
+					"regular-user@example.com",
+					"Regular User",
+					"ephemeral-password",
+					[],
+				)
+
+	def test_ensure_e2e_user_requires_password_and_existing_roles(self) -> None:
+		with patch("production_entry_app.production_entry_app.e2e_api._assert_e2e_api_allowed"):
+			with self.assertRaisesRegex(frappe.ValidationError, "password is required"):
+				ensure_e2e_user("e2e-user-rework@example.com", "Rework Reader", "", [])
+			with patch(
+				"production_entry_app.production_entry_app.e2e_api.frappe.db.exists",
+				return_value=False,
+			):
+				with self.assertRaisesRegex(frappe.ValidationError, "Role .*Missing Role.* does not exist"):
+					ensure_e2e_user(
+						"e2e-user-rework@example.com",
+						"Rework Reader",
+						"ephemeral-password",
+						["Missing Role"],
+					)
+
+	def test_create_e2e_rework_lifecycle_source_rejects_invalid_inputs(self) -> None:
+		with patch("production_entry_app.production_entry_app.e2e_api._assert_e2e_api_allowed"):
+			with self.assertRaisesRegex(frappe.ValidationError, "reserved E2E context"):
+				create_e2e_rework_lifecycle_source(prefix="production", qty=5)
+			with self.assertRaisesRegex(frappe.ValidationError, "greater than zero"):
+				create_e2e_rework_lifecycle_source(prefix="E2E_REWORK", qty=0)
+
+	def test_rework_expense_account_snapshot_restore_preserves_legacy_and_null_values(self) -> None:
+		settings = MagicMock()
+		settings.as_dict.return_value = {
+			"shift_start_buffer_mins": 30,
+			"rework_expense_account": "Original Rework Expense - TC",
+		}
+		with (
+			patch.object(e2e_api, "ensure_production_entry_settings_shift_fields"),
+			patch.object(e2e_api.frappe, "get_single", return_value=settings),
+			patch.object(e2e_api.frappe, "clear_document_cache") as clear_document_cache,
+		):
+			snapshot = e2e_api._get_production_entry_settings_snapshot()
+			self.assertEqual(snapshot["rework_expense_account"], "Original Rework Expense - TC")
+			for restore_snapshot, expected_calls in (
+				(
+					snapshot,
+					[
+						call("shift_start_buffer_mins", 30),
+						call("rework_expense_account", "Original Rework Expense - TC"),
+					],
+				),
+				({"shift_start_buffer_mins": 45}, [call("shift_start_buffer_mins", 45)]),
+				({"rework_expense_account": None}, [call("rework_expense_account", None)]),
+			):
+				with self.subTest(snapshot=restore_snapshot):
+					settings.reset_mock()
+					e2e_api._restore_production_entry_settings(restore_snapshot)
+					for expected_call in expected_calls:
+						self.assertIn(expected_call, settings.set.call_args_list)
+					if "rework_expense_account" not in restore_snapshot:
+						self.assertNotIn(call("rework_expense_account", None), settings.set.call_args_list)
+
+		self.assertEqual(clear_document_cache.call_count, 3)
+
+	def test_e2e_expense_account_validation_rejects_unsuitable_accounts(self) -> None:
+		invalid_accounts = (
+			(None, None),
+			("Missing - TC", None),
+			(
+				"Wrong Company - WC",
+				{"company": "Wrong Company", "is_group": 0, "root_type": "Expense", "disabled": 0},
+			),
+			(
+				"Group - TC",
+				{"company": "_Test Company", "is_group": 1, "root_type": "Expense", "disabled": 0},
+			),
+			("Asset - TC", {"company": "_Test Company", "is_group": 0, "root_type": "Asset", "disabled": 0}),
+			(
+				"Disabled - TC",
+				{"company": "_Test Company", "is_group": 0, "root_type": "Expense", "disabled": 1},
+			),
+		)
+		for account_name, account_details in invalid_accounts:
+			with (
+				self.subTest(account=account_name),
+				patch.object(e2e_api.frappe.db, "get_value", return_value=account_details),
+			):
+				self.assertFalse(e2e_api._is_valid_e2e_expense_account(account_name, "_Test Company"))
+
+	def test_e2e_rework_expense_account_selects_valid_candidates(self) -> None:
+		valid_details = {
+			"company": "_Test Company",
+			"is_group": 0,
+			"root_type": "Expense",
+			"disabled": 0,
+		}
+		cases = (
+			("Configured - TC", None, "Configured - TC", {"Configured - TC": valid_details}),
+			(None, "Operating Cost - TC", "Operating Cost - TC", {"Operating Cost - TC": valid_details}),
+			(
+				"Wrong Company - WC",
+				"Operating Cost - TC",
+				"Operating Cost - TC",
+				{
+					"Wrong Company - WC": {**valid_details, "company": "Wrong Company"},
+					"Operating Cost - TC": valid_details,
+				},
+			),
+			(
+				"Disabled - TC",
+				None,
+				"Fallback - TC",
+				{
+					"Disabled - TC": {**valid_details, "disabled": 1},
+				},
+			),
+		)
+		for configured, company_default, expected, accounts in cases:
+
+			def get_value(doctype, name_or_filters, *_args, **_kwargs):
+				if doctype == "Company":
+					return company_default
+				if isinstance(name_or_filters, dict):
+					self.assertEqual(name_or_filters["disabled"], 0)
+					return "Fallback - TC"
+				return accounts.get(name_or_filters)
+
+			with (
+				self.subTest(configured=configured),
+				patch.object(e2e_api.frappe.db, "get_single_value", return_value=configured),
+				patch.object(e2e_api.frappe.db, "get_value", side_effect=get_value),
+				patch.object(e2e_api.frappe.db, "set_single_value") as set_single_value,
+				patch.object(e2e_api.frappe, "clear_document_cache"),
+			):
+				self.assertEqual(e2e_api._configure_e2e_rework_expense_account("_Test Company"), expected)
+				set_single_value.assert_called_once_with(
+					"Production Entry Settings", "rework_expense_account", expected
+				)
+
+	def test_e2e_rework_expense_account_requires_a_valid_fallback(self) -> None:
+		with (
+			patch.object(e2e_api.frappe.db, "get_single_value", return_value=None),
+			patch.object(e2e_api.frappe.db, "get_value", return_value=None),
+			patch.object(e2e_api.frappe.db, "set_single_value") as set_single_value,
+			self.assertRaisesRegex(frappe.ValidationError, "Configure a rework expense account"),
+		):
+			e2e_api._configure_e2e_rework_expense_account("_Test Company")
+
+		set_single_value.assert_not_called()
+
+	def test_cleanup_e2e_rework_lifecycle_entries_skips_synthetic_rows(self) -> None:
+		with patch(
+			"production_entry_app.production_entry_app.e2e_api.frappe.get_all",
+			return_value=["E2E-REWORK-REGISTER-SYNTHETIC", "MAT-STE-REAL"],
+		):
+			with patch(
+				"production_entry_app.production_entry_app.e2e_api._safe_cancel_and_delete"
+			) as safe_cancel_and_delete:
+				_cleanup_e2e_rework_lifecycle_entries("E2E_REWORK")
+		safe_cancel_and_delete.assert_called_once_with(
+			"Stock Entry", "MAT-STE-REAL", context="cleanup_e2e_context"
+		)
+
+	def test_assert_e2e_api_allowed_requires_administrator(self) -> None:
 		with patch("production_entry_app.production_entry_app.e2e_api.frappe.only_for") as only_for:
 			with patch(
 				"production_entry_app.production_entry_app.e2e_api._is_developer_mode_enabled",
@@ -207,6 +430,35 @@ class TestE2EApi(FrappeTestCase):
 		get_settings.assert_not_called()
 		cache.set_value.assert_not_called()
 
+	def test_cache_e2e_settings_snapshot_caches_all_global_settings(self) -> None:
+		cache = MagicMock()
+		cache.get_value.return_value = None
+		with (
+			patch("production_entry_app.production_entry_app.e2e_api.frappe.cache", return_value=cache),
+			patch(
+				"production_entry_app.production_entry_app.e2e_api._get_production_entry_settings_snapshot",
+				return_value={"rework_expense_account": "Expense - TC"},
+			),
+			patch(
+				"production_entry_app.production_entry_app.e2e_api._get_rework_stock_entry_type_snapshot",
+				return_value=["Rework"],
+			),
+			patch(
+				"production_entry_app.production_entry_app.e2e_api._get_system_settings_snapshot",
+				return_value={"float_precision": 3},
+			),
+		):
+			_cache_e2e_settings_snapshot("E2E-CACHED")
+
+		cache.set_value.assert_called_once_with(
+			"pea:e2e:settings:E2E-CACHED",
+			{
+				"production_entry_settings": {"rework_expense_account": "Expense - TC"},
+				"rework_stock_entry_types": ["Rework"],
+				"system_settings": {"float_precision": 3},
+			},
+		)
+
 	def test_cache_e2e_shift_name_skips_empty_and_duplicate_names(self) -> None:
 		cache = MagicMock()
 		cache.get_value.return_value = ["SHIFT-001"]
@@ -221,21 +473,101 @@ class TestE2EApi(FrappeTestCase):
 		cache = MagicMock()
 		cache.get_value.return_value = {
 			"production_entry_settings": {"shift_start_buffer_mins": 60},
+			"rework_stock_entry_types": ["Rework Material Transfer"],
 			"system_settings": {"float_precision": 3},
 		}
 		with patch("production_entry_app.production_entry_app.e2e_api.frappe.cache", return_value=cache):
 			with patch(
 				"production_entry_app.production_entry_app.e2e_api._restore_production_entry_settings"
 			) as restore_pea:
-				with patch(
-					"production_entry_app.production_entry_app.e2e_api._restore_system_settings"
-				) as restore_system:
+				with (
+					patch(
+						"production_entry_app.production_entry_app.e2e_api._restore_rework_stock_entry_types"
+					) as restore_rework_types,
+					patch(
+						"production_entry_app.production_entry_app.e2e_api._restore_system_settings"
+					) as restore_system,
+				):
 					_restore_cached_e2e_settings("E2E")
 
 		restore_pea.assert_called_once_with({"shift_start_buffer_mins": 60})
+		restore_rework_types.assert_called_once_with(["Rework Material Transfer"])
 		restore_system.assert_called_once_with({"float_precision": 3})
 		cache.delete_value.assert_any_call("pea:e2e:settings:E2E")
 		cache.delete_value.assert_any_call("pea:e2e:shift-names:E2E")
+
+	def test_e2e_guard_allows_only_administrator_on_enabled_developer_sites(self) -> None:
+		with (
+			patch("production_entry_app.production_entry_app.e2e_api.frappe.only_for") as only_for,
+			patch(
+				"production_entry_app.production_entry_app.e2e_api._is_developer_mode_enabled",
+				return_value=True,
+			),
+			patch(
+				"production_entry_app.production_entry_app.e2e_api._is_allow_e2e_tests_enabled",
+				return_value=True,
+			),
+		):
+			_assert_e2e_api_allowed()
+
+		only_for.assert_called_once_with("Administrator")
+
+	def test_cleanup_cancels_stock_entries_before_deleting_their_shifts(self) -> None:
+		events: list[str] = []
+		with (
+			patch(
+				"production_entry_app.production_entry_app.e2e_api._get_e2e_cleanup_targets",
+				return_value={},
+			),
+			patch(
+				"production_entry_app.production_entry_app.e2e_api._cleanup_e2e_rework_lifecycle_entries",
+				side_effect=lambda _prefix: events.append("rework"),
+			),
+			patch(
+				"production_entry_app.production_entry_app.e2e_api._cleanup_e2e_stock_entries",
+				side_effect=lambda _targets: events.append("stock"),
+			),
+			patch(
+				"production_entry_app.production_entry_app.e2e_api._cleanup_e2e_shifts",
+				side_effect=lambda _prefix, _targets: events.append("shift"),
+			),
+			patch("production_entry_app.production_entry_app.e2e_api._cleanup_e2e_downtime_entries"),
+			patch("production_entry_app.production_entry_app.e2e_api._cleanup_e2e_master_data"),
+			patch("production_entry_app.production_entry_app.e2e_api._finalize_e2e_cleanup"),
+		):
+			_cleanup_e2e_context("E2E_RERUN_ISOLATION")
+
+		self.assertEqual(events, ["rework", "stock", "shift"])
+
+	def test_cleanup_fails_when_deleted_stock_entry_is_still_present(self) -> None:
+		stock_entry = frappe._dict(
+			name="MAT-STE-E2E-RETAINED",
+			docstatus=0,
+			items=[frappe._dict(item_code="E2E FG")],
+		)
+		targets = {
+			"target_operator": "E2E Operator",
+			"target_workstation": "E2E Workstation",
+			"target_fg_item": "E2E FG",
+			"target_rm_item": "E2E RM",
+		}
+		with (
+			patch(
+				"production_entry_app.production_entry_app.e2e_api._get_candidate_e2e_stock_entries",
+				return_value=[frappe._dict(name=stock_entry.name)],
+			),
+			patch(
+				"production_entry_app.production_entry_app.e2e_api.frappe.get_doc",
+				return_value=stock_entry,
+			),
+			patch("production_entry_app.production_entry_app.e2e_api.frappe.delete_doc"),
+			patch(
+				"production_entry_app.production_entry_app.e2e_api.frappe.db.exists",
+				return_value=True,
+			),
+			self.assertRaisesRegex(frappe.ValidationError, "retained Stock Entry"),
+		):
+			_cleanup_e2e_stock_entries(targets)
 
 	def test_all_e2e_endpoints_fail_closed_when_guard_raises(self) -> None:
 		with patch(
@@ -248,6 +580,16 @@ class TestE2EApi(FrappeTestCase):
 				cleanup_e2e_context(prefix="E2E-Guard")
 			with self.assertRaises(frappe.PermissionError):
 				create_e2e_submitted_stock_entry(prefix="E2E-Guard")
+			with self.assertRaises(frappe.PermissionError):
+				create_e2e_rework_lifecycle_source(prefix="E2E-Guard")
+			with self.assertRaises(frappe.PermissionError):
+				create_e2e_rework_register_row(prefix="E2E-Guard")
+			with self.assertRaises(frappe.PermissionError):
+				ensure_e2e_user(
+					email="e2e-user-guard@example.com",
+					first_name="Guard",
+					password="secret",
+				)
 			with self.assertRaises(frappe.PermissionError):
 				reset_e2e_die_tool_counter(prefix="E2E_GUARD_W0")
 
@@ -479,9 +821,15 @@ class TestE2EApi(FrappeTestCase):
 			"production_entry_app.production_entry_app.e2e_api._get_e2e_cleanup_targets",
 			return_value={"e2e_shift_names": []},
 		):
-			with patch(
-				"production_entry_app.production_entry_app.e2e_api._cleanup_e2e_shifts",
-				side_effect=RuntimeError("cleanup failed"),
+			with (
+				patch(
+					"production_entry_app.production_entry_app.e2e_api._cleanup_e2e_rework_lifecycle_entries"
+				),
+				patch("production_entry_app.production_entry_app.e2e_api._cleanup_e2e_stock_entries"),
+				patch(
+					"production_entry_app.production_entry_app.e2e_api._cleanup_e2e_shifts",
+					side_effect=RuntimeError("cleanup failed"),
+				),
 			):
 				with patch(
 					"production_entry_app.production_entry_app.e2e_api._finalize_e2e_cleanup"
@@ -896,6 +1244,7 @@ class TestE2EApi(FrappeTestCase):
 			safe_force_delete = stack.enter_context(
 				patch("production_entry_app.production_entry_app.e2e_api._safe_force_delete")
 			)
+			stack.enter_context(patch("production_entry_app.production_entry_app.e2e_api.frappe.delete_doc"))
 			stack.enter_context(patch("production_entry_app.production_entry_app.e2e_api.frappe.db.commit"))
 
 			_cleanup_e2e_context(prefix="E2E")
@@ -905,7 +1254,7 @@ class TestE2EApi(FrappeTestCase):
 		]
 		self.assertEqual(deleted_items, ["_E2E_RM_Item"])
 
-	def test_cleanup_e2e_context_covers_running_shift_and_related_submitted_docs(self) -> None:
+	def test_cleanup_e2e_context_fails_visibly_when_submitted_entry_cannot_cancel(self) -> None:
 		running_shift = MagicMock()
 		running_shift.status = "Running"
 		running_shift.reload.side_effect = lambda: setattr(running_shift, "status", "Completed")
@@ -1031,8 +1380,9 @@ class TestE2EApi(FrappeTestCase):
 					"production_entry_app.production_entry_app.e2e_api.frappe.db.get_value", return_value="TC"
 				)
 			)
-			safe_force_delete = stack.enter_context(
-				patch("production_entry_app.production_entry_app.e2e_api._safe_force_delete")
+			stack.enter_context(patch("production_entry_app.production_entry_app.e2e_api._safe_force_delete"))
+			delete_stock_entry = stack.enter_context(
+				patch("production_entry_app.production_entry_app.e2e_api.frappe.delete_doc")
 			)
 			log_error = stack.enter_context(
 				patch("production_entry_app.production_entry_app.e2e_api.frappe.log_error")
@@ -1042,19 +1392,16 @@ class TestE2EApi(FrappeTestCase):
 			)
 			stack.enter_context(patch("production_entry_app.production_entry_app.e2e_api.frappe.db.commit"))
 
-			result = _cleanup_e2e_context(prefix="E2E")
+			with self.assertRaisesRegex(Exception, "cancel failed"):
+				_cleanup_e2e_context(prefix="E2E")
 
-		self.assertEqual(result, {"ok": True})
-		running_shift.end_shift.assert_called_once()
-		running_shift.reload.assert_called_once()
+		running_shift.end_shift.assert_not_called()
 		submitted_stock_entry.cancel.assert_called_once()
 		failing_stock_entry.cancel.assert_called_once()
-		maintenance_log.cancel.assert_called_once()
-		bom.cancel.assert_called_once()
-		self.assertGreaterEqual(safe_force_delete.call_count, 8)
-		safe_force_delete.assert_any_call("Stock Entry", "STE-DRAFT", context="cleanup_e2e_context")
-		safe_force_delete.assert_any_call("Warehouse", "E2E Scrap - TC", context="cleanup_e2e_context")
-		self.assertGreaterEqual(log_error.call_count, 3)
+		self.assertEqual(delete_stock_entry.call_count, 1)
+		maintenance_log.cancel.assert_not_called()
+		bom.cancel.assert_not_called()
+		log_error.assert_called_once()
 
 	def test_collect_reserved_e2e_prefixes_derives_item_and_workstation_names(self) -> None:
 		with patch(
@@ -1087,6 +1434,9 @@ class TestE2EApi(FrappeTestCase):
 					],
 				)
 			)
+			set_value = stack.enter_context(
+				patch("production_entry_app.production_entry_app.e2e_api.frappe.db.set_value")
+			)
 			delete_doc = stack.enter_context(
 				patch("production_entry_app.production_entry_app.e2e_api.frappe.delete_doc")
 			)
@@ -1096,7 +1446,10 @@ class TestE2EApi(FrappeTestCase):
 
 		self.assertEqual(result, {"ok": True, "prefixes": ["E2E_SAMPLE_W0"]})
 		cleanup_prefix.assert_called_once_with(prefix="E2E_SAMPLE_W0")
-		self.assertEqual(delete_doc.call_count, 3)
+		set_value.assert_called_once_with(
+			"User", "e2e-user-sample@example.com", "enabled", 0, update_modified=False
+		)
+		self.assertEqual(delete_doc.call_count, 2)
 
 	def test_cleanup_reserved_e2e_artifacts_wrapper_checks_access_and_guard(self) -> None:
 		from production_entry_app.production_entry_app.e2e_api import cleanup_reserved_e2e_artifacts
@@ -1149,7 +1502,8 @@ class TestE2EApi(FrappeTestCase):
 
 			_safe_cancel_and_delete("BOM", "MISSING", context="unit-test")
 			_safe_cancel_and_delete("BOM", "BOM-001", context="unit-test")
-			_safe_cancel_and_delete("BOM", "BOM-ERR", context="unit-test")
+			with self.assertRaisesRegex(Exception, "read failed"):
+				_safe_cancel_and_delete("BOM", "BOM-ERR", context="unit-test")
 
 		self.assertEqual(exists.call_count, 3)
 		submitted_doc.cancel.assert_called_once()
@@ -1716,7 +2070,8 @@ class TestE2EApi(FrappeTestCase):
 		self.assertEqual(doc_payload["set_posting_time"], 1)
 		doc.get_items.assert_called_once()
 		doc.append.assert_called_once_with(
-			"custom_pea_rejection_breakup", {"rejection_reason": "Burr", "qty": 4.0}
+			"custom_pea_rejection_breakup",
+			{"rejection_reason": "Burr", "qty": 4.0, "is_rework": 0},
 		)
 		doc.insert.assert_called_once_with(ignore_permissions=True)
 		doc.submit.assert_called_once()

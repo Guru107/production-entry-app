@@ -18,6 +18,8 @@ Per-report column formulas are split into individual files in this folder.
 - `item-bom-rework-hotspots.md`
 - `workstation-rejection-reason-matrix.md`
 - `workstation-rework-reason-matrix.md`
+- `pending-rework.md`
+- `rework-register.md`
 
 Shared conventions used by these formulas are documented in:
 

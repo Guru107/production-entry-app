@@ -12,6 +12,8 @@ This document defines shared rules used across script reports under `production_
 - Additional report filters (date, shift, workstation, operator, BOM, FG item) restrict row inclusion.
 - From/To Date filters select entries through linked Completed Shifts and `Shift.shift_date`; Stock Entry
   `posting_date` does not determine date-range membership.
+- Rework Register is the exception to this Production Entry scope: it selects submitted Rework Operations and
+  uses their `posting_date`, because Rework Operations are not linked to a Shift.
 
 ## Quantity Semantics
 

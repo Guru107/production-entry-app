@@ -720,7 +720,9 @@ def _get_item_details(item_codes: Iterable[str]) -> dict[str, frappe._dict]:
 
 
 def validate_stock_entry_type(doc: Document, method: str | None = None) -> None:
-	if not doc.get("custom_pea_joint_lh_rh_production"):
-		return
-	if doc.get("purpose") != "Repack":
+	if doc.get("custom_pea_joint_lh_rh_production") and doc.get("custom_pea_rework_entry"):
+		frappe.throw(_("A Stock Entry Type cannot be both Joint LH/RH Production and Rework."))
+	if doc.get("custom_pea_joint_lh_rh_production") and doc.get("purpose") != "Repack":
 		frappe.throw(_("Joint LH/RH Stock Entry Types must use Repack purpose."))
+	if doc.get("custom_pea_rework_entry") and doc.get("purpose") != "Material Transfer":
+		frappe.throw(_("Rework Stock Entry Types must use Material Transfer purpose."))

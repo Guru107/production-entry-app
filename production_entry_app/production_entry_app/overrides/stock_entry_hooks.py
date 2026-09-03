@@ -22,6 +22,13 @@ from production_entry_app.production_entry_app.joint_production import (
 	validate_and_apply_joint_production,
 )
 from production_entry_app.production_entry_app.report.report_utils import get_entry_output_quantities
+from production_entry_app.production_entry_app.rework import (
+	REWORK_COST_PRECISION,
+	SECONDS_PER_HOUR,
+	apply_rework_source_warehouse,
+	is_rework_stock_entry,
+	validate_rework_submission,
+)
 from production_entry_app.production_entry_app.utils.alternative_items import (
 	apply_direct_manufacture_alternative_flags,
 	get_bom_alternative_allowed_items,
@@ -54,6 +61,14 @@ _DEFAULT_START_BUFFER_MINS: int = 60
 _DEFAULT_END_BUFFER_MINS: int = 60
 _MAX_BUFFER_MINS: int = 480
 _ALLOWED_STOCK_ENTRY_SHIFT_STATUSES: tuple[str, ...] = ("Running", "Completed")
+_REWORK_FIELDS: tuple[str, ...] = (
+	"custom_pea_rework_type",
+	"custom_pea_rework_workstation",
+	"custom_pea_rework_actual_start",
+	"custom_pea_rework_actual_end",
+	"custom_pea_rework_operators",
+	"custom_pea_rework_cost",
+)
 
 
 def _safe_bold(value: Any) -> str:
@@ -62,6 +77,7 @@ def _safe_bold(value: Any) -> str:
 
 _COMMON_OVERLAP_FIELDS: tuple[str, ...] = (
 	"purpose",
+	"stock_entry_type",
 	"custom_pea_shift",
 	"custom_pea_actual_start_date",
 	"custom_pea_actual_end_date",
@@ -77,12 +93,16 @@ def validate_stock_entry(doc: Document, method: str | None = None) -> None:
 	1. Auto-fills fields from linked Shift (if custom_pea_shift is set).
 	2. Handles rejection quantity logic (if custom_pea_rejection_qty > 0).
 	"""
+	is_rework = is_rework_stock_entry(doc)
 	if doc.get("custom_pea_shift"):
 		_validate_linked_shift_can_accept_stock_entry(doc)
-		_apply_shift_defaults(doc)
-	_stamp_late_entry_flag(doc)
-	_sync_unplanned_loss_shift_links(doc)
+	if not is_rework:
+		if doc.get("custom_pea_shift"):
+			_apply_shift_defaults(doc)
+		_stamp_late_entry_flag(doc)
+		_sync_unplanned_loss_shift_links(doc)
 
+	_validate_rework_fields(doc)
 	_validate_actual_times(doc)
 	_validate_unplanned_losses_within_actual_window(doc)
 	_validate_workstation_overlap(doc)
@@ -97,7 +117,108 @@ def validate_stock_entry(doc: Document, method: str | None = None) -> None:
 		_validate_direct_manufacture_alternative_items(doc)
 		_apply_rejection_entries(doc)
 	_validate_rejection_target_warehouses(doc)
+	_sync_item_branches_from_header(doc)
 	_set_entry_metrics(doc)
+
+
+def before_validate_stock_entry(doc: Document, method: str | None = None) -> None:
+	_sync_item_branches_from_header(doc)
+	apply_rework_source_warehouse(doc)
+	_validate_rework_fields(doc)
+	_apply_rework_cost(doc)
+
+
+def _sync_item_branches_from_header(doc: Document) -> None:
+	"""Keep item-row accounting dimensions aligned with the Stock Entry header."""
+	branch = doc.get("branch")
+	if not branch:
+		return
+	if not frappe.get_meta("Stock Entry", cached=True).has_field("branch"):
+		return
+	detail_has_branch = frappe.get_meta("Stock Entry Detail", cached=True).has_field("branch")
+	for row in doc.get("items") or []:
+		if detail_has_branch or _document_has_field(row, "branch"):
+			row.branch = branch
+
+
+def _document_has_field(doc: Any, fieldname: str) -> bool:
+	if getattr(doc, "meta", None) and doc.meta.has_field(fieldname):
+		return True
+	as_dict = getattr(doc, "as_dict", None)
+	if callable(as_dict):
+		return fieldname in as_dict()
+	return fieldname in doc
+
+
+def _validate_rework_fields(doc: Document) -> None:
+	if not is_rework_stock_entry(doc):
+		if any(doc.get(fieldname) for fieldname in _REWORK_FIELDS):
+			frappe.throw(_("Rework fields can only be used with the configured Rework Stock Entry Type."))
+		return
+	if not doc.get("custom_pea_rework_type"):
+		frappe.throw(_("Rework Type is required for Rework."))
+	if not doc.get("custom_pea_rework_workstation"):
+		frappe.throw(_("Rework Workstation is required for Rework."))
+	actual_start = _as_datetime(doc.get("custom_pea_rework_actual_start"))
+	actual_end = _as_datetime(doc.get("custom_pea_rework_actual_end"))
+	if actual_start and actual_end and actual_end <= actual_start:
+		frappe.throw(_("Rework Actual End must be after Rework Actual Start."))
+	operator_names = [
+		row.get("operator") for row in doc.get("custom_pea_rework_operators") or [] if row.get("operator")
+	]
+	if not operator_names:
+		frappe.throw(_("Rework requires at least one active Operator."))
+	inactive_operators = frappe.get_all(
+		"Operator",
+		filters={"name": ["in", operator_names], "is_active": 0},
+		pluck="name",
+	)
+	if inactive_operators:
+		frappe.throw(
+			_("Operator {0} is inactive and cannot be assigned to Rework.").format(
+				_safe_bold(inactive_operators[0])
+			)
+		)
+
+
+def _apply_rework_cost(doc: Document) -> None:
+	if not is_rework_stock_entry(doc):
+		return
+
+	for index in range(len(doc.get("additional_costs") or []) - 1, -1, -1):
+		if doc.additional_costs[index].get("custom_pea_is_rework_cost"):
+			doc.additional_costs.pop(index)
+
+	actual_start = _as_datetime(doc.get("custom_pea_rework_actual_start"))
+	actual_end = _as_datetime(doc.get("custom_pea_rework_actual_end"))
+	if not actual_start or not actual_end or actual_end <= actual_start:
+		frappe.throw(_("Rework duration must be greater than zero."))
+
+	operator_count = len([row for row in doc.get("custom_pea_rework_operators") or [] if row.get("operator")])
+	hour_rate = flt(frappe.db.get_value("Workstation", doc.get("custom_pea_rework_workstation"), "hour_rate"))
+	duration_hours = (actual_end - actual_start).total_seconds() / SECONDS_PER_HOUR
+	rework_cost = flt(duration_hours * operator_count * hour_rate, REWORK_COST_PRECISION)
+	expense_account = frappe.db.get_single_value(
+		"Production Entry Settings", "rework_expense_account"
+	) or frappe.db.get_value("Company", doc.get("company"), "default_operating_cost_account")
+	if not expense_account:
+		frappe.throw(
+			_(
+				"Set Rework Expense Account in Production Entry Settings or Default Operating Cost Account "
+				"on Company {0}."
+			).format(_safe_bold(doc.get("company") or ""))
+		)
+
+	doc.set("custom_pea_rework_cost", rework_cost)
+	doc.append(
+		"additional_costs",
+		{
+			"expense_account": expense_account,
+			"description": _("Rework Cost"),
+			"amount": rework_cost,
+			"custom_pea_is_rework_cost": 1,
+		},
+	)
 
 
 def _default_total_strokes(doc: Document) -> None:
@@ -125,12 +246,20 @@ def _stamp_late_entry_flag(doc: Document) -> None:
 	doc.custom_pea_is_late_entry = is_late
 
 
+def before_submit_stock_entry(doc: Document, method: str | None = None) -> None:
+	validate_rework_submission(doc)
+
+
 def on_submit_stock_entry(doc, method: str | None = None) -> None:
+	if is_rework_stock_entry(doc):
+		return
 	update_counter_for_stock_entry(doc, direction=1)
 	_invalidate_shift_dependent_caches(doc)
 
 
 def on_cancel_stock_entry(doc, method: str | None = None) -> None:
+	if is_rework_stock_entry(doc):
+		return
 	update_counter_for_stock_entry(doc, direction=-1)
 	_invalidate_shift_dependent_caches(doc)
 
@@ -337,12 +466,31 @@ def _as_datetime(value) -> datetime.datetime | None:
 	return get_datetime(value)
 
 
-def _should_check_overlap(doc) -> bool:
+def _should_check_overlap(doc: Document) -> bool:
 	return bool(
-		doc.get("purpose") == "Manufacture"
-		and doc.get("custom_pea_shift")
+		doc.get("custom_pea_shift")
 		and doc.get("custom_pea_actual_start_date")
 		and doc.get("custom_pea_actual_end_date")
+		and _is_production_overlap_entry(doc)
+	)
+
+
+def _is_production_overlap_entry(doc: Document) -> bool:
+	return bool(
+		doc.get("purpose") == "Manufacture"
+		or (doc.get("purpose") == "Repack" and _is_joint_lh_rh_stock_entry_type(doc))
+	)
+
+
+def _is_joint_lh_rh_stock_entry_type(doc: Document) -> bool:
+	stock_entry_type = doc.get("stock_entry_type")
+	return bool(
+		stock_entry_type
+		and frappe.db.get_value(
+			"Stock Entry Type",
+			stock_entry_type,
+			"custom_pea_joint_lh_rh_production",
+		)
 	)
 
 
@@ -435,12 +583,18 @@ def _find_overlapping_stock_entry(doc, fieldname: str, fieldvalue: str | None) -
 	start = _as_datetime(doc.get("custom_pea_actual_start_date"))
 	end = _as_datetime(doc.get("custom_pea_actual_end_date"))
 	stock_entry = DocType("Stock Entry")
+	stock_entry_type = DocType("Stock Entry Type")
 	query = (
 		frappe.qb.from_(stock_entry)
+		.left_join(stock_entry_type)
+		.on(stock_entry.stock_entry_type == stock_entry_type.name)
 		.select(stock_entry.name)
 		.where(stock_entry.docstatus != 2)
-		.where(stock_entry.purpose == "Manufacture")
 		.where(stock_entry.custom_pea_shift.isnotnull())
+		.where(
+			(stock_entry.purpose == "Manufacture")
+			| ((stock_entry.purpose == "Repack") & (stock_entry_type.custom_pea_joint_lh_rh_production == 1))
+		)
 		.where(stock_entry[fieldname] == fieldvalue)
 		.where(
 			build_interval_overlap_criterion(
@@ -924,7 +1078,24 @@ def _get_shift_planned_losses_for_metrics(
 
 
 def _get_ok_units_for_metrics(doc) -> float:
-	return get_entry_output_quantities(doc).ok_qty
+	normal_metrics = None
+	if not is_joint_lh_rh_production(doc):
+		good_qty = sum(
+			flt(row.get("qty")) * flt(row.get("conversion_factor") or 1)
+			for row in doc.get("items") or []
+			if row.get("is_finished_item")
+			and not row.get("custom_pea_is_rejection_item")
+			and not row.get("is_scrap_item")
+			and not row.get("is_legacy_scrap_item")
+			and row.get("type") != "Scrap"
+			and row.get("secondary_item_type") != "Scrap"
+		)
+		if good_qty > 0:
+			normal_metrics = {
+				"good_qty": good_qty,
+				"total_rejected_qty": flt(doc.get("custom_pea_rejection_qty") or 0),
+			}
+	return get_entry_output_quantities(doc, normal_metrics=normal_metrics).ok_qty
 
 
 def _set_if_field(doc, meta, fieldname: str, value) -> None:

@@ -232,6 +232,35 @@ def ensure_default_bom(fg_item: str, rm_item: str, company: str) -> str:
 	return bom.name
 
 
+def build_joint_bom_scrap_row(
+	*, secondary_item_meta: Any, item_code: str, qty: float, rate: float, uom: str
+) -> dict[str, Any]:
+	type_field = "secondary_item_type" if secondary_item_meta.has_field("secondary_item_type") else "type"
+	row = {
+		type_field: "Scrap",
+		"item_code": item_code,
+		"qty": qty,
+		"uom": uom,
+		"conversion_factor": 1,
+		"cost_allocation_per": 0,
+		"process_loss_per": 0,
+	}
+	if secondary_item_meta.has_field("rate"):
+		row["rate"] = rate
+	else:
+		row["valuation_type"] = "Manual"
+		row["cost"] = flt(qty) * flt(rate)
+	return row
+
+
+def get_joint_bom_scrap_rate(row: Any) -> float:
+	rate = row.get("rate")
+	if rate is not None:
+		return flt(rate, 6)
+	qty = flt(row.get("stock_qty") or row.get("qty"), 6)
+	return flt(flt(row.get("cost"), 6) / qty, 6) if qty else 0
+
+
 def ensure_joint_test_bom(
 	*,
 	item_code: str,
@@ -267,7 +296,7 @@ def ensure_joint_test_bom(
 			(
 				row.get("item_code"),
 				flt(row.get("stock_qty") or row.get("qty"), 6),
-				flt(row.get("rate"), 6),
+				get_joint_bom_scrap_rate(row),
 			)
 			for row in bom_scrap
 			if row.get("secondary_item_type") in (None, "Scrap") and row.get("type") in (None, "Scrap")
@@ -295,22 +324,15 @@ def ensure_joint_test_bom(
 		"items": [{"item_code": rm_item, "qty": rm_qty, "rate": 50}],
 	}
 	if frappe.get_meta("BOM", cached=True).has_field("secondary_items"):
-		type_field = (
-			"secondary_item_type"
-			if frappe.get_meta("BOM Secondary Item", cached=True).has_field("secondary_item_type")
-			else "type"
-		)
+		secondary_item_meta = frappe.get_meta("BOM Secondary Item", cached=True)
 		values["secondary_items"] = [
-			{
-				type_field: "Scrap",
-				"item_code": scrap_item,
-				"qty": qty,
-				"uom": frappe.db.get_value("Item", scrap_item, "stock_uom"),
-				"conversion_factor": 1,
-				"rate": rate,
-				"cost_allocation_per": 0,
-				"process_loss_per": 0,
-			}
+			build_joint_bom_scrap_row(
+				secondary_item_meta=secondary_item_meta,
+				item_code=scrap_item,
+				qty=qty,
+				rate=rate,
+				uom=frappe.db.get_value("Item", scrap_item, "stock_uom"),
+			)
 			for scrap_item, qty, rate in scrap_items
 		]
 	else:

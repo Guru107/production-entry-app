@@ -132,7 +132,11 @@ def get_entry_output_quantities(
 		rejection_qty = flt(entry.get("custom_pea_lh_rejection_qty")) + flt(
 			entry.get("custom_pea_rh_rejection_qty")
 		)
-	elif normal_metrics is not None:
+	elif normal_metrics is not None and (
+		flt(normal_metrics.get("good_qty") or 0) > 0
+		or flt(normal_metrics.get("total_rejected_qty") or 0) > 0
+		or flt(entry.get("fg_completed_qty") or 0) <= 0
+	):
 		rejection_qty = flt(normal_metrics.get("total_rejected_qty") or 0)
 		total_qty = flt(normal_metrics.get("good_qty") or 0) + rejection_qty
 	else:

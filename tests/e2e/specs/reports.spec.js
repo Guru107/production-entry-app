@@ -5,7 +5,12 @@ const { ShiftPage } = require("../pages/shift-page");
 const { StockEntryPage } = require("../pages/stock-entry-page");
 const { getDoc, callFrappeMethod } = require("../fixtures/frappe");
 const { registerE2ELifecycle } = require("../fixtures/lifecycle");
+const { deleteUserIfExists, ensureUser, loginAs } = require("../fixtures/users");
 const { getRoute } = require("../utils/routing");
+
+const ADMIN_USERNAME = process.env.PLAYWRIGHT_USERNAME || "Administrator";
+const ADMIN_PASSWORD = process.env.PLAYWRIGHT_PASSWORD || "123";
+const TEST_PASSWORD = process.env.PLAYWRIGHT_TEST_USER_PASSWORD || "E2eT3st!Pass#2026";
 
 async function setupFreshContext(page, prefix) {
 	await cleanupE2E(page, prefix);
@@ -555,6 +560,66 @@ test.describe("Production reports", () => {
 		expect(rows.length).toBeGreaterThan(0);
 		expect(rows.some((row) => row.rejection_reason === "Crack")).toBeTruthy();
 		expect(await reportsPage.hasChart()).toBeTruthy();
+	});
+
+	test("@regression Pending Rework shows pool, warehouse balance, and source drill-down", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
+		const seeded = await createSubmittedStockEntryForReports(
+			page,
+			ctx,
+			5,
+			[],
+			[{ rejection_reason: "Crack", qty: 5, is_rework: 1 }]
+		);
+
+		const reportsPage = new ReportsPage(page);
+		await reportsPage.open("Pending Rework");
+		await reportsPage.setFilterByFieldname("item_code", ctx.fg_item);
+		await reportsPage.clickRefresh();
+		await reportsPage.waitForRows(2);
+
+		const rows = await reportsPage.getRows();
+		const summary = rows.find(
+			(row) => row.item_code === ctx.fg_item && Number(row.indent) === 0
+		);
+		const detail = rows.find(
+			(row) => row.source_entry === seeded.name && row.rejection_reason === "Crack"
+		);
+		expect(summary).toBeTruthy();
+		expect(Number(summary.derived_pending_qty)).toBe(5);
+		expect(Number(summary.rejection_warehouse_balance)).toBe(5);
+		expect(Number(summary.pool_balance_difference)).toBe(0);
+		expect(detail).toBeTruthy();
+		expect(Number(detail.flagged_rework_qty)).toBe(5);
+	});
+
+	test("@regression PEA Read Only can open Pending Rework without source access", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		const email = `e2e.pending.rework.${Date.now()}@example.com`;
+		await ensureUser(page, {
+			email,
+			firstName: "E2E Pending Rework",
+			password: TEST_PASSWORD,
+			roles: ["PEA Read Only"],
+		});
+
+		try {
+			await loginAs(page, email, TEST_PASSWORD);
+			const reportsPage = new ReportsPage(page);
+			await reportsPage.open("Pending Rework");
+			await reportsPage.clickRefresh();
+			const labels = await reportsPage.getColumnLabels();
+			expect(labels).toContain("Derived Pending Qty");
+			expect(labels).toContain("Rejection Warehouse Balance");
+		} finally {
+			await loginAs(page, ADMIN_USERNAME, ADMIN_PASSWORD);
+			await deleteUserIfExists(page, email);
+		}
 	});
 
 	test("@regression Rework Trend and Rework PPM reports render rework aggregates", async ({

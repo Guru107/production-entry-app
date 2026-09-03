@@ -2,6 +2,10 @@
 
 Source: `production_oee_report/production_oee_report.py`
 
+Quality follows the Right-First-Time convention: every rejected part is a quality loss at production time,
+including parts marked for rework. Rework Operations do not restore Quality and are excluded from OEE inputs.
+The same quantity semantics apply to normal Manufacture and Joint LH/RH Production Entries.
+
 - `day`: linked Completed Shift `shift_date` group key.
 - `workstation`: Stock Entry `custom_pea_workstation` group key (`"Unassigned"` fallback).
 - `first_shift_strokes`: sum of entry `total_strokes` for rows whose linked shift label is `"1"`.

@@ -12,11 +12,14 @@ ROLE_FIXTURE = APP_ROOT / "production_entry_app" / "fixtures" / "role.json"
 EXPECTED_PEA_ROLE_NAMES = ("PEA User", "PEA Read Only")
 
 REQUIRED_SEARCH_INDEXES: dict[str, set[str]] = {
+	"Rejection Breakup": {"is_rework"},
+	"Rework Type": {"is_active"},
 	"Shift": {"branch", "shift_date", "status"},
 }
 
 REQUIRED_CUSTOM_FIELD_SEARCH_INDEXES: set[str] = {
 	"Stock Entry Type-custom_pea_joint_lh_rh_production",
+	"Stock Entry Type-custom_pea_rework_entry",
 	"Stock Entry-custom_pea_is_joint_lh_rh",
 	"Stock Entry-custom_pea_shift",
 	"Stock Entry-custom_pea_workstation",
@@ -35,6 +38,7 @@ def test_master_data_doctypes_do_not_allow_rename() -> None:
 	assert assert_doctype_json("Operator")["allow_rename"] == 0
 	assert assert_doctype_json("Downtime Reason")["allow_rename"] == 0
 	assert assert_doctype_json("Rejection Reason")["allow_rename"] == 0
+	assert assert_doctype_json("Rework Type")["allow_rename"] == 0
 
 
 def test_filtered_doctype_fields_are_search_indexed() -> None:
@@ -121,6 +125,103 @@ def test_joint_lh_rh_production_metadata_is_exported() -> None:
 	assert not missing_rejection_fields, f"Missing Rejection Breakup fields: {missing_rejection_fields}"
 	assert rejection_fields["output_side"]["options"] == "\nLH\nRH"
 	assert rejection_fields["item_code"]["options"] == "Item"
+
+
+def test_rework_stock_entry_metadata_is_exported() -> None:
+	fields_by_name = {field.get("name"): field for field in load_custom_field_fixture() if field.get("name")}
+	rework_fields = {
+		"Stock Entry-custom_pea_rework_type": ("Link", "Rework Type"),
+		"Stock Entry-custom_pea_rework_workstation": ("Link", "Workstation"),
+		"Stock Entry-custom_pea_rework_actual_start": ("Datetime", None),
+		"Stock Entry-custom_pea_rework_actual_end": ("Datetime", None),
+		"Stock Entry-custom_pea_rework_operators": ("Table", "Rework Operator"),
+		"Stock Entry-custom_pea_rework_cost": ("Currency", None),
+	}
+
+	for name, (fieldtype, options) in rework_fields.items():
+		field = fields_by_name[name]
+		assert field["fieldtype"] == fieldtype
+		assert field.get("options") == options
+		assert "stock_entry_type" in field.get("depends_on", "")
+
+	for name in set(rework_fields).difference({"Stock Entry-custom_pea_rework_cost"}):
+		assert fields_by_name[name].get("mandatory_depends_on") == fields_by_name[name].get("depends_on")
+	assert fields_by_name["Stock Entry-custom_pea_rework_cost"].get("read_only") == 1
+	assert fields_by_name["Stock Entry-custom_pea_rework_cost"].get("non_negative") == 1
+	assert "__pea_rework_stock_entry_type" in fields_by_name["Stock Entry-custom_pea_shift"].get(
+		"depends_on", ""
+	)
+
+	rework_operator = assert_doctype_json("Rework Operator")
+	assert rework_operator["istable"] == 1
+	assert rework_operator["permissions"] == []
+	assert rework_operator["field_order"] == ["operator"]
+	assert rework_operator["fields"] == [
+		{
+			"fieldname": "operator",
+			"fieldtype": "Link",
+			"in_list_view": 1,
+			"label": "Operator",
+			"options": "Operator",
+			"reqd": 1,
+		}
+	]
+
+
+def test_rework_fields_have_a_dedicated_two_column_section() -> None:
+	fields_by_name = {field.get("name"): field for field in load_custom_field_fixture() if field.get("name")}
+
+	def field(fieldname: str) -> dict:
+		return fields_by_name[f"Stock Entry-{fieldname}"]
+
+	rework_condition = field("custom_pea_rework_type")["depends_on"]
+
+	assert field("custom_pea_shift")["insert_after"] == "custom_pea_is_joint_lh_rh"
+	assert field("custom_pea_rework_details_section") == {
+		"doctype": "Custom Field",
+		"name": "Stock Entry-custom_pea_rework_details_section",
+		"dt": "Stock Entry",
+		"fieldname": "custom_pea_rework_details_section",
+		"fieldtype": "Section Break",
+		"label": "Rework Details",
+		"insert_after": "apply_putaway_rule",
+		"depends_on": rework_condition,
+		"module": "Production Entry App",
+		"permlevel": 0,
+	}
+	assert field("custom_pea_rework_type")["insert_after"] == "custom_pea_rework_details_section"
+	assert field("custom_pea_rework_actual_start")["insert_after"] == "custom_pea_rework_type"
+	assert field("custom_pea_rework_actual_end")["insert_after"] == "custom_pea_rework_actual_start"
+	assert field("custom_pea_rework_column_break") == {
+		"doctype": "Custom Field",
+		"name": "Stock Entry-custom_pea_rework_column_break",
+		"dt": "Stock Entry",
+		"fieldname": "custom_pea_rework_column_break",
+		"fieldtype": "Column Break",
+		"insert_after": "custom_pea_rework_actual_end",
+		"module": "Production Entry App",
+		"permlevel": 0,
+	}
+	assert field("custom_pea_rework_workstation")["insert_after"] == "custom_pea_rework_column_break"
+	assert field("custom_pea_rework_operators")["insert_after"] == "custom_pea_rework_workstation"
+	assert field("custom_pea_rework_cost")["insert_after"] == "custom_pea_rework_operators"
+	assert field("custom_pea_rework_details_end_section") == {
+		"doctype": "Custom Field",
+		"name": "Stock Entry-custom_pea_rework_details_end_section",
+		"dt": "Stock Entry",
+		"fieldname": "custom_pea_rework_details_end_section",
+		"fieldtype": "Section Break",
+		"insert_after": "custom_pea_rework_cost",
+		"module": "Production Entry App",
+		"permlevel": 0,
+	}
+
+
+def test_metadata_load_tests_includes_rework_layout_contract() -> None:
+	suite = load_tests(unittest.TestLoader(), unittest.TestSuite(), None)
+	loaded_functions = {test_case._testFunc for test_case in suite}
+
+	assert test_rework_fields_have_a_dedicated_two_column_section in loaded_functions
 
 
 def test_settings_has_no_access_control_fields() -> None:
@@ -216,6 +317,9 @@ def load_tests(
 			test_no_app_custom_field_uses_nonzero_permlevel,
 			test_stock_entry_detail_rejection_flag_uses_cross_version_anchor,
 			test_joint_lh_rh_production_metadata_is_exported,
+			test_rework_stock_entry_metadata_is_exported,
+			test_rework_fields_have_a_dedicated_two_column_section,
+			test_metadata_load_tests_includes_rework_layout_contract,
 			test_settings_has_no_access_control_fields,
 			test_pea_roles_are_shipped,
 			test_workspace_has_forms_and_reports_cards,

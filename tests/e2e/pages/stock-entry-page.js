@@ -7,6 +7,34 @@ const {
 } = require("../fixtures/frappe");
 const { escapeRegexLiteral, getRoute, getRoutePrefix } = require("../utils/routing");
 
+const STOCK_ENTRY_READY_TIMEOUT_MS = 10_000;
+
+function isStockEntryReady(requireAjaxIdle) {
+	if (document.querySelector(".modal.show")) {
+		return true;
+	}
+	const frm = window.cur_frm;
+	if (frm?.doctype !== "Stock Entry" || !frm?.is_new?.()) {
+		return false;
+	}
+	return !requireAjaxIdle || window.frappe?.request?.ajax_count === 0;
+}
+
+async function waitForStockEntryReady(page) {
+	await retryOnContextDestroyed(
+		page,
+		async () => {
+			await page.waitForFunction(isStockEntryReady, false, {
+				timeout: STOCK_ENTRY_READY_TIMEOUT_MS,
+			});
+			await page.waitForFunction(isStockEntryReady, true, {
+				timeout: STOCK_ENTRY_READY_TIMEOUT_MS,
+			});
+		},
+		5
+	);
+}
+
 class StockEntryPage {
 	constructor(page) {
 		this.page = page;
@@ -17,9 +45,8 @@ class StockEntryPage {
 		await expect(this.page).toHaveURL(
 			new RegExp(`/${getRoutePrefix()}/stock-entry/(?:new|new-stock-entry-)`)
 		);
-		await this.page.waitForFunction(
-			() => window.cur_frm?.doctype === "Stock Entry" && window.cur_frm?.is_new?.()
-		);
+		await waitForStockEntryReady(this.page);
+		await expect(this.page.locator(".modal.show")).toHaveCount(0);
 	}
 
 	async open(name) {
@@ -404,4 +431,8 @@ class StockEntryPage {
 	}
 }
 
-module.exports = { StockEntryPage };
+module.exports = {
+	isStockEntryReady,
+	StockEntryPage,
+	waitForStockEntryReady,
+};

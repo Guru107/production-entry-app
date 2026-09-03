@@ -8,7 +8,7 @@ async function retryOnContextDestroyed(page, action, retries = 3) {
 				throw error;
 			}
 			await page
-				.waitForFunction(() => Boolean(window.cur_frm?.doc), { timeout: 5000 })
+				.waitForFunction(() => Boolean(window.cur_frm?.doc), undefined, { timeout: 5000 })
 				.catch(() => {});
 		}
 	}
