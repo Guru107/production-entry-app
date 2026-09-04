@@ -22,6 +22,9 @@ from production_entry_app.production_entry_app.utils.alternative_items import (
 	get_bom_alternative_allowed_items,
 )
 from production_entry_app.production_entry_app.utils.rejection_warehouse import resolve_rejection_warehouse
+from production_entry_app.production_entry_app.utils.stock_entry_type_flags import (
+	is_joint_lh_rh_stock_entry_type,
+)
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	bootstrap_manufacturing_test_context,
 	cleanup_running_shifts,
@@ -176,7 +179,7 @@ class TestStockEntryHookPureHelpers(FrappeTestCase):
 		stamp_late.assert_called_once_with(doc)
 		sync_losses.assert_called_once_with(doc)
 
-	def test_rework_shift_is_context_only_and_skips_production_defaults(self) -> None:
+	def test_rework_shift_skips_shift_management(self) -> None:
 		doc = frappe._dict(
 			custom_pea_shift="SHIFT-REWORK",
 			stock_entry_type="Rework Material Transfer",
@@ -196,10 +199,18 @@ class TestStockEntryHookPureHelpers(FrappeTestCase):
 		):
 			stock_entry_hooks.validate_stock_entry(doc)
 
-		validate_shift.assert_called_once_with(doc)
+		validate_shift.assert_not_called()
 		apply_defaults.assert_not_called()
 		stamp_late.assert_not_called()
 		sync_losses.assert_not_called()
+
+	def test_stock_entry_type_flag_handles_dict_payload_without_flags(self) -> None:
+		doc = frappe._dict({"stock_entry_type": "Manufacture"})
+		self.assertIsNone(doc.flags)
+
+		self.assertFalse(is_joint_lh_rh_stock_entry_type(doc))
+
+		self.assertEqual(doc.flags.pea_joint_stock_entry_type, ("Manufacture", False))
 
 	def test_blank_rejection_breakup_item_is_rejected_when_multiple_rejection_items_exist(self) -> None:
 		doc = frappe._dict(
