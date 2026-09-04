@@ -64,6 +64,13 @@ parts back to source entries. Manual scrap write-offs do not drain it, so report
 Rejection Warehouse balance.
 _Avoid_: Rework backlog document, rework warehouse balance
 
+**Branch Ownership Handoff**:
+Production Entry App owns `Shift.branch` only. The production ERPNext instance owns any `Stock Entry.branch`,
+`Stock Entry Detail.branch`, and accounting-dimension branch fields. When a linked Shift is selected, the app
+copies `Shift.branch` to `Stock Entry.branch` only if that host-owned field already exists; otherwise it skips
+the handoff safely and leaves branch/header-detail synchronization to the production instance.
+_Avoid_: App-created Stock Entry Branch field, app-owned detail branch sync, legacy branch-field migration
+
 **Right-First-Time Quality**:
 The OEE Quality convention in which rework-flagged quantity counts as a quality loss at production time, in both
 normal Manufacture and Joint Production, because the part was not good on its first pass. Rework Operations

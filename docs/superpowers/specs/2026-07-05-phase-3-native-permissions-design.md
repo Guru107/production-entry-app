@@ -1,5 +1,11 @@
 # Design: Phase 3 — Native Permissions & Branch Isolation
 
+> **Superseded for PR #79.** This July design proposed app-owned creation of `Stock Entry.branch`.
+> That is no longer the contract. Production Entry App owns `Shift.branch` only; the production
+> ERPNext instance owns `Stock Entry.branch`, `Stock Entry Detail.branch`, and branch accounting
+> dimensions. The app only performs a guarded Shift-to-Stock Entry branch handoff when the host
+> field already exists. See `CONTEXT.md` ("Branch Ownership Handoff").
+
 Date: 2026-07-05
 Author: brainstorming session (Guru107)
 Predecessor: `docs/superpowers/specs/2026-07-01-native-alignment-simplification-design.md` (Phase 1 + Phase 2, merged)

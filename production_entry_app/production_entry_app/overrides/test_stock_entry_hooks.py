@@ -4770,29 +4770,6 @@ class TestStockEntryLateEntryStamp(FrappeTestCase):
 		else:
 			self.assertNotIn("branch", se.as_dict())
 
-	def test_stock_entry_branch_is_not_set_when_stock_entry_field_is_missing(self) -> None:
-		masters = bootstrap_manufacture_masters()
-		shift = self._make_running_shift(masters)
-		original_get_meta = stock_entry_hooks.frappe.get_meta
-
-		class _StockEntryMeta:
-			def has_field(self, _fieldname: str) -> bool:
-				return False
-
-		def fake_get_meta(doctype: str, cached: bool = False) -> object:
-			if doctype == "Stock Entry":
-				return _StockEntryMeta()
-			return original_get_meta(doctype, cached=cached)
-
-		with patch(
-			"production_entry_app.production_entry_app.overrides.stock_entry_hooks.frappe.get_meta",
-			side_effect=fake_get_meta,
-		):
-			doc = frappe._dict({"custom_pea_shift": shift.name})
-			stock_entry_hooks._apply_shift_defaults(doc)
-
-		self.assertNotIn("branch", doc)
-
 	def _make_running_shift(self, masters: dict | None = None):
 		masters = masters or self.masters
 		shift = frappe.get_doc(

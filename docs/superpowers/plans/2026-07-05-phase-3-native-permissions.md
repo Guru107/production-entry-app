@@ -1,5 +1,11 @@
 # Phase 3 — Native Permissions & Branch Isolation Implementation Plan
 
+> **Superseded for PR #79.** This July plan proposed app-owned creation of `Stock Entry.branch`.
+> That is no longer the contract. Production Entry App owns `Shift.branch` only; the production
+> ERPNext instance owns `Stock Entry.branch`, `Stock Entry Detail.branch`, and branch accounting
+> dimensions. The app only performs a guarded Shift-to-Stock Entry branch handoff when the host
+> field already exists. See `CONTEXT.md` ("Branch Ownership Handoff").
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make Frappe own all access control — add a persisted `branch` field to Stock Entry so native User Permissions isolate branches, and delete the app's custom access-control/role-management layer in favor of native Roles, DocPerms, and User Permissions.
