@@ -2,7 +2,8 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const {
-	hasFetchedItemsWithoutVisibleDialog,
+	hasFetchedItemsWithoutVisibleError,
+	hasVisibleFetchItemsErrorDialog,
 	isStockEntryReady,
 	triggerFetchItems,
 	waitForStockEntryReady,
@@ -89,21 +90,53 @@ test("fetch item trigger does not await Frappe's async form trigger", () => {
 	});
 });
 
-test("fetch item completion requires rows and no visible dialog", () => {
+test("fetch item success requires rows and no visible error dialog", () => {
 	withBrowserState(() => {
 		global.document = { querySelector: () => null };
 		global.window = { cur_frm: { doc: { items: [] } } };
-		assert.equal(hasFetchedItemsWithoutVisibleDialog(), false);
+		assert.equal(hasFetchedItemsWithoutVisibleError(), false);
 
 		global.window.cur_frm.doc.items = [{}];
-		assert.equal(hasFetchedItemsWithoutVisibleDialog(), true);
+		assert.equal(hasFetchedItemsWithoutVisibleError(), true);
 
 		global.window.cur_frm.doc.items = [];
-		global.document.querySelector = () => ({ role: "dialog" });
-		assert.equal(hasFetchedItemsWithoutVisibleDialog(), false);
+		global.document.querySelector = () => ({ role: "dialog", querySelector: () => null });
+		assert.equal(hasFetchedItemsWithoutVisibleError(), false);
 
 		global.window.cur_frm.doc.items = [{}];
-		assert.equal(hasFetchedItemsWithoutVisibleDialog(), false);
+		assert.equal(hasFetchedItemsWithoutVisibleError(), true);
+
+		global.document.querySelector = () => ({
+			innerText: "Qty to Manufacture is required",
+			querySelector: () => null,
+		});
+		assert.equal(hasFetchedItemsWithoutVisibleError(), false);
+	});
+});
+
+test("fetch item validation dialog predicate detects Frappe error modals", () => {
+	withBrowserState(() => {
+		global.window = { cur_frm: { doc: { items: [] } } };
+		global.document = { querySelector: () => null };
+		assert.equal(hasVisibleFetchItemsErrorDialog(), false);
+
+		global.document.querySelector = () => ({
+			innerText: "Qty to Manufacture is required",
+			querySelector: () => null,
+		});
+		assert.equal(hasVisibleFetchItemsErrorDialog(), true);
+
+		global.document.querySelector = () => ({
+			innerText: "Items fetched successfully",
+			querySelector: () => null,
+		});
+		assert.equal(hasVisibleFetchItemsErrorDialog(), false);
+
+		global.document.querySelector = () => ({
+			innerText: "",
+			querySelector: (selector) => (selector.includes(".indicator.red") ? {} : null),
+		});
+		assert.equal(hasVisibleFetchItemsErrorDialog(), true);
 	});
 });
 
@@ -117,6 +150,9 @@ test("Stock Entry readiness predicates remain self-contained after Playwright se
 
 		assert.equal(serializeForBrowser(isStockEntryReady)(false), true);
 		assert.equal(serializeForBrowser(isStockEntryReady)(true), true);
+		assert.equal(serializeForBrowser(hasFetchedItemsWithoutVisibleError)(), false);
+		global.window.cur_frm.doc.items = [{}];
+		assert.equal(serializeForBrowser(hasFetchedItemsWithoutVisibleError)(), true);
 	});
 });
 

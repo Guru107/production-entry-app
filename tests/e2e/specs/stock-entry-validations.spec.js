@@ -62,7 +62,7 @@ test.describe("Stock Entry validation matrix", () => {
 			fgQty: 0,
 			rejectionQty: 0,
 		});
-		await stockEntryPage.fetchItems();
+		await stockEntryPage.fetchItems({ expectValidation: true });
 		await expectValidationError(page, /Qty to Manufacture/i);
 	});
 

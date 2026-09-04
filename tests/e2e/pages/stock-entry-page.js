@@ -24,8 +24,35 @@ function triggerFetchItems() {
 	window.cur_frm?.script_manager?.trigger("custom_pea_fetch_items");
 }
 
-function hasFetchedItemsWithoutVisibleDialog() {
-	return (window.cur_frm?.doc?.items || []).length > 0 && !document.querySelector(".modal.show");
+function hasVisibleFetchItemsErrorDialog() {
+	const modal = document.querySelector(".modal.show");
+	if (!modal) {
+		return false;
+	}
+	if (modal.querySelector?.(".indicator.red, .indicator-pill.red")) {
+		return true;
+	}
+	const text = (modal.innerText || modal.textContent || "").trim();
+	return /\b(error|failed|cannot|mandatory|required|validation|qty to manufacture)\b/i.test(
+		text
+	);
+}
+
+function hasFetchedItemsWithoutVisibleError() {
+	const modal = document.querySelector(".modal.show");
+	let hasErrorDialog = false;
+	if (modal) {
+		if (modal.querySelector?.(".indicator.red, .indicator-pill.red")) {
+			hasErrorDialog = true;
+		} else {
+			const text = (modal.innerText || modal.textContent || "").trim();
+			hasErrorDialog =
+				/\b(error|failed|cannot|mandatory|required|validation|qty to manufacture)\b/i.test(
+					text
+				);
+		}
+	}
+	return (window.cur_frm?.doc?.items || []).length > 0 && !hasErrorDialog;
 }
 
 async function waitForStockEntryReady(page) {
@@ -371,7 +398,7 @@ class StockEntryPage {
 		});
 	}
 
-	async fetchItems() {
+	async fetchItems({ expectValidation = false } = {}) {
 		await retryOnContextDestroyed(
 			this.page,
 			async () => {
@@ -379,8 +406,16 @@ class StockEntryPage {
 					() => window.cur_frm?.doctype === "Stock Entry" && Boolean(window.cur_frm?.doc)
 				);
 				await this.page.evaluate(triggerFetchItems);
-				await this.page.waitForFunction(hasFetchedItemsWithoutVisibleDialog);
-				await expect(this.page.locator(".modal.show")).toHaveCount(0);
+				if (expectValidation) {
+					await this.page.waitForFunction(hasVisibleFetchItemsErrorDialog);
+					return;
+				}
+				await this.page.waitForFunction(hasFetchedItemsWithoutVisibleError);
+				await expect(
+					this.page.locator(
+						".modal.show .indicator.red, .modal.show .indicator-pill.red"
+					)
+				).toHaveCount(0);
 			},
 			5
 		);
@@ -437,7 +472,8 @@ class StockEntryPage {
 }
 
 module.exports = {
-	hasFetchedItemsWithoutVisibleDialog,
+	hasFetchedItemsWithoutVisibleError,
+	hasVisibleFetchItemsErrorDialog,
 	isStockEntryReady,
 	StockEntryPage,
 	triggerFetchItems,
