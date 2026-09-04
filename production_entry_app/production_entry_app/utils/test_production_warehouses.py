@@ -22,7 +22,9 @@ class TestConfiguredScrapWarehouses(FrappeTestCase):
 		ctx = bootstrap_manufacturing_test_context("Scrap Scope")
 		other_branch = ensure_branch("Scrap Scope Other Branch")
 		other_scrap_warehouse = ensure_warehouse("Scrap Scope Other Scrap", ctx["company"])
-		set_test_branch_warehouse_defaults(ctx["company"], other_branch, scrap_warehouse=other_scrap_warehouse)
+		set_test_branch_warehouse_defaults(
+			ctx["company"], other_branch, scrap_warehouse=other_scrap_warehouse
+		)
 
 		self.assertEqual(
 			get_configured_scrap_warehouses(ctx["company"]) & {ctx["scrap_warehouse"], other_scrap_warehouse},

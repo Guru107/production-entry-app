@@ -4,7 +4,9 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from production_entry_app.production_entry_app.utils.rejection_warehouse import get_rejected_warehouses
-from production_entry_app.production_entry_app.utils.test_bootstrap import bootstrap_manufacturing_test_context
+from production_entry_app.production_entry_app.utils.test_bootstrap import (
+	bootstrap_manufacturing_test_context,
+)
 
 
 class TestRejectedWarehouseLookup(FrappeTestCase):
