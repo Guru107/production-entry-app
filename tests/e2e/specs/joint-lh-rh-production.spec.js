@@ -454,6 +454,43 @@ test.describe("Joint LH/RH production form", () => {
 		]);
 	});
 
+	test("@smoke @regression joint Repack shows the resource-overlap validation popup", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const stockEntryType = await ensureJointStockEntryType(page, lifecycle.getPrefix());
+		createdTypes.add(stockEntryType);
+		const source = await callFrappeMethod(
+			page,
+			"production_entry_app.production_entry_app.e2e_api.create_e2e_submitted_stock_entry",
+			{
+				prefix: lifecycle.getPrefix(),
+				shift_name: ctx.shift_name,
+				actual_start_time: "10:00:00",
+				actual_end_time: "11:00:00",
+			}
+		);
+		const form = new StockEntryPage(page);
+
+		await form.openNew();
+		await enableJointProduction(page, form, stockEntryType);
+		await setFieldValue(page, "company", ctx.company);
+		await form.setPostingDate(ctx.shift_date);
+		await setFieldValue(page, "custom_pea_shift", ctx.shift_name);
+		await setFieldValue(page, "from_warehouse", ctx.wip_warehouse);
+		await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
+		await form.fillJointProductionFields(ctx);
+		await form.fetchItems();
+		await setFieldValue(page, "custom_pea_workstation", ctx.workstation);
+		await setFieldValue(page, "custom_pea_operator", ctx.operator);
+		await setFieldValue(page, "custom_pea_actual_start_date", `${ctx.shift_date} 10:30:00`);
+		await setFieldValue(page, "custom_pea_actual_end_date", `${ctx.shift_date} 11:30:00`);
+		await form.attemptSaveDraft();
+
+		await expectValidationError(page, new RegExp(`Workstation.*${source.name}`));
+	});
+
 	test("@regression joint rejection quantity requires a breakup before save", async ({
 		page,
 	}) => {

@@ -69,6 +69,10 @@ def _is_scrap_row(row: Any) -> bool:
 	)
 
 
+def _stock_entry_has_branch_field() -> bool:
+	return frappe.get_meta("Stock Entry", cached=True).has_field("branch")
+
+
 def _make_running_shift_through_api(masters: dict[str, Any]) -> object:
 	cleanup_running_shifts()
 	draft = _build_shift_doc(masters=masters, status="Draft")
@@ -386,7 +390,7 @@ class TestJointProductionItems(FrappeTestCase):
 		doc.to_warehouse = None
 
 		shift_names = [shift.name]
-		if frappe.get_meta("Stock Entry", cached=True).has_field("branch"):
+		if _stock_entry_has_branch_field():
 			doc.branch = self.masters["branch"]
 			shift_names.append(None)
 

@@ -44,7 +44,7 @@ def validate_rework_submission(doc: Document) -> None:
 	after acquiring the locks, so a waiting transaction sees the preceding committed
 	consumption before it validates. Sorted locking avoids cross-item deadlocks.
 	"""
-	if not is_rework_stock_entry(doc):
+	if not is_rework_stock_entry_type(doc):
 		return
 	_validate_rework_route(doc)
 
@@ -78,14 +78,9 @@ def validate_rework_submission(doc: Document) -> None:
 		)
 
 
-def is_rework_stock_entry(doc: Document) -> bool:
-	"""Return whether the selected Stock Entry Type is marked for rework."""
-	return is_rework_stock_entry_type(doc)
-
-
 def apply_rework_source_warehouse(doc: Document) -> None:
 	"""Default blank Rework sources without hiding invalid explicit overrides."""
-	if not is_rework_stock_entry(doc):
+	if not is_rework_stock_entry_type(doc):
 		return
 	rejection_warehouse = get_branch_warehouse_defaults(doc.get("company"), doc.get("branch")).get(
 		"rejection_warehouse"
@@ -103,12 +98,8 @@ def _validate_rework_route(doc: Document) -> None:
 	"""Keep pool consumption on the configured rejection-to-good route."""
 	warehouses = get_branch_warehouse_defaults(doc.get("company"), doc.get("branch"))
 	rejection_warehouse = warehouses.get("rejection_warehouse")
-	if not rejection_warehouse:
-		frappe.throw(
-			_("Set the configured Rejection Warehouse for this Company and Branch before submitting Rework.")
-		)
 	blocked_targets = {rejection_warehouse, warehouses.get("scrap_warehouse")}
-	if doc.get("from_warehouse") and doc.get("from_warehouse") != rejection_warehouse:
+	if rejection_warehouse and doc.get("from_warehouse") and doc.get("from_warehouse") != rejection_warehouse:
 		frappe.throw(
 			_("Rework must use the configured Rejection Warehouse {0} as its source.").format(
 				frappe.bold(frappe.utils.escape_html(rejection_warehouse))
@@ -119,19 +110,50 @@ def _validate_rework_route(doc: Document) -> None:
 			continue
 		source = row.get("s_warehouse") or doc.get("from_warehouse")
 		target = row.get("t_warehouse") or doc.get("to_warehouse")
-		if source != rejection_warehouse:
+		if rejection_warehouse and source != rejection_warehouse:
 			frappe.throw(
 				_("Rework item {0} must use the configured Rejection Warehouse {1} as its source.").format(
 					frappe.bold(frappe.utils.escape_html(row.get("item_code") or "")),
 					frappe.bold(frappe.utils.escape_html(rejection_warehouse)),
 				)
 			)
-		if not target or target in blocked_targets:
+		elif not rejection_warehouse:
+			_validate_explicit_rework_source_warehouse(row.get("item_code"), source)
+		if (
+			not target
+			or target in blocked_targets
+			or (_has_rejected_warehouse_flag() and _is_rejected_warehouse(target))
+		):
 			frappe.throw(
 				_(
 					"Rework item {0} must move to a good target warehouse, not a rejection or scrap warehouse."
 				).format(frappe.bold(frappe.utils.escape_html(row.get("item_code") or "")))
 			)
+
+
+def _validate_explicit_rework_source_warehouse(item_code: str | None, source: str | None) -> None:
+	if not source:
+		frappe.throw(
+			_("Rework item {0} must have a source Rejection Warehouse.").format(
+				frappe.bold(frappe.utils.escape_html(item_code or ""))
+			)
+		)
+	if _has_rejected_warehouse_flag() and not _is_rejected_warehouse(source):
+		frappe.throw(
+			_("Rework item {0} source Warehouse must be marked as Rejected Warehouse.").format(
+				frappe.bold(frappe.utils.escape_html(item_code or ""))
+			)
+		)
+
+
+def _is_rejected_warehouse(warehouse: str | None) -> bool:
+	if not warehouse:
+		return False
+	return bool(frappe.db.get_value("Warehouse", warehouse, "is_rejected_warehouse"))
+
+
+def _has_rejected_warehouse_flag() -> bool:
+	return frappe.get_meta("Warehouse", cached=True).has_field("is_rejected_warehouse")
 
 
 def _lock_items_for_rework_submission(item_codes: list[str]) -> None:

@@ -191,7 +191,7 @@ class TestReworkAdditionalCosts(FrappeTestCase):
 		ensure_stock(item_code, source_warehouse, self.company, target_qty=10, posting_date=posting_date)
 		insert_pending_rework_source(
 			stock_entry_type=None,
-			breakups=[(None, 10)],
+			breakups=[(None, None, 10)],
 			rejection_items=[item_code],
 		)
 		doc = self._make_rework_entry()

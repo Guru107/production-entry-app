@@ -671,14 +671,13 @@ function _schedule_rework_source_warehouse(frm) {
 		frm.__peaReworkSourceWarehouseTimer = null;
 	}
 	const requestId = ++_reworkSourceWarehouseRequestId;
-	if (!_is_rework_doc(frm.doc) || !frm.doc.company || !frm.doc.branch) {
+	const context = _get_rework_source_context(frm);
+	if (!context) {
 		return;
 	}
-	const company = frm.doc.company;
-	const branch = frm.doc.branch;
 	frm.__peaReworkSourceWarehouseTimer = setTimeout(() => {
 		frm.__peaReworkSourceWarehouseTimer = null;
-		_sync_rework_source_warehouse(frm, { requestId, company, branch });
+		_sync_rework_source_warehouse(frm, { requestId, ...context });
 	}, REWORK_SOURCE_DEBOUNCE_MS);
 }
 
@@ -695,7 +694,7 @@ function _sync_rework_source_warehouse(
 	}
 	frappe.call({
 		method: "production_entry_app.production_entry_app.api.get_rework_source_warehouse",
-		args: { company, branch },
+		args: _get_rework_source_args(company, branch),
 		callback(r) {
 			if (
 				requestId !== _reworkSourceWarehouseRequestId ||
@@ -732,6 +731,25 @@ function _sync_rework_source_warehouse(
 			);
 		},
 	});
+}
+
+function _get_rework_source_args(company, branch) {
+	const args = { company };
+	if (branch) {
+		args.branch = branch;
+	}
+	return args;
+}
+
+function _get_rework_source_context(frm) {
+	if (!_is_rework_doc(frm.doc) || !frm.doc.company) {
+		return null;
+	}
+	const branch = frm.doc.branch || "";
+	if (branch) {
+		return { company: frm.doc.company, branch };
+	}
+	return null;
 }
 
 function _default_rework_item_source(
@@ -1472,6 +1490,7 @@ if (typeof module !== "undefined" && module.exports) {
 		_handle_shift_change,
 		_sync_rework_source_warehouse,
 		_schedule_rework_source_warehouse,
+		_get_rework_source_context,
 		_default_rework_item_source,
 		_apply_fetch_items_response,
 		_apply_manufacture_visibility,

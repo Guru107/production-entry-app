@@ -13,8 +13,6 @@ safely. That contract is covered by server-side tests.
 
 ## Joint/Repack overlap validation
 
-Browser coverage for Joint/Repack workstation/operator overlap intentionally reuses the existing
-Stock Entry validation popup path covered by Manufacture E2E tests. The Joint/Repack-specific branch
-is the Stock Entry Type classification and query scope; that contract is covered by focused Frappe
-tests that save real Joint/Repack Stock Entries and verify overlap, resave, cancelled-entry, adjacent
-window, and downtime behavior.
+Browser coverage includes a Joint/Repack resource-overlap popup smoke test. Focused Frappe tests also
+save real Joint/Repack Stock Entries and verify overlap, resave, cancelled-entry, adjacent-window, and
+downtime behavior.

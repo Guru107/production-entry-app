@@ -3,6 +3,7 @@ const { test, expect } = require("@playwright/test");
 const { expectValidationError } = require("../fixtures/assertions");
 const { callFrappeMethod, getDoc, saveForm, setFieldValue } = require("../fixtures/frappe");
 const { registerE2ELifecycle } = require("../fixtures/lifecycle");
+const { hasCurrentStockEntryBranchField } = require("../fixtures/stock-entry-meta");
 const { ensureUser, loginAs } = require("../fixtures/users");
 const { ReportsPage } = require("../pages/reports-page");
 const { StockEntryPage } = require("../pages/stock-entry-page");
@@ -35,7 +36,7 @@ async function fillReworkEntry(page, context, options = {}) {
 		);
 	}, context.rework_stock_entry_type);
 	await setFieldValue(page, "company", context.company);
-	const hasBranchField = await page.evaluate(() => Boolean(cur_frm?.fields_dict?.branch));
+	const hasBranchField = await hasCurrentStockEntryBranchField(page);
 	if (hasBranchField) {
 		await setFieldValue(page, "branch", context.branch);
 	} else {
@@ -198,13 +199,11 @@ test.describe("Rework full lifecycle", () => {
 		).toEqual({ ...expectedVisibleState, unsaved: false });
 	});
 
-	test("@regression submits, values, reports, authorizes, and cancels rework", async ({
+	test("@smoke @regression submits, values, reports, authorizes, and cancels rework", async ({
 		page,
 	}) => {
 		const context = await seedLifecycle(page, lifecycle.getPrefix());
 		const stockEntryPage = await fillReworkEntry(page, context);
-		await setFieldValue(page, "custom_pea_shift", context.shift_name);
-		await expect(page.locator('[data-fieldname="custom_pea_shift"]')).toBeVisible();
 		const stockEntrySnapshot = await page.evaluate(() => {
 			const snapshot = {
 				company: cur_frm.doc.company,

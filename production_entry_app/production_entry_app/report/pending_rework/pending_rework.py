@@ -153,28 +153,23 @@ def _fetch_contribution_chunk(
 	last_detail_name: str | None,
 	chunk_size: int,
 ) -> list[frappe._dict]:
-	query, StockEntry, StockEntryDetail, RejectionBreakup = _build_rework_produced_query(
-		item_codes=item_codes
-	)
+	query, StockEntry, RejectionDetail, RejectionBreakup = _build_rework_produced_query(item_codes=item_codes)
 	query = query.select(
 		RejectionBreakup.name.as_("breakup_name"),
-		StockEntryDetail.name.as_("detail_name"),
+		RejectionDetail.name.as_("detail_name"),
 		StockEntry.name.as_("source_entry"),
-		StockEntryDetail.item_code,
-		StockEntryDetail.t_warehouse.as_("rejection_warehouse"),
+		RejectionDetail.item_code,
+		RejectionDetail.t_warehouse.as_("rejection_warehouse"),
 		RejectionBreakup.rejection_reason,
 		RejectionBreakup.qty.as_("flagged_rework_qty"),
 	)
 	if last_breakup_name and last_detail_name:
 		query = query.where(
 			(RejectionBreakup.name > last_breakup_name)
-			| ((RejectionBreakup.name == last_breakup_name) & (StockEntryDetail.name > last_detail_name))
+			| ((RejectionBreakup.name == last_breakup_name) & (RejectionDetail.name > last_detail_name))
 		)
 	return (
-		query.orderby(RejectionBreakup.name)
-		.orderby(StockEntryDetail.name)
-		.limit(chunk_size)
-		.run(as_dict=True)
+		query.orderby(RejectionBreakup.name).orderby(RejectionDetail.name).limit(chunk_size).run(as_dict=True)
 	)
 
 

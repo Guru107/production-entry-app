@@ -31,3 +31,8 @@ and may be overridden in Production Entry Settings. The Pending Rework pool is d
 rework-flagged quantity from submitted Production Entries minus submitted rework-entry quantity; because
 manual scrap Repacks do not drain it, pending-rework reporting must show the derived pool beside the
 actual Rejection Warehouse balance rather than presenting the pool as physical stock on hand.
+
+Rework route validation uses Company/Branch warehouse defaults when the host provides `Stock Entry.branch`.
+Rework is not managed through Shift; on hosts without `Stock Entry.branch`, operators must explicitly set a
+source warehouse marked as a rejected warehouse. Blank-item rework breakup rows are accepted only when the
+Stock Entry has one rejected Item; multi-item rejections must name the Item on each breakup row.

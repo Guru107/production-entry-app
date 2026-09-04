@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Any
-
 import frappe
 from frappe.model.document import Document
 
@@ -31,7 +29,7 @@ def _get_cached_stock_entry_type_flag(
 	cache_fieldname: str,
 ) -> bool:
 	stock_entry_type = doc.get("stock_entry_type")
-	flags = getattr(doc, "flags", None)
+	flags = doc.flags
 	cached = _get_cached_flag(flags, cache_fieldname)
 	if cached and cached[0] == stock_entry_type:
 		return bool(cached[1])
@@ -39,15 +37,9 @@ def _get_cached_stock_entry_type_flag(
 	is_enabled = bool(
 		stock_entry_type and frappe.db.get_value("Stock Entry Type", stock_entry_type, flag_fieldname)
 	)
-	if flags is not None:
-		flags[cache_fieldname] = (stock_entry_type, is_enabled)
+	flags[cache_fieldname] = (stock_entry_type, is_enabled)
 	return is_enabled
 
 
-def _get_cached_flag(flags: Any, cache_fieldname: str) -> tuple[str | None, bool] | None:
-	if flags is None:
-		return None
-	cached = flags.get(cache_fieldname) if hasattr(flags, "get") else None
-	if isinstance(cached, tuple) and len(cached) == 2:
-		return cached
-	return None
+def _get_cached_flag(flags: frappe._dict, cache_fieldname: str) -> tuple[str | None, bool] | None:
+	return flags.get(cache_fieldname)

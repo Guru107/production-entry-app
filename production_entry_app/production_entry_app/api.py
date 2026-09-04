@@ -99,7 +99,10 @@ def get_rework_stock_entry_type(required: int = 1, stock_entry_type: str | None 
 
 
 @frappe.whitelist()
-def get_rework_source_warehouse(company: str, branch: str) -> str:
+def get_rework_source_warehouse(
+	company: str | None = None,
+	branch: str | None = None,
+) -> str:
 	"""Return the configured rejection source used to create Rework Stock Entries."""
 	if not frappe.has_permission("Stock Entry", "create"):
 		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)

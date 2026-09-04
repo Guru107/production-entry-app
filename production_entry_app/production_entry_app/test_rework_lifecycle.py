@@ -178,9 +178,9 @@ class TestReworkLifecycle(FrappeTestCase):
 			{
 				"doctype": "Stock Entry",
 				"company": self.masters["company"],
-				"branch": self.masters["branch"],
 				"purpose": "Material Transfer",
 				"stock_entry_type": self.entry_type,
+				"from_warehouse": self.masters["rejection_warehouse"],
 				"to_warehouse": self.masters["fg_warehouse"],
 				"set_posting_time": 1,
 				"posting_date": posting_date,
@@ -191,12 +191,15 @@ class TestReworkLifecycle(FrappeTestCase):
 				"custom_pea_rework_actual_end": end,
 			}
 		)
+		if frappe.get_meta("Stock Entry", cached=True).has_field("branch"):
+			doc.branch = self.masters["branch"]
 		doc.append("custom_pea_rework_operators", {"operator": self.operator})
 		doc.append(
 			"items",
 			{
 				"item_code": self.masters["fg_item"],
 				"qty": 5,
+				"s_warehouse": self.masters["rejection_warehouse"],
 				"t_warehouse": self.masters["fg_warehouse"],
 			},
 		)

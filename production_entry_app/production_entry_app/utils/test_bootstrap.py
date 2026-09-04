@@ -358,17 +358,34 @@ def _attach_fiscal_year_company(fiscal_year: str, company: str | None) -> None:
 	doc.save(ignore_permissions=True)
 
 
-def ensure_fiscal_year_for_date(posting_date: str, company: str | None = None) -> None:
+def _get_existing_fiscal_year_for_date(posting_date: str, company: str | None = None) -> str | None:
 	date = getdate(posting_date)
-	existing_fiscal_year = frappe.db.get_value(
+	fiscal_years = frappe.get_all(
 		"Fiscal Year",
-		{
+		filters={
 			"year_start_date": ("<=", date),
 			"year_end_date": (">=", date),
 		},
-		"name",
-		order_by="year_start_date desc",
+		pluck="name",
+		order_by="year_start_date desc, name asc",
 	)
+	if not fiscal_years:
+		return None
+	if not company or not frappe.get_meta("Fiscal Year", cached=True).has_field("companies"):
+		return fiscal_years[0]
+
+	for fiscal_year in fiscal_years:
+		if frappe.db.exists("Fiscal Year Company", {"parent": fiscal_year, "company": company}):
+			return fiscal_year
+	for fiscal_year in fiscal_years:
+		if not frappe.db.exists("Fiscal Year Company", {"parent": fiscal_year}):
+			return fiscal_year
+	return None
+
+
+def ensure_fiscal_year_for_date(posting_date: str, company: str | None = None) -> None:
+	date = getdate(posting_date)
+	existing_fiscal_year = _get_existing_fiscal_year_for_date(posting_date, company)
 	if existing_fiscal_year:
 		if frappe.get_meta("Fiscal Year", cached=True).has_field("disabled"):
 			frappe.db.set_value("Fiscal Year", existing_fiscal_year, "disabled", 0, update_modified=False)

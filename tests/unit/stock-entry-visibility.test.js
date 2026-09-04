@@ -14,6 +14,7 @@ const {
 	_handle_shift_change,
 	_sync_rework_source_warehouse,
 	_schedule_rework_source_warehouse,
+	_get_rework_source_context,
 	_default_rework_item_source,
 	_apply_fetch_items_response,
 	_sync_joint_stock_entry_type,
@@ -152,12 +153,12 @@ test("selecting Rework after cached ordinary type performs a selected-type looku
 	}
 });
 
-test("selecting Shift on rework keeps it context-only", () => {
+test("selecting Shift on rework does not drive Rework source defaults", () => {
 	const originalFrappe = global.frappe;
-	let callCount = 0;
+	const requests = [];
 	global.frappe = {
-		call() {
-			callCount += 1;
+		call(options) {
+			requests.push(options);
 		},
 	};
 	const frm = {
@@ -174,7 +175,8 @@ test("selecting Shift on rework keeps it context-only", () => {
 
 	try {
 		_handle_shift_change(frm);
-		assert.equal(callCount, 0);
+		assert.equal(requests.length, 0);
+		assert.equal(_get_rework_source_context({ doc: { ...frm.doc, branch: "" } }), null);
 		assert.equal(frm.doc.company, "Original Company");
 		assert.equal(frm.doc.branch, "Original Branch");
 		assert.equal(frm.doc.from_warehouse, "Rejection Warehouse");

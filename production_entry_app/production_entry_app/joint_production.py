@@ -315,20 +315,16 @@ def _build_planned_scrap_items(
 	return tuple(planned_items)
 
 
-def _is_joint_stock_entry_type(doc: Document) -> bool:
-	return is_joint_lh_rh_stock_entry_type(doc)
-
-
 def is_joint_lh_rh_production(doc: Document) -> bool:
 	if cint(doc.get("custom_pea_is_joint_lh_rh")):
 		return True
-	return _is_joint_stock_entry_type(doc)
+	return is_joint_lh_rh_stock_entry_type(doc)
 
 
 def validate_and_apply_joint_production(doc: Document) -> None:
 	if not is_joint_lh_rh_production(doc):
 		return
-	if not _is_joint_stock_entry_type(doc):
+	if not is_joint_lh_rh_stock_entry_type(doc):
 		frappe.throw(_("Select a Stock Entry Type configured for Joint LH/RH Production."))
 	doc.set("custom_pea_is_joint_lh_rh", 1)
 	plan = _build_joint_production_plan(doc)

@@ -2,6 +2,7 @@ const { test, expect } = require("@playwright/test");
 const { registerE2ELifecycle } = require("../fixtures/lifecycle");
 const { bootstrapE2E, cleanupE2E } = require("../fixtures/test-data");
 const { callFrappeMethod } = require("../fixtures/frappe");
+const { hasStockEntryBranchField } = require("../fixtures/stock-entry-meta");
 const { ensureUser, deleteUserIfExists } = require("../fixtures/users");
 const { getRoute, getRouteRegex } = require("../utils/routing");
 
@@ -46,13 +47,6 @@ async function deleteDocIfExists(page, doctype, name) {
 			throw error;
 		}
 	}
-}
-
-async function hasStockEntryBranchField(page) {
-	return await page.evaluate(async () => {
-		await frappe.model.with_doctype("Stock Entry");
-		return Boolean(frappe.meta.get_docfield("Stock Entry", "branch"));
-	});
 }
 
 test.describe("Branch isolation", () => {
@@ -142,6 +136,13 @@ test.describe("Branch isolation", () => {
 			if (stockEntryHasBranch) {
 				expect(branchAStockEntry.branch).toBe(branchA);
 				expect(branchBStockEntry.branch).toBe(branchB);
+			} else {
+				expect(Object.prototype.hasOwnProperty.call(branchAStockEntry, "branch")).toBe(
+					false
+				);
+				expect(Object.prototype.hasOwnProperty.call(branchBStockEntry, "branch")).toBe(
+					false
+				);
 			}
 
 			const restrictedEmail = `e2e-user-branch-isolation-restricted-${lifecycle.getPrefix()}-${Date.now()}-${Math.floor(
@@ -235,6 +236,12 @@ test.describe("Branch isolation", () => {
 				expect(visibleStockEntries.length).toBe(1);
 				expect(visibleStockEntries[0].branch).toBe(branchA);
 				expect(visibleStockEntries[0].custom_pea_shift).toBe(ctx.shift_name);
+			} else {
+				test.info().annotations.push({
+					type: "skip",
+					description:
+						"Stock Entry.branch is host-owned and absent on this site; Stock Entry branch-list filtering is not applicable.",
+				});
 			}
 
 			await loginAs(page, unrestrictedEmail, TEST_PASSWORD);

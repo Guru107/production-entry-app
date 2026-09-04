@@ -15,6 +15,7 @@ from production_entry_app.production_entry_app.tests.support.manufacture_builder
 from production_entry_app.production_entry_app.tests.support.rework_builders import (
 	insert_pending_rework_source,
 )
+from production_entry_app.production_entry_app.utils.stock_entry_type_flags import is_rework_stock_entry_type
 
 
 class TestPendingReworkPool(FrappeTestCase):
@@ -35,12 +36,12 @@ class TestPendingReworkPool(FrappeTestCase):
 	def test_pool_aggregates_normal_joint_and_multi_row_rework_entries(self) -> None:
 		self._insert_production_source(
 			stock_entry_type=self.normal_type,
-			breakups=[(None, 4), (None, 2)],
+			breakups=[(None, None, 4), (None, None, 2)],
 			rejection_items=[self.item_a],
 		)
 		self._insert_production_source(
 			stock_entry_type=self.joint_type,
-			breakups=[(self.item_a, 3), (self.item_b, 5)],
+			breakups=[(self.item_a, None, 3), (self.item_b, None, 5)],
 			rejection_items=[self.item_a, self.item_b],
 		)
 		self._insert_rework_entry([(self.item_a, 1), (self.item_a, 2), (self.item_b, 1)])
@@ -57,7 +58,7 @@ class TestPendingReworkPool(FrappeTestCase):
 	def test_pool_counts_split_joint_rejection_detail_rows_once(self) -> None:
 		self._insert_production_source(
 			stock_entry_type=self.joint_type,
-			breakups=[(self.item_a, 5)],
+			breakups=[(self.item_a, None, 5)],
 			rejection_items=[self.item_a, self.item_a],
 		)
 
@@ -69,7 +70,7 @@ class TestPendingReworkPool(FrappeTestCase):
 	def test_pool_does_not_fan_out_blank_breakup_across_multiple_rejected_items(self) -> None:
 		self._insert_production_source(
 			stock_entry_type=self.normal_type,
-			breakups=[(None, 5)],
+			breakups=[(None, None, 5)],
 			rejection_items=[self.item_a, self.item_b],
 		)
 
@@ -79,7 +80,7 @@ class TestPendingReworkPool(FrappeTestCase):
 	def test_submission_does_not_use_ambiguous_blank_breakup_as_available_rework(self) -> None:
 		self._insert_production_source(
 			stock_entry_type=self.normal_type,
-			breakups=[(None, 5)],
+			breakups=[(None, None, 5)],
 			rejection_items=[self.item_a, self.item_b],
 		)
 		doc = self._rework_doc("REWORK-BLANK-AMBIGUOUS", [(self.item_a, 1)])
@@ -93,7 +94,7 @@ class TestPendingReworkPool(FrappeTestCase):
 	def test_cancelled_rework_entry_restores_derived_availability(self) -> None:
 		self._insert_production_source(
 			stock_entry_type=self.normal_type,
-			breakups=[(None, 5)],
+			breakups=[(None, None, 5)],
 			rejection_items=[self.item_a],
 		)
 		rework_entry = self._insert_rework_entry([(self.item_a, 3)])
@@ -109,7 +110,7 @@ class TestPendingReworkPool(FrappeTestCase):
 	def test_concurrent_submits_serialize_before_writes_and_second_sees_fresh_pool(self) -> None:
 		source_name = self._insert_production_source(
 			stock_entry_type=self.normal_type,
-			breakups=[(None, 5)],
+			breakups=[(None, None, 5)],
 			rejection_items=[self.item_a],
 		)
 		first_name = f"POOL-CONCURRENT-1-{frappe.generate_hash(length=8)}"
@@ -169,7 +170,7 @@ class TestPendingReworkPool(FrappeTestCase):
 	def test_submission_rejects_aggregate_item_overdraw_and_excludes_itself(self) -> None:
 		self._insert_production_source(
 			stock_entry_type=self.normal_type,
-			breakups=[(None, 5)],
+			breakups=[(None, None, 5)],
 			rejection_items=[self.item_a],
 		)
 		self._insert_rework_entry([(self.item_a, 1)])
@@ -223,6 +224,35 @@ class TestPendingReworkPool(FrappeTestCase):
 		):
 			rework.validate_rework_submission(doc)
 
+	def test_submission_accepts_explicit_rejected_source_when_stock_entry_branch_is_absent(self) -> None:
+		doc = self._routed_rework_doc(source="Rejection Warehouse", target="Good Warehouse")
+		doc.branch = ""
+		with (
+			patch.object(rework, "get_branch_warehouse_defaults", return_value={}) as defaults,
+			patch.object(rework, "_has_rejected_warehouse_flag", return_value=True),
+			patch.object(
+				rework,
+				"_is_rejected_warehouse",
+				side_effect=lambda warehouse: warehouse == "Rejection Warehouse",
+			),
+			patch.object(rework, "_lock_items_for_rework_submission"),
+			patch.object(rework, "_get_pending_rework_by_item", return_value={self.item_a: 1}),
+		):
+			rework.validate_rework_submission(doc)
+
+		defaults.assert_called_once_with("Test Company", "")
+
+	def test_submission_rejects_explicit_non_rejected_source_when_stock_entry_branch_is_absent(self) -> None:
+		doc = self._routed_rework_doc(source="Rejection Warehouse", target="Good Warehouse")
+		doc.branch = ""
+		with (
+			patch.object(rework, "get_branch_warehouse_defaults", return_value={}),
+			patch.object(rework, "_has_rejected_warehouse_flag", return_value=True),
+			patch.object(rework, "_is_rejected_warehouse", return_value=False),
+			self.assertRaisesRegex(frappe.ValidationError, "marked as Rejected Warehouse"),
+		):
+			rework._validate_rework_route(doc)
+
 	def test_rework_source_defaults_from_company_and_branch_configuration(self) -> None:
 		doc = self._routed_rework_doc(source="", target="Good Warehouse")
 		with patch.object(
@@ -255,11 +285,11 @@ class TestPendingReworkPool(FrappeTestCase):
 		self.assertFalse(doc.from_warehouse)
 		self.assertFalse(doc.get("items")[0].s_warehouse)
 
-	def test_submission_requires_a_configured_rejection_warehouse(self) -> None:
-		doc = self._routed_rework_doc(source="Rejection Warehouse", target="Good Warehouse")
+	def test_submission_requires_explicit_source_when_configuration_is_missing(self) -> None:
+		doc = self._routed_rework_doc(source="", target="Good Warehouse")
 		with (
 			patch.object(rework, "get_branch_warehouse_defaults", return_value={}),
-			self.assertRaisesRegex(frappe.ValidationError, "Set the configured Rejection Warehouse"),
+			self.assertRaisesRegex(frappe.ValidationError, "source Rejection Warehouse"),
 		):
 			rework._validate_rework_route(doc)
 
@@ -358,15 +388,15 @@ class TestPendingReworkPool(FrappeTestCase):
 	def test_rework_type_classification_is_cached_on_document(self) -> None:
 		doc = self._rework_doc("REWORK-CACHE", [])
 		with patch.object(rework.frappe.db, "get_value", return_value=1) as get_value:
-			self.assertTrue(rework.is_rework_stock_entry(doc))
-			self.assertTrue(rework.is_rework_stock_entry(doc))
+			self.assertTrue(is_rework_stock_entry_type(doc))
+			self.assertTrue(is_rework_stock_entry_type(doc))
 
 		get_value.assert_called_once_with("Stock Entry Type", self.rework_type, "custom_pea_rework_entry")
 
 	def test_pool_query_count_is_constant_for_multiple_items(self) -> None:
 		self._insert_production_source(
 			stock_entry_type=self.joint_type,
-			breakups=[(self.item_a, 3), (self.item_b, 4)],
+			breakups=[(self.item_a, None, 3), (self.item_b, None, 4)],
 			rejection_items=[self.item_a, self.item_b],
 		)
 		with patch.object(frappe.db, "sql", wraps=frappe.db.sql) as sql:
@@ -389,7 +419,7 @@ class TestPendingReworkPool(FrappeTestCase):
 		self,
 		*,
 		stock_entry_type: str,
-		breakups: list[tuple[str | None, float]],
+		breakups: list[tuple[str | None, str | None, float]],
 		rejection_items: list[str],
 	) -> str:
 		return insert_pending_rework_source(

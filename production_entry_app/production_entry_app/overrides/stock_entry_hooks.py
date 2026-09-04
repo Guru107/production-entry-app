@@ -11,6 +11,8 @@ from frappe.model.document import Document
 from frappe.model.meta import get_field_precision
 from frappe.query_builder import DocType
 from frappe.utils import flt, format_datetime, get_datetime, get_time
+from pypika import Table
+from pypika.terms import Criterion
 
 from production_entry_app.production_entry_app.api_timeline import invalidate_timeline_cache_for_stock_entry
 from production_entry_app.production_entry_app.doctype.rejection_breakup.rejection_breakup import (
@@ -29,7 +31,6 @@ from production_entry_app.production_entry_app.rework import (
 	REWORK_COST_PRECISION,
 	SECONDS_PER_HOUR,
 	apply_rework_source_warehouse,
-	is_rework_stock_entry,
 	validate_rework_submission,
 )
 from production_entry_app.production_entry_app.utils.alternative_items import (
@@ -60,6 +61,9 @@ from production_entry_app.production_entry_app.utils.shift_time import (
 )
 from production_entry_app.production_entry_app.utils.stock_entry_type_flags import (
 	is_joint_lh_rh_stock_entry_type,
+)
+from production_entry_app.production_entry_app.utils.stock_entry_type_flags import (
+	is_rework_stock_entry_type as is_rework_stock_entry,
 )
 from production_entry_app.production_entry_app.utils.system_precision import get_system_float_precision
 
@@ -455,11 +459,11 @@ def _should_check_overlap(doc: Document) -> bool:
 		doc.get("custom_pea_shift")
 		and doc.get("custom_pea_actual_start_date")
 		and doc.get("custom_pea_actual_end_date")
-		and _is_production_overlap_entry(doc)
+		and is_production_overlap_entry(doc)
 	)
 
 
-def _is_production_overlap_entry(doc: Document) -> bool:
+def is_production_overlap_entry(doc: Document) -> bool:
 	return bool(
 		doc.get("purpose") == "Manufacture"
 		or (doc.get("purpose") == "Repack" and is_joint_lh_rh_stock_entry_type(doc))
@@ -563,7 +567,7 @@ def _find_overlapping_stock_entry(doc: Document, fieldname: str, fieldvalue: str
 		.select(stock_entry.name)
 		.where(stock_entry.docstatus != 2)
 		.where(stock_entry.custom_pea_shift.isnotnull())
-		.where(_get_production_overlap_entry_criterion(stock_entry, stock_entry_type))
+		.where(get_production_overlap_entry_criterion(stock_entry, stock_entry_type))
 		.where(stock_entry[fieldname] == fieldvalue)
 		.where(
 			build_interval_overlap_criterion(
@@ -581,7 +585,7 @@ def _find_overlapping_stock_entry(doc: Document, fieldname: str, fieldvalue: str
 	return conflict[0] if conflict else None
 
 
-def _get_production_overlap_entry_criterion(stock_entry: Any, stock_entry_type: Any) -> Any:
+def get_production_overlap_entry_criterion(stock_entry: Table, stock_entry_type: Table) -> Criterion:
 	"""Return the Stock Entry scope that consumes workstation/operator capacity."""
 	return (stock_entry.purpose == "Manufacture") | (
 		(stock_entry.purpose == "Repack") & (stock_entry_type.custom_pea_joint_lh_rh_production == 1)
@@ -719,6 +723,7 @@ def _validate_rejection_breakup(doc: Document) -> None:
 		total_qty += row_qty
 		if row.get("is_rework"):
 			rework_qty += row_qty
+	_validate_blank_rejection_breakup_item_scope(doc, breakup_rows)
 
 	derived_abs_tol = _get_rejection_breakup_abs_tol(doc, breakup_rows)
 	if not math.isclose(total_qty, rejection_qty, rel_tol=0.0, abs_tol=derived_abs_tol):
@@ -728,6 +733,21 @@ def _validate_rejection_breakup(doc: Document) -> None:
 			)
 		)
 	doc.custom_pea_rework_qty = flt(rework_qty)
+
+
+def _validate_blank_rejection_breakup_item_scope(doc: Document, breakup_rows: list[Any]) -> None:
+	if not any(not row.get("item_code") for row in breakup_rows):
+		return
+	rejection_item_codes = {
+		row.get("item_code")
+		for row in doc.get("items") or []
+		if row.get("custom_pea_is_rejection_item") and row.get("item_code")
+	}
+	if len(rejection_item_codes) <= 1:
+		return
+	frappe.throw(
+		_("Set an Item on each Rejection Breakup row when the Stock Entry has multiple rejected Items.")
+	)
 
 
 def _get_rejection_breakup_abs_tol(doc: Document, breakup_rows: list[Any]) -> float:

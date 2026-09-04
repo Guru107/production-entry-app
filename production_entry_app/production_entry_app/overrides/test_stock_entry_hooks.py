@@ -7,8 +7,10 @@ from unittest.mock import patch
 
 import frappe
 from frappe.exceptions import ValidationError
+from frappe.model.document import Document
 from frappe.tests.utils import FrappeTestCase
 
+from production_entry_app.production_entry_app.api import get_joint_production_items
 from production_entry_app.production_entry_app.overrides import stock_entry_hooks
 from production_entry_app.production_entry_app.tests.support.manufacture_builders import (
 	bootstrap_manufacture_masters,
@@ -26,8 +28,10 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	ensure_branch,
 	ensure_department,
 	ensure_item,
+	ensure_joint_test_bom,
 	ensure_operator,
 	ensure_production_entry_settings_shift_fields,
+	ensure_stock,
 	ensure_warehouse,
 	ensure_workstation,
 	get_company_abbr,
@@ -99,6 +103,15 @@ def _ensure_loss_entry_shift_field() -> None:
 		return
 	frappe.reload_doc("production_entry_app", "doctype", "loss_entry")
 	frappe.clear_cache(doctype="Loss Entry")
+
+
+def _stock_entry_has_branch_field() -> bool:
+	return frappe.get_meta("Stock Entry", cached=True).has_field("branch")
+
+
+def _assert_stock_entry_branch_not_injected(test_case: FrappeTestCase, doc: Document) -> None:
+	test_case.assertFalse(_stock_entry_has_branch_field())
+	test_case.assertNotIn("branch", doc.__dict__)
 
 
 def _ensure_item_die_tool_fields() -> None:
@@ -187,6 +200,34 @@ class TestStockEntryHookPureHelpers(FrappeTestCase):
 		apply_defaults.assert_not_called()
 		stamp_late.assert_not_called()
 		sync_losses.assert_not_called()
+
+	def test_blank_rejection_breakup_item_is_rejected_when_multiple_rejection_items_exist(self) -> None:
+		doc = frappe._dict(
+			custom_pea_rejection_qty=2,
+			custom_pea_rejection_breakup=[
+				frappe._dict(rejection_reason="Burr", item_code="", qty=2, is_rework=1),
+			],
+			items=[
+				frappe._dict(item_code="ITEM-A", custom_pea_is_rejection_item=1),
+				frappe._dict(item_code="ITEM-B", custom_pea_is_rejection_item=1),
+			],
+		)
+
+		with self.assertRaisesRegex(ValidationError, "multiple rejected Items"):
+			stock_entry_hooks._validate_rejection_breakup(doc)
+
+	def test_blank_rejection_breakup_item_is_allowed_for_one_rejection_item(self) -> None:
+		doc = frappe._dict(
+			custom_pea_rejection_qty=2,
+			custom_pea_rejection_breakup=[
+				frappe._dict(rejection_reason="Burr", item_code="", qty=2, is_rework=1),
+			],
+			items=[frappe._dict(item_code="ITEM-A", custom_pea_is_rejection_item=1)],
+		)
+
+		stock_entry_hooks._validate_rejection_breakup(doc)
+
+		self.assertEqual(doc.custom_pea_rework_qty, 2)
 
 	def test_on_trash_stock_entry_deletes_loss_rows_for_parent(self) -> None:
 		doc = frappe._dict({"name": "MAT-STE-UNIT-001"})
@@ -834,10 +875,10 @@ class TestStockEntryHooks(FrappeTestCase):
 		)
 		se.save()
 
-		if frappe.get_meta("Stock Entry", cached=True).has_field("branch"):
+		if _stock_entry_has_branch_field():
 			self.assertEqual(se.branch, "Test Branch SE")
 		else:
-			self.assertNotIn("branch", se.as_dict())
+			_assert_stock_entry_branch_not_injected(self, se)
 
 	def test_linked_shift_requires_read_permission_before_lookup(self) -> None:
 		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
@@ -1827,10 +1868,10 @@ class TestStockEntryHooks(FrappeTestCase):
 		se.save()
 
 		self.assertEqual(se.custom_pea_shift, shift.name)
-		if frappe.get_meta("Stock Entry", cached=True).has_field("branch"):
+		if _stock_entry_has_branch_field():
 			self.assertEqual(se.branch, shift.branch)
 		else:
-			self.assertNotIn("branch", se.as_dict())
+			_assert_stock_entry_branch_not_injected(self, se)
 
 	def test_entry_metrics_with_no_fg_item_sets_die_tool_fields_to_zero(self) -> None:
 		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import _set_entry_metrics
@@ -2632,6 +2673,26 @@ class TestOverlapValidation(FrappeTestCase):
 		cls.fg_warehouse = context["fg_warehouse"]
 		cls.fg_item = _get_or_create_item("_Test FG Item For Shift")
 		cls.rm_item = _get_or_create_item("_Test RM Item For Shift")
+		cls.joint_rm_item = ensure_item("_Test Joint RM Item For Overlap", stock_uom="Kg")
+		cls.lh_item = ensure_item("_Test Joint LH Item For Overlap")
+		cls.rh_item = ensure_item("_Test Joint RH Item For Overlap")
+		cls.scrap_item = ensure_item("_Test Joint Scrap Item For Overlap", stock_uom="Kg")
+		cls.lh_bom = ensure_joint_test_bom(
+			item_code=cls.lh_item,
+			rm_item=cls.joint_rm_item,
+			scrap_items=[(cls.scrap_item, 0, 10)],
+			company=cls.company,
+			bom_quantity=100,
+			rm_qty=49,
+		)
+		cls.rh_bom = ensure_joint_test_bom(
+			item_code=cls.rh_item,
+			rm_item=cls.joint_rm_item,
+			scrap_items=[(cls.scrap_item, 0, 10)],
+			company=cls.company,
+			bom_quantity=100,
+			rm_qty=49,
+		)
 		cls.plain_repack_type = f"Plain Repack {frappe.generate_hash(length=6)}"
 		if not frappe.db.exists("Stock Entry Type", cls.plain_repack_type):
 			frappe.get_doc(
@@ -2670,6 +2731,11 @@ class TestOverlapValidation(FrappeTestCase):
 		self.fg_warehouse = self.__class__.fg_warehouse
 		self.fg_item = self.__class__.fg_item
 		self.rm_item = self.__class__.rm_item
+		self.joint_rm_item = self.__class__.joint_rm_item
+		self.lh_item = self.__class__.lh_item
+		self.rh_item = self.__class__.rh_item
+		self.lh_bom = self.__class__.lh_bom
+		self.rh_bom = self.__class__.rh_bom
 		self.plain_repack_type = self.__class__.plain_repack_type
 		self.joint_repack_type = self.__class__.joint_repack_type
 		self.employee_name = self.__class__.employee_name
@@ -2810,14 +2876,51 @@ class TestOverlapValidation(FrappeTestCase):
 		operator: str | None = None,
 		stock_entry_type: str | None = None,
 	) -> frappe.Document:
-		return self._create_repack_entry(
-			shift_name=shift_name,
-			start=start,
-			end=end,
-			workstation=workstation,
-			operator=operator,
-			stock_entry_type=stock_entry_type or self.joint_repack_type,
+		posting_date = frappe.db.get_value("Shift", shift_name, "shift_date") if shift_name else None
+		ensure_stock(
+			self.joint_rm_item,
+			self.wip_warehouse,
+			self.company,
+			target_qty=100,
+			posting_date=posting_date,
 		)
+		se = frappe.get_doc(
+			{
+				"doctype": "Stock Entry",
+				"purpose": "Repack",
+				"stock_entry_type": stock_entry_type or self.joint_repack_type,
+				"company": self.company,
+				"from_warehouse": self.wip_warehouse,
+				"to_warehouse": self.fg_warehouse,
+				"custom_pea_shift": shift_name,
+				"custom_pea_actual_start_date": start,
+				"custom_pea_actual_end_date": end,
+				"custom_pea_workstation": workstation,
+				"custom_pea_operator": operator,
+				"custom_pea_is_joint_lh_rh": 1,
+				"custom_pea_lh_bom": self.lh_bom,
+				"custom_pea_lh_gross_qty": 40,
+				"custom_pea_lh_rejection_qty": 1,
+				"custom_pea_rh_bom": self.rh_bom,
+				"custom_pea_rh_gross_qty": 41,
+				"custom_pea_rh_rejection_qty": 0,
+				"custom_pea_total_strokes": 41,
+				"custom_pea_die_tool_item": self.lh_item,
+				"custom_pea_rejection_breakup": [
+					{
+						"rejection_reason": "Burr",
+						"qty": 1,
+						"output_side": "LH",
+						"item_code": self.lh_item,
+					}
+				],
+			}
+		)
+		se.set("items", get_joint_production_items(json.dumps(se.as_dict(), default=str)))
+		rm_row = next(row for row in se.items if row.s_warehouse)
+		rm_row.basic_rate = 50
+		rm_row.basic_amount = rm_row.qty * rm_row.conversion_factor * rm_row.basic_rate
+		return se
 
 	def _create_plain_repack_entry(
 		self,
@@ -3460,9 +3563,8 @@ class TestOverlapValidation(FrappeTestCase):
 			operator=self.operator_1,
 		)
 
-		with patch.object(stock_entry_hooks, "validate_and_apply_joint_production", return_value=None):
-			joint.save()
-			joint.save()
+		joint.save()
+		joint.save()
 
 		self.assertTrue(bool(joint.name))
 
@@ -3517,8 +3619,7 @@ class TestOverlapValidation(FrappeTestCase):
 			operator=self.operator_1,
 		)
 
-		with patch.object(stock_entry_hooks, "validate_and_apply_joint_production", return_value=None):
-			second.save()
+		second.save()
 
 		self.assertTrue(bool(second.name))
 
@@ -4765,10 +4866,10 @@ class TestStockEntryLateEntryStamp(FrappeTestCase):
 		shift = self._make_running_shift(masters)
 		branch = frappe.db.get_value("Shift", shift.name, "branch")
 		se = make_direct_manufacture_entry(masters, shift=shift.name, fg_qty=100, rejection_qty=0)
-		if frappe.get_meta("Stock Entry", cached=True).has_field("branch"):
+		if _stock_entry_has_branch_field():
 			self.assertEqual(se.branch, branch)
 		else:
-			self.assertNotIn("branch", se.as_dict())
+			_assert_stock_entry_branch_not_injected(self, se)
 
 	def _make_running_shift(self, masters: dict | None = None):
 		masters = masters or self.masters

@@ -13,9 +13,7 @@ from production_entry_app.production_entry_app.api import (
 	_cleanup_orphan_stock_entry_loss_links,
 	reset_die_tool_counter,
 )
-from production_entry_app.production_entry_app.tests.support.rework_builders import (
-	insert_pending_rework_source,
-)
+from production_entry_app.production_entry_app.utils.rework_source_seed import insert_pending_rework_source
 from production_entry_app.production_entry_app.utils.shift_time import get_shift_planned_end_datetime
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	PRODUCTION_ENTRY_SHIFT_SETTINGS_FIELDS,
@@ -44,10 +42,18 @@ _E2E_RESERVED_USER_EMAIL_PREFIX: str = "e2e-user-"
 _E2E_RESERVED_ROLE_PREFIX: str = "E2E ROLE "
 _E2E_RESERVED_DOWNTIME_PREFIX: str = "E2E-DOWNTIME-"
 _E2E_REWORK_REGISTER_PREFIX: str = "E2E-REWORK-REGISTER-"
+_E2E_AMBIGUOUS_REWORK_SOURCE_SUFFIX: str = "-AMBIGUOUS-REWORK-SOURCE"
 _E2E_PRODUCTION_ENTRY_SETTINGS_FIELDS: tuple[str, ...] = (
 	*PRODUCTION_ENTRY_SHIFT_SETTINGS_FIELDS,
 	"rework_expense_account",
 )
+
+
+def _reserved_e2e_prefix(prefix: str | None) -> str:
+	prefix_value = (prefix or "").strip()
+	if prefix_value != "E2E" and not prefix_value.startswith("E2E_"):
+		frappe.throw(_("Prefix must identify a reserved E2E context."), frappe.ValidationError)
+	return prefix_value
 
 
 @frappe.whitelist()
@@ -758,7 +764,7 @@ def _cleanup_e2e_downtime_entries(targets: dict[str, object]) -> None:
 
 
 def _cleanup_e2e_rework_lifecycle_entries(prefix: str) -> None:
-	ambiguous_source = f"{prefix}-AMBIGUOUS-REWORK-SOURCE"
+	ambiguous_source = f"{prefix}{_E2E_AMBIGUOUS_REWORK_SOURCE_SUFFIX}"
 	if frappe.db.exists("Stock Entry", ambiguous_source):
 		frappe.db.delete("Stock Entry Detail", {"parent": ambiguous_source})
 		frappe.db.delete("Rejection Breakup", {"parent": ambiguous_source})
@@ -896,9 +902,7 @@ def cleanup_e2e_context(prefix: str = "E2E") -> dict:
 def reset_e2e_die_tool_counter(prefix: str = "E2E") -> dict:
 	"""Reset only the finished-good item reserved for an E2E context."""
 	_assert_e2e_api_allowed()
-	prefix_value = (prefix or "").strip()
-	if prefix_value != "E2E" and not prefix_value.startswith("E2E_"):
-		frappe.throw(_("Prefix must identify a reserved E2E context."), frappe.ValidationError)
+	prefix_value = _reserved_e2e_prefix(prefix)
 	return reset_die_tool_counter(f"_{prefix_value}_FG_Item")
 
 
@@ -1037,9 +1041,7 @@ def _configure_e2e_rework_expense_account(company: str) -> str:
 def create_e2e_rework_lifecycle_source(prefix: str = "E2E", qty: float = 5) -> dict:
 	"""Create a submitted, rework-flagged production rejection for browser lifecycle tests."""
 	_assert_e2e_api_allowed()
-	prefix_value = (prefix or "").strip()
-	if prefix_value != "E2E" and not prefix_value.startswith("E2E_"):
-		frappe.throw(_("Prefix must identify a reserved E2E context."), frappe.ValidationError)
+	prefix_value = _reserved_e2e_prefix(prefix)
 	rework_qty = flt(qty)
 	if rework_qty <= 0:
 		frappe.throw(_("Rework quantity must be greater than zero."), frappe.ValidationError)
@@ -1135,16 +1137,14 @@ def create_e2e_rework_lifecycle_source(prefix: str = "E2E", qty: float = 5) -> d
 def create_e2e_ambiguous_pending_rework_source(prefix: str = "E2E", qty: float = 5) -> dict:
 	"""Create a submitted multi-item rejection source with an ambiguous blank breakup item."""
 	_assert_e2e_api_allowed()
-	prefix_value = (prefix or "").strip()
-	if prefix_value != "E2E" and not prefix_value.startswith("E2E_"):
-		frappe.throw(_("Prefix must identify a reserved E2E context."), frappe.ValidationError)
+	prefix_value = _reserved_e2e_prefix(prefix)
 	rework_qty = flt(qty)
 	if rework_qty <= 0:
 		frappe.throw(_("Rework quantity must be greater than zero."), frappe.ValidationError)
 
 	ctx = bootstrap_e2e_context(prefix=prefix_value)
 	source_entry = insert_pending_rework_source(
-		stock_entry_name=f"{prefix_value}-AMBIGUOUS-REWORK-SOURCE",
+		stock_entry_name=f"{prefix_value}{_E2E_AMBIGUOUS_REWORK_SOURCE_SUFFIX}",
 		stock_entry_type="Manufacture",
 		purpose="Manufacture",
 		breakups=[("", "Burr", rework_qty)],
@@ -1167,9 +1167,7 @@ def create_e2e_rework_register_row(
 ) -> dict:
 	"""Seed one submitted report row without exercising the Rework Operation lifecycle."""
 	_assert_e2e_api_allowed()
-	prefix_value = (prefix or "").strip()
-	if prefix_value != "E2E" and not prefix_value.startswith("E2E_"):
-		frappe.throw(_("Prefix must identify a reserved E2E context."), frappe.ValidationError)
+	prefix_value = _reserved_e2e_prefix(prefix)
 	ctx = bootstrap_e2e_context(prefix=prefix_value, cleanup_running=0)
 	stock_entry_type = f"{prefix_value} Rework Transfer"
 	rework_type = f"{prefix_value} Rework Type"

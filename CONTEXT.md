@@ -49,7 +49,9 @@ _Avoid_: Posting-date range, entry-date range
 A native Material Transfer Stock Entry, using the configured rework Stock Entry Type, that moves successfully
 reworked quantity from the Rejection Warehouse to the good warehouse and loads its labour cost onto that stock
 through one native additional-cost row. It records the Rework Type, Workstation, actual start/end times, and the
-named Operators involved. Quantity not reworked stays in the Rejection Warehouse. See ADR 0002.
+named Operators involved. It is not managed through Shift. When the host does not provide `Stock Entry.branch`,
+operators must explicitly set a rejected source warehouse; Company/Branch defaults are applied only when the
+host branch field exists. Quantity not reworked stays in the Rejection Warehouse. See ADR 0002.
 _Avoid_: Rework entry document type, rework repack
 
 **Rework Type**:
@@ -60,8 +62,9 @@ _Avoid_: Rejection reason, rework reason
 **Pending Rework Pool**:
 The derived, per-item quantity awaiting rework: rework-flagged quantity from submitted Production Entries minus
 quantity consumed by submitted Rework Operations. It is fungible per item — Rework Operations do not attribute
-parts back to source entries. Manual scrap write-offs do not drain it, so reports show it beside the actual
-Rejection Warehouse balance.
+parts back to source entries. Blank-item breakup rows are valid only when the Stock Entry has one rejected Item;
+multi-item rejections must name the Item on each breakup row so the pool cannot silently fan out or drop quantity.
+Manual scrap write-offs do not drain it, so reports show it beside the actual Rejection Warehouse balance.
 _Avoid_: Rework backlog document, rework warehouse balance
 
 **Branch Ownership Handoff**:
