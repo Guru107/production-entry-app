@@ -5,9 +5,11 @@ const {
 	saveForm,
 	setFieldValue,
 } = require("../fixtures/frappe");
+const { hasCurrentStockEntryBranchField } = require("../fixtures/stock-entry-meta");
 const { escapeRegexLiteral, getRoute, getRoutePrefix } = require("../utils/routing");
 
 const STOCK_ENTRY_READY_TIMEOUT_MS = 10_000;
+const FETCH_ITEMS_CALL_TIMEOUT_MS = 5_000;
 
 function isStockEntryReady(requireAjaxIdle) {
 	if (document.querySelector(".modal.show")) {
@@ -24,20 +26,20 @@ function triggerFetchItems() {
 	return window.cur_frm?.script_manager?.trigger("custom_pea_fetch_items");
 }
 
+// Runs inside the page, so it must stay self-contained for Playwright serialization.
+// It is the single source of the Fetch Items completion state; the other predicates
+// receive its serialized source instead of re-implementing it.
 function getVisibleFetchItemsState() {
 	const modal = document.querySelector(".modal.show");
 	let hasErrorDialog = false;
 	let modalText = "";
 	if (modal) {
 		modalText = (modal.innerText || modal.textContent || "").trim();
-		if (modal.querySelector?.(".indicator.red, .indicator-pill.red")) {
-			hasErrorDialog = true;
-		} else {
-			hasErrorDialog =
-				/\b(error|failed|cannot|mandatory|required|validation|qty to manufacture)\b/i.test(
-					modalText
-				);
-		}
+		hasErrorDialog =
+			Boolean(modal.querySelector?.(".indicator.red, .indicator-pill.red")) ||
+			/\b(error|failed|cannot|mandatory|required|validation|qty to manufacture)\b/i.test(
+				modalText
+			);
 	}
 	return {
 		hasErrorDialog,
@@ -46,42 +48,12 @@ function getVisibleFetchItemsState() {
 	};
 }
 
-function hasVisibleFetchItemsErrorDialog() {
-	const modal = document.querySelector(".modal.show");
-	if (!modal) {
-		return false;
-	}
-	if (modal.querySelector?.(".indicator.red, .indicator-pill.red")) {
-		return true;
-	}
-	const text = (modal.innerText || modal.textContent || "").trim();
-	return /\b(error|failed|cannot|mandatory|required|validation|qty to manufacture)\b/i.test(
-		text
-	);
+function hasVisibleFetchItemsErrorDialog(stateSource) {
+	return Function(`return (${stateSource})`)()().hasErrorDialog;
 }
 
-async function waitForFetchItemsCall() {
-	const getState = () => {
-		const modal = document.querySelector(".modal.show");
-		let hasErrorDialog = false;
-		let modalText = "";
-		if (modal) {
-			modalText = (modal.innerText || modal.textContent || "").trim();
-			if (modal.querySelector?.(".indicator.red, .indicator-pill.red")) {
-				hasErrorDialog = true;
-			} else {
-				hasErrorDialog =
-					/\b(error|failed|cannot|mandatory|required|validation|qty to manufacture)\b/i.test(
-						modalText
-					);
-			}
-		}
-		return {
-			hasErrorDialog,
-			itemCount: (window.cur_frm?.doc?.items || []).length,
-			modalText,
-		};
-	};
+async function waitForFetchItemsCall({ stateSource, timeoutMs }) {
+	const getState = Function(`return (${stateSource})`)();
 	const fetchMethods = new Set([
 		"production_entry_app.production_entry_app.api.get_items_with_rejection",
 		"production_entry_app.production_entry_app.api.get_joint_production_items",
@@ -101,7 +73,7 @@ async function waitForFetchItemsCall() {
 					`Fetch Items did not call the server. State: ${JSON.stringify(getState())}`
 				)
 			);
-		}, 5000);
+		}, timeoutMs);
 
 		window.frappe.call = function (options) {
 			const method = typeof options === "string" ? options : options?.method;
@@ -315,9 +287,11 @@ class StockEntryPage {
 		fromWarehouse,
 		toWarehouse,
 	}) {
+		const hasBranchField = await hasCurrentStockEntryBranchField(this.page);
 		await this.page.waitForFunction(
 			({
 				expectedBranch,
+				hasBranchField,
 				expectedFromWarehouse,
 				expectedToWarehouse,
 				startSnippet,
@@ -326,7 +300,6 @@ class StockEntryPage {
 				const doc = window.cur_frm?.doc || {};
 				const plannedStart = String(doc.custom_pea_planned_start_date || "");
 				const plannedEnd = String(doc.custom_pea_planned_end_date || "");
-				const hasBranchField = Boolean(window.cur_frm?.fields_dict?.branch);
 				const branchMatch =
 					expectedBranch && hasBranchField ? doc.branch === expectedBranch : true;
 				const fromWarehouseMatch = expectedFromWarehouse
@@ -343,6 +316,7 @@ class StockEntryPage {
 			},
 			{
 				expectedBranch: branch || null,
+				hasBranchField,
 				expectedFromWarehouse: fromWarehouse || warehouse || null,
 				expectedToWarehouse: toWarehouse || warehouse || null,
 				startSnippet: plannedStartIncludes || null,
@@ -496,6 +470,7 @@ class StockEntryPage {
 	}
 
 	async fetchItems({ expectValidation = false } = {}) {
+		const stateSource = getVisibleFetchItemsState.toString();
 		await retryOnContextDestroyed(
 			this.page,
 			async () => {
@@ -504,20 +479,18 @@ class StockEntryPage {
 				);
 				if (expectValidation) {
 					await this.page.evaluate(triggerFetchItems);
-					await this.page.waitForFunction(hasVisibleFetchItemsErrorDialog);
+					await this.page.waitForFunction(hasVisibleFetchItemsErrorDialog, stateSource);
 					return;
 				}
-				const result = await this.page.evaluate(waitForFetchItemsCall);
-				if (!result.itemCount) {
+				const result = await this.page.evaluate(waitForFetchItemsCall, {
+					stateSource,
+					timeoutMs: FETCH_ITEMS_CALL_TIMEOUT_MS,
+				});
+				if (!result.itemCount || result.hasErrorDialog) {
 					throw new Error(
-						`Fetch Items returned no item rows. State: ${JSON.stringify(result)}`
+						`Fetch Items did not complete cleanly. State: ${JSON.stringify(result)}`
 					);
 				}
-				await expect(
-					this.page.locator(
-						".modal.show .indicator.red, .modal.show .indicator-pill.red"
-					)
-				).toHaveCount(0);
 			},
 			5
 		);

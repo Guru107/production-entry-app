@@ -257,6 +257,7 @@ test.describe("Rework fields on Stock Entry", () => {
 				context.workstation
 			);
 			expect(await stockEntryPage.isFieldVisible("custom_pea_rework_operators")).toBe(true);
+			expect(await stockEntryPage.isFieldVisible("custom_pea_shift")).toBe(false);
 
 			await page.evaluate((operator) => {
 				cur_frm.add_child("custom_pea_rework_operators", { operator });

@@ -71,7 +71,7 @@ test("selecting a marked Rework Stock Entry Type shows fields under ambiguous ca
 			[REWORK_FIELDS, true],
 			["custom_pea_shift", false],
 		]);
-		assert.deepEqual(refreshed, ["custom_pea_shift", "custom_pea_shift"]);
+		assert.deepEqual(refreshed, []);
 	} finally {
 		global.frappe = originalFrappe;
 	}
@@ -194,7 +194,7 @@ test("selecting Rework clears stale Shift and hides Shift field", () => {
 	}
 });
 
-test("selecting Shift on rework does not drive Rework source defaults", () => {
+test("a stray Shift on rework is dropped without fetching Shift details", () => {
 	const originalFrappe = global.frappe;
 	const requests = [];
 	global.frappe = {
@@ -202,6 +202,7 @@ test("selecting Shift on rework does not drive Rework source defaults", () => {
 			requests.push(options);
 		},
 	};
+	const updates = [];
 	const frm = {
 		doc: {
 			stock_entry_type: "Rework Material Transfer",
@@ -212,11 +213,16 @@ test("selecting Shift on rework does not drive Rework source defaults", () => {
 			from_warehouse: "Rejection Warehouse",
 			to_warehouse: "Good Warehouse",
 		},
+		set_value(fieldname, value) {
+			updates.push([fieldname, value]);
+			return Promise.resolve();
+		},
 	};
 
 	try {
 		_handle_shift_change(frm);
 		assert.equal(requests.length, 0);
+		assert.deepEqual(updates, [["custom_pea_shift", ""]]);
 		assert.equal(_get_rework_source_context({ doc: { ...frm.doc, branch: "" } }), null);
 		assert.equal(frm.doc.company, "Original Company");
 		assert.equal(frm.doc.branch, "Original Branch");
@@ -225,6 +231,41 @@ test("selecting Shift on rework does not drive Rework source defaults", () => {
 	} finally {
 		global.frappe = originalFrappe;
 	}
+});
+
+test("clearing the Shift on rework drops the planned window but keeps branch and warehouses", async () => {
+	const updates = [];
+	const frm = {
+		doc: {
+			stock_entry_type: "Rework Material Transfer",
+			__pea_rework_stock_entry_type: "Rework Material Transfer",
+			custom_pea_shift: "",
+			branch: "Original Branch",
+			from_warehouse: "Rejection Warehouse",
+			to_warehouse: "Good Warehouse",
+		},
+		fields_dict: {
+			branch: {},
+			custom_pea_planned_start_date: {},
+			custom_pea_planned_end_date: {},
+			from_warehouse: {},
+			to_warehouse: {},
+		},
+		set_value(fieldname, value) {
+			updates.push([fieldname, value]);
+			return Promise.resolve();
+		},
+	};
+
+	await _handle_shift_change(frm);
+
+	assert.deepEqual(updates, [
+		["custom_pea_planned_start_date", ""],
+		["custom_pea_planned_end_date", ""],
+	]);
+	assert.equal(frm.doc.branch, "Original Branch");
+	assert.equal(frm.doc.from_warehouse, "Rejection Warehouse");
+	assert.equal(frm.doc.to_warehouse, "Good Warehouse");
 });
 
 test("configured rejection warehouse defaults blank rework header and item sources", async () => {

@@ -232,8 +232,8 @@ class TestPendingReworkPool(FrappeTestCase):
 			patch.object(rework, "get_branch_warehouse_defaults", return_value={}) as defaults,
 			patch.object(
 				rework,
-				"is_rejected_warehouse",
-				side_effect=lambda warehouse: warehouse == "Rejection Warehouse",
+				"get_rejected_warehouses",
+				side_effect=lambda warehouses: {"Rejection Warehouse"} & set(warehouses),
 			),
 			patch.object(rework, "_lock_items_for_rework_submission"),
 			patch.object(rework, "_get_pending_rework_by_item", return_value={self.item_a: 1}),
@@ -247,7 +247,7 @@ class TestPendingReworkPool(FrappeTestCase):
 		doc.branch = ""
 		with (
 			patch.object(rework, "get_branch_warehouse_defaults", return_value={}),
-			patch.object(rework, "is_rejected_warehouse", return_value=False),
+			patch.object(rework, "get_rejected_warehouses", return_value=set()),
 			self.assertRaisesRegex(frappe.ValidationError, "marked as Rejected Warehouse"),
 		):
 			rework._validate_rework_route(doc)
@@ -362,6 +362,23 @@ class TestPendingReworkPool(FrappeTestCase):
 					self.assertRaisesRegex(frappe.ValidationError, "good target warehouse"),
 				):
 					rework._validate_rework_route(doc)
+
+	def test_submission_rejects_scrap_warehouse_configured_for_another_branch(self) -> None:
+		doc = self._routed_rework_doc(source="Rejection Warehouse", target="Other Branch Scrap")
+		with (
+			patch.object(
+				rework,
+				"get_branch_warehouse_defaults",
+				return_value={"rejection_warehouse": "Rejection Warehouse"},
+			),
+			patch.object(
+				rework, "get_configured_scrap_warehouses", return_value={"Other Branch Scrap"}
+			) as scrap_warehouses,
+			patch.object(rework, "get_rejected_warehouses", return_value=set()),
+			self.assertRaisesRegex(frappe.ValidationError, "good target warehouse"),
+		):
+			rework._validate_rework_route(doc)
+		scrap_warehouses.assert_called_once_with("Test Company")
 
 	def test_submission_accepts_rejection_to_good_warehouse_route(self) -> None:
 		doc = self._routed_rework_doc(source="Rejection Warehouse", target="Good Warehouse")

@@ -176,9 +176,11 @@ class TestStockEntryHookPureHelpers(FrappeTestCase):
 		stamp_late.assert_called_once_with(doc)
 		sync_losses.assert_called_once_with(doc)
 
-	def test_rework_shift_skips_shift_management(self) -> None:
+	def test_rework_clears_shift_link_and_shift_derived_fields(self) -> None:
 		doc = frappe._dict(
 			custom_pea_shift="SHIFT-REWORK",
+			custom_pea_planned_start_date="2026-09-01 08:00:00",
+			custom_pea_planned_end_date="2026-09-01 16:00:00",
 			stock_entry_type="Rework Material Transfer",
 			flags=frappe._dict(),
 		)
@@ -198,9 +200,11 @@ class TestStockEntryHookPureHelpers(FrappeTestCase):
 
 		validate_shift.assert_not_called()
 		apply_defaults.assert_not_called()
-		stamp_late.assert_not_called()
-		sync_losses.assert_not_called()
+		stamp_late.assert_called_once_with(doc)
+		sync_losses.assert_called_once_with(doc)
 		self.assertIsNone(doc.custom_pea_shift)
+		self.assertIsNone(doc.custom_pea_planned_start_date)
+		self.assertIsNone(doc.custom_pea_planned_end_date)
 
 	def test_stock_entry_type_flag_handles_dict_payload_without_flags(self) -> None:
 		doc = frappe._dict({"stock_entry_type": "Manufacture"})
@@ -409,7 +413,7 @@ class TestStockEntryHookPureHelpers(FrappeTestCase):
 			}
 		)
 		with (
-			patch.object(stock_entry_hooks, "is_rejected_warehouse", return_value=False),
+			patch.object(stock_entry_hooks, "get_rejected_warehouses", return_value=set()),
 			self.assertRaisesRegex(frappe.ValidationError, "marked as Rejected Warehouse"),
 		):
 			stock_entry_hooks._validate_rejection_target_warehouses(doc)
@@ -431,7 +435,7 @@ class TestStockEntryHookPureHelpers(FrappeTestCase):
 				"is_new": lambda: True,
 			}
 		)
-		with patch.object(stock_entry_hooks, "is_rejected_warehouse", return_value=False):
+		with patch.object(stock_entry_hooks, "get_rejected_warehouses", return_value=set()):
 			self.assertIsNone(stock_entry_hooks._get_existing_rejection_target_warehouse(doc))
 
 	def test_build_metrics_note_handles_zero_partial_and_full_loss_windows(self) -> None:

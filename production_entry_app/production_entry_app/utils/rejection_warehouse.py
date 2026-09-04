@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 import frappe
 from frappe.model.base_document import BaseDocument
 
@@ -10,10 +12,20 @@ from production_entry_app.production_entry_app.utils.production_warehouses impor
 )
 
 
-def is_rejected_warehouse(warehouse: str | None) -> bool:
-	if not warehouse:
-		return False
-	return bool(frappe.db.get_value("Warehouse", warehouse, "is_rejected_warehouse"))
+def get_rejected_warehouses(warehouses: Iterable[str | None]) -> set[str]:
+	"""Return which of the given warehouses are marked as rejected, in one query."""
+	names = {warehouse for warehouse in warehouses if warehouse}
+	if not names:
+		return set()
+	Warehouse = frappe.qb.DocType("Warehouse")
+	rows = (
+		frappe.qb.from_(Warehouse)
+		.select(Warehouse.name)
+		.where(Warehouse.name.isin(list(names)))
+		.where(Warehouse.is_rejected_warehouse == 1)
+		.run()
+	)
+	return {row[0] for row in rows}
 
 
 def resolve_rejection_warehouse(doc: BaseDocument, preferred_warehouse: str | None = None) -> str:

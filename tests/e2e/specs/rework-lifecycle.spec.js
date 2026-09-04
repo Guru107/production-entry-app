@@ -172,6 +172,7 @@ test.describe("Rework full lifecycle", () => {
 			sectionVisible: true,
 			reworkTypeVisible: true,
 		};
+		expect(await stockEntryPage.isFieldVisible("custom_pea_shift")).toBe(false);
 		await stockEntryPage.saveDraft();
 		const afterInitialSave = await getReworkVisibilityState(page);
 		expect(
@@ -183,6 +184,7 @@ test.describe("Rework full lifecycle", () => {
 
 		await page.reload();
 		await waitForReworkVisibilityState(page, { ...expectedVisibleState, unsaved: false });
+		expect(await stockEntryPage.isFieldVisible("custom_pea_shift")).toBe(false);
 		await setFieldValue(page, "remarks", `E2E rework save visibility ${Date.now()}`);
 
 		const beforeSave = await getReworkVisibilityState(page);
@@ -204,23 +206,24 @@ test.describe("Rework full lifecycle", () => {
 	}) => {
 		const context = await seedLifecycle(page, lifecycle.getPrefix());
 		const stockEntryPage = await fillReworkEntry(page, context);
-		const stockEntrySnapshot = await page.evaluate(() => {
+		const hasBranchField = await hasCurrentStockEntryBranchField(page);
+		const stockEntrySnapshot = await page.evaluate((includeBranch) => {
 			const snapshot = {
 				company: cur_frm.doc.company,
 				fromWarehouse: cur_frm.doc.from_warehouse,
 				toWarehouse: cur_frm.doc.to_warehouse,
 			};
-			if (cur_frm.fields_dict?.branch) {
+			if (includeBranch) {
 				snapshot.branch = cur_frm.doc.branch;
 			}
 			return snapshot;
-		});
+		}, hasBranchField);
 		const expectedStockEntrySnapshot = {
 			company: context.company,
 			fromWarehouse: context.rejection_warehouse,
 			toWarehouse: context.fg_warehouse,
 		};
-		if ("branch" in stockEntrySnapshot) {
+		if (hasBranchField) {
 			expectedStockEntrySnapshot.branch = context.branch;
 		}
 		expect(stockEntrySnapshot).toEqual(expectedStockEntrySnapshot);

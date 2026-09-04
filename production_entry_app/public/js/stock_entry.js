@@ -598,12 +598,11 @@ function _sync_rework_mode_from_stock_entry_type(frm, { previousStockEntryType =
 			}
 		}
 		frm.refresh_fields?.(REWORK_LAYOUT_FIELDS);
-		frm.refresh_field?.("custom_pea_shift");
 		frm.toggle_display(REWORK_FIELDS, isReworkType);
 		frm.toggle_display("custom_pea_shift", !isReworkType && _is_production_doc(frm.doc));
 		if (isReworkType) {
 			if (frm.doc.custom_pea_shift) {
-				frm.set_value?.("custom_pea_shift", "");
+				frm.set_value("custom_pea_shift", "");
 			}
 			_schedule_rework_source_warehouse(frm);
 		}
@@ -698,7 +697,7 @@ function _sync_rework_source_warehouse(
 	}
 	frappe.call({
 		method: "production_entry_app.production_entry_app.api.get_rework_source_warehouse",
-		args: _get_rework_source_args(company, branch),
+		args: { company, branch },
 		callback(r) {
 			if (
 				requestId !== _reworkSourceWarehouseRequestId ||
@@ -735,10 +734,6 @@ function _sync_rework_source_warehouse(
 			);
 		},
 	});
-}
-
-function _get_rework_source_args(company, branch) {
-	return { company, branch };
 }
 
 function _get_rework_source_context(frm) {
@@ -1201,7 +1196,12 @@ function _get_shift_ctx(frm) {
 
 function _handle_shift_change(frm) {
 	if (_is_rework_doc(frm.doc)) {
-		return;
+		if (frm.doc.custom_pea_shift) {
+			// Rework Operations are not managed through Shift: drop a stray link, then
+			// re-enter here with an empty Shift to clear the planned window it supplied.
+			return frm.set_value("custom_pea_shift", "");
+		}
+		return _clear_rework_shift_context(frm);
 	}
 	if (!frm.doc.custom_pea_shift) {
 		_shiftDetailsRequestId++;
@@ -1282,6 +1282,15 @@ async function _apply_shift_detail_updates(
 		}
 	}
 	return true;
+}
+
+function _clear_rework_shift_context(frm) {
+	// Mirrors the server: rework keeps branch and warehouses, because the host-owned branch
+	// drives the rework source default; only the Shift-supplied planned window goes.
+	return _apply_shift_detail_updates(frm, {
+		custom_pea_planned_start_date: "",
+		custom_pea_planned_end_date: "",
+	});
 }
 
 function _clear_shift_derived_fields(frm, { clearWarehouses = false } = {}) {

@@ -172,6 +172,21 @@ class TestReworkLifecycle(FrappeTestCase):
 	def _posting_datetime(doc: Document) -> datetime.datetime:
 		return get_datetime(f"{doc.posting_date} {doc.posting_time}")
 
+	def test_rework_entry_saved_with_a_shift_drops_the_shift_and_its_planned_window(self) -> None:
+		shift = make_running_shift(self.masters)
+		doc = self._make_rework_entry(shift.shift_date)
+		doc.custom_pea_shift = shift.name
+		doc.custom_pea_planned_start_date = get_datetime(f"{shift.shift_date} 08:00:00")
+		doc.custom_pea_planned_end_date = get_datetime(f"{shift.shift_date} 16:00:00")
+		doc.custom_pea_is_late_entry = 1
+		doc.insert(ignore_permissions=True)
+
+		saved = frappe.get_doc("Stock Entry", doc.name)
+		self.assertFalse(saved.get("custom_pea_shift"))
+		self.assertFalse(saved.get("custom_pea_planned_start_date"))
+		self.assertFalse(saved.get("custom_pea_planned_end_date"))
+		self.assertFalse(saved.get("custom_pea_is_late_entry"))
+
 	def _make_rework_entry(self, posting_date: object) -> Document:
 		start = get_datetime(f"{posting_date} 10:00:00")
 		end = get_datetime(f"{posting_date} 11:00:00")

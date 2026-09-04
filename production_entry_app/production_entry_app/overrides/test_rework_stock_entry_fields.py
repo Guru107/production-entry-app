@@ -114,6 +114,23 @@ class TestReworkStockEntryFields(FrappeTestCase):
 
 		validate_stock_entry(doc)
 
+	def test_rework_entry_drops_stale_shift_and_shift_derived_fields(self) -> None:
+		doc = self._make_rework_entry()
+		doc.append("custom_pea_rework_operators", {"operator": self.active_operator})
+		doc.custom_pea_shift = "SHIFT-STALE"
+		doc.custom_pea_planned_start_date = "2026-09-01 08:00:00"
+		doc.custom_pea_planned_end_date = "2026-09-01 16:00:00"
+		doc.custom_pea_is_late_entry = 1
+		doc.append("custom_pea_unplanned_losses", {"shift": "SHIFT-STALE"})
+
+		validate_stock_entry(doc)
+
+		self.assertFalse(doc.get("custom_pea_shift"))
+		self.assertFalse(doc.get("custom_pea_planned_start_date"))
+		self.assertFalse(doc.get("custom_pea_planned_end_date"))
+		self.assertFalse(doc.get("custom_pea_is_late_entry"))
+		self.assertEqual([row.get("shift") for row in doc.get("custom_pea_unplanned_losses")], [""])
+
 	def _make_rework_entry(self) -> Document:
 		doc = frappe.new_doc("Stock Entry")
 		doc.purpose = "Material Transfer"

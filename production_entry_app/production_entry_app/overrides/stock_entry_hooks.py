@@ -55,7 +55,7 @@ from production_entry_app.production_entry_app.utils.loss_time import (
 	resolve_time_interval_in_window,
 )
 from production_entry_app.production_entry_app.utils.rejection_warehouse import (
-	is_rejected_warehouse,
+	get_rejected_warehouses,
 	resolve_rejection_warehouse,
 )
 from production_entry_app.production_entry_app.utils.shift_time import (
@@ -105,10 +105,9 @@ def validate_stock_entry(doc: Document, method: str | None = None) -> None:
 	1. Auto-fills fields from linked Shift (if custom_pea_shift is set).
 	2. Handles rejection quantity logic (if custom_pea_rejection_qty > 0).
 	"""
-	is_rework = is_rework_stock_entry_type(doc)
-	if is_rework and doc.get("custom_pea_shift"):
-		doc.custom_pea_shift = None
-	if not is_rework:
+	if is_rework_stock_entry_type(doc):
+		_clear_shift_context(doc)
+	else:
 		if doc.get("custom_pea_shift"):
 			_validate_linked_shift_can_accept_stock_entry(doc)
 			_apply_shift_defaults(doc)
@@ -221,6 +220,15 @@ def _default_total_strokes(doc: Document) -> None:
 		return
 	if flt(total_strokes) <= 0:
 		frappe.throw(_("Total Press Strokes must be greater than zero."))
+
+
+def _clear_shift_context(doc: Document) -> None:
+	"""Rework Operations are not managed through Shift: drop the link and everything derived from it."""
+	doc.custom_pea_shift = None
+	doc.custom_pea_planned_start_date = None
+	doc.custom_pea_planned_end_date = None
+	_stamp_late_entry_flag(doc)
+	_sync_unplanned_loss_shift_links(doc)
 
 
 def _stamp_late_entry_flag(doc: Document) -> None:
@@ -834,12 +842,12 @@ def _append_rejection_item_row(
 
 def _validate_rejection_target_warehouses(doc: Document) -> None:
 	"""Ensure rejection rows always target a warehouse marked as rejected."""
-	for row in doc.get("items") or []:
-		if not row.get("custom_pea_is_rejection_item"):
-			continue
+	rejection_rows = [row for row in doc.get("items") or [] if row.get("custom_pea_is_rejection_item")]
+	rejected_warehouses = get_rejected_warehouses(row.get("t_warehouse") for row in rejection_rows)
+	for row in rejection_rows:
 		if not row.get("t_warehouse"):
 			frappe.throw(_("Rejection row must have a Target Warehouse."))
-		if not is_rejected_warehouse(row.t_warehouse):
+		if row.t_warehouse not in rejected_warehouses:
 			frappe.throw(
 				_("Rejection row Target Warehouse must be marked as Rejected Warehouse: {0}").format(
 					row.t_warehouse
@@ -890,7 +898,8 @@ def _get_existing_rejection_target_warehouse(doc: Document) -> str | None:
 		return None
 	# Legacy docs can contain multiple rejection rows. Prefer an already-valid rejected warehouse;
 	# among matches keep latest idx. If none are valid, fall back to latest row overall.
-	valid_candidates = [row for row in candidates if is_rejected_warehouse(row.get("t_warehouse"))]
+	rejected_warehouses = get_rejected_warehouses(row.get("t_warehouse") for row in candidates)
+	valid_candidates = [row for row in candidates if row.get("t_warehouse") in rejected_warehouses]
 	if valid_candidates:
 		latest_valid = max(valid_candidates, key=lambda row: int(row.get("idx") or 0))
 		return latest_valid.get("t_warehouse")

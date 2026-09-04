@@ -17,6 +17,13 @@ Browser coverage includes a Joint/Repack resource-overlap popup smoke test. Focu
 save real Joint/Repack Stock Entries and verify overlap, resave, cancelled-entry, adjacent-window, and
 downtime behavior.
 
+## Rework and Shift
+
+Rework Operations have no relation to Shift. The browser smoke and regression rework specs assert
+that the Shift field is hidden in rework mode. Switching a Manufacture entry that already carries a
+Shift to the rework type is not driven through the browser: the client-side clearing is covered by
+the JS unit suite and the server-side clearing by the Frappe tests, which is where the rule lives.
+
 ## Fetch Items race
 
 Smoke specs should seed Stock Entry rows through the E2E API when Fetch Items is

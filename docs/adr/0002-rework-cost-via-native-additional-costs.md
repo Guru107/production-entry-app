@@ -32,7 +32,10 @@ rework-flagged quantity from submitted Production Entries minus submitted rework
 manual scrap Repacks do not drain it, pending-rework reporting must show the derived pool beside the
 actual Rejection Warehouse balance rather than presenting the pool as physical stock on hand.
 
-Rework route validation uses Company/Branch warehouse defaults when the host provides `Stock Entry.branch`.
-Rework is not managed through Shift; on hosts without `Stock Entry.branch`, operators must explicitly set a
-source warehouse marked as a rejected warehouse. Blank-item rework breakup rows are accepted only when the
-Stock Entry has one rejected Item; multi-item rejections must name the Item on each breakup row.
+Rework route validation uses the Company/Branch warehouse defaults keyed by `Stock Entry.branch`, which the
+production instance owns. Hosts without that field (test environments only) instead require an explicitly set
+source warehouse marked as rejected; targets are always refused when they are the configured rejection
+warehouse, any scrap warehouse configured for the Company, or a warehouse marked as rejected. Rework is not
+managed through Shift: a rework entry drops any Shift link and the fields derived from it. Blank-item rework
+breakup rows are accepted only when the Stock Entry has one rejected Item; multi-item rejections must name the
+Item on each breakup row.

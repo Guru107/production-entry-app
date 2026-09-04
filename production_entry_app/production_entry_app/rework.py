@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Any
+from typing import Any, NamedTuple
 
 import frappe
 from frappe import _
@@ -13,7 +13,7 @@ from production_entry_app.production_entry_app.utils.production_warehouses impor
 	get_branch_warehouse_defaults,
 	get_configured_scrap_warehouses,
 )
-from production_entry_app.production_entry_app.utils.rejection_warehouse import is_rejected_warehouse
+from production_entry_app.production_entry_app.utils.rejection_warehouse import get_rejected_warehouses
 from production_entry_app.production_entry_app.utils.stock_entry_type_flags import (
 	is_rework_stock_entry_type,
 )
@@ -111,39 +111,57 @@ def _validate_rework_route(doc: Document) -> None:
 				frappe.bold(frappe.utils.escape_html(rejection_warehouse))
 			)
 		)
-	for row in doc.get("items") or []:
-		if flt(row.get("qty")) <= 0:
-			continue
-		source = row.get("s_warehouse") or doc.get("from_warehouse")
-		target = row.get("t_warehouse") or doc.get("to_warehouse")
-		if rejection_warehouse and source != rejection_warehouse:
+	routes = [
+		_ReworkRoute(
+			item_code=row.get("item_code") or "",
+			source=row.get("s_warehouse") or doc.get("from_warehouse"),
+			target=row.get("t_warehouse") or doc.get("to_warehouse"),
+		)
+		for row in doc.get("items") or []
+		if flt(row.get("qty")) > 0
+	]
+	rejected_warehouses = get_rejected_warehouses(
+		warehouse for route in routes for warehouse in (route.source, route.target)
+	)
+	for route in routes:
+		if rejection_warehouse and route.source != rejection_warehouse:
 			frappe.throw(
 				_("Rework item {0} must use the configured Rejection Warehouse {1} as its source.").format(
-					frappe.bold(frappe.utils.escape_html(row.get("item_code") or "")),
+					frappe.bold(frappe.utils.escape_html(route.item_code)),
 					frappe.bold(frappe.utils.escape_html(rejection_warehouse)),
 				)
 			)
 		elif not rejection_warehouse:
-			_validate_explicit_rework_source_warehouse(row.get("item_code"), source)
-		if not target or target in blocked_targets or is_rejected_warehouse(target):
+			_validate_explicit_rework_source_warehouse(route.item_code, route.source, rejected_warehouses)
+		if not route.target or route.target in blocked_targets or route.target in rejected_warehouses:
 			frappe.throw(
 				_(
 					"Rework item {0} must move to a good target warehouse, not a rejection or scrap warehouse."
-				).format(frappe.bold(frappe.utils.escape_html(row.get("item_code") or "")))
+				).format(frappe.bold(frappe.utils.escape_html(route.item_code)))
 			)
 
 
-def _validate_explicit_rework_source_warehouse(item_code: str | None, source: str | None) -> None:
+class _ReworkRoute(NamedTuple):
+	item_code: str
+	source: str | None
+	target: str | None
+
+
+def _validate_explicit_rework_source_warehouse(
+	item_code: str,
+	source: str | None,
+	rejected_warehouses: set[str],
+) -> None:
 	if not source:
 		frappe.throw(
 			_("Rework item {0} must have a source Rejection Warehouse.").format(
-				frappe.bold(frappe.utils.escape_html(item_code or ""))
+				frappe.bold(frappe.utils.escape_html(item_code))
 			)
 		)
-	if not is_rejected_warehouse(source):
+	if source not in rejected_warehouses:
 		frappe.throw(
 			_("Rework item {0} source Warehouse must be marked as Rejected Warehouse.").format(
-				frappe.bold(frappe.utils.escape_html(item_code or ""))
+				frappe.bold(frappe.utils.escape_html(item_code))
 			)
 		)
 
