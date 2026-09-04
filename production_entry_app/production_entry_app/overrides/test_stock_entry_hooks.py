@@ -834,7 +834,10 @@ class TestStockEntryHooks(FrappeTestCase):
 		)
 		se.save()
 
-		self.assertEqual(se.branch, "Test Branch SE")
+		if frappe.get_meta("Stock Entry", cached=True).has_field("branch"):
+			self.assertEqual(se.branch, "Test Branch SE")
+		else:
+			self.assertNotIn("branch", se.as_dict())
 
 	def test_linked_shift_requires_read_permission_before_lookup(self) -> None:
 		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
@@ -1824,7 +1827,10 @@ class TestStockEntryHooks(FrappeTestCase):
 		se.save()
 
 		self.assertEqual(se.custom_pea_shift, shift.name)
-		self.assertEqual(se.branch, shift.branch)
+		if frappe.get_meta("Stock Entry", cached=True).has_field("branch"):
+			self.assertEqual(se.branch, shift.branch)
+		else:
+			self.assertNotIn("branch", se.as_dict())
 
 	def test_entry_metrics_with_no_fg_item_sets_die_tool_fields_to_zero(self) -> None:
 		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import _set_entry_metrics
@@ -4759,7 +4765,10 @@ class TestStockEntryLateEntryStamp(FrappeTestCase):
 		shift = self._make_running_shift(masters)
 		branch = frappe.db.get_value("Shift", shift.name, "branch")
 		se = make_direct_manufacture_entry(masters, shift=shift.name, fg_qty=100, rejection_qty=0)
-		self.assertEqual(se.branch, branch)
+		if frappe.get_meta("Stock Entry", cached=True).has_field("branch"):
+			self.assertEqual(se.branch, branch)
+		else:
+			self.assertNotIn("branch", se.as_dict())
 
 	def test_stock_entry_branch_is_not_set_when_stock_entry_field_is_missing(self) -> None:
 		masters = bootstrap_manufacture_masters()

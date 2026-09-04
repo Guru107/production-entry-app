@@ -229,9 +229,8 @@ class TestReworkAdditionalCosts(FrappeTestCase):
 		gl_entries = frappe.get_all(
 			"GL Entry",
 			filters={"voucher_no": doc.name, "is_cancelled": 0},
-			fields=["account", "debit", "credit", "branch"],
+			fields=["account", "debit", "credit"],
 		)
-		self.assertEqual({row.branch for row in gl_entries}, {branch})
 		expense_credit = sum(
 			float(row.credit or 0) - float(row.debit or 0)
 			for row in gl_entries

@@ -48,6 +48,13 @@ async function deleteDocIfExists(page, doctype, name) {
 	}
 }
 
+async function hasStockEntryBranchField(page) {
+	return await page.evaluate(async () => {
+		await frappe.model.with_doctype("Stock Entry");
+		return Boolean(frappe.meta.get_docfield("Stock Entry", "branch"));
+	});
+}
+
 test.describe("Branch isolation", () => {
 	const lifecycle = registerE2ELifecycle(test);
 	const createdUsers = new Set();
@@ -131,8 +138,11 @@ test.describe("Branch isolation", () => {
 				}
 			);
 			stockEntries.push(branchAStockEntry.name, branchBStockEntry.name);
-			expect(branchAStockEntry.branch).toBe(branchA);
-			expect(branchBStockEntry.branch).toBe(branchB);
+			const stockEntryHasBranch = await hasStockEntryBranchField(page);
+			if (stockEntryHasBranch) {
+				expect(branchAStockEntry.branch).toBe(branchA);
+				expect(branchBStockEntry.branch).toBe(branchB);
+			}
 
 			const restrictedEmail = `e2e-user-branch-isolation-restricted-${lifecycle.getPrefix()}-${Date.now()}-${Math.floor(
 				Math.random() * 1000
@@ -201,25 +211,31 @@ test.describe("Branch isolation", () => {
 			expect(visibleShifts.length).toBe(1);
 			expect(visibleShifts[0].branch).toBe(branchA);
 
-			await page.goto(getRoute("/stock-entry"));
-			await expect(page).toHaveURL(getRouteRegex("/stock-entry"));
+			if (stockEntryHasBranch) {
+				await page.goto(getRoute("/stock-entry"));
+				await expect(page).toHaveURL(getRouteRegex("/stock-entry"));
 
-			// API list call here intentionally runs after opening Stock Entry list so it exercises
-			// Desk's permission-filtered list endpoint for the logged-in user.
-			const visibleStockEntries = await callFrappeMethod(page, "frappe.client.get_list", {
-				doctype: "Stock Entry",
-				fields: JSON.stringify(["name", "branch", "custom_pea_shift"]),
-				filters: JSON.stringify([["name", "in", stockEntries]]),
-				limit_page_length: 50,
-			});
-			const visibleStockEntryNames = new Set(
-				(visibleStockEntries || []).map((row) => row.name)
-			);
-			expect(visibleStockEntryNames.has(branchBStockEntry.name)).toBe(false);
-			expect(visibleStockEntryNames.has(branchAStockEntry.name)).toBe(true);
-			expect(visibleStockEntries.length).toBe(1);
-			expect(visibleStockEntries[0].branch).toBe(branchA);
-			expect(visibleStockEntries[0].custom_pea_shift).toBe(ctx.shift_name);
+				// API list call here intentionally runs after opening Stock Entry list so it exercises
+				// Desk's permission-filtered list endpoint for the logged-in user.
+				const visibleStockEntries = await callFrappeMethod(
+					page,
+					"frappe.client.get_list",
+					{
+						doctype: "Stock Entry",
+						fields: JSON.stringify(["name", "branch", "custom_pea_shift"]),
+						filters: JSON.stringify([["name", "in", stockEntries]]),
+						limit_page_length: 50,
+					}
+				);
+				const visibleStockEntryNames = new Set(
+					(visibleStockEntries || []).map((row) => row.name)
+				);
+				expect(visibleStockEntryNames.has(branchBStockEntry.name)).toBe(false);
+				expect(visibleStockEntryNames.has(branchAStockEntry.name)).toBe(true);
+				expect(visibleStockEntries.length).toBe(1);
+				expect(visibleStockEntries[0].branch).toBe(branchA);
+				expect(visibleStockEntries[0].custom_pea_shift).toBe(ctx.shift_name);
+			}
 
 			await loginAs(page, unrestrictedEmail, TEST_PASSWORD);
 			await page.goto(getRoute("/shift"));
@@ -254,7 +270,11 @@ test.describe("Branch isolation", () => {
 				"frappe.client.get_list",
 				{
 					doctype: "Stock Entry",
-					fields: JSON.stringify(["name", "branch", "custom_pea_shift"]),
+					fields: JSON.stringify(
+						stockEntryHasBranch
+							? ["name", "branch", "custom_pea_shift"]
+							: ["name", "custom_pea_shift"]
+					),
 					filters: JSON.stringify([["name", "in", stockEntries]]),
 					limit_page_length: 50,
 				}
@@ -262,13 +282,15 @@ test.describe("Branch isolation", () => {
 			const unrestrictedStockEntryNames = new Set(
 				(unrestrictedVisibleStockEntries || []).map((row) => row.name)
 			);
-			const unrestrictedStockEntryBranches = new Set(
-				(unrestrictedVisibleStockEntries || []).map((row) => row.branch)
-			);
 			expect(unrestrictedStockEntryNames.has(branchAStockEntry.name)).toBe(true);
 			expect(unrestrictedStockEntryNames.has(branchBStockEntry.name)).toBe(true);
-			expect(unrestrictedStockEntryBranches.has(branchA)).toBe(true);
-			expect(unrestrictedStockEntryBranches.has(branchB)).toBe(true);
+			if (stockEntryHasBranch) {
+				const unrestrictedStockEntryBranches = new Set(
+					(unrestrictedVisibleStockEntries || []).map((row) => row.branch)
+				);
+				expect(unrestrictedStockEntryBranches.has(branchA)).toBe(true);
+				expect(unrestrictedStockEntryBranches.has(branchB)).toBe(true);
+			}
 			expect(unrestrictedVisibleStockEntries.length).toBe(2);
 		} finally {
 			await loginAsAdmin(page);

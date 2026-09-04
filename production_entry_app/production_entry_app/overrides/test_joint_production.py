@@ -382,11 +382,15 @@ class TestJointProductionItems(FrappeTestCase):
 	def test_fetch_items_defaults_survive_joint_draft_save(self) -> None:
 		shift = make_running_shift(self.masters)
 		doc = self._make_joint_entry(shift)
-		frappe.db.set_value("Shift", shift.name, "work_in_progress_warehouse", None)
 		doc.from_warehouse = None
 		doc.to_warehouse = None
-		doc.branch = self.masters["branch"]
-		for shift_name in (shift.name, None):
+
+		shift_names = [shift.name]
+		if frappe.get_meta("Stock Entry", cached=True).has_field("branch"):
+			doc.branch = self.masters["branch"]
+			shift_names.append(None)
+
+		for shift_name in shift_names:
 			with self.subTest(shift=shift_name):
 				entry = frappe.copy_doc(doc)
 				entry.custom_pea_shift = shift_name

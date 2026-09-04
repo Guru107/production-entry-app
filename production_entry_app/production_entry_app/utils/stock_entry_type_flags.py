@@ -37,8 +37,7 @@ def _get_cached_stock_entry_type_flag(
 		return bool(cached[1])
 
 	is_enabled = bool(
-		stock_entry_type
-		and frappe.db.get_value("Stock Entry Type", stock_entry_type, flag_fieldname)
+		stock_entry_type and frappe.db.get_value("Stock Entry Type", stock_entry_type, flag_fieldname)
 	)
 	if flags is not None:
 		flags[cache_fieldname] = (stock_entry_type, is_enabled)

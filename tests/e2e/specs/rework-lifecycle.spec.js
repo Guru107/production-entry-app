@@ -35,7 +35,10 @@ async function fillReworkEntry(page, context, options = {}) {
 		);
 	}, context.rework_stock_entry_type);
 	await setFieldValue(page, "company", context.company);
-	await setFieldValue(page, "branch", context.branch);
+	const hasBranchField = await page.evaluate(() => Boolean(cur_frm?.fields_dict?.branch));
+	if (hasBranchField) {
+		await setFieldValue(page, "branch", context.branch);
+	}
 	await stockEntryPage.waitForFieldValue("from_warehouse", context.rejection_warehouse);
 	await stockEntryPage.setPostingDate(context.shift_date);
 	await setFieldValue(page, "to_warehouse", context.fg_warehouse);
@@ -200,19 +203,26 @@ test.describe("Rework full lifecycle", () => {
 		const stockEntryPage = await fillReworkEntry(page, context);
 		await setFieldValue(page, "custom_pea_shift", context.shift_name);
 		await expect(page.locator('[data-fieldname="custom_pea_shift"]')).toBeVisible();
-		expect(
-			await page.evaluate(() => ({
+		const stockEntrySnapshot = await page.evaluate(() => {
+			const snapshot = {
 				company: cur_frm.doc.company,
-				branch: cur_frm.doc.branch,
 				fromWarehouse: cur_frm.doc.from_warehouse,
 				toWarehouse: cur_frm.doc.to_warehouse,
-			}))
-		).toEqual({
+			};
+			if (cur_frm.fields_dict?.branch) {
+				snapshot.branch = cur_frm.doc.branch;
+			}
+			return snapshot;
+		});
+		const expectedStockEntrySnapshot = {
 			company: context.company,
-			branch: context.branch,
 			fromWarehouse: context.rejection_warehouse,
 			toWarehouse: context.fg_warehouse,
-		});
+		};
+		if ("branch" in stockEntrySnapshot) {
+			expectedStockEntrySnapshot.branch = context.branch;
+		}
+		expect(stockEntrySnapshot).toEqual(expectedStockEntrySnapshot);
 		await stockEntryPage.saveAndSubmit();
 		const reworkEntry = await page.evaluate(() => window.cur_frm?.doc?.name);
 		const submitted = await getDoc(page, "Stock Entry", reworkEntry);
