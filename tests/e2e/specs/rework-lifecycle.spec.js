@@ -38,6 +38,8 @@ async function fillReworkEntry(page, context, options = {}) {
 	const hasBranchField = await page.evaluate(() => Boolean(cur_frm?.fields_dict?.branch));
 	if (hasBranchField) {
 		await setFieldValue(page, "branch", context.branch);
+	} else {
+		await setFieldValue(page, "from_warehouse", context.rejection_warehouse);
 	}
 	await stockEntryPage.waitForFieldValue("from_warehouse", context.rejection_warehouse);
 	await stockEntryPage.setPostingDate(context.shift_date);
