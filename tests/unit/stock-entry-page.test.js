@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 
 const {
 	getVisibleFetchItemsState,
-	hasVisibleFetchItemsErrorDialog,
+	hasVisibleFetchItemsMessage,
 	isStockEntryReady,
 	triggerFetchItems,
 	waitForFetchItemsCall,
@@ -115,59 +115,54 @@ test("fetch item trigger preserves Frappe's async form trigger return value", as
 	});
 });
 
-test("fetch item visible state reports rows and error dialogs", async () => {
+test("fetch item visible state separates error indicators from informational notices", async () => {
 	await withBrowserState(() => {
 		global.document = { querySelector: () => null };
 		global.window = { cur_frm: { doc: { items: [] } } };
 		assert.deepEqual(getVisibleFetchItemsState(), {
-			hasErrorDialog: false,
+			hasErrorIndicator: false,
+			hasMessageDialog: false,
 			itemCount: 0,
 			modalText: "",
 		});
 
 		global.window.cur_frm.doc.items = [{}];
+		global.document.querySelector = () => ({
+			innerText: "Configure a Repack Stock Entry Type for Joint LH/RH Production first.",
+			querySelector: () => null,
+		});
 		assert.deepEqual(getVisibleFetchItemsState(), {
-			hasErrorDialog: false,
+			hasErrorIndicator: false,
+			hasMessageDialog: true,
 			itemCount: 1,
-			modalText: "",
+			modalText: "Configure a Repack Stock Entry Type for Joint LH/RH Production first.",
 		});
 
 		global.window.cur_frm.doc.items = [];
 		global.document.querySelector = () => ({
 			innerText: "Qty to Manufacture is required",
-			querySelector: () => null,
+			querySelector: (selector) => (selector.includes(".indicator.red") ? {} : null),
 		});
 		assert.deepEqual(getVisibleFetchItemsState(), {
-			hasErrorDialog: true,
+			hasErrorIndicator: true,
+			hasMessageDialog: true,
 			itemCount: 0,
 			modalText: "Qty to Manufacture is required",
 		});
-
-		global.document.querySelector = () => ({
-			innerText: "",
-			querySelector: (selector) => (selector.includes(".indicator.red") ? {} : null),
-		});
-		assert.equal(getVisibleFetchItemsState().hasErrorDialog, true);
 	});
 });
 
-test("fetch item validation dialog predicate reuses the shared visible-state source", async () => {
+test("fetch item validation predicate waits for any message dialog via the shared state source", async () => {
 	await withBrowserState(() => {
 		global.window = { cur_frm: { doc: { items: [] } } };
 		global.document = { querySelector: () => null };
-		assert.equal(hasVisibleFetchItemsErrorDialog(STATE_SOURCE), false);
+		assert.equal(hasVisibleFetchItemsMessage(STATE_SOURCE), false);
 
 		global.document.querySelector = () => ({
 			innerText: "Qty to Manufacture is required",
 			querySelector: () => null,
 		});
-		assert.equal(hasVisibleFetchItemsErrorDialog(STATE_SOURCE), true);
-
-		global.document.querySelector = () => ({
-			innerText: "Items fetched successfully",
-			querySelector: () => null,
-		});
-		assert.equal(hasVisibleFetchItemsErrorDialog(STATE_SOURCE), false);
+		assert.equal(hasVisibleFetchItemsMessage(STATE_SOURCE), true);
 	});
 });
 
@@ -185,7 +180,7 @@ test("Stock Entry readiness predicates remain self-contained after Playwright se
 			innerText: "Qty to Manufacture is required",
 			querySelector: () => null,
 		});
-		assert.equal(serializeForBrowser(hasVisibleFetchItemsErrorDialog)(STATE_SOURCE), true);
+		assert.equal(serializeForBrowser(hasVisibleFetchItemsMessage)(STATE_SOURCE), true);
 	});
 });
 
@@ -197,7 +192,8 @@ test("Fetch Items wait resolves after the client RPC callback applies rows and r
 		assert.deepEqual(
 			await waitForFetchItemsCall({ stateSource: STATE_SOURCE, timeoutMs: 50 }),
 			{
-				hasErrorDialog: false,
+				hasErrorIndicator: false,
+				hasMessageDialog: false,
 				itemCount: 1,
 				modalText: "",
 				rowCount: 1,

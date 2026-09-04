@@ -28,28 +28,21 @@ function triggerFetchItems() {
 
 // Runs inside the page, so it must stay self-contained for Playwright serialization.
 // It is the single source of the Fetch Items completion state; the other predicates
-// receive its serialized source instead of re-implementing it.
+// receive its serialized source instead of re-implementing it. A red indicator marks a
+// Frappe error dialog; informational notices (for example the Joint LH/RH type lookup
+// on sites without one) also open a modal but must not fail a successful fetch.
 function getVisibleFetchItemsState() {
 	const modal = document.querySelector(".modal.show");
-	let hasErrorDialog = false;
-	let modalText = "";
-	if (modal) {
-		modalText = (modal.innerText || modal.textContent || "").trim();
-		hasErrorDialog =
-			Boolean(modal.querySelector?.(".indicator.red, .indicator-pill.red")) ||
-			/\b(error|failed|cannot|mandatory|required|validation|qty to manufacture)\b/i.test(
-				modalText
-			);
-	}
 	return {
-		hasErrorDialog,
+		hasErrorIndicator: Boolean(modal?.querySelector?.(".indicator.red, .indicator-pill.red")),
+		hasMessageDialog: Boolean(modal),
 		itemCount: (window.cur_frm?.doc?.items || []).length,
-		modalText,
+		modalText: modal ? (modal.innerText || modal.textContent || "").trim() : "",
 	};
 }
 
-function hasVisibleFetchItemsErrorDialog(stateSource) {
-	return Function(`return (${stateSource})`)()().hasErrorDialog;
+function hasVisibleFetchItemsMessage(stateSource) {
+	return Function(`return (${stateSource})`)()().hasMessageDialog;
 }
 
 async function waitForFetchItemsCall({ stateSource, timeoutMs }) {
@@ -479,14 +472,14 @@ class StockEntryPage {
 				);
 				if (expectValidation) {
 					await this.page.evaluate(triggerFetchItems);
-					await this.page.waitForFunction(hasVisibleFetchItemsErrorDialog, stateSource);
+					await this.page.waitForFunction(hasVisibleFetchItemsMessage, stateSource);
 					return;
 				}
 				const result = await this.page.evaluate(waitForFetchItemsCall, {
 					stateSource,
 					timeoutMs: FETCH_ITEMS_CALL_TIMEOUT_MS,
 				});
-				if (!result.itemCount || result.hasErrorDialog) {
+				if (!result.itemCount || result.hasErrorIndicator) {
 					throw new Error(
 						`Fetch Items did not complete cleanly. State: ${JSON.stringify(result)}`
 					);
@@ -548,7 +541,7 @@ class StockEntryPage {
 
 module.exports = {
 	getVisibleFetchItemsState,
-	hasVisibleFetchItemsErrorDialog,
+	hasVisibleFetchItemsMessage,
 	isStockEntryReady,
 	StockEntryPage,
 	triggerFetchItems,
