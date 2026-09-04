@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import frappe
 from frappe.model.base_document import BaseDocument
 
 from production_entry_app.production_entry_app.utils.production_warehouses import (
@@ -7,6 +8,12 @@ from production_entry_app.production_entry_app.utils.production_warehouses impor
 	require_warehouse,
 	validate_warehouse_companies,
 )
+
+
+def is_rejected_warehouse(warehouse: str | None) -> bool:
+	if not warehouse:
+		return False
+	return bool(frappe.db.get_value("Warehouse", warehouse, "is_rejected_warehouse"))
 
 
 def resolve_rejection_warehouse(doc: BaseDocument, preferred_warehouse: str | None = None) -> str:

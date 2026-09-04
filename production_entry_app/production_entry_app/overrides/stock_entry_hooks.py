@@ -54,16 +54,18 @@ from production_entry_app.production_entry_app.utils.loss_time import (
 	merge_intervals,
 	resolve_time_interval_in_window,
 )
-from production_entry_app.production_entry_app.utils.rejection_warehouse import resolve_rejection_warehouse
+from production_entry_app.production_entry_app.utils.rejection_warehouse import (
+	is_rejected_warehouse,
+	resolve_rejection_warehouse,
+)
 from production_entry_app.production_entry_app.utils.shift_time import (
 	combine_date_time,
 	get_shift_planned_end_datetime,
 )
+from production_entry_app.production_entry_app.utils.stock_entry_branch import stock_entry_has_branch_field
 from production_entry_app.production_entry_app.utils.stock_entry_type_flags import (
 	is_joint_lh_rh_stock_entry_type,
-)
-from production_entry_app.production_entry_app.utils.stock_entry_type_flags import (
-	is_rework_stock_entry_type as is_rework_stock_entry,
+	is_rework_stock_entry_type,
 )
 from production_entry_app.production_entry_app.utils.system_precision import get_system_float_precision
 
@@ -103,7 +105,9 @@ def validate_stock_entry(doc: Document, method: str | None = None) -> None:
 	1. Auto-fills fields from linked Shift (if custom_pea_shift is set).
 	2. Handles rejection quantity logic (if custom_pea_rejection_qty > 0).
 	"""
-	is_rework = is_rework_stock_entry(doc)
+	is_rework = is_rework_stock_entry_type(doc)
+	if is_rework and doc.get("custom_pea_shift"):
+		doc.custom_pea_shift = None
 	if not is_rework:
 		if doc.get("custom_pea_shift"):
 			_validate_linked_shift_can_accept_stock_entry(doc)
@@ -135,7 +139,7 @@ def before_validate_stock_entry(doc: Document, method: str | None = None) -> Non
 
 
 def _validate_rework_fields(doc: Document) -> None:
-	if not is_rework_stock_entry(doc):
+	if not is_rework_stock_entry_type(doc):
 		if any(doc.get(fieldname) for fieldname in _REWORK_FIELDS):
 			frappe.throw(_("Rework fields can only be used with the configured Rework Stock Entry Type."))
 		return
@@ -166,7 +170,7 @@ def _validate_rework_fields(doc: Document) -> None:
 
 
 def _apply_rework_cost(doc: Document) -> None:
-	if not is_rework_stock_entry(doc):
+	if not is_rework_stock_entry_type(doc):
 		return
 
 	for index in range(len(doc.get("additional_costs") or []) - 1, -1, -1):
@@ -238,14 +242,14 @@ def before_submit_stock_entry(doc: Document, method: str | None = None) -> None:
 
 
 def on_submit_stock_entry(doc: Document, method: str | None = None) -> None:
-	if is_rework_stock_entry(doc):
+	if is_rework_stock_entry_type(doc):
 		return
 	update_counter_for_stock_entry(doc, direction=1)
 	_invalidate_shift_dependent_caches(doc)
 
 
 def on_cancel_stock_entry(doc: Document, method: str | None = None) -> None:
-	if is_rework_stock_entry(doc):
+	if is_rework_stock_entry_type(doc):
 		return
 	update_counter_for_stock_entry(doc, direction=-1)
 	_invalidate_shift_dependent_caches(doc)
@@ -276,7 +280,7 @@ def _apply_shift_defaults(doc: Document) -> None:
 	"""
 	shift = frappe.get_doc("Shift", doc.custom_pea_shift)
 
-	if frappe.get_meta("Stock Entry", cached=True).has_field("branch") and shift.branch:
+	if stock_entry_has_branch_field() and shift.branch:
 		doc.branch = shift.branch
 
 	# Only update planned dates for draft/new Stock Entries.
@@ -830,15 +834,12 @@ def _append_rejection_item_row(
 
 def _validate_rejection_target_warehouses(doc: Document) -> None:
 	"""Ensure rejection rows always target a warehouse marked as rejected."""
-	if not _has_rejected_warehouse_flag():
-		return
-
 	for row in doc.get("items") or []:
 		if not row.get("custom_pea_is_rejection_item"):
 			continue
 		if not row.get("t_warehouse"):
 			frappe.throw(_("Rejection row must have a Target Warehouse."))
-		if not _is_rejected_warehouse(row.t_warehouse):
+		if not is_rejected_warehouse(row.t_warehouse):
 			frappe.throw(
 				_("Rejection row Target Warehouse must be marked as Rejected Warehouse: {0}").format(
 					row.t_warehouse
@@ -889,26 +890,15 @@ def _get_existing_rejection_target_warehouse(doc: Document) -> str | None:
 		return None
 	# Legacy docs can contain multiple rejection rows. Prefer an already-valid rejected warehouse;
 	# among matches keep latest idx. If none are valid, fall back to latest row overall.
-	if _has_rejected_warehouse_flag():
-		valid_candidates = [row for row in candidates if _is_rejected_warehouse(row.get("t_warehouse"))]
-		if valid_candidates:
-			latest_valid = max(valid_candidates, key=lambda row: int(row.get("idx") or 0))
-			return latest_valid.get("t_warehouse")
-		if doc.is_new():
-			# For first-save docs, ignore invalid provisional row warehouses and use Shift/Settings defaults.
-			return None
+	valid_candidates = [row for row in candidates if is_rejected_warehouse(row.get("t_warehouse"))]
+	if valid_candidates:
+		latest_valid = max(valid_candidates, key=lambda row: int(row.get("idx") or 0))
+		return latest_valid.get("t_warehouse")
+	if doc.is_new():
+		# For first-save docs, ignore invalid provisional row warehouses and use Shift/Settings defaults.
+		return None
 	latest = max(candidates, key=lambda row: int(row.get("idx") or 0))
 	return latest.get("t_warehouse")
-
-
-def _has_rejected_warehouse_flag() -> bool:
-	return frappe.get_meta("Warehouse", cached=True).has_field("is_rejected_warehouse")
-
-
-def _is_rejected_warehouse(warehouse: str | None) -> bool:
-	if not warehouse:
-		return False
-	return bool(frappe.db.get_value("Warehouse", warehouse, "is_rejected_warehouse"))
 
 
 def _set_entry_metrics(doc: Document) -> None:

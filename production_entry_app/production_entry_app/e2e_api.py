@@ -13,8 +13,8 @@ from production_entry_app.production_entry_app.api import (
 	_cleanup_orphan_stock_entry_loss_links,
 	reset_die_tool_counter,
 )
-from production_entry_app.production_entry_app.utils.rework_source_seed import insert_pending_rework_source
 from production_entry_app.production_entry_app.utils.shift_time import get_shift_planned_end_datetime
+from production_entry_app.production_entry_app.utils.stock_entry_branch import stock_entry_has_branch_field
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	PRODUCTION_ENTRY_SHIFT_SETTINGS_FIELDS,
 	cleanup_running_shifts,
@@ -38,6 +38,7 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 )
 
 _E2E_SYSTEM_SETTINGS_FIELDS: tuple[str, ...] = ("float_precision",)
+ReworkBreakupSeed = tuple[str | None, str | None, float]
 _E2E_RESERVED_USER_EMAIL_PREFIX: str = "e2e-user-"
 _E2E_RESERVED_ROLE_PREFIX: str = "E2E ROLE "
 _E2E_RESERVED_DOWNTIME_PREFIX: str = "E2E-DOWNTIME-"
@@ -54,6 +55,76 @@ def _reserved_e2e_prefix(prefix: str | None) -> str:
 	if prefix_value != "E2E" and not prefix_value.startswith("E2E_"):
 		frappe.throw(_("Prefix must identify a reserved E2E context."), frappe.ValidationError)
 	return prefix_value
+
+
+def insert_pending_rework_source(
+	*,
+	stock_entry_type: str | None,
+	stock_entry_name: str | None = None,
+	purpose: str | None = None,
+	breakups: list[ReworkBreakupSeed],
+	rejection_items: list[str],
+	rejection_warehouse: str | None = None,
+) -> str:
+	"""Insert a submitted source Stock Entry for pending-Rework tests and E2E seeds."""
+	stock_entry_name = stock_entry_name or f"POOL-SOURCE-{frappe.generate_hash(length=10)}"
+	StockEntry = frappe.qb.DocType("Stock Entry")
+	StockEntryDetail = frappe.qb.DocType("Stock Entry Detail")
+	RejectionBreakup = frappe.qb.DocType("Rejection Breakup")
+	(
+		frappe.qb.into(StockEntry)
+		.columns(StockEntry.name, StockEntry.docstatus, StockEntry.stock_entry_type, StockEntry.purpose)
+		.insert(stock_entry_name, 1, stock_entry_type, purpose)
+	).run()
+	for item_code in rejection_items:
+		(
+			frappe.qb.into(StockEntryDetail)
+			.columns(
+				StockEntryDetail.name,
+				StockEntryDetail.parent,
+				StockEntryDetail.parenttype,
+				StockEntryDetail.parentfield,
+				StockEntryDetail.item_code,
+				StockEntryDetail.qty,
+				StockEntryDetail.t_warehouse,
+				StockEntryDetail.custom_pea_is_rejection_item,
+			)
+			.insert(
+				frappe.generate_hash(length=10),
+				stock_entry_name,
+				"Stock Entry",
+				"items",
+				item_code,
+				1,
+				rejection_warehouse,
+				1,
+			)
+		).run()
+	for item_code, rejection_reason, qty in breakups:
+		(
+			frappe.qb.into(RejectionBreakup)
+			.columns(
+				RejectionBreakup.name,
+				RejectionBreakup.parent,
+				RejectionBreakup.parenttype,
+				RejectionBreakup.parentfield,
+				RejectionBreakup.item_code,
+				RejectionBreakup.rejection_reason,
+				RejectionBreakup.qty,
+				RejectionBreakup.is_rework,
+			)
+			.insert(
+				frappe.generate_hash(length=10),
+				stock_entry_name,
+				"Stock Entry",
+				"custom_pea_rejection_breakup",
+				item_code or "",
+				rejection_reason,
+				qty,
+				1,
+			)
+		).run()
+	return stock_entry_name
 
 
 @frappe.whitelist()
@@ -410,10 +481,6 @@ def _clear_timeline_cache_for_context(ctx: dict, shift_name: str) -> None:
 	)
 
 
-def _stock_entry_has_branch_field() -> bool:
-	return frappe.get_meta("Stock Entry", cached=True).has_field("branch")
-
-
 def _serialize_e2e_submitted_stock_entry(doc: Document, posting_date: str, shift_name: str) -> dict[str, Any]:
 	result: dict[str, Any] = {
 		"name": doc.name,
@@ -421,7 +488,7 @@ def _serialize_e2e_submitted_stock_entry(doc: Document, posting_date: str, shift
 		"posting_date": posting_date,
 		"shift_name": shift_name,
 	}
-	if _stock_entry_has_branch_field():
+	if stock_entry_has_branch_field():
 		result["branch"] = getattr(doc, "branch", None)
 	return result
 
@@ -556,10 +623,7 @@ def bootstrap_e2e_context(prefix: str = "E2E", cleanup_running: int = 1) -> dict
 	fg_warehouse = ensure_warehouse(f"{prefix} FG - {abbr}", company)
 	rejection_warehouse = ensure_warehouse(f"{prefix} Rejection - {abbr}", company)
 	scrap_warehouse = ensure_warehouse(f"{prefix} Scrap - {abbr}", company)
-	if frappe.get_meta("Warehouse", cached=True).has_field("is_rejected_warehouse"):
-		frappe.db.set_value(
-			"Warehouse", rejection_warehouse, "is_rejected_warehouse", 1, update_modified=False
-		)
+	frappe.db.set_value("Warehouse", rejection_warehouse, "is_rejected_warehouse", 1, update_modified=False)
 
 	fg_item = ensure_item(f"_{prefix}_FG_Item")
 	rm_item = ensure_item(f"_{prefix}_RM_Item")

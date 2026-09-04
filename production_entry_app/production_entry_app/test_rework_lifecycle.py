@@ -16,6 +16,7 @@ from production_entry_app.production_entry_app.tests.support.manufacture_builder
 	make_direct_manufacture_entry,
 	make_running_shift,
 )
+from production_entry_app.production_entry_app.utils.stock_entry_branch import stock_entry_has_branch_field
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	ensure_operator,
 	ensure_workstation,
@@ -191,7 +192,7 @@ class TestReworkLifecycle(FrappeTestCase):
 				"custom_pea_rework_actual_end": end,
 			}
 		)
-		if frappe.get_meta("Stock Entry", cached=True).has_field("branch"):
+		if stock_entry_has_branch_field():
 			doc.branch = self.masters["branch"]
 		doc.append("custom_pea_rework_operators", {"operator": self.operator})
 		doc.append(

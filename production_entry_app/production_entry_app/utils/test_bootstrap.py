@@ -453,10 +453,7 @@ def bootstrap_manufacturing_test_context(prefix: str) -> dict[str, Any]:
 	fg_warehouse = ensure_warehouse(f"{prefix} FG - {abbr}", company)
 	rejection_warehouse = ensure_warehouse(f"{prefix} Rejection - {abbr}", company)
 	scrap_warehouse = ensure_warehouse(f"{prefix} Scrap - {abbr}", company)
-	if frappe.get_meta("Warehouse", cached=True).has_field("is_rejected_warehouse"):
-		frappe.db.set_value(
-			"Warehouse", rejection_warehouse, "is_rejected_warehouse", 1, update_modified=False
-		)
+	frappe.db.set_value("Warehouse", rejection_warehouse, "is_rejected_warehouse", 1, update_modified=False)
 	set_test_branch_warehouse_defaults(
 		company,
 		branch,

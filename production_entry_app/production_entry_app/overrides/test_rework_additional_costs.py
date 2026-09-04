@@ -4,12 +4,12 @@ import frappe
 from frappe.model.document import Document
 from frappe.tests.utils import FrappeTestCase
 
+from production_entry_app.production_entry_app.e2e_api import (
+	insert_pending_rework_source,
+)
 from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
 	before_validate_stock_entry,
 	validate_stock_entry,
-)
-from production_entry_app.production_entry_app.tests.support.rework_builders import (
-	insert_pending_rework_source,
 )
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	ensure_branch,

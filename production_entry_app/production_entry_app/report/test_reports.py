@@ -99,10 +99,9 @@ class TestProductionReports(FrappeTestCase):
 		cls.rm_warehouse = _get_or_create_warehouse(f"RM Report - {abbr}", cls.company)
 		cls.fg_warehouse = _get_or_create_warehouse(f"FG Report - {abbr}", cls.company)
 		cls.rejection_warehouse = _get_or_create_warehouse(f"RJ Report - {abbr}", cls.company)
-		if frappe.get_meta("Warehouse", cached=True).has_field("is_rejected_warehouse"):
-			frappe.db.set_value(
-				"Warehouse", cls.rejection_warehouse, "is_rejected_warehouse", 1, update_modified=False
-			)
+		frappe.db.set_value(
+			"Warehouse", cls.rejection_warehouse, "is_rejected_warehouse", 1, update_modified=False
+		)
 
 		cls.fg_item = _get_or_create_item("_Test FG Item For Reports")
 		cls.rm_item = _get_or_create_item("_Test RM Item For Reports")

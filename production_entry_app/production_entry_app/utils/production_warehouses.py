@@ -62,6 +62,24 @@ def get_branch_warehouse_defaults(company: str | None, branch: str | None) -> di
 	)
 
 
+def get_configured_scrap_warehouses(company: str | None) -> set[str]:
+	if not company:
+		return set()
+	return set(
+		frappe.get_all(
+			"Branch Warehouse Default",
+			filters={
+				"parent": "Production Entry Settings",
+				"parenttype": "Production Entry Settings",
+				"parentfield": "branch_warehouse_defaults",
+				"company": company,
+				"scrap_warehouse": ["!=", ""],
+			},
+			pluck="scrap_warehouse",
+		)
+	)
+
+
 def get_shift_warehouses(shift: BaseDocument) -> dict:
 	defaults = get_branch_warehouse_defaults(shift.get("company"), shift.get("branch"))
 	warehouses = {field: shift.get(field) or defaults.get(field) for field in WAREHOUSE_FIELDS}

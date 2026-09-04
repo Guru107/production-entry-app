@@ -229,7 +229,7 @@
   "fieldtype": "Link",
   "label": "Shift",
   "options": "Shift",
-  "depends_on": "eval:doc.custom_pea_stock_entry_purpose=='Manufacture' || doc.custom_pea_is_joint_lh_rh || (doc.__pea_rework_stock_entry_type && doc.stock_entry_type==doc.__pea_rework_stock_entry_type)",
+  "depends_on": "eval:doc.custom_pea_stock_entry_purpose=='Manufacture' || doc.custom_pea_is_joint_lh_rh",
   "is_index": 1,
   "search_index": 1,
   "insert_after": "custom_pea_is_joint_lh_rh",

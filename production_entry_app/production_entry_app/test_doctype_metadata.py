@@ -148,8 +148,8 @@ def test_rework_stock_entry_metadata_is_exported() -> None:
 		assert fields_by_name[name].get("mandatory_depends_on") == fields_by_name[name].get("depends_on")
 	assert fields_by_name["Stock Entry-custom_pea_rework_cost"].get("read_only") == 1
 	assert fields_by_name["Stock Entry-custom_pea_rework_cost"].get("non_negative") == 1
-	assert "__pea_rework_stock_entry_type" in fields_by_name["Stock Entry-custom_pea_shift"].get(
-		"depends_on", ""
+	assert fields_by_name["Stock Entry-custom_pea_shift"].get("depends_on") == (
+		"eval:doc.custom_pea_stock_entry_purpose=='Manufacture' || doc.custom_pea_is_joint_lh_rh"
 	)
 
 	rework_operator = assert_doctype_json("Rework Operator")

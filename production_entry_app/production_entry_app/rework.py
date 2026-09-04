@@ -11,7 +11,9 @@ from frappe.utils import flt
 
 from production_entry_app.production_entry_app.utils.production_warehouses import (
 	get_branch_warehouse_defaults,
+	get_configured_scrap_warehouses,
 )
+from production_entry_app.production_entry_app.utils.rejection_warehouse import is_rejected_warehouse
 from production_entry_app.production_entry_app.utils.stock_entry_type_flags import (
 	is_rework_stock_entry_type,
 )
@@ -98,7 +100,11 @@ def _validate_rework_route(doc: Document) -> None:
 	"""Keep pool consumption on the configured rejection-to-good route."""
 	warehouses = get_branch_warehouse_defaults(doc.get("company"), doc.get("branch"))
 	rejection_warehouse = warehouses.get("rejection_warehouse")
-	blocked_targets = {rejection_warehouse, warehouses.get("scrap_warehouse")}
+	blocked_targets = {
+		rejection_warehouse,
+		warehouses.get("scrap_warehouse"),
+		*get_configured_scrap_warehouses(doc.get("company")),
+	}
 	if rejection_warehouse and doc.get("from_warehouse") and doc.get("from_warehouse") != rejection_warehouse:
 		frappe.throw(
 			_("Rework must use the configured Rejection Warehouse {0} as its source.").format(
@@ -119,11 +125,7 @@ def _validate_rework_route(doc: Document) -> None:
 			)
 		elif not rejection_warehouse:
 			_validate_explicit_rework_source_warehouse(row.get("item_code"), source)
-		if (
-			not target
-			or target in blocked_targets
-			or (_has_rejected_warehouse_flag() and _is_rejected_warehouse(target))
-		):
+		if not target or target in blocked_targets or is_rejected_warehouse(target):
 			frappe.throw(
 				_(
 					"Rework item {0} must move to a good target warehouse, not a rejection or scrap warehouse."
@@ -138,22 +140,12 @@ def _validate_explicit_rework_source_warehouse(item_code: str | None, source: st
 				frappe.bold(frappe.utils.escape_html(item_code or ""))
 			)
 		)
-	if _has_rejected_warehouse_flag() and not _is_rejected_warehouse(source):
+	if not is_rejected_warehouse(source):
 		frappe.throw(
 			_("Rework item {0} source Warehouse must be marked as Rejected Warehouse.").format(
 				frappe.bold(frappe.utils.escape_html(item_code or ""))
 			)
 		)
-
-
-def _is_rejected_warehouse(warehouse: str | None) -> bool:
-	if not warehouse:
-		return False
-	return bool(frappe.db.get_value("Warehouse", warehouse, "is_rejected_warehouse"))
-
-
-def _has_rejected_warehouse_flag() -> bool:
-	return frappe.get_meta("Warehouse", cached=True).has_field("is_rejected_warehouse")
 
 
 def _lock_items_for_rework_submission(item_codes: list[str]) -> None:

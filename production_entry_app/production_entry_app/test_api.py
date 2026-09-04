@@ -1232,7 +1232,7 @@ class TestE2EApi(FrappeTestCase):
 			stack.enter_context(
 				patch(
 					"production_entry_app.production_entry_app.e2e_api.frappe.get_all",
-					side_effect=lambda doctype, *args, **kwargs: [] if doctype != "BOM" else [],
+					side_effect=lambda doctype, *args, **kwargs: [],
 				)
 			)
 			stack.enter_context(
@@ -2047,7 +2047,7 @@ class TestE2EApi(FrappeTestCase):
 			)
 			stack.enter_context(
 				patch(
-					"production_entry_app.production_entry_app.e2e_api._stock_entry_has_branch_field",
+					"production_entry_app.production_entry_app.e2e_api.stock_entry_has_branch_field",
 					return_value=True,
 				)
 			)
@@ -2124,7 +2124,7 @@ class TestE2EApi(FrappeTestCase):
 			)
 			stack.enter_context(
 				patch(
-					"production_entry_app.production_entry_app.e2e_api._stock_entry_has_branch_field",
+					"production_entry_app.production_entry_app.e2e_api.stock_entry_has_branch_field",
 					return_value=False,
 				)
 			)

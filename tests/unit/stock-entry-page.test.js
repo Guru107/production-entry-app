@@ -2,7 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const {
-	hasFetchedItemsOrVisibleMessage,
+	hasFetchedItemsWithoutVisibleDialog,
 	isStockEntryReady,
 	triggerFetchItems,
 	waitForStockEntryReady,
@@ -89,18 +89,21 @@ test("fetch item trigger does not await Frappe's async form trigger", () => {
 	});
 });
 
-test("fetch item completion accepts either rows or a visible validation message", () => {
+test("fetch item completion requires rows and no visible dialog", () => {
 	withBrowserState(() => {
 		global.document = { querySelector: () => null };
 		global.window = { cur_frm: { doc: { items: [] } } };
-		assert.equal(hasFetchedItemsOrVisibleMessage(), false);
+		assert.equal(hasFetchedItemsWithoutVisibleDialog(), false);
 
 		global.window.cur_frm.doc.items = [{}];
-		assert.equal(hasFetchedItemsOrVisibleMessage(), true);
+		assert.equal(hasFetchedItemsWithoutVisibleDialog(), true);
 
 		global.window.cur_frm.doc.items = [];
 		global.document.querySelector = () => ({ role: "dialog" });
-		assert.equal(hasFetchedItemsOrVisibleMessage(), true);
+		assert.equal(hasFetchedItemsWithoutVisibleDialog(), false);
+
+		global.window.cur_frm.doc.items = [{}];
+		assert.equal(hasFetchedItemsWithoutVisibleDialog(), false);
 	});
 });
 

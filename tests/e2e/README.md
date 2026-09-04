@@ -16,3 +16,9 @@ safely. That contract is covered by server-side tests.
 Browser coverage includes a Joint/Repack resource-overlap popup smoke test. Focused Frappe tests also
 save real Joint/Repack Stock Entries and verify overlap, resave, cancelled-entry, adjacent-window, and
 downtime behavior.
+
+## Fetch Items race
+
+Smoke specs should seed Stock Entry rows through the E2E API when Fetch Items is
+not the behavior under test. Dedicated coverage for the Desk Fetch Items button
+and its route-settling race is tracked in #110.

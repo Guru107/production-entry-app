@@ -48,6 +48,7 @@ from production_entry_app.production_entry_app.tests.support.manufacture_builder
 	make_running_shift,
 )
 from production_entry_app.production_entry_app.utils.rejection_warehouse import resolve_rejection_warehouse
+from production_entry_app.production_entry_app.utils.stock_entry_branch import stock_entry_has_branch_field
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	build_joint_bom_scrap_row,
 	cleanup_running_shifts,
@@ -67,10 +68,6 @@ def _is_scrap_row(row: Any) -> bool:
 		or row.get("secondary_item_type") == "Scrap"
 		or row.get("type") == "Scrap"
 	)
-
-
-def _stock_entry_has_branch_field() -> bool:
-	return frappe.get_meta("Stock Entry", cached=True).has_field("branch")
 
 
 def _make_running_shift_through_api(masters: dict[str, Any]) -> object:
@@ -390,7 +387,7 @@ class TestJointProductionItems(FrappeTestCase):
 		doc.to_warehouse = None
 
 		shift_names = [shift.name]
-		if _stock_entry_has_branch_field():
+		if stock_entry_has_branch_field():
 			doc.branch = self.masters["branch"]
 			shift_names.append(None)
 

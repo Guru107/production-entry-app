@@ -24,11 +24,8 @@ function triggerFetchItems() {
 	window.cur_frm?.script_manager?.trigger("custom_pea_fetch_items");
 }
 
-function hasFetchedItemsOrVisibleMessage() {
-	return (
-		(window.cur_frm?.doc?.items || []).length > 0 ||
-		Boolean(document.querySelector(".modal.show"))
-	);
+function hasFetchedItemsWithoutVisibleDialog() {
+	return (window.cur_frm?.doc?.items || []).length > 0 && !document.querySelector(".modal.show");
 }
 
 async function waitForStockEntryReady(page) {
@@ -382,7 +379,8 @@ class StockEntryPage {
 					() => window.cur_frm?.doctype === "Stock Entry" && Boolean(window.cur_frm?.doc)
 				);
 				await this.page.evaluate(triggerFetchItems);
-				await this.page.waitForFunction(hasFetchedItemsOrVisibleMessage);
+				await this.page.waitForFunction(hasFetchedItemsWithoutVisibleDialog);
+				await expect(this.page.locator(".modal.show")).toHaveCount(0);
 			},
 			5
 		);
@@ -439,7 +437,7 @@ class StockEntryPage {
 }
 
 module.exports = {
-	hasFetchedItemsOrVisibleMessage,
+	hasFetchedItemsWithoutVisibleDialog,
 	isStockEntryReady,
 	StockEntryPage,
 	triggerFetchItems,

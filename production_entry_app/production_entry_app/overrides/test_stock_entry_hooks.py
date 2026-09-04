@@ -22,6 +22,7 @@ from production_entry_app.production_entry_app.utils.alternative_items import (
 	get_bom_alternative_allowed_items,
 )
 from production_entry_app.production_entry_app.utils.rejection_warehouse import resolve_rejection_warehouse
+from production_entry_app.production_entry_app.utils.stock_entry_branch import stock_entry_has_branch_field
 from production_entry_app.production_entry_app.utils.stock_entry_type_flags import (
 	is_joint_lh_rh_stock_entry_type,
 )
@@ -108,12 +109,8 @@ def _ensure_loss_entry_shift_field() -> None:
 	frappe.clear_cache(doctype="Loss Entry")
 
 
-def _stock_entry_has_branch_field() -> bool:
-	return frappe.get_meta("Stock Entry", cached=True).has_field("branch")
-
-
 def _assert_stock_entry_branch_not_injected(test_case: FrappeTestCase, doc: Document) -> None:
-	test_case.assertFalse(_stock_entry_has_branch_field())
+	test_case.assertFalse(stock_entry_has_branch_field())
 	test_case.assertNotIn("branch", doc.__dict__)
 
 
@@ -161,7 +158,7 @@ class TestStockEntryHookPureHelpers(FrappeTestCase):
 			flags=frappe._dict(),
 		)
 		with (
-			patch.object(stock_entry_hooks, "is_rework_stock_entry", return_value=False),
+			patch.object(stock_entry_hooks, "is_rework_stock_entry_type", return_value=False),
 			patch.object(
 				stock_entry_hooks, "_validate_linked_shift_can_accept_stock_entry"
 			) as validate_shift,
@@ -186,7 +183,7 @@ class TestStockEntryHookPureHelpers(FrappeTestCase):
 			flags=frappe._dict(),
 		)
 		with (
-			patch.object(stock_entry_hooks, "is_rework_stock_entry", return_value=True),
+			patch.object(stock_entry_hooks, "is_rework_stock_entry_type", return_value=True),
 			patch.object(
 				stock_entry_hooks, "_validate_linked_shift_can_accept_stock_entry"
 			) as validate_shift,
@@ -203,6 +200,7 @@ class TestStockEntryHookPureHelpers(FrappeTestCase):
 		apply_defaults.assert_not_called()
 		stamp_late.assert_not_called()
 		sync_losses.assert_not_called()
+		self.assertIsNone(doc.custom_pea_shift)
 
 	def test_stock_entry_type_flag_handles_dict_payload_without_flags(self) -> None:
 		doc = frappe._dict({"stock_entry_type": "Manufacture"})
@@ -391,7 +389,7 @@ class TestStockEntryHookPureHelpers(FrappeTestCase):
 		):
 			self.assertEqual(stock_entry_hooks._get_docfield_precision("Stock Entry", "missing", object()), 3)
 
-	def test_validate_rejection_target_warehouses_returns_when_flag_missing_and_requires_target(self) -> None:
+	def test_validate_rejection_target_warehouses_requires_target(self) -> None:
 		doc = frappe._dict(
 			{
 				"items": [
@@ -399,17 +397,22 @@ class TestStockEntryHookPureHelpers(FrappeTestCase):
 				]
 			}
 		)
-		with patch(
-			"production_entry_app.production_entry_app.overrides.stock_entry_hooks._has_rejected_warehouse_flag",
-			return_value=False,
+		with self.assertRaisesRegex(frappe.ValidationError, "Target Warehouse"):
+			stock_entry_hooks._validate_rejection_target_warehouses(doc)
+
+	def test_validate_rejection_target_warehouses_requires_rejected_warehouse(self) -> None:
+		doc = frappe._dict(
+			{
+				"items": [
+					frappe._dict({"custom_pea_is_rejection_item": 1, "t_warehouse": "Invalid WH", "idx": 1}),
+				]
+			}
+		)
+		with (
+			patch.object(stock_entry_hooks, "is_rejected_warehouse", return_value=False),
+			self.assertRaisesRegex(frappe.ValidationError, "marked as Rejected Warehouse"),
 		):
 			stock_entry_hooks._validate_rejection_target_warehouses(doc)
-		with patch(
-			"production_entry_app.production_entry_app.overrides.stock_entry_hooks._has_rejected_warehouse_flag",
-			return_value=True,
-		):
-			with self.assertRaisesRegex(frappe.ValidationError, "Target Warehouse"):
-				stock_entry_hooks._validate_rejection_target_warehouses(doc)
 
 	def test_rejection_warehouse_uses_settings_fallback_and_throws_when_missing(self) -> None:
 		ctx = bootstrap_manufacturing_test_context("Rejection Branch Defaults")
@@ -428,15 +431,8 @@ class TestStockEntryHookPureHelpers(FrappeTestCase):
 				"is_new": lambda: True,
 			}
 		)
-		with patch(
-			"production_entry_app.production_entry_app.overrides.stock_entry_hooks._has_rejected_warehouse_flag",
-			return_value=True,
-		):
-			with patch(
-				"production_entry_app.production_entry_app.overrides.stock_entry_hooks._is_rejected_warehouse",
-				return_value=False,
-			):
-				self.assertIsNone(stock_entry_hooks._get_existing_rejection_target_warehouse(doc))
+		with patch.object(stock_entry_hooks, "is_rejected_warehouse", return_value=False):
+			self.assertIsNone(stock_entry_hooks._get_existing_rejection_target_warehouse(doc))
 
 	def test_build_metrics_note_handles_zero_partial_and_full_loss_windows(self) -> None:
 		self.assertEqual(stock_entry_hooks._build_metrics_note(0, 1), "")
@@ -886,7 +882,7 @@ class TestStockEntryHooks(FrappeTestCase):
 		)
 		se.save()
 
-		if _stock_entry_has_branch_field():
+		if stock_entry_has_branch_field():
 			self.assertEqual(se.branch, "Test Branch SE")
 		else:
 			_assert_stock_entry_branch_not_injected(self, se)
@@ -1879,7 +1875,7 @@ class TestStockEntryHooks(FrappeTestCase):
 		se.save()
 
 		self.assertEqual(se.custom_pea_shift, shift.name)
-		if _stock_entry_has_branch_field():
+		if stock_entry_has_branch_field():
 			self.assertEqual(se.branch, shift.branch)
 		else:
 			_assert_stock_entry_branch_not_injected(self, se)
@@ -4877,7 +4873,7 @@ class TestStockEntryLateEntryStamp(FrappeTestCase):
 		shift = self._make_running_shift(masters)
 		branch = frappe.db.get_value("Shift", shift.name, "branch")
 		se = make_direct_manufacture_entry(masters, shift=shift.name, fg_qty=100, rejection_qty=0)
-		if _stock_entry_has_branch_field():
+		if stock_entry_has_branch_field():
 			self.assertEqual(se.branch, branch)
 		else:
 			_assert_stock_entry_branch_not_injected(self, se)

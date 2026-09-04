@@ -8,13 +8,13 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from production_entry_app.production_entry_app import api, rework
+from production_entry_app.production_entry_app.e2e_api import (
+	insert_pending_rework_source,
+)
 from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
 	before_submit_stock_entry,
 )
 from production_entry_app.production_entry_app.tests.support.manufacture_builders import ensure_item
-from production_entry_app.production_entry_app.tests.support.rework_builders import (
-	insert_pending_rework_source,
-)
 from production_entry_app.production_entry_app.utils.stock_entry_type_flags import is_rework_stock_entry_type
 
 
@@ -198,8 +198,9 @@ class TestPendingReworkPool(FrappeTestCase):
 			patch.object(
 				rework,
 				"_get_pending_rework_by_item",
-				side_effect=lambda **kwargs: events.append(("read", kwargs))
-				or {self.item_a: 1, self.item_b: 1},
+				side_effect=lambda **kwargs: (
+					events.append(("read", kwargs)) or {self.item_a: 1, self.item_b: 1}
+				),
 			),
 		):
 			rework.validate_rework_submission(doc)
@@ -229,10 +230,9 @@ class TestPendingReworkPool(FrappeTestCase):
 		doc.branch = ""
 		with (
 			patch.object(rework, "get_branch_warehouse_defaults", return_value={}) as defaults,
-			patch.object(rework, "_has_rejected_warehouse_flag", return_value=True),
 			patch.object(
 				rework,
-				"_is_rejected_warehouse",
+				"is_rejected_warehouse",
 				side_effect=lambda warehouse: warehouse == "Rejection Warehouse",
 			),
 			patch.object(rework, "_lock_items_for_rework_submission"),
@@ -247,8 +247,7 @@ class TestPendingReworkPool(FrappeTestCase):
 		doc.branch = ""
 		with (
 			patch.object(rework, "get_branch_warehouse_defaults", return_value={}),
-			patch.object(rework, "_has_rejected_warehouse_flag", return_value=True),
-			patch.object(rework, "_is_rejected_warehouse", return_value=False),
+			patch.object(rework, "is_rejected_warehouse", return_value=False),
 			self.assertRaisesRegex(frappe.ValidationError, "marked as Rejected Warehouse"),
 		):
 			rework._validate_rework_route(doc)

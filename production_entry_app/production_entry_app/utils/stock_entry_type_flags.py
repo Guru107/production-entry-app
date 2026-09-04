@@ -31,7 +31,7 @@ def _get_cached_stock_entry_type_flag(
 	stock_entry_type = doc.get("stock_entry_type")
 	flags = doc.flags or frappe._dict()
 	doc.flags = flags
-	cached = _get_cached_flag(flags, cache_fieldname)
+	cached = flags.get(cache_fieldname)
 	if cached and cached[0] == stock_entry_type:
 		return bool(cached[1])
 
@@ -40,7 +40,3 @@ def _get_cached_stock_entry_type_flag(
 	)
 	flags[cache_fieldname] = (stock_entry_type, is_enabled)
 	return is_enabled
-
-
-def _get_cached_flag(flags: frappe._dict, cache_fieldname: str) -> tuple[str | None, bool] | None:
-	return flags.get(cache_fieldname)

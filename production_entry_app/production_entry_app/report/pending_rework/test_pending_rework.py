@@ -6,11 +6,11 @@ import frappe
 from frappe.desk.query_report import run as run_query_report
 from frappe.tests.utils import FrappeTestCase
 
-from production_entry_app.production_entry_app.report.pending_rework import pending_rework
-from production_entry_app.production_entry_app.test_native_permissions import _ensure_user_with_exact_roles
-from production_entry_app.production_entry_app.tests.support.rework_builders import (
+from production_entry_app.production_entry_app.e2e_api import (
 	insert_pending_rework_source,
 )
+from production_entry_app.production_entry_app.report.pending_rework import pending_rework
+from production_entry_app.production_entry_app.test_native_permissions import _ensure_user_with_exact_roles
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	ensure_item,
 	ensure_warehouse,

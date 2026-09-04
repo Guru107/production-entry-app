@@ -600,7 +600,11 @@ function _sync_rework_mode_from_stock_entry_type(frm, { previousStockEntryType =
 		frm.refresh_fields?.(REWORK_LAYOUT_FIELDS);
 		frm.refresh_field?.("custom_pea_shift");
 		frm.toggle_display(REWORK_FIELDS, isReworkType);
+		frm.toggle_display("custom_pea_shift", !isReworkType && _is_production_doc(frm.doc));
 		if (isReworkType) {
+			if (frm.doc.custom_pea_shift) {
+				frm.set_value?.("custom_pea_shift", "");
+			}
 			_schedule_rework_source_warehouse(frm);
 		}
 	};
@@ -734,11 +738,7 @@ function _sync_rework_source_warehouse(
 }
 
 function _get_rework_source_args(company, branch) {
-	const args = { company };
-	if (branch) {
-		args.branch = branch;
-	}
-	return args;
+	return { company, branch };
 }
 
 function _get_rework_source_context(frm) {

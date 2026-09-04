@@ -41,10 +41,7 @@ def bootstrap_manufacture_masters() -> dict[str, Any]:
 		rejection_warehouse=rejection_warehouse,
 		scrap_warehouse=scrap_warehouse,
 	)
-	if frappe.get_meta("Warehouse", cached=True).has_field("is_rejected_warehouse"):
-		frappe.db.set_value(
-			"Warehouse", rejection_warehouse, "is_rejected_warehouse", 1, update_modified=False
-		)
+	frappe.db.set_value("Warehouse", rejection_warehouse, "is_rejected_warehouse", 1, update_modified=False)
 
 	fg_item = ensure_item("_Audit #1 FG Item")
 	rm_item = ensure_item("_Audit #1 RM Item")
