@@ -2045,6 +2045,12 @@ class TestE2EApi(FrappeTestCase):
 			clear_timeline_cache = stack.enter_context(
 				patch("production_entry_app.production_entry_app.e2e_api._clear_timeline_cache_for_context")
 			)
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.e2e_api._stock_entry_has_branch_field",
+					return_value=True,
+				)
+			)
 			stack.enter_context(patch("production_entry_app.production_entry_app.e2e_api.frappe.db.commit"))
 
 			result = create_e2e_submitted_stock_entry(
@@ -2076,6 +2082,58 @@ class TestE2EApi(FrappeTestCase):
 		doc.insert.assert_called_once_with(ignore_permissions=True)
 		doc.submit.assert_called_once()
 		clear_timeline_cache.assert_called_once()
+
+	def test_create_e2e_submitted_stock_entry_omits_branch_without_host_field(self) -> None:
+		shift = MagicMock()
+		shift.name = "SHIFT-001"
+		shift.shift_date = "2099-01-20"
+		doc = MagicMock()
+		doc.name = "MAT-STE-001"
+		doc.branch = "_Test Branch"
+		doc.docstatus = 1
+		doc.get.return_value = [
+			frappe._dict({"is_finished_item": 0, "s_warehouse": None, "t_warehouse": None}),
+			frappe._dict({"is_finished_item": 1, "s_warehouse": None, "t_warehouse": None}),
+		]
+		with ExitStack() as stack:
+			stack.enter_context(
+				patch("production_entry_app.production_entry_app.e2e_api._assert_e2e_api_allowed")
+			)
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.e2e_api.bootstrap_e2e_context",
+					return_value={
+						"company": "_Test Company",
+						"bom": "BOM-001",
+						"wip_warehouse": "WIP",
+						"fg_warehouse": "FG",
+						"shift_name": "SHIFT-001",
+						"operator": "E2E Operator",
+						"workstation": "E2E Workstation",
+					},
+				)
+			)
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.e2e_api.frappe.get_doc",
+					side_effect=[shift, doc],
+				)
+			)
+			stack.enter_context(
+				patch("production_entry_app.production_entry_app.e2e_api._clear_timeline_cache_for_context")
+			)
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.e2e_api._stock_entry_has_branch_field",
+					return_value=False,
+				)
+			)
+			stack.enter_context(patch("production_entry_app.production_entry_app.e2e_api.frappe.db.commit"))
+
+			result = create_e2e_submitted_stock_entry(prefix="E2E")
+
+		self.assertNotIn("branch", result)
+		self.assertEqual(result["name"], "MAT-STE-001")
 
 	def test_insert_e2e_full_shift_stock_entry_does_not_mutate_payload(self) -> None:
 		payload = {

@@ -410,6 +410,22 @@ def _clear_timeline_cache_for_context(ctx: dict, shift_name: str) -> None:
 	)
 
 
+def _stock_entry_has_branch_field() -> bool:
+	return frappe.get_meta("Stock Entry", cached=True).has_field("branch")
+
+
+def _serialize_e2e_submitted_stock_entry(doc: Document, posting_date: str, shift_name: str) -> dict[str, Any]:
+	result: dict[str, Any] = {
+		"name": doc.name,
+		"docstatus": doc.docstatus,
+		"posting_date": posting_date,
+		"shift_name": shift_name,
+	}
+	if _stock_entry_has_branch_field():
+		result["branch"] = getattr(doc, "branch", None)
+	return result
+
+
 def _build_e2e_shift_doc(
 	*,
 	base_date: str,
@@ -990,13 +1006,7 @@ def create_e2e_submitted_stock_entry(
 	_clear_timeline_cache_for_context(ctx, shift.name)
 
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit - required for report read-after-write checks
-	return {
-		"name": doc.name,
-		"docstatus": doc.docstatus,
-		"posting_date": shift_date,
-		"shift_name": shift.name,
-		"branch": getattr(doc, "branch", None),
-	}
+	return _serialize_e2e_submitted_stock_entry(doc, shift_date, shift.name)
 
 
 def _is_valid_e2e_expense_account(account: str | None, company: str) -> bool:

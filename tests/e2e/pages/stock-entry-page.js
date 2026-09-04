@@ -20,6 +20,17 @@ function isStockEntryReady(requireAjaxIdle) {
 	return !requireAjaxIdle || window.frappe?.request?.ajax_count === 0;
 }
 
+function triggerFetchItems() {
+	window.cur_frm?.script_manager?.trigger("custom_pea_fetch_items");
+}
+
+function hasFetchedItemsOrVisibleMessage() {
+	return (
+		(window.cur_frm?.doc?.items || []).length > 0 ||
+		Boolean(document.querySelector(".modal.show"))
+	);
+}
+
 async function waitForStockEntryReady(page) {
 	await retryOnContextDestroyed(
 		page,
@@ -370,12 +381,8 @@ class StockEntryPage {
 				await this.page.waitForFunction(
 					() => window.cur_frm?.doctype === "Stock Entry" && Boolean(window.cur_frm?.doc)
 				);
-				await this.page.evaluate(async () => {
-					await cur_frm.script_manager.trigger("custom_pea_fetch_items");
-				});
-				await this.page.waitForFunction(
-					() => (window.cur_frm?.doc?.items || []).length > 0
-				);
+				await this.page.evaluate(triggerFetchItems);
+				await this.page.waitForFunction(hasFetchedItemsOrVisibleMessage);
 			},
 			5
 		);
@@ -432,7 +439,9 @@ class StockEntryPage {
 }
 
 module.exports = {
+	hasFetchedItemsOrVisibleMessage,
 	isStockEntryReady,
 	StockEntryPage,
+	triggerFetchItems,
 	waitForStockEntryReady,
 };

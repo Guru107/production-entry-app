@@ -1,7 +1,12 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { isStockEntryReady, waitForStockEntryReady } = require("../e2e/pages/stock-entry-page");
+const {
+	hasFetchedItemsOrVisibleMessage,
+	isStockEntryReady,
+	triggerFetchItems,
+	waitForStockEntryReady,
+} = require("../e2e/pages/stock-entry-page");
 
 function withBrowserState(callback) {
 	const originalWindow = global.window;
@@ -62,6 +67,40 @@ test("Stock Entry AJAX readiness requires its new form and an idle Frappe reques
 		assert.equal(isStockEntryReady(true), false);
 		delete global.window.frappe.request;
 		assert.equal(isStockEntryReady(true), false);
+	});
+});
+
+test("fetch item trigger does not await Frappe's async form trigger", () => {
+	withBrowserState(() => {
+		let triggered = false;
+		global.window = {
+			cur_frm: {
+				script_manager: {
+					trigger(fieldname) {
+						triggered = fieldname;
+						return new Promise(() => {});
+					},
+				},
+			},
+		};
+
+		assert.equal(triggerFetchItems(), undefined);
+		assert.equal(triggered, "custom_pea_fetch_items");
+	});
+});
+
+test("fetch item completion accepts either rows or a visible validation message", () => {
+	withBrowserState(() => {
+		global.document = { querySelector: () => null };
+		global.window = { cur_frm: { doc: { items: [] } } };
+		assert.equal(hasFetchedItemsOrVisibleMessage(), false);
+
+		global.window.cur_frm.doc.items = [{}];
+		assert.equal(hasFetchedItemsOrVisibleMessage(), true);
+
+		global.window.cur_frm.doc.items = [];
+		global.document.querySelector = () => ({ role: "dialog" });
+		assert.equal(hasFetchedItemsOrVisibleMessage(), true);
 	});
 });
 
