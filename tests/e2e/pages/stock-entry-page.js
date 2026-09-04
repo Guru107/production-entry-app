@@ -21,7 +21,29 @@ function isStockEntryReady(requireAjaxIdle) {
 }
 
 function triggerFetchItems() {
-	window.cur_frm?.script_manager?.trigger("custom_pea_fetch_items");
+	return window.cur_frm?.script_manager?.trigger("custom_pea_fetch_items");
+}
+
+function getVisibleFetchItemsState() {
+	const modal = document.querySelector(".modal.show");
+	let hasErrorDialog = false;
+	let modalText = "";
+	if (modal) {
+		modalText = (modal.innerText || modal.textContent || "").trim();
+		if (modal.querySelector?.(".indicator.red, .indicator-pill.red")) {
+			hasErrorDialog = true;
+		} else {
+			hasErrorDialog =
+				/\b(error|failed|cannot|mandatory|required|validation|qty to manufacture)\b/i.test(
+					modalText
+				);
+		}
+	}
+	return {
+		hasErrorDialog,
+		itemCount: (window.cur_frm?.doc?.items || []).length,
+		modalText,
+	};
 }
 
 function hasVisibleFetchItemsErrorDialog() {
@@ -38,21 +60,96 @@ function hasVisibleFetchItemsErrorDialog() {
 	);
 }
 
-function hasFetchItemsCompletedWithoutVisibleError() {
-	const modal = document.querySelector(".modal.show");
-	let hasErrorDialog = false;
-	if (modal) {
-		if (modal.querySelector?.(".indicator.red, .indicator-pill.red")) {
-			hasErrorDialog = true;
-		} else {
-			const text = (modal.innerText || modal.textContent || "").trim();
-			hasErrorDialog =
-				/\b(error|failed|cannot|mandatory|required|validation|qty to manufacture)\b/i.test(
-					text
-				);
+async function waitForFetchItemsCall() {
+	const getState = () => {
+		const modal = document.querySelector(".modal.show");
+		let hasErrorDialog = false;
+		let modalText = "";
+		if (modal) {
+			modalText = (modal.innerText || modal.textContent || "").trim();
+			if (modal.querySelector?.(".indicator.red, .indicator-pill.red")) {
+				hasErrorDialog = true;
+			} else {
+				hasErrorDialog =
+					/\b(error|failed|cannot|mandatory|required|validation|qty to manufacture)\b/i.test(
+						modalText
+					);
+			}
 		}
+		return {
+			hasErrorDialog,
+			itemCount: (window.cur_frm?.doc?.items || []).length,
+			modalText,
+		};
+	};
+	const fetchMethods = new Set([
+		"production_entry_app.production_entry_app.api.get_items_with_rejection",
+		"production_entry_app.production_entry_app.api.get_joint_production_items",
+	]);
+	const originalCall = window.frappe?.call;
+	if (typeof originalCall !== "function") {
+		throw new Error("frappe.call is not available.");
 	}
-	return ((window.cur_frm?.doc?.items || []).length > 0 || Boolean(modal)) && !hasErrorDialog;
+	let restoreCall = () => {
+		window.frappe.call = originalCall;
+		restoreCall = () => {};
+	};
+	const fetchResult = new Promise((resolve, reject) => {
+		const timeout = setTimeout(() => {
+			reject(
+				new Error(
+					`Fetch Items did not call the server. State: ${JSON.stringify(getState())}`
+				)
+			);
+		}, 5000);
+
+		window.frappe.call = function (options) {
+			const method = typeof options === "string" ? options : options?.method;
+			if (!fetchMethods.has(method)) {
+				return originalCall.apply(this, arguments);
+			}
+
+			const wrappedOptions = { ...options };
+			const originalCallback = options.callback;
+			const originalError = options.error;
+			wrappedOptions.callback = function (response) {
+				try {
+					originalCallback?.apply(this, arguments);
+				} finally {
+					clearTimeout(timeout);
+					resolve({
+						rowCount: Array.isArray(response?.message)
+							? response.message.length
+							: null,
+					});
+				}
+			};
+			wrappedOptions.error = function (error) {
+				try {
+					originalError?.apply(this, arguments);
+				} finally {
+					clearTimeout(timeout);
+					reject(
+						new Error(
+							`Fetch Items call failed. State: ${JSON.stringify(
+								getState()
+							)} Error: ${JSON.stringify(error || {})}`
+						)
+					);
+				}
+			};
+			return originalCall.call(this, wrappedOptions);
+		};
+	});
+
+	try {
+		await window.cur_frm?.script_manager?.trigger("custom_pea_fetch_items");
+		const result = await fetchResult;
+		await window.frappe.after_ajax?.();
+		return { ...result, ...getState() };
+	} finally {
+		restoreCall();
+	}
 }
 
 async function waitForStockEntryReady(page) {
@@ -405,12 +502,17 @@ class StockEntryPage {
 				await this.page.waitForFunction(
 					() => window.cur_frm?.doctype === "Stock Entry" && Boolean(window.cur_frm?.doc)
 				);
-				await this.page.evaluate(triggerFetchItems);
 				if (expectValidation) {
+					await this.page.evaluate(triggerFetchItems);
 					await this.page.waitForFunction(hasVisibleFetchItemsErrorDialog);
 					return;
 				}
-				await this.page.waitForFunction(hasFetchItemsCompletedWithoutVisibleError);
+				const result = await this.page.evaluate(waitForFetchItemsCall);
+				if (!result.itemCount) {
+					throw new Error(
+						`Fetch Items returned no item rows. State: ${JSON.stringify(result)}`
+					);
+				}
 				await expect(
 					this.page.locator(
 						".modal.show .indicator.red, .modal.show .indicator-pill.red"
@@ -472,10 +574,11 @@ class StockEntryPage {
 }
 
 module.exports = {
-	hasFetchItemsCompletedWithoutVisibleError,
+	getVisibleFetchItemsState,
 	hasVisibleFetchItemsErrorDialog,
 	isStockEntryReady,
 	StockEntryPage,
 	triggerFetchItems,
 	waitForStockEntryReady,
+	waitForFetchItemsCall,
 };

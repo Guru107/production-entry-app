@@ -289,7 +289,7 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 				frappe.msgprint(__("Please set LH and RH Gross Quantity before fetching items."));
 				return;
 			}
-			frappe.call({
+			return frappe.call({
 				method: isJoint
 					? "production_entry_app.production_entry_app.api.get_joint_production_items"
 					: "production_entry_app.production_entry_app.api.get_items_with_rejection",

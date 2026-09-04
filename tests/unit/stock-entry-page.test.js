@@ -2,10 +2,11 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const {
-	hasFetchItemsCompletedWithoutVisibleError,
+	getVisibleFetchItemsState,
 	hasVisibleFetchItemsErrorDialog,
 	isStockEntryReady,
 	triggerFetchItems,
+	waitForFetchItemsCall,
 	waitForStockEntryReady,
 } = require("../e2e/pages/stock-entry-page");
 
@@ -71,43 +72,53 @@ test("Stock Entry AJAX readiness requires its new form and an idle Frappe reques
 	});
 });
 
-test("fetch item trigger does not await Frappe's async form trigger", () => {
+test("fetch item trigger preserves Frappe's async form trigger return value", () => {
 	withBrowserState(() => {
 		let triggered = false;
+		const pending = new Promise(() => {});
 		global.window = {
 			cur_frm: {
 				script_manager: {
 					trigger(fieldname) {
 						triggered = fieldname;
-						return new Promise(() => {});
+						return pending;
 					},
 				},
 			},
 		};
 
-		assert.equal(triggerFetchItems(), undefined);
+		assert.equal(triggerFetchItems(), pending);
 		assert.equal(triggered, "custom_pea_fetch_items");
 	});
 });
 
-test("fetch item success accepts rows or a non-error dialog but rejects error dialogs", () => {
+test("fetch item visible state reports rows and error dialogs", () => {
 	withBrowserState(() => {
 		global.document = { querySelector: () => null };
 		global.window = { cur_frm: { doc: { items: [] } } };
-		assert.equal(hasFetchItemsCompletedWithoutVisibleError(), false);
+		assert.deepEqual(getVisibleFetchItemsState(), {
+			hasErrorDialog: false,
+			itemCount: 0,
+			modalText: "",
+		});
 
 		global.window.cur_frm.doc.items = [{}];
-		assert.equal(hasFetchItemsCompletedWithoutVisibleError(), true);
+		assert.deepEqual(getVisibleFetchItemsState(), {
+			hasErrorDialog: false,
+			itemCount: 1,
+			modalText: "",
+		});
 
 		global.window.cur_frm.doc.items = [];
-		global.document.querySelector = () => ({ role: "dialog", querySelector: () => null });
-		assert.equal(hasFetchItemsCompletedWithoutVisibleError(), true);
-
 		global.document.querySelector = () => ({
 			innerText: "Qty to Manufacture is required",
 			querySelector: () => null,
 		});
-		assert.equal(hasFetchItemsCompletedWithoutVisibleError(), false);
+		assert.deepEqual(getVisibleFetchItemsState(), {
+			hasErrorDialog: true,
+			itemCount: 0,
+			modalText: "Qty to Manufacture is required",
+		});
 	});
 });
 
@@ -147,11 +158,52 @@ test("Stock Entry readiness predicates remain self-contained after Playwright se
 
 		assert.equal(serializeForBrowser(isStockEntryReady)(false), true);
 		assert.equal(serializeForBrowser(isStockEntryReady)(true), true);
-		global.window.cur_frm.doc.items = [];
-		assert.equal(serializeForBrowser(hasFetchItemsCompletedWithoutVisibleError)(), false);
-		global.window.cur_frm.doc.items = [{}];
-		assert.equal(serializeForBrowser(hasFetchItemsCompletedWithoutVisibleError)(), true);
+		global.document.querySelector = () => ({
+			innerText: "Qty to Manufacture is required",
+			querySelector: () => null,
+		});
+		assert.equal(serializeForBrowser(hasVisibleFetchItemsErrorDialog)(), true);
 	});
+});
+
+test("Fetch Items wait resolves after the client RPC callback applies rows", async () => {
+	const originalWindow = global.window;
+	const originalDocument = global.document;
+	try {
+		global.document = { querySelector: () => null };
+		global.window = {
+			cur_frm: {
+				doc: { items: [] },
+				script_manager: {
+					trigger(fieldname) {
+						assert.equal(fieldname, "custom_pea_fetch_items");
+						global.window.frappe.call({
+							method: "production_entry_app.production_entry_app.api.get_items_with_rejection",
+							callback(response) {
+								global.window.cur_frm.doc.items = response.message;
+							},
+						});
+					},
+				},
+			},
+			frappe: {
+				after_ajax: async () => {},
+				call(options) {
+					options.callback({ message: [{ item_code: "FG" }] });
+				},
+			},
+		};
+
+		assert.deepEqual(await waitForFetchItemsCall(), {
+			hasErrorDialog: false,
+			itemCount: 1,
+			modalText: "",
+			rowCount: 1,
+		});
+	} finally {
+		global.window = originalWindow;
+		global.document = originalDocument;
+	}
 });
 
 test("Stock Entry readiness retries both bounded phases after context destruction", async () => {
