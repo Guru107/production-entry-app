@@ -323,6 +323,24 @@ test.describe("Rework full lifecycle", () => {
 		await expectValidationError(page, /requested 6.*Available quantity is 5/i);
 	});
 
+	test("@regression does not fan out blank breakup rows across multiple rejected items", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		const context = await callFrappeMethod(
+			page,
+			"production_entry_app.production_entry_app.e2e_api.create_e2e_ambiguous_pending_rework_source",
+			{ prefix: lifecycle.getPrefix(), qty: 5 }
+		);
+		const reportsPage = new ReportsPage(page);
+		await reportsPage.open("Pending Rework");
+		for (const itemCode of [context.fg_item, context.other_item]) {
+			await reportsPage.setFilterByFieldname("item_code", itemCode);
+			await reportsPage.clickRefresh();
+			expect(await reportsPage.getRows()).toEqual([]);
+		}
+	});
+
 	test("@regression rejects wrong rework source and target routes", async ({ page }) => {
 		const context = await seedLifecycle(page, lifecycle.getPrefix());
 		const stockEntryPage = await fillReworkEntry(page, context);

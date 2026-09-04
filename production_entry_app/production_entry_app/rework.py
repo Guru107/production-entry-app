@@ -6,7 +6,7 @@ from typing import Any
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.query_builder.functions import Min, Sum
+from frappe.query_builder.functions import Count, Min, Sum
 from frappe.utils import flt
 
 from production_entry_app.production_entry_app.utils.production_warehouses import (
@@ -196,16 +196,22 @@ def _build_rework_produced_query(
 		.where(StockEntryDetail.custom_pea_is_rejection_item == 1)
 		.groupby(StockEntryDetail.parent, StockEntryDetail.item_code)
 	).as_("rejection_detail")
+	RejectionItemCount = (
+		frappe.qb.from_(RejectionDetail)
+		.select(RejectionDetail.parent, Count(RejectionDetail.item_code).as_("item_count"))
+		.groupby(RejectionDetail.parent)
+	).as_("rejection_item_count")
 	RejectionBreakup = frappe.qb.DocType("Rejection Breakup")
-	item_matches_breakup = (
-		(RejectionBreakup.item_code.isnull())
-		| (RejectionBreakup.item_code == "")
-		| (RejectionBreakup.item_code == RejectionDetail.item_code)
+	blank_breakup_item = RejectionBreakup.item_code.isnull() | (RejectionBreakup.item_code == "")
+	item_matches_breakup = (RejectionBreakup.item_code == RejectionDetail.item_code) | (
+		blank_breakup_item & (RejectionItemCount.item_count == 1)
 	)
 	query = (
 		frappe.qb.from_(RejectionBreakup)
 		.join(StockEntry)
 		.on((RejectionBreakup.parent == StockEntry.name) & (RejectionBreakup.parenttype == "Stock Entry"))
+		.join(RejectionItemCount)
+		.on(RejectionItemCount.parent == StockEntry.name)
 		.join(RejectionDetail)
 		.on((RejectionDetail.parent == StockEntry.name) & item_matches_breakup)
 		.where(StockEntry.docstatus == 1)

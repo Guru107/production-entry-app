@@ -13,6 +13,9 @@ from production_entry_app.production_entry_app.api import (
 	_cleanup_orphan_stock_entry_loss_links,
 	reset_die_tool_counter,
 )
+from production_entry_app.production_entry_app.tests.support.rework_builders import (
+	insert_pending_rework_source,
+)
 from production_entry_app.production_entry_app.utils.shift_time import get_shift_planned_end_datetime
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	PRODUCTION_ENTRY_SHIFT_SETTINGS_FIELDS,
@@ -755,6 +758,12 @@ def _cleanup_e2e_downtime_entries(targets: dict[str, object]) -> None:
 
 
 def _cleanup_e2e_rework_lifecycle_entries(prefix: str) -> None:
+	ambiguous_source = f"{prefix}-AMBIGUOUS-REWORK-SOURCE"
+	if frappe.db.exists("Stock Entry", ambiguous_source):
+		frappe.db.delete("Stock Entry Detail", {"parent": ambiguous_source})
+		frappe.db.delete("Rejection Breakup", {"parent": ambiguous_source})
+		frappe.db.delete("Stock Entry", {"name": ambiguous_source})
+
 	rework_type = f"{prefix} Rework Type"
 	for name in frappe.get_all(
 		"Stock Entry",
@@ -1119,6 +1128,34 @@ def create_e2e_rework_lifecycle_source(prefix: str = "E2E", qty: float = 5) -> d
 		"pending_qty": flt(pending_qty),
 		"rejection_warehouse_qty": flt(rejection_warehouse_qty),
 		"good_warehouse_qty": flt(good_warehouse_qty),
+	}
+
+
+@frappe.whitelist()
+def create_e2e_ambiguous_pending_rework_source(prefix: str = "E2E", qty: float = 5) -> dict:
+	"""Create a submitted multi-item rejection source with an ambiguous blank breakup item."""
+	_assert_e2e_api_allowed()
+	prefix_value = (prefix or "").strip()
+	if prefix_value != "E2E" and not prefix_value.startswith("E2E_"):
+		frappe.throw(_("Prefix must identify a reserved E2E context."), frappe.ValidationError)
+	rework_qty = flt(qty)
+	if rework_qty <= 0:
+		frappe.throw(_("Rework quantity must be greater than zero."), frappe.ValidationError)
+
+	ctx = bootstrap_e2e_context(prefix=prefix_value)
+	source_entry = insert_pending_rework_source(
+		stock_entry_name=f"{prefix_value}-AMBIGUOUS-REWORK-SOURCE",
+		stock_entry_type="Manufacture",
+		purpose="Manufacture",
+		breakups=[("", "Burr", rework_qty)],
+		rejection_items=[ctx["fg_item"], ctx["rm_item"]],
+		rejection_warehouse=ctx["rejection_warehouse"],
+	)
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit - browser tests need persisted source data
+	return {
+		**ctx,
+		"source_entry": source_entry,
+		"other_item": ctx["rm_item"],
 	}
 
 

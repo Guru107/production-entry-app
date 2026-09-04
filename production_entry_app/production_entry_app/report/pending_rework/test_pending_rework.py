@@ -8,6 +8,9 @@ from frappe.tests.utils import FrappeTestCase
 
 from production_entry_app.production_entry_app.report.pending_rework import pending_rework
 from production_entry_app.production_entry_app.test_native_permissions import _ensure_user_with_exact_roles
+from production_entry_app.production_entry_app.tests.support.rework_builders import (
+	insert_pending_rework_source,
+)
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	ensure_item,
 	ensure_warehouse,
@@ -168,65 +171,29 @@ class TestPendingReworkReport(FrappeTestCase):
 		self.assertEqual(sql.call_count, 4)
 		self.assertEqual(rows[0]["derived_pending_qty"], 2)
 
-	def _insert_source(self, reasons: list[tuple[str, float]], *, item_code: str | None = None) -> str:
+	def test_blank_breakup_with_multiple_rejected_items_has_no_report_contributions(self) -> None:
+		other_item = ensure_item(f"_Test Pending Report Other {frappe.generate_hash(length=6)}")
+		self._insert_source([("Burr", 5)], breakup_item_code="", rejection_items=[self.item, other_item])
+
+		self.assertEqual(pending_rework.execute({"item_code": self.item})[1], [])
+		self.assertEqual(pending_rework.execute({"item_code": other_item})[1], [])
+
+	def _insert_source(
+		self,
+		reasons: list[tuple[str, float]],
+		*,
+		item_code: str | None = None,
+		breakup_item_code: str | None = None,
+		rejection_items: list[str] | None = None,
+	) -> str:
 		item_code = item_code or self.item
-		name = f"PENDING-SOURCE-{frappe.generate_hash(length=8)}"
-		StockEntry = frappe.qb.DocType("Stock Entry")
-		StockEntryDetail = frappe.qb.DocType("Stock Entry Detail")
-		RejectionBreakup = frappe.qb.DocType("Rejection Breakup")
-		(
-			frappe.qb.into(StockEntry)
-			.columns(StockEntry.name, StockEntry.docstatus, StockEntry.stock_entry_type)
-			.insert(name, 1, "Manufacture")
-		).run()
-		(
-			frappe.qb.into(StockEntryDetail)
-			.columns(
-				StockEntryDetail.name,
-				StockEntryDetail.parent,
-				StockEntryDetail.parenttype,
-				StockEntryDetail.parentfield,
-				StockEntryDetail.item_code,
-				StockEntryDetail.qty,
-				StockEntryDetail.t_warehouse,
-				StockEntryDetail.custom_pea_is_rejection_item,
-			)
-			.insert(
-				frappe.generate_hash(length=10),
-				name,
-				"Stock Entry",
-				"items",
-				item_code,
-				sum(qty for _reason, qty in reasons),
-				self.warehouse,
-				1,
-			)
-		).run()
-		for reason, qty in reasons:
-			(
-				frappe.qb.into(RejectionBreakup)
-				.columns(
-					RejectionBreakup.name,
-					RejectionBreakup.parent,
-					RejectionBreakup.parenttype,
-					RejectionBreakup.parentfield,
-					RejectionBreakup.item_code,
-					RejectionBreakup.rejection_reason,
-					RejectionBreakup.qty,
-					RejectionBreakup.is_rework,
-				)
-				.insert(
-					frappe.generate_hash(length=10),
-					name,
-					"Stock Entry",
-					"custom_pea_rejection_breakup",
-					item_code,
-					reason,
-					qty,
-					1,
-				)
-			).run()
-		return name
+		breakup_item_code = item_code if breakup_item_code is None else breakup_item_code
+		return insert_pending_rework_source(
+			stock_entry_type="Manufacture",
+			breakups=[(breakup_item_code, reason, qty) for reason, qty in reasons],
+			rejection_items=rejection_items or [item_code],
+			rejection_warehouse=self.warehouse,
+		)
 
 	def _insert_rework_consumption(self, qty: float) -> None:
 		stock_entry_type = f"Pending Rework Transfer {frappe.generate_hash(length=6)}"

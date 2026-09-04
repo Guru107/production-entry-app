@@ -66,6 +66,30 @@ class TestPendingReworkPool(FrappeTestCase):
 			[{"item_code": self.item_a, "pending_qty": 5.0}],
 		)
 
+	def test_pool_does_not_fan_out_blank_breakup_across_multiple_rejected_items(self) -> None:
+		self._insert_production_source(
+			stock_entry_type=self.normal_type,
+			breakups=[(None, 5)],
+			rejection_items=[self.item_a, self.item_b],
+		)
+
+		self.assertEqual(rework.get_pending_rework(self.item_a), [])
+		self.assertEqual(rework.get_pending_rework(self.item_b), [])
+
+	def test_submission_does_not_use_ambiguous_blank_breakup_as_available_rework(self) -> None:
+		self._insert_production_source(
+			stock_entry_type=self.normal_type,
+			breakups=[(None, 5)],
+			rejection_items=[self.item_a, self.item_b],
+		)
+		doc = self._rework_doc("REWORK-BLANK-AMBIGUOUS", [(self.item_a, 1)])
+
+		with (
+			patch.object(rework, "_validate_rework_route"),
+			self.assertRaisesRegex(frappe.ValidationError, rf"{self.item_a}.*Available quantity is 0"),
+		):
+			rework.validate_rework_submission(doc)
+
 	def test_cancelled_rework_entry_restores_derived_availability(self) -> None:
 		self._insert_production_source(
 			stock_entry_type=self.normal_type,
