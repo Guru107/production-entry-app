@@ -38,7 +38,7 @@ function hasVisibleFetchItemsErrorDialog() {
 	);
 }
 
-function hasFetchedItemsWithoutVisibleError() {
+function hasFetchItemsCompletedWithoutVisibleError() {
 	const modal = document.querySelector(".modal.show");
 	let hasErrorDialog = false;
 	if (modal) {
@@ -52,7 +52,7 @@ function hasFetchedItemsWithoutVisibleError() {
 				);
 		}
 	}
-	return (window.cur_frm?.doc?.items || []).length > 0 && !hasErrorDialog;
+	return ((window.cur_frm?.doc?.items || []).length > 0 || Boolean(modal)) && !hasErrorDialog;
 }
 
 async function waitForStockEntryReady(page) {
@@ -410,7 +410,7 @@ class StockEntryPage {
 					await this.page.waitForFunction(hasVisibleFetchItemsErrorDialog);
 					return;
 				}
-				await this.page.waitForFunction(hasFetchedItemsWithoutVisibleError);
+				await this.page.waitForFunction(hasFetchItemsCompletedWithoutVisibleError);
 				await expect(
 					this.page.locator(
 						".modal.show .indicator.red, .modal.show .indicator-pill.red"
@@ -472,7 +472,7 @@ class StockEntryPage {
 }
 
 module.exports = {
-	hasFetchedItemsWithoutVisibleError,
+	hasFetchItemsCompletedWithoutVisibleError,
 	hasVisibleFetchItemsErrorDialog,
 	isStockEntryReady,
 	StockEntryPage,

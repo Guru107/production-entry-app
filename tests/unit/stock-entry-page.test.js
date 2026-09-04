@@ -2,7 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const {
-	hasFetchedItemsWithoutVisibleError,
+	hasFetchItemsCompletedWithoutVisibleError,
 	hasVisibleFetchItemsErrorDialog,
 	isStockEntryReady,
 	triggerFetchItems,
@@ -90,27 +90,24 @@ test("fetch item trigger does not await Frappe's async form trigger", () => {
 	});
 });
 
-test("fetch item success requires rows and no visible error dialog", () => {
+test("fetch item success accepts rows or a non-error dialog but rejects error dialogs", () => {
 	withBrowserState(() => {
 		global.document = { querySelector: () => null };
 		global.window = { cur_frm: { doc: { items: [] } } };
-		assert.equal(hasFetchedItemsWithoutVisibleError(), false);
+		assert.equal(hasFetchItemsCompletedWithoutVisibleError(), false);
 
 		global.window.cur_frm.doc.items = [{}];
-		assert.equal(hasFetchedItemsWithoutVisibleError(), true);
+		assert.equal(hasFetchItemsCompletedWithoutVisibleError(), true);
 
 		global.window.cur_frm.doc.items = [];
 		global.document.querySelector = () => ({ role: "dialog", querySelector: () => null });
-		assert.equal(hasFetchedItemsWithoutVisibleError(), false);
-
-		global.window.cur_frm.doc.items = [{}];
-		assert.equal(hasFetchedItemsWithoutVisibleError(), true);
+		assert.equal(hasFetchItemsCompletedWithoutVisibleError(), true);
 
 		global.document.querySelector = () => ({
 			innerText: "Qty to Manufacture is required",
 			querySelector: () => null,
 		});
-		assert.equal(hasFetchedItemsWithoutVisibleError(), false);
+		assert.equal(hasFetchItemsCompletedWithoutVisibleError(), false);
 	});
 });
 
@@ -150,9 +147,10 @@ test("Stock Entry readiness predicates remain self-contained after Playwright se
 
 		assert.equal(serializeForBrowser(isStockEntryReady)(false), true);
 		assert.equal(serializeForBrowser(isStockEntryReady)(true), true);
-		assert.equal(serializeForBrowser(hasFetchedItemsWithoutVisibleError)(), false);
+		global.window.cur_frm.doc.items = [];
+		assert.equal(serializeForBrowser(hasFetchItemsCompletedWithoutVisibleError)(), false);
 		global.window.cur_frm.doc.items = [{}];
-		assert.equal(serializeForBrowser(hasFetchedItemsWithoutVisibleError)(), true);
+		assert.equal(serializeForBrowser(hasFetchItemsCompletedWithoutVisibleError)(), true);
 	});
 });
 
