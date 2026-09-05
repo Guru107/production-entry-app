@@ -203,6 +203,35 @@ test("Fetch Items wait resolves after the client RPC callback applies rows and r
 	});
 });
 
+test("Fetch Items wait does not await Frappe's form trigger promise", async () => {
+	await withBrowserState(async () => {
+		const originalCall = (options) => options.callback({ message: [{ item_code: "FG" }] });
+		installFetchItemsBrowser(originalCall);
+		global.window.cur_frm.script_manager.trigger = (fieldname) => {
+			assert.equal(fieldname, "custom_pea_fetch_items");
+			global.window.frappe.call({
+				method: "production_entry_app.production_entry_app.api.get_items_with_rejection",
+				callback(response) {
+					global.window.cur_frm.doc.items = response.message;
+				},
+			});
+			return new Promise(() => {});
+		};
+
+		assert.deepEqual(
+			await waitForFetchItemsCall({ stateSource: STATE_SOURCE, timeoutMs: 50 }),
+			{
+				hasErrorIndicator: false,
+				hasMessageDialog: false,
+				itemCount: 1,
+				modalText: "",
+				rowCount: 1,
+			}
+		);
+		assert.equal(global.window.frappe.call, originalCall);
+	});
+});
+
 test("Fetch Items wait rejects when the client RPC errors and still restores frappe.call", async () => {
 	await withBrowserState(async () => {
 		const originalCall = (options) => options.error({ message: "Server exploded" });

@@ -139,7 +139,7 @@ async function saveForm(page, action = "Save") {
 						unsaved: window.cur_frm?.doc?.__unsaved,
 					}))
 					.catch(() => ({ href: page.url() }));
-				if (attempt < 2 && action === "Save" && state.isNew && !state.message) {
+				if (attempt < 2 && action === "Save" && !state.message) {
 					await page.waitForTimeout(500);
 					continue;
 				}

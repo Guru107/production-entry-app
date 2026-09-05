@@ -60,7 +60,11 @@ async function waitForFetchItemsCall({ stateSource, timeoutMs }) {
 		window.frappe.call = originalCall;
 		restoreCall = () => {};
 	};
+	let rejectFetchResult = (error) => {
+		throw error;
+	};
 	const fetchResult = new Promise((resolve, reject) => {
+		rejectFetchResult = reject;
 		const timeout = setTimeout(() => {
 			reject(
 				new Error(
@@ -109,7 +113,10 @@ async function waitForFetchItemsCall({ stateSource, timeoutMs }) {
 	});
 
 	try {
-		await window.cur_frm?.script_manager?.trigger("custom_pea_fetch_items");
+		const triggerResult = window.cur_frm?.script_manager?.trigger("custom_pea_fetch_items");
+		if (triggerResult?.catch) {
+			triggerResult.catch((error) => rejectFetchResult(error));
+		}
 		const result = await fetchResult;
 		await window.frappe.after_ajax?.();
 		return { ...result, ...getState() };

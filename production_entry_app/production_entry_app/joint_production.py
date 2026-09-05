@@ -718,7 +718,7 @@ def validate_stock_entry_type(doc: Document, method: str | None = None) -> None:
 		if existing_joint_types:
 			frappe.throw(
 				_("Only one Stock Entry Type can be configured for Joint LH/RH Production. Use {0}.").format(
-					frappe.bold(existing_joint_types[0])
+					frappe.bold(frappe.utils.escape_html(existing_joint_types[0]))
 				)
 			)
 	if doc.get("custom_pea_rework_entry") and doc.get("purpose") != "Material Transfer":
