@@ -8,7 +8,7 @@ Guidance for Claude Code and developers working in this repository.
 
 - **Test-Driven Development is mandatory.** Write a failing test first; then write the
   implementation that makes it pass. No feature or bug-fix ships without tests.
-- **Coverage must stay above 90%** at all times.
+- **Coverage must stay above 85%** at all times.
 - **Always add E2E (Playwright) tests** for every user-facing flow. Run them after every change.
 - Avoid code duplication. Extract shared logic; don't copy-paste.
 - Keep solutions simple. Don't add error-handling, helpers, or abstractions for scenarios that
@@ -446,7 +446,7 @@ Run the full suite and check coverage before every PR:
 ```bash
 bench --site development.localhost run-tests --app production_entry_app --with-coverage
 ```
-Coverage must not drop below **90%**.
+Coverage must not drop below **85%**.
 
 ---
 

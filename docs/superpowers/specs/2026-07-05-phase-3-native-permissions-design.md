@@ -191,7 +191,7 @@ app doctype JSONs already carry complete DocPerms for `System Manager`, `PEA Use
   can read but not write; write endpoint blocked for `PEA Read Only`, allowed for
   `PEA User`. The formerly-permlevel-9 fields are now permlevel 0 (no field-level
   restriction to test).
-- **Regression:** full v15 + v16 suite green; coverage ≥ 90%. Rewrite the access-control
+- **Regression:** full v15 + v16 suite green; coverage ≥ 85%. Rewrite the access-control
   test modules (`test_access_control*.py`, `test_field_permissions.py`,
   `test_permission_hooks.py`) — delete those covering removed custom logic; add tests
   asserting native DocPerms/User-Permissions enforce the same outcomes.

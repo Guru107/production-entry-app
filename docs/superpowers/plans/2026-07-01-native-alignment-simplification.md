@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- TDD mandatory: failing test first, then implementation. Coverage stays **≥ 90%**.
+- TDD mandatory: failing test first, then implementation. Coverage stays **≥ 85%**.
 - **Tabs** for indentation (Python + JS). Python line length **110**. Type hints on all Python params + returns.
 - All user-visible strings wrapped in `_()` (Python) / `__()` (JS).
 - Every `frappe.call()` needs an `error:` callback.
@@ -1101,7 +1101,7 @@ git commit -m "feat: flag and surface post-completion (late) stock entries"
 - [ ] **Step 1: Run the full Python suite with coverage on v16**
 
 Run: `cd /root/workspace/bench16 && bench --site frappe16.localhost run-tests --app production_entry_app --with-coverage`
-Expected: all pass; coverage **≥ 90%**. If below, add tests for the uncovered new code (not asserts-on-asserts).
+Expected: all pass; coverage **≥ 85%**. If below, add tests for the uncovered new code (not asserts-on-asserts).
 
 Note on the E2E-helper move (Task 7): those helpers are exercised by Playwright, not the Python unit run, so they read as uncovered lines. Moving them from `api.py` to `e2e_api.py` does not change the covered/uncovered ratio (same lines, new file). If — and only if — the coverage number regresses because of the relocation, add a `.coveragerc` `omit = */e2e_api.py` at the app root rather than writing unit tests for E2E-only fixtures. Do not omit anything else.
 

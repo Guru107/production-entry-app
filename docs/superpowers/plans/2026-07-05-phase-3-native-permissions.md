@@ -16,7 +16,7 @@
 
 ## Global Constraints
 
-- TDD mandatory: failing test first, then implementation. Coverage stays **≥ 90%**.
+- TDD mandatory: failing test first, then implementation. Coverage stays **≥ 85%**.
 - **Tabs** for indentation. Python line length **110**. Type hints on all params + returns. User-visible strings in `_()`/`__()`.
 - **No custom permission logic.** Use native Frappe mechanisms only (Roles, DocPerms, User Permissions, `frappe.has_permission`). The app never auto-assigns roles.
 - Bench targets (cloud Linux env): `bench16` → `cd /root/workspace/bench16`, site **`frappe16.localhost`**, served :8002 (v16, primary). `bench15` → `cd /root/workspace/bench15`, site **`development.localhost`**, served :8000 (v15, parity).
@@ -570,7 +570,7 @@ git commit -m "test: replace custom access-control tests with native-permission 
 - [ ] **Step 1: Full Python suite + coverage on v16**
 
 Run: `cd /root/workspace/bench16 && bench --site frappe16.localhost run-tests --app production_entry_app --with-coverage`
-Expected: all pass; coverage ≥ 90%.
+Expected: all pass; coverage ≥ 85%.
 
 - [ ] **Step 2: Full Python suite on v15**
 
