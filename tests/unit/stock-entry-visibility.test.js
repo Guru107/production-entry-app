@@ -1470,6 +1470,57 @@ test("joint type lookup defers manufacture cleanup so common Shift context survi
 	}
 });
 
+test("passive joint type discovery asks quietly and stays non-joint when nothing is configured", () => {
+	const originalFrappe = global.frappe;
+	const originalTranslate = global.__;
+	const messages = [];
+	let lookup;
+	global.__ = (text) => text;
+	global.frappe = {
+		call(options) {
+			lookup = options;
+		},
+		msgprint(message) {
+			messages.push(message);
+		},
+	};
+	const frm = {
+		fields_dict: {},
+		layout: { sections: [] },
+		doc: {
+			custom_pea_is_joint_lh_rh: 0,
+			stock_entry_type: "Manufacture",
+			custom_pea_stock_entry_purpose: "Manufacture",
+			items: [],
+		},
+		get_field() {
+			return { df: { fieldtype: "Data" } };
+		},
+		clear_table(fieldname) {
+			this.doc[fieldname] = [];
+		},
+		refresh_fields() {},
+		refresh_field() {},
+		toggle_display() {},
+		toggle_reqd() {},
+		dirty() {},
+	};
+
+	try {
+		_sync_joint_stock_entry_type(frm, { source: "stock_entry_type" });
+
+		assert.deepEqual(lookup.args, { required: 0 });
+		lookup.callback({ message: "" });
+
+		assert.equal(frm.__peaJointStockEntryType, "");
+		assert.equal(frm.doc.custom_pea_is_joint_lh_rh, 0);
+		assert.deepEqual(messages, []);
+	} finally {
+		global.frappe = originalFrappe;
+		global.__ = originalTranslate;
+	}
+});
+
 test("leave-manufacture transition detector works", () => {
 	assert.equal(_did_leave_manufacture("Manufacture", "Material Transfer"), true);
 	assert.equal(_did_leave_manufacture("Manufacture", "Manufacture"), false);

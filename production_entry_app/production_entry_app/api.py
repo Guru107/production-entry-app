@@ -36,7 +36,8 @@ _ALLOWED_STOCK_ENTRY_SHIFT_STATUSES: tuple[str, ...] = ("Running", "Completed")
 
 
 @frappe.whitelist()
-def get_joint_stock_entry_type() -> str:
+def get_joint_stock_entry_type(required: int = 1) -> str:
+	"""Resolve the Joint LH/RH Repack type; passive callers (``required=0``) get "" when none exists."""
 	if not frappe.has_permission("Stock Entry", "create"):
 		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
 	stock_entry_types = frappe.get_list(
@@ -50,9 +51,10 @@ def get_joint_stock_entry_type() -> str:
 		limit=1,
 	)
 	if not stock_entry_types:
+		if not cint(required):
+			return ""
 		frappe.throw(_("Configure a Repack Stock Entry Type for Joint LH/RH Production first."))
-	stock_entry_type = stock_entry_types[0]
-	return stock_entry_type
+	return stock_entry_types[0]
 
 
 @frappe.whitelist()

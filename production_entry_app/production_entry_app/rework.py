@@ -23,6 +23,12 @@ REWORK_COST_PRECISION: int = 6
 SECONDS_PER_HOUR: int = 3600
 
 
+class _ReworkRoute(NamedTuple):
+	item_code: str
+	source: str | None
+	target: str | None
+
+
 @frappe.whitelist()
 def get_pending_rework(item_code: str | None = None) -> list[dict[str, Any]]:
 	"""Return the submitted, derived rework pool, optionally for one item."""
@@ -139,12 +145,6 @@ def _validate_rework_route(doc: Document) -> None:
 					"Rework item {0} must move to a good target warehouse, not a rejection or scrap warehouse."
 				).format(frappe.bold(frappe.utils.escape_html(route.item_code)))
 			)
-
-
-class _ReworkRoute(NamedTuple):
-	item_code: str
-	source: str | None
-	target: str | None
 
 
 def _validate_explicit_rework_source_warehouse(

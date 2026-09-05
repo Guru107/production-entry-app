@@ -223,7 +223,10 @@ def _default_total_strokes(doc: Document) -> None:
 
 
 def _clear_shift_context(doc: Document) -> None:
-	"""Rework Operations are not managed through Shift: drop the link and everything derived from it."""
+	"""Rework Operations are not managed through Shift: drop the link, planned window, late flag and loss links.
+
+	Branch and warehouses stay: branch is host-owned and the rework route validation keys on it.
+	"""
 	doc.custom_pea_shift = None
 	doc.custom_pea_planned_start_date = None
 	doc.custom_pea_planned_end_date = None

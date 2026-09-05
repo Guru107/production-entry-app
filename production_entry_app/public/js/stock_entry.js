@@ -876,6 +876,8 @@ function _sync_joint_mode_from_stock_entry_type(frm, requestId, previousStockEnt
 	};
 	frappe.call({
 		method: "production_entry_app.production_entry_app.api.get_joint_stock_entry_type",
+		// Passive discovery on every form: an unconfigured site answers "" instead of an error.
+		args: { required: 0 },
 		callback(r) {
 			applySelectedType(r.message);
 		},

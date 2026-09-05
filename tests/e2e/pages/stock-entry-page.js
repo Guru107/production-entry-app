@@ -29,8 +29,9 @@ function triggerFetchItems() {
 // Runs inside the page, so it must stay self-contained for Playwright serialization.
 // It is the single source of the Fetch Items completion state; the other predicates
 // receive its serialized source instead of re-implementing it. A red indicator marks a
-// Frappe error dialog; informational notices (for example the Joint LH/RH type lookup
-// on sites without one) also open a modal but must not fail a successful fetch.
+// Frappe error dialog. Dialogs raised by unrelated form lookups through the app's plain
+// message convention carry no indicator and must not fail a fetch whose RPC succeeded;
+// the RPC error path in waitForFetchItemsCall is the primary guard for the fetch itself.
 function getVisibleFetchItemsState() {
 	const modal = document.querySelector(".modal.show");
 	return {
