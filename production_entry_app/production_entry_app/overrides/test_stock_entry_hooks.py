@@ -11,6 +11,7 @@ from frappe.model.document import Document
 from frappe.tests.utils import FrappeTestCase
 
 from production_entry_app.production_entry_app.api import get_joint_production_items
+from production_entry_app.production_entry_app.joint_production import JOINT_LH_RH_STOCK_ENTRY_TYPE
 from production_entry_app.production_entry_app.overrides import stock_entry_hooks
 from production_entry_app.production_entry_app.tests.support.manufacture_builders import (
 	bootstrap_manufacture_masters,
@@ -2713,16 +2714,7 @@ class TestOverlapValidation(FrappeTestCase):
 					"purpose": "Repack",
 				}
 			).insert(ignore_permissions=True)
-		cls.joint_repack_type = f"Joint Repack {frappe.generate_hash(length=6)}"
-		if not frappe.db.exists("Stock Entry Type", cls.joint_repack_type):
-			frappe.get_doc(
-				{
-					"doctype": "Stock Entry Type",
-					"name": cls.joint_repack_type,
-					"purpose": "Repack",
-					"custom_pea_joint_lh_rh_production": 1,
-				}
-			).insert(ignore_permissions=True)
+		cls.joint_repack_type = JOINT_LH_RH_STOCK_ENTRY_TYPE
 		cls.workstation_1 = "SE Hook WS-1"
 		cls.workstation_2 = "SE Hook WS-2"
 		cls.operator_1 = "SE Hook Operator-1"
@@ -2765,14 +2757,13 @@ class TestOverlapValidation(FrappeTestCase):
 					pluck="name",
 				):
 					frappe.db.set_value("Shift", name, "status", "Completed", update_modified=False)
-		for stock_entry_type in (cls.plain_repack_type, cls.joint_repack_type):
-			if frappe.db.exists("Stock Entry Type", stock_entry_type):
-				frappe.delete_doc(
-					"Stock Entry Type",
-					stock_entry_type,
-					force=True,
-					ignore_permissions=True,
-				)
+		if frappe.db.exists("Stock Entry Type", cls.plain_repack_type):
+			frappe.delete_doc(
+				"Stock Entry Type",
+				cls.plain_repack_type,
+				force=True,
+				ignore_permissions=True,
+			)
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed to persist cleanup
 		super().tearDownClass()
 

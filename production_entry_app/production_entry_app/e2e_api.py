@@ -48,6 +48,12 @@ _E2E_PRODUCTION_ENTRY_SETTINGS_FIELDS: tuple[str, ...] = (
 	*PRODUCTION_ENTRY_SHIFT_SETTINGS_FIELDS,
 	"rework_expense_account",
 )
+_E2E_BRANCH_WAREHOUSE_FIELDS: tuple[str, ...] = (
+	"raw_material_warehouse",
+	"work_in_progress_warehouse",
+	"rejection_warehouse",
+	"scrap_warehouse",
+)
 
 
 def _reserved_e2e_prefix(prefix: str | None) -> str:
@@ -284,11 +290,31 @@ def _restore_production_entry_settings(snapshot: dict[str, Any] | None) -> None:
 		return
 	ensure_production_entry_settings_shift_fields()
 	settings = frappe.get_single("Production Entry Settings")
+	snapshot = _sanitize_production_entry_settings_snapshot(snapshot)
 	for fieldname in _E2E_PRODUCTION_ENTRY_SETTINGS_FIELDS:
 		if fieldname in snapshot:
 			settings.set(fieldname, snapshot[fieldname])
 	settings.save(ignore_permissions=True)
 	frappe.clear_document_cache("Production Entry Settings")
+
+
+def _sanitize_production_entry_settings_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
+	if "branch_warehouse_defaults" not in snapshot:
+		return snapshot
+	sanitized = dict(snapshot)
+	sanitized["branch_warehouse_defaults"] = [
+		row
+		for row in snapshot.get("branch_warehouse_defaults") or []
+		if _branch_warehouse_default_links_exist(row)
+	]
+	return sanitized
+
+
+def _branch_warehouse_default_links_exist(row: Any) -> bool:
+	return all(
+		not row.get(fieldname) or frappe.db.exists("Warehouse", row.get(fieldname))
+		for fieldname in _E2E_BRANCH_WAREHOUSE_FIELDS
+	)
 
 
 def _restore_manufacturing_settings(snapshot: dict[str, Any] | None) -> None:
@@ -837,26 +863,6 @@ def _cleanup_e2e_stock_entries(targets: dict[str, object]) -> None:
 			frappe.delete_doc("Stock Entry", se.name, ignore_permissions=True, force=True)
 			if frappe.db.exists("Stock Entry", se.name):
 				frappe.throw(_("E2E cleanup retained Stock Entry {0}.").format(se.name))
-
-
-@frappe.whitelist()
-def cleanup_e2e_stock_entries_for_stock_entry_type(stock_entry_type: str) -> dict:
-	"""Cancel and force-delete reserved E2E Stock Entries linked to one Stock Entry Type."""
-	_assert_e2e_api_allowed()
-	type_name = (stock_entry_type or "").strip()
-	if not type_name.startswith(("E2E_", "E2E ")):
-		frappe.throw(_("Stock Entry Type must identify a reserved E2E context."), frappe.ValidationError)
-
-	stock_entry_names = frappe.get_all(
-		"Stock Entry",
-		filters={"stock_entry_type": type_name},
-		pluck="name",
-	)
-	for name in stock_entry_names:
-		_safe_cancel_and_delete("Stock Entry", name, context="cleanup_e2e_stock_entries_for_stock_entry_type")
-
-	frappe.db.commit()  # nosemgrep: frappe-manual-commit - browser cleanup must persist before type deletion
-	return {"ok": True, "stock_entries": stock_entry_names}
 
 
 def _cleanup_e2e_downtime_entries(targets: dict[str, object]) -> None:

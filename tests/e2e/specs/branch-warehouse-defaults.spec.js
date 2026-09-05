@@ -3,10 +3,7 @@ const { callFrappeMethod, getDoc, saveForm, setFieldValue } = require("../fixtur
 const { expectValidationError } = require("../fixtures/assertions");
 const { registerE2ELifecycle } = require("../fixtures/lifecycle");
 const { bootstrapE2E } = require("../fixtures/test-data");
-const {
-	ensureJointStockEntryType,
-	deleteJointStockEntryTypeIfExists,
-} = require("../fixtures/joint-production");
+const { getJointStockEntryType } = require("../fixtures/joint-production");
 const { ensureUser, deleteUserIfExists } = require("../fixtures/users");
 const { StockEntryPage } = require("../pages/stock-entry-page");
 const { getRoute } = require("../utils/routing");
@@ -36,7 +33,6 @@ test.describe("Branch warehouse defaults", () => {
 	});
 	const lifecycle = registerE2ELifecycle(test);
 	test.afterEach(async ({ page }) => {
-		if (jointType) await deleteJointStockEntryTypeIfExists(page, jointType);
 		if (user) await deleteUserIfExists(page, user);
 		jointType = null;
 		user = null;
@@ -47,7 +43,7 @@ test.describe("Branch warehouse defaults", () => {
 	}) => {
 		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
-		jointType = await ensureJointStockEntryType(page, lifecycle.getPrefix());
+		jointType = await getJointStockEntryType(page);
 		await openSettings(page);
 		await expect(page.locator('[data-fieldname="branch_warehouse_defaults"]')).toBeVisible();
 		await page.evaluate(async (context) => {
@@ -195,7 +191,7 @@ test.describe("Branch warehouse defaults", () => {
 	}) => {
 		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
-		jointType = await ensureJointStockEntryType(page, lifecycle.getPrefix());
+		jointType = await getJointStockEntryType(page);
 		const settings = await getDoc(
 			page,
 			"Production Entry Settings",
@@ -259,8 +255,7 @@ test.describe("Branch warehouse defaults", () => {
 			} preserves manual warehouses`, async ({ page }) => {
 				await page.goto(getRoute("/home"));
 				const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
-				if (joint)
-					jointType = await ensureJointStockEntryType(page, lifecycle.getPrefix());
+				if (joint) jointType = await getJointStockEntryType(page);
 				const form = new StockEntryPage(page);
 				await form.openNew();
 				await setFieldValue(page, "stock_entry_type", joint ? jointType : "Manufacture");

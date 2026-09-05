@@ -8,6 +8,7 @@ APP_ROOT = Path(__file__).resolve().parents[2]
 DOCTYPE_ROOT = Path(__file__).parent / "doctype"
 CUSTOM_FIELD_FIXTURE = APP_ROOT / "production_entry_app" / "fixtures" / "custom_field.json"
 ROLE_FIXTURE = APP_ROOT / "production_entry_app" / "fixtures" / "role.json"
+STOCK_ENTRY_TYPE_FIXTURE = APP_ROOT / "production_entry_app" / "fixtures" / "stock_entry_type.json"
 
 EXPECTED_PEA_ROLE_NAMES = ("PEA User", "PEA Read Only")
 
@@ -121,6 +122,28 @@ def test_joint_lh_rh_production_metadata_is_exported() -> None:
 	assert not missing_rejection_fields, f"Missing Rejection Breakup fields: {missing_rejection_fields}"
 	assert rejection_fields["output_side"]["options"] == "\nLH\nRH"
 	assert rejection_fields["item_code"]["options"] == "Item"
+
+
+def test_canonical_joint_lh_rh_stock_entry_type_fixture_is_exported() -> None:
+	stock_entry_types = {row.get("name"): row for row in json.loads(STOCK_ENTRY_TYPE_FIXTURE.read_text())}
+	assert stock_entry_types == {
+		"Joint LH RH Production": {
+			"doctype": "Stock Entry Type",
+			"name": "Joint LH RH Production",
+			"purpose": "Repack",
+			"custom_pea_joint_lh_rh_production": 1,
+			"custom_pea_rework_entry": 0,
+		}
+	}
+
+
+def test_canonical_joint_lh_rh_stock_entry_type_fixture_is_registered_for_install() -> None:
+	from production_entry_app import hooks
+
+	assert {
+		"dt": "Stock Entry Type",
+		"filters": [["name", "=", "Joint LH RH Production"]],
+	} in hooks.fixtures
 
 
 def test_rework_stock_entry_metadata_is_exported() -> None:

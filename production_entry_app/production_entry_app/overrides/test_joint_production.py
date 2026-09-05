@@ -23,6 +23,7 @@ from production_entry_app.production_entry_app.doctype.shift.shift import (
 	get_shift_summary,
 )
 from production_entry_app.production_entry_app.joint_production import (
+	JOINT_LH_RH_STOCK_ENTRY_TYPE,
 	_get_bom_scrap_item_details,
 	_get_item_details,
 	_get_joint_bom_details,
@@ -321,14 +322,14 @@ class TestJointProductionCalculations(FrappeTestCase):
 
 	def test_joint_stock_entry_type_lookup_is_cached_on_the_document(self) -> None:
 		doc = frappe.new_doc("Stock Entry")
-		doc.stock_entry_type = "Joint LH RH Repack"
+		doc.stock_entry_type = JOINT_LH_RH_STOCK_ENTRY_TYPE
 		with patch.object(frappe.db, "get_value", return_value=1) as get_value:
 			self.assertTrue(is_joint_lh_rh_production(doc))
 			self.assertTrue(is_joint_lh_rh_production(doc))
 
 		get_value.assert_called_once_with(
 			"Stock Entry Type",
-			"Joint LH RH Repack",
+			JOINT_LH_RH_STOCK_ENTRY_TYPE,
 			"custom_pea_joint_lh_rh_production",
 		)
 
@@ -357,18 +358,9 @@ class TestJointProductionStockEntryType(FrappeTestCase):
 			doc.insert(ignore_permissions=True)
 
 	def test_configured_joint_repack_type_is_available_to_the_stock_entry_form(self) -> None:
-		expected = f"Joint Repack {frappe.generate_hash(length=6)}"
-		frappe.get_doc(
-			{
-				"doctype": "Stock Entry Type",
-				"name": expected,
-				"purpose": "Repack",
-				"custom_pea_joint_lh_rh_production": 1,
-			}
-		).insert(ignore_permissions=True)
 		stock_entry_type = get_joint_stock_entry_type()
 
-		self.assertEqual(stock_entry_type, expected)
+		self.assertEqual(stock_entry_type, JOINT_LH_RH_STOCK_ENTRY_TYPE)
 		self.assertEqual(frappe.db.get_value("Stock Entry Type", stock_entry_type, "purpose"), "Repack")
 		self.assertEqual(
 			frappe.db.get_value(
@@ -378,6 +370,20 @@ class TestJointProductionStockEntryType(FrappeTestCase):
 			),
 			1,
 		)
+
+	def test_joint_lh_rh_stock_entry_type_rejects_second_marked_type(self) -> None:
+		self.assertTrue(frappe.db.exists("Stock Entry Type", JOINT_LH_RH_STOCK_ENTRY_TYPE))
+		doc = frappe.get_doc(
+			{
+				"doctype": "Stock Entry Type",
+				"name": f"Extra Marked Repack {frappe.generate_hash(length=6)}",
+				"purpose": "Repack",
+				"custom_pea_joint_lh_rh_production": 1,
+			}
+		)
+
+		with self.assertRaisesRegex(frappe.ValidationError, "Only one Stock Entry Type"):
+			doc.insert(ignore_permissions=True)
 
 
 class TestJointProductionItems(FrappeTestCase):
@@ -528,15 +534,7 @@ class TestJointProductionItems(FrappeTestCase):
 			{"custom_pea_has_die_tool": 1, "custom_pea_stroke_capacity": 10000},
 			update_modified=False,
 		)
-		self.stock_entry_type = f"Joint Repack {suffix}"
-		frappe.get_doc(
-			{
-				"doctype": "Stock Entry Type",
-				"name": self.stock_entry_type,
-				"purpose": "Repack",
-				"custom_pea_joint_lh_rh_production": 1,
-			}
-		).insert(ignore_permissions=True)
+		self.stock_entry_type = JOINT_LH_RH_STOCK_ENTRY_TYPE
 
 	def tearDown(self) -> None:
 		frappe.db.rollback()

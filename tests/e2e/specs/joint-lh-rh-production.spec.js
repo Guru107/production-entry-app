@@ -2,10 +2,7 @@ const { test, expect } = require("@playwright/test");
 const { expectValidationError } = require("../fixtures/assertions");
 const { callFrappeMethod, setFieldValue } = require("../fixtures/frappe");
 const { registerE2ELifecycle } = require("../fixtures/lifecycle");
-const {
-	deleteJointStockEntryTypeIfExists,
-	ensureJointStockEntryType,
-} = require("../fixtures/joint-production");
+const { getJointStockEntryType } = require("../fixtures/joint-production");
 const { bootstrapE2E } = require("../fixtures/test-data");
 const { deleteUserIfExists, ensureUser } = require("../fixtures/users");
 const { StockEntryPage } = require("../pages/stock-entry-page");
@@ -66,53 +63,18 @@ async function getFieldTops(page, fieldnames) {
 
 test.describe("Joint LH/RH production form", () => {
 	const lifecycle = registerE2ELifecycle(test);
-	const createdTypes = new Set();
 	const createdUsers = new Set();
 
 	test.afterEach(async ({ page }) => {
 		await login(page, ADMIN_USERNAME, ADMIN_PASSWORD);
-		for (const name of createdTypes) await deleteJointStockEntryTypeIfExists(page, name);
 		for (const email of createdUsers) await deleteUserIfExists(page, email);
-		createdTypes.clear();
 		createdUsers.clear();
-	});
-
-	test("@regression Stock Entry Type quick entry exposes the joint-production flag", async ({
-		page,
-	}) => {
-		const stockEntryType = `${lifecycle.getPrefix()} Quick Joint LH RH`;
-		createdTypes.add(stockEntryType);
-		const form = new StockEntryPage(page);
-		await form.openNew();
-		await deleteJointStockEntryTypeIfExists(page, stockEntryType);
-		await page.evaluate(() => frappe.ui.form.make_quick_entry("Stock Entry Type"));
-
-		const dialog = page.getByRole("dialog");
-		const jointFlag = dialog.getByRole("checkbox", { name: "Joint LH/RH Production" });
-		await expect(jointFlag).toBeVisible();
-		await expect(jointFlag).toBeEnabled();
-		await dialog.locator('[data-fieldname="__newname"] input').fill(stockEntryType);
-		await dialog.locator('[data-fieldname="purpose"] select').selectOption("Repack");
-		await jointFlag.check();
-		await dialog.getByRole("button", { name: "Save", exact: true }).click();
-		await expect(dialog).toBeHidden();
-
-		const savedType = await callFrappeMethod(page, "frappe.client.get_value", {
-			doctype: "Stock Entry Type",
-			filters: stockEntryType,
-			fieldname: JSON.stringify(["purpose", "custom_pea_joint_lh_rh_production"]),
-		});
-		expect(savedType).toMatchObject({
-			purpose: "Repack",
-			custom_pea_joint_lh_rh_production: 1,
-		});
 	});
 
 	test("@smoke joint Repack uses the common production form", async ({ page }) => {
 		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
-		const stockEntryType = await ensureJointStockEntryType(page, lifecycle.getPrefix());
-		createdTypes.add(stockEntryType);
+		const stockEntryType = await getJointStockEntryType(page);
 		const form = new StockEntryPage(page);
 
 		await form.openNew();
@@ -168,8 +130,7 @@ test.describe("Joint LH/RH production form", () => {
 	}) => {
 		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
-		const stockEntryType = await ensureJointStockEntryType(page, lifecycle.getPrefix());
-		createdTypes.add(stockEntryType);
+		const stockEntryType = await getJointStockEntryType(page);
 		const form = new StockEntryPage(page);
 
 		await form.openNew();
@@ -229,8 +190,7 @@ test.describe("Joint LH/RH production form", () => {
 	test("@smoke joint Fetch Items populates rows from both BOMs", async ({ page }) => {
 		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
-		const stockEntryType = await ensureJointStockEntryType(page, lifecycle.getPrefix());
-		createdTypes.add(stockEntryType);
+		const stockEntryType = await getJointStockEntryType(page);
 		const form = new StockEntryPage(page);
 
 		await form.openNew();
@@ -285,8 +245,7 @@ test.describe("Joint LH/RH production form", () => {
 	}) => {
 		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
-		const stockEntryType = await ensureJointStockEntryType(page, lifecycle.getPrefix());
-		createdTypes.add(stockEntryType);
+		const stockEntryType = await getJointStockEntryType(page);
 		const form = new StockEntryPage(page);
 
 		await form.openNew();
@@ -400,8 +359,7 @@ test.describe("Joint LH/RH production form", () => {
 	}) => {
 		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
-		const stockEntryType = await ensureJointStockEntryType(page, lifecycle.getPrefix());
-		createdTypes.add(stockEntryType);
+		const stockEntryType = await getJointStockEntryType(page);
 		const form = new StockEntryPage(page);
 
 		await form.openNew();
@@ -454,8 +412,7 @@ test.describe("Joint LH/RH production form", () => {
 	}) => {
 		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
-		const stockEntryType = await ensureJointStockEntryType(page, lifecycle.getPrefix());
-		createdTypes.add(stockEntryType);
+		const stockEntryType = await getJointStockEntryType(page);
 		const source = await callFrappeMethod(
 			page,
 			"production_entry_app.production_entry_app.e2e_api.create_e2e_submitted_stock_entry",
@@ -491,8 +448,7 @@ test.describe("Joint LH/RH production form", () => {
 	}) => {
 		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
-		const stockEntryType = await ensureJointStockEntryType(page, lifecycle.getPrefix());
-		createdTypes.add(stockEntryType);
+		const stockEntryType = await getJointStockEntryType(page);
 		const form = new StockEntryPage(page);
 
 		await form.openNew();
@@ -544,8 +500,7 @@ test.describe("Joint LH/RH production form", () => {
 	test("@regression joint Fetch Items shows required-header validation", async ({ page }) => {
 		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
-		const stockEntryType = await ensureJointStockEntryType(page, lifecycle.getPrefix());
-		createdTypes.add(stockEntryType);
+		const stockEntryType = await getJointStockEntryType(page);
 		const form = new StockEntryPage(page);
 
 		await form.openNew();
@@ -564,8 +519,7 @@ test.describe("Joint LH/RH production form", () => {
 	}) => {
 		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
-		const stockEntryType = await ensureJointStockEntryType(page, lifecycle.getPrefix());
-		createdTypes.add(stockEntryType);
+		const stockEntryType = await getJointStockEntryType(page);
 		const form = new StockEntryPage(page);
 
 		await form.openNew();

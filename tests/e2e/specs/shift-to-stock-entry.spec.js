@@ -3,10 +3,7 @@ const { bootstrapE2E, cleanupE2E } = require("../fixtures/test-data");
 const { getDoc, callFrappeMethod, setFieldValue } = require("../fixtures/frappe");
 const { expectValidationError } = require("../fixtures/assertions");
 const { registerE2ELifecycle } = require("../fixtures/lifecycle");
-const {
-	deleteJointStockEntryTypeIfExists,
-	ensureJointStockEntryType,
-} = require("../fixtures/joint-production");
+const { getJointStockEntryType } = require("../fixtures/joint-production");
 const { ShiftPage } = require("../pages/shift-page");
 const { StockEntryPage } = require("../pages/stock-entry-page");
 const { getRoute } = require("../utils/routing");
@@ -137,22 +134,13 @@ async function deleteShiftIfExists(page, { department, date, label }) {
 
 test.describe("Shift to Stock Entry integration", () => {
 	const lifecycle = registerE2ELifecycle(test);
-	const createdStockEntryTypes = new Set();
-
-	test.afterEach(async ({ page }) => {
-		for (const name of createdStockEntryTypes) {
-			await deleteJointStockEntryTypeIfExists(page, name);
-		}
-		createdStockEntryTypes.clear();
-	});
 
 	test("@smoke running shift create action opens stock entry with shift prefilled", async ({
 		page,
 	}) => {
 		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
-		const jointType = await ensureJointStockEntryType(page, lifecycle.getPrefix());
-		createdStockEntryTypes.add(jointType);
+		const jointType = await getJointStockEntryType(page);
 		const shift = await getDoc(page, "Shift", ctx.shift_name);
 		const shiftPage = new ShiftPage(page);
 		await shiftPage.open(ctx.shift_name);

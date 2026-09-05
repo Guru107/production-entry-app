@@ -232,10 +232,53 @@ class TestE2EApi(FrappeTestCase):
 					e2e_api._restore_production_entry_settings(restore_snapshot)
 					for expected_call in expected_calls:
 						self.assertIn(expected_call, settings.set.call_args_list)
-					if "rework_expense_account" not in restore_snapshot:
-						self.assertNotIn(call("rework_expense_account", None), settings.set.call_args_list)
+				if "rework_expense_account" not in restore_snapshot:
+					self.assertNotIn(call("rework_expense_account", None), settings.set.call_args_list)
 
-		self.assertEqual(clear_document_cache.call_count, 3)
+			self.assertEqual(clear_document_cache.call_count, 3)
+
+	def test_restore_production_entry_settings_skips_missing_warehouse_links(self) -> None:
+		settings = MagicMock()
+		snapshot = {
+			"branch_warehouse_defaults": [
+				{
+					"company": "_Test Company",
+					"branch": "_Test Branch",
+					"raw_material_warehouse": "Missing RM - TC",
+					"work_in_progress_warehouse": "Existing WIP - TC",
+				},
+				{
+					"company": "_Test Company",
+					"branch": "_Test Branch",
+					"raw_material_warehouse": "Existing RM - TC",
+					"work_in_progress_warehouse": "Existing WIP - TC",
+				},
+			],
+		}
+
+		def exists(doctype: str, name: str) -> bool:
+			return doctype == "Warehouse" and name.startswith("Existing")
+
+		with (
+			patch.object(e2e_api, "ensure_production_entry_settings_shift_fields"),
+			patch.object(e2e_api.frappe, "get_single", return_value=settings),
+			patch.object(e2e_api.frappe.db, "exists", side_effect=exists),
+			patch.object(e2e_api.frappe, "clear_document_cache"),
+		):
+			e2e_api._restore_production_entry_settings(snapshot)
+
+		settings.set.assert_called_once_with(
+			"branch_warehouse_defaults",
+			[
+				{
+					"company": "_Test Company",
+					"branch": "_Test Branch",
+					"raw_material_warehouse": "Existing RM - TC",
+					"work_in_progress_warehouse": "Existing WIP - TC",
+				}
+			],
+		)
+		settings.save.assert_called_once_with(ignore_permissions=True)
 
 	def test_e2e_expense_account_validation_rejects_unsuitable_accounts(self) -> None:
 		invalid_accounts = (

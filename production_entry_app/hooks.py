@@ -197,6 +197,7 @@ before_tests = "production_entry_app.production_entry_app.utils.test_setup.befor
 # Custom Field: filter by module so export-fixtures does not pull in unrelated fields
 fixtures = [
 	{"dt": "Custom Field", "filters": [["module", "=", "Production Entry App"]]},
+	{"dt": "Stock Entry Type", "filters": [["name", "=", "Joint LH RH Production"]]},
 	{"dt": "Property Setter", "filters": [["module", "=", "Production Entry App"]]},
 	{"dt": "Role", "filters": [["name", "in", ["PEA User", "PEA Read Only"]]]},
 	{

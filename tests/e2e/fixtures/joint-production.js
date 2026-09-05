@@ -1,38 +1,19 @@
 const { callFrappeMethod } = require("./frappe");
 
-async function deleteJointStockEntryTypeIfExists(page, name) {
-	if (!name) return;
-	await callFrappeMethod(
-		page,
-		"production_entry_app.production_entry_app.e2e_api.cleanup_e2e_stock_entries_for_stock_entry_type",
-		{ stock_entry_type: name }
-	);
-	const rows = await callFrappeMethod(page, "frappe.client.get_list", {
-		doctype: "Stock Entry Type",
-		fields: JSON.stringify(["name"]),
-		filters: JSON.stringify({ name }),
-		limit_page_length: 1,
-	});
-	if (rows?.length) {
-		await callFrappeMethod(page, "frappe.client.delete", {
-			doctype: "Stock Entry Type",
-			name,
-		});
-	}
-}
+const JOINT_STOCK_ENTRY_TYPE = "Joint LH RH Production";
 
-async function ensureJointStockEntryType(page, prefix) {
-	const name = `${prefix} Joint LH RH`;
-	await deleteJointStockEntryTypeIfExists(page, name);
-	await callFrappeMethod(page, "frappe.client.insert", {
-		doc: JSON.stringify({
-			doctype: "Stock Entry Type",
-			name,
-			purpose: "Repack",
-			custom_pea_joint_lh_rh_production: 1,
-		}),
-	});
+async function getJointStockEntryType(page) {
+	const name = await callFrappeMethod(
+		page,
+		"production_entry_app.production_entry_app.api.get_joint_stock_entry_type",
+		{ required: 1 }
+	);
+	if (name !== JOINT_STOCK_ENTRY_TYPE) {
+		throw new Error(
+			`Expected canonical Joint Stock Entry Type ${JOINT_STOCK_ENTRY_TYPE}, got ${name}`
+		);
+	}
 	return name;
 }
 
-module.exports = { deleteJointStockEntryTypeIfExists, ensureJointStockEntryType };
+module.exports = { JOINT_STOCK_ENTRY_TYPE, getJointStockEntryType };

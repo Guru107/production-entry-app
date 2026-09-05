@@ -11,6 +11,8 @@ from frappe.desk.query_report import run as run_query_report
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import flt
 
+from production_entry_app.production_entry_app.doctype.shift.shift import invalidate_shift_summary_cache
+from production_entry_app.production_entry_app.joint_production import JOINT_LH_RH_STOCK_ENTRY_TYPE
 from production_entry_app.production_entry_app.overrides.test_stock_entry_hooks import (
 	_append_rejection_breakup_rows,
 	_create_manufacture_stock_entry,
@@ -105,16 +107,7 @@ class TestProductionReports(FrappeTestCase):
 
 		cls.fg_item = _get_or_create_item("_Test FG Item For Reports")
 		cls.rm_item = _get_or_create_item("_Test RM Item For Reports")
-		cls.joint_repack_type = "Report Joint LH RH Repack"
-		if not frappe.db.exists("Stock Entry Type", cls.joint_repack_type):
-			frappe.get_doc(
-				{
-					"doctype": "Stock Entry Type",
-					"name": cls.joint_repack_type,
-					"purpose": "Repack",
-					"custom_pea_joint_lh_rh_production": 1,
-				}
-			).insert(ignore_permissions=True)
+		cls.joint_repack_type = JOINT_LH_RH_STOCK_ENTRY_TYPE
 
 		if not frappe.db.exists("Operator", "Report Operator"):
 			frappe.get_doc(
@@ -672,10 +665,13 @@ class TestProductionReports(FrappeTestCase):
 						"custom_pea_lh_rejection_qty": 5,
 						"custom_pea_rh_gross_qty": 60,
 						"custom_pea_rh_rejection_qty": 0,
+						"custom_pea_rejection_qty": 5,
+						"custom_pea_ok_qty": 95,
 					},
 					update_modified=False,
 				)
-			entry.reload()
+				invalidate_shift_summary_cache(shift.name)
+				entry.reload()
 			entry_ok_quantities.append(float(entry.custom_pea_ok_qty))
 			shift_snapshots.append(get_shift_summary(shift.name)["snapshot"])
 

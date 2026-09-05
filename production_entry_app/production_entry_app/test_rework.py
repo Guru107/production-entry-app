@@ -25,7 +25,7 @@ class TestPendingReworkPool(FrappeTestCase):
 		self.item_a = ensure_item(f"_Test Rework Pool A {suffix}")
 		self.item_b = ensure_item(f"_Test Rework Pool B {suffix}")
 		self.normal_type = self._insert_stock_entry_type(f"Normal Manufacture {suffix}", "Manufacture")
-		self.joint_type = self._insert_stock_entry_type(f"Joint Repack {suffix}", "Repack")
+		self.repack_type = self._insert_stock_entry_type(f"Repack Source {suffix}", "Repack")
 		self.rework_type = self._insert_stock_entry_type(
 			f"Rework Transfer {suffix}", "Material Transfer", is_rework=True
 		)
@@ -40,7 +40,7 @@ class TestPendingReworkPool(FrappeTestCase):
 			rejection_items=[self.item_a],
 		)
 		self._insert_production_source(
-			stock_entry_type=self.joint_type,
+			stock_entry_type=self.repack_type,
 			breakups=[(self.item_a, None, 3), (self.item_b, None, 5)],
 			rejection_items=[self.item_a, self.item_b],
 		)
@@ -57,7 +57,7 @@ class TestPendingReworkPool(FrappeTestCase):
 
 	def test_pool_counts_split_joint_rejection_detail_rows_once(self) -> None:
 		self._insert_production_source(
-			stock_entry_type=self.joint_type,
+			stock_entry_type=self.repack_type,
 			breakups=[(self.item_a, None, 5)],
 			rejection_items=[self.item_a, self.item_a],
 		)
@@ -163,7 +163,7 @@ class TestPendingReworkPool(FrappeTestCase):
 			release_first.set()
 			_cleanup_committed_concurrency_records(
 				stock_entries=[source_name, first_name, second_name],
-				stock_entry_types=[self.normal_type, self.joint_type, self.rework_type],
+				stock_entry_types=[self.normal_type, self.repack_type, self.rework_type],
 				items=[self.item_a, self.item_b],
 			)
 
@@ -411,7 +411,7 @@ class TestPendingReworkPool(FrappeTestCase):
 
 	def test_pool_query_count_is_constant_for_multiple_items(self) -> None:
 		self._insert_production_source(
-			stock_entry_type=self.joint_type,
+			stock_entry_type=self.repack_type,
 			breakups=[(self.item_a, None, 3), (self.item_b, None, 4)],
 			rejection_items=[self.item_a, self.item_b],
 		)

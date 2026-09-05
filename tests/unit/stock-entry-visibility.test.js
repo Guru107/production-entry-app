@@ -625,7 +625,7 @@ test("Stock Entry refresh restores Rework classification stripped by draft save"
 		call(options) {
 			const isReworkLookup = options.method.endsWith("get_rework_stock_entry_type");
 			if (isReworkLookup) reworkLookupCount += 1;
-			const message = isReworkLookup ? "Rework Material Transfer" : "Joint LH RH Repack";
+			const message = isReworkLookup ? "Rework Material Transfer" : "Joint LH RH Production";
 			options.callback({ message });
 		},
 		ui: {
@@ -1196,8 +1196,8 @@ test("manufacture decision uses custom_pea_stock_entry_purpose only", () => {
 test("joint LH/RH Repack uses the common production form without native BOM fields", () => {
 	const doc = {
 		custom_pea_stock_entry_purpose: "Repack",
-		stock_entry_type: "Joint LH RH Repack",
-		__pea_joint_stock_entry_type: "Joint LH RH Repack",
+		stock_entry_type: "Joint LH RH Production",
+		__pea_joint_stock_entry_type: "Joint LH RH Production",
 	};
 
 	assert.equal(_is_manufacture_doc(doc), false);
@@ -1230,8 +1230,8 @@ test("rejection visibility quantity sums joint sides and uses normal rejection o
 	try {
 		assert.equal(
 			_get_rejection_qty_for_visibility({
-				stock_entry_type: "Joint LH RH Repack",
-				__pea_joint_stock_entry_type: "Joint LH RH Repack",
+				stock_entry_type: "Joint LH RH Production",
+				__pea_joint_stock_entry_type: "Joint LH RH Production",
 				custom_pea_lh_rejection_qty: 2,
 				custom_pea_rh_rejection_qty: 3,
 			}),
@@ -1247,14 +1247,14 @@ test("manually selecting a non-joint Stock Entry Type exits joint production and
 	const originalFrappe = global.frappe;
 	global.frappe = {
 		call(options) {
-			options.callback({ message: "Joint LH RH Repack" });
+			options.callback({ message: "Joint LH RH Production" });
 		},
 	};
 	const frm = {
 		fields_dict: {},
 		layout: { sections: [] },
 		doc: {
-			__pea_joint_stock_entry_type: "Joint LH RH Repack",
+			__pea_joint_stock_entry_type: "Joint LH RH Production",
 			stock_entry_type: "Manufacture",
 			custom_pea_shift: "SHIFT-001",
 			custom_pea_lh_bom: "BOM-LH",
@@ -1286,10 +1286,10 @@ test("manually selecting a non-joint Stock Entry Type exits joint production and
 	};
 
 	try {
-		_sync_joint_stock_entry_type(frm, { previousStockEntryType: "Joint LH RH Repack" });
+		_sync_joint_stock_entry_type(frm, { previousStockEntryType: "Joint LH RH Production" });
 
 		assert.equal(frm.doc.stock_entry_type, "Manufacture");
-		assert.equal(frm.doc.__pea_joint_stock_entry_type, "Joint LH RH Repack");
+		assert.equal(frm.doc.__pea_joint_stock_entry_type, "Joint LH RH Production");
 		assert.equal(frm.doc.custom_pea_shift, "SHIFT-001");
 		assert.equal(frm.doc.custom_pea_lh_bom, "");
 		assert.equal(frm.doc.custom_pea_rh_bom, "");
@@ -1307,14 +1307,14 @@ test("manually selecting the joint Stock Entry Type enters joint production and 
 	const originalFrappe = global.frappe;
 	global.frappe = {
 		call(options) {
-			options.callback({ message: "Joint LH RH Repack" });
+			options.callback({ message: "Joint LH RH Production" });
 		},
 	};
 	const frm = {
 		fields_dict: {},
 		layout: { sections: [] },
 		doc: {
-			stock_entry_type: "Joint LH RH Repack",
+			stock_entry_type: "Joint LH RH Production",
 			custom_pea_stock_entry_purpose: "Repack",
 			custom_pea_shift: "SHIFT-001",
 			from_bom: 1,
@@ -1349,8 +1349,8 @@ test("manually selecting the joint Stock Entry Type enters joint production and 
 	try {
 		_sync_joint_stock_entry_type(frm, { previousStockEntryType: "Manufacture" });
 
-		assert.equal(frm.doc.stock_entry_type, "Joint LH RH Repack");
-		assert.equal(frm.doc.__pea_joint_stock_entry_type, "Joint LH RH Repack");
+		assert.equal(frm.doc.stock_entry_type, "Joint LH RH Production");
+		assert.equal(frm.doc.__pea_joint_stock_entry_type, "Joint LH RH Production");
 		assert.equal(frm.doc.custom_pea_shift, "SHIFT-001");
 		assert.equal(frm.doc.from_bom, 0);
 		assert.equal(frm.doc.bom_no, "");
@@ -1381,7 +1381,7 @@ test("joint type lookup defers manufacture cleanup so common Shift context survi
 		fields_dict: {},
 		layout: { sections: [] },
 		doc: {
-			stock_entry_type: "Joint LH RH Repack",
+			stock_entry_type: "Joint LH RH Production",
 			custom_pea_stock_entry_purpose: "Repack",
 			custom_pea_shift: "SHIFT-001",
 			custom_pea_actual_start_date: "2026-08-28 08:00:00",
@@ -1411,9 +1411,9 @@ test("joint type lookup defers manufacture cleanup so common Shift context survi
 		assert.equal(frm.doc.bom_no, "BOM-NORMAL");
 		assert.equal(frm.__peaDeferredManufactureCleanup, true);
 
-		jointTypeResponse({ message: "Joint LH RH Repack" });
+		jointTypeResponse({ message: "Joint LH RH Production" });
 
-		assert.equal(frm.doc.__pea_joint_stock_entry_type, "Joint LH RH Repack");
+		assert.equal(frm.doc.__pea_joint_stock_entry_type, "Joint LH RH Production");
 		assert.equal(frm.doc.custom_pea_shift, "SHIFT-001");
 		assert.equal(frm.doc.custom_pea_actual_start_date, "2026-08-28 08:00:00");
 		assert.equal(frm.doc.custom_pea_workstation, "PRESS-001");

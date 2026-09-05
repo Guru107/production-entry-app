@@ -7,8 +7,8 @@ This document defines shared rules used across script reports under `production_
 - All report rows are built from submitted Production Entries:
   - `docstatus = 1`
   - normal entries use `purpose = "Manufacture"`
-  - Joint LH/RH entries use `purpose = "Repack"` and a Stock Entry Type marked with
-    `custom_pea_joint_lh_rh_production = 1`
+	- Joint LH/RH entries use `purpose = "Repack"` and the `Joint LH RH Production`
+	  Stock Entry Type, which is marked with `custom_pea_joint_lh_rh_production = 1`
 - Generic Repack entries are excluded.
 - Operational validation classifies Joint LH/RH entries from selected Stock Entry Type
   `custom_pea_joint_lh_rh_production`; reports use the same Stock Entry Type flag for submitted rows.

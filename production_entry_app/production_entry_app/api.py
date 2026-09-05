@@ -48,12 +48,16 @@ def get_joint_stock_entry_type(required: int = 1) -> str:
 		},
 		order_by="modified desc, name asc",
 		pluck="name",
-		limit=1,
+		limit=2,
 	)
 	if not stock_entry_types:
 		if not cint(required):
 			return ""
 		frappe.throw(_("Configure a Repack Stock Entry Type for Joint LH/RH Production first."))
+	if len(stock_entry_types) > 1:
+		if not cint(required):
+			return ""
+		frappe.throw(_("Only one Stock Entry Type can be configured for Joint LH/RH Production."))
 	return stock_entry_types[0]
 
 

@@ -28,6 +28,7 @@ WHOLE_NUMBER_QUANTUM: Decimal = Decimal("1")
 VALUATION_TOLERANCE: float = 1e-9
 RM_QTY_TOLERANCE: float = 1e-6
 QTY_PRECISION: int = 6
+JOINT_LH_RH_STOCK_ENTRY_TYPE: str = "Joint LH RH Production"
 
 
 @dataclass(frozen=True)
@@ -704,5 +705,21 @@ def validate_stock_entry_type(doc: Document, method: str | None = None) -> None:
 		frappe.throw(_("A Stock Entry Type cannot be both Joint LH/RH Production and Rework."))
 	if doc.get("custom_pea_joint_lh_rh_production") and doc.get("purpose") != "Repack":
 		frappe.throw(_("Joint LH/RH Stock Entry Types must use Repack purpose."))
+	if doc.get("custom_pea_joint_lh_rh_production"):
+		existing_joint_types = frappe.get_all(
+			"Stock Entry Type",
+			filters={
+				"custom_pea_joint_lh_rh_production": 1,
+				"name": ["!=", doc.name],
+			},
+			pluck="name",
+			limit=1,
+		)
+		if existing_joint_types:
+			frappe.throw(
+				_("Only one Stock Entry Type can be configured for Joint LH/RH Production. Use {0}.").format(
+					frappe.bold(existing_joint_types[0])
+				)
+			)
 	if doc.get("custom_pea_rework_entry") and doc.get("purpose") != "Material Transfer":
 		frappe.throw(_("Rework Stock Entry Types must use Material Transfer purpose."))
