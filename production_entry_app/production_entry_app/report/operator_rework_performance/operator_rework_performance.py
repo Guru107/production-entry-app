@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import frappe
 from frappe import _
 from frappe.utils import flt
 
@@ -9,6 +8,7 @@ from production_entry_app.production_entry_app.report.report_utils import (
 	build_stock_entry_filters,
 	format_numeric_summary,
 	get_parent_quantity_metrics,
+	get_report_rows,
 	iter_stock_entries_in_chunks,
 )
 
@@ -76,7 +76,7 @@ def _get_rows(filters: dict) -> list[dict]:
 		if not entry_names:
 			continue
 		parent_quantity_metrics = get_parent_quantity_metrics(entry_names, include_rework=True)
-		breakup_rows = frappe.get_all(
+		breakup_rows = get_report_rows(
 			"Rejection Breakup",
 			filters={"parenttype": "Stock Entry", "parent": ["in", entry_names], "is_rework": 1},
 			fields=["parent", "rejection_reason", "qty"],

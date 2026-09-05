@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import ClassVar
 from unittest.mock import patch
 
 import frappe
 from frappe.exceptions import ValidationError
+from frappe.model.document import Document
 from frappe.tests.utils import FrappeTestCase
 
+from production_entry_app.production_entry_app.api import get_joint_production_items
+from production_entry_app.production_entry_app.joint_production import JOINT_LH_RH_STOCK_ENTRY_TYPE
 from production_entry_app.production_entry_app.overrides import stock_entry_hooks
 from production_entry_app.production_entry_app.tests.support.manufacture_builders import (
 	bootstrap_manufacture_masters,
@@ -18,19 +22,27 @@ from production_entry_app.production_entry_app.tests.support.manufacture_builder
 from production_entry_app.production_entry_app.utils.alternative_items import (
 	get_bom_alternative_allowed_items,
 )
+from production_entry_app.production_entry_app.utils.rejection_warehouse import resolve_rejection_warehouse
+from production_entry_app.production_entry_app.utils.stock_entry_branch import stock_entry_has_branch_field
+from production_entry_app.production_entry_app.utils.stock_entry_type_flags import (
+	is_joint_lh_rh_stock_entry_type,
+)
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	bootstrap_manufacturing_test_context,
 	cleanup_running_shifts,
 	ensure_branch,
 	ensure_department,
 	ensure_item,
+	ensure_joint_test_bom,
 	ensure_operator,
 	ensure_production_entry_settings_shift_fields,
+	ensure_stock,
 	ensure_warehouse,
 	ensure_workstation,
 	get_company_abbr,
 	resolve_test_branch,
 	resolve_test_company,
+	set_test_branch_warehouse_defaults,
 )
 
 
@@ -98,22 +110,13 @@ def _ensure_loss_entry_shift_field() -> None:
 	frappe.clear_cache(doctype="Loss Entry")
 
 
+def _assert_stock_entry_branch_not_injected(test_case: FrappeTestCase, doc: Document) -> None:
+	test_case.assertFalse(stock_entry_has_branch_field())
+	test_case.assertNotIn("branch", doc.__dict__)
+
+
 def _ensure_item_die_tool_fields() -> None:
 	created = False
-	if not frappe.db.exists("Custom Field", "Item-custom_pea_strokes_per_unit"):
-		frappe.get_doc(
-			{
-				"doctype": "Custom Field",
-				"dt": "Item",
-				"fieldname": "custom_pea_strokes_per_unit",
-				"fieldtype": "Float",
-				"label": "Strokes Per Unit",
-				"insert_after": "item_name",
-				"module": "Production Entry App",
-			}
-		).insert(ignore_permissions=True)
-		created = True
-
 	if not frappe.db.exists("Custom Field", "Item-custom_pea_stroke_capacity"):
 		frappe.get_doc(
 			{
@@ -122,7 +125,7 @@ def _ensure_item_die_tool_fields() -> None:
 				"fieldname": "custom_pea_stroke_capacity",
 				"fieldtype": "Float",
 				"label": "Max Stroke Count",
-				"insert_after": "custom_pea_strokes_per_unit",
+				"insert_after": "default_bom",
 				"module": "Production Entry App",
 			}
 		).insert(ignore_permissions=True)
@@ -149,6 +152,97 @@ def _ensure_item_die_tool_fields() -> None:
 
 
 class TestStockEntryHookPureHelpers(FrappeTestCase):
+	def test_non_rework_without_shift_clears_derived_shift_state(self) -> None:
+		doc = frappe._dict(
+			custom_pea_shift="",
+			stock_entry_type="Manufacture",
+			flags=frappe._dict(),
+		)
+		with (
+			patch.object(stock_entry_hooks, "is_rework_stock_entry_type", return_value=False),
+			patch.object(
+				stock_entry_hooks, "_validate_linked_shift_can_accept_stock_entry"
+			) as validate_shift,
+			patch.object(stock_entry_hooks, "_apply_shift_defaults") as apply_defaults,
+			patch.object(stock_entry_hooks, "_stamp_late_entry_flag") as stamp_late,
+			patch.object(stock_entry_hooks, "_sync_unplanned_loss_shift_links") as sync_losses,
+			patch.object(stock_entry_hooks, "_validate_rework_fields"),
+			patch.object(stock_entry_hooks, "is_joint_lh_rh_production", return_value=False),
+			patch.object(stock_entry_hooks, "_set_entry_metrics"),
+		):
+			stock_entry_hooks.validate_stock_entry(doc)
+
+		validate_shift.assert_not_called()
+		apply_defaults.assert_not_called()
+		stamp_late.assert_called_once_with(doc)
+		sync_losses.assert_called_once_with(doc)
+
+	def test_rework_clears_shift_link_and_shift_derived_fields(self) -> None:
+		doc = frappe._dict(
+			custom_pea_shift="SHIFT-REWORK",
+			custom_pea_planned_start_date="2026-09-01 08:00:00",
+			custom_pea_planned_end_date="2026-09-01 16:00:00",
+			stock_entry_type="Rework Material Transfer",
+			flags=frappe._dict(),
+		)
+		with (
+			patch.object(stock_entry_hooks, "is_rework_stock_entry_type", return_value=True),
+			patch.object(
+				stock_entry_hooks, "_validate_linked_shift_can_accept_stock_entry"
+			) as validate_shift,
+			patch.object(stock_entry_hooks, "_apply_shift_defaults") as apply_defaults,
+			patch.object(stock_entry_hooks, "_stamp_late_entry_flag") as stamp_late,
+			patch.object(stock_entry_hooks, "_sync_unplanned_loss_shift_links") as sync_losses,
+			patch.object(stock_entry_hooks, "_validate_rework_fields"),
+			patch.object(stock_entry_hooks, "is_joint_lh_rh_production", return_value=False),
+			patch.object(stock_entry_hooks, "_set_entry_metrics"),
+		):
+			stock_entry_hooks.validate_stock_entry(doc)
+
+		validate_shift.assert_not_called()
+		apply_defaults.assert_not_called()
+		stamp_late.assert_called_once_with(doc)
+		sync_losses.assert_called_once_with(doc)
+		self.assertIsNone(doc.custom_pea_shift)
+		self.assertIsNone(doc.custom_pea_planned_start_date)
+		self.assertIsNone(doc.custom_pea_planned_end_date)
+
+	def test_stock_entry_type_flag_handles_dict_payload_without_flags(self) -> None:
+		doc = frappe._dict({"stock_entry_type": "Manufacture"})
+		self.assertIsNone(doc.flags)
+
+		self.assertFalse(is_joint_lh_rh_stock_entry_type(doc))
+
+		self.assertEqual(doc.flags.pea_joint_stock_entry_type, ("Manufacture", False))
+
+	def test_blank_rejection_breakup_item_is_rejected_when_multiple_rejection_items_exist(self) -> None:
+		doc = frappe._dict(
+			custom_pea_rejection_qty=2,
+			custom_pea_rejection_breakup=[
+				frappe._dict(rejection_reason="Burr", item_code="", qty=2, is_rework=1),
+			],
+			items=[
+				frappe._dict(item_code="ITEM-A", custom_pea_is_rejection_item=1),
+				frappe._dict(item_code="ITEM-B", custom_pea_is_rejection_item=1),
+			],
+		)
+
+		with self.assertRaisesRegex(ValidationError, "multiple rejected Items"):
+			stock_entry_hooks._validate_rejection_breakup(doc)
+
+	def test_blank_rejection_breakup_item_is_allowed_for_one_rejection_item(self) -> None:
+		doc = frappe._dict(
+			custom_pea_rejection_qty=2,
+			custom_pea_rejection_breakup=[
+				frappe._dict(rejection_reason="Burr", item_code="", qty=2, is_rework=1),
+			],
+			items=[frappe._dict(item_code="ITEM-A", custom_pea_is_rejection_item=1)],
+		)
+
+		stock_entry_hooks._validate_rejection_breakup(doc)
+
+		self.assertEqual(doc.custom_pea_rework_qty, 2)
+
 	def test_on_trash_stock_entry_deletes_loss_rows_for_parent(self) -> None:
 		doc = frappe._dict({"name": "MAT-STE-UNIT-001"})
 		with patch(
@@ -300,7 +394,7 @@ class TestStockEntryHookPureHelpers(FrappeTestCase):
 		):
 			self.assertEqual(stock_entry_hooks._get_docfield_precision("Stock Entry", "missing", object()), 3)
 
-	def test_validate_rejection_target_warehouses_returns_when_flag_missing_and_requires_target(self) -> None:
+	def test_validate_rejection_target_warehouses_requires_target(self) -> None:
 		doc = frappe._dict(
 			{
 				"items": [
@@ -308,36 +402,30 @@ class TestStockEntryHookPureHelpers(FrappeTestCase):
 				]
 			}
 		)
-		with patch(
-			"production_entry_app.production_entry_app.overrides.stock_entry_hooks._has_rejected_warehouse_flag",
-			return_value=False,
+		with self.assertRaisesRegex(frappe.ValidationError, "Target Warehouse"):
+			stock_entry_hooks._validate_rejection_target_warehouses(doc)
+
+	def test_validate_rejection_target_warehouses_requires_rejected_warehouse(self) -> None:
+		doc = frappe._dict(
+			{
+				"items": [
+					frappe._dict({"custom_pea_is_rejection_item": 1, "t_warehouse": "Invalid WH", "idx": 1}),
+				]
+			}
+		)
+		with (
+			patch.object(stock_entry_hooks, "get_rejected_warehouses", return_value=set()),
+			self.assertRaisesRegex(frappe.ValidationError, "marked as Rejected Warehouse"),
 		):
 			stock_entry_hooks._validate_rejection_target_warehouses(doc)
-		with patch(
-			"production_entry_app.production_entry_app.overrides.stock_entry_hooks._has_rejected_warehouse_flag",
-			return_value=True,
-		):
-			with self.assertRaisesRegex(frappe.ValidationError, "Target Warehouse"):
-				stock_entry_hooks._validate_rejection_target_warehouses(doc)
 
 	def test_rejection_warehouse_uses_settings_fallback_and_throws_when_missing(self) -> None:
-		doc = frappe._dict({"custom_pea_shift": ""})
-		meta = type("Meta", (), {"has_field": lambda self, fieldname: True})()
-		with patch(
-			"production_entry_app.production_entry_app.overrides.stock_entry_hooks.frappe.get_meta",
-			return_value=meta,
-		):
-			with patch(
-				"production_entry_app.production_entry_app.overrides.stock_entry_hooks.frappe.db.get_single_value",
-				return_value="Rejected WH",
-			):
-				self.assertEqual(stock_entry_hooks._get_rejection_warehouse(doc), "Rejected WH")
-			with patch(
-				"production_entry_app.production_entry_app.overrides.stock_entry_hooks.frappe.db.get_single_value",
-				return_value=None,
-			):
-				with self.assertRaisesRegex(frappe.ValidationError, "Rejection Warehouse"):
-					stock_entry_hooks._get_rejection_warehouse(doc)
+		ctx = bootstrap_manufacturing_test_context("Rejection Branch Defaults")
+		doc = frappe._dict({"company": ctx["company"], "branch": ctx["branch"]})
+		self.assertEqual(resolve_rejection_warehouse(doc), ctx["rejection_warehouse"])
+		doc.branch = None
+		with self.assertRaisesRegex(frappe.ValidationError, "Rejection Warehouse"):
+			resolve_rejection_warehouse(doc)
 
 	def test_existing_rejection_target_warehouse_ignores_invalid_new_doc_candidates(self) -> None:
 		doc = frappe._dict(
@@ -348,15 +436,8 @@ class TestStockEntryHookPureHelpers(FrappeTestCase):
 				"is_new": lambda: True,
 			}
 		)
-		with patch(
-			"production_entry_app.production_entry_app.overrides.stock_entry_hooks._has_rejected_warehouse_flag",
-			return_value=True,
-		):
-			with patch(
-				"production_entry_app.production_entry_app.overrides.stock_entry_hooks._is_rejected_warehouse",
-				return_value=False,
-			):
-				self.assertIsNone(stock_entry_hooks._get_existing_rejection_target_warehouse(doc))
+		with patch.object(stock_entry_hooks, "get_rejected_warehouses", return_value=set()):
+			self.assertIsNone(stock_entry_hooks._get_existing_rejection_target_warehouse(doc))
 
 	def test_build_metrics_note_handles_zero_partial_and_full_loss_windows(self) -> None:
 		self.assertEqual(stock_entry_hooks._build_metrics_note(0, 1), "")
@@ -492,10 +573,7 @@ def _get_or_create_item(item_code: str) -> str:
 	return ensure_item(item_code)
 
 
-def _set_item_die_tool_fields(
-	item_code: str, strokes_per_unit: float, stroke_capacity: float, has_die_tool: int = 1
-) -> None:
-	frappe.db.set_value("Item", item_code, "custom_pea_strokes_per_unit", strokes_per_unit)
+def _set_item_die_tool_fields(item_code: str, stroke_capacity: float, has_die_tool: int = 1) -> None:
 	frappe.db.set_value("Item", item_code, "custom_pea_stroke_capacity", stroke_capacity)
 	frappe.db.set_value("Item", item_code, "custom_pea_has_die_tool", has_die_tool)
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit - ensure custom fields are persisted
@@ -522,6 +600,7 @@ def _create_test_shift(
 
 	doc_data = {
 		"doctype": "Shift",
+		"company": resolve_test_company(),
 		"department": department,
 		"shift_label": shift_label,
 		"shift_duration": "8",
@@ -652,6 +731,7 @@ def _create_manufacture_stock_entry(
 			"stock_entry_type": "Manufacture",
 			"company": company,
 			"fg_completed_qty": fg_qty,
+			"custom_pea_total_strokes": fg_qty,
 		}
 	)
 
@@ -807,7 +887,10 @@ class TestStockEntryHooks(FrappeTestCase):
 		)
 		se.save()
 
-		self.assertEqual(se.branch, "Test Branch SE")
+		if stock_entry_has_branch_field():
+			self.assertEqual(se.branch, "Test Branch SE")
+		else:
+			_assert_stock_entry_branch_not_injected(self, se)
 
 	def test_linked_shift_requires_read_permission_before_lookup(self) -> None:
 		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
@@ -1294,12 +1377,8 @@ class TestStockEntryHooks(FrappeTestCase):
 
 		se.save()
 
-		expected_ok_qty = max(
-			float(se.get("fg_completed_qty") or 0) - float(se.get("custom_pea_rejection_qty") or 0),
-			0,
-		)
-		total_strokes = float(se.get("fg_completed_qty") or 0)
-		self.assertEqual(float(se.custom_pea_ok_qty), expected_ok_qty)
+		total_strokes = float(se.get("custom_pea_total_strokes") or 0)
+		self.assertEqual(float(se.custom_pea_ok_qty), 90.0)
 		self.assertEqual(float(se.custom_pea_actual_duration_mins), 100.0)
 		# Planned losses overlapping 08:00-09:40: Shift Start Up (10) + Tea Break (10) = 20 min.
 		# JH Activity (10:00-10:10) is outside the entry window.
@@ -1371,8 +1450,8 @@ class TestStockEntryHooks(FrappeTestCase):
 		se.save()
 
 		# Wall-clock duration remains 60 mins, but production time is 30 mins after losses.
-		total_strokes = float(se.get("fg_completed_qty") or 0)
-		ok_qty = max(total_strokes - float(se.get("custom_pea_rejection_qty") or 0), 0)
+		total_strokes = float(se.get("custom_pea_total_strokes") or 0)
+		ok_qty = 100.0
 		expected_spm = (total_strokes / 30.0) if total_strokes > 0 else 0.0
 		expected_cycle_time = (1800.0 / total_strokes) if total_strokes > 0 else 0.0
 		self.assertEqual(float(se.custom_pea_actual_duration_mins), 60.0)
@@ -1482,7 +1561,7 @@ class TestStockEntryHooks(FrappeTestCase):
 		# Planned: Shift Start Up 08:00-08:10. Unplanned: setup 08:00-08:10.
 		# Merged = 10 min deducted. JH Activity (10:00-10:10) outside window.
 		self.assertEqual(float(se.custom_pea_production_time_mins), 10.0)
-		total_strokes = float(se.get("fg_completed_qty") or 0)
+		total_strokes = float(se.get("custom_pea_total_strokes") or 0)
 		self.assertAlmostEqual(
 			float(se.custom_pea_actual_spm),
 			float(total_strokes / 10.0 if total_strokes > 0 else 0),
@@ -1591,14 +1670,14 @@ class TestStockEntryHooks(FrappeTestCase):
 	def test_shift_defaults_warehouses_from_production_entry_settings(self) -> None:
 		scrap_warehouse = _get_or_create_warehouse("SE Hook Scrap Warehouse", self.company)
 		ensure_production_entry_settings_shift_fields()
-		frappe.db.set_single_value(
-			"Production Entry Settings", "shift_raw_material_warehouse", self.rm_warehouse
+		set_test_branch_warehouse_defaults(
+			self.company,
+			ensure_branch(resolve_test_branch() or "_Test Branch"),
+			raw_material_warehouse=self.rm_warehouse,
+			work_in_progress_warehouse=self.wip_warehouse,
+			rejection_warehouse=self.rejection_warehouse,
+			scrap_warehouse=scrap_warehouse,
 		)
-		frappe.db.set_single_value("Production Entry Settings", "shift_wip_warehouse", self.wip_warehouse)
-		frappe.db.set_single_value(
-			"Production Entry Settings", "shift_rejection_warehouse", self.rejection_warehouse
-		)
-		frappe.db.set_single_value("Production Entry Settings", "shift_scrap_warehouse", scrap_warehouse)
 
 		shift = _create_test_shift(shift_date="2026-04-18", wip_warehouse=None, rejection_warehouse=None)
 
@@ -1609,14 +1688,17 @@ class TestStockEntryHooks(FrappeTestCase):
 
 	def test_rejection_warehouse_uses_production_entry_settings_fallback(self) -> None:
 		ensure_production_entry_settings_shift_fields()
-		frappe.db.set_single_value(
-			"Production Entry Settings", "shift_rejection_warehouse", self.rejection_warehouse
+		set_test_branch_warehouse_defaults(
+			self.company,
+			ensure_branch(resolve_test_branch() or "_Test Branch"),
+			rejection_warehouse=self.rejection_warehouse,
 		)
 		shift = _create_test_shift(
 			shift_date="2026-04-19",
 			wip_warehouse=self.wip_warehouse,
 			rejection_warehouse=None,
 		)
+		frappe.db.set_value("Shift", shift.name, "rejection_warehouse", None)
 
 		se = _create_manufacture_stock_entry(
 			company=self.company,
@@ -1759,6 +1841,7 @@ class TestStockEntryHooks(FrappeTestCase):
 				"shift_duration": "8",
 				"shift_date": "2090-01-24",
 				"planned_start_time": "08:00:00",
+				"company": self.company,
 				"work_in_progress_warehouse": self.wip_warehouse,
 			}
 		).insert()
@@ -1797,7 +1880,10 @@ class TestStockEntryHooks(FrappeTestCase):
 		se.save()
 
 		self.assertEqual(se.custom_pea_shift, shift.name)
-		self.assertEqual(se.branch, shift.branch)
+		if stock_entry_has_branch_field():
+			self.assertEqual(se.branch, shift.branch)
+		else:
+			_assert_stock_entry_branch_not_injected(self, se)
 
 	def test_entry_metrics_with_no_fg_item_sets_die_tool_fields_to_zero(self) -> None:
 		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import _set_entry_metrics
@@ -1815,7 +1901,7 @@ class TestStockEntryHooks(FrappeTestCase):
 	def test_entry_metrics_with_die_tool_disabled_sets_die_tool_fields_to_zero(self) -> None:
 		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import _set_entry_metrics
 
-		_set_item_die_tool_fields(self.fg_item, strokes_per_unit=12, stroke_capacity=1000, has_die_tool=0)
+		_set_item_die_tool_fields(self.fg_item, stroke_capacity=1000, has_die_tool=0)
 
 		se = frappe.new_doc("Stock Entry")
 		se.purpose = "Manufacture"
@@ -1829,7 +1915,7 @@ class TestStockEntryHooks(FrappeTestCase):
 		self.assertEqual(int(se.get("custom_pea_die_tool_maintenance_due") or 0), 0)
 
 	def test_die_tool_warning_metrics_populated_from_counter(self) -> None:
-		_set_item_die_tool_fields(self.fg_item, strokes_per_unit=12, stroke_capacity=1000, has_die_tool=1)
+		_set_item_die_tool_fields(self.fg_item, stroke_capacity=1000, has_die_tool=1)
 
 		shift = _create_test_shift(
 			shift_date="2026-04-18",
@@ -2599,6 +2685,36 @@ class TestOverlapValidation(FrappeTestCase):
 		cls.fg_warehouse = context["fg_warehouse"]
 		cls.fg_item = _get_or_create_item("_Test FG Item For Shift")
 		cls.rm_item = _get_or_create_item("_Test RM Item For Shift")
+		cls.joint_rm_item = ensure_item("_Test Joint RM Item For Overlap", stock_uom="Kg")
+		cls.lh_item = ensure_item("_Test Joint LH Item For Overlap")
+		cls.rh_item = ensure_item("_Test Joint RH Item For Overlap")
+		cls.scrap_item = ensure_item("_Test Joint Scrap Item For Overlap", stock_uom="Kg")
+		cls.lh_bom = ensure_joint_test_bom(
+			item_code=cls.lh_item,
+			rm_item=cls.joint_rm_item,
+			scrap_items=[(cls.scrap_item, 1, 10)],
+			company=cls.company,
+			bom_quantity=100,
+			rm_qty=49,
+		)
+		cls.rh_bom = ensure_joint_test_bom(
+			item_code=cls.rh_item,
+			rm_item=cls.joint_rm_item,
+			scrap_items=[(cls.scrap_item, 1, 10)],
+			company=cls.company,
+			bom_quantity=100,
+			rm_qty=49,
+		)
+		cls.plain_repack_type = f"Plain Repack {frappe.generate_hash(length=6)}"
+		if not frappe.db.exists("Stock Entry Type", cls.plain_repack_type):
+			frappe.get_doc(
+				{
+					"doctype": "Stock Entry Type",
+					"name": cls.plain_repack_type,
+					"purpose": "Repack",
+				}
+			).insert(ignore_permissions=True)
+		cls.joint_repack_type = JOINT_LH_RH_STOCK_ENTRY_TYPE
 		cls.workstation_1 = "SE Hook WS-1"
 		cls.workstation_2 = "SE Hook WS-2"
 		cls.operator_1 = "SE Hook Operator-1"
@@ -2618,6 +2734,13 @@ class TestOverlapValidation(FrappeTestCase):
 		self.fg_warehouse = self.__class__.fg_warehouse
 		self.fg_item = self.__class__.fg_item
 		self.rm_item = self.__class__.rm_item
+		self.joint_rm_item = self.__class__.joint_rm_item
+		self.lh_item = self.__class__.lh_item
+		self.rh_item = self.__class__.rh_item
+		self.lh_bom = self.__class__.lh_bom
+		self.rh_bom = self.__class__.rh_bom
+		self.plain_repack_type = self.__class__.plain_repack_type
+		self.joint_repack_type = self.__class__.joint_repack_type
 		self.employee_name = self.__class__.employee_name
 
 	def tearDown(self) -> None:
@@ -2634,6 +2757,13 @@ class TestOverlapValidation(FrappeTestCase):
 					pluck="name",
 				):
 					frappe.db.set_value("Shift", name, "status", "Completed", update_modified=False)
+		if frappe.db.exists("Stock Entry Type", cls.plain_repack_type):
+			frappe.delete_doc(
+				"Stock Entry Type",
+				cls.plain_repack_type,
+				force=True,
+				ignore_permissions=True,
+			)
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed to persist cleanup
 		super().tearDownClass()
 
@@ -2646,6 +2776,7 @@ class TestOverlapValidation(FrappeTestCase):
 		workstation: str | None = None,
 		operator: str | None = None,
 		purpose: str = "Manufacture",
+		stock_entry_type: str | None = None,
 	) -> frappe.Document:
 		if purpose == "Manufacture":
 			se = _create_manufacture_stock_entry(
@@ -2660,8 +2791,8 @@ class TestOverlapValidation(FrappeTestCase):
 			se = frappe.get_doc(
 				{
 					"doctype": "Stock Entry",
-					"purpose": "Material Transfer",
-					"stock_entry_type": "Material Transfer",
+					"purpose": purpose,
+					"stock_entry_type": stock_entry_type or "Material Transfer",
 					"company": self.company,
 					"items": [
 						{
@@ -2687,6 +2818,130 @@ class TestOverlapValidation(FrappeTestCase):
 			se.custom_pea_operator = operator
 		return se
 
+	def _create_repack_entry(
+		self,
+		*,
+		shift_name: str | None,
+		start: str | None = None,
+		end: str | None = None,
+		workstation: str | None = None,
+		operator: str | None = None,
+		stock_entry_type: str | None = None,
+	) -> frappe.Document:
+		se = frappe.get_doc(
+			{
+				"doctype": "Stock Entry",
+				"purpose": "Repack",
+				"stock_entry_type": stock_entry_type or self.joint_repack_type,
+				"company": self.company,
+			}
+		)
+		se.append(
+			"items",
+			{
+				"item_code": self.rm_item,
+				"qty": 1,
+				"basic_rate": 50,
+				"s_warehouse": self.rm_warehouse,
+				"is_finished_item": 0,
+			},
+		)
+		se.append(
+			"items",
+			{
+				"item_code": self.fg_item,
+				"qty": 1,
+				"basic_rate": 50,
+				"is_finished_item": 1,
+				"t_warehouse": self.fg_warehouse,
+			},
+		)
+		if shift_name:
+			se.custom_pea_shift = shift_name
+		if start:
+			se.custom_pea_actual_start_date = start
+		if end:
+			se.custom_pea_actual_end_date = end
+		if workstation:
+			se.custom_pea_workstation = workstation
+		if operator:
+			se.custom_pea_operator = operator
+		return se
+
+	def _create_joint_repack_entry(
+		self,
+		*,
+		shift_name: str | None,
+		start: str | None = None,
+		end: str | None = None,
+		workstation: str | None = None,
+		operator: str | None = None,
+		stock_entry_type: str | None = None,
+	) -> frappe.Document:
+		posting_date = frappe.db.get_value("Shift", shift_name, "shift_date") if shift_name else None
+		ensure_stock(
+			self.joint_rm_item,
+			self.wip_warehouse,
+			self.company,
+			target_qty=100,
+			posting_date=posting_date,
+		)
+		se = frappe.get_doc(
+			{
+				"doctype": "Stock Entry",
+				"purpose": "Repack",
+				"stock_entry_type": stock_entry_type or self.joint_repack_type,
+				"company": self.company,
+				"from_warehouse": self.wip_warehouse,
+				"to_warehouse": self.fg_warehouse,
+				"custom_pea_shift": shift_name,
+				"custom_pea_actual_start_date": start,
+				"custom_pea_actual_end_date": end,
+				"custom_pea_workstation": workstation,
+				"custom_pea_operator": operator,
+				"custom_pea_lh_bom": self.lh_bom,
+				"custom_pea_lh_gross_qty": 40,
+				"custom_pea_lh_rejection_qty": 1,
+				"custom_pea_rh_bom": self.rh_bom,
+				"custom_pea_rh_gross_qty": 41,
+				"custom_pea_rh_rejection_qty": 0,
+				"custom_pea_total_strokes": 41,
+				"custom_pea_die_tool_item": self.lh_item,
+				"custom_pea_rejection_breakup": [
+					{
+						"rejection_reason": "Burr",
+						"qty": 1,
+						"output_side": "LH",
+						"item_code": self.lh_item,
+					}
+				],
+			}
+		)
+		se.set("items", get_joint_production_items(json.dumps(se.as_dict(), default=str)))
+		rm_row = next(row for row in se.items if row.s_warehouse)
+		rm_row.basic_rate = 50
+		rm_row.basic_amount = rm_row.qty * rm_row.conversion_factor * rm_row.basic_rate
+		return se
+
+	def _create_plain_repack_entry(
+		self,
+		*,
+		shift_name: str | None,
+		start: str | None = None,
+		end: str | None = None,
+		workstation: str | None = None,
+		operator: str | None = None,
+		stock_entry_type: str | None = None,
+	) -> frappe.Document:
+		return self._create_repack_entry(
+			shift_name=shift_name,
+			start=start,
+			end=end,
+			workstation=workstation,
+			operator=operator,
+			stock_entry_type=stock_entry_type or self.plain_repack_type,
+		)
+
 	def test_workstation_overlap_blocks_overlapping_entry(self) -> None:
 		shift = _create_test_shift(shift_date="2026-05-01", wip_warehouse=self.wip_warehouse)
 		first = self._create_entry(
@@ -2703,7 +2958,7 @@ class TestOverlapValidation(FrappeTestCase):
 			end="2026-05-01 09:30:00",
 			workstation=self.workstation_1,
 		)
-		with self.assertRaisesRegex(ValidationError, "Workstation"):
+		with self.assertRaisesRegex(ValidationError, rf"Workstation.*{re.escape(first.name)}"):
 			second.save()
 
 	def test_workstation_overlap_allows_different_workstations(self) -> None:
@@ -2872,8 +3127,131 @@ class TestOverlapValidation(FrappeTestCase):
 			workstation=self.workstation_1,
 			operator=self.operator_1,
 		)
-		with self.assertRaisesRegex(ValidationError, "Workstation"):
+		with self.assertRaisesRegex(ValidationError, rf"Workstation.*{re.escape(first.name)}"):
 			second.save()
+
+	def test_workstation_overlap_blocks_joint_repack(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-05-07",
+			shift_label="2",
+			planned_start_time="16:00:00",
+			wip_warehouse=self.wip_warehouse,
+		)
+		manufacture = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-07 16:00:00",
+			end="2026-05-07 17:00:00",
+			workstation=self.workstation_1,
+		)
+		manufacture.save()
+
+		joint = self._create_joint_repack_entry(
+			shift_name=shift.name,
+			start="2026-05-07 16:30:00",
+			end="2026-05-07 17:30:00",
+			workstation=self.workstation_1,
+		)
+		with self.assertRaisesRegex(ValidationError, rf"Workstation.*{re.escape(manufacture.name)}"):
+			joint.save()
+
+	def test_workstation_overlap_blocks_joint_repack_by_existing_joint_repack(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-05-06",
+			shift_label="2",
+			planned_start_time="16:00:00",
+			wip_warehouse=self.wip_warehouse,
+		)
+		first = self._create_joint_repack_entry(
+			shift_name=shift.name,
+			start="2026-05-06 16:00:00",
+			end="2026-05-06 17:00:00",
+			workstation=self.workstation_1,
+		)
+		first.db_insert()
+
+		second = self._create_joint_repack_entry(
+			shift_name=shift.name,
+			start="2026-05-06 16:30:00",
+			end="2026-05-06 17:30:00",
+			workstation=self.workstation_1,
+		)
+		with self.assertRaisesRegex(ValidationError, rf"Workstation.*{re.escape(first.name)}"):
+			second.save()
+
+	def test_workstation_overlap_blocks_manufacture_by_existing_joint_repack(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-05-05",
+			shift_label="2",
+			planned_start_time="16:00:00",
+			wip_warehouse=self.wip_warehouse,
+		)
+		joint = self._create_joint_repack_entry(
+			shift_name=shift.name,
+			start="2026-05-05 16:00:00",
+			end="2026-05-05 17:00:00",
+			workstation=self.workstation_1,
+		)
+		joint.db_insert()
+
+		manufacture = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-05 16:30:00",
+			end="2026-05-05 17:30:00",
+			workstation=self.workstation_1,
+		)
+		with self.assertRaisesRegex(ValidationError, rf"Workstation.*{re.escape(joint.name)}"):
+			manufacture.save()
+
+	def test_workstation_overlap_skips_plain_repack(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-05-04",
+			shift_label="2",
+			planned_start_time="16:00:00",
+			wip_warehouse=self.wip_warehouse,
+		)
+		existing = self._create_plain_repack_entry(
+			shift_name=shift.name,
+			start="2026-05-04 16:00:00",
+			end="2026-05-04 17:00:00",
+			workstation=self.workstation_1,
+		)
+		existing.save()
+
+		overlapping = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-04 16:30:00",
+			end="2026-05-04 17:30:00",
+			workstation=self.workstation_1,
+		)
+		overlapping.save()
+		self.assertTrue(bool(overlapping.name))
+
+	def test_workstation_overlap_runs_when_repack_type_changes_to_joint(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-05-04",
+			shift_label="2",
+			planned_start_time="16:00:00",
+			wip_warehouse=self.wip_warehouse,
+		)
+		existing = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-04 16:00:00",
+			end="2026-05-04 17:00:00",
+			workstation=self.workstation_1,
+		)
+		existing.save()
+		repack = self._create_plain_repack_entry(
+			shift_name=shift.name,
+			start="2026-05-04 16:30:00",
+			end="2026-05-04 17:30:00",
+			workstation=self.workstation_1,
+		)
+		repack.save()
+
+		repack.stock_entry_type = self.joint_repack_type
+
+		with self.assertRaisesRegex(ValidationError, rf"Workstation.*{re.escape(existing.name)}"):
+			repack.save()
 
 	def test_operator_overlap_blocks_overlapping_entry(self) -> None:
 		shift = _create_test_shift(shift_date="2026-05-08", wip_warehouse=self.wip_warehouse)
@@ -2891,8 +3269,103 @@ class TestOverlapValidation(FrappeTestCase):
 			end="2026-05-08 09:30:00",
 			operator=self.operator_1,
 		)
-		with self.assertRaisesRegex(ValidationError, "Operator"):
+		with self.assertRaisesRegex(ValidationError, rf"Operator.*{re.escape(first.name)}"):
 			second.save()
+
+	def test_operator_overlap_blocks_joint_repack(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-05-07",
+			planned_start_time="16:00:00",
+			wip_warehouse=self.wip_warehouse,
+		)
+		manufacture = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-07 16:00:00",
+			end="2026-05-07 17:00:00",
+			operator=self.operator_1,
+		)
+		manufacture.save()
+
+		joint = self._create_joint_repack_entry(
+			shift_name=shift.name,
+			start="2026-05-07 16:30:00",
+			end="2026-05-07 17:30:00",
+			operator=self.operator_1,
+		)
+		with self.assertRaisesRegex(ValidationError, rf"Operator.*{re.escape(manufacture.name)}"):
+			joint.save()
+
+	def test_operator_overlap_blocks_joint_repack_by_existing_joint_repack(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-05-06",
+			shift_label="2",
+			planned_start_time="16:00:00",
+			wip_warehouse=self.wip_warehouse,
+		)
+		first = self._create_joint_repack_entry(
+			shift_name=shift.name,
+			start="2026-05-06 16:00:00",
+			end="2026-05-06 17:00:00",
+			operator=self.operator_1,
+		)
+		first.db_insert()
+
+		second = self._create_joint_repack_entry(
+			shift_name=shift.name,
+			start="2026-05-06 16:30:00",
+			end="2026-05-06 17:30:00",
+			operator=self.operator_1,
+		)
+		with self.assertRaisesRegex(ValidationError, rf"Operator.*{re.escape(first.name)}"):
+			second.save()
+
+	def test_operator_overlap_blocks_manufacture_by_existing_joint_repack(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-05-05",
+			shift_label="2",
+			planned_start_time="16:00:00",
+			wip_warehouse=self.wip_warehouse,
+		)
+		joint = self._create_joint_repack_entry(
+			shift_name=shift.name,
+			start="2026-05-05 16:00:00",
+			end="2026-05-05 17:00:00",
+			operator=self.operator_1,
+		)
+		joint.db_insert()
+
+		manufacture = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-05 16:30:00",
+			end="2026-05-05 17:30:00",
+			operator=self.operator_1,
+		)
+		with self.assertRaisesRegex(ValidationError, rf"Operator.*{re.escape(joint.name)}"):
+			manufacture.save()
+
+	def test_operator_overlap_skips_plain_repack(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-05-04",
+			shift_label="2",
+			planned_start_time="16:00:00",
+			wip_warehouse=self.wip_warehouse,
+		)
+		existing = self._create_plain_repack_entry(
+			shift_name=shift.name,
+			start="2026-05-04 16:00:00",
+			end="2026-05-04 17:00:00",
+			operator=self.operator_1,
+		)
+		existing.save()
+
+		overlapping = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-04 16:30:00",
+			end="2026-05-04 17:30:00",
+			operator=self.operator_1,
+		)
+		overlapping.save()
+		self.assertTrue(bool(overlapping.name))
 
 	def test_operator_overlap_allows_different_operators(self) -> None:
 		shift = _create_test_shift(shift_date="2026-05-09", wip_warehouse=self.wip_warehouse)
@@ -3025,6 +3498,107 @@ class TestOverlapValidation(FrappeTestCase):
 		second.save()
 		self.assertTrue(bool(second.name))
 
+	def test_overlap_blocks_joint_repack_when_workstation_and_operator_match_manufacture(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-05-02",
+			shift_label="2",
+			planned_start_time="16:00:00",
+			wip_warehouse=self.wip_warehouse,
+		)
+		manufacture = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-02 16:00:00",
+			end="2026-05-02 17:00:00",
+			workstation=self.workstation_1,
+			operator=self.operator_1,
+		)
+		manufacture.save()
+		joint = self._create_joint_repack_entry(
+			shift_name=shift.name,
+			start="2026-05-02 16:30:00",
+			end="2026-05-02 17:30:00",
+			workstation=self.workstation_1,
+			operator=self.operator_1,
+		)
+
+		with self.assertRaisesRegex(ValidationError, rf"Workstation.*{re.escape(manufacture.name)}"):
+			joint.save()
+
+	def test_joint_repack_overlap_allows_resave_with_same_resources(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-05-03",
+			shift_label="2",
+			planned_start_time="16:00:00",
+			wip_warehouse=self.wip_warehouse,
+		)
+		joint = self._create_joint_repack_entry(
+			shift_name=shift.name,
+			start="2026-05-03 16:00:00",
+			end="2026-05-03 17:00:00",
+			workstation=self.workstation_1,
+			operator=self.operator_1,
+		)
+
+		joint.save()
+		joint.save()
+
+		self.assertTrue(bool(joint.name))
+
+	def test_overlap_excludes_cancelled_joint_repack_for_workstation_and_operator(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-05-04",
+			shift_label="2",
+			planned_start_time="16:00:00",
+			wip_warehouse=self.wip_warehouse,
+		)
+		joint = self._create_joint_repack_entry(
+			shift_name=shift.name,
+			start="2026-05-04 16:00:00",
+			end="2026-05-04 17:00:00",
+			workstation=self.workstation_1,
+			operator=self.operator_1,
+		)
+		joint.db_insert()
+		frappe.db.set_value("Stock Entry", joint.name, "docstatus", 2, update_modified=False)
+		manufacture = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-04 16:30:00",
+			end="2026-05-04 17:30:00",
+			workstation=self.workstation_1,
+			operator=self.operator_1,
+		)
+
+		manufacture.save()
+
+		self.assertTrue(bool(manufacture.name))
+
+	def test_overlap_allows_adjacent_joint_repack_for_same_workstation_and_operator(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-05-05",
+			shift_label="2",
+			planned_start_time="16:00:00",
+			wip_warehouse=self.wip_warehouse,
+		)
+		first = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-05 16:00:00",
+			end="2026-05-05 17:00:00",
+			workstation=self.workstation_1,
+			operator=self.operator_1,
+		)
+		first.save()
+		second = self._create_joint_repack_entry(
+			shift_name=shift.name,
+			start="2026-05-05 17:00:00",
+			end="2026-05-05 18:00:00",
+			workstation=self.workstation_1,
+			operator=self.operator_1,
+		)
+
+		second.save()
+
+		self.assertTrue(bool(second.name))
+
 	def test_downtime_overlap_blocks_workstation_with_downtime(self) -> None:
 		shift = _create_test_shift(
 			shift_date="2026-05-02",
@@ -3043,6 +3617,29 @@ class TestOverlapValidation(FrappeTestCase):
 			shift_name=shift.name,
 			start="2026-05-02 16:30:00",
 			end="2026-05-02 17:30:00",
+			workstation=self.workstation_1,
+		)
+		with self.assertRaisesRegex(ValidationError, "downtime"):
+			se.save()
+
+	def test_downtime_overlap_blocks_joint_repack_with_downtime(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-05-06",
+			shift_label="2",
+			planned_start_time="16:00:00",
+			wip_warehouse=self.wip_warehouse,
+		)
+		_create_downtime_entry(
+			workstation=self.workstation_1,
+			operator=self.employee_name,
+			from_time="2026-05-06 16:00:00",
+			to_time="2026-05-06 17:00:00",
+		)
+
+		se = self._create_joint_repack_entry(
+			shift_name=shift.name,
+			start="2026-05-06 16:30:00",
+			end="2026-05-06 17:30:00",
 			workstation=self.workstation_1,
 		)
 		with self.assertRaisesRegex(ValidationError, "downtime"):
@@ -3192,6 +3789,30 @@ class TestOverlapValidation(FrappeTestCase):
 			workstation=self.workstation_1,
 			operator=self.operator_1,
 			purpose="Material Transfer",
+		)
+		second.save()
+		self.assertTrue(bool(second.name))
+
+	def test_no_overlap_validation_for_plain_repack(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-05-07",
+			shift_label="2",
+			planned_start_time="16:00:00",
+			wip_warehouse=self.wip_warehouse,
+		)
+		first = self._create_plain_repack_entry(
+			shift_name=shift.name,
+			start="2026-05-07 16:00:00",
+			end="2026-05-07 17:00:00",
+			workstation=self.workstation_1,
+		)
+		first.save()
+
+		second = self._create_plain_repack_entry(
+			shift_name=shift.name,
+			start="2026-05-07 16:30:00",
+			end="2026-05-07 17:30:00",
+			workstation=self.workstation_1,
 		)
 		second.save()
 		self.assertTrue(bool(second.name))
@@ -3720,11 +4341,7 @@ class TestDieToolCounter(FrappeTestCase):
 		suffix = frappe.generate_hash(length=6)
 		cls.rm_item = _get_or_create_item(f"_Test Die Tool RM {suffix}")
 		cls.fg_item = _get_or_create_item(f"_Test Die Tool FG {suffix}")
-		_set_item_die_tool_fields(cls.fg_item, strokes_per_unit=12, stroke_capacity=1000)
-		strokes = frappe.db.get_value("Item", cls.fg_item, "custom_pea_strokes_per_unit")
-		if not strokes:
-			frappe.db.set_value("Item", cls.fg_item, "custom_pea_strokes_per_unit", 12)
-			frappe.db.commit()  # nosemgrep: frappe-manual-commit - persist stroke config
+		_set_item_die_tool_fields(cls.fg_item, stroke_capacity=1000)
 		frappe.db.delete("Die Tool Maintenance Log", {"die_tool_item": cls.fg_item})
 		frappe.db.delete("Die Tool Counter", {"die_tool_item": cls.fg_item})
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit - clear prior data
@@ -3739,7 +4356,7 @@ class TestDieToolCounter(FrappeTestCase):
 		self.fg_warehouse = _get_or_create_warehouse(f"DT FG Test - {abbr}", self.company)
 		self.rm_item = _get_or_create_item(self.rm_item)
 		self.fg_item = _get_or_create_item(self.fg_item)
-		_set_item_die_tool_fields(self.fg_item, strokes_per_unit=12, stroke_capacity=1000)
+		_set_item_die_tool_fields(self.fg_item, stroke_capacity=1000)
 		frappe.db.delete("Die Tool Maintenance Log", {"die_tool_item": self.fg_item})
 		frappe.db.delete("Die Tool Counter", {"die_tool_item": self.fg_item})
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit - isolate tests
@@ -3762,11 +4379,12 @@ class TestDieToolCounter(FrappeTestCase):
 			rm_warehouse=self.rm_warehouse,
 		)
 		se.custom_pea_rejection_qty = 2
+		se.custom_pea_total_strokes = 7
 
 		on_submit_stock_entry(se, "on_submit")
 
 		counter = frappe.get_doc("Die Tool Counter", self.fg_item)
-		self.assertEqual(counter.current_stroke_count, (10 + 2) * 12)
+		self.assertEqual(counter.current_stroke_count, 7)
 		self.assertEqual(counter.stroke_capacity, 1000)
 
 	def test_atomic_increment_does_not_lose_updates(self) -> None:
@@ -3792,13 +4410,15 @@ class TestDieToolCounter(FrappeTestCase):
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
+		first.custom_pea_total_strokes = 5
+		second.custom_pea_total_strokes = 7
 
 		on_submit_stock_entry(first, "on_submit")
 		on_submit_stock_entry(second, "on_submit")
 
 		self.assertEqual(
 			float(frappe.db.get_value("Die Tool Counter", self.fg_item, "current_stroke_count") or 0),
-			36.0,
+			12.0,
 		)
 
 	def test_die_tool_counter_decrements_on_cancel(self) -> None:
@@ -3817,6 +4437,7 @@ class TestDieToolCounter(FrappeTestCase):
 			rm_warehouse=self.rm_warehouse,
 		)
 		se.custom_pea_rejection_qty = 1
+		se.custom_pea_total_strokes = 6
 
 		on_submit_stock_entry(se, "on_submit")
 		on_cancel_stock_entry(se, "on_cancel")
@@ -3841,7 +4462,8 @@ class TestDieToolCounter(FrappeTestCase):
 		):
 			on_submit_stock_entry(doc, "on_submit")
 
-		cache_fn.return_value.delete_keys.assert_called_once_with(f"pea:shift_summary:{shift_name}:")
+		cache_fn.return_value.delete_value.assert_called_once_with(f"pea:shift_summary:{shift_name}")
+		cache_fn.return_value.delete_keys.assert_not_called()
 
 	def test_cache_invalidated_on_stock_entry_cancel(self) -> None:
 		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
@@ -3860,7 +4482,8 @@ class TestDieToolCounter(FrappeTestCase):
 		):
 			on_cancel_stock_entry(doc, "on_cancel")
 
-		cache_fn.return_value.delete_keys.assert_called_once_with(f"pea:shift_summary:{shift_name}:")
+		cache_fn.return_value.delete_value.assert_called_once_with(f"pea:shift_summary:{shift_name}")
+		cache_fn.return_value.delete_keys.assert_not_called()
 
 	def test_die_tool_counter_resets_on_maintenance_log_submit(self) -> None:
 		if frappe.db.exists("Die Tool Counter", self.fg_item):
@@ -3969,7 +4592,7 @@ class TestDieToolCounter(FrappeTestCase):
 	def test_get_die_tool_counter_returns_zero_payload_when_item_has_no_die_tool(self) -> None:
 		from production_entry_app.production_entry_app.api import get_die_tool_counter
 
-		_set_item_die_tool_fields(self.fg_item, strokes_per_unit=12, stroke_capacity=1000, has_die_tool=0)
+		_set_item_die_tool_fields(self.fg_item, stroke_capacity=1000, has_die_tool=0)
 		result = get_die_tool_counter(self.fg_item)
 		self.assertEqual(int(result.get("has_die_tool") or 0), 0)
 		self.assertEqual(float(result.get("current_strokes") or 0), 0.0)
@@ -4037,7 +4660,7 @@ class TestDieToolCounter(FrappeTestCase):
 	def test_reset_die_tool_counter_api_rejects_disabled_item(self) -> None:
 		from production_entry_app.production_entry_app.api import reset_die_tool_counter
 
-		_set_item_die_tool_fields(self.fg_item, strokes_per_unit=12, stroke_capacity=1000, has_die_tool=0)
+		_set_item_die_tool_fields(self.fg_item, stroke_capacity=1000, has_die_tool=0)
 		with self.assertRaises(ValidationError):
 			reset_die_tool_counter(self.fg_item, "2026-05-03 10:00:00")
 
@@ -4078,7 +4701,7 @@ class TestDieToolCounter(FrappeTestCase):
 			update_counter_for_stock_entry,
 		)
 
-		_set_item_die_tool_fields(self.fg_item, strokes_per_unit=12, stroke_capacity=1000, has_die_tool=0)
+		_set_item_die_tool_fields(self.fg_item, stroke_capacity=1000, has_die_tool=0)
 		doc = frappe._dict(
 			{
 				"purpose": "Manufacture",
@@ -4090,24 +4713,27 @@ class TestDieToolCounter(FrappeTestCase):
 
 		self.assertFalse(frappe.db.exists("Die Tool Counter", self.fg_item))
 
-	def test_update_counter_ignores_when_strokes_per_unit_not_set(self) -> None:
+	def test_update_counter_uses_total_strokes_without_item_multiplier(self) -> None:
 		from production_entry_app.production_entry_app.utils.die_tool_counter import (
 			update_counter_for_stock_entry,
 		)
 
-		frappe.db.set_value("Item", self.fg_item, "custom_pea_strokes_per_unit", 0)
 		doc = frappe._dict(
 			{
 				"purpose": "Manufacture",
 				"fg_item": self.fg_item,
 				"fg_completed_qty": 10,
+				"custom_pea_total_strokes": 4,
 			}
 		)
 		update_counter_for_stock_entry(doc, direction=1)
 
-		self.assertFalse(frappe.db.exists("Die Tool Counter", self.fg_item))
+		self.assertEqual(
+			float(frappe.db.get_value("Die Tool Counter", self.fg_item, "current_stroke_count") or 0),
+			4.0,
+		)
 
-	def test_update_counter_ignores_when_total_units_zero(self) -> None:
+	def test_update_counter_ignores_when_total_strokes_zero(self) -> None:
 		from production_entry_app.production_entry_app.utils.die_tool_counter import (
 			update_counter_for_stock_entry,
 		)
@@ -4118,6 +4744,7 @@ class TestDieToolCounter(FrappeTestCase):
 				"fg_item": self.fg_item,
 				"fg_completed_qty": 0,
 				"custom_pea_rejection_qty": 0,
+				"custom_pea_total_strokes": 0,
 				"items": [],
 			}
 		)
@@ -4143,6 +4770,7 @@ class TestDieToolCounter(FrappeTestCase):
 				"purpose": "Manufacture",
 				"fg_item": self.fg_item,
 				"fg_completed_qty": 1,
+				"custom_pea_total_strokes": 10,
 			}
 		)
 
@@ -4161,11 +4789,9 @@ class TestDieToolCounter(FrappeTestCase):
 		with self.assertRaises(ValidationError):
 			reset_counter_from_maintenance_log("", "2026-05-03 10:00:00")
 
-	def test_get_fg_item_code_and_total_units_helpers(self) -> None:
+	def test_get_fg_item_code_uses_field_or_finished_item_row(self) -> None:
 		from production_entry_app.production_entry_app.utils.die_tool_counter import (
 			_get_fg_item_code,
-			_get_fg_row,
-			_get_total_units,
 		)
 
 		doc_with_fg_field = frappe._dict({"fg_item": self.fg_item})
@@ -4181,13 +4807,9 @@ class TestDieToolCounter(FrappeTestCase):
 			}
 		)
 		self.assertEqual(_get_fg_item_code(doc_with_fg_row), self.fg_item)
-		self.assertEqual(_get_total_units(doc_with_fg_row), 7.0)
-		self.assertIsNotNone(_get_fg_row(doc_with_fg_row))
 
 		doc_without_fg = frappe._dict({"items": [{"item_code": self.rm_item, "qty": 2}]})
 		self.assertIsNone(_get_fg_item_code(doc_without_fg))
-		self.assertEqual(_get_total_units(doc_without_fg), 0.0)
-		self.assertIsNone(_get_fg_row(doc_without_fg))
 
 
 class TestStockEntryLateEntryStamp(FrappeTestCase):
@@ -4220,30 +4842,10 @@ class TestStockEntryLateEntryStamp(FrappeTestCase):
 		shift = self._make_running_shift(masters)
 		branch = frappe.db.get_value("Shift", shift.name, "branch")
 		se = make_direct_manufacture_entry(masters, shift=shift.name, fg_qty=100, rejection_qty=0)
-		self.assertEqual(se.branch, branch)
-
-	def test_stock_entry_branch_is_not_set_when_stock_entry_field_is_missing(self) -> None:
-		masters = bootstrap_manufacture_masters()
-		shift = self._make_running_shift(masters)
-		original_get_meta = stock_entry_hooks.frappe.get_meta
-
-		class _StockEntryMeta:
-			def has_field(self, _fieldname: str) -> bool:
-				return False
-
-		def fake_get_meta(doctype: str, cached: bool = False) -> object:
-			if doctype == "Stock Entry":
-				return _StockEntryMeta()
-			return original_get_meta(doctype, cached=cached)
-
-		with patch(
-			"production_entry_app.production_entry_app.overrides.stock_entry_hooks.frappe.get_meta",
-			side_effect=fake_get_meta,
-		):
-			doc = frappe._dict({"custom_pea_shift": shift.name})
-			stock_entry_hooks._apply_shift_defaults(doc)
-
-		self.assertNotIn("branch", doc)
+		if stock_entry_has_branch_field():
+			self.assertEqual(se.branch, branch)
+		else:
+			_assert_stock_entry_branch_not_injected(self, se)
 
 	def _make_running_shift(self, masters: dict | None = None):
 		masters = masters or self.masters

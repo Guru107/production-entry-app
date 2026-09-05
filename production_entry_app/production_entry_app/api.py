@@ -5,8 +5,13 @@ import json
 
 import frappe
 from frappe import _
-from frappe.utils import get_datetime, get_time, now_datetime
+from frappe.utils import cint, get_datetime, get_time, now_datetime
 
+from production_entry_app.production_entry_app.joint_production import (
+	calculate_joint_rm_consumption_from_boms,
+	is_scrap_row,
+	materialize_joint_production_rows,
+)
 from production_entry_app.production_entry_app.utils.alternative_items import (
 	apply_direct_manufacture_alternative_flags,
 )
@@ -15,12 +20,175 @@ from production_entry_app.production_entry_app.utils.die_tool_counter import (
 	get_counter_health,
 	is_die_tool_enabled,
 )
+from production_entry_app.production_entry_app.utils.production_warehouses import (
+	get_branch_warehouse_defaults,
+	get_production_warehouses,
+	get_shift_warehouses,
+	require_warehouse,
+	set_production_header_warehouses,
+)
 from production_entry_app.production_entry_app.utils.shift_time import get_shift_planned_end_datetime
 from production_entry_app.production_entry_app.utils.system_precision import (
 	get_system_float_precision,
 )
 
 _ALLOWED_STOCK_ENTRY_SHIFT_STATUSES: tuple[str, ...] = ("Running", "Completed")
+
+
+@frappe.whitelist()
+def get_joint_stock_entry_type(required: int = 1) -> str:
+	"""Resolve the Joint LH/RH Repack type; passive callers (``required=0``) get "" when none exists."""
+	if not frappe.has_permission("Stock Entry", "create"):
+		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
+	stock_entry_types = frappe.get_list(
+		"Stock Entry Type",
+		filters={
+			"purpose": "Repack",
+			"custom_pea_joint_lh_rh_production": 1,
+		},
+		order_by="modified desc, name asc",
+		pluck="name",
+		limit=2,
+	)
+	if not stock_entry_types:
+		if not cint(required):
+			return ""
+		frappe.throw(_("Configure a Repack Stock Entry Type for Joint LH/RH Production first."))
+	if len(stock_entry_types) > 1:
+		if not cint(required):
+			return ""
+		frappe.throw(_("Only one Stock Entry Type can be configured for Joint LH/RH Production."))
+	return stock_entry_types[0]
+
+
+@frappe.whitelist()
+def get_rework_stock_entry_type(required: int = 1, stock_entry_type: str | None = None) -> str:
+	if not frappe.has_permission("Stock Entry", "create"):
+		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
+	if stock_entry_type is not None:
+		if not stock_entry_type:
+			return ""
+		if not frappe.has_permission("Stock Entry Type", "read", stock_entry_type):
+			frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
+		selected_type = frappe.db.get_value(
+			"Stock Entry Type",
+			stock_entry_type,
+			["purpose", "custom_pea_rework_entry"],
+			as_dict=True,
+		)
+		if (
+			selected_type
+			and selected_type.purpose == "Material Transfer"
+			and selected_type.custom_pea_rework_entry
+		):
+			return stock_entry_type
+		return ""
+	stock_entry_types = frappe.get_list(
+		"Stock Entry Type",
+		filters={
+			"purpose": "Material Transfer",
+			"custom_pea_rework_entry": 1,
+		},
+		order_by="modified desc, name asc",
+		pluck="name",
+		limit=2,
+	)
+	if not stock_entry_types:
+		if not cint(required):
+			return ""
+		frappe.throw(_("Configure a Material Transfer Stock Entry Type for Rework first."))
+	if len(stock_entry_types) > 1:
+		if not cint(required):
+			return ""
+		frappe.throw(_("Only one Material Transfer Stock Entry Type can be configured for Rework."))
+	return stock_entry_types[0]
+
+
+@frappe.whitelist()
+def get_rework_source_warehouse(
+	company: str,
+	branch: str,
+) -> str:
+	"""Return the configured rejection source used to create Rework Stock Entries."""
+	if not frappe.has_permission("Stock Entry", "create"):
+		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
+	warehouse = get_branch_warehouse_defaults(company, branch).get("rejection_warehouse") or ""
+	if warehouse and not frappe.has_permission("Warehouse", "read", warehouse):
+		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
+	return warehouse
+
+
+@frappe.whitelist()
+def get_joint_rm_consumption(
+	lh_bom: str,
+	rh_bom: str,
+	lh_gross_qty: float,
+	rh_gross_qty: float,
+) -> float:
+	if not frappe.has_permission("Stock Entry", "create"):
+		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
+	if not lh_bom or not rh_bom:
+		frappe.throw(_("Select both LH and RH BOMs."))
+	for bom_no in (lh_bom, rh_bom):
+		if not frappe.has_permission("BOM", "read", bom_no):
+			frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
+	return calculate_joint_rm_consumption_from_boms(
+		lh_bom_no=lh_bom,
+		rh_bom_no=rh_bom,
+		lh_gross_qty=lh_gross_qty,
+		rh_gross_qty=rh_gross_qty,
+	)
+
+
+@frappe.whitelist()
+def get_joint_production_items(doc: str) -> list[dict]:
+	try:
+		doc_dict = json.loads(doc)
+	except (TypeError, ValueError):
+		frappe.throw(_("Stock Entry payload must be a valid JSON object."))
+	if not isinstance(doc_dict, dict) or doc_dict.get("doctype") not in (None, "Stock Entry"):
+		frappe.throw(_("Stock Entry payload must be a valid JSON object."))
+
+	docname = doc_dict.get("name")
+	is_local_doc = bool(doc_dict.get("__islocal"))
+	if docname and not is_local_doc and frappe.db.exists("Stock Entry", docname):
+		if not frappe.has_permission("Stock Entry", "write", docname):
+			frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
+	elif not frappe.has_permission("Stock Entry", "create"):
+		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
+
+	for doctype, fieldname in (
+		("BOM", "custom_pea_lh_bom"),
+		("BOM", "custom_pea_rh_bom"),
+		("Item", "custom_pea_die_tool_item"),
+		("Shift", "custom_pea_shift"),
+		("Warehouse", "from_warehouse"),
+		("Warehouse", "to_warehouse"),
+	):
+		name = doc_dict.get(fieldname)
+		if name and not frappe.has_permission(doctype, "read", name):
+			frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
+
+	stock_entry = frappe.new_doc("Stock Entry")
+	for fieldname in (
+		"purpose",
+		"stock_entry_type",
+		"company",
+		"branch",
+		"from_warehouse",
+		"to_warehouse",
+		"custom_pea_shift",
+		"custom_pea_lh_bom",
+		"custom_pea_lh_gross_qty",
+		"custom_pea_lh_rejection_qty",
+		"custom_pea_rh_bom",
+		"custom_pea_rh_gross_qty",
+		"custom_pea_rh_rejection_qty",
+		"custom_pea_total_strokes",
+		"custom_pea_die_tool_item",
+	):
+		stock_entry.set(fieldname, doc_dict.get(fieldname))
+	return materialize_joint_production_rows(stock_entry)
 
 
 def _cleanup_orphan_stock_entry_loss_links(shift_name: str) -> None:
@@ -61,7 +229,7 @@ def get_shift_details_for_stock_entry(shift_name: str) -> dict:
 	if not shift_name:
 		return {}
 	if not frappe.has_permission("Shift", "read", shift_name):
-		raise frappe.PermissionError
+		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
 
 	shift = frappe.get_doc("Shift", shift_name)
 	if shift.status not in _ALLOWED_STOCK_ENTRY_SHIFT_STATUSES:
@@ -73,7 +241,6 @@ def get_shift_details_for_stock_entry(shift_name: str) -> dict:
 				frappe.bold(frappe.utils.escape_html(str(shift.status or _("not found")))),
 			)
 		)
-
 	planned_start = None
 	if shift.shift_date and shift.planned_start_time:
 		planned_start = datetime.datetime.combine(
@@ -89,13 +256,14 @@ def get_shift_details_for_stock_entry(shift_name: str) -> dict:
 		shift_duration=shift.shift_duration,
 	)
 
+	wip_warehouse = get_shift_warehouses(shift).get("work_in_progress_warehouse")
 	return {
 		"company": shift.company,
 		"branch": shift.branch,
 		"custom_pea_planned_start_date": str(planned_start) if planned_start else None,
 		"custom_pea_planned_end_date": str(planned_end) if planned_end else None,
-		"from_warehouse": shift.work_in_progress_warehouse,
-		"to_warehouse": shift.work_in_progress_warehouse,
+		"from_warehouse": wip_warehouse,
+		"to_warehouse": wip_warehouse,
 	}
 
 
@@ -124,9 +292,9 @@ def get_items_with_rejection(doc: str) -> list[dict]:
 	is_local_doc = bool((doc_dict or {}).get("__islocal"))
 	if docname and not is_local_doc and frappe.db.exists("Stock Entry", docname):
 		if not frappe.has_permission("Stock Entry", "write", docname):
-			raise frappe.PermissionError
+			frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
 	elif not frappe.has_permission("Stock Entry", "create"):
-		raise frappe.PermissionError
+		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
 
 	for doctype, fieldname in (
 		("BOM", "bom_no"),
@@ -137,12 +305,13 @@ def get_items_with_rejection(doc: str) -> list[dict]:
 	):
 		name = doc_dict.get(fieldname)
 		if name and not frappe.has_permission(doctype, "read", name):
-			raise frappe.PermissionError
+			frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
 
 	se = frappe.new_doc("Stock Entry")
 	se.purpose = doc_dict.get("purpose", "Manufacture")
 	se.stock_entry_type = doc_dict.get("stock_entry_type", "Manufacture")
 	se.company = doc_dict.get("company")
+	se.branch = doc_dict.get("branch")
 	se.from_bom = 1
 	se.bom_no = doc_dict.get("bom_no")
 	se.fg_completed_qty = float(doc_dict.get("fg_completed_qty") or 0)
@@ -155,7 +324,17 @@ def get_items_with_rejection(doc: str) -> list[dict]:
 	se.custom_pea_shift = doc_dict.get("custom_pea_shift")
 	se.work_order = doc_dict.get("work_order")
 
+	# Work Orders retain ERPNext's warehouse configuration even when linked to a Shift.
+	use_production_defaults = se.purpose == "Manufacture" and not se.work_order
+	warehouses = get_production_warehouses(se) if use_production_defaults else {}
+	if use_production_defaults:
+		set_production_header_warehouses(se, warehouses)
 	se.get_items()
+	if use_production_defaults:
+		for row in se.items:
+			if is_scrap_row(row):
+				row.t_warehouse = require_warehouse(warehouses, "scrap_warehouse")
+		se.set_actual_qty()
 	apply_direct_manufacture_alternative_flags(se)
 	_apply_rejection_entries(se)
 
@@ -186,7 +365,7 @@ def get_die_tool_counter(die_tool_code: str) -> dict:
 	if not die_tool_code or not frappe.db.exists("Item", die_tool_code):
 		return _empty_die_tool_payload(die_tool_code)
 	if not frappe.has_permission("Item", "read", die_tool_code):
-		raise frappe.PermissionError
+		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
 	if not is_die_tool_enabled(die_tool_code):
 		return _empty_die_tool_payload(die_tool_code)
 
@@ -248,7 +427,7 @@ def reset_die_tool_counter(die_tool_code: str, maintenance_date: str | None = No
 	if not is_die_tool_enabled(die_tool_code):
 		frappe.throw(_("Die tool counter reset is not allowed because this item has no die tool."))
 	if not frappe.has_permission("Die Tool Maintenance Log", "create"):
-		raise frappe.PermissionError
+		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
 
 	maintenance_dt = get_datetime(maintenance_date) if maintenance_date else now_datetime()
 	maintenance_log = frappe.get_doc(

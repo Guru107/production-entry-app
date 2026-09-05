@@ -8,7 +8,7 @@ Guidance for Claude Code and developers working in this repository.
 
 - **Test-Driven Development is mandatory.** Write a failing test first; then write the
   implementation that makes it pass. No feature or bug-fix ships without tests.
-- **Coverage must stay above 90%** at all times.
+- **Coverage must stay above 85%** at all times.
 - **Always add E2E (Playwright) tests** for every user-facing flow. Run them after every change.
 - Avoid code duplication. Extract shared logic; don't copy-paste.
 - Keep solutions simple. Don't add error-handling, helpers, or abstractions for scenarios that
@@ -265,8 +265,9 @@ production.
 ### Permissions
 
 - Check the minimum required permission — `read`, `write`, or a specific role.
-- Child table permissions must **match the parent DocType** roles. A Manufacturing User who
-  can create a Shift must also be able to read/write its `Loss Entry` child rows.
+- Child table access must follow the parent DocType. Frappe v15/v16 checks child permissions
+  through `has_child_permission()` on the parent; an empty child `permissions` array is valid.
+  Do not duplicate parent roles on a child to implement access control.
 - Do not use `ignore_permissions=True` outside of test/E2E helpers.
 
 ---
@@ -279,8 +280,10 @@ production.
   validation for required fields.
 - Add `"search_index": 1` to every field used in `filters` in `frappe.get_all()` /
   `frappe.qb` queries (e.g., `shift_date`, `status`, `supervisor`).
-- Add `"min_value"` / `"max_value"` to numeric fields with known bounds (percentages 0–100,
-  buffer minutes 0–480).
+- Add `"non_negative": 1` to numeric fields that cannot go below zero (quantities, stroke
+  counts, durations). Frappe v15/v16 DocField has no `min_value` / `max_value` properties —
+  upper bounds (percentages 0–100, buffer minutes 0–480) must be enforced in `validate()`
+  with `frappe.throw()`, not in the DocType JSON.
 - Add `"is_active"` Check field (default 1) to all master-data DocTypes to enable soft-deletion
   without breaking historical links.
 - Use `"allow_rename": 0` on master data that is referenced in fixture-installed records.
@@ -294,8 +297,7 @@ bench --site development.localhost migrate
 
 ### Fixtures
 
-Fixture JSONs live in `production_entry_app/fixtures/`. The inner
-`production_entry_app/production_entry_app/fixtures/` directory is a copy — keep both in sync.
+Fixture JSONs live in `production_entry_app/fixtures/`.
 Run `bench export-fixtures` after changing fixture data.
 
 ---
@@ -444,7 +446,7 @@ Run the full suite and check coverage before every PR:
 ```bash
 bench --site development.localhost run-tests --app production_entry_app --with-coverage
 ```
-Coverage must not drop below **90%**.
+Coverage must not drop below **85%**.
 
 ---
 

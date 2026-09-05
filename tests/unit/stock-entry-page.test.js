@@ -1,0 +1,370 @@
+const test = require("node:test");
+const assert = require("node:assert/strict");
+
+const {
+	getVisibleFetchItemsState,
+	hasVisibleFetchItemsMessage,
+	isStockEntryReady,
+	StockEntryPage,
+	triggerFetchItems,
+	waitForFetchItemsCall,
+	waitForStockEntryReady,
+} = require("../e2e/pages/stock-entry-page");
+
+const STATE_SOURCE = getVisibleFetchItemsState.toString();
+
+async function withBrowserState(callback) {
+	const originalWindow = global.window;
+	const originalDocument = global.document;
+	try {
+		await callback();
+	} finally {
+		global.window = originalWindow;
+		global.document = originalDocument;
+	}
+}
+
+function serializeForBrowser(predicate) {
+	return Function(`return (${predicate.toString()})`)();
+}
+
+function installFetchItemsBrowser(call) {
+	global.document = { querySelector: () => null };
+	global.window = {
+		cur_frm: {
+			doc: { items: [] },
+			script_manager: {
+				trigger(fieldname) {
+					assert.equal(fieldname, "custom_pea_fetch_items");
+					global.window.frappe.call({
+						method: "production_entry_app.production_entry_app.api.get_items_with_rejection",
+						callback(response) {
+							global.window.cur_frm.doc.items = response.message;
+						},
+					});
+				},
+			},
+		},
+		frappe: { after_ajax: async () => {}, call },
+	};
+}
+
+test("Stock Entry route readiness fast-fails a shown modal", async () => {
+	await withBrowserState(() => {
+		global.window = {
+			cur_frm: { doctype: "Shift", doc: {}, is_new: () => true },
+		};
+		global.document = { querySelector: () => ({ role: "dialog" }) };
+
+		assert.equal(isStockEntryReady(false), true);
+		assert.equal(isStockEntryReady(true), true);
+	});
+});
+
+test("Stock Entry route readiness requires a new Stock Entry form", async () => {
+	await withBrowserState(() => {
+		global.document = { querySelector: () => null };
+		global.window = { cur_frm: null };
+		assert.equal(isStockEntryReady(false), false);
+
+		global.window.cur_frm = { doctype: "Shift", doc: {}, is_new: () => true };
+		assert.equal(isStockEntryReady(false), false);
+
+		global.window.cur_frm = { doctype: "Stock Entry", doc: {}, is_new: () => false };
+		assert.equal(isStockEntryReady(false), false);
+
+		global.window.cur_frm.is_new = () => true;
+		assert.equal(isStockEntryReady(false), true);
+	});
+});
+
+test("Stock Entry AJAX readiness requires its new form and an idle Frappe request queue", async () => {
+	await withBrowserState(() => {
+		global.document = { querySelector: () => null };
+		global.window = {
+			cur_frm: { doctype: "Stock Entry", doc: {}, is_new: () => true },
+			frappe: { request: { ajax_count: 1 } },
+		};
+
+		assert.equal(isStockEntryReady(true), false);
+		global.window.frappe.request.ajax_count = 0;
+		assert.equal(isStockEntryReady(true), true);
+		global.window.cur_frm.doctype = "Shift";
+		assert.equal(isStockEntryReady(true), false);
+		delete global.window.frappe.request;
+		assert.equal(isStockEntryReady(true), false);
+	});
+});
+
+test("fetch item trigger preserves Frappe's async form trigger return value", async () => {
+	await withBrowserState(() => {
+		let triggered = false;
+		const pending = new Promise(() => {});
+		global.window = {
+			cur_frm: {
+				script_manager: {
+					trigger(fieldname) {
+						triggered = fieldname;
+						return pending;
+					},
+				},
+			},
+		};
+
+		assert.equal(triggerFetchItems(), pending);
+		assert.equal(triggered, "custom_pea_fetch_items");
+	});
+});
+
+test("fetch item visible state separates error indicators from informational notices", async () => {
+	await withBrowserState(() => {
+		global.document = { querySelector: () => null };
+		global.window = { cur_frm: { doc: { items: [] } } };
+		assert.deepEqual(getVisibleFetchItemsState(), {
+			hasErrorIndicator: false,
+			hasMessageDialog: false,
+			itemCount: 0,
+			modalText: "",
+		});
+
+		global.window.cur_frm.doc.items = [{}];
+		global.document.querySelector = () => ({
+			innerText: "Configure a Repack Stock Entry Type for Joint LH/RH Production first.",
+			querySelector: () => null,
+		});
+		assert.deepEqual(getVisibleFetchItemsState(), {
+			hasErrorIndicator: false,
+			hasMessageDialog: true,
+			itemCount: 1,
+			modalText: "Configure a Repack Stock Entry Type for Joint LH/RH Production first.",
+		});
+
+		global.window.cur_frm.doc.items = [];
+		global.document.querySelector = () => ({
+			innerText: "Qty to Manufacture is required",
+			querySelector: (selector) => (selector.includes(".indicator.red") ? {} : null),
+		});
+		assert.deepEqual(getVisibleFetchItemsState(), {
+			hasErrorIndicator: true,
+			hasMessageDialog: true,
+			itemCount: 0,
+			modalText: "Qty to Manufacture is required",
+		});
+	});
+});
+
+test("fetch item validation predicate waits for any message dialog via the shared state source", async () => {
+	await withBrowserState(() => {
+		global.window = { cur_frm: { doc: { items: [] } } };
+		global.document = { querySelector: () => null };
+		assert.equal(hasVisibleFetchItemsMessage(STATE_SOURCE), false);
+
+		global.document.querySelector = () => ({
+			innerText: "Qty to Manufacture is required",
+			querySelector: () => null,
+		});
+		assert.equal(hasVisibleFetchItemsMessage(STATE_SOURCE), true);
+	});
+});
+
+test("Stock Entry readiness predicates remain self-contained after Playwright serialization", async () => {
+	await withBrowserState(() => {
+		global.document = { querySelector: () => null };
+		global.window = {
+			cur_frm: { doctype: "Stock Entry", doc: {}, is_new: () => true },
+			frappe: { request: { ajax_count: 0 } },
+		};
+
+		assert.equal(serializeForBrowser(isStockEntryReady)(false), true);
+		assert.equal(serializeForBrowser(isStockEntryReady)(true), true);
+		global.document.querySelector = () => ({
+			innerText: "Qty to Manufacture is required",
+			querySelector: () => null,
+		});
+		assert.equal(serializeForBrowser(hasVisibleFetchItemsMessage)(STATE_SOURCE), true);
+	});
+});
+
+test("Fetch Items wait resolves after the client RPC callback applies rows and restores frappe.call", async () => {
+	await withBrowserState(async () => {
+		const originalCall = (options) => options.callback({ message: [{ item_code: "FG" }] });
+		installFetchItemsBrowser(originalCall);
+
+		assert.deepEqual(
+			await waitForFetchItemsCall({ stateSource: STATE_SOURCE, timeoutMs: 50 }),
+			{
+				hasErrorIndicator: false,
+				hasMessageDialog: false,
+				itemCount: 1,
+				modalText: "",
+				rowCount: 1,
+			}
+		);
+		assert.equal(global.window.frappe.call, originalCall);
+	});
+});
+
+test("Fetch Items wait does not await Frappe's form trigger promise", async () => {
+	await withBrowserState(async () => {
+		const originalCall = (options) => options.callback({ message: [{ item_code: "FG" }] });
+		installFetchItemsBrowser(originalCall);
+		global.window.cur_frm.script_manager.trigger = (fieldname) => {
+			assert.equal(fieldname, "custom_pea_fetch_items");
+			global.window.frappe.call({
+				method: "production_entry_app.production_entry_app.api.get_items_with_rejection",
+				callback(response) {
+					global.window.cur_frm.doc.items = response.message;
+				},
+			});
+			return new Promise(() => {});
+		};
+
+		assert.deepEqual(
+			await waitForFetchItemsCall({ stateSource: STATE_SOURCE, timeoutMs: 50 }),
+			{
+				hasErrorIndicator: false,
+				hasMessageDialog: false,
+				itemCount: 1,
+				modalText: "",
+				rowCount: 1,
+			}
+		);
+		assert.equal(global.window.frappe.call, originalCall);
+	});
+});
+
+test("Fetch Items wait resolves after an async Frappe callback finishes applying rows", async () => {
+	await withBrowserState(async () => {
+		const originalCall = (options) => options.callback({ message: [{ item_code: "FG" }] });
+		installFetchItemsBrowser(originalCall);
+		global.window.cur_frm.script_manager.trigger = (fieldname) => {
+			assert.equal(fieldname, "custom_pea_fetch_items");
+			global.window.frappe.call({
+				method: "production_entry_app.production_entry_app.api.get_items_with_rejection",
+				async callback(response) {
+					await new Promise((resolve) => setTimeout(resolve, 0));
+					global.window.cur_frm.doc.items = response.message;
+				},
+			});
+		};
+
+		assert.deepEqual(
+			await waitForFetchItemsCall({ stateSource: STATE_SOURCE, timeoutMs: 50 }),
+			{
+				hasErrorIndicator: false,
+				hasMessageDialog: false,
+				itemCount: 1,
+				modalText: "",
+				rowCount: 1,
+			}
+		);
+		assert.equal(global.window.frappe.call, originalCall);
+	});
+});
+
+test("Fetch Items wait rejects when the client RPC errors and still restores frappe.call", async () => {
+	await withBrowserState(async () => {
+		const originalCall = (options) => options.error({ message: "Server exploded" });
+		installFetchItemsBrowser(originalCall);
+
+		await assert.rejects(
+			() => waitForFetchItemsCall({ stateSource: STATE_SOURCE, timeoutMs: 50 }),
+			/Fetch Items call failed.*Server exploded/
+		);
+		assert.equal(global.window.frappe.call, originalCall);
+	});
+});
+
+test("Fetch Items wait rejects when the form never calls the server", async () => {
+	await withBrowserState(async () => {
+		global.document = { querySelector: () => null };
+		const originalCall = () => {};
+		global.window = {
+			cur_frm: { doc: { items: [] }, script_manager: { trigger() {} } },
+			frappe: { after_ajax: async () => {}, call: originalCall },
+		};
+
+		await assert.rejects(
+			() => waitForFetchItemsCall({ stateSource: STATE_SOURCE, timeoutMs: 5 }),
+			/Fetch Items did not call the server/
+		);
+		assert.equal(global.window.frappe.call, originalCall);
+	});
+});
+
+test("Stock Entry readiness retries both bounded phases after context destruction", async () => {
+	let routeAttempts = 0;
+	let ajaxAttempts = 0;
+	const waits = [];
+	const page = {
+		async waitForFunction(predicate, argument, options) {
+			if (predicate !== isStockEntryReady) {
+				return;
+			}
+			waits.push({ argument, options });
+			if (argument === false) {
+				routeAttempts += 1;
+				return;
+			}
+			if (argument === true) {
+				ajaxAttempts += 1;
+				if (ajaxAttempts === 1) {
+					throw new Error("Execution context was destroyed");
+				}
+			}
+		},
+	};
+
+	await waitForStockEntryReady(page);
+
+	assert.equal(routeAttempts, 2);
+	assert.equal(ajaxAttempts, 2);
+	assert.deepEqual(
+		waits,
+		[false, true, false, true].map((argument) => ({
+			argument,
+			options: { timeout: 10000 },
+		}))
+	);
+});
+
+test("Stock Entry readiness surfaces a bounded phase timeout without retrying", async () => {
+	let attempts = 0;
+	const page = {
+		async waitForFunction(predicate, argument, options) {
+			attempts += 1;
+			assert.equal(predicate, isStockEntryReady);
+			assert.equal(argument, false);
+			assert.deepEqual(options, { timeout: 10000 });
+			throw new Error("Timeout 10000ms exceeded");
+		},
+	};
+
+	await assert.rejects(() => waitForStockEntryReady(page), /Timeout 10000ms exceeded/);
+	assert.equal(attempts, 1);
+});
+
+test("Stock Entry page waits for the joint Stock Entry Type marker before continuing", async () => {
+	await withBrowserState(async () => {
+		const calls = [];
+		const page = {
+			async waitForFunction(predicate, argument) {
+				calls.push({ argument });
+				global.window = {
+					cur_frm: {
+						doc: {
+							stock_entry_type: argument,
+							custom_pea_stock_entry_purpose: "Repack",
+							__pea_joint_stock_entry_type: argument,
+						},
+					},
+				};
+				assert.equal(predicate(argument), true);
+			},
+		};
+
+		await new StockEntryPage(page).waitForJointMode("Joint LH RH Production");
+
+		assert.deepEqual(calls, [{ argument: "Joint LH RH Production" }]);
+	});
+});

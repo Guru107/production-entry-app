@@ -9,6 +9,149 @@ from production_entry_app.production_entry_app.utils import test_setup
 
 
 class TestTestSetup(FrappeTestCase):
+	def test_native_company_bootstrap_has_no_recursive_generator_seam(self) -> None:
+		self.assertFalse(hasattr(test_setup, "_get_make_test_records"))
+
+	def test_company_defaults_configure_existing_stock_adjustment_account(self) -> None:
+		with (
+			patch(
+				"production_entry_app.production_entry_app.utils.test_setup.frappe.db.exists",
+				return_value=True,
+			),
+			patch(
+				"production_entry_app.production_entry_app.utils.test_setup.frappe.db.get_value",
+				side_effect=[None, "Stock Adjustment - _TC", "Stock Adjustment - _TC"],
+			) as get_value,
+			patch(
+				"production_entry_app.production_entry_app.utils.test_setup.frappe.db.set_value"
+			) as set_value,
+			patch("production_entry_app.production_entry_app.utils.test_setup.frappe.db.set_single_value"),
+			patch(
+				"production_entry_app.production_entry_app.utils.test_setup.frappe.defaults.set_user_default"
+			),
+			patch(
+				"production_entry_app.production_entry_app.utils.test_setup.frappe.clear_document_cache"
+			) as clear_document_cache,
+		):
+			test_setup._ensure_company_defaults()
+
+		get_value.assert_any_call("Company", "_Test Company", "stock_adjustment_account")
+		get_value.assert_any_call(
+			"Account",
+			{
+				"company": "_Test Company",
+				"account_type": "Stock Adjustment",
+				"is_group": 0,
+				"disabled": 0,
+			},
+			"name",
+		)
+		set_value.assert_called_once_with(
+			"Company",
+			"_Test Company",
+			"stock_adjustment_account",
+			"Stock Adjustment - _TC",
+			update_modified=False,
+		)
+		clear_document_cache.assert_called_once_with("Company", "_Test Company")
+
+	def test_missing_test_company_is_created_from_native_erpnext_fixture(self) -> None:
+		company_doc = Mock()
+		with (
+			patch(
+				"production_entry_app.production_entry_app.utils.test_setup.frappe.db.exists",
+				side_effect=[False, True],
+			),
+			patch(
+				"production_entry_app.production_entry_app.utils.test_setup.frappe.get_test_records",
+			) as get_test_records,
+			patch(
+				"production_entry_app.production_entry_app.utils.test_setup.frappe.get_doc",
+				return_value=company_doc,
+			) as get_doc,
+		):
+			self.assertEqual(test_setup._ensure_test_company(), "_Test Company")
+
+		get_test_records.assert_not_called()
+		get_doc.assert_called_once_with(
+			{
+				"doctype": "Company",
+				"company_name": "_Test Company",
+				"abbr": "_TC",
+				"country": "India",
+				"default_currency": "INR",
+				"domain": "Manufacturing",
+				"create_chart_of_accounts_based_on": "Standard Template",
+				"chart_of_accounts": "Standard",
+				"enable_perpetual_inventory": 0,
+			}
+		)
+		company_doc.insert.assert_called_once_with(ignore_permissions=True)
+
+	def test_existing_test_company_does_not_regenerate_native_records(self) -> None:
+		with (
+			patch(
+				"production_entry_app.production_entry_app.utils.test_setup.frappe.db.exists",
+				return_value=True,
+			),
+			patch(
+				"production_entry_app.production_entry_app.utils.test_setup.frappe.get_test_records"
+			) as get_test_records,
+			patch("production_entry_app.production_entry_app.utils.test_setup.frappe.get_doc") as get_doc,
+		):
+			self.assertEqual(test_setup._ensure_test_company(), "_Test Company")
+
+		get_test_records.assert_not_called()
+		get_doc.assert_not_called()
+
+	def test_missing_native_test_company_fails_fast_after_bootstrap(self) -> None:
+		with (
+			patch(
+				"production_entry_app.production_entry_app.utils.test_setup.frappe.db.exists",
+				return_value=False,
+			),
+			patch(
+				"production_entry_app.production_entry_app.utils.test_setup.frappe.get_doc",
+				return_value=Mock(),
+			),
+			self.assertRaisesRegex(RuntimeError, "did not create _Test Company"),
+		):
+			test_setup._ensure_test_company()
+
+	def test_company_defaults_fail_fast_without_usable_stock_adjustment_account(self) -> None:
+		with (
+			patch(
+				"production_entry_app.production_entry_app.utils.test_setup._ensure_test_company",
+				return_value="_Test Company",
+			),
+			patch(
+				"production_entry_app.production_entry_app.utils.test_setup"
+				"._get_usable_stock_adjustment_account",
+				return_value=None,
+			),
+			patch(
+				"production_entry_app.production_entry_app.utils.test_setup.frappe.db.get_value",
+				return_value=None,
+			),
+			self.assertRaisesRegex(RuntimeError, "no usable Stock Adjustment Account"),
+		):
+			test_setup._ensure_company_defaults()
+
+	def test_configured_stock_adjustment_account_is_reused(self) -> None:
+		with (
+			patch(
+				"production_entry_app.production_entry_app.utils.test_setup.frappe.db.get_value",
+				return_value="Stock Adjustment - _TC",
+			),
+			patch(
+				"production_entry_app.production_entry_app.utils.test_setup.frappe.db.exists",
+				return_value=True,
+			),
+		):
+			account = test_setup._get_usable_stock_adjustment_account("_Test Company")
+
+		self.assertEqual(account, "Stock Adjustment - _TC")
+
 	def test_before_tests_skips_core_record_creation_when_records_exist(self) -> None:
 		with (
 			patch(
@@ -230,7 +373,11 @@ class TestTestSetup(FrappeTestCase):
 
 	def test_install_skip_test_records_compat_wraps_v16_make_test_records(self) -> None:
 		from frappe.tests import utils as frappe_test_utils
-		from frappe.tests.utils import generators
+
+		try:
+			from frappe.tests.utils import generators
+		except ImportError:
+			self.skipTest("Frappe v16 test-record generators are not available on this version")
 
 		original = Mock(return_value=[("Item", 1)])
 		original_utils_make_test_records = frappe_test_utils.make_test_records

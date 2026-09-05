@@ -8,7 +8,7 @@ async function retryOnContextDestroyed(page, action, retries = 3) {
 				throw error;
 			}
 			await page
-				.waitForFunction(() => Boolean(window.cur_frm?.doc), { timeout: 5000 })
+				.waitForFunction(() => Boolean(window.cur_frm?.doc), undefined, { timeout: 5000 })
 				.catch(() => {});
 		}
 	}
@@ -59,7 +59,7 @@ async function callFrappeMethod(page, method, args = {}) {
 		]
 			.filter(Boolean)
 			.join(" | ");
-		throw new Error(details || `Frappe call failed: ${method}`);
+		throw new Error(details || `Frappe call failed (${response.status()}): ${method}`);
 	}
 
 	return payload.message;
@@ -139,7 +139,7 @@ async function saveForm(page, action = "Save") {
 						unsaved: window.cur_frm?.doc?.__unsaved,
 					}))
 					.catch(() => ({ href: page.url() }));
-				if (attempt < 2 && action === "Save" && state.isNew && !state.message) {
+				if (attempt < 2 && action === "Save" && !state.message) {
 					await page.waitForTimeout(500);
 					continue;
 				}

@@ -10,10 +10,100 @@ from production_entry_app.production_entry_app.report import report_utils
 
 
 class TestReportUtilsPerformance(FrappeTestCase):
+	def test_quantity_maps_batch_entries_without_querying_finished_item_labels(self) -> None:
+		from production_entry_app.production_entry_app.tests.support.manufacture_builders import (
+			bootstrap_manufacture_masters,
+			make_direct_manufacture_entry,
+			make_running_shift,
+		)
+
+		masters = bootstrap_manufacture_masters()
+		shift = make_running_shift(masters)
+		entry = make_direct_manufacture_entry(masters, shift=shift.name, fg_qty=100, rejection_qty=2)
+		# Warm metadata before measuring the two aggregate queries, independent of batch size.
+		report_utils.get_entry_qty_maps([entry.name])
+		with self.assertQueryCount(2):
+			good, rejected = report_utils.get_entry_qty_maps([entry.name, "MISSING-ENTRY"])
+		self.assertEqual(good, {entry.name: 98, "MISSING-ENTRY": 0})
+		self.assertEqual(rejected, {entry.name: 2, "MISSING-ENTRY": 0})
+		with self.assertQueryCount(0):
+			self.assertEqual(report_utils.get_entry_qty_maps([]), ({}, {}))
+
+	def test_report_rows_use_native_report_permission_as_the_access_boundary(self) -> None:
+		with (
+			patch.object(report_utils.frappe, "has_permission", return_value=True) as has_permission,
+			patch.object(report_utils.frappe, "get_all", return_value=[{"name": "STE-001"}]) as get_all,
+		):
+			rows = report_utils.get_report_rows("Stock Entry", filters={"docstatus": 1})
+
+		self.assertEqual(rows, [{"name": "STE-001"}])
+		has_permission.assert_called_once_with("Shift", "report")
+		get_all.assert_called_once_with("Stock Entry", filters={"docstatus": 1})
+
+	def test_report_rows_reject_users_without_native_report_permission(self) -> None:
+		with (
+			patch.object(report_utils.frappe, "has_permission", return_value=False),
+			patch.object(report_utils.frappe, "get_all") as get_all,
+			self.assertRaises(frappe.PermissionError),
+		):
+			report_utils.get_report_rows("Stock Entry")
+
+		get_all.assert_not_called()
+
+	def test_non_scrap_criterion_supports_current_v16_secondary_item_type(self) -> None:
+		meta = frappe._dict(has_field=lambda fieldname: fieldname == "secondary_item_type")
+		with patch.object(report_utils.frappe, "get_meta", return_value=meta):
+			criterion = report_utils._get_non_scrap_item_criterion(report_utils.DocType("Stock Entry Detail"))
+
+		self.assertIn('"secondary_item_type"', str(criterion))
+		self.assertIn("Scrap", str(criterion))
+
+	def test_non_scrap_criterion_uses_only_the_base_guard_without_optional_fields(self) -> None:
+		meta = frappe._dict(has_field=lambda _fieldname: False)
+		with patch.object(report_utils.frappe, "get_meta", return_value=meta):
+			criterion = report_utils._get_non_scrap_item_criterion(report_utils.DocType("Stock Entry Detail"))
+
+		criterion_sql = str(criterion)
+		self.assertIn('"name" IS NOT NULL', criterion_sql)
+		for optional_field in (
+			"is_scrap_item",
+			"type",
+			"secondary_item_type",
+			"is_legacy_scrap_item",
+		):
+			self.assertNotIn(optional_field, criterion_sql)
+
+	def test_bom_parent_lookup_uses_report_permission_boundary_and_scoped_filters(self) -> None:
+		scope = {
+			"docstatus": 1,
+			"purpose": ["in", ["Manufacture", "Repack"]],
+			"posting_date": [">=", "2026-01-01"],
+		}
+		with patch.object(report_utils, "get_report_rows", return_value=[{"name": "STE-JOINT-1"}]) as rows:
+			self.assertEqual(
+				report_utils.get_stock_entries_for_bom("BOM-LH-1", filters=scope),
+				["STE-JOINT-1"],
+			)
+
+		rows.assert_called_once_with(
+			"Stock Entry",
+			filters=scope,
+			or_filters=[
+				["bom_no", "=", "BOM-LH-1"],
+				["custom_pea_lh_bom", "=", "BOM-LH-1"],
+				["custom_pea_rh_bom", "=", "BOM-LH-1"],
+			],
+			fields=["name"],
+			limit_page_length=report_utils._MAX_BOM_PARENT_MATCHES + 1,
+		)
+
 	def test_build_stock_entry_filters_handles_single_sided_dates_and_fg_item(self) -> None:
-		with patch(
-			"production_entry_app.production_entry_app.report.report_utils.get_stock_entries_for_fg_item",
-			return_value=["STE-001"],
+		with (
+			patch(
+				"production_entry_app.production_entry_app.report.report_utils.get_stock_entries_for_fg_item",
+				return_value=["STE-001"],
+			),
+			patch.object(report_utils, "get_report_rows", side_effect=[["SHIFT-FROM"], ["SHIFT-TO"]]),
 		):
 			from_filters = report_utils.build_stock_entry_filters(
 				{"from_date": "2026-01-01", "fg_item": "FG-001", "custom_pea_operator": "OP-1"},
@@ -21,10 +111,10 @@ class TestReportUtilsPerformance(FrappeTestCase):
 			)
 			to_filters = report_utils.build_stock_entry_filters({"to_date": "2026-01-31"}, ())
 
-		self.assertEqual(from_filters["posting_date"], [">=", "2026-01-01"])
+		self.assertEqual(from_filters["custom_pea_shift"], ["in", ["SHIFT-FROM"]])
 		self.assertEqual(from_filters["custom_pea_operator"], "OP-1")
 		self.assertEqual(from_filters["name"], ["in", ["STE-001"]])
-		self.assertEqual(to_filters["posting_date"], ["<=", "2026-01-31"])
+		self.assertEqual(to_filters["custom_pea_shift"], ["in", ["SHIFT-TO"]])
 
 	def test_stock_entry_alias_helpers_match_legacy_and_new_fields(self) -> None:
 		row = {
@@ -75,6 +165,9 @@ class TestReportUtilsPerformance(FrappeTestCase):
 			def inner_join(self, *_args: Any, **_kwargs: Any) -> _Query:
 				return self
 
+			def left_join(self, *_args: Any, **_kwargs: Any) -> _Query:
+				return self
+
 			def on(self, *_args: Any, **_kwargs: Any) -> _Query:
 				return self
 
@@ -96,10 +189,16 @@ class TestReportUtilsPerformance(FrappeTestCase):
 					for index in range(report_utils._MAX_FG_ITEM_PARENT_MATCHES + 1)
 				]
 
-		with patch(
-			"production_entry_app.production_entry_app.report.report_utils.frappe.qb.from_",
-			return_value=_Query(),
+		with (
+			patch(
+				"production_entry_app.production_entry_app.report.report_utils.frappe.qb.from_",
+				return_value=_Query(),
+			),
+			patch(
+				"production_entry_app.production_entry_app.report.report_utils.frappe.get_meta"
+			) as get_meta,
 		):
+			get_meta.return_value.has_field.return_value = True
 			with self.assertRaisesRegex(frappe.ValidationError, "FG Item filter matches more"):
 				report_utils.get_stock_entries_for_fg_item("FG-001")
 
@@ -145,12 +244,12 @@ class TestReportUtilsPerformance(FrappeTestCase):
 					last_row={"posting_date": None, "name": "STE-001"},
 				)
 
-	def test_fetch_stock_entry_chunk_uses_permission_aware_list(self) -> None:
+	def test_fetch_stock_entry_chunk_uses_the_report_access_boundary(self) -> None:
 		with (
 			patch(
-				"production_entry_app.production_entry_app.report.report_utils.frappe.get_list",
+				"production_entry_app.production_entry_app.report.report_utils.get_report_rows",
 				return_value=[],
-			) as get_list,
+			) as get_report_rows,
 			patch(
 				"production_entry_app.production_entry_app.report.report_utils.frappe.qb.get_query"
 			) as get_query,
@@ -162,48 +261,18 @@ class TestReportUtilsPerformance(FrappeTestCase):
 				chunk_size=10,
 			)
 
-		get_list.assert_called_once_with(
+		get_report_rows.assert_called_once_with(
 			"Stock Entry",
 			filters=[["docstatus", "=", 1]],
+			or_filters=(
+				("purpose", "=", "Manufacture"),
+				("purpose", "=", "Repack"),
+			),
 			fields=["name"],
 			order_by="name asc",
 			limit_page_length=10,
 		)
 		get_query.assert_not_called()
-
-	def test_get_entry_qty_maps_includes_finished_item_map(self) -> None:
-		class _Query:
-			def select(self, *_args: Any, **_kwargs: Any) -> _Query:
-				return self
-
-			def where(self, *_args: Any, **_kwargs: Any) -> _Query:
-				return self
-
-			def groupby(self, *_args: Any, **_kwargs: Any) -> _Query:
-				return self
-
-			def run(self, **_kwargs: Any) -> list[dict[str, str | int]]:
-				return [
-					{"parent": "STE-001", "item_code": "FG-001", "qty": 10},
-					{"parent": "", "item_code": "FG-SKIP", "qty": 1},
-				]
-
-		with patch(
-			"production_entry_app.production_entry_app.report.report_utils.get_parent_quantity_metrics",
-			return_value={"STE-001": {"good_qty": 8, "rejection_qty": 2}},
-		):
-			with patch(
-				"production_entry_app.production_entry_app.report.report_utils.frappe.qb.from_",
-				return_value=_Query(),
-			):
-				good_qty_map, rejection_qty_map, fg_item_map = report_utils.get_entry_qty_maps(
-					["STE-001"],
-					include_fg_item=True,
-				)
-
-		self.assertEqual(good_qty_map, {"STE-001": 8.0})
-		self.assertEqual(rejection_qty_map, {"STE-001": 2.0})
-		self.assertEqual(fg_item_map, {"STE-001": "FG-001"})
 
 	def test_get_loss_time_maps_splits_setup_and_non_setup_minutes(self) -> None:
 		rows = [
@@ -227,22 +296,25 @@ class TestReportUtilsPerformance(FrappeTestCase):
 			},
 		]
 		with patch(
-			"production_entry_app.production_entry_app.report.report_utils.frappe.get_all", return_value=rows
+			"production_entry_app.production_entry_app.report.report_utils.get_report_rows", return_value=rows
 		):
 			setup_map, loss_map = report_utils.get_loss_time_maps(["STE-001"])
 
 		self.assertEqual(setup_map, {"STE-001": 15.0})
 		self.assertEqual(loss_map, {"STE-001": 30.0})
 
-	def test_entry_duration_and_stroke_helpers_cover_fallbacks(self) -> None:
+	def test_entry_duration_helpers_and_authoritative_strokes(self) -> None:
 		total_strokes, rejection_qty = report_utils.get_entry_total_strokes(
-			{"name": "STE-001", "fg_completed_qty": 0, "custom_pea_rejection_qty": 9},
-			good_qty_map={"STE-001": 11},
+			{
+				"name": "STE-001",
+				"fg_completed_qty": 15,
+				"custom_pea_rejection_qty": 9,
+				"custom_pea_total_strokes": 7,
+			},
 			rejection_qty_map={"STE-001": 3},
-			total_rejected_qty_map={"STE-001": 4},
 		)
 
-		self.assertEqual(total_strokes, 15.0)
+		self.assertEqual(total_strokes, 7.0)
 		self.assertEqual(rejection_qty, 3.0)
 		self.assertEqual(
 			report_utils.get_entry_production_minutes(
@@ -277,6 +349,14 @@ class TestReportUtilsPerformance(FrappeTestCase):
 		self.assertNotIn("precision", columns[1])
 		get_precision.assert_called_once()
 
+		link_column = {"fieldname": "item_code", "fieldtype": "Link", "options": "Item"}
+		with (
+			patch.object(report_utils.frappe, "get_roles", return_value=["PEA Read Only"]),
+			patch.object(report_utils.frappe, "has_permission", return_value=False),
+		):
+			report_utils.apply_system_precision([link_column])
+		self.assertEqual(link_column, {"fieldname": "item_code", "fieldtype": "Link", "options": "Item"})
+
 		aggregates = report_utils.aggregate_efficiency_by_field(
 			[
 				{
@@ -284,6 +364,7 @@ class TestReportUtilsPerformance(FrappeTestCase):
 					"_good_qty": 5,
 					"_rejection_qty": 1,
 					"_rework_qty": 2,
+					"_total_strokes": 6,
 					"_duration_mins": 0,
 					"custom_pea_standard_spm": 2,
 					"custom_pea_actual_spm": 3,
@@ -317,6 +398,7 @@ class TestReportUtilsPerformance(FrappeTestCase):
 		self.assertEqual(chunks, [[{"name": "STE-1"}, {"name": "STE-2"}], [{"name": "STE-3"}]])
 		self.assertEqual(fetch_chunk.call_count, 2)
 		first_call = fetch_chunk.call_args_list[0].kwargs
+		self.assertIn("custom_pea_total_strokes", first_call["fields"])
 		self.assertEqual(first_call["order_by"], "name asc")
 		self.assertEqual(first_call["chunk_size"], 2)
 		self.assertIsNone(first_call["last_row"])

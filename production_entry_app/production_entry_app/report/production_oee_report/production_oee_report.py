@@ -6,6 +6,8 @@ from frappe.utils import flt, get_time
 
 from production_entry_app.production_entry_app.report.report_utils import (
 	apply_system_precision,
+	build_stock_entry_filters,
+	get_entry_output_quantities,
 	get_entry_production_minutes,
 	get_entry_total_strokes,
 	get_loss_duration_minutes,
@@ -102,9 +104,8 @@ def _get_columns() -> list[dict]:
 			"fieldtype": "Percent",
 			"width": 130,
 		},
-		{"label": _("OEE"), "fieldname": "oee", "fieldtype": "Percent", "width": 90},
 		{
-			"label": _("OEE Mult %"),
+			"label": _("OEE %"),
 			"fieldname": "oee_mult_pct",
 			"fieldtype": "Percent",
 			"width": 100,
@@ -168,12 +169,12 @@ def _get_rows(filters: dict, timeout_guard) -> list[dict]:
 		std_spm = flt(group["standard_spm"])
 		stroke_required = flt(raw_running_time * std_spm * 60)
 		total_strokes = flt(group["total_strokes"])
-		rejection = flt(group["rejection"])
+		rejection = flt(group["quality_rejection"])
 		act_spm = flt(total_strokes / (raw_running_time * 60)) if raw_running_time > 0 else 0
 		productivity_pct = flt((act_spm / std_spm) * 100) if std_spm > 0 else 0
-		quality_pct = flt(((total_strokes - rejection) / total_strokes) * 100) if total_strokes > 0 else 0
+		quality_total = flt(group["quality_total"])
+		quality_pct = flt(((quality_total - rejection) / quality_total) * 100) if quality_total > 0 else 0
 		availability_pct = flt((raw_running_time / avl_time_hrs) * 100) if avl_time_hrs > 0 else 0
-		oee = flt((availability_pct + quality_pct + productivity_pct) / 3)
 		oee_mult_pct = flt((availability_pct * quality_pct * productivity_pct) / 10000)
 
 		row = {
@@ -189,7 +190,6 @@ def _get_rows(filters: dict, timeout_guard) -> list[dict]:
 			"productivity_pct": productivity_pct,
 			"quality_pct": quality_pct,
 			"availability_pct": availability_pct,
-			"oee": oee,
 			"oee_mult_pct": oee_mult_pct,
 			"avl_time_hrs": avl_time_hrs,
 			"total_loss_time": total_loss_time,
@@ -221,10 +221,15 @@ def _get_stock_entry_groups(
 		shift_names = _get_shift_names_for_chunk(chunk, loss_rows)
 		shift_labels = _get_shift_labels(shift_names, shift_label_cache)
 		entry_meta_by_name: dict[str, dict[str, str]] = {}
-		quantity_maps = _get_entry_quantity_maps(entry_names)
-
+		parent_quantity_metrics = get_parent_quantity_metrics(entry_names)
 		for entry in chunk:
-			_add_stock_entry_to_group(groups, entry_meta_by_name, entry, quantity_maps, shift_labels)
+			_add_stock_entry_to_group(
+				groups,
+				entry_meta_by_name,
+				entry,
+				parent_quantity_metrics,
+				shift_labels,
+			)
 
 		_apply_loss_buckets_for_chunk(groups, entry_meta_by_name, loss_rows, shift_labels)
 
@@ -235,18 +240,7 @@ def _get_stock_entry_groups(
 
 
 def _get_stock_entry_filters(filters: dict) -> dict:
-	stock_entry_filters: dict = {"docstatus": 1, "purpose": "Manufacture"}
-	from_date = filters.get("from_date")
-	to_date = filters.get("to_date")
-	if from_date and to_date:
-		stock_entry_filters["posting_date"] = ["between", [from_date, to_date]]
-	elif from_date:
-		stock_entry_filters["posting_date"] = [">=", from_date]
-	elif to_date:
-		stock_entry_filters["posting_date"] = ["<=", to_date]
-	if filters.get("custom_pea_workstation"):
-		stock_entry_filters["custom_pea_workstation"] = filters.get("custom_pea_workstation")
-	return stock_entry_filters
+	return build_stock_entry_filters(filters, filter_keys=("custom_pea_workstation",))
 
 
 def _get_stock_entry_fields() -> list[str]:
@@ -257,6 +251,11 @@ def _get_stock_entry_fields() -> list[str]:
 		"custom_pea_workstation",
 		"fg_completed_qty",
 		"custom_pea_rejection_qty",
+		"custom_pea_total_strokes",
+		"custom_pea_lh_gross_qty",
+		"custom_pea_lh_rejection_qty",
+		"custom_pea_rh_gross_qty",
+		"custom_pea_rh_rejection_qty",
 		"custom_pea_standard_spm",
 		"custom_pea_actual_duration_mins",
 		"custom_pea_production_time_mins",
@@ -265,27 +264,10 @@ def _get_stock_entry_fields() -> list[str]:
 	]
 
 
-def _get_entry_quantity_maps(
-	entry_names: list[str],
-) -> tuple[dict[str, float], dict[str, float], dict[str, float]]:
-	parent_quantity_metrics = get_parent_quantity_metrics(entry_names)
-	good_qty_map = {
-		parent: flt(metrics.get("good_qty") or 0) for parent, metrics in parent_quantity_metrics.items()
-	}
-	rejection_qty_map = {
-		parent: flt(metrics.get("rejection_qty") or 0) for parent, metrics in parent_quantity_metrics.items()
-	}
-	total_rejected_qty_map = {
-		parent: flt(metrics.get("total_rejected_qty") or 0)
-		for parent, metrics in parent_quantity_metrics.items()
-	}
-	return good_qty_map, rejection_qty_map, total_rejected_qty_map
-
-
 def _get_stock_entry_loss_rows(entry_names: list[str]) -> list[dict]:
 	if not entry_names:
 		return []
-	return frappe.get_all(
+	return get_report_rows(
 		"Loss Entry",
 		filters={"parenttype": "Stock Entry", "parent": ["in", entry_names]},
 		fields=["parent", "downtime_reason", "shift", "start_time", "end_time"],
@@ -302,10 +284,12 @@ def _add_stock_entry_to_group(
 	groups: dict[tuple[str, str], dict],
 	entry_meta_by_name: dict[str, dict[str, str]],
 	entry: frappe._dict,
-	quantity_maps: tuple[dict[str, float], dict[str, float], dict[str, float]],
+	parent_quantity_metrics: dict[str, dict[str, float]],
 	shift_labels: dict[str, str],
 ) -> None:
-	day = str(entry.get("posting_date") or "")
+	day = str(entry.get("production_date") or "")
+	if not day:
+		return
 	workstation = entry.get("custom_pea_workstation") or "Unassigned"
 	entry_name = entry.get("name")
 	if entry_name:
@@ -315,26 +299,30 @@ def _add_stock_entry_to_group(
 			"shift": entry.get("custom_pea_shift") or "",
 		}
 	group = groups.setdefault((day, workstation), _new_group(day, workstation))
-	total_strokes, rejection_qty = get_entry_total_strokes(
+	_add_entry_quantities_to_group(
+		group,
 		entry,
-		good_qty_map=quantity_maps[0],
-		rejection_qty_map=quantity_maps[1],
-		total_rejected_qty_map=quantity_maps[2],
+		parent_quantity_metrics,
+		shift_labels,
 	)
-	_add_entry_quantities_to_group(group, entry, total_strokes, rejection_qty, shift_labels)
 
 
 def _add_entry_quantities_to_group(
 	group: dict,
 	entry: frappe._dict,
-	total_strokes: float,
-	rejection_qty: float,
+	parent_quantity_metrics: dict[str, dict[str, float]],
 	shift_labels: dict[str, str],
 ) -> None:
-	group["total_strokes"] += total_strokes
-	group["rejection"] += rejection_qty
-
+	quantities = get_entry_output_quantities(
+		entry,
+		normal_metrics=parent_quantity_metrics.get(entry.get("name")),
+	)
+	total_strokes, _rejection_qty = get_entry_total_strokes(entry)
 	shift_name = entry.get("custom_pea_shift")
+	group["total_strokes"] += total_strokes
+	group["quality_total"] += quantities.total_qty
+	group["quality_rejection"] += quantities.rejection_qty
+
 	if shift_name:
 		group["shift_names"].add(shift_name)
 	shift_label = shift_labels.get(shift_name)
@@ -395,7 +383,7 @@ def _get_shift_duration_hours_by_name(shift_names: list[str]) -> dict[str, float
 
 
 def _get_planned_loss_hours_by_shift(shift_duration_hours_by_name: dict[str, float]) -> dict[str, float]:
-	loss_rows = frappe.get_all(
+	loss_rows = get_report_rows(
 		"Loss Entry",
 		filters={"parenttype": "Shift", "parent": ["in", list(shift_duration_hours_by_name.keys())]},
 		fields=["parent", "start_time", "end_time"],
@@ -474,7 +462,8 @@ def _new_group(day: str, workstation: str) -> dict:
 		"first_shift_strokes": 0.0,
 		"second_shift_strokes": 0.0,
 		"total_strokes": 0.0,
-		"rejection": 0.0,
+		"quality_total": 0.0,
+		"quality_rejection": 0.0,
 		"standard_spm": 0.0,
 	}
 	for key, _label in LOSS_BUCKETS:

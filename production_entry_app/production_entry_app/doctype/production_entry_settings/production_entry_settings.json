@@ -4,38 +4,19 @@
  "doctype": "DocType",
  "editable_grid": 1,
  "engine": "InnoDB",
-	"field_order": [
-	  "shift_raw_material_warehouse",
-  "shift_wip_warehouse",
-  "shift_rejection_warehouse",
-  "shift_scrap_warehouse",
+ "field_order": [
+  "branch_warehouse_defaults",
   "shift_start_buffer_mins",
-  "shift_end_buffer_mins"
+  "shift_end_buffer_mins",
+  "rework_expense_account"
  ],
  "fields": [
   {
-   "fieldname": "shift_raw_material_warehouse",
-   "fieldtype": "Link",
-   "label": "Raw Material Warehouse",
-   "options": "Warehouse"
-  },
-  {
-   "fieldname": "shift_wip_warehouse",
-   "fieldtype": "Link",
-   "label": "Work In Progress Warehouse",
-   "options": "Warehouse"
-  },
-  {
-   "fieldname": "shift_rejection_warehouse",
-   "fieldtype": "Link",
-   "label": "Rejection Warehouse",
-   "options": "Warehouse"
-  },
-  {
-   "fieldname": "shift_scrap_warehouse",
-   "fieldtype": "Link",
-   "label": "Scrap Warehouse",
-   "options": "Warehouse"
+   "fieldname": "branch_warehouse_defaults",
+   "fieldtype": "Table",
+   "label": "Branch Warehouse Defaults",
+   "options": "Branch Warehouse Default",
+   "description": "One row per Company and Branch. Explicit Shift warehouses take precedence. No global fallback."
   },
   {
    "default": "60",
@@ -52,6 +33,13 @@
    "label": "Shift End Buffer (Minutes)",
    "max_value": "480",
    "min_value": "0"
+  },
+  {
+   "description": "Expense account credited when rework labour cost is capitalized into inventory. Falls back to the Company's Default Operating Cost Account.",
+   "fieldname": "rework_expense_account",
+   "fieldtype": "Link",
+   "label": "Rework Expense Account",
+   "options": "Account"
   }
  ],
  "hide_toolbar": 1,

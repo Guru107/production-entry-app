@@ -3,6 +3,7 @@ const { bootstrapE2E, cleanupE2E } = require("../fixtures/test-data");
 const { getDoc, callFrappeMethod, setFieldValue } = require("../fixtures/frappe");
 const { expectValidationError } = require("../fixtures/assertions");
 const { registerE2ELifecycle } = require("../fixtures/lifecycle");
+const { getJointStockEntryType } = require("../fixtures/joint-production");
 const { ShiftPage } = require("../pages/shift-page");
 const { StockEntryPage } = require("../pages/stock-entry-page");
 const { getRoute } = require("../utils/routing");
@@ -139,6 +140,7 @@ test.describe("Shift to Stock Entry integration", () => {
 	}) => {
 		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
+		const jointType = await getJointStockEntryType(page);
 		const shift = await getDoc(page, "Shift", ctx.shift_name);
 		const shiftPage = new ShiftPage(page);
 		await shiftPage.open(ctx.shift_name);
@@ -152,6 +154,97 @@ test.describe("Shift to Stock Entry integration", () => {
 		expect(values.stock_entry_type).toBe("Manufacture");
 		expect(values.custom_pea_shift).toBe(ctx.shift_name);
 		expect(ctx.shift_name).toMatch(new RegExp(`^SHIFT-${ctx.shift_date}\\.1\\.\\d{4}$`));
+
+		await stockEntryPage.waitForShiftAutoFill({
+			branch: shift.branch || null,
+			plannedStartIncludes: `${ctx.shift_date} 08:00:00`,
+			plannedEndIncludes: "16:00:00",
+			warehouse: ctx.wip_warehouse,
+		});
+		const beforeJoint = await stockEntryPage.getFieldValues([
+			"company",
+			"branch",
+			"custom_pea_shift",
+			"custom_pea_planned_start_date",
+			"custom_pea_planned_end_date",
+			"from_warehouse",
+			"to_warehouse",
+		]);
+		await expect(page.locator('[data-fieldname="custom_pea_is_joint_lh_rh"]')).toHaveCount(0);
+		await setFieldValue(page, "stock_entry_type", jointType);
+		await stockEntryPage.waitForFieldValue("stock_entry_type", jointType);
+		await stockEntryPage.waitForFieldValue("custom_pea_stock_entry_purpose", "Repack");
+		await stockEntryPage.waitForJointMode(jointType);
+
+		const afterJoint = await stockEntryPage.getFieldValues([
+			"company",
+			"branch",
+			"custom_pea_shift",
+			"custom_pea_planned_start_date",
+			"custom_pea_planned_end_date",
+			"from_warehouse",
+			"to_warehouse",
+		]);
+		expect(afterJoint).toEqual(beforeJoint);
+
+		await stockEntryPage.setPostingDate(ctx.shift_date);
+		await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
+		await stockEntryPage.fillJointProductionFields(ctx, { lhRejectionQty: 1 });
+		await stockEntryPage.setRejectionBreakupRows([
+			{
+				rejection_reason: "Burr",
+				qty: 1,
+				output_side: "LH",
+				item_code: ctx.joint_lh_item,
+			},
+		]);
+		await stockEntryPage.addUnplannedLossRow({
+			downtime_reason: "Tea Break",
+			start_time: "08:30:00",
+			end_time: "08:40:00",
+		});
+		await stockEntryPage.fetchItems();
+		await stockEntryPage.saveAndSubmit();
+
+		const stockEntryName = await page.evaluate(() => cur_frm.doc.name);
+		const submitted = await getDoc(page, "Stock Entry", stockEntryName);
+		expect(submitted.docstatus).toBe(1);
+		expect(submitted.custom_pea_shift).toBe(ctx.shift_name);
+		expect(submitted.stock_entry_type).toBe(jointType);
+		expect(submitted.custom_pea_lh_gross_qty).toBe(40);
+		expect(submitted.custom_pea_lh_rejection_qty).toBe(1);
+		expect(submitted.custom_pea_rh_gross_qty).toBe(41);
+		expect(submitted.custom_pea_total_strokes).toBe(41);
+		expect(submitted.custom_pea_ok_qty).toBe(80);
+		expect(submitted.custom_pea_total_rm_consumption).toBeCloseTo(39.79125, 6);
+		expect(submitted.custom_pea_actual_duration_mins).toBe(60);
+		expect(submitted.custom_pea_production_time_mins).toBeLessThan(60);
+		expect(submitted.custom_pea_actual_spm).toBeCloseTo(
+			41 / submitted.custom_pea_production_time_mins,
+			6
+		);
+		expect(submitted.custom_pea_unplanned_losses).toHaveLength(1);
+		expect(submitted.items.filter((row) => row.s_warehouse)).toHaveLength(1);
+		expect(submitted.items.filter((row) => row.custom_pea_is_rejection_item)).toHaveLength(1);
+		expect(
+			submitted.items
+				.filter(
+					(row) => row.custom_pea_joint_output_side && !row.custom_pea_is_rejection_item
+				)
+				.every((row) => row.basic_rate > 0 && row.valuation_rate > 0)
+		).toBe(true);
+		const submittedScrapRows = submitted.items.filter(
+			(row) =>
+				row.is_scrap_item ||
+				row.is_legacy_scrap_item ||
+				row.secondary_item_type === "Scrap" ||
+				row.type === "Scrap"
+		);
+		expect(submittedScrapRows).toHaveLength(2);
+		expect(submittedScrapRows.map((row) => row.item_code).sort()).toEqual(
+			[ctx.joint_scrap_item, ctx.joint_scrap_nos_item].sort()
+		);
+		expect(submittedScrapRows.every((row) => "is_finished_item" in row)).toBe(true);
 	});
 
 	test("@regression selecting shift auto-fills branch and planned dates", async ({ page }) => {
@@ -324,7 +417,7 @@ test.describe("Shift to Stock Entry integration", () => {
 		page,
 	}) => {
 		await page.goto(getRoute("/home"));
-		const prefix = `${lifecycle.getPrefix()}-shift-aggregate-precision`;
+		const prefix = lifecycle.getPrefix();
 		const ctx = await setupFreshContext(page, prefix);
 		await setSystemFloatPrecision(page, prefix, 4);
 
@@ -364,7 +457,7 @@ test.describe("Shift to Stock Entry integration", () => {
 		page,
 	}) => {
 		await page.goto(getRoute("/home"));
-		const prefix = `${lifecycle.getPrefix()}-timeline-precision`;
+		const prefix = lifecycle.getPrefix();
 		const ctx = await setupFreshContext(page, prefix);
 		await setSystemFloatPrecision(page, prefix, 4);
 

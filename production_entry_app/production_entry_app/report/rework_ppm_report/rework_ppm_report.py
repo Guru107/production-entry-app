@@ -52,8 +52,8 @@ def _get_rows(filters: dict) -> list[dict]:
 		entry_names = [entry.get("name") for entry in entries if entry.get("name")]
 		parent_quantity_metrics = get_parent_quantity_metrics(entry_names, include_rework=True)
 		for entry in entries:
-			posting_date = getdate(entry.get("posting_date"))
-			if not posting_date:
+			production_date = getdate(entry.get("production_date"))
+			if not production_date:
 				continue
 			entry_name = entry.get("name")
 			entry_metrics = parent_quantity_metrics.get(entry_name or "", {})
@@ -65,8 +65,13 @@ def _get_rows(filters: dict) -> list[dict]:
 				)
 
 			aggregate = aggregates.setdefault(
-				posting_date,
-				{"date": posting_date.isoformat(), "entries": 0, "total_qty": 0.0, "rework_qty": 0.0},
+				production_date,
+				{
+					"date": production_date.isoformat(),
+					"entries": 0,
+					"total_qty": 0.0,
+					"rework_qty": 0.0,
+				},
 			)
 			aggregate["entries"] += 1
 			aggregate["total_qty"] += total_qty
