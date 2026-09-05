@@ -825,14 +825,17 @@ function _sync_joint_mode_from_stock_entry_type(frm, requestId, previousStockEnt
 		if (frm.__peaJointStockEntryTypeLookup?.requestId === requestId) {
 			delete frm.__peaJointStockEntryTypeLookup;
 		}
+		const cachedJointStockEntryType = frm.__peaJointStockEntryType || "";
 		const currentWasJoint = _is_joint_doc(frm.doc);
 		frm.__peaJointStockEntryType = jointStockEntryType || "";
 		frm.doc.__pea_joint_stock_entry_type = jointStockEntryType || "";
 		const shouldBeJoint =
 			Boolean(jointStockEntryType) && selectedStockEntryType === jointStockEntryType;
+		const isKnownJointSelection =
+			shouldBeJoint && cachedJointStockEntryType === jointStockEntryType;
 		const wasJoint = previousStockEntryType
 			? Boolean(jointStockEntryType) && previousStockEntryType === jointStockEntryType
-			: currentWasJoint;
+			: currentWasJoint || isKnownJointSelection;
 		if (frm.__peaDeferredManufactureCleanup) {
 			delete frm.__peaDeferredManufactureCleanup;
 			if (!shouldBeJoint) {

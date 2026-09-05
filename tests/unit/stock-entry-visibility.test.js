@@ -1366,6 +1366,64 @@ test("manually selecting the joint Stock Entry Type enters joint production and 
 	}
 });
 
+test("refreshing a saved joint Stock Entry keeps joint fields when only the cached type marker remains", () => {
+	const originalFrappe = global.frappe;
+	global.frappe = {
+		call() {
+			assert.fail("cached joint Stock Entry Type should avoid a lookup");
+		},
+	};
+	let dirtyCount = 0;
+	const frm = {
+		__peaJointStockEntryType: "Joint LH RH Production",
+		fields_dict: {},
+		layout: { sections: [] },
+		doc: {
+			stock_entry_type: "Joint LH RH Production",
+			custom_pea_stock_entry_purpose: "Repack",
+			custom_pea_lh_bom: "BOM-LH",
+			custom_pea_lh_gross_qty: 40,
+			custom_pea_lh_rejection_qty: 1,
+			custom_pea_rh_bom: "BOM-RH",
+			custom_pea_rh_gross_qty: 41,
+			custom_pea_rh_rejection_qty: 2,
+			custom_pea_total_strokes: 41,
+			custom_pea_die_tool_item: "DIE-001",
+			custom_pea_total_rm_consumption: 49.125,
+			custom_pea_rejection_breakup: [{ output_side: "LH", qty: 1 }],
+			items: [{ item_code: "RM-001" }],
+		},
+		get_field() {
+			return { df: { fieldtype: "Data" } };
+		},
+		clear_table(fieldname) {
+			this.doc[fieldname] = [];
+		},
+		refresh_fields() {},
+		refresh_field() {},
+		toggle_display() {},
+		toggle_reqd() {},
+		dirty() {
+			dirtyCount += 1;
+		},
+	};
+
+	try {
+		_sync_joint_stock_entry_type(frm);
+
+		assert.equal(frm.doc.__pea_joint_stock_entry_type, "Joint LH RH Production");
+		assert.equal(frm.doc.custom_pea_lh_bom, "BOM-LH");
+		assert.equal(frm.doc.custom_pea_rh_bom, "BOM-RH");
+		assert.equal(frm.doc.custom_pea_total_strokes, 41);
+		assert.equal(frm.doc.custom_pea_die_tool_item, "DIE-001");
+		assert.deepEqual(frm.doc.custom_pea_rejection_breakup, [{ output_side: "LH", qty: 1 }]);
+		assert.deepEqual(frm.doc.items, [{ item_code: "RM-001" }]);
+		assert.equal(dirtyCount, 0);
+	} finally {
+		global.frappe = originalFrappe;
+	}
+});
+
 test("joint type lookup defers manufacture cleanup so common Shift context survives", () => {
 	const originalFrappe = global.frappe;
 	const originalTranslate = global.__;
