@@ -251,7 +251,6 @@ def _get_stock_entry_fields() -> list[str]:
 		"custom_pea_workstation",
 		"fg_completed_qty",
 		"custom_pea_rejection_qty",
-		"custom_pea_is_joint_lh_rh",
 		"custom_pea_total_strokes",
 		"custom_pea_lh_gross_qty",
 		"custom_pea_lh_rejection_qty",

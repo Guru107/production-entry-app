@@ -2691,7 +2691,7 @@ class TestOverlapValidation(FrappeTestCase):
 		cls.lh_bom = ensure_joint_test_bom(
 			item_code=cls.lh_item,
 			rm_item=cls.joint_rm_item,
-			scrap_items=[(cls.scrap_item, 0, 10)],
+			scrap_items=[(cls.scrap_item, 1, 10)],
 			company=cls.company,
 			bom_quantity=100,
 			rm_qty=49,
@@ -2699,7 +2699,7 @@ class TestOverlapValidation(FrappeTestCase):
 		cls.rh_bom = ensure_joint_test_bom(
 			item_code=cls.rh_item,
 			rm_item=cls.joint_rm_item,
-			scrap_items=[(cls.scrap_item, 0, 10)],
+			scrap_items=[(cls.scrap_item, 1, 10)],
 			company=cls.company,
 			bom_quantity=100,
 			rm_qty=49,
@@ -2908,7 +2908,6 @@ class TestOverlapValidation(FrappeTestCase):
 				"custom_pea_actual_end_date": end,
 				"custom_pea_workstation": workstation,
 				"custom_pea_operator": operator,
-				"custom_pea_is_joint_lh_rh": 1,
 				"custom_pea_lh_bom": self.lh_bom,
 				"custom_pea_lh_gross_qty": 40,
 				"custom_pea_lh_rejection_qty": 1,
@@ -3261,31 +3260,6 @@ class TestOverlapValidation(FrappeTestCase):
 		repack.stock_entry_type = self.joint_repack_type
 
 		with self.assertRaisesRegex(ValidationError, rf"Workstation.*{re.escape(existing.name)}"):
-			repack.save()
-
-	def test_workstation_overlap_uses_stock_entry_type_not_header_flag_for_plain_repack(self) -> None:
-		shift = _create_test_shift(
-			shift_date="2026-05-04",
-			shift_label="2",
-			planned_start_time="16:00:00",
-			wip_warehouse=self.wip_warehouse,
-		)
-		existing = self._create_entry(
-			shift_name=shift.name,
-			start="2026-05-04 16:00:00",
-			end="2026-05-04 17:00:00",
-			workstation=self.workstation_1,
-		)
-		existing.save()
-		repack = self._create_plain_repack_entry(
-			shift_name=shift.name,
-			start="2026-05-04 16:30:00",
-			end="2026-05-04 17:30:00",
-			workstation=self.workstation_1,
-		)
-		repack.custom_pea_is_joint_lh_rh = 1
-
-		with self.assertRaisesRegex(ValidationError, "Select a Stock Entry Type configured"):
 			repack.save()
 
 	def test_operator_overlap_blocks_overlapping_entry(self) -> None:

@@ -10,7 +10,7 @@ import frappe
 from frappe import _
 from frappe.model.base_document import BaseDocument
 from frappe.model.document import Document
-from frappe.utils import cint, flt
+from frappe.utils import flt
 
 from production_entry_app.production_entry_app.doctype.rejection_breakup.rejection_breakup import (
 	validate_rejection_breakup_row,
@@ -316,8 +316,6 @@ def _build_planned_scrap_items(
 
 
 def is_joint_lh_rh_production(doc: Document) -> bool:
-	if cint(doc.get("custom_pea_is_joint_lh_rh")):
-		return True
 	return is_joint_lh_rh_stock_entry_type(doc)
 
 
@@ -326,7 +324,6 @@ def validate_and_apply_joint_production(doc: Document) -> None:
 		return
 	if not is_joint_lh_rh_stock_entry_type(doc):
 		frappe.throw(_("Select a Stock Entry Type configured for Joint LH/RH Production."))
-	doc.set("custom_pea_is_joint_lh_rh", 1)
 	plan = _build_joint_production_plan(doc)
 	_validate_joint_item_rows(doc, plan)
 	_validate_joint_rejection_breakup(doc, plan)

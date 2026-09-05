@@ -4,4 +4,5 @@
 
 [post_model_sync]
 production_entry_app.patches.backfill_shift_title
+production_entry_app.patches.remove_joint_lh_rh_stock_entry_checkbox
 # Patches added in this section will be executed after doctypes are migrated

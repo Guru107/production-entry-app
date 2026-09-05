@@ -158,6 +158,7 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 			_initialize_total_strokes_default_state(frm);
 			_set_prev_purpose(frm);
 			_set_prev_stock_entry_type(frm);
+			_sync_joint_stock_entry_type(frm);
 			_sync_rework_mode_from_stock_entry_type(frm);
 			_hide_native_get_items(frm);
 			_apply_native_manufacture_visibility(frm);
@@ -184,7 +185,6 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 		stock_entry_type(frm) {
 			const previousStockEntryType = frm.__pea_prev_stock_entry_type || "";
 			_sync_joint_stock_entry_type(frm, {
-				source: "stock_entry_type",
 				previousStockEntryType,
 			});
 			_sync_rework_mode_from_stock_entry_type(frm, { previousStockEntryType });
@@ -213,14 +213,6 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 		},
 		fg_completed_qty(frm) {
 			_default_total_strokes_from_fg(frm);
-		},
-		custom_pea_is_joint_lh_rh(frm) {
-			_apply_native_manufacture_visibility(frm);
-			_apply_manufacture_visibility(frm);
-			_sync_stock_entry_helper_fields(frm);
-			_setup_stock_entry_quick_entry(frm);
-			_schedule_joint_rm_consumption(frm);
-			_sync_joint_stock_entry_type(frm);
 		},
 		custom_pea_lh_bom(frm) {
 			_schedule_joint_rm_consumption(frm);
@@ -560,16 +552,9 @@ function _clear_manufacture_data(frm) {
 	}
 }
 
-function _sync_joint_stock_entry_type(
-	frm,
-	{ source = "checkbox", previousStockEntryType = "" } = {}
-) {
+function _sync_joint_stock_entry_type(frm, { previousStockEntryType = "" } = {}) {
 	const requestId = ++_jointStockEntryTypeRequestId;
-	if (source === "stock_entry_type") {
-		_sync_joint_mode_from_stock_entry_type(frm, requestId, previousStockEntryType);
-		return;
-	}
-	_sync_stock_entry_type_from_joint_mode(frm, requestId);
+	_sync_joint_mode_from_stock_entry_type(frm, requestId, previousStockEntryType);
 }
 
 function _sync_rework_mode_from_stock_entry_type(frm, { previousStockEntryType = "" } = {}) {
@@ -840,27 +825,25 @@ function _sync_joint_mode_from_stock_entry_type(frm, requestId, previousStockEnt
 		if (frm.__peaJointStockEntryTypeLookup?.requestId === requestId) {
 			delete frm.__peaJointStockEntryTypeLookup;
 		}
+		const currentWasJoint = _is_joint_doc(frm.doc);
 		frm.__peaJointStockEntryType = jointStockEntryType || "";
+		frm.doc.__pea_joint_stock_entry_type = jointStockEntryType || "";
 		const shouldBeJoint =
 			Boolean(jointStockEntryType) && selectedStockEntryType === jointStockEntryType;
+		const wasJoint = previousStockEntryType
+			? Boolean(jointStockEntryType) && previousStockEntryType === jointStockEntryType
+			: currentWasJoint;
 		if (frm.__peaDeferredManufactureCleanup) {
 			delete frm.__peaDeferredManufactureCleanup;
 			if (!shouldBeJoint) {
 				_clear_manufacture_data(frm);
 			}
 		}
-		if (shouldBeJoint === _is_joint_doc(frm.doc)) {
+		if (shouldBeJoint === wasJoint) {
 			return;
 		}
 
-		if (shouldBeJoint) {
-			frm.__peaStockEntryTypeBeforeJoint = previousStockEntryType;
-		} else {
-			delete frm.__peaStockEntryTypeBeforeJoint;
-		}
 		_clear_production_mode_data(frm);
-		frm.doc.custom_pea_is_joint_lh_rh = shouldBeJoint ? 1 : 0;
-		frm.refresh_field?.("custom_pea_is_joint_lh_rh");
 		frm.dirty?.();
 		_apply_manufacture_visibility(frm);
 	};
@@ -889,38 +872,6 @@ function _sync_joint_mode_from_stock_entry_type(frm, requestId, previousStockEnt
 				_clear_manufacture_data(frm);
 			}
 			_notify_call_error(__("Failed to identify the Joint LH/RH Stock Entry Type."), error);
-		},
-	});
-}
-
-function _sync_stock_entry_type_from_joint_mode(frm, requestId) {
-	if (!_is_joint_doc(frm.doc)) {
-		_clear_production_mode_data(frm);
-		if (Object.prototype.hasOwnProperty.call(frm, "__peaStockEntryTypeBeforeJoint")) {
-			const previousStockEntryType = frm.__peaStockEntryTypeBeforeJoint;
-			delete frm.__peaStockEntryTypeBeforeJoint;
-			if (frm.doc.stock_entry_type !== previousStockEntryType) {
-				frm.set_value("stock_entry_type", previousStockEntryType || "");
-			}
-		}
-		return;
-	}
-	if (!Object.prototype.hasOwnProperty.call(frm, "__peaStockEntryTypeBeforeJoint")) {
-		frm.__peaStockEntryTypeBeforeJoint = frm.doc.stock_entry_type || "";
-	}
-
-	frappe.call({
-		method: "production_entry_app.production_entry_app.api.get_joint_stock_entry_type",
-		callback(r) {
-			if (requestId !== _jointStockEntryTypeRequestId || !_is_joint_doc(frm.doc)) return;
-			frm.__peaJointStockEntryType = r.message || "";
-			_clear_production_mode_data(frm);
-			frm.set_value("stock_entry_type", r.message);
-		},
-		error(error) {
-			if (requestId !== _jointStockEntryTypeRequestId || !_is_joint_doc(frm.doc)) return;
-			frm.set_value("custom_pea_is_joint_lh_rh", 0);
-			_notify_call_error(__("Failed to select the Joint LH/RH Stock Entry Type."), error);
 		},
 	});
 }
@@ -1028,7 +979,8 @@ function _is_manufacture_doc(doc) {
 }
 
 function _is_joint_doc(doc) {
-	return parseInt(doc?.custom_pea_is_joint_lh_rh || 0, 10) === 1;
+	const jointStockEntryType = doc?.__pea_joint_stock_entry_type || "";
+	return Boolean(jointStockEntryType) && doc?.stock_entry_type === jointStockEntryType;
 }
 
 function _is_production_doc(doc) {

@@ -25,12 +25,8 @@ async function login(page, username, password) {
 }
 
 async function enableJointProduction(page, form, stockEntryType) {
-	const jointCheckbox = page.getByRole("checkbox", {
-		name: "Joint LH/RH Production",
-		exact: true,
-	});
-	await expect(jointCheckbox).toBeEnabled();
-	await jointCheckbox.check();
+	await expect(page.locator('[data-fieldname="custom_pea_is_joint_lh_rh"]')).toHaveCount(0);
+	await setFieldValue(page, "stock_entry_type", stockEntryType);
 	await form.waitForFieldValue("stock_entry_type", stockEntryType);
 	await form.waitForFieldValue("custom_pea_stock_entry_purpose", "Repack");
 }
@@ -88,6 +84,7 @@ test.describe("Joint LH/RH production form", () => {
 		createdTypes.add(stockEntryType);
 		const form = new StockEntryPage(page);
 		await form.openNew();
+		await deleteJointStockEntryTypeIfExists(page, stockEntryType);
 		await page.evaluate(() => frappe.ui.form.make_quick_entry("Stock Entry Type"));
 
 		const dialog = page.getByRole("dialog");
@@ -185,7 +182,6 @@ test.describe("Joint LH/RH production form", () => {
 		await form.fetchItems();
 
 		await setFieldValue(page, "stock_entry_type", "Manufacture");
-		await form.waitForFieldValue("custom_pea_is_joint_lh_rh", 0);
 		await form.waitForFieldValue("custom_pea_stock_entry_purpose", "Manufacture");
 
 		const manufactureState = await form.getFieldValues([
@@ -214,7 +210,6 @@ test.describe("Joint LH/RH production form", () => {
 		await setFieldValue(page, "fg_completed_qty", 100);
 		await setFieldValue(page, "custom_pea_rejection_qty", 2);
 		await setFieldValue(page, "stock_entry_type", stockEntryType);
-		await form.waitForFieldValue("custom_pea_is_joint_lh_rh", 1);
 		await form.waitForFieldValue("custom_pea_stock_entry_purpose", "Repack");
 
 		const jointState = await form.getFieldValues([

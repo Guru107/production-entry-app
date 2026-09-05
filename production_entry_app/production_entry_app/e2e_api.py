@@ -369,6 +369,7 @@ def _get_candidate_e2e_stock_entries(
 ) -> list[frappe._dict]:
 	stock_entry = DocType("Stock Entry")
 	stock_entry_detail = DocType("Stock Entry Detail")
+	stock_entry_type = DocType("Stock Entry Type")
 	item_code_filters = []
 	if target_fg_item:
 		item_code_filters.append(stock_entry_detail.item_code == target_fg_item)
@@ -387,9 +388,14 @@ def _get_candidate_e2e_stock_entries(
 		frappe.qb.from_(stock_entry)
 		.left_join(stock_entry_detail)
 		.on(stock_entry_detail.parent == stock_entry.name)
+		.left_join(stock_entry_type)
+		.on(stock_entry_type.name == stock_entry.stock_entry_type)
 		.distinct()
 		.select(stock_entry.name, stock_entry.docstatus)
-		.where((stock_entry.purpose == "Manufacture") | (stock_entry.custom_pea_is_joint_lh_rh == 1))
+		.where(
+			(stock_entry.purpose == "Manufacture")
+			| ((stock_entry.purpose == "Repack") & (stock_entry_type.custom_pea_joint_lh_rh_production == 1))
+		)
 		.where(match_criteria)
 		.orderby(stock_entry.creation, order=Order.desc)
 	)
@@ -831,6 +837,26 @@ def _cleanup_e2e_stock_entries(targets: dict[str, object]) -> None:
 			frappe.delete_doc("Stock Entry", se.name, ignore_permissions=True, force=True)
 			if frappe.db.exists("Stock Entry", se.name):
 				frappe.throw(_("E2E cleanup retained Stock Entry {0}.").format(se.name))
+
+
+@frappe.whitelist()
+def cleanup_e2e_stock_entries_for_stock_entry_type(stock_entry_type: str) -> dict:
+	"""Cancel and force-delete reserved E2E Stock Entries linked to one Stock Entry Type."""
+	_assert_e2e_api_allowed()
+	type_name = (stock_entry_type or "").strip()
+	if not type_name.startswith(("E2E_", "E2E ")):
+		frappe.throw(_("Stock Entry Type must identify a reserved E2E context."), frappe.ValidationError)
+
+	stock_entry_names = frappe.get_all(
+		"Stock Entry",
+		filters={"stock_entry_type": type_name},
+		pluck="name",
+	)
+	for name in stock_entry_names:
+		_safe_cancel_and_delete("Stock Entry", name, context="cleanup_e2e_stock_entries_for_stock_entry_type")
+
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit - browser cleanup must persist before type deletion
+	return {"ok": True, "stock_entries": stock_entry_names}
 
 
 def _cleanup_e2e_downtime_entries(targets: dict[str, object]) -> None:

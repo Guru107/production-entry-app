@@ -1146,7 +1146,7 @@ class TestE2EApi(FrappeTestCase):
 		self.assertEqual(query.where.call_count, 2)
 		production_filter = str(query.where.call_args_list[0].args[0])
 		self.assertIn("purpose", production_filter)
-		self.assertIn("custom_pea_is_joint_lh_rh", production_filter)
+		self.assertIn("custom_pea_joint_lh_rh_production", production_filter)
 
 	def test_item_has_live_stock_entry_references_returns_false_for_blank_and_true_for_query_hit(
 		self,

@@ -130,7 +130,7 @@ class TestJointProductionCalculations(FrappeTestCase):
 		)
 		joint_entry = frappe._dict(
 			purpose="Repack",
-			custom_pea_is_joint_lh_rh=1,
+			custom_pea_joint_lh_rh_production=1,
 			custom_pea_lh_gross_qty=40,
 			custom_pea_lh_rejection_qty=2,
 			custom_pea_rh_gross_qty=60,
@@ -304,7 +304,6 @@ class TestJointProductionCalculations(FrappeTestCase):
 		strokes, rejection_qty = get_entry_total_strokes(
 			{
 				"name": "STE-JOINT-1",
-				"custom_pea_is_joint_lh_rh": 1,
 				"custom_pea_total_strokes": 41,
 				"fg_completed_qty": 0,
 			},
@@ -315,7 +314,9 @@ class TestJointProductionCalculations(FrappeTestCase):
 
 	def test_reports_include_joint_repack_but_exclude_generic_repack(self) -> None:
 		self.assertTrue(is_production_stock_entry({"purpose": "Manufacture"}))
-		self.assertTrue(is_production_stock_entry({"purpose": "Repack", "custom_pea_is_joint_lh_rh": 1}))
+		self.assertTrue(
+			is_production_stock_entry({"purpose": "Repack", "custom_pea_joint_lh_rh_production": 1})
+		)
 		self.assertFalse(is_production_stock_entry({"purpose": "Repack"}))
 
 	def test_joint_stock_entry_type_lookup_is_cached_on_the_document(self) -> None:
@@ -420,7 +421,6 @@ class TestJointProductionItems(FrappeTestCase):
 					payload.update(
 						purpose="Manufacture",
 						stock_entry_type="Manufacture",
-						custom_pea_is_joint_lh_rh=0,
 						bom_no=self.lh_bom,
 						fg_completed_qty=40,
 					)
@@ -449,7 +449,6 @@ class TestJointProductionItems(FrappeTestCase):
 					payload.update(
 						purpose="Manufacture",
 						stock_entry_type="Manufacture",
-						custom_pea_is_joint_lh_rh=0,
 						bom_no=self.lh_bom,
 						fg_completed_qty=40,
 						custom_pea_rejection_qty=1,
@@ -495,7 +494,6 @@ class TestJointProductionItems(FrappeTestCase):
 					payload.update(
 						purpose="Manufacture",
 						stock_entry_type="Manufacture",
-						custom_pea_is_joint_lh_rh=0,
 						bom_no=self.lh_bom,
 						fg_completed_qty=40,
 						custom_pea_rejection_qty=1,
@@ -594,7 +592,6 @@ class TestJointProductionItems(FrappeTestCase):
 				"branch": self.masters["branch"],
 				"from_warehouse": self.masters["wip_warehouse"],
 				"to_warehouse": self.masters["fg_warehouse"],
-				"custom_pea_is_joint_lh_rh": 1,
 				"custom_pea_lh_bom": self.lh_bom,
 				"custom_pea_lh_gross_qty": 40,
 				"custom_pea_lh_rejection_qty": 1,
@@ -1553,7 +1550,6 @@ class TestJointProductionItems(FrappeTestCase):
 				"custom_pea_shift": shift.name,
 				"custom_pea_actual_start_date": start,
 				"custom_pea_actual_end_date": end,
-				"custom_pea_is_joint_lh_rh": 1,
 				"custom_pea_lh_bom": lh_bom or self.lh_bom,
 				"custom_pea_lh_gross_qty": 40,
 				"custom_pea_lh_rejection_qty": 1,

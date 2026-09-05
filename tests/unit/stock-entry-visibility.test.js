@@ -640,7 +640,6 @@ test("Stock Entry refresh restores Rework classification stripped by draft save"
 		doc: {
 			stock_entry_type: "Rework Material Transfer",
 			custom_pea_stock_entry_purpose: "Material Transfer",
-			custom_pea_is_joint_lh_rh: 0,
 			custom_pea_rework_type: "",
 			custom_pea_rework_operators: [],
 			items: [],
@@ -1124,7 +1123,6 @@ test("manufacture strokes follow quantity until the operator edits them", async 
 		doc: {
 			__islocal: 1,
 			custom_pea_stock_entry_purpose: "Manufacture",
-			custom_pea_is_joint_lh_rh: 0,
 			fg_completed_qty: 100,
 			custom_pea_total_strokes: 0,
 		},
@@ -1152,7 +1150,6 @@ test("saved manufacture strokes keep following quantity only while auto-derived"
 		doc: {
 			__islocal: 0,
 			custom_pea_stock_entry_purpose: "Manufacture",
-			custom_pea_is_joint_lh_rh: 0,
 			fg_completed_qty: 100,
 			custom_pea_total_strokes: totalStrokes,
 		},
@@ -1199,7 +1196,8 @@ test("manufacture decision uses custom_pea_stock_entry_purpose only", () => {
 test("joint LH/RH Repack uses the common production form without native BOM fields", () => {
 	const doc = {
 		custom_pea_stock_entry_purpose: "Repack",
-		custom_pea_is_joint_lh_rh: 1,
+		stock_entry_type: "Joint LH RH Repack",
+		__pea_joint_stock_entry_type: "Joint LH RH Repack",
 	};
 
 	assert.equal(_is_manufacture_doc(doc), false);
@@ -1232,7 +1230,8 @@ test("rejection visibility quantity sums joint sides and uses normal rejection o
 	try {
 		assert.equal(
 			_get_rejection_qty_for_visibility({
-				custom_pea_is_joint_lh_rh: 1,
+				stock_entry_type: "Joint LH RH Repack",
+				__pea_joint_stock_entry_type: "Joint LH RH Repack",
 				custom_pea_lh_rejection_qty: 2,
 				custom_pea_rh_rejection_qty: 3,
 			}),
@@ -1244,40 +1243,6 @@ test("rejection visibility quantity sums joint sides and uses normal rejection o
 	}
 });
 
-test("leaving joint production restores the user's prior Stock Entry Type", () => {
-	const originalFrappe = global.frappe;
-	const updates = [];
-	global.frappe = {
-		call(options) {
-			options.callback({ message: "Joint LH RH Repack" });
-		},
-	};
-	const frm = {
-		doc: {
-			custom_pea_is_joint_lh_rh: 1,
-			stock_entry_type: "Shearing",
-		},
-		set_value(fieldname, value) {
-			this.doc[fieldname] = value;
-			updates.push([fieldname, value]);
-		},
-	};
-
-	try {
-		_sync_joint_stock_entry_type(frm);
-		frm.doc.custom_pea_is_joint_lh_rh = 0;
-		_sync_joint_stock_entry_type(frm);
-
-		assert.deepEqual(updates, [
-			["stock_entry_type", "Joint LH RH Repack"],
-			["stock_entry_type", "Shearing"],
-		]);
-		assert.equal(frm.__peaStockEntryTypeBeforeJoint, undefined);
-	} finally {
-		global.frappe = originalFrappe;
-	}
-});
-
 test("manually selecting a non-joint Stock Entry Type exits joint production and clears joint data", () => {
 	const originalFrappe = global.frappe;
 	global.frappe = {
@@ -1286,11 +1251,10 @@ test("manually selecting a non-joint Stock Entry Type exits joint production and
 		},
 	};
 	const frm = {
-		__peaStockEntryTypeBeforeJoint: "Manufacture",
 		fields_dict: {},
 		layout: { sections: [] },
 		doc: {
-			custom_pea_is_joint_lh_rh: 1,
+			__pea_joint_stock_entry_type: "Joint LH RH Repack",
 			stock_entry_type: "Manufacture",
 			custom_pea_shift: "SHIFT-001",
 			custom_pea_lh_bom: "BOM-LH",
@@ -1322,10 +1286,10 @@ test("manually selecting a non-joint Stock Entry Type exits joint production and
 	};
 
 	try {
-		_sync_joint_stock_entry_type(frm, { source: "stock_entry_type" });
+		_sync_joint_stock_entry_type(frm, { previousStockEntryType: "Joint LH RH Repack" });
 
 		assert.equal(frm.doc.stock_entry_type, "Manufacture");
-		assert.equal(frm.doc.custom_pea_is_joint_lh_rh, 0);
+		assert.equal(frm.doc.__pea_joint_stock_entry_type, "Joint LH RH Repack");
 		assert.equal(frm.doc.custom_pea_shift, "SHIFT-001");
 		assert.equal(frm.doc.custom_pea_lh_bom, "");
 		assert.equal(frm.doc.custom_pea_rh_bom, "");
@@ -1350,7 +1314,6 @@ test("manually selecting the joint Stock Entry Type enters joint production and 
 		fields_dict: {},
 		layout: { sections: [] },
 		doc: {
-			custom_pea_is_joint_lh_rh: 0,
 			stock_entry_type: "Joint LH RH Repack",
 			custom_pea_stock_entry_purpose: "Repack",
 			custom_pea_shift: "SHIFT-001",
@@ -1384,14 +1347,10 @@ test("manually selecting the joint Stock Entry Type enters joint production and 
 	};
 
 	try {
-		_sync_joint_stock_entry_type(frm, {
-			source: "stock_entry_type",
-			previousStockEntryType: "Manufacture",
-		});
+		_sync_joint_stock_entry_type(frm, { previousStockEntryType: "Manufacture" });
 
 		assert.equal(frm.doc.stock_entry_type, "Joint LH RH Repack");
-		assert.equal(frm.doc.custom_pea_is_joint_lh_rh, 1);
-		assert.equal(frm.__peaStockEntryTypeBeforeJoint, "Manufacture");
+		assert.equal(frm.doc.__pea_joint_stock_entry_type, "Joint LH RH Repack");
 		assert.equal(frm.doc.custom_pea_shift, "SHIFT-001");
 		assert.equal(frm.doc.from_bom, 0);
 		assert.equal(frm.doc.bom_no, "");
@@ -1422,7 +1381,6 @@ test("joint type lookup defers manufacture cleanup so common Shift context survi
 		fields_dict: {},
 		layout: { sections: [] },
 		doc: {
-			custom_pea_is_joint_lh_rh: 0,
 			stock_entry_type: "Joint LH RH Repack",
 			custom_pea_stock_entry_purpose: "Repack",
 			custom_pea_shift: "SHIFT-001",
@@ -1446,10 +1404,7 @@ test("joint type lookup defers manufacture cleanup so common Shift context survi
 	};
 
 	try {
-		_sync_joint_stock_entry_type(frm, {
-			source: "stock_entry_type",
-			previousStockEntryType: "Manufacture",
-		});
+		_sync_joint_stock_entry_type(frm, { previousStockEntryType: "Manufacture" });
 		_clear_manufacture_data_on_leave(frm);
 
 		assert.equal(frm.doc.custom_pea_shift, "SHIFT-001");
@@ -1458,7 +1413,7 @@ test("joint type lookup defers manufacture cleanup so common Shift context survi
 
 		jointTypeResponse({ message: "Joint LH RH Repack" });
 
-		assert.equal(frm.doc.custom_pea_is_joint_lh_rh, 1);
+		assert.equal(frm.doc.__pea_joint_stock_entry_type, "Joint LH RH Repack");
 		assert.equal(frm.doc.custom_pea_shift, "SHIFT-001");
 		assert.equal(frm.doc.custom_pea_actual_start_date, "2026-08-28 08:00:00");
 		assert.equal(frm.doc.custom_pea_workstation, "PRESS-001");
@@ -1488,7 +1443,6 @@ test("passive joint type discovery asks quietly and stays non-joint when nothing
 		fields_dict: {},
 		layout: { sections: [] },
 		doc: {
-			custom_pea_is_joint_lh_rh: 0,
 			stock_entry_type: "Manufacture",
 			custom_pea_stock_entry_purpose: "Manufacture",
 			items: [],
@@ -1507,13 +1461,13 @@ test("passive joint type discovery asks quietly and stays non-joint when nothing
 	};
 
 	try {
-		_sync_joint_stock_entry_type(frm, { source: "stock_entry_type" });
+		_sync_joint_stock_entry_type(frm);
 
 		assert.deepEqual(lookup.args, { required: 0 });
 		lookup.callback({ message: "" });
 
 		assert.equal(frm.__peaJointStockEntryType, "");
-		assert.equal(frm.doc.custom_pea_is_joint_lh_rh, 0);
+		assert.equal(frm.doc.__pea_joint_stock_entry_type, "");
 		assert.deepEqual(messages, []);
 	} finally {
 		global.frappe = originalFrappe;
@@ -1565,7 +1519,8 @@ test("stock entry PEA sections are metadata-gated to manufacture or joint produc
 		const dependsOn = byFieldname[fieldname]?.depends_on || "";
 		assert.match(dependsOn, /custom_pea_stock_entry_purpose/);
 		assert.match(dependsOn, /Manufacture/);
-		assert.match(dependsOn, /custom_pea_is_joint_lh_rh/);
+		assert.match(dependsOn, /__pea_joint_stock_entry_type/);
+		assert.match(dependsOn, /stock_entry_type/);
 	}
 });
 

@@ -2,6 +2,11 @@ const { callFrappeMethod } = require("./frappe");
 
 async function deleteJointStockEntryTypeIfExists(page, name) {
 	if (!name) return;
+	await callFrappeMethod(
+		page,
+		"production_entry_app.production_entry_app.e2e_api.cleanup_e2e_stock_entries_for_stock_entry_type",
+		{ stock_entry_type: name }
+	);
 	const rows = await callFrappeMethod(page, "frappe.client.get_list", {
 		doctype: "Stock Entry Type",
 		fields: JSON.stringify(["name"]),

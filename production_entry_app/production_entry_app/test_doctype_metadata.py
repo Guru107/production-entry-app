@@ -20,7 +20,6 @@ REQUIRED_SEARCH_INDEXES: dict[str, set[str]] = {
 REQUIRED_CUSTOM_FIELD_SEARCH_INDEXES: set[str] = {
 	"Stock Entry Type-custom_pea_joint_lh_rh_production",
 	"Stock Entry Type-custom_pea_rework_entry",
-	"Stock Entry-custom_pea_is_joint_lh_rh",
 	"Stock Entry-custom_pea_shift",
 	"Stock Entry-custom_pea_workstation",
 	"Stock Entry-custom_pea_operator",
@@ -85,7 +84,6 @@ def test_joint_lh_rh_production_metadata_is_exported() -> None:
 	fields_by_name = {field.get("name"): field for field in load_custom_field_fixture() if field.get("name")}
 	required_fields = {
 		"Stock Entry Type-custom_pea_joint_lh_rh_production",
-		"Stock Entry-custom_pea_is_joint_lh_rh",
 		"Stock Entry-custom_pea_lh_bom",
 		"Stock Entry-custom_pea_lh_gross_qty",
 		"Stock Entry-custom_pea_lh_rejection_qty",
@@ -100,9 +98,7 @@ def test_joint_lh_rh_production_metadata_is_exported() -> None:
 	}
 	missing_fields = sorted(required_fields.difference(fields_by_name))
 	assert not missing_fields, f"Missing joint-production custom fields: {missing_fields}"
-	joint_flag = fields_by_name["Stock Entry-custom_pea_is_joint_lh_rh"]
-	assert not joint_flag.get("fetch_from")
-	assert not joint_flag.get("read_only")
+	assert "Stock Entry-custom_pea_is_joint_lh_rh" not in fields_by_name
 	total_rm_field = fields_by_name["Stock Entry-custom_pea_total_rm_consumption"]
 	assert total_rm_field.get("read_only") == 1
 	assert not total_rm_field.get("mandatory_depends_on")
@@ -149,7 +145,8 @@ def test_rework_stock_entry_metadata_is_exported() -> None:
 	assert fields_by_name["Stock Entry-custom_pea_rework_cost"].get("read_only") == 1
 	assert fields_by_name["Stock Entry-custom_pea_rework_cost"].get("non_negative") == 1
 	assert fields_by_name["Stock Entry-custom_pea_shift"].get("depends_on") == (
-		"eval:doc.custom_pea_stock_entry_purpose=='Manufacture' || doc.custom_pea_is_joint_lh_rh"
+		"eval:doc.custom_pea_stock_entry_purpose=='Manufacture' || "
+		"(doc.__pea_joint_stock_entry_type && doc.stock_entry_type==doc.__pea_joint_stock_entry_type)"
 	)
 
 	rework_operator = assert_doctype_json("Rework Operator")
@@ -176,7 +173,7 @@ def test_rework_fields_have_a_dedicated_two_column_section() -> None:
 
 	rework_condition = field("custom_pea_rework_type")["depends_on"]
 
-	assert field("custom_pea_shift")["insert_after"] == "custom_pea_is_joint_lh_rh"
+	assert field("custom_pea_shift")["insert_after"] == "custom_pea_stock_entry_purpose"
 	assert field("custom_pea_rework_details_section") == {
 		"doctype": "Custom Field",
 		"name": "Stock Entry-custom_pea_rework_details_section",

@@ -182,13 +182,8 @@ test.describe("Shift to Stock Entry integration", () => {
 			"from_warehouse",
 			"to_warehouse",
 		]);
-		const jointCheckbox = page.getByRole("checkbox", {
-			name: "Joint LH/RH Production",
-			exact: true,
-		});
-		await expect(jointCheckbox).toBeVisible();
-		await expect(jointCheckbox).toBeEnabled();
-		await jointCheckbox.check();
+		await expect(page.locator('[data-fieldname="custom_pea_is_joint_lh_rh"]')).toHaveCount(0);
+		await setFieldValue(page, "stock_entry_type", jointType);
 		await stockEntryPage.waitForFieldValue("stock_entry_type", jointType);
 		await stockEntryPage.waitForFieldValue("custom_pea_stock_entry_purpose", "Repack");
 
@@ -226,7 +221,7 @@ test.describe("Shift to Stock Entry integration", () => {
 		const submitted = await getDoc(page, "Stock Entry", stockEntryName);
 		expect(submitted.docstatus).toBe(1);
 		expect(submitted.custom_pea_shift).toBe(ctx.shift_name);
-		expect(submitted.custom_pea_is_joint_lh_rh).toBe(1);
+		expect(submitted.stock_entry_type).toBe(jointType);
 		expect(submitted.custom_pea_lh_gross_qty).toBe(40);
 		expect(submitted.custom_pea_lh_rejection_qty).toBe(1);
 		expect(submitted.custom_pea_rh_gross_qty).toBe(41);

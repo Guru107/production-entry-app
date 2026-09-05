@@ -105,6 +105,16 @@ class TestProductionReports(FrappeTestCase):
 
 		cls.fg_item = _get_or_create_item("_Test FG Item For Reports")
 		cls.rm_item = _get_or_create_item("_Test RM Item For Reports")
+		cls.joint_repack_type = "Report Joint LH RH Repack"
+		if not frappe.db.exists("Stock Entry Type", cls.joint_repack_type):
+			frappe.get_doc(
+				{
+					"doctype": "Stock Entry Type",
+					"name": cls.joint_repack_type,
+					"purpose": "Repack",
+					"custom_pea_joint_lh_rh_production": 1,
+				}
+			).insert(ignore_permissions=True)
 
 		if not frappe.db.exists("Operator", "Report Operator"):
 			frappe.get_doc(
@@ -657,7 +667,7 @@ class TestProductionReports(FrappeTestCase):
 					entry.name,
 					{
 						"purpose": "Repack",
-						"custom_pea_is_joint_lh_rh": 1,
+						"stock_entry_type": self.joint_repack_type,
 						"custom_pea_lh_gross_qty": 40,
 						"custom_pea_lh_rejection_qty": 5,
 						"custom_pea_rh_gross_qty": 60,

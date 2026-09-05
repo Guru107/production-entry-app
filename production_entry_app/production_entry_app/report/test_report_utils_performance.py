@@ -165,6 +165,9 @@ class TestReportUtilsPerformance(FrappeTestCase):
 			def inner_join(self, *_args: Any, **_kwargs: Any) -> _Query:
 				return self
 
+			def left_join(self, *_args: Any, **_kwargs: Any) -> _Query:
+				return self
+
 			def on(self, *_args: Any, **_kwargs: Any) -> _Query:
 				return self
 
@@ -263,7 +266,7 @@ class TestReportUtilsPerformance(FrappeTestCase):
 			filters=[["docstatus", "=", 1]],
 			or_filters=(
 				("purpose", "=", "Manufacture"),
-				("custom_pea_is_joint_lh_rh", "=", 1),
+				("purpose", "=", "Repack"),
 			),
 			fields=["name"],
 			order_by="name asc",

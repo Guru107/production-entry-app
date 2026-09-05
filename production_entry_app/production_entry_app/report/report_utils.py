@@ -18,6 +18,9 @@ from production_entry_app.production_entry_app.utils.loss_time import (
 	SETUP_TIME_REASON,
 	get_loss_duration_minutes,
 )
+from production_entry_app.production_entry_app.utils.stock_entry_type_flags import (
+	is_joint_lh_rh_stock_entry_type,
+)
 from production_entry_app.production_entry_app.utils.system_precision import (
 	get_system_float_precision,
 )
@@ -31,7 +34,7 @@ _NO_MATCHING_SHIFT: str = "__no_matching_completed_shift__"
 _SUPPORTED_STOCK_ENTRY_ORDER_BY: frozenset[str] = frozenset({"name asc", "posting_date asc, name asc"})
 _PRODUCTION_STOCK_ENTRY_OR_FILTERS: tuple[tuple[str, str, Any], ...] = (
 	("purpose", "=", "Manufacture"),
-	("custom_pea_is_joint_lh_rh", "=", 1),
+	("purpose", "=", "Repack"),
 )
 _STOCK_ENTRY_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
 	"custom_pea_workstation": ("custom_pea_workstation", "custom_workstation"),
@@ -112,9 +115,36 @@ def get_shift_production_dates(shift_names: list[str] | set[str]) -> dict[str, A
 
 
 def is_production_stock_entry(entry: dict) -> bool:
-	if "purpose" not in entry and "custom_pea_is_joint_lh_rh" not in entry:
+	if entry.get("purpose") is None and entry.get("custom_pea_joint_lh_rh_production") is None:
 		return True
-	return entry.get("purpose") == "Manufacture" or bool(entry.get("custom_pea_is_joint_lh_rh"))
+	return entry.get("purpose") == "Manufacture" or is_joint_lh_rh_entry(entry)
+
+
+def is_joint_lh_rh_entry(entry: dict) -> bool:
+	joint_flag = entry.get("custom_pea_joint_lh_rh_production")
+	if joint_flag is not None:
+		return bool(joint_flag)
+	if not entry.get("stock_entry_type") or not hasattr(entry, "flags"):
+		return False
+	return is_joint_lh_rh_stock_entry_type(entry)
+
+
+def add_stock_entry_type_flags(entries: list[dict]) -> list[dict]:
+	stock_entry_types = sorted(
+		{entry.get("stock_entry_type") for entry in entries if entry.get("stock_entry_type")}
+	)
+	if not stock_entry_types:
+		return entries
+	rows = frappe.get_all(
+		"Stock Entry Type",
+		filters={"name": ["in", stock_entry_types]},
+		fields=["name", "custom_pea_joint_lh_rh_production"],
+		limit_page_length=0,
+	)
+	joint_flags = {row.get("name"): bool(row.get("custom_pea_joint_lh_rh_production")) for row in rows}
+	for entry in entries:
+		entry["custom_pea_joint_lh_rh_production"] = int(bool(joint_flags.get(entry.get("stock_entry_type"))))
+	return entries
 
 
 def get_entry_output_quantities(
@@ -127,7 +157,7 @@ def get_entry_output_quantities(
 	Reports should pass their batched child-row metrics for normal Manufacture
 	entries. Document hooks can use the header fields directly.
 	"""
-	if entry.get("custom_pea_is_joint_lh_rh"):
+	if is_joint_lh_rh_entry(entry):
 		total_qty = flt(entry.get("custom_pea_lh_gross_qty")) + flt(entry.get("custom_pea_rh_gross_qty"))
 		rejection_qty = flt(entry.get("custom_pea_lh_rejection_qty")) + flt(
 			entry.get("custom_pea_rh_rejection_qty")
@@ -213,10 +243,13 @@ def _should_enforce_interactive_report_timeout() -> bool:
 def get_stock_entries_for_fg_item(item_code: str) -> list[str]:
 	stock_entry_detail = DocType("Stock Entry Detail")
 	stock_entry = DocType("Stock Entry")
+	stock_entry_type = DocType("Stock Entry Type")
 	rows = (
 		frappe.qb.from_(stock_entry_detail)
 		.inner_join(stock_entry)
 		.on(stock_entry.name == stock_entry_detail.parent)
+		.left_join(stock_entry_type)
+		.on(stock_entry_type.name == stock_entry.stock_entry_type)
 		.select(stock_entry_detail.parent)
 		.distinct()
 		.where(
@@ -227,7 +260,10 @@ def get_stock_entries_for_fg_item(item_code: str) -> list[str]:
 			& (stock_entry.docstatus == 1)
 			& (
 				(stock_entry.purpose == "Manufacture")
-				| ((stock_entry.purpose == "Repack") & (stock_entry.custom_pea_is_joint_lh_rh == 1))
+				| (
+					(stock_entry.purpose == "Repack")
+					& (stock_entry_type.custom_pea_joint_lh_rh_production == 1)
+				)
 			)
 		)
 		.limit(_MAX_FG_ITEM_PARENT_MATCHES + 1)
@@ -284,8 +320,8 @@ def iter_stock_entries_in_chunks(
 	query_fields = list(fields)
 	for fieldname in (
 		"purpose",
+		"stock_entry_type",
 		"custom_pea_shift",
-		"custom_pea_is_joint_lh_rh",
 		"custom_pea_total_strokes",
 		"custom_pea_lh_gross_qty",
 		"custom_pea_lh_rejection_qty",
@@ -314,6 +350,7 @@ def iter_stock_entries_in_chunks(
 					"Report scope exceeds {0} Stock Entries. Narrow filters by date, shift, workstation, operator, or BOM."
 				).format(max_rows)
 			)
+		add_stock_entry_type_flags(raw_rows)
 		rows = [row for row in raw_rows if is_production_stock_entry(row)]
 		production_dates = get_shift_production_dates(
 			{row.get("custom_pea_shift") for row in rows if row.get("custom_pea_shift")}
@@ -595,7 +632,7 @@ def get_item_bom_quality_facts(entries: list[dict], *, is_rework: bool) -> list[
 	quality_by_output: dict[tuple[str, str], float] = defaultdict(float)
 	reasons_by_output: dict[tuple[str, str], dict[str, float]] = defaultdict(dict)
 	breakup_items: dict[tuple[str, str], str] = {}
-	joint_entry_names = {entry.get("name") for entry in entries if entry.get("custom_pea_is_joint_lh_rh")}
+	joint_entry_names = {entry.get("name") for entry in entries if is_joint_lh_rh_entry(entry)}
 
 	for breakup in breakup_rows:
 		parent = breakup.get("parent")
@@ -619,7 +656,7 @@ def get_item_bom_quality_facts(entries: list[dict], *, is_rework: bool) -> list[
 		parent = entry.get("name")
 		if not parent:
 			continue
-		if entry.get("custom_pea_is_joint_lh_rh"):
+		if is_joint_lh_rh_entry(entry):
 			for side in ("LH", "RH"):
 				key = (parent, side)
 				facts.append(
@@ -675,7 +712,6 @@ def get_item_bom_quality_hotspot_rows(
 			"custom_pea_rejection_qty",
 			"custom_pea_rework_qty",
 			"bom_no",
-			"custom_pea_is_joint_lh_rh",
 			"custom_pea_lh_bom",
 			"custom_pea_lh_gross_qty",
 			"custom_pea_rh_bom",

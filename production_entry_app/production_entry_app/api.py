@@ -174,7 +174,6 @@ def get_joint_production_items(doc: str) -> list[dict]:
 		"from_warehouse",
 		"to_warehouse",
 		"custom_pea_shift",
-		"custom_pea_is_joint_lh_rh",
 		"custom_pea_lh_bom",
 		"custom_pea_lh_gross_qty",
 		"custom_pea_lh_rejection_qty",
