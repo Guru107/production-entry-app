@@ -82,16 +82,18 @@ async function waitForFetchItemsCall({ stateSource, timeoutMs }) {
 			const wrappedOptions = { ...options };
 			const originalCallback = options.callback;
 			const originalError = options.error;
-			wrappedOptions.callback = function (response) {
+			wrappedOptions.callback = async function (response) {
 				try {
-					originalCallback?.apply(this, arguments);
-				} finally {
 					clearTimeout(timeout);
+					await originalCallback?.apply(this, arguments);
 					resolve({
 						rowCount: Array.isArray(response?.message)
 							? response.message.length
 							: null,
 					});
+				} catch (error) {
+					clearTimeout(timeout);
+					reject(error);
 				}
 			};
 			wrappedOptions.error = function (error) {
