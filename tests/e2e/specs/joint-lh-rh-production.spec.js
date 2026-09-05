@@ -26,6 +26,7 @@ async function enableJointProduction(page, form, stockEntryType) {
 	await setFieldValue(page, "stock_entry_type", stockEntryType);
 	await form.waitForFieldValue("stock_entry_type", stockEntryType);
 	await form.waitForFieldValue("custom_pea_stock_entry_purpose", "Repack");
+	await form.waitForJointMode(stockEntryType);
 }
 
 async function deleteDocIfExists(page, doctype, name) {

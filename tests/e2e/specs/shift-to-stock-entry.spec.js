@@ -174,6 +174,7 @@ test.describe("Shift to Stock Entry integration", () => {
 		await setFieldValue(page, "stock_entry_type", jointType);
 		await stockEntryPage.waitForFieldValue("stock_entry_type", jointType);
 		await stockEntryPage.waitForFieldValue("custom_pea_stock_entry_purpose", "Repack");
+		await stockEntryPage.waitForJointMode(jointType);
 
 		const afterJoint = await stockEntryPage.getFieldValues([
 			"company",

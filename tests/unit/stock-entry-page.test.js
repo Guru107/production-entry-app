@@ -5,6 +5,7 @@ const {
 	getVisibleFetchItemsState,
 	hasVisibleFetchItemsMessage,
 	isStockEntryReady,
+	StockEntryPage,
 	triggerFetchItems,
 	waitForFetchItemsCall,
 	waitForStockEntryReady,
@@ -341,4 +342,29 @@ test("Stock Entry readiness surfaces a bounded phase timeout without retrying", 
 
 	await assert.rejects(() => waitForStockEntryReady(page), /Timeout 10000ms exceeded/);
 	assert.equal(attempts, 1);
+});
+
+test("Stock Entry page waits for the joint Stock Entry Type marker before continuing", async () => {
+	await withBrowserState(async () => {
+		const calls = [];
+		const page = {
+			async waitForFunction(predicate, argument) {
+				calls.push({ argument });
+				global.window = {
+					cur_frm: {
+						doc: {
+							stock_entry_type: argument,
+							custom_pea_stock_entry_purpose: "Repack",
+							__pea_joint_stock_entry_type: argument,
+						},
+					},
+				};
+				assert.equal(predicate(argument), true);
+			},
+		};
+
+		await new StockEntryPage(page).waitForJointMode("Joint LH RH Production");
+
+		assert.deepEqual(calls, [{ argument: "Joint LH RH Production" }]);
+	});
 });

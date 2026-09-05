@@ -376,6 +376,17 @@ class StockEntryPage {
 		);
 	}
 
+	async waitForJointMode(stockEntryType) {
+		await this.page.waitForFunction((expectedType) => {
+			const doc = window.cur_frm?.doc || {};
+			return (
+				doc.stock_entry_type === expectedType &&
+				doc.custom_pea_stock_entry_purpose === "Repack" &&
+				doc.__pea_joint_stock_entry_type === expectedType
+			);
+		}, stockEntryType);
+	}
+
 	async setRejectionBreakupRows(rows) {
 		await this.page.evaluate((dataRows) => {
 			cur_frm.clear_table("custom_pea_rejection_breakup");
