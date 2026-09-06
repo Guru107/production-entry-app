@@ -4,6 +4,7 @@ const {
 	retryOnContextDestroyed,
 	saveForm,
 	setFieldValue,
+	triggerSaveForm,
 } = require("../fixtures/frappe");
 const { hasCurrentStockEntryBranchField } = require("../fixtures/stock-entry-meta");
 const { escapeRegexLiteral, getRoute, getRoutePrefix } = require("../utils/routing");
@@ -448,11 +449,11 @@ class StockEntryPage {
 	}
 
 	async attemptSaveDraft() {
-		try {
-			await this.saveDraft();
-		} catch (error) {
-			// Validation errors are asserted by message matchers in tests.
-		}
+		await retryOnContextDestroyed(
+			this.page,
+			async () => triggerSaveForm(this.page, "Save"),
+			3
+		);
 	}
 
 	async searchShiftLinkResults(text) {

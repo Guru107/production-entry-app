@@ -184,10 +184,27 @@ async function saveForm(page, action = "Save") {
 	}
 }
 
+async function triggerSaveForm(page, action = "Save") {
+	await page.evaluate(
+		({ requestedAction }) => {
+			try {
+				const result = cur_frm.save(requestedAction);
+				if (result && typeof result.catch === "function") {
+					result.catch(() => {});
+				}
+			} catch (error) {
+				// Validation errors are asserted through the visible Frappe message.
+			}
+		},
+		{ requestedAction: action }
+	);
+}
+
 module.exports = {
 	callFrappeMethod,
 	getDoc,
 	retryOnContextDestroyed,
 	setFieldValue,
 	saveForm,
+	triggerSaveForm,
 };

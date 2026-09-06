@@ -2,7 +2,12 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const { retryTransientRequest } = require("../e2e/fixtures/test-data");
-const { callFrappeMethod, retryOnContextDestroyed, saveForm } = require("../e2e/fixtures/frappe");
+const {
+	callFrappeMethod,
+	retryOnContextDestroyed,
+	saveForm,
+	triggerSaveForm,
+} = require("../e2e/fixtures/frappe");
 
 test("callFrappeMethod fails before POST when CSRF token is unavailable", async () => {
 	let evaluateCalls = 0;
@@ -109,6 +114,30 @@ test("saveForm surfaces visible Desk validation messages from the save path", as
 
 	await assert.rejects(() => saveForm(page, "Save"), /Workstation is already in use/);
 	assert.equal(saves, 1);
+});
+
+test("triggerSaveForm starts a Desk save without waiting for validation rejection", async () => {
+	let action;
+	const page = {
+		async evaluate(fn, args) {
+			const originalCurFrm = global.cur_frm;
+			global.cur_frm = {
+				save(requestedAction) {
+					action = requestedAction;
+					return Promise.reject(new Error("ValidationError"));
+				},
+			};
+			try {
+				return fn(args);
+			} finally {
+				global.cur_frm = originalCurFrm;
+			}
+		},
+	};
+
+	await triggerSaveForm(page, "Save");
+
+	assert.equal(action, "Save");
 });
 
 test("retryTransientRequest retries a socket reset for idempotent E2E setup calls", async () => {
