@@ -406,6 +406,29 @@ test.describe("Joint LH/RH production form", () => {
 			{ side: "LH", item: ctx.joint_lh_item, qty: 2, rework: 0 },
 			{ side: "RH", item: ctx.joint_rh_item, qty: 3, rework: 1 },
 		]);
+
+		await page.goto("about:blank");
+		await form.open(name);
+		await form.waitForJointMode(stockEntryType);
+		const reopened = await form.getFieldValues([
+			"custom_pea_lh_bom",
+			"custom_pea_lh_gross_qty",
+			"custom_pea_rh_bom",
+			"custom_pea_rh_gross_qty",
+			"custom_pea_total_strokes",
+			"custom_pea_die_tool_item",
+			"custom_pea_rejection_breakup",
+			"items",
+		]);
+		expect(reopened.custom_pea_lh_bom).toBe(ctx.joint_lh_bom);
+		expect(Number(reopened.custom_pea_lh_gross_qty)).toBe(40);
+		expect(reopened.custom_pea_rh_bom).toBe(ctx.joint_rh_bom);
+		expect(Number(reopened.custom_pea_rh_gross_qty)).toBe(41);
+		expect(Number(reopened.custom_pea_total_strokes)).toBe(41);
+		expect(reopened.custom_pea_die_tool_item).toBe(ctx.joint_lh_item);
+		expect(reopened.custom_pea_rejection_breakup).toHaveLength(2);
+		expect(reopened.items.length).toBeGreaterThan(0);
+		expect(await page.evaluate(() => Boolean(window.cur_frm?.doc?.__unsaved))).toBe(false);
 	});
 
 	test("@smoke @regression joint Repack shows the resource-overlap validation popup", async ({

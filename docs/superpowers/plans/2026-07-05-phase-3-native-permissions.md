@@ -569,7 +569,7 @@ git commit -m "test: replace custom access-control tests with native-permission 
 
 - [ ] **Step 1: Full Python suite + coverage on v16**
 
-Run: `cd /root/workspace/bench16 && bench --site frappe16.localhost run-tests --app production_entry_app --with-coverage`
+Run: `cd /root/workspace/bench16 && bench --site frappe16.localhost run-tests --app production_entry_app --coverage`
 Expected: all pass; coverage ≥ 85%.
 
 - [ ] **Step 2: Full Python suite on v15**

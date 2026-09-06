@@ -832,7 +832,8 @@ function _sync_joint_mode_from_stock_entry_type(frm, requestId, previousStockEnt
 		const shouldBeJoint =
 			Boolean(jointStockEntryType) && selectedStockEntryType === jointStockEntryType;
 		const isKnownJointSelection =
-			shouldBeJoint && cachedJointStockEntryType === jointStockEntryType;
+			shouldBeJoint &&
+			(!previousStockEntryType || cachedJointStockEntryType === jointStockEntryType);
 		const wasJoint = previousStockEntryType
 			? Boolean(jointStockEntryType) && previousStockEntryType === jointStockEntryType
 			: currentWasJoint || isKnownJointSelection;

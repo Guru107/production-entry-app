@@ -13,6 +13,7 @@ from production_entry_app.production_entry_app.api import (
 	_cleanup_orphan_stock_entry_loss_links,
 	reset_die_tool_counter,
 )
+from production_entry_app.production_entry_app.utils.production_warehouses import WAREHOUSE_FIELDS
 from production_entry_app.production_entry_app.utils.shift_time import get_shift_planned_end_datetime
 from production_entry_app.production_entry_app.utils.stock_entry_branch import stock_entry_has_branch_field
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
@@ -47,12 +48,6 @@ _E2E_AMBIGUOUS_REWORK_SOURCE_SUFFIX: str = "-AMBIGUOUS-REWORK-SOURCE"
 _E2E_PRODUCTION_ENTRY_SETTINGS_FIELDS: tuple[str, ...] = (
 	*PRODUCTION_ENTRY_SHIFT_SETTINGS_FIELDS,
 	"rework_expense_account",
-)
-_E2E_BRANCH_WAREHOUSE_FIELDS: tuple[str, ...] = (
-	"raw_material_warehouse",
-	"work_in_progress_warehouse",
-	"rejection_warehouse",
-	"scrap_warehouse",
 )
 
 
@@ -313,7 +308,7 @@ def _sanitize_production_entry_settings_snapshot(snapshot: dict[str, Any]) -> di
 def _branch_warehouse_default_links_exist(row: Any) -> bool:
 	return all(
 		not row.get(fieldname) or frappe.db.exists("Warehouse", row.get(fieldname))
-		for fieldname in _E2E_BRANCH_WAREHOUSE_FIELDS
+		for fieldname in WAREHOUSE_FIELDS
 	)
 
 

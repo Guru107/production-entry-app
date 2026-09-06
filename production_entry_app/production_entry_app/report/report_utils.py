@@ -8,6 +8,7 @@ from typing import Any, NamedTuple
 
 import frappe
 from frappe import _
+from frappe.model.base_document import BaseDocument
 from frappe.query_builder import Case, DocType
 from frappe.query_builder.functions import Sum
 from frappe.utils import cint, flt, get_datetime
@@ -124,9 +125,9 @@ def is_joint_lh_rh_entry(entry: dict) -> bool:
 	joint_flag = entry.get("custom_pea_joint_lh_rh_production")
 	if joint_flag is not None:
 		return bool(joint_flag)
-	if not entry.get("stock_entry_type") or not hasattr(entry, "flags"):
-		return False
-	return is_joint_lh_rh_stock_entry_type(entry)
+	if isinstance(entry, BaseDocument):
+		return is_joint_lh_rh_stock_entry_type(entry)
+	return False
 
 
 def add_stock_entry_type_flags(entries: list[dict]) -> list[dict]:

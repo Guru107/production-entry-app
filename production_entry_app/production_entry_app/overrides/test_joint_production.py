@@ -40,6 +40,7 @@ from production_entry_app.production_entry_app.report.report_utils import (
 	get_entry_total_strokes,
 	get_finished_item_maps,
 	get_parent_quantity_metrics,
+	is_joint_lh_rh_entry,
 	is_production_stock_entry,
 )
 from production_entry_app.production_entry_app.tests.support.manufacture_builders import (
@@ -319,6 +320,13 @@ class TestJointProductionCalculations(FrappeTestCase):
 			is_production_stock_entry({"purpose": "Repack", "custom_pea_joint_lh_rh_production": 1})
 		)
 		self.assertFalse(is_production_stock_entry({"purpose": "Repack"}))
+
+	def test_report_joint_classification_requires_preloaded_stock_entry_type_flag(self) -> None:
+		entry = frappe._dict(purpose="Repack", stock_entry_type=JOINT_LH_RH_STOCK_ENTRY_TYPE)
+		with patch.object(frappe.db, "get_value") as get_value:
+			self.assertFalse(is_joint_lh_rh_entry(entry))
+
+		get_value.assert_not_called()
 
 	def test_joint_stock_entry_type_lookup_is_cached_on_the_document(self) -> None:
 		doc = frappe.new_doc("Stock Entry")

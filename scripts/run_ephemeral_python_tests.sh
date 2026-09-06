@@ -9,6 +9,8 @@ DB_ROOT_USERNAME="${DB_ROOT_USERNAME:-root}"
 DB_ROOT_PASSWORD="${DB_ROOT_PASSWORD:-}"
 EPHEMERAL_ADMIN_PASSWORD="${EPHEMERAL_ADMIN_PASSWORD:-admin}"
 RUN_ID="${EPHEMERAL_SITE_RUN_ID:-$(date +%Y%m%d%H%M%S)-$$}"
+WITH_COVERAGE="${WITH_COVERAGE:-1}"
+COVERAGE_FAIL_UNDER="${COVERAGE_FAIL_UNDER:-85}"
 
 export PYTHONPATH="$APP_ROOT:$BENCH_ROOT/apps/frappe${PYTHONPATH:+:$PYTHONPATH}"
 
@@ -61,9 +63,15 @@ run_tests_cmd=(bench --site "$SITE_NAME" run-tests --app production_entry_app)
 if [ "${ERPNEXT_VERSION:-}" = "16" ]; then
 	run_tests_cmd+=(--lightmode)
 fi
+if [ "$WITH_COVERAGE" = "1" ]; then
+	run_tests_cmd+=(--coverage)
+fi
 
 if [ "$#" -gt 0 ]; then
 	run_tests_cmd+=(--module "$1")
 fi
 
 "${run_tests_cmd[@]}"
+if [ "$WITH_COVERAGE" = "1" ] && [ "$#" -eq 0 ]; then
+	"$BENCH_PYTHON" -m coverage report --fail-under="$COVERAGE_FAIL_UNDER"
+fi

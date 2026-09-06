@@ -444,7 +444,7 @@ const row = `
 
 Run the full suite and check coverage before every PR:
 ```bash
-bench --site development.localhost run-tests --app production_entry_app --with-coverage
+bench --site development.localhost run-tests --app production_entry_app --coverage
 ```
 Coverage must not drop below **85%**.
 

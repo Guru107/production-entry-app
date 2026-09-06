@@ -323,8 +323,6 @@ def is_joint_lh_rh_production(doc: Document) -> bool:
 def validate_and_apply_joint_production(doc: Document) -> None:
 	if not is_joint_lh_rh_production(doc):
 		return
-	if not is_joint_lh_rh_stock_entry_type(doc):
-		frappe.throw(_("Select a Stock Entry Type configured for Joint LH/RH Production."))
 	plan = _build_joint_production_plan(doc)
 	_validate_joint_item_rows(doc, plan)
 	_validate_joint_rejection_breakup(doc, plan)

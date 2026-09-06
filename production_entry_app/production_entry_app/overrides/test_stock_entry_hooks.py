@@ -1399,6 +1399,16 @@ class TestStockEntryHooks(FrappeTestCase):
 		self.assertNotIsInstance(se.get("custom_pea_actual_spm"), str)
 		self.assertNotIsInstance(se.get("custom_pea_operator_efficiency_pct"), str)
 
+	def test_joint_metrics_use_live_document_joint_quantities(self) -> None:
+		se = frappe.new_doc("Stock Entry")
+		se.stock_entry_type = JOINT_LH_RH_STOCK_ENTRY_TYPE
+		se.custom_pea_lh_gross_qty = 40
+		se.custom_pea_lh_rejection_qty = 2
+		se.custom_pea_rh_gross_qty = 41
+		se.custom_pea_rh_rejection_qty = 3
+
+		self.assertEqual(stock_entry_hooks._get_ok_units_for_metrics(se), 76)
+
 	def test_metrics_use_production_time_after_setup_and_loss(self) -> None:
 		shift = _create_test_shift(
 			shift_date="2026-04-16",

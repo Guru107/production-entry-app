@@ -111,7 +111,7 @@ jobs:
         with:
           node-version: ${{ matrix.node_version }}
 
-      - name: Run Playwright smoke
+      - name: Run Playwright CI suite
         run: |
           chmod +x scripts/run_ephemeral_e2e.sh
-          BENCH_ROOT=~/frappe-bench DB_ROOT_PASSWORD=root scripts/run_ephemeral_e2e.sh smoke
+          BENCH_ROOT=~/frappe-bench DB_ROOT_PASSWORD=root scripts/run_ephemeral_e2e.sh ci
