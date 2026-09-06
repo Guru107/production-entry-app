@@ -5,6 +5,7 @@ const { registerE2ELifecycle } = require("../fixtures/lifecycle");
 const { bootstrapE2E } = require("../fixtures/test-data");
 const { getJointStockEntryType } = require("../fixtures/joint-production");
 const { ensureUser, deleteUserIfExists } = require("../fixtures/users");
+const { hasCurrentStockEntryBranchField } = require("../fixtures/stock-entry-meta");
 const { StockEntryPage } = require("../pages/stock-entry-page");
 const { getRoute } = require("../utils/routing");
 
@@ -212,12 +213,15 @@ test.describe("Branch warehouse defaults", () => {
 		for (const joint of [false, true]) {
 			const form = new StockEntryPage(page);
 			await form.openNew();
+			const hasBranchField = await hasCurrentStockEntryBranchField(page);
 			await setFieldValue(page, "stock_entry_type", joint ? jointType : "Manufacture");
 			await setFieldValue(page, "company", ctx.company);
 			await setFieldValue(page, "from_warehouse", ctx.wip_warehouse);
 			await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
 			await setFieldValue(page, "custom_pea_shift", ctx.shift_name);
-			await form.waitForFieldValue("branch", ctx.branch);
+			if (hasBranchField) {
+				await form.waitForFieldValue("branch", ctx.branch);
+			}
 			await page.evaluate(() => frappe.after_ajax());
 			await form.waitForFieldValue("from_warehouse", ctx.wip_warehouse);
 			await form.waitForFieldValue("to_warehouse", ctx.fg_warehouse);
@@ -263,11 +267,14 @@ test.describe("Branch warehouse defaults", () => {
 				if (joint) jointType = await getJointStockEntryType(page);
 				const form = new StockEntryPage(page);
 				await form.openNew();
+				const hasBranchField = await hasCurrentStockEntryBranchField(page);
 				await setFieldValue(page, "stock_entry_type", joint ? jointType : "Manufacture");
 				await setFieldValue(page, "company", ctx.company);
 				await setFieldValue(page, "from_warehouse", ctx.wip_warehouse);
 				await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
-				await setFieldValue(page, "branch", ctx.branch);
+				if (hasBranchField) {
+					await setFieldValue(page, "branch", ctx.branch);
+				}
 				await setFieldValue(
 					page,
 					"custom_pea_planned_start_date",
@@ -301,21 +308,25 @@ test.describe("Branch warehouse defaults", () => {
 					)
 					.toBeFalsy();
 				await page.evaluate(() => frappe.after_ajax());
-				expect(
-					await form.getFieldValues([
-						"custom_pea_shift",
-						"from_warehouse",
-						"to_warehouse",
-						"branch",
-						"custom_pea_planned_start_date",
-					])
-				).toEqual({
+				const fieldnames = [
+					"custom_pea_shift",
+					"from_warehouse",
+					"to_warehouse",
+					"custom_pea_planned_start_date",
+				];
+				if (hasBranchField) {
+					fieldnames.push("branch");
+				}
+				const expectedValues = {
 					custom_pea_shift: ctx.shift_name,
 					from_warehouse: ctx.wip_warehouse,
 					to_warehouse: ctx.fg_warehouse,
-					branch: "",
 					custom_pea_planned_start_date: "",
-				});
+				};
+				if (hasBranchField) {
+					expectedValues.branch = "";
+				}
+				expect(await form.getFieldValues(fieldnames)).toEqual(expectedValues);
 				if (status === 500) {
 					await expectValidationError(page, /Failed to fetch shift details/);
 				} else {

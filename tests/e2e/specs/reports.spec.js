@@ -627,6 +627,15 @@ test.describe("Production reports", () => {
 		page,
 	}) => {
 		await page.goto(getRoute("/home"));
+		const prefix = lifecycle.getPrefix();
+		const ctx = await setupFreshContext(page, prefix);
+		await createSubmittedStockEntryForReports(
+			page,
+			ctx,
+			5,
+			[],
+			[{ item_code: ctx.fg_item, rejection_reason: "Crack", qty: 5, is_rework: 1 }]
+		);
 		const email = `e2e.pending.rework.${Date.now()}@example.com`;
 		await ensureUser(page, {
 			email,
@@ -639,10 +648,20 @@ test.describe("Production reports", () => {
 			await loginAs(page, email, TEST_PASSWORD);
 			const reportsPage = new ReportsPage(page);
 			await reportsPage.open("Pending Rework");
+			await reportsPage.setFilterByFieldname("item_code", ctx.fg_item);
 			await reportsPage.clickRefresh();
-			const labels = await reportsPage.getColumnLabels();
-			expect(labels).toContain("Derived Pending Qty");
-			expect(labels).toContain("Rejection Warehouse Balance");
+			expect(await reportsPage.getRuntimeState()).toMatchObject({
+				reportName: "Pending Rework",
+			});
+			await expect(page.locator("body")).not.toContainText(/Not permitted|No permission/i);
+			await reportsPage.waitForRows(1);
+			const rows = await reportsPage.getRows();
+			const summary = rows.find(
+				(row) => row.item_code === ctx.fg_item && Number(row.indent) === 0
+			);
+			expect(summary).toBeTruthy();
+			expect(Number(summary.derived_pending_qty)).toBe(5);
+			expect(Number(summary.rejection_warehouse_balance)).toBe(5);
 		} finally {
 			await loginAs(page, ADMIN_USERNAME, ADMIN_PASSWORD);
 			await deleteUserIfExists(page, email);

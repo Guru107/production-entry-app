@@ -92,6 +92,32 @@ async function fillReworkEntry(page, context, options = {}) {
 	return stockEntryPage;
 }
 
+async function setFirstItemRoute(page, { source, target }) {
+	await page.evaluate(
+		async ({ sourceWarehouse, targetWarehouse }) => {
+			const row = cur_frm.doc.items?.[0];
+			if (!row) {
+				throw new Error("Rework item row not found.");
+			}
+			await cur_frm.set_value("from_warehouse", sourceWarehouse);
+			await cur_frm.set_value("to_warehouse", targetWarehouse);
+			await frappe.model.set_value(row.doctype, row.name, "s_warehouse", sourceWarehouse);
+			await frappe.model.set_value(row.doctype, row.name, "t_warehouse", targetWarehouse);
+			await frappe.after_ajax();
+			cur_frm.refresh_field("items");
+			if (
+				cur_frm.doc.from_warehouse !== sourceWarehouse ||
+				cur_frm.doc.to_warehouse !== targetWarehouse ||
+				row.s_warehouse !== sourceWarehouse ||
+				row.t_warehouse !== targetWarehouse
+			) {
+				throw new Error("Rework route change was not retained on the item row.");
+			}
+		},
+		{ sourceWarehouse: source, targetWarehouse: target }
+	);
+}
+
 async function getReworkVisibilityState(page) {
 	return await page.evaluate(() => {
 		const frm = window.cur_frm;
@@ -156,6 +182,14 @@ async function expectSubmitValidation(page, pattern) {
 	const message = expectValidationError(page, pattern, 30_000);
 	const submit = saveForm(page, "Submit").catch(() => {});
 	await Promise.all([message, submit]);
+}
+
+async function closeVisibleDialog(page) {
+	const dialog = page.locator(".modal.show").first();
+	if (await dialog.count()) {
+		await dialog.locator(".btn-modal-close").click();
+		await dialog.waitFor({ state: "hidden" });
+	}
 }
 
 test.describe("Rework full lifecycle", () => {
@@ -345,29 +379,23 @@ test.describe("Rework full lifecycle", () => {
 	test("@regression rejects wrong rework source and target routes", async ({ page }) => {
 		const context = await seedLifecycle(page, lifecycle.getPrefix());
 		const stockEntryPage = await fillReworkEntry(page, context);
-		await page.evaluate(
-			({ wrongSource, wrongTarget }) => {
-				cur_frm.doc.items[0].s_warehouse = wrongSource;
-				cur_frm.doc.items[0].t_warehouse = wrongTarget;
-				cur_frm.refresh_field("items");
-			},
-			{ wrongSource: context.wip_warehouse, wrongTarget: context.scrap_warehouse }
-		);
+		await setFirstItemRoute(page, {
+			source: context.wip_warehouse,
+			target: context.scrap_warehouse,
+		});
 		await stockEntryPage.saveDraft();
 		await expectSubmitValidation(
 			page,
-			/source Warehouse must be marked as Rejected Warehouse/i
+			// Branch-defaulted and explicit-source routes fail with different source messages.
+			/(configured Rejection Warehouse|source Warehouse must be marked as Rejected Warehouse)/i
 		);
+		await closeVisibleDialog(page);
 
-		await page.evaluate(
-			({ source, target }) => {
-				cur_frm.doc.items[0].s_warehouse = source;
-				cur_frm.doc.items[0].t_warehouse = target;
-				cur_frm.refresh_field("items");
-			},
-			{ source: context.rejection_warehouse, target: context.scrap_warehouse }
-		);
-		await page.evaluate(() => cur_frm.save());
+		await setFirstItemRoute(page, {
+			source: context.rejection_warehouse,
+			target: context.scrap_warehouse,
+		});
+		await stockEntryPage.saveDraft();
 		await expectSubmitValidation(page, /good target warehouse/i);
 	});
 });
