@@ -180,15 +180,30 @@ def ensure_operator(name: str) -> None:
 
 def save_test_user(user: frappe.model.document.Document) -> None:
 	"""Save a fixture user without tripping Frappe's user-creation throttle."""
+	previous_has_in_import = "in_import" in frappe.flags
 	previous_in_import = frappe.flags.get("in_import")
+	previous_has_flags_in_test = "in_test" in frappe.flags
+	previous_flags_in_test = frappe.flags.get("in_test")
+	previous_has_in_test = hasattr(frappe, "in_test")
+	previous_in_test = getattr(frappe, "in_test", None)
 	frappe.flags.in_import = True
+	frappe.flags.in_test = True
+	frappe.in_test = True
 	try:
 		user.save(ignore_permissions=True)
 	finally:
-		if previous_in_import is None:
-			frappe.flags.pop("in_import", None)
-		else:
+		if previous_has_in_import:
 			frappe.flags.in_import = previous_in_import
+		else:
+			frappe.flags.pop("in_import", None)
+		if previous_has_flags_in_test:
+			frappe.flags.in_test = previous_flags_in_test
+		else:
+			frappe.flags.pop("in_test", None)
+		if previous_has_in_test:
+			frappe.in_test = previous_in_test
+		elif hasattr(frappe, "in_test"):
+			delattr(frappe, "in_test")
 
 
 def ensure_workstation(name: str, standard_spm: float) -> None:

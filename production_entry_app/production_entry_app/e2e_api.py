@@ -1014,6 +1014,12 @@ def _finalize_e2e_cleanup(prefix: str, result: dict[str, object]) -> dict[str, o
 
 def _cleanup_e2e_context(prefix: str = "E2E") -> dict:
 	result: dict[str, object] = {"ok": True}
+	previous_has_flags_in_test = "in_test" in frappe.flags
+	previous_flags_in_test = frappe.flags.get("in_test")
+	previous_has_in_test = hasattr(frappe, "in_test")
+	previous_in_test = getattr(frappe, "in_test", None)
+	frappe.flags.in_test = True
+	frappe.in_test = True
 	try:
 		targets = _get_e2e_cleanup_targets(prefix)
 		_cleanup_e2e_rework_lifecycle_entries(prefix)
@@ -1025,6 +1031,14 @@ def _cleanup_e2e_context(prefix: str = "E2E") -> dict:
 		result["ok"] = False
 		raise
 	finally:
+		if previous_has_flags_in_test:
+			frappe.flags.in_test = previous_flags_in_test
+		else:
+			frappe.flags.pop("in_test", None)
+		if previous_has_in_test:
+			frappe.in_test = previous_in_test
+		elif hasattr(frappe, "in_test"):
+			delattr(frappe, "in_test")
 		_finalize_e2e_cleanup(prefix, result)
 	return result
 

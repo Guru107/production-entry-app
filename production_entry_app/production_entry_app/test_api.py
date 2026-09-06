@@ -96,6 +96,23 @@ def _patch_bootstrap_settings_reads(
 	)
 
 
+def _restore_frappe_test_flags(
+	*,
+	had_flags_in_test: bool,
+	flags_in_test: object | None,
+	had_in_test: bool,
+	in_test: object | None,
+) -> None:
+	if had_flags_in_test:
+		frappe.flags.in_test = flags_in_test
+	else:
+		frappe.flags.pop("in_test", None)
+	if had_in_test:
+		frappe.in_test = in_test
+	elif hasattr(frappe, "in_test"):
+		delattr(frappe, "in_test")
+
+
 class TestE2EApi(FrappeTestCase):
 	def tearDown(self) -> None:
 		frappe.db.rollback()
@@ -172,6 +189,33 @@ class TestE2EApi(FrappeTestCase):
 		save_user.assert_called_once_with(user)
 		commit.assert_called_once_with()
 		clear_cache.assert_called_once_with(user="e2e-user-rework@example.com")
+
+	def test_save_test_user_runs_inline_test_jobs_and_restores_flags(self) -> None:
+		had_flags_in_test = "in_test" in frappe.flags
+		flags_in_test = frappe.flags.get("in_test")
+		had_in_test = hasattr(frappe, "in_test")
+		in_test = getattr(frappe, "in_test", None)
+		frappe.flags.in_test = False
+		frappe.in_test = False
+		user = MagicMock()
+
+		def assert_inline_test_flags(**_kwargs) -> None:
+			self.assertIs(frappe.flags.in_test, True)
+			self.assertIs(frappe.in_test, True)
+
+		user.save.side_effect = assert_inline_test_flags
+		try:
+			save_test_user(user)
+			user.save.assert_called_once_with(ignore_permissions=True)
+			self.assertIs(frappe.flags.in_test, False)
+			self.assertIs(frappe.in_test, False)
+		finally:
+			_restore_frappe_test_flags(
+				had_flags_in_test=had_flags_in_test,
+				flags_in_test=flags_in_test,
+				had_in_test=had_in_test,
+				in_test=in_test,
+			)
 
 	def test_ensure_e2e_user_rejects_non_reserved_email(self) -> None:
 		with patch("production_entry_app.production_entry_app.e2e_api._assert_e2e_api_allowed"):
@@ -932,6 +976,49 @@ class TestE2EApi(FrappeTestCase):
 		finalize.assert_called_once()
 		self.assertEqual(finalize.call_args.args[0], "E2E")
 		self.assertEqual(finalize.call_args.args[1]["ok"], False)
+
+	def test_cleanup_e2e_context_runs_inline_test_jobs_and_restores_flags(self) -> None:
+		had_flags_in_test = "in_test" in frappe.flags
+		flags_in_test = frappe.flags.get("in_test")
+		had_in_test = hasattr(frappe, "in_test")
+		in_test = getattr(frappe, "in_test", None)
+		frappe.flags.in_test = False
+		frappe.in_test = False
+		seen_flags = {}
+
+		def record_inline_flags(_targets: dict[str, object]) -> None:
+			seen_flags["flags_in_test"] = frappe.flags.in_test
+			seen_flags["in_test"] = frappe.in_test
+
+		try:
+			with (
+				patch(
+					"production_entry_app.production_entry_app.e2e_api._get_e2e_cleanup_targets",
+					return_value={"e2e_shift_names": []},
+				),
+				patch(
+					"production_entry_app.production_entry_app.e2e_api._cleanup_e2e_rework_lifecycle_entries"
+				),
+				patch(
+					"production_entry_app.production_entry_app.e2e_api._cleanup_e2e_stock_entries",
+					side_effect=record_inline_flags,
+				),
+				patch("production_entry_app.production_entry_app.e2e_api._cleanup_e2e_shifts"),
+				patch("production_entry_app.production_entry_app.e2e_api._cleanup_e2e_downtime_entries"),
+				patch("production_entry_app.production_entry_app.e2e_api._cleanup_e2e_master_data"),
+				patch("production_entry_app.production_entry_app.e2e_api._finalize_e2e_cleanup"),
+			):
+				self.assertEqual(_cleanup_e2e_context("E2E"), {"ok": True})
+			self.assertEqual(seen_flags, {"flags_in_test": True, "in_test": True})
+			self.assertIs(frappe.flags.in_test, False)
+			self.assertIs(frappe.in_test, False)
+		finally:
+			_restore_frappe_test_flags(
+				had_flags_in_test=had_flags_in_test,
+				flags_in_test=flags_in_test,
+				had_in_test=had_in_test,
+				in_test=in_test,
+			)
 
 	def test_get_die_tool_counter_preserves_unrounded_utilization_and_threshold_check(self) -> None:
 		with (
