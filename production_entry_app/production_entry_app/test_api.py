@@ -24,6 +24,7 @@ from production_entry_app.production_entry_app.e2e_api import (
 	_cleanup_e2e_stock_entries,
 	_cleanup_reserved_e2e_artifacts,
 	_collect_reserved_e2e_prefixes,
+	_delete_e2e_stock_entry_rows,
 	_e2e_base_date,
 	_end_e2e_shift,
 	_get_candidate_e2e_stock_entries,
@@ -605,7 +606,7 @@ class TestE2EApi(FrappeTestCase):
 				"production_entry_app.production_entry_app.e2e_api.frappe.get_doc",
 				return_value=stock_entry,
 			),
-			patch("production_entry_app.production_entry_app.e2e_api.frappe.delete_doc"),
+			patch("production_entry_app.production_entry_app.e2e_api._delete_e2e_stock_entry_rows"),
 			patch(
 				"production_entry_app.production_entry_app.e2e_api.frappe.db.exists",
 				return_value=True,
@@ -613,6 +614,52 @@ class TestE2EApi(FrappeTestCase):
 			self.assertRaisesRegex(frappe.ValidationError, "retained Stock Entry"),
 		):
 			_cleanup_e2e_stock_entries(targets)
+
+	def test_cleanup_e2e_stock_entries_uses_raw_stock_entry_delete(self) -> None:
+		stock_entry = frappe._dict(
+			name="MAT-STE-E2E-RAW-DELETE",
+			docstatus=1,
+			custom_pea_operator="E2E Operator",
+			items=[frappe._dict(item_code="E2E FG", is_finished_item=1)],
+		)
+		stock_entry.cancel = MagicMock(side_effect=lambda: stock_entry.update(docstatus=2))
+		targets = {
+			"target_operator": "E2E Operator",
+			"target_workstation": "E2E Workstation",
+			"target_fg_item": "E2E FG",
+			"target_rm_item": "E2E RM",
+		}
+		with (
+			patch(
+				"production_entry_app.production_entry_app.e2e_api._get_candidate_e2e_stock_entries",
+				return_value=[frappe._dict(name=stock_entry.name)],
+			),
+			patch(
+				"production_entry_app.production_entry_app.e2e_api.frappe.get_doc",
+				return_value=stock_entry,
+			),
+			patch("production_entry_app.production_entry_app.e2e_api.frappe.db.exists", return_value=False),
+			patch("production_entry_app.production_entry_app.e2e_api.frappe.delete_doc") as delete_doc,
+		):
+			_cleanup_e2e_stock_entries(targets)
+
+		stock_entry.cancel.assert_called_once()
+		delete_doc.assert_not_called()
+
+	def test_delete_e2e_stock_entry_rows_deletes_known_children_and_dynamic_links(self) -> None:
+		with patch("production_entry_app.production_entry_app.e2e_api.frappe.db.delete") as db_delete:
+			_delete_e2e_stock_entry_rows("STE-E2E")
+
+		db_delete.assert_has_calls(
+			[
+				call("Stock Entry Detail", {"parent": "STE-E2E", "parenttype": "Stock Entry"}),
+				call("Rejection Breakup", {"parent": "STE-E2E", "parenttype": "Stock Entry"}),
+				call("Rework Operator", {"parent": "STE-E2E", "parenttype": "Stock Entry"}),
+				call("Loss Entry", {"parent": "STE-E2E", "parenttype": "Stock Entry"}),
+				call("Dynamic Link", {"link_doctype": "Stock Entry", "link_name": "STE-E2E"}),
+				call("Stock Entry", {"name": "STE-E2E"}),
+			]
+		)
 
 	def test_all_e2e_endpoints_fail_closed_when_guard_raises(self) -> None:
 		with patch(
@@ -1426,7 +1473,10 @@ class TestE2EApi(FrappeTestCase):
 				)
 			)
 			stack.enter_context(patch("production_entry_app.production_entry_app.e2e_api._safe_force_delete"))
-			delete_stock_entry = stack.enter_context(
+			delete_stock_entry_rows = stack.enter_context(
+				patch("production_entry_app.production_entry_app.e2e_api._delete_e2e_stock_entry_rows")
+			)
+			delete_doc = stack.enter_context(
 				patch("production_entry_app.production_entry_app.e2e_api.frappe.delete_doc")
 			)
 			log_error = stack.enter_context(
@@ -1443,7 +1493,8 @@ class TestE2EApi(FrappeTestCase):
 		running_shift.end_shift.assert_not_called()
 		submitted_stock_entry.cancel.assert_called_once()
 		failing_stock_entry.cancel.assert_called_once()
-		self.assertEqual(delete_stock_entry.call_count, 1)
+		delete_stock_entry_rows.assert_called_once_with("STE-SUBMITTED")
+		delete_doc.assert_not_called()
 		maintenance_log.cancel.assert_not_called()
 		bom.cancel.assert_not_called()
 		log_error.assert_called_once()

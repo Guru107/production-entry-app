@@ -878,9 +878,17 @@ def _cleanup_e2e_stock_entries(targets: dict[str, object]) -> None:
 				)
 				raise
 		if se.docstatus in (0, 2):
-			frappe.delete_doc("Stock Entry", se.name, ignore_permissions=True, force=True)
+			_delete_e2e_stock_entry_rows(se.name)
 			if frappe.db.exists("Stock Entry", se.name):
 				frappe.throw(_("E2E cleanup retained Stock Entry {0}.").format(se.name))
+
+
+def _delete_e2e_stock_entry_rows(name: str) -> None:
+	"""Delete E2E Stock Entry rows without enqueueing v16 dynamic-link cleanup jobs."""
+	for child_doctype in ("Stock Entry Detail", "Rejection Breakup", "Rework Operator", "Loss Entry"):
+		frappe.db.delete(child_doctype, {"parent": name, "parenttype": "Stock Entry"})
+	frappe.db.delete("Dynamic Link", {"link_doctype": "Stock Entry", "link_name": name})
+	frappe.db.delete("Stock Entry", {"name": name})
 
 
 def _cleanup_e2e_downtime_entries(targets: dict[str, object]) -> None:
