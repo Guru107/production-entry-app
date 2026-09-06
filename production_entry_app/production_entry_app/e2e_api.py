@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 import frappe
@@ -416,6 +417,7 @@ def _get_candidate_e2e_stock_entries(
 		.where(
 			(stock_entry.purpose == "Manufacture")
 			| ((stock_entry.purpose == "Repack") & (stock_entry_type.custom_pea_joint_lh_rh_production == 1))
+			| (stock_entry.purpose == "Material Receipt")
 		)
 		.where(match_criteria)
 		.orderby(stock_entry.creation, order=Order.desc)
@@ -561,17 +563,25 @@ def _complete_other_running_e2e_shifts(*, keep_department: str | None = None) ->
 		frappe.db.set_value("Shift", shift_name, "status", "Completed", update_modified=False)
 
 
-def _start_e2e_shift(shift: Document) -> None:
+def _run_with_shift_notifications_suppressed(action: Callable[[], None]) -> None:
 	was_set = hasattr(frappe.flags, "suppress_shift_notifications")
 	previous_value = getattr(frappe.flags, "suppress_shift_notifications", None)
 	frappe.flags.suppress_shift_notifications = True
 	try:
-		shift.start_shift()
+		action()
 	finally:
 		if was_set:
 			frappe.flags.suppress_shift_notifications = previous_value
 		else:
 			frappe.flags.pop("suppress_shift_notifications", None)
+
+
+def _start_e2e_shift(shift: Document) -> None:
+	_run_with_shift_notifications_suppressed(shift.start_shift)
+
+
+def _end_e2e_shift(shift: Document) -> None:
+	_run_with_shift_notifications_suppressed(shift.end_shift)
 
 
 def _get_or_create_e2e_shift(
@@ -819,7 +829,7 @@ def _cleanup_e2e_shifts(prefix: str, targets: dict[str, object] | None = None) -
 			continue
 		doc = frappe.get_doc("Shift", name)
 		if doc.status == "Running":
-			doc.end_shift()
+			_end_e2e_shift(doc)
 			doc.reload()
 		if doc.status in ("Draft", "Cancelled", "Completed"):
 			try:

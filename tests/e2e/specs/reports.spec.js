@@ -23,6 +23,32 @@ function addDays(dateString, days) {
 	return date.toISOString().slice(0, 10);
 }
 
+async function seedRawMaterialForPostingDate(page, ctx, postingDate) {
+	if (postingDate >= ctx.shift_date) {
+		return;
+	}
+	const receipt = await callFrappeMethod(page, "frappe.client.insert", {
+		doc: JSON.stringify({
+			doctype: "Stock Entry",
+			company: ctx.company,
+			purpose: "Material Receipt",
+			stock_entry_type: "Material Receipt",
+			set_posting_time: 1,
+			posting_date: postingDate,
+			posting_time: "08:00:00",
+			items: [
+				{
+					item_code: ctx.rm_item,
+					qty: 1000,
+					t_warehouse: ctx.wip_warehouse,
+					basic_rate: 1,
+				},
+			],
+		}),
+	});
+	await callFrappeMethod(page, "frappe.client.submit", { doc: JSON.stringify(receipt) });
+}
+
 async function createSubmittedStockEntryForReports(
 	page,
 	ctx,
@@ -51,6 +77,7 @@ async function createSubmittedStockEntryForReports(
 		await cur_frm.set_value("posting_date", targetPostingDate);
 		await cur_frm.set_value("posting_time", "09:00:00");
 	}, postingDate);
+	await seedRawMaterialForPostingDate(page, ctx, postingDate);
 	await stockEntryPage.fetchItems();
 	for (const row of unplannedLossRows) {
 		await stockEntryPage.addUnplannedLossRow(row);

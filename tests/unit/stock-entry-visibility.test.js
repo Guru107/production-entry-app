@@ -23,6 +23,7 @@ const {
 	_get_rejection_qty_for_visibility,
 	_sync_rework_mode_from_stock_entry_type,
 	_schedule_rework_workstation_default,
+	_extract_error_detail,
 	REWORK_FIELDS,
 	MANUFACTURE_FIELDS,
 	PEA_MANUFACTURE_FIELDS,
@@ -1233,6 +1234,86 @@ test("normalize purpose trims whitespace and handles empty values", () => {
 	assert.equal(_normalize_purpose(null), "");
 });
 
+test("error extraction prefers Frappe validation details over generic request message", () => {
+	const detail = _extract_error_detail({
+		message: "Internal Server Error",
+		responseJSON: {
+			_server_messages: [
+				JSON.stringify({
+					message: "LH BOM is required for Joint LH/RH Production.",
+				}),
+			],
+		},
+	});
+
+	assert.equal(detail, "LH BOM is required for Joint LH/RH Production.");
+});
+
+test("error extraction uses explicit Frappe error message first", () => {
+	const detail = _extract_error_detail({
+		message: "Internal Server Error",
+		responseJSON: {
+			_error_message: "Run Fetch Items again after changing production quantities.",
+			_server_messages: [
+				JSON.stringify({
+					message: "Fallback message.",
+				}),
+			],
+		},
+	});
+
+	assert.equal(detail, "Run Fetch Items again after changing production quantities.");
+});
+
+test("error extraction reads top-level Frappe callback fields", () => {
+	const detail = _extract_error_detail({
+		message: "Internal Server Error",
+		_server_messages: JSON.stringify({
+			message: "RH BOM is required for Joint LH/RH Production.",
+		}),
+	});
+
+	assert.equal(detail, "RH BOM is required for Joint LH/RH Production.");
+});
+
+test("error extraction parses Frappe responseText JSON", () => {
+	const detail = _extract_error_detail({
+		message: "Internal Server Error",
+		responseText: JSON.stringify({
+			_server_messages: JSON.stringify({
+				message: "LH BOM is required for Joint LH/RH Production.",
+			}),
+		}),
+	});
+
+	assert.equal(detail, "LH BOM is required for Joint LH/RH Production.");
+});
+
+test("error extraction parses Frappe encoded server message lists", () => {
+	const detail = _extract_error_detail({
+		message: "Internal Server Error",
+		responseText: JSON.stringify({
+			_server_messages: JSON.stringify([
+				JSON.stringify({
+					message: "Die Tool Item is required for joint LH/RH production.",
+				}),
+			]),
+		}),
+	});
+
+	assert.equal(detail, "Die Tool Item is required for joint LH/RH production.");
+});
+
+test("error extraction ignores server message objects without text", () => {
+	const detail = _extract_error_detail({
+		responseJSON: {
+			_server_messages: [{ indicator: "red" }],
+		},
+	});
+
+	assert.equal(detail, "");
+});
+
 test("manufacture decision uses custom_pea_stock_entry_purpose only", () => {
 	assert.equal(_is_manufacture_doc({ custom_pea_stock_entry_purpose: "Manufacture" }), true);
 	assert.equal(
@@ -1424,8 +1505,12 @@ test("manually selecting the joint Stock Entry Type enters joint production and 
 test("refreshing a saved joint Stock Entry keeps joint fields when only the cached type marker remains", () => {
 	const originalFrappe = global.frappe;
 	global.frappe = {
-		call() {
-			assert.fail("cached joint Stock Entry Type should avoid a lookup");
+		call(options) {
+			assert.equal(
+				options.method,
+				"production_entry_app.production_entry_app.api.get_die_tool_counter"
+			);
+			options.callback({ message: null });
 		},
 	};
 	const frm = makeSavedJointStockEntryForm({
@@ -1441,14 +1526,58 @@ test("refreshing a saved joint Stock Entry keeps joint fields when only the cach
 	}
 });
 
+test("cached joint Stock Entry Type reapplies joint visibility", () => {
+	const originalFrappe = global.frappe;
+	global.frappe = {
+		call(options) {
+			assert.equal(
+				options.method,
+				"production_entry_app.production_entry_app.api.get_die_tool_counter"
+			);
+			options.callback({ message: null });
+		},
+	};
+	const visibility = [];
+	const frm = makeSavedJointStockEntryForm({
+		cachedJointStockEntryType: "Joint LH RH Production",
+	});
+	frm.toggle_display = function (fieldnames, visible) {
+		visibility.push([fieldnames, visible]);
+	};
+
+	try {
+		_sync_joint_stock_entry_type(frm);
+
+		assertSavedJointStockEntryFormPreserved(frm);
+		assert.ok(
+			visibility.some(
+				([fieldnames, visible]) => fieldnames === JOINT_ONLY_PEA_FIELDS && visible === true
+			)
+		);
+	} finally {
+		global.frappe = originalFrappe;
+	}
+});
+
 test("refreshing a saved joint Stock Entry from a fresh page keeps joint fields after lookup", () => {
 	const originalFrappe = global.frappe;
 	let lookupCount = 0;
 	global.frappe = {
 		call(options) {
-			lookupCount += 1;
-			assert.deepEqual(options.args, { required: 0 });
-			options.callback({ message: "Joint LH RH Production" });
+			if (
+				options.method ===
+				"production_entry_app.production_entry_app.api.get_joint_stock_entry_type"
+			) {
+				lookupCount += 1;
+				assert.deepEqual(options.args, { required: 0 });
+				options.callback({ message: "Joint LH RH Production" });
+				return;
+			}
+			assert.equal(
+				options.method,
+				"production_entry_app.production_entry_app.api.get_die_tool_counter"
+			);
+			options.callback({ message: null });
 		},
 	};
 	const frm = makeSavedJointStockEntryForm();

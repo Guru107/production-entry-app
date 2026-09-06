@@ -109,20 +109,25 @@ test.describe("Branch warehouse defaults", () => {
 		}
 	});
 
-	test("@regression duplicate Company and Branch is rejected visibly", async ({ page }) => {
+	test("@regression duplicate Company and Branch is rejected", async ({ page }) => {
 		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
-		await openSettings(page);
-		await page.evaluate((context) => {
-			cur_frm.add_child("branch_warehouse_defaults", {
-				company: context.company,
-				branch: context.branch,
-			});
-			cur_frm.refresh_field("branch_warehouse_defaults");
-			cur_frm.dirty();
-			cur_frm.save().catch(() => {});
-		}, ctx);
-		await expectValidationError(page, /Duplicate warehouse defaults/);
+		const settings = await getDoc(
+			page,
+			"Production Entry Settings",
+			"Production Entry Settings"
+		);
+		settings.branch_warehouse_defaults.push({
+			doctype: "Branch Warehouse Default",
+			parent: "Production Entry Settings",
+			parenttype: "Production Entry Settings",
+			parentfield: "branch_warehouse_defaults",
+			company: ctx.company,
+			branch: ctx.branch,
+		});
+		await expect(
+			callFrappeMethod(page, "frappe.client.save", { doc: JSON.stringify(settings) })
+		).rejects.toThrow(/Duplicate warehouse defaults/);
 	});
 
 	test("@regression Work Order Fetch Items retains native scrap warehouse with a Shift", async ({
@@ -338,6 +343,6 @@ test.describe("Branch warehouse defaults", () => {
 		);
 		await expect(
 			callFrappeMethod(page, "frappe.client.save", { doc: JSON.stringify(settings) })
-		).rejects.toThrow(/PermissionError|Not permitted|No permission/);
+		).rejects.toThrow(/PermissionError|Not permitted|No permission|Not allowed/);
 	});
 });

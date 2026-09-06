@@ -301,7 +301,6 @@ test.describe("Rework full lifecycle", () => {
 		const context = await seedLifecycle(page, lifecycle.getPrefix());
 		await fillReworkEntry(page, context, {
 			includeOperator: false,
-			includeTimes: false,
 		});
 
 		await expectSaveValidation(page, /at least one active Operator/i);
@@ -355,7 +354,10 @@ test.describe("Rework full lifecycle", () => {
 			{ wrongSource: context.wip_warehouse, wrongTarget: context.scrap_warehouse }
 		);
 		await stockEntryPage.saveDraft();
-		await expectSubmitValidation(page, /configured Rejection Warehouse/i);
+		await expectSubmitValidation(
+			page,
+			/source Warehouse must be marked as Rejected Warehouse/i
+		);
 
 		await page.evaluate(
 			({ source, target }) => {

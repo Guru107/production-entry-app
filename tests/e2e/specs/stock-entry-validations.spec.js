@@ -352,11 +352,10 @@ test.describe("Stock Entry validation matrix", () => {
 			fgQty: 100,
 			rejectionQty: 150,
 		});
-		await stockEntryPage.fetchItems();
-		await stockEntryPage.setRejectionBreakupRows([{ rejection_reason: "Burr", qty: 150 }]);
 
-		await stockEntryPage.attemptSaveDraft();
-		await expectValidationError(page, /cannot exceed Finished Good quantity/i);
+		await expect(stockEntryPage.fetchItems()).rejects.toThrow(
+			/cannot exceed Finished Good quantity/i
+		);
 	});
 
 	test("@regression actual start outside configured buffer blocks save with range message", async ({

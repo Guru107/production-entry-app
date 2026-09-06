@@ -25,6 +25,7 @@ from production_entry_app.production_entry_app.e2e_api import (
 	_cleanup_reserved_e2e_artifacts,
 	_collect_reserved_e2e_prefixes,
 	_e2e_base_date,
+	_end_e2e_shift,
 	_get_candidate_e2e_stock_entries,
 	_get_e2e_shift_names_cache_key,
 	_get_or_create_e2e_employee,
@@ -1646,6 +1647,20 @@ class TestE2EApi(FrappeTestCase):
 		_start_e2e_shift(shift)
 
 		shift.start_shift.assert_called_once()
+		self.assertFalse(frappe.flags.suppress_shift_notifications)
+
+	def test_end_e2e_shift_suppresses_notifications_only_during_end(self) -> None:
+		shift = MagicMock()
+
+		def assert_suppressed_during_end() -> None:
+			self.assertTrue(frappe.flags.suppress_shift_notifications)
+
+		shift.end_shift.side_effect = assert_suppressed_during_end
+		frappe.flags.suppress_shift_notifications = False
+
+		_end_e2e_shift(shift)
+
+		shift.end_shift.assert_called_once()
 		self.assertFalse(frappe.flags.suppress_shift_notifications)
 
 	def test_get_or_create_e2e_shift_recreates_completed_shift(self) -> None:

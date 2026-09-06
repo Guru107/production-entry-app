@@ -91,6 +91,26 @@ test("saveForm retries when Frappe assigns a name but leaves the form dirty", as
 	assert.equal(stateReads, 1);
 });
 
+test("saveForm surfaces visible Desk validation messages from the save path", async () => {
+	let saves = 0;
+	const page = {
+		async evaluate(fn, args) {
+			if (args?.requestedAction) {
+				saves += 1;
+				return { validationMessage: "Workstation is already in use." };
+			}
+			throw new Error("State read should not run after a validation message.");
+		},
+		async waitForFunction() {
+			throw new Error("Saved-state wait should not run after a validation message.");
+		},
+		async waitForLoadState() {},
+	};
+
+	await assert.rejects(() => saveForm(page, "Save"), /Workstation is already in use/);
+	assert.equal(saves, 1);
+});
+
 test("retryTransientRequest retries a socket reset for idempotent E2E setup calls", async () => {
 	let attempts = 0;
 	const result = await retryTransientRequest(async () => {

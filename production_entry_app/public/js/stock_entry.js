@@ -274,6 +274,18 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 				frappe.msgprint(__("Please set Qty to Manufacture before fetching items."));
 				return;
 			}
+			if (isJoint && !frm.doc.custom_pea_lh_bom) {
+				frappe.msgprint(__("LH BOM is required for joint LH/RH production."));
+				return;
+			}
+			if (isJoint && !frm.doc.custom_pea_rh_bom) {
+				frappe.msgprint(__("RH BOM is required for joint LH/RH production."));
+				return;
+			}
+			if (isJoint && !frm.doc.custom_pea_die_tool_item) {
+				frappe.msgprint(__("Die Tool Item is required for joint LH/RH production."));
+				return;
+			}
 			if (
 				isJoint &&
 				(!frm.doc.custom_pea_lh_gross_qty || !frm.doc.custom_pea_rh_gross_qty)
@@ -844,6 +856,7 @@ function _sync_joint_mode_from_stock_entry_type(frm, requestId, previousStockEnt
 			}
 		}
 		if (shouldBeJoint === wasJoint) {
+			_apply_manufacture_visibility(frm);
 			return;
 		}
 
@@ -1272,15 +1285,82 @@ async function _set_form_value_if_present(frm, fieldname, value) {
 }
 
 function _extract_error_detail(error) {
+	const responseJSON = error?.responseJSON || _parse_json(error?.responseText);
+	const responseMessage = String(
+		error?._error_message || responseJSON?._error_message || ""
+	).trim();
+	if (responseMessage) {
+		return responseMessage;
+	}
+	const serverMessage = _extract_server_message(
+		error?._server_messages || responseJSON?._server_messages
+	);
+	if (serverMessage) {
+		return serverMessage;
+	}
+	const exception = String(
+		error?.exception || error?.exc || responseJSON?.exception || responseJSON?.exc || ""
+	).trim();
+	if (exception) {
+		return exception;
+	}
 	const message = String(error?.message || "").trim();
 	if (message) {
 		return message;
 	}
-	const responseMessage = String(error?.responseJSON?._error_message || "").trim();
-	if (responseMessage) {
-		return responseMessage;
+	return "";
+}
+
+function _parse_json(text) {
+	if (typeof text !== "string" || !text.trim()) {
+		return null;
+	}
+	try {
+		return JSON.parse(text);
+	} catch (error) {
+		return null;
+	}
+}
+
+function _extract_server_message(serverMessages) {
+	if (!serverMessages) {
+		return "";
+	}
+	const messages = Array.isArray(serverMessages) ? serverMessages : [serverMessages];
+	for (const message of messages) {
+		const text = _normalize_server_message(message);
+		if (text) {
+			return text;
+		}
 	}
 	return "";
+}
+
+function _normalize_server_message(message) {
+	if (!message) {
+		return "";
+	}
+	if (Array.isArray(message)) {
+		for (const item of message) {
+			const text = _normalize_server_message(item);
+			if (text) {
+				return text;
+			}
+		}
+		return "";
+	}
+	if (typeof message === "string") {
+		const trimmed = message.trim();
+		if (!trimmed) {
+			return "";
+		}
+		try {
+			return _normalize_server_message(JSON.parse(trimmed));
+		} catch (error) {
+			return trimmed;
+		}
+	}
+	return String(message.message || "").trim();
 }
 
 function _notify_call_error(prefix, error) {
@@ -1465,6 +1545,7 @@ if (typeof module !== "undefined" && module.exports) {
 		_sync_rework_mode_from_stock_entry_type,
 		_schedule_rework_workstation_default,
 		REWORK_FIELDS,
+		_extract_error_detail,
 		_initialize_total_strokes_default_state,
 		_default_total_strokes_from_fg,
 		_get_rejection_qty_for_visibility,

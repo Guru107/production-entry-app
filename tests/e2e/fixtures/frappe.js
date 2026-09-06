@@ -1,3 +1,5 @@
+const SAVE_VALIDATION_TIMEOUT_MS = 10_000;
+
 async function retryOnContextDestroyed(page, action, retries = 3) {
 	for (let attempt = 0; attempt < retries; attempt += 1) {
 		try {
@@ -43,19 +45,22 @@ async function callFrappeMethod(page, method, args = {}) {
 			"X-Frappe-CSRF-Token": csrfToken,
 		},
 	});
+	const rawBody = await response.text();
 	let payload = {};
 	try {
-		payload = await response.json();
+		payload = rawBody ? JSON.parse(rawBody) : {};
 	} catch (error) {
 		payload = {};
 	}
 
 	if (!response.ok() || payload.exc || payload.exception) {
+		const sanitizedBody = rawBody.replace(/SECRET = "[^"]+"/g, 'SECRET = "[redacted]"');
 		const details = [
 			payload?.exception,
 			payload?.exc,
 			payload?._error_message,
 			payload?._server_messages,
+			sanitizedBody && sanitizedBody.slice(0, 1000),
 		]
 			.filter(Boolean)
 			.join(" | ");
@@ -85,12 +90,37 @@ async function saveForm(page, action = "Save") {
 	for (let attempt = 0; attempt < 3; attempt += 1) {
 		let contextDestroyed = false;
 		try {
-			await page.evaluate(
-				async ({ requestedAction }) => {
-					await cur_frm.save(requestedAction);
+			const result = await page.evaluate(
+				async ({ requestedAction, validationTimeoutMs }) => {
+					const savePromise = Promise.resolve(cur_frm.save(requestedAction));
+					if (requestedAction !== "Save") {
+						await savePromise;
+						return { validationMessage: "" };
+					}
+					return await Promise.race([
+						savePromise.then(() => ({ validationMessage: "" })),
+						new Promise((resolve) => {
+							const startedAt = Date.now();
+							const timer = setInterval(() => {
+								const validationMessage = (
+									window.frappe?.msg_dialog?.msg_area?.text?.() || ""
+								).trim();
+								if (
+									validationMessage ||
+									Date.now() - startedAt >= validationTimeoutMs
+								) {
+									clearInterval(timer);
+									resolve({ validationMessage });
+								}
+							}, 100);
+						}),
+					]);
 				},
-				{ requestedAction: action }
+				{ requestedAction: action, validationTimeoutMs: SAVE_VALIDATION_TIMEOUT_MS }
 			);
+			if (result?.validationMessage) {
+				throw new Error(result.validationMessage);
+			}
 		} catch (error) {
 			const message = String(error?.message || "");
 			if (!message.includes("Execution context was destroyed")) {
