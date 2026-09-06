@@ -34,6 +34,7 @@ from production_entry_app.production_entry_app.e2e_api import (
 	_restore_cached_e2e_settings,
 	_safe_cancel_and_delete,
 	_safe_force_delete,
+	_start_e2e_shift,
 	_stock_entry_matches_cleanup_target,
 	bootstrap_e2e_context,
 	cleanup_e2e_context,
@@ -1632,6 +1633,20 @@ class TestE2EApi(FrappeTestCase):
 				)
 		self.assertIs(result, shift)
 		shift.start_shift.assert_called_once()
+
+	def test_start_e2e_shift_suppresses_notifications_only_during_start(self) -> None:
+		shift = MagicMock()
+
+		def assert_suppressed_during_start() -> None:
+			self.assertTrue(frappe.flags.suppress_shift_notifications)
+
+		shift.start_shift.side_effect = assert_suppressed_during_start
+		frappe.flags.suppress_shift_notifications = False
+
+		_start_e2e_shift(shift)
+
+		shift.start_shift.assert_called_once()
+		self.assertFalse(frappe.flags.suppress_shift_notifications)
 
 	def test_get_or_create_e2e_shift_recreates_completed_shift(self) -> None:
 		existing = MagicMock()

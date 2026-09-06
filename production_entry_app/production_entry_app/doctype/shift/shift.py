@@ -130,6 +130,8 @@ def _send_shift_notification(
 	email_content: str | None = None,
 ) -> None:
 	"""Create notification log entries for shift start/end events."""
+	if getattr(frappe.flags, "suppress_shift_notifications", False):
+		return
 	recipients = _get_notification_recipients_for_shift(shift_doc)
 	if not recipients:
 		return

@@ -116,6 +116,23 @@ class TestShiftPureHelpers(FrappeTestCase):
 				subject="Shift started",
 			)
 
+	def test_send_shift_notification_returns_when_suppressed(self) -> None:
+		shift_doc = frappe._dict({"name": "SHIFT-UNIT-001", "supervisor": None})
+		frappe.flags.suppress_shift_notifications = True
+		try:
+			with patch(
+				"production_entry_app.production_entry_app.doctype.shift.shift._get_notification_recipients_for_shift",
+			) as get_recipients:
+				shift_module._send_shift_notification(
+					shift_doc,
+					event="start",
+					subject="Shift started",
+				)
+		finally:
+			frappe.flags.pop("suppress_shift_notifications", None)
+
+		get_recipients.assert_not_called()
+
 	def test_resolve_shift_branch_prefers_current_then_default_then_sole_branch(self) -> None:
 		self.assertEqual(
 			shift_module._resolve_shift_branch("Current Branch", "Default Branch"), "Current Branch"

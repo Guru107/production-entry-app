@@ -561,6 +561,19 @@ def _complete_other_running_e2e_shifts(*, keep_department: str | None = None) ->
 		frappe.db.set_value("Shift", shift_name, "status", "Completed", update_modified=False)
 
 
+def _start_e2e_shift(shift: Document) -> None:
+	was_set = hasattr(frappe.flags, "suppress_shift_notifications")
+	previous_value = getattr(frappe.flags, "suppress_shift_notifications", None)
+	frappe.flags.suppress_shift_notifications = True
+	try:
+		shift.start_shift()
+	finally:
+		if was_set:
+			frappe.flags.suppress_shift_notifications = previous_value
+		else:
+			frappe.flags.pop("suppress_shift_notifications", None)
+
+
 def _get_or_create_e2e_shift(
 	*,
 	base_date: str,
@@ -594,7 +607,7 @@ def _get_or_create_e2e_shift(
 				rejection_warehouse=rejection_warehouse,
 			)
 		).insert(ignore_permissions=True)
-		shift.start_shift()
+		_start_e2e_shift(shift)
 		return shift
 
 	shift = frappe.get_doc("Shift", shift_name)
@@ -610,10 +623,10 @@ def _get_or_create_e2e_shift(
 				rejection_warehouse=rejection_warehouse,
 			)
 		).insert(ignore_permissions=True)
-		shift.start_shift()
+		_start_e2e_shift(shift)
 		return shift
 	if shift.status == "Draft":
-		shift.start_shift()
+		_start_e2e_shift(shift)
 		return shift
 	if shift.status == "Running":
 		return shift
