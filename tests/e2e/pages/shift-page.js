@@ -59,6 +59,7 @@ class ShiftPage {
 	}
 
 	async createDraftViaApi({
+		company,
 		department,
 		branch,
 		date,
@@ -69,6 +70,7 @@ class ShiftPage {
 		return await callFrappeMethod(this.page, "frappe.client.insert", {
 			doc: JSON.stringify({
 				doctype: "Shift",
+				...(company ? { company } : {}),
 				department,
 				branch,
 				shift_label: label,
@@ -79,7 +81,10 @@ class ShiftPage {
 		});
 	}
 
-	async setDraftFields({ department, branch, date, label, duration, startTime }) {
+	async setDraftFields({ company, department, branch, date, label, duration, startTime }) {
+		if (company !== null && company !== undefined) {
+			await setFieldValue(this.page, "company", company);
+		}
 		if (department !== null && department !== undefined) {
 			await setFieldValue(this.page, "department", department);
 		}

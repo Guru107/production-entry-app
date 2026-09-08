@@ -15,7 +15,7 @@ EXPECTED_PEA_ROLE_NAMES = ("PEA User", "PEA Read Only")
 REQUIRED_SEARCH_INDEXES: dict[str, set[str]] = {
 	"Rejection Breakup": {"is_rework"},
 	"Rework Type": {"is_active"},
-	"Shift": {"branch", "shift_date", "status"},
+	"Shift": {"branch", "company", "shift_date", "status"},
 }
 
 REQUIRED_CUSTOM_FIELD_SEARCH_INDEXES: set[str] = {

@@ -69,6 +69,15 @@ class _EntrySummaryQuantities(NamedTuple):
 RUNNING_SHIFT_MUTABLE_FIELDS: frozenset[str] = (
 	RUNNING_SHIFT_USER_EDITABLE_FIELDS | RUNNING_SHIFT_SERVER_COMPUTED_FIELDS
 )
+COMPLETED_SHIFT_DURATION_EXTENSION_USER_FIELDS: frozenset[str] = frozenset({"shift_duration"})
+COMPLETED_SHIFT_DURATION_EXTENSION_COMPUTED_FIELDS: frozenset[str] = frozenset(
+	{
+		"planned_start_time_input",
+		"planned_end_time",
+		"shift_end_date",
+		"shift_title",
+	}
+)
 _SHIFT_START_LOSSES: list[tuple[str, int, int]] = [
 	("Shift Start Up", 0, 10),
 ]
@@ -1316,10 +1325,11 @@ class Shift(Document):
 			frappe.throw(_("Status is system-managed. Use Start Shift / End Shift actions."))
 
 	def _validate_field_locking(self) -> None:
-		"""Enforce locking: planned_losses and most fields in Running; entire doc in Completed/Cancelled.
+		"""Enforce locking for active and closed shifts.
 
-		shift_duration changes are allowed in Running state and trigger recalculation of
-		planned_end_time, shift_end_date, and planned_losses.
+		shift_duration changes trigger recalculation of planned_end_time, shift_end_date,
+		and planned_losses. Completed shifts only permit duration extension; the normal
+		overlap guard later rejects extensions that collide with another shift.
 		"""
 		if self.is_new():
 			return
@@ -1334,7 +1344,10 @@ class Shift(Document):
 		if current_status == "Running":
 			self._validate_running_shift_edits()
 
-		if current_status in ("Completed", "Cancelled"):
+		if current_status == "Completed":
+			self._validate_completed_shift_edits()
+
+		if current_status == "Cancelled":
 			frappe.throw(
 				_("Shift in {0} state cannot be modified.").format(
 					frappe.bold(frappe.utils.escape_html(str(current_status)))
@@ -1351,15 +1364,41 @@ class Shift(Document):
 		if self._get_locked_scalar_field_changes():
 			frappe.throw(_("Only shift duration and warehouse fields can be edited when shift is Running."))
 
+	def _validate_completed_shift_edits(self) -> None:
+		changed_fields = self._get_changed_scalar_fields()
+		user_changed_fields = changed_fields - COMPLETED_SHIFT_DURATION_EXTENSION_COMPUTED_FIELDS
+		if not changed_fields and not self._planned_losses_changed():
+			return
+		if (
+			user_changed_fields != COMPLETED_SHIFT_DURATION_EXTENSION_USER_FIELDS
+			or self._planned_losses_changed()
+		):
+			frappe.throw(_("Only shift duration extension is allowed when shift is Completed."))
+		if not self._is_shift_duration_extension():
+			frappe.throw(_("Only shift duration extension is allowed when shift is Completed."))
+
+	def _is_shift_duration_extension(self) -> bool:
+		previous_duration = self._get_previous_shift_duration()
+		if previous_duration is None:
+			return False
+		return self._parse_duration_hours(self.shift_duration) > self._parse_duration_hours(previous_duration)
+
+	def _get_previous_shift_duration(self) -> str | None:
+		before = self.get_doc_before_save()
+		if before:
+			return before.shift_duration
+		return frappe.db.get_value("Shift", self.name, "shift_duration")
+
 	def _get_locked_scalar_field_changes(self) -> set[str]:
+		return self._get_changed_scalar_fields() - RUNNING_SHIFT_MUTABLE_FIELDS
+
+	def _get_changed_scalar_fields(self) -> set[str]:
 		# Only check scalar fields via has_value_changed; child tables (e.g. planned_losses)
 		# may report false positives after reload due to object identity vs content equality.
 		return {
 			f.fieldname
 			for f in self.meta.get("fields", [])
-			if f.fieldtype != "Table"
-			and self.has_value_changed(f.fieldname)
-			and f.fieldname not in RUNNING_SHIFT_MUTABLE_FIELDS
+			if f.fieldtype != "Table" and self.has_value_changed(f.fieldname)
 		}
 
 	def _planned_losses_changed(self) -> bool:
@@ -1385,6 +1424,7 @@ class Shift(Document):
 				self.planned_end_time,
 				self.department,
 				self.branch,
+				self.company,
 			]
 		):
 			return
@@ -1400,6 +1440,7 @@ class Shift(Document):
 			.where(shift.status != "Cancelled")
 			.where(shift.department == self.department)
 			.where(shift.branch == self.branch)
+			.where(shift.company == self.company)
 			.where(shift.shift_date >= add_to_date(self.shift_date, days=-1, as_string=True))
 			.where(shift.shift_date <= add_to_date(self.shift_date, days=1, as_string=True))
 			.where(

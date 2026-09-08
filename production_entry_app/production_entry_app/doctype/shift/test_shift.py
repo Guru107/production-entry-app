@@ -531,6 +531,22 @@ class TestShiftPureHelpers(FrappeTestCase):
 				with self.assertRaisesRegex(frappe.ValidationError, "Only shift duration"):
 					shift._validate_running_shift_edits()
 
+		completed_before = frappe._dict({"status": "Completed", "shift_duration": "10", "planned_losses": []})
+		shift = frappe.new_doc("Shift")
+		shift.name = "SHIFT-LOCK-004"
+		shift.flags = frappe._dict()
+		shift.shift_duration = "8"
+		with patch.object(shift, "is_new", return_value=False):
+			with patch.object(shift, "get_doc_before_save", return_value=completed_before):
+				with patch.object(
+					shift,
+					"has_value_changed",
+					side_effect=lambda fieldname: fieldname == "shift_duration",
+				):
+					with patch.object(shift, "_planned_losses_changed", return_value=False):
+						with self.assertRaisesRegex(frappe.ValidationError, "Only shift duration extension"):
+							shift._validate_field_locking()
+
 		shift = frappe.new_doc("Shift")
 		shift.company = None
 		with patch(
@@ -1260,9 +1276,129 @@ class TestShift(FrappeTestCase):
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so _validate_field_locking sees persisted status via get_value
 		doc = frappe.get_doc("Shift", name)
 
-		doc.shift_duration = "10"
+		doc.shift_label = "Locked"
 		with self.assertRaises(ValidationError):
 			doc.save()
+
+	def test_completed_shift_allows_duration_extension_and_recomputes_end_fields(self) -> None:
+		"""A completed shift may be extended when the new window does not overlap another shift."""
+		self._delete_shifts_for_date("2026-03-10")
+		name = self._expected_name(self._test_department, "2026-03-10", "1")
+
+		doc = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"department": self._test_department,
+				"branch": self._test_branch,
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": "2026-03-10",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+		doc.start_shift()
+		doc.end_shift()
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so Completed state is visible
+
+		completed_doc = frappe.get_doc("Shift", name)
+		completed_doc.shift_duration = "10"
+		completed_doc.save()
+		completed_doc.reload()
+
+		self.assertEqual(completed_doc.status, "Completed")
+		self.assertEqual(completed_doc.shift_duration, "10")
+		self.assertEqual(_to_time_str(completed_doc.planned_end_time), "18:00:00")
+		self.assertEqual(_to_date_str(completed_doc.shift_end_date), "2026-03-10")
+
+	def test_completed_shift_extension_rejects_overlap_with_same_scope_shift(self) -> None:
+		"""A completed shift extension is rejected when it overlaps the same company/department/branch."""
+		self._delete_shifts_for_date("2026-03-11")
+
+		doc1 = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"department": self._test_department,
+				"branch": self._test_branch,
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": "2026-03-11",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+		doc1.start_shift()
+		doc1.end_shift()
+		frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"department": self._test_department,
+				"branch": self._test_branch,
+				"shift_label": "2",
+				"shift_duration": "8",
+				"shift_date": "2026-03-11",
+				"planned_start_time": "16:00:00",
+			}
+		).insert()
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so overlap check sees both shifts
+
+		completed_doc = frappe.get_doc("Shift", doc1.name)
+		completed_doc.shift_duration = "10"
+		with self.assertRaises(ValidationError) as cm:
+			completed_doc.save()
+		self.assertIn("overlap", str(cm.exception).lower())
+
+	def test_completed_shift_extension_allows_overlap_in_different_company(self) -> None:
+		"""Company is part of the completed-shift extension overlap scope."""
+		self._delete_shifts_for_date("2026-03-12")
+		company = resolve_test_company()
+		other_company = (
+			frappe.get_doc(
+				{
+					"doctype": "Company",
+					"company_name": f"_Shift Extension {frappe.generate_hash(length=6)}",
+					"abbr": frappe.generate_hash(length=5).upper(),
+					"default_currency": frappe.db.get_value("Company", company, "default_currency"),
+					"country": frappe.db.get_value("Company", company, "country"),
+				}
+			)
+			.insert(ignore_permissions=True)
+			.name
+		)
+
+		doc1 = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"company": company,
+				"department": self._test_department,
+				"branch": self._test_branch,
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": "2026-03-12",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+		doc1.start_shift()
+		doc1.end_shift()
+		frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"company": other_company,
+				"department": self._test_department,
+				"branch": self._test_branch,
+				"shift_label": "2",
+				"shift_duration": "8",
+				"shift_date": "2026-03-12",
+				"planned_start_time": "16:00:00",
+			}
+		).insert()
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so overlap check sees both shifts
+
+		completed_doc = frappe.get_doc("Shift", doc1.name)
+		completed_doc.shift_duration = "10"
+		completed_doc.save()
+		completed_doc.reload()
+
+		self.assertEqual(completed_doc.shift_duration, "10")
+		self.assertEqual(_to_time_str(completed_doc.planned_end_time), "18:00:00")
 
 	def test_document_locked_in_cancelled_state(self) -> None:
 		name = self._expected_name(self._test_department, "2026-02-19", "2")
