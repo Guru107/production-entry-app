@@ -9,6 +9,14 @@ DOCTYPE_ROOT = Path(__file__).parent / "doctype"
 CUSTOM_FIELD_FIXTURE = APP_ROOT / "production_entry_app" / "fixtures" / "custom_field.json"
 ROLE_FIXTURE = APP_ROOT / "production_entry_app" / "fixtures" / "role.json"
 STOCK_ENTRY_TYPE_FIXTURE = APP_ROOT / "production_entry_app" / "fixtures" / "stock_entry_type.json"
+WORKSPACE_JSON = (
+	APP_ROOT
+	/ "production_entry_app"
+	/ "production_entry_app"
+	/ "workspace"
+	/ "production_entry_app"
+	/ "production_entry_app.json"
+)
 
 EXPECTED_PEA_ROLE_NAMES = ("PEA User", "PEA Read Only")
 
@@ -167,6 +175,7 @@ def test_rework_stock_entry_metadata_is_exported() -> None:
 		assert fields_by_name[name].get("mandatory_depends_on") == fields_by_name[name].get("depends_on")
 	assert fields_by_name["Stock Entry-custom_pea_rework_cost"].get("read_only") == 1
 	assert fields_by_name["Stock Entry-custom_pea_rework_cost"].get("non_negative") == 1
+	assert fields_by_name["Stock Entry-custom_pea_rework_cost"].get("hidden") == 1
 	assert fields_by_name["Stock Entry-custom_pea_shift"].get("depends_on") == (
 		"eval:doc.custom_pea_stock_entry_purpose=='Manufacture' || "
 		"(doc.__pea_joint_stock_entry_type && doc.stock_entry_type==doc.__pea_joint_stock_entry_type)"
@@ -305,7 +314,17 @@ def test_workspace_has_forms_and_reports_cards() -> None:
 	assert card_labels == ["Forms", "Reports"]
 	report_links = [row.link_to for row in ws.links if row.link_type == "Report"]
 	assert "Production OEE Report" in report_links
-	assert len(report_links) == 18
+	assert len(report_links) == 20
+	pending_rework = next(row for row in ws.links if row.label == "Pending Rework")
+	assert pending_rework.link_type == "Report"
+	assert pending_rework.is_query_report == 1
+
+
+def test_pending_rework_workspace_link_uses_query_report_route() -> None:
+	workspace = json.loads(WORKSPACE_JSON.read_text())
+	pending_rework = next(row for row in workspace["links"] if row["label"] == "Pending Rework")
+	assert pending_rework["link_type"] == "Report"
+	assert pending_rework["is_query_report"] == 1
 
 
 def assert_doctype_json(doctype: str) -> dict:

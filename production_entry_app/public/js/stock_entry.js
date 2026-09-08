@@ -85,16 +85,21 @@ const PRODUCTION_MODE_SCALAR_FIELDS = [
 	"custom_pea_total_rm_consumption",
 ];
 const PRODUCTION_MODE_CLEAR_TABLE_FIELDS = ["custom_pea_rejection_breakup", "items"];
-const REWORK_SCALAR_FIELDS = [
+const REWORK_VISIBLE_SCALAR_FIELDS = [
 	"custom_pea_rework_type",
 	"custom_pea_rework_workstation",
 	"custom_pea_rework_actual_start",
 	"custom_pea_rework_actual_end",
-	"custom_pea_rework_cost",
 ];
+const REWORK_HIDDEN_FIELDS = ["custom_pea_rework_cost"];
+const REWORK_SCALAR_FIELDS = [...REWORK_VISIBLE_SCALAR_FIELDS, ...REWORK_HIDDEN_FIELDS];
 const REWORK_TABLE_FIELDS = ["custom_pea_rework_operators"];
-const REWORK_FIELDS = [...REWORK_SCALAR_FIELDS, ...REWORK_TABLE_FIELDS];
-const REWORK_LAYOUT_FIELDS = ["custom_pea_rework_details_section", ...REWORK_FIELDS];
+const REWORK_FIELDS = [...REWORK_VISIBLE_SCALAR_FIELDS, ...REWORK_TABLE_FIELDS];
+const REWORK_LAYOUT_FIELDS = [
+	"custom_pea_rework_details_section",
+	...REWORK_FIELDS,
+	...REWORK_HIDDEN_FIELDS,
+];
 let _dieToolRequestId = 0;
 let _shiftDetailsRequestId = 0;
 let _jointStockEntryTypeRequestId = 0;
@@ -596,6 +601,8 @@ function _sync_rework_mode_from_stock_entry_type(frm, { previousStockEntryType =
 		}
 		frm.refresh_fields?.(REWORK_LAYOUT_FIELDS);
 		frm.toggle_display(REWORK_FIELDS, isReworkType);
+		frm.toggle_display(REWORK_HIDDEN_FIELDS, false);
+		frm.set_df_property?.("custom_pea_rework_cost", "hidden", 1);
 		frm.toggle_display("custom_pea_shift", !isReworkType && _is_production_doc(frm.doc));
 		if (isReworkType) {
 			if (frm.doc.custom_pea_shift) {
@@ -1545,6 +1552,7 @@ if (typeof module !== "undefined" && module.exports) {
 		_sync_rework_mode_from_stock_entry_type,
 		_schedule_rework_workstation_default,
 		REWORK_FIELDS,
+		REWORK_HIDDEN_FIELDS,
 		_extract_error_detail,
 		_initialize_total_strokes_default_state,
 		_default_total_strokes_from_fg,

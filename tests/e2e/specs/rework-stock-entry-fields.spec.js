@@ -71,6 +71,11 @@ test.describe("Rework fields on Stock Entry", () => {
 									?.get_field?.("custom_pea_rework_operators")
 									?.$wrapper?.is(":visible")
 							),
+							reworkCostVisible: Boolean(
+								frm
+									?.get_field?.("custom_pea_rework_cost")
+									?.$wrapper?.is(":visible")
+							),
 						};
 					});
 				})
@@ -80,6 +85,7 @@ test.describe("Rework fields on Stock Entry", () => {
 					reworkTypeVisible: true,
 					workstationVisible: true,
 					operatorsVisible: true,
+					reworkCostVisible: false,
 				});
 			await expect(page.locator(".modal.show")).toHaveCount(0);
 
@@ -114,6 +120,9 @@ test.describe("Rework fields on Stock Entry", () => {
 						column.wrapper
 							.children("form")
 							.children(".frappe-control")
+							.filter(
+								(_index, control) => !control.classList.contains("hide-control")
+							)
 							.map((_index, control) => control.dataset.fieldname)
 							.get()
 					),
@@ -141,8 +150,10 @@ test.describe("Rework fields on Stock Entry", () => {
 							"custom_pea_rework_actual_end",
 							"custom_pea_rework_workstation",
 							"custom_pea_rework_operators",
-							"custom_pea_rework_cost",
 						].map((fieldname) => [fieldname, placement(fieldname)])
+					),
+					reworkCostVisible: Boolean(
+						frm?.get_field?.("custom_pea_rework_cost")?.$wrapper?.is(":visible")
 					),
 				};
 			});
@@ -156,12 +167,9 @@ test.describe("Rework fields on Stock Entry", () => {
 					"custom_pea_rework_actual_start",
 					"custom_pea_rework_actual_end",
 				],
-				[
-					"custom_pea_rework_workstation",
-					"custom_pea_rework_operators",
-					"custom_pea_rework_cost",
-				],
+				["custom_pea_rework_workstation", "custom_pea_rework_operators"],
 			]);
+			expect(layout.reworkCostVisible).toBe(false);
 			expect(layout.nextNativeField.fieldname).toBeTruthy();
 			expect(layout.nextNativeField.section).not.toBe("custom_pea_rework_details_section");
 			const leftColumn = layout.placements.custom_pea_rework_type.column;
@@ -182,7 +190,6 @@ test.describe("Rework fields on Stock Entry", () => {
 			for (const fieldname of [
 				"custom_pea_rework_workstation",
 				"custom_pea_rework_operators",
-				"custom_pea_rework_cost",
 			]) {
 				expect(layout.placements[fieldname]).toEqual({
 					section: "custom_pea_rework_details_section",
@@ -257,6 +264,7 @@ test.describe("Rework fields on Stock Entry", () => {
 				context.workstation
 			);
 			expect(await stockEntryPage.isFieldVisible("custom_pea_rework_operators")).toBe(true);
+			expect(await stockEntryPage.isFieldVisible("custom_pea_rework_cost")).toBe(false);
 			expect(await stockEntryPage.isFieldVisible("custom_pea_shift")).toBe(false);
 
 			await page.evaluate((operator) => {
