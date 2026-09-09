@@ -99,3 +99,11 @@ production consumes from WIP, not directly from the Raw Material Warehouse.
 
 The trade-off is explicit branch setup instead of a convenient but unsafe global fallback. Small, indexed
 settings lookups are resolved per request, avoiding stale cached defaults and historical data rewrites.
+
+## Native integration boundary
+
+The app runs on the native Stock Entry lifecycle and deviates from Frappe and ERPNext behaviour only at the
+seams recorded in ADR 0003: the client form (Fetch Items replaces Get Items, BOM fields only for Manufacture,
+mode switches clear rows), app-materialised joint rows with BOM-weighted manual valuation, Stock Entry Type
+flags with one shipped joint type, rework hooks with Item-row locking, and Company/Branch warehouse defaults
+for direct Manufacture and joint Fetch Items.
