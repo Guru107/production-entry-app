@@ -462,6 +462,9 @@ Draft ──start_shift()──► Running ──end_shift()──► Completed
 
 All transitions go through `_transition_status()` which sets `flags.allow_status_change = True`.
 `_validate_status()` rejects any direct field edit. Every transition writes an audit comment.
+Completed is terminal for status, but a Completed shift still accepts one field edit: a larger
+`shift_duration`, validated against overlapping non-cancelled shifts in the same company, branch and
+department (`_validate_completed_shift_edits`, `_validate_no_overlapping_shifts`).
 
 ### Stock Entry Hooks (`stock_entry_hooks.py`)
 

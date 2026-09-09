@@ -45,6 +45,12 @@ An inclusive From Date and To Date that selects Completed Shifts by Production D
 submitted Production Entries. Entries without a Shift and entries belonging to non-Completed Shifts are excluded.
 _Avoid_: Posting-date range, entry-date range
 
+**Shift Duration Extension**:
+The only edit a Completed Shift accepts: a larger `shift_duration`. Nothing else may change, the duration
+may not shrink, Planned Losses are regenerated for the longer window, and the new window must not overlap
+another non-cancelled Shift of the same Company, Branch and Department. Status stays Completed.
+_Avoid_: Reopening a shift, editing a completed shift
+
 **Rework Operation**:
 A native Material Transfer Stock Entry, using the configured rework Stock Entry Type, that moves successfully
 reworked quantity from the Rejection Warehouse to the good warehouse and loads its labour cost onto that stock

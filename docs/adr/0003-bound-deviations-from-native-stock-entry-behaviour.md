@@ -16,8 +16,15 @@ authoritative for their topics; this record covers the remaining seams.
   which add the rejection row and route rejection and scrap to configured warehouses before rows reach
   the form. The native BOM fields (`from_bom`, `bom_no`, `use_multi_level_bom`, `fg_completed_qty`) and
   BOM section are shown only for Manufacture, multi-level BOM stays unchecked, and the native process-loss
-  fields are hidden. Plain Repack, Material Transfer for Manufacture and Material Issue therefore have no
-  BOM fetch on this site; production entries are single-level BOM stamping operations.
+  fields are hidden. A BOM describes what Manufacture consumes and produces; for every other purpose the
+  section is hidden to keep the form simple, and ERPNext 16 itself no longer offers it for Material
+  Transfer. The native toolbar action Get Items From > Bill of Materials (`show_bom_custom_button`, offered
+  for Material Issue, Material Receipt, Material Transfer and Send to Subcontractor) is not removed, so a
+  BOM-quantity issue or transfer with explicit warehouses stays available natively; its dialog can fetch an
+  exploded BOM, so the single-level rule applies to the header BOM fields only. Material Transfer for
+  Manufacture and Material Consumption for Manufacture entries have no in-form fetch; they are created from
+  the Work Order, which fills their rows server-side. Production entries are single-level BOM stamping
+  operations.
 - Switching the Stock Entry Type between the joint type and any other type clears the BOM-derived header
   fields and the Items table. Native handlers never clear rows; the app does because rows fetched in one
   mode are invalid in the other and must be fetched again.
@@ -25,7 +32,10 @@ authoritative for their topics; this record covers the remaining seams.
   `doc.__pea_rework_stock_entry_type`, resolved by an async lookup after the form loads. Visibility and
   client mandatory rules are form-only. Server validation (`_validate_joint_header`,
   `_validate_rework_fields`) is authoritative, and print formats or report views do not evaluate the
-  markers.
+  markers. The lookups use permission-aware `frappe.get_list` on purpose, as any whitelisted API should.
+  A user who can create Stock Entries but cannot read Stock Entry Type (natively only a user holding
+  Manufacturing User alone, who cannot search the type link either) sees the app's error dialog rather
+  than a silent fallback.
 
 ## Joint Production rows and valuation
 
@@ -54,7 +64,10 @@ authoritative for their topics; this record covers the remaining seams.
   from the type alone (CONTEXT.md "Joint Production").
 - The app ships the canonical type "Joint LH RH Production" as a fixture. Frappe fixture import deletes
   and re-inserts the record with validation on during every migrate, so edits to the shipped record are
-  reset by migrate and flagging a second type makes migrate fail.
+  reset by migrate and flagging a second type makes migrate fail. Exactly one joint type per site, under
+  the app-chosen name, is the design intent: operators must never choose between equivalent types for one
+  use case. How that uniqueness is enforced is an implementation detail that may change without changing
+  this decision.
 
 ## Rework hooks and pool locking
 
@@ -105,5 +118,6 @@ authoritative for their topics; this record covers the remaining seams.
   second one, and a site that wants another name changes the fixture, not the record.
 - Rework submits contend on Item rows and on the flagged Stock Entry Type row; high rework volume across
   many items still serialises.
-- Native BOM fetch is unavailable for non-Manufacture purposes on this site by design.
+- The BOM section is unavailable for non-Manufacture purposes by design; the native toolbar Bill of
+  Materials fetch remains for Material Issue, Material Receipt, Material Transfer and Send to Subcontractor.
 - Client-only visibility markers mean print formats and report views show app fields regardless of type.
