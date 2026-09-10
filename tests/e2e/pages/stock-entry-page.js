@@ -187,7 +187,7 @@ class StockEntryPage {
 
 	async fillManufactureEntry(ctx) {
 		await setFieldValue(this.page, "stock_entry_type", "Manufacture");
-		await setFieldValue(this.page, "custom_pea_stock_entry_purpose", "Manufacture");
+		await this.waitForFieldValue("custom_stock_entry_purpose", "Manufacture");
 		await setFieldValue(this.page, "company", ctx.company);
 		await this.setPostingDate(ctx.shift_date);
 		await setFieldValue(this.page, "from_bom", 1);
@@ -217,7 +217,7 @@ class StockEntryPage {
 		} = options;
 
 		await setFieldValue(this.page, "stock_entry_type", "Manufacture");
-		await setFieldValue(this.page, "custom_pea_stock_entry_purpose", "Manufacture");
+		await this.waitForFieldValue("custom_stock_entry_purpose", "Manufacture");
 		await setFieldValue(this.page, "company", ctx.company);
 		await this.setPostingDate(options.postingDate || ctx.shift_date);
 		await setFieldValue(this.page, "from_bom", 1);
@@ -382,7 +382,7 @@ class StockEntryPage {
 			const doc = window.cur_frm?.doc || {};
 			return (
 				doc.stock_entry_type === expectedType &&
-				doc.custom_pea_stock_entry_purpose === "Repack" &&
+				doc.custom_stock_entry_purpose === "Repack" &&
 				doc.__pea_joint_stock_entry_type === expectedType
 			);
 		}, stockEntryType);

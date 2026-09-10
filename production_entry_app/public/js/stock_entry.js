@@ -196,7 +196,7 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 			_set_prev_stock_entry_type(frm);
 			_hide_native_get_items(frm);
 			_apply_native_manufacture_visibility(frm);
-			// custom_pea_stock_entry_purpose is fetched via fetch_from and will re-trigger visibility.
+			// custom_stock_entry_purpose is fetched via fetch_from and will re-trigger visibility.
 			_apply_manufacture_visibility(frm);
 			_sync_stock_entry_helper_fields(frm);
 			_setup_stock_entry_quick_entry(frm);
@@ -207,7 +207,7 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 		branch(frm) {
 			_schedule_rework_source_warehouse(frm);
 		},
-		custom_pea_stock_entry_purpose(frm) {
+		custom_stock_entry_purpose(frm) {
 			_hide_native_get_items(frm);
 			_apply_native_manufacture_visibility(frm);
 			_clear_manufacture_data_on_leave(frm);
@@ -516,9 +516,7 @@ function _position_rejection_breakup_section(frm) {
 }
 
 function _set_prev_purpose(frm) {
-	frm.__pea_prev_stock_entry_purpose = _normalize_purpose(
-		frm.doc?.custom_pea_stock_entry_purpose
-	);
+	frm.__pea_prev_stock_entry_purpose = _normalize_purpose(frm.doc?.custom_stock_entry_purpose);
 }
 
 function _set_prev_stock_entry_type(frm) {
@@ -534,7 +532,7 @@ function _did_leave_manufacture(previousPurpose, currentPurpose) {
 
 function _clear_manufacture_data_on_leave(frm) {
 	const previousPurpose = frm.__pea_prev_stock_entry_purpose;
-	const currentPurpose = frm.doc?.custom_pea_stock_entry_purpose;
+	const currentPurpose = frm.doc?.custom_stock_entry_purpose;
 	if (!_did_leave_manufacture(previousPurpose, currentPurpose) || _is_joint_doc(frm.doc)) {
 		return;
 	}
@@ -999,7 +997,7 @@ function _expand_sections(frm, sectionFieldnames) {
 }
 
 function _is_manufacture_doc(doc) {
-	return _normalize_purpose(doc?.custom_pea_stock_entry_purpose) === "Manufacture";
+	return _normalize_purpose(doc?.custom_stock_entry_purpose) === "Manufacture";
 }
 
 function _is_joint_doc(doc) {

@@ -354,7 +354,7 @@ test("Stock Entry page waits for the joint Stock Entry Type marker before contin
 					cur_frm: {
 						doc: {
 							stock_entry_type: argument,
-							custom_pea_stock_entry_purpose: "Repack",
+							custom_stock_entry_purpose: "Repack",
 							__pea_joint_stock_entry_type: argument,
 						},
 					},

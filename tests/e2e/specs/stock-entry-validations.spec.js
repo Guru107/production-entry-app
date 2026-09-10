@@ -76,13 +76,13 @@ test.describe("Stock Entry validation matrix", () => {
 			fgQty: 100,
 			rejectionQty: 0,
 		});
-		await stockEntryPage.waitForFieldValue("custom_pea_stock_entry_purpose", "Manufacture");
+		await stockEntryPage.waitForFieldValue("custom_stock_entry_purpose", "Manufacture");
 		const values = await stockEntryPage.getFieldValues([
 			"stock_entry_type",
-			"custom_pea_stock_entry_purpose",
+			"custom_stock_entry_purpose",
 		]);
 		expect(values.stock_entry_type).toBe("Manufacture");
-		expect(values.custom_pea_stock_entry_purpose).toBe("Manufacture");
+		expect(values.custom_stock_entry_purpose).toBe("Manufacture");
 	});
 
 	test("@regression manufacture sections are visible for manufacture stock entry type", async ({
@@ -113,13 +113,10 @@ test.describe("Stock Entry validation matrix", () => {
 		const stockEntryPage = new StockEntryPage(page);
 		await stockEntryPage.openNew();
 		await setFieldValue(page, "stock_entry_type", "Material Transfer");
-		await stockEntryPage.waitForFieldValue(
-			"custom_pea_stock_entry_purpose",
-			"Material Transfer"
-		);
+		await stockEntryPage.waitForFieldValue("custom_stock_entry_purpose", "Material Transfer");
 
-		const values = await stockEntryPage.getFieldValues(["custom_pea_stock_entry_purpose"]);
-		expect(values.custom_pea_stock_entry_purpose).toBe("Material Transfer");
+		const values = await stockEntryPage.getFieldValues(["custom_stock_entry_purpose"]);
+		expect(values.custom_stock_entry_purpose).toBe("Material Transfer");
 		expect(await stockEntryPage.isSectionVisible("bom_info_section")).toBe(false);
 		expect(await stockEntryPage.isSectionVisible("section_break_7qsm")).toBe(false);
 		expect(await stockEntryPage.isSectionVisible("custom_pea_operation_details_section")).toBe(
@@ -245,10 +242,7 @@ test.describe("Stock Entry validation matrix", () => {
 		});
 
 		await setFieldValue(page, "stock_entry_type", "Material Transfer");
-		await stockEntryPage.waitForFieldValue(
-			"custom_pea_stock_entry_purpose",
-			"Material Transfer"
-		);
+		await stockEntryPage.waitForFieldValue("custom_stock_entry_purpose", "Material Transfer");
 
 		const state = await page.evaluate(() => {
 			const doc = window.cur_frm?.doc || {};

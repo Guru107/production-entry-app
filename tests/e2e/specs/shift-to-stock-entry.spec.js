@@ -173,7 +173,7 @@ test.describe("Shift to Stock Entry integration", () => {
 		await expect(page.locator('[data-fieldname="custom_pea_is_joint_lh_rh"]')).toHaveCount(0);
 		await setFieldValue(page, "stock_entry_type", jointType);
 		await stockEntryPage.waitForFieldValue("stock_entry_type", jointType);
-		await stockEntryPage.waitForFieldValue("custom_pea_stock_entry_purpose", "Repack");
+		await stockEntryPage.waitForFieldValue("custom_stock_entry_purpose", "Repack");
 		await stockEntryPage.waitForJointMode(jointType);
 
 		const afterJoint = await stockEntryPage.getFieldValues([
@@ -255,7 +255,7 @@ test.describe("Shift to Stock Entry integration", () => {
 		const stockEntryPage = new StockEntryPage(page);
 		await stockEntryPage.openNew();
 		await setFieldValue(page, "stock_entry_type", "Manufacture");
-		await stockEntryPage.waitForFieldValue("custom_pea_stock_entry_purpose", "Manufacture");
+		await stockEntryPage.waitForFieldValue("custom_stock_entry_purpose", "Manufacture");
 		await stockEntryPage.setShift(ctx.shift_name);
 		await stockEntryPage.waitForShiftAutoFill({
 			branch: shift.branch || null,
@@ -286,7 +286,7 @@ test.describe("Shift to Stock Entry integration", () => {
 		const stockEntryPage = new StockEntryPage(page);
 		await stockEntryPage.openNew();
 		await setFieldValue(page, "stock_entry_type", "Manufacture");
-		await stockEntryPage.waitForFieldValue("custom_pea_stock_entry_purpose", "Manufacture");
+		await stockEntryPage.waitForFieldValue("custom_stock_entry_purpose", "Manufacture");
 		await stockEntryPage.setShift(ctx.shift_name);
 		await stockEntryPage.waitForShiftAutoFill({
 			plannedStartIncludes: `${ctx.shift_date} 08:00:00`,

@@ -156,6 +156,7 @@ def test_canonical_joint_lh_rh_stock_entry_type_fixture_is_registered_for_instal
 
 def test_rework_stock_entry_metadata_is_exported() -> None:
 	fields_by_name = {field.get("name"): field for field in load_custom_field_fixture() if field.get("name")}
+	assert "Stock Entry-custom_stock_entry_purpose" not in fields_by_name
 	rework_fields = {
 		"Stock Entry-custom_pea_rework_type": ("Link", "Rework Type"),
 		"Stock Entry-custom_pea_rework_workstation": ("Link", "Workstation"),
@@ -177,7 +178,7 @@ def test_rework_stock_entry_metadata_is_exported() -> None:
 	assert fields_by_name["Stock Entry-custom_pea_rework_cost"].get("non_negative") == 1
 	assert fields_by_name["Stock Entry-custom_pea_rework_cost"].get("hidden") == 1
 	assert fields_by_name["Stock Entry-custom_pea_shift"].get("depends_on") == (
-		"eval:doc.custom_pea_stock_entry_purpose=='Manufacture' || "
+		"eval:doc.custom_stock_entry_purpose=='Manufacture' || "
 		"(doc.__pea_joint_stock_entry_type && doc.stock_entry_type==doc.__pea_joint_stock_entry_type)"
 	)
 
@@ -205,7 +206,7 @@ def test_rework_fields_have_a_dedicated_two_column_section() -> None:
 
 	rework_condition = field("custom_pea_rework_type")["depends_on"]
 
-	assert field("custom_pea_shift")["insert_after"] == "custom_pea_stock_entry_purpose"
+	assert field("custom_pea_shift")["insert_after"] == "custom_stock_entry_purpose"
 	assert field("custom_pea_rework_details_section") == {
 		"doctype": "Custom Field",
 		"name": "Stock Entry-custom_pea_rework_details_section",
@@ -251,6 +252,7 @@ def test_metadata_load_tests_includes_rework_layout_contract() -> None:
 	loaded_functions = {test_case._testFunc for test_case in suite}
 
 	assert test_rework_fields_have_a_dedicated_two_column_section in loaded_functions
+	assert test_production_stock_entry_purpose_metadata_is_available in loaded_functions
 
 
 def test_settings_has_no_access_control_fields() -> None:
@@ -304,6 +306,18 @@ def test_pea_roles_are_shipped() -> None:
 		assert row["role_name"] == row["name"]
 	assert frappe.db.exists("Role", "PEA User")
 	assert frappe.db.exists("Role", "PEA Read Only")
+
+
+def test_production_stock_entry_purpose_metadata_is_available() -> None:
+	import frappe
+
+	field = frappe.get_doc("Custom Field", "Stock Entry-custom_stock_entry_purpose")
+
+	assert field.dt == "Stock Entry"
+	assert field.fieldname == "custom_stock_entry_purpose"
+	assert field.fieldtype == "Data"
+	assert field.fetch_from == "stock_entry_type.purpose"
+	assert field.read_only == 1
 
 
 def test_workspace_has_forms_and_reports_cards() -> None:
@@ -361,6 +375,7 @@ def load_tests(
 			test_metadata_load_tests_includes_rework_layout_contract,
 			test_settings_has_no_access_control_fields,
 			test_pea_roles_are_shipped,
+			test_production_stock_entry_purpose_metadata_is_available,
 			test_workspace_has_forms_and_reports_cards,
 		)
 	)

@@ -25,7 +25,7 @@ async function enableJointProduction(page, form, stockEntryType) {
 	await expect(page.locator('[data-fieldname="custom_pea_is_joint_lh_rh"]')).toHaveCount(0);
 	await setFieldValue(page, "stock_entry_type", stockEntryType);
 	await form.waitForFieldValue("stock_entry_type", stockEntryType);
-	await form.waitForFieldValue("custom_pea_stock_entry_purpose", "Repack");
+	await form.waitForFieldValue("custom_stock_entry_purpose", "Repack");
 	await form.waitForJointMode(stockEntryType);
 }
 
@@ -144,7 +144,7 @@ test.describe("Joint LH/RH production form", () => {
 		await form.fetchItems();
 
 		await setFieldValue(page, "stock_entry_type", "Manufacture");
-		await form.waitForFieldValue("custom_pea_stock_entry_purpose", "Manufacture");
+		await form.waitForFieldValue("custom_stock_entry_purpose", "Manufacture");
 
 		const manufactureState = await form.getFieldValues([
 			"custom_pea_shift",
@@ -172,7 +172,7 @@ test.describe("Joint LH/RH production form", () => {
 		await setFieldValue(page, "fg_completed_qty", 100);
 		await setFieldValue(page, "custom_pea_rejection_qty", 2);
 		await setFieldValue(page, "stock_entry_type", stockEntryType);
-		await form.waitForFieldValue("custom_pea_stock_entry_purpose", "Repack");
+		await form.waitForFieldValue("custom_stock_entry_purpose", "Repack");
 
 		const jointState = await form.getFieldValues([
 			"custom_pea_shift",

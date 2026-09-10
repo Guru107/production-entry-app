@@ -43,7 +43,7 @@ function makeSavedJointStockEntryForm(options = {}) {
 		layout: { sections: [] },
 		doc: {
 			stock_entry_type: "Joint LH RH Production",
-			custom_pea_stock_entry_purpose: "Repack",
+			custom_stock_entry_purpose: "Repack",
 			custom_pea_lh_bom: "BOM-LH",
 			custom_pea_lh_gross_qty: 40,
 			custom_pea_lh_rejection_qty: 1,
@@ -701,7 +701,7 @@ test("Stock Entry refresh restores Rework classification stripped by draft save"
 	const frm = {
 		doc: {
 			stock_entry_type: "Rework Material Transfer",
-			custom_pea_stock_entry_purpose: "Material Transfer",
+			custom_stock_entry_purpose: "Material Transfer",
 			custom_pea_rework_type: "",
 			custom_pea_rework_operators: [],
 			items: [],
@@ -1184,7 +1184,7 @@ test("manufacture strokes follow quantity until the operator edits them", async 
 	const frm = {
 		doc: {
 			__islocal: 1,
-			custom_pea_stock_entry_purpose: "Manufacture",
+			custom_stock_entry_purpose: "Manufacture",
 			fg_completed_qty: 100,
 			custom_pea_total_strokes: 0,
 		},
@@ -1211,7 +1211,7 @@ test("saved manufacture strokes keep following quantity only while auto-derived"
 	const makeForm = (totalStrokes) => ({
 		doc: {
 			__islocal: 0,
-			custom_pea_stock_entry_purpose: "Manufacture",
+			custom_stock_entry_purpose: "Manufacture",
 			fg_completed_qty: 100,
 			custom_pea_total_strokes: totalStrokes,
 		},
@@ -1320,15 +1320,15 @@ test("error extraction ignores server message objects without text", () => {
 	assert.equal(detail, "");
 });
 
-test("manufacture decision uses custom_pea_stock_entry_purpose only", () => {
-	assert.equal(_is_manufacture_doc({ custom_pea_stock_entry_purpose: "Manufacture" }), true);
+test("manufacture decision uses production-owned custom_stock_entry_purpose only", () => {
+	assert.equal(_is_manufacture_doc({ custom_stock_entry_purpose: "Manufacture" }), true);
 	assert.equal(
-		_is_manufacture_doc({ custom_pea_stock_entry_purpose: "", purpose: "Manufacture" }),
+		_is_manufacture_doc({ custom_stock_entry_purpose: "", purpose: "Manufacture" }),
 		false
 	);
 	assert.equal(
 		_is_manufacture_doc({
-			custom_pea_stock_entry_purpose: "Material Transfer",
+			custom_stock_entry_purpose: "Material Transfer",
 			purpose: "Manufacture",
 		}),
 		false
@@ -1337,7 +1337,7 @@ test("manufacture decision uses custom_pea_stock_entry_purpose only", () => {
 
 test("joint LH/RH Repack uses the common production form without native BOM fields", () => {
 	const doc = {
-		custom_pea_stock_entry_purpose: "Repack",
+		custom_stock_entry_purpose: "Repack",
 		stock_entry_type: "Joint LH RH Production",
 		__pea_joint_stock_entry_type: "Joint LH RH Production",
 	};
@@ -1457,7 +1457,7 @@ test("manually selecting the joint Stock Entry Type enters joint production and 
 		layout: { sections: [] },
 		doc: {
 			stock_entry_type: "Joint LH RH Production",
-			custom_pea_stock_entry_purpose: "Repack",
+			custom_stock_entry_purpose: "Repack",
 			custom_pea_shift: "SHIFT-001",
 			from_bom: 1,
 			bom_no: "BOM-NORMAL",
@@ -1614,7 +1614,7 @@ test("joint type lookup defers manufacture cleanup so common Shift context survi
 		layout: { sections: [] },
 		doc: {
 			stock_entry_type: "Joint LH RH Production",
-			custom_pea_stock_entry_purpose: "Repack",
+			custom_stock_entry_purpose: "Repack",
 			custom_pea_shift: "SHIFT-001",
 			custom_pea_actual_start_date: "2026-08-28 08:00:00",
 			custom_pea_workstation: "PRESS-001",
@@ -1676,7 +1676,7 @@ test("passive joint type discovery asks quietly and stays non-joint when nothing
 		layout: { sections: [] },
 		doc: {
 			stock_entry_type: "Manufacture",
-			custom_pea_stock_entry_purpose: "Manufacture",
+			custom_stock_entry_purpose: "Manufacture",
 			items: [],
 		},
 		get_field() {
@@ -1718,7 +1718,7 @@ test("native manufacture fields hide for non-manufacture without app access", ()
 	const calls = [];
 	const frm = {
 		doc: {
-			custom_pea_stock_entry_purpose: "Material Transfer",
+			custom_stock_entry_purpose: "Material Transfer",
 		},
 		toggle_display(fieldnames, visible) {
 			calls.push([fieldnames, visible]);
@@ -1749,7 +1749,7 @@ test("stock entry PEA sections are metadata-gated to manufacture or joint produc
 
 	for (const fieldname of sectionFieldnames) {
 		const dependsOn = byFieldname[fieldname]?.depends_on || "";
-		assert.match(dependsOn, /custom_pea_stock_entry_purpose/);
+		assert.match(dependsOn, /custom_stock_entry_purpose/);
 		assert.match(dependsOn, /Manufacture/);
 		assert.match(dependsOn, /__pea_joint_stock_entry_type/);
 		assert.match(dependsOn, /stock_entry_type/);
@@ -1781,7 +1781,7 @@ test("fg completed qty prototype patch preserves ERPNext fallback for non-manufa
 
 		const controller = new erpnextStub.stock.StockEntry();
 		controller.frm = {
-			doc: { custom_pea_stock_entry_purpose: "Material Transfer", from_bom: 1 },
+			doc: { custom_stock_entry_purpose: "Material Transfer", from_bom: 1 },
 		};
 
 		assert.equal(controller.fg_completed_qty(), "native-result");
@@ -1961,7 +1961,7 @@ test("fetch items response refreshes form so ERPNext can add alternate item butt
 	};
 	const frm = {
 		doc: {
-			custom_pea_stock_entry_purpose: "Manufacture",
+			custom_stock_entry_purpose: "Manufacture",
 			custom_pea_rejection_qty: 0,
 			items: [{ item_code: "STALE" }],
 		},
@@ -2011,7 +2011,7 @@ test("fetch items response refreshes form so ERPNext can add alternate item butt
 test("native get_items remains hidden for non-manufacture documents", () => {
 	const calls = [];
 	const frm = {
-		doc: { custom_pea_stock_entry_purpose: "Material Transfer" },
+		doc: { custom_stock_entry_purpose: "Material Transfer" },
 		toggle_display(fieldname, visible) {
 			calls.push(["toggle_display", fieldname, visible]);
 		},
@@ -2031,7 +2031,7 @@ test("native get_items remains hidden for non-manufacture documents", () => {
 test("native get_items stays hidden for manufacture documents until explicitly shown elsewhere", () => {
 	const calls = [];
 	const frm = {
-		doc: { custom_pea_stock_entry_purpose: "Manufacture" },
+		doc: { custom_stock_entry_purpose: "Manufacture" },
 		toggle_display(fieldname, visible) {
 			calls.push(["toggle_display", fieldname, visible]);
 		},
