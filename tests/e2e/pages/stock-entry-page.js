@@ -251,6 +251,8 @@ class StockEntryPage {
 	}
 
 	async fillJointProductionFields(ctx, options = {}) {
+		await setFieldValue(this.page, "custom_pea_operation", ctx.joint_operation);
+		await this.waitForFieldValue("custom_pea_operation", ctx.joint_operation);
 		await setFieldValue(this.page, "custom_pea_lh_bom", ctx.joint_lh_bom);
 		await setFieldValue(this.page, "custom_pea_lh_gross_qty", options.lhGrossQty ?? 40);
 		await setFieldValue(this.page, "custom_pea_lh_rejection_qty", options.lhRejectionQty ?? 0);
@@ -481,6 +483,38 @@ class StockEntryPage {
 					});
 				});
 			}, text);
+		});
+	}
+
+	async searchJointBomLinkResults(fieldname, text) {
+		return await retryOnContextDestroyed(this.page, async () => {
+			await this.page.waitForFunction(
+				(name) => typeof window.cur_frm?.fields_dict?.[name]?.get_query === "function",
+				fieldname
+			);
+			return await this.page.evaluate(
+				async ({ name, searchText }) => {
+					const query = window.cur_frm?.fields_dict?.[name]?.get_query?.() || {};
+					return await new Promise((resolve, reject) => {
+						frappe.call({
+							method: "frappe.desk.search.search_link",
+							args: {
+								doctype: "BOM",
+								txt: searchText,
+								page_length: 20,
+								query: query.query,
+								filters: query.filters || {},
+							},
+							callback: (r) => resolve(r.message || []),
+							error: (err) =>
+								reject(
+									new Error(err?.message || "Failed to search BOM link options.")
+								),
+						});
+					});
+				},
+				{ name: fieldname, searchText: text }
+			);
 		});
 	}
 

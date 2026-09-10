@@ -43,7 +43,7 @@ const PEA_MANUFACTURE_FIELDS = [
 ];
 
 const NORMAL_ONLY_PEA_FIELDS = ["custom_pea_rejection_qty", "custom_pea_rework_qty"];
-const JOINT_ONLY_PEA_FIELDS = ["custom_pea_joint_fetch_items"];
+const JOINT_ONLY_PEA_FIELDS = ["custom_pea_operation", "custom_pea_joint_fetch_items"];
 
 const MANUFACTURE_FIELDS = [...NATIVE_MANUFACTURE_FIELDS, ...PEA_MANUFACTURE_FIELDS];
 
@@ -66,14 +66,7 @@ const MANUFACTURE_CLEAR_TABLE_FIELDS = [
 	"custom_pea_rejection_breakup",
 	"items",
 ];
-const PRODUCTION_MODE_SCALAR_FIELDS = [
-	"from_bom",
-	"bom_no",
-	"use_multi_level_bom",
-	"fg_completed_qty",
-	"custom_pea_rejection_qty",
-	"custom_pea_ok_qty",
-	"custom_pea_rework_qty",
+const JOINT_PRODUCTION_SCALAR_FIELDS = [
 	"custom_pea_lh_bom",
 	"custom_pea_lh_gross_qty",
 	"custom_pea_lh_rejection_qty",
@@ -84,6 +77,18 @@ const PRODUCTION_MODE_SCALAR_FIELDS = [
 	"custom_pea_die_tool_item",
 	"custom_pea_total_rm_consumption",
 ];
+const PRODUCTION_MODE_SCALAR_FIELDS = [
+	"from_bom",
+	"bom_no",
+	"use_multi_level_bom",
+	"fg_completed_qty",
+	"custom_pea_rejection_qty",
+	"custom_pea_ok_qty",
+	"custom_pea_rework_qty",
+	"custom_pea_operation",
+	...JOINT_PRODUCTION_SCALAR_FIELDS,
+];
+const JOINT_OPERATION_DEPENDENT_FIELDS = JOINT_PRODUCTION_SCALAR_FIELDS;
 const PRODUCTION_MODE_CLEAR_TABLE_FIELDS = ["custom_pea_rejection_breakup", "items"];
 const REWORK_VISIBLE_SCALAR_FIELDS = [
 	"custom_pea_rework_type",
@@ -175,9 +180,7 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 			});
 			for (const fieldname of ["custom_pea_lh_bom", "custom_pea_rh_bom"]) {
 				frm.set_query(fieldname, function () {
-					return {
-						filters: { docstatus: 1, is_active: 1, company: frm.doc.company },
-					};
+					return _get_joint_bom_query(frm);
 				});
 			}
 
@@ -226,6 +229,10 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 		custom_pea_rh_bom(frm) {
 			_schedule_joint_rm_consumption(frm);
 			_refresh_joint_rejection_items(frm, "RH");
+		},
+		custom_pea_operation(frm) {
+			_clear_joint_operation_dependents(frm);
+			_apply_manufacture_visibility(frm);
 		},
 		custom_pea_lh_gross_qty(frm) {
 			_schedule_joint_rm_consumption(frm);
@@ -277,6 +284,10 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 			const isJoint = _is_joint_doc(frm.doc);
 			if (!isJoint && !frm.doc.fg_completed_qty) {
 				frappe.msgprint(__("Please set Qty to Manufacture before fetching items."));
+				return;
+			}
+			if (isJoint && !String(frm.doc.custom_pea_operation || "").trim()) {
+				frappe.msgprint(__("Operation is required for joint LH/RH production."));
 				return;
 			}
 			if (isJoint && !frm.doc.custom_pea_lh_bom) {
@@ -484,12 +495,14 @@ function _apply_native_manufacture_visibility(frm) {
 function _apply_manufacture_visibility(frm) {
 	const isManufacture = _is_manufacture_doc(frm.doc);
 	const isProduction = _is_production_doc(frm.doc);
+	const isJoint = _is_joint_doc(frm.doc);
 	_apply_native_manufacture_visibility(frm);
 	// Keep this explicit list in sync with Stock Entry custom manufacture-only fields.
 	frm.toggle_display(PEA_MANUFACTURE_FIELDS, isProduction);
 	frm.toggle_display(PEA_MANUFACTURE_SECTIONS, isProduction);
 	frm.toggle_display(NORMAL_ONLY_PEA_FIELDS, isManufacture);
-	frm.toggle_display(JOINT_ONLY_PEA_FIELDS, _is_joint_doc(frm.doc));
+	frm.toggle_display(JOINT_ONLY_PEA_FIELDS, isJoint);
+	frm.toggle_reqd?.("custom_pea_operation", isJoint);
 	if (isProduction) {
 		_expand_sections(frm, PEA_MANUFACTURE_SECTIONS);
 	}
@@ -521,6 +534,16 @@ function _set_prev_purpose(frm) {
 
 function _set_prev_stock_entry_type(frm) {
 	frm.__pea_prev_stock_entry_type = frm.doc?.stock_entry_type || "";
+}
+
+function _get_joint_bom_query(frm) {
+	return {
+		query: "production_entry_app.production_entry_app.api.search_joint_boms_for_operation",
+		filters: {
+			company: frm.doc?.company || "",
+			operation: String(frm.doc?.custom_pea_operation || "").trim(),
+		},
+	};
 }
 
 function _did_leave_manufacture(previousPurpose, currentPurpose) {
@@ -925,6 +948,37 @@ function _clear_production_mode_data(frm) {
 	}
 	_clear_die_tool_alert(frm);
 	if (changed) {
+		frm.dirty?.();
+	}
+}
+
+function _clear_joint_operation_dependents(frm) {
+	if (!_is_joint_doc(frm.doc)) {
+		return;
+	}
+	_dieToolRequestId++;
+	frm.__peaJointRmRequestId = (frm.__peaJointRmRequestId || 0) + 1;
+	if (frm.__peaJointRmTimer) {
+		clearTimeout(frm.__peaJointRmTimer);
+		frm.__peaJointRmTimer = null;
+	}
+	const refreshFieldnames = new Set();
+	const scalarChanged = _clear_scalar_fields(
+		frm,
+		JOINT_OPERATION_DEPENDENT_FIELDS,
+		refreshFieldnames,
+		{ onlyExisting: true }
+	);
+	const tableChanged = _clear_table_fields(
+		frm,
+		PRODUCTION_MODE_CLEAR_TABLE_FIELDS,
+		refreshFieldnames
+	);
+	if (refreshFieldnames.size > 0) {
+		frm.refresh_fields?.(Array.from(refreshFieldnames));
+	}
+	_clear_die_tool_alert(frm);
+	if (scalarChanged || tableChanged) {
 		frm.dirty?.();
 	}
 }
@@ -1555,6 +1609,7 @@ if (typeof module !== "undefined" && module.exports) {
 		_initialize_total_strokes_default_state,
 		_default_total_strokes_from_fg,
 		_get_rejection_qty_for_visibility,
+		_get_joint_bom_query,
 		_hide_native_get_items,
 	};
 }

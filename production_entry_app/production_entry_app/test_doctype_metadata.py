@@ -93,6 +93,7 @@ def test_joint_lh_rh_production_metadata_is_exported() -> None:
 	fields_by_name = {field.get("name"): field for field in load_custom_field_fixture() if field.get("name")}
 	required_fields = {
 		"Stock Entry Type-custom_pea_joint_lh_rh_production",
+		"Stock Entry-custom_pea_operation",
 		"Stock Entry-custom_pea_lh_bom",
 		"Stock Entry-custom_pea_lh_gross_qty",
 		"Stock Entry-custom_pea_lh_rejection_qty",
@@ -108,6 +109,15 @@ def test_joint_lh_rh_production_metadata_is_exported() -> None:
 	missing_fields = sorted(required_fields.difference(fields_by_name))
 	assert not missing_fields, f"Missing joint-production custom fields: {missing_fields}"
 	assert "Stock Entry-custom_pea_is_joint_lh_rh" not in fields_by_name
+	operation_field = fields_by_name["Stock Entry-custom_pea_operation"]
+	joint_condition = (
+		"eval:(doc.__pea_joint_stock_entry_type && doc.stock_entry_type==doc.__pea_joint_stock_entry_type)"
+	)
+	assert operation_field.get("fieldtype") == "Link"
+	assert operation_field.get("options") == "Operation"
+	assert operation_field.get("insert_after") == "stock_entry_type"
+	assert operation_field.get("depends_on") == joint_condition
+	assert operation_field.get("mandatory_depends_on") == joint_condition
 	total_rm_field = fields_by_name["Stock Entry-custom_pea_total_rm_consumption"]
 	assert total_rm_field.get("read_only") == 1
 	assert not total_rm_field.get("mandatory_depends_on")

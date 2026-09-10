@@ -270,10 +270,16 @@ def build_joint_bom_scrap_row(
 
 def get_joint_bom_scrap_rate(row: Any) -> float:
 	rate = row.get("rate")
-	if rate is not None:
+	if flt(rate, 6):
 		return flt(rate, 6)
 	qty = flt(row.get("stock_qty") or row.get("qty"), 6)
 	return flt(flt(row.get("cost"), 6) / qty, 6) if qty else 0
+
+
+def ensure_operation(operation: str) -> str:
+	if not frappe.db.exists("Operation", operation):
+		frappe.get_doc({"doctype": "Operation", "name": operation}).insert(ignore_permissions=True)
+	return operation
 
 
 def ensure_joint_test_bom(
@@ -285,6 +291,7 @@ def ensure_joint_test_bom(
 	bom_quantity: float = 100,
 	rm_qty: float = 49.125,
 	is_default: bool | None = None,
+	operation: str = "Shearing",
 ) -> str:
 	"""Return a submitted BOM matching the requested quantities and scrap recipe.
 
@@ -293,6 +300,10 @@ def ensure_joint_test_bom(
 	are in Company currency, regardless of the current user's currency default.
 	"""
 	company_currency = frappe.get_cached_value("Company", company, "default_currency")
+	bom_meta = frappe.get_meta("BOM", cached=True)
+	operation_name = operation.strip()
+	if operation_name:
+		ensure_operation(operation_name)
 	for bom_name in frappe.get_all(
 		"BOM",
 		filters={
@@ -303,6 +314,7 @@ def ensure_joint_test_bom(
 			"docstatus": 1,
 		},
 		pluck="name",
+		order_by="creation asc, name asc",
 	):
 		bom = frappe.get_doc("BOM", bom_name)
 		items = list(bom.get("items") or [])
@@ -320,6 +332,10 @@ def ensure_joint_test_bom(
 		if (
 			flt(bom.quantity, 6) == flt(bom_quantity, 6)
 			and (is_default is None or int(bom.is_default or 0) == int(is_default))
+			and (
+				not bom_meta.has_field("custom_operation")
+				or (bom.get("custom_operation") or "").strip() == operation_name
+			)
 			and len(items) == 1
 			and items[0].get("item_code") == rm_item
 			and flt(items[0].get("stock_qty") or items[0].get("qty"), 6) == flt(rm_qty, 6)
@@ -338,6 +354,8 @@ def ensure_joint_test_bom(
 		"is_active": 1,
 		"items": [{"item_code": rm_item, "qty": rm_qty, "rate": 50}],
 	}
+	if bom_meta.has_field("custom_operation"):
+		values["custom_operation"] = operation_name
 	if frappe.get_meta("BOM", cached=True).has_field("secondary_items"):
 		secondary_item_meta = frappe.get_meta("BOM Secondary Item", cached=True)
 		values["secondary_items"] = [

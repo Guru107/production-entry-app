@@ -10,7 +10,7 @@ import frappe
 from frappe import _
 from frappe.model.base_document import BaseDocument
 from frappe.model.document import Document
-from frappe.utils import flt
+from frappe.utils import cstr, flt
 
 from production_entry_app.production_entry_app.doctype.rejection_breakup.rejection_breakup import (
 	validate_rejection_breakup_row,
@@ -225,8 +225,9 @@ def _set_scrap_row_classification(row: dict[str, Any]) -> None:
 
 def _build_joint_production_plan(doc: Document) -> JointProductionPlan:
 	_validate_joint_header(doc)
-	lh_bom = _get_joint_bom_details(doc.get("custom_pea_lh_bom"))
-	rh_bom = _get_joint_bom_details(doc.get("custom_pea_rh_bom"))
+	operation = _get_joint_operation(doc)
+	lh_bom = _get_joint_bom_details(doc.get("custom_pea_lh_bom"), operation=operation, side="LH")
+	rh_bom = _get_joint_bom_details(doc.get("custom_pea_rh_bom"), operation=operation, side="RH")
 	_validate_joint_bom_pair(lh_bom, rh_bom)
 
 	lh_gross_qty = flt(doc.get("custom_pea_lh_gross_qty"))
@@ -503,6 +504,7 @@ def _validate_joint_header(doc: Document) -> None:
 	if doc.get("purpose") != "Repack":
 		frappe.throw(_("Joint LH/RH production must use Repack purpose."))
 	for fieldname, label in (
+		("custom_pea_operation", _("Operation")),
 		("custom_pea_lh_bom", _("LH BOM")),
 		("custom_pea_rh_bom", _("RH BOM")),
 		("custom_pea_die_tool_item", _("Die Tool Item")),
@@ -515,11 +517,31 @@ def _validate_joint_header(doc: Document) -> None:
 		frappe.throw(_("Total Press Strokes must be greater than zero."))
 
 
-def _get_joint_bom_details(bom_no: str) -> JointBomDetails:
+def _get_joint_operation(doc: Document) -> str:
+	operation = _normalize_operation(doc.get("custom_pea_operation"))
+	if not operation:
+		frappe.throw(_("Operation is required for joint LH/RH production."))
+	if not frappe.get_meta("BOM", cached=True).has_field("custom_operation"):
+		frappe.throw(_("BOM custom_operation metadata is required for joint LH/RH production."))
+	return operation
+
+
+def _normalize_operation(operation: Any) -> str:
+	return cstr(operation).strip()
+
+
+def _get_joint_bom_details(
+	bom_no: str,
+	*,
+	operation: str | None = None,
+	side: str | None = None,
+) -> JointBomDetails:
 	bom = frappe.get_doc("BOM", bom_no)
 	bold_bom_no = frappe.bold(frappe.utils.escape_html(str(bom_no)))
 	if bom.docstatus != 1 or not bom.is_active:
 		frappe.throw(_("BOM {0} must be submitted and active.").format(bold_bom_no))
+	if operation is not None:
+		_validate_bom_operation(bom, operation, side=side)
 	items = list(bom.get("items") or [])
 	secondary_scrap_items = [
 		row
@@ -542,6 +564,20 @@ def _get_joint_bom_details(bom_no: str) -> JointBomDetails:
 		rm_qty=flt(rm.stock_qty or rm.qty),
 		rm_uom=rm.stock_uom or rm.uom,
 		scrap_items=tuple(_get_bom_scrap_item_details(scrap, stock_uom_by_item) for scrap in scrap_items),
+	)
+
+
+def _validate_bom_operation(bom: Document, operation: str, *, side: str | None = None) -> None:
+	bom_operation = _normalize_operation(bom.get("custom_operation"))
+	if bom_operation == operation:
+		return
+	label = _("{0} BOM").format(side) if side else _("BOM")
+	frappe.throw(
+		_("{0} {1} must match Operation {2}.").format(
+			label,
+			frappe.bold(frappe.utils.escape_html(str(bom.name))),
+			frappe.bold(frappe.utils.escape_html(operation)),
+		)
 	)
 
 

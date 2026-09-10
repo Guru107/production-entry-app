@@ -5,7 +5,10 @@ import json
 
 import frappe
 from frappe import _
+from frappe.query_builder import DocType
 from frappe.utils import cint, get_datetime, get_time, now_datetime
+from pypika import Order
+from pypika import functions as fn
 
 from production_entry_app.production_entry_app.joint_production import (
 	calculate_joint_rm_consumption_from_boms,
@@ -33,6 +36,46 @@ from production_entry_app.production_entry_app.utils.system_precision import (
 )
 
 _ALLOWED_STOCK_ENTRY_SHIFT_STATUSES: tuple[str, ...] = ("Running", "Completed")
+
+
+@frappe.whitelist()
+@frappe.validate_and_sanitize_search_inputs
+def search_joint_boms_for_operation(
+	doctype: str,
+	txt: str,
+	searchfield: str,
+	start: int,
+	page_len: int,
+	filters: dict | None,
+) -> list[tuple[str, str]]:
+	"""Return submitted active BOMs whose trimmed operation matches the selected Joint Operation."""
+	if doctype != "BOM":
+		frappe.throw(_("Joint LH/RH BOM search can only be used for BOM."))
+	if not frappe.get_meta("BOM", cached=True).has_field("custom_operation"):
+		frappe.throw(_("BOM custom_operation metadata is required for joint LH/RH production."))
+	filters = filters or {}
+	company = (filters.get("company") or "").strip()
+	operation = (filters.get("operation") or "").strip()
+	if not company or not operation:
+		return []
+	if not frappe.has_permission("BOM", "read"):
+		return []
+	BOM = DocType("BOM")
+	rows = (
+		frappe.qb.from_(BOM)
+		.select(BOM.name, BOM.item)
+		.where(BOM.docstatus == 1)
+		.where(BOM.is_active == 1)
+		.where(BOM.company == company)
+		.where(fn.Trim(fn.Coalesce(BOM.custom_operation, "")) == operation)
+		.where(BOM[searchfield].like(f"%{txt}%"))
+		.orderby(BOM.idx, order=Order.desc)
+		.orderby(BOM.name)
+		.limit(page_len or 20)
+		.offset(start or 0)
+		.run(as_dict=True)
+	)
+	return [(row.name, row.item) for row in rows if frappe.has_permission("BOM", "read", row.name)]
 
 
 @frappe.whitelist()
@@ -162,6 +205,7 @@ def get_joint_production_items(doc: str) -> list[dict]:
 		("BOM", "custom_pea_rh_bom"),
 		("Item", "custom_pea_die_tool_item"),
 		("Shift", "custom_pea_shift"),
+		("Operation", "custom_pea_operation"),
 		("Warehouse", "from_warehouse"),
 		("Warehouse", "to_warehouse"),
 	):
@@ -178,6 +222,7 @@ def get_joint_production_items(doc: str) -> list[dict]:
 		"from_warehouse",
 		"to_warehouse",
 		"custom_pea_shift",
+		"custom_pea_operation",
 		"custom_pea_lh_bom",
 		"custom_pea_lh_gross_qty",
 		"custom_pea_lh_rejection_qty",

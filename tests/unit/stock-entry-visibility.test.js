@@ -17,10 +17,12 @@ const {
 	_get_rework_source_context,
 	_default_rework_item_source,
 	_apply_fetch_items_response,
+	_apply_manufacture_visibility,
 	_sync_joint_stock_entry_type,
 	_initialize_total_strokes_default_state,
 	_default_total_strokes_from_fg,
 	_get_rejection_qty_for_visibility,
+	_get_joint_bom_query,
 	_sync_rework_mode_from_stock_entry_type,
 	_schedule_rework_workstation_default,
 	_extract_error_detail,
@@ -1347,11 +1349,48 @@ test("joint LH/RH Repack uses the common production form without native BOM fiel
 	assert.equal(_is_production_doc(doc), true);
 });
 
+test("joint BOM query uses the server operation matcher with trimmed selected operation", () => {
+	assert.deepEqual(
+		_get_joint_bom_query({
+			doc: {
+				company: "Test Company",
+				custom_pea_operation: " Shearing ",
+			},
+		}),
+		{
+			query: "production_entry_app.production_entry_app.api.search_joint_boms_for_operation",
+			filters: {
+				company: "Test Company",
+				operation: "Shearing",
+			},
+		}
+	);
+	assert.deepEqual(
+		_get_joint_bom_query({
+			doc: {
+				company: "Test Company",
+				custom_pea_operation: "",
+			},
+		}),
+		{
+			query: "production_entry_app.production_entry_app.api.search_joint_boms_for_operation",
+			filters: {
+				company: "Test Company",
+				operation: "",
+			},
+		}
+	);
+});
+
 test("manufacture visibility targets include key fields and sections", () => {
 	assert.ok(MANUFACTURE_FIELDS.includes("custom_pea_fetch_items"));
 	assert.ok(!MANUFACTURE_FIELDS.includes("custom_pea_joint_fetch_items"));
 	assert.ok(!PEA_MANUFACTURE_FIELDS.includes("custom_pea_joint_fetch_items"));
-	assert.deepEqual(JOINT_ONLY_PEA_FIELDS, ["custom_pea_joint_fetch_items"]);
+	assert.ok(!PEA_MANUFACTURE_FIELDS.includes("custom_pea_operation"));
+	assert.deepEqual(JOINT_ONLY_PEA_FIELDS, [
+		"custom_pea_operation",
+		"custom_pea_joint_fetch_items",
+	]);
 	assert.ok(MANUFACTURE_FIELDS.includes("custom_pea_shift"));
 	assert.ok(MANUFACTURE_FIELDS.includes("custom_pea_actual_start_date_input"));
 	assert.ok(MANUFACTURE_FIELDS.includes("custom_pea_actual_start_time_input"));
@@ -1399,6 +1438,7 @@ test("manually selecting a non-joint Stock Entry Type exits joint production and
 			__pea_joint_stock_entry_type: "Joint LH RH Production",
 			stock_entry_type: "Manufacture",
 			custom_pea_shift: "SHIFT-001",
+			custom_pea_operation: "Shearing",
 			custom_pea_lh_bom: "BOM-LH",
 			custom_pea_lh_gross_qty: 40,
 			custom_pea_lh_rejection_qty: 1,
@@ -1433,6 +1473,7 @@ test("manually selecting a non-joint Stock Entry Type exits joint production and
 		assert.equal(frm.doc.stock_entry_type, "Manufacture");
 		assert.equal(frm.doc.__pea_joint_stock_entry_type, "Joint LH RH Production");
 		assert.equal(frm.doc.custom_pea_shift, "SHIFT-001");
+		assert.equal(frm.doc.custom_pea_operation, "");
 		assert.equal(frm.doc.custom_pea_lh_bom, "");
 		assert.equal(frm.doc.custom_pea_rh_bom, "");
 		assert.equal(frm.doc.custom_pea_total_strokes, "");
@@ -1506,6 +1547,63 @@ test("manually selecting the joint Stock Entry Type enters joint production and 
 	} finally {
 		global.frappe = originalFrappe;
 	}
+});
+
+test("joint visibility shows and requires the operation selector only in joint mode", () => {
+	const calls = [];
+	const frm = {
+		fields_dict: {},
+		layout: { sections: [] },
+		doc: {
+			stock_entry_type: "Joint LH RH Production",
+			__pea_joint_stock_entry_type: "Joint LH RH Production",
+		},
+		toggle_display(fieldnames, visible) {
+			calls.push(["display", fieldnames, visible]);
+		},
+		toggle_reqd(fieldname, required) {
+			calls.push(["reqd", fieldname, required]);
+		},
+		refresh_fields() {},
+	};
+
+	_apply_manufacture_visibility(frm);
+
+	assert.ok(
+		calls.some(
+			([kind, fieldnames, visible]) =>
+				kind === "display" &&
+				Array.isArray(fieldnames) &&
+				fieldnames.includes("custom_pea_operation") &&
+				visible === true
+		)
+	);
+	assert.ok(
+		calls.some(
+			([kind, fieldname, required]) =>
+				kind === "reqd" && fieldname === "custom_pea_operation" && required === true
+		)
+	);
+
+	calls.length = 0;
+	frm.doc.stock_entry_type = "Material Transfer";
+	_apply_manufacture_visibility(frm);
+
+	assert.ok(
+		calls.some(
+			([kind, fieldnames, visible]) =>
+				kind === "display" &&
+				Array.isArray(fieldnames) &&
+				fieldnames.includes("custom_pea_operation") &&
+				visible === false
+		)
+	);
+	assert.ok(
+		calls.some(
+			([kind, fieldname, required]) =>
+				kind === "reqd" && fieldname === "custom_pea_operation" && required === false
+		)
+	);
 });
 
 test("refreshing a saved joint Stock Entry keeps joint fields when only the cached type marker remains", () => {

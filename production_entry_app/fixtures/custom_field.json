@@ -80,6 +80,20 @@
  },
  {
   "doctype": "Custom Field",
+  "name": "Stock Entry-custom_pea_operation",
+  "dt": "Stock Entry",
+  "fieldname": "custom_pea_operation",
+  "fieldtype": "Link",
+  "label": "Operation",
+  "options": "Operation",
+  "insert_after": "stock_entry_type",
+  "depends_on": "eval:(doc.__pea_joint_stock_entry_type && doc.stock_entry_type==doc.__pea_joint_stock_entry_type)",
+  "mandatory_depends_on": "eval:(doc.__pea_joint_stock_entry_type && doc.stock_entry_type==doc.__pea_joint_stock_entry_type)",
+  "module": "Production Entry App",
+  "permlevel": 0
+ },
+ {
+  "doctype": "Custom Field",
   "name": "Stock Entry-custom_pea_rework_details_section",
   "dt": "Stock Entry",
   "fieldname": "custom_pea_rework_details_section",

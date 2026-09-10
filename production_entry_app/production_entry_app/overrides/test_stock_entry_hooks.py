@@ -34,6 +34,7 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	ensure_department,
 	ensure_item,
 	ensure_joint_test_bom,
+	ensure_operation,
 	ensure_operator,
 	ensure_production_entry_settings_shift_fields,
 	ensure_stock,
@@ -2699,6 +2700,7 @@ class TestOverlapValidation(FrappeTestCase):
 		cls.lh_item = ensure_item("_Test Joint LH Item For Overlap")
 		cls.rh_item = ensure_item("_Test Joint RH Item For Overlap")
 		cls.scrap_item = ensure_item("_Test Joint Scrap Item For Overlap", stock_uom="Kg")
+		cls.operation = ensure_operation("Shearing")
 		cls.lh_bom = ensure_joint_test_bom(
 			item_code=cls.lh_item,
 			rm_item=cls.joint_rm_item,
@@ -2749,6 +2751,7 @@ class TestOverlapValidation(FrappeTestCase):
 		self.rh_item = self.__class__.rh_item
 		self.lh_bom = self.__class__.lh_bom
 		self.rh_bom = self.__class__.rh_bom
+		self.operation = self.__class__.operation
 		self.plain_repack_type = self.__class__.plain_repack_type
 		self.joint_repack_type = self.__class__.joint_repack_type
 		self.employee_name = self.__class__.employee_name
@@ -2909,6 +2912,7 @@ class TestOverlapValidation(FrappeTestCase):
 				"custom_pea_actual_end_date": end,
 				"custom_pea_workstation": workstation,
 				"custom_pea_operator": operator,
+				"custom_pea_operation": self.operation,
 				"custom_pea_lh_bom": self.lh_bom,
 				"custom_pea_lh_gross_qty": 40,
 				"custom_pea_lh_rejection_qty": 1,

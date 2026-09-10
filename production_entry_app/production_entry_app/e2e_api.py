@@ -766,6 +766,7 @@ def bootstrap_e2e_context(prefix: str = "E2E", cleanup_running: int = 1) -> dict
 		"joint_rm_item": joint_rm_item,
 		"joint_scrap_item": joint_scrap_item,
 		"joint_scrap_nos_item": joint_scrap_nos_item,
+		"joint_operation": "Shearing",
 		"joint_lh_bom": joint_lh_bom,
 		"joint_rh_bom": joint_rh_bom,
 		"shift_name": shift.name,

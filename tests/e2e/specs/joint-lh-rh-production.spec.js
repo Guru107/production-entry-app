@@ -40,6 +40,21 @@ async function deleteDocIfExists(page, doctype, name) {
 	if (rows?.length) await callFrappeMethod(page, "frappe.client.delete", { doctype, name });
 }
 
+async function ensureOperation(page, operation) {
+	const rows = await callFrappeMethod(page, "frappe.client.get_list", {
+		doctype: "Operation",
+		fields: JSON.stringify(["name"]),
+		filters: JSON.stringify({ name: operation }),
+		limit_page_length: 1,
+	});
+	if (!rows?.length) {
+		await callFrappeMethod(page, "frappe.client.insert", {
+			doc: JSON.stringify({ doctype: "Operation", name: operation }),
+		});
+	}
+	return operation;
+}
+
 async function getFieldTops(page, fieldnames) {
 	const tops = await page.evaluate(
 		(names) =>
@@ -82,7 +97,18 @@ test.describe("Joint LH/RH production form", () => {
 		await enableJointProduction(page, form, stockEntryType);
 		await setFieldValue(page, "company", ctx.company);
 
+		expect(
+			await form.searchJointBomLinkResults("custom_pea_lh_bom", ctx.joint_lh_item)
+		).toEqual([]);
+		await setFieldValue(page, "custom_pea_operation", ctx.joint_operation);
+		await form.waitForFieldValue("custom_pea_operation", ctx.joint_operation);
+		const lhBomResults = await form.searchJointBomLinkResults(
+			"custom_pea_lh_bom",
+			ctx.joint_lh_item
+		);
+		expect(lhBomResults.map((row) => row.value)).toContain(ctx.joint_lh_bom);
 		expect(await form.isFieldVisible("custom_pea_rejection_breakup")).toBe(false);
+		expect(await form.isFieldVisible("custom_pea_operation")).toBe(true);
 		expect(await form.isFieldVisible("custom_pea_lh_bom")).toBe(true);
 		expect(await form.isFieldVisible("custom_pea_rh_bom")).toBe(true);
 		expect(await form.isFieldVisible("custom_pea_total_strokes")).toBe(true);
@@ -239,6 +265,24 @@ test.describe("Joint LH/RH production form", () => {
 				}),
 			])
 		);
+
+		await ensureOperation(page, "Blanking");
+		await setFieldValue(page, "custom_pea_operation", "Blanking");
+		await form.waitForFieldValue("custom_pea_operation", "Blanking");
+		const clearedValues = await form.getFieldValues([
+			"custom_pea_lh_bom",
+			"custom_pea_rh_bom",
+			"custom_pea_total_strokes",
+			"custom_pea_die_tool_item",
+			"custom_pea_total_rm_consumption",
+			"items",
+		]);
+		expect(clearedValues.custom_pea_lh_bom).toBeFalsy();
+		expect(clearedValues.custom_pea_rh_bom).toBeFalsy();
+		expect(Number(clearedValues.custom_pea_total_strokes || 0)).toBe(0);
+		expect(clearedValues.custom_pea_die_tool_item).toBeFalsy();
+		expect(Number(clearedValues.custom_pea_total_rm_consumption || 0)).toBe(0);
+		expect(clearedValues.items).toEqual([]);
 	});
 
 	test("@regression joint rejection breakup stays editable and preserves rows", async ({
@@ -252,6 +296,7 @@ test.describe("Joint LH/RH production form", () => {
 		await form.openNew();
 		await enableJointProduction(page, form, stockEntryType);
 		await setFieldValue(page, "company", ctx.company);
+		await setFieldValue(page, "custom_pea_operation", ctx.joint_operation);
 		await setFieldValue(page, "custom_pea_lh_bom", ctx.joint_lh_bom);
 		await setFieldValue(page, "custom_pea_rh_bom", ctx.joint_rh_bom);
 		await setFieldValue(page, "custom_pea_lh_rejection_qty", 2);
@@ -535,7 +580,7 @@ test.describe("Joint LH/RH production form", () => {
 		await setFieldValue(page, "custom_pea_rh_gross_qty", 41);
 		await page.locator('[data-fieldname="custom_pea_joint_fetch_items"] button').click();
 
-		await expectValidationError(page, /LH BOM is required/i);
+		await expectValidationError(page, /Operation is required/i);
 	});
 
 	test("@regression stale joint rows require Fetch Items without clearing logistics", async ({

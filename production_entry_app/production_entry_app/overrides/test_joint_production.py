@@ -16,6 +16,7 @@ from production_entry_app.production_entry_app.api import (
 	get_joint_production_items,
 	get_joint_rm_consumption,
 	get_joint_stock_entry_type,
+	search_joint_boms_for_operation,
 )
 from production_entry_app.production_entry_app.api_timeline import get_shift_timeline_data
 from production_entry_app.production_entry_app.doctype.shift.shift import (
@@ -56,6 +57,7 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	cleanup_running_shifts,
 	ensure_item,
 	ensure_joint_test_bom,
+	ensure_operation,
 	ensure_stock,
 	ensure_workstation,
 	get_joint_bom_scrap_rate,
@@ -528,6 +530,7 @@ class TestJointProductionItems(FrappeTestCase):
 
 	def setUp(self) -> None:
 		self.masters = bootstrap_manufacture_masters()
+		self.operation = ensure_operation("Shearing")
 		suffix = frappe.generate_hash(length=6)
 		self.lh_item = ensure_item(f"_Joint_LH_{suffix}")
 		self.rh_item = ensure_item(f"_Joint_RH_{suffix}")
@@ -606,6 +609,7 @@ class TestJointProductionItems(FrappeTestCase):
 				"custom_pea_rh_rejection_qty": 0,
 				"custom_pea_total_strokes": 41,
 				"custom_pea_die_tool_item": self.lh_item,
+				"custom_pea_operation": self.operation,
 				"custom_pea_total_rm_consumption": 1,
 			}
 		)
@@ -806,6 +810,71 @@ class TestJointProductionItems(FrappeTestCase):
 			},
 			{"LH", "RH"},
 		)
+
+	def test_joint_items_api_requires_operation(self) -> None:
+		shift = make_running_shift(self.masters)
+		doc = self._make_joint_entry(shift)
+		doc.custom_pea_operation = ""
+		doc.set("items", [])
+
+		with self.assertRaisesRegex(
+			frappe.ValidationError, "Operation is required for joint LH/RH production"
+		):
+			get_joint_production_items(json.dumps(doc.as_dict(), default=str))
+
+	def test_joint_items_api_requires_bom_operation_metadata(self) -> None:
+		shift = make_running_shift(self.masters)
+		doc = self._make_joint_entry(shift)
+		doc.set("items", [])
+		original_get_meta = frappe.get_meta
+
+		def fake_get_meta(doctype: str, *args: Any, **kwargs: Any) -> object:
+			if doctype == "BOM":
+				return frappe._dict(has_field=lambda fieldname: fieldname != "custom_operation")
+			return original_get_meta(doctype, *args, **kwargs)
+
+		with patch(
+			"production_entry_app.production_entry_app.joint_production.frappe.get_meta",
+			side_effect=fake_get_meta,
+		):
+			with self.assertRaisesRegex(frappe.ValidationError, "BOM custom_operation metadata is required"):
+				materialize_joint_production_rows(doc)
+
+	def test_joint_boms_must_match_selected_operation(self) -> None:
+		blanking = ensure_operation("Blanking")
+		rh_bom = self._make_bom(self.rh_item, scrap_qty=2.125, operation=blanking)
+		shift = make_running_shift(self.masters)
+		doc = self._make_joint_entry(shift, rh_bom=rh_bom, fetch_items=False)
+		doc.set("items", [])
+
+		with self.assertRaisesRegex(frappe.ValidationError, "RH BOM .* must match Operation .*Shearing"):
+			get_joint_production_items(json.dumps(doc.as_dict(), default=str))
+
+	def test_joint_bom_link_query_requires_operation_and_trims_bom_operation(self) -> None:
+		trimmed_bom = self._make_bom(self.lh_item, scrap_qty=1.125)
+		frappe.db.set_value("BOM", trimmed_bom, "custom_operation", " Shearing ", update_modified=False)
+
+		self.assertEqual(
+			search_joint_boms_for_operation(
+				"BOM",
+				self.lh_item,
+				"name",
+				0,
+				20,
+				{"company": self.masters["company"], "operation": ""},
+			),
+			[],
+		)
+		rows = search_joint_boms_for_operation(
+			"BOM",
+			self.lh_item,
+			"name",
+			0,
+			20,
+			{"company": self.masters["company"], "operation": "Shearing"},
+		)
+
+		self.assertIn((trimmed_bom, self.lh_item), rows)
 
 	def test_joint_items_api_fails_cleanly_when_an_item_cannot_be_loaded(self) -> None:
 		shift = make_running_shift(self.masters)
@@ -1533,6 +1602,7 @@ class TestJointProductionItems(FrappeTestCase):
 		*,
 		lh_bom: str | None = None,
 		rh_bom: str | None = None,
+		fetch_items: bool = True,
 	) -> object:
 		ensure_stock(
 			self.rm_item,
@@ -1556,6 +1626,7 @@ class TestJointProductionItems(FrappeTestCase):
 				"custom_pea_shift": shift.name,
 				"custom_pea_actual_start_date": start,
 				"custom_pea_actual_end_date": end,
+				"custom_pea_operation": self.operation,
 				"custom_pea_lh_bom": lh_bom or self.lh_bom,
 				"custom_pea_lh_gross_qty": 40,
 				"custom_pea_lh_rejection_qty": 1,
@@ -1574,13 +1645,14 @@ class TestJointProductionItems(FrappeTestCase):
 				],
 			}
 		)
-		doc.set(
-			"items",
-			get_joint_production_items(json.dumps(doc.as_dict(), default=str)),
-		)
-		rm_row = next(row for row in doc.items if row.s_warehouse)
-		rm_row.basic_rate = 50
-		rm_row.basic_amount = rm_row.qty * rm_row.conversion_factor * rm_row.basic_rate
+		if fetch_items:
+			doc.set(
+				"items",
+				get_joint_production_items(json.dumps(doc.as_dict(), default=str)),
+			)
+			rm_row = next(row for row in doc.items if row.s_warehouse)
+			rm_row.basic_rate = 50
+			rm_row.basic_amount = rm_row.qty * rm_row.conversion_factor * rm_row.basic_rate
 		return doc
 
 	def _append_split_row(self, doc: object, source_row: object, *, qty: float) -> None:
@@ -1617,6 +1689,7 @@ class TestJointProductionItems(FrappeTestCase):
 		rm_qty: float = 49.125,
 		scrap_qty: float | None = None,
 		scrap_items: list[tuple[str, float, float]] | None = None,
+		operation: str | None = None,
 	) -> str:
 		scrap_items = scrap_items or [(self.scrap_item, flt(scrap_qty), 10)]
 		return ensure_joint_test_bom(
@@ -1626,4 +1699,5 @@ class TestJointProductionItems(FrappeTestCase):
 			company=self.masters["company"],
 			bom_quantity=bom_quantity,
 			rm_qty=rm_qty,
+			operation=operation or self.operation,
 		)
