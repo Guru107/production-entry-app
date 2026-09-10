@@ -17,6 +17,7 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	ensure_warehouse,
 	resolve_test_branch,
 	resolve_test_company,
+	set_test_branch_warehouse_defaults,
 )
 
 _SHIFT_SEQUENCE = 0
@@ -30,14 +31,20 @@ def bootstrap_manufacture_masters() -> dict[str, Any]:
 	fg_warehouse = ensure_warehouse(f"Audit #1 FG - {abbr}", company)
 	rejection_warehouse = ensure_warehouse(f"Audit #1 Rejection - {abbr}", company)
 	rm_warehouse = ensure_warehouse(f"Audit #1 RM - {abbr}", company)
-	if frappe.get_meta("Warehouse", cached=True).has_field("is_rejected_warehouse"):
-		frappe.db.set_value(
-			"Warehouse", rejection_warehouse, "is_rejected_warehouse", 1, update_modified=False
-		)
+	scrap_warehouse = ensure_warehouse(f"Audit #1 Scrap - {abbr}", company)
+	branch = ensure_branch(resolve_test_branch() or "_Test Branch")
+	set_test_branch_warehouse_defaults(
+		company,
+		branch,
+		raw_material_warehouse=rm_warehouse,
+		work_in_progress_warehouse=wip_warehouse,
+		rejection_warehouse=rejection_warehouse,
+		scrap_warehouse=scrap_warehouse,
+	)
+	frappe.db.set_value("Warehouse", rejection_warehouse, "is_rejected_warehouse", 1, update_modified=False)
 
 	fg_item = ensure_item("_Audit #1 FG Item")
 	rm_item = ensure_item("_Audit #1 RM Item")
-	frappe.db.set_value("Item", fg_item, "custom_pea_strokes_per_unit", 5, update_modified=False)
 	frappe.db.set_value("Item", fg_item, "custom_pea_stroke_capacity", 10000, update_modified=False)
 	if frappe.get_meta("Item", cached=True).has_field("custom_pea_has_die_tool"):
 		frappe.db.set_value("Item", fg_item, "custom_pea_has_die_tool", 1, update_modified=False)
@@ -46,6 +53,8 @@ def bootstrap_manufacture_masters() -> dict[str, Any]:
 	ensure_stock(rm_item, wip_warehouse, company, target_qty=1000)
 	return {
 		"company": company,
+		"branch": branch,
+		"scrap_warehouse": scrap_warehouse,
 		"bom": bom,
 		"wip_warehouse": wip_warehouse,
 		"fg_warehouse": fg_warehouse,
@@ -61,6 +70,7 @@ def direct_manufacture_doc_dict(
 ) -> dict[str, Any]:
 	return {
 		"company": masters["company"],
+		"branch": masters["branch"],
 		"bom_no": masters["bom"],
 		"fg_completed_qty": fg_qty,
 		"from_warehouse": masters["wip_warehouse"],
@@ -77,7 +87,7 @@ def _build_shift_doc(*, masters: dict[str, Any], status: str) -> Document:
 	_SHIFT_SEQUENCE += 1
 	shift_date = nowdate()
 	shift_label = "1"
-	branch = ensure_branch(resolve_test_branch() or "_Test Branch")
+	branch = masters["branch"]
 	department = ensure_department(f"Audit #1 Department {_SHIFT_SEQUENCE:04d}", company=masters["company"])
 	return frappe.get_doc(
 		{
@@ -93,6 +103,7 @@ def _build_shift_doc(*, masters: dict[str, Any], status: str) -> Document:
 			"work_in_progress_warehouse": masters["wip_warehouse"],
 			"raw_material_warehouse": masters["rm_warehouse"],
 			"rejection_warehouse": masters["rejection_warehouse"],
+			"scrap_warehouse": masters["scrap_warehouse"],
 		}
 	)
 

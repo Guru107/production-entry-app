@@ -124,7 +124,7 @@ test.describe("Batch 2 shift UX", () => {
 
 	test("@regression shift form has batch 2 tabs and metrics field", async ({ page }) => {
 		await page.goto(getRoute("/home"));
-		const ctx = await setupFreshContext(page, `${lifecycle.getPrefix()}-tabs`);
+		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 
 		await openForm(page, "shift", ctx.shift_name);
 
@@ -156,7 +156,7 @@ test.describe("Batch 2 shift UX", () => {
 		page,
 	}) => {
 		await page.goto(getRoute("/home"));
-		const testPrefix = `${lifecycle.getPrefix()}-metrics`;
+		const testPrefix = lifecycle.getPrefix();
 		const ctx = await setupFreshContext(page, testPrefix);
 
 		await openForm(page, "shift", ctx.shift_name);
@@ -194,7 +194,7 @@ test.describe("Batch 2 shift UX", () => {
 
 	test("@regression shift summary honours system float precision", async ({ page }) => {
 		await page.goto(getRoute("/home"));
-		const testPrefix = `${lifecycle.getPrefix()}-precision`;
+		const testPrefix = lifecycle.getPrefix();
 		const ctx = await setupFreshContext(page, testPrefix);
 
 		await callFrappeMethod(
@@ -223,7 +223,7 @@ test.describe("Batch 2 shift UX", () => {
 
 	test("@regression shift summary counts late entries after completion", async ({ page }) => {
 		await page.goto(getRoute("/home"));
-		const testPrefix = `${lifecycle.getPrefix()}-late-entry`;
+		const testPrefix = lifecycle.getPrefix();
 		const ctx = await setupFreshContext(page, testPrefix);
 
 		await callFrappeMethod(
@@ -274,7 +274,7 @@ test.describe("Batch 2 shift UX", () => {
 		page,
 	}) => {
 		await page.goto(getRoute("/home"));
-		const testPrefix = `${lifecycle.getPrefix()}-aggregate`;
+		const testPrefix = lifecycle.getPrefix();
 		const ctx = await setupFreshContext(page, testPrefix);
 
 		await openForm(page, "shift", ctx.shift_name);
@@ -314,7 +314,7 @@ test.describe("Batch 2 shift UX", () => {
 
 	test("@regression shift aggregate entries honour system float precision", async ({ page }) => {
 		await page.goto(getRoute("/home"));
-		const testPrefix = `${lifecycle.getPrefix()}-aggregate-precision`;
+		const testPrefix = lifecycle.getPrefix();
 		const ctx = await setupFreshContext(page, testPrefix);
 
 		await callFrappeMethod(
@@ -354,7 +354,7 @@ test.describe("Batch 2 shift UX", () => {
 		page,
 	}) => {
 		await page.goto(getRoute("/home"));
-		const testPrefix = `${lifecycle.getPrefix()}-timeline`;
+		const testPrefix = lifecycle.getPrefix();
 		const ctx = await setupFreshContext(page, testPrefix);
 
 		await callFrappeMethod(
@@ -399,7 +399,7 @@ test.describe("Batch 2 shift UX", () => {
 		page,
 	}) => {
 		await page.goto(getRoute("/home"));
-		const ctx = await setupFreshContext(page, `${lifecycle.getPrefix()}-empty`);
+		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 
 		await openForm(page, "workstation", ctx.workstation);
 		await page.waitForFunction(() => {
@@ -424,7 +424,7 @@ test.describe("Batch 2 shift UX", () => {
 		page,
 	}) => {
 		await page.goto(getRoute("/home"));
-		const testPrefix = `${lifecycle.getPrefix()}-hover`;
+		const testPrefix = lifecycle.getPrefix();
 		const ctx = await setupFreshContext(page, testPrefix);
 
 		const stockEntry = await callFrappeMethod(
@@ -474,7 +474,7 @@ test.describe("Batch 2 shift UX", () => {
 
 	test("@regression timeline tooltip honours system float precision", async ({ page }) => {
 		await page.goto(getRoute("/home"));
-		const testPrefix = `${lifecycle.getPrefix()}-timeline-precision`;
+		const testPrefix = lifecycle.getPrefix();
 		const ctx = await setupFreshContext(page, testPrefix);
 
 		await callFrappeMethod(
@@ -535,7 +535,7 @@ test.describe("Batch 2 shift UX", () => {
 		page,
 	}) => {
 		await page.goto(getRoute("/home"));
-		const testPrefix = `${lifecycle.getPrefix()}-fullshift`;
+		const testPrefix = lifecycle.getPrefix();
 		const ctx = await setupFreshContext(page, testPrefix);
 
 		const result = await callFrappeMethod(
@@ -580,7 +580,7 @@ test.describe("Batch 2 shift UX", () => {
 		page,
 	}) => {
 		await page.goto(getRoute("/home"));
-		const testPrefix = `${lifecycle.getPrefix()}-downtime`;
+		const testPrefix = lifecycle.getPrefix();
 		const ctx = await setupFreshContext(page, testPrefix);
 
 		await callFrappeMethod(

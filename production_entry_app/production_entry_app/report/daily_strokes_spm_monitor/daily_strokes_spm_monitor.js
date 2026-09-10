@@ -1,34 +1,7 @@
 frappe.query_reports["Daily Strokes SPM Monitor"] = {
 	filters: [
-		{
-			fieldname: "fiscal_year",
-			label: __("Fiscal Year"),
-			fieldtype: "Link",
-			options: "Fiscal Year",
-			reqd: 1,
-			default: frappe.defaults.get_user_default("fiscal_year"),
-		},
-		{
-			fieldname: "month",
-			label: __("Month"),
-			fieldtype: "Select",
-			options: [
-				"April",
-				"May",
-				"June",
-				"July",
-				"August",
-				"September",
-				"October",
-				"November",
-				"December",
-				"January",
-				"February",
-				"March",
-			].join("\n"),
-			reqd: 1,
-			default: moment().format("MMMM"),
-		},
+		...(window.production_entry_app?.report_filter_utils?.get_standard_report_date_filters?.() ??
+			[]),
 		{
 			fieldname: "custom_pea_operator",
 			label: __("Operator"),

@@ -2,6 +2,7 @@ const { test, expect } = require("@playwright/test");
 const { registerE2ELifecycle } = require("../fixtures/lifecycle");
 const { bootstrapE2E, cleanupE2E } = require("../fixtures/test-data");
 const { callFrappeMethod } = require("../fixtures/frappe");
+const { hasStockEntryBranchField } = require("../fixtures/stock-entry-meta");
 const { ensureUser, deleteUserIfExists } = require("../fixtures/users");
 const { getRoute, getRouteRegex } = require("../utils/routing");
 
@@ -131,8 +132,18 @@ test.describe("Branch isolation", () => {
 				}
 			);
 			stockEntries.push(branchAStockEntry.name, branchBStockEntry.name);
-			expect(branchAStockEntry.branch).toBe(branchA);
-			expect(branchBStockEntry.branch).toBe(branchB);
+			const stockEntryHasBranch = await hasStockEntryBranchField(page);
+			if (stockEntryHasBranch) {
+				expect(branchAStockEntry.branch).toBe(branchA);
+				expect(branchBStockEntry.branch).toBe(branchB);
+			} else {
+				expect(Object.prototype.hasOwnProperty.call(branchAStockEntry, "branch")).toBe(
+					false
+				);
+				expect(Object.prototype.hasOwnProperty.call(branchBStockEntry, "branch")).toBe(
+					false
+				);
+			}
 
 			const restrictedEmail = `e2e-user-branch-isolation-restricted-${lifecycle.getPrefix()}-${Date.now()}-${Math.floor(
 				Math.random() * 1000
@@ -201,25 +212,37 @@ test.describe("Branch isolation", () => {
 			expect(visibleShifts.length).toBe(1);
 			expect(visibleShifts[0].branch).toBe(branchA);
 
-			await page.goto(getRoute("/stock-entry"));
-			await expect(page).toHaveURL(getRouteRegex("/stock-entry"));
+			if (stockEntryHasBranch) {
+				await page.goto(getRoute("/stock-entry"));
+				await expect(page).toHaveURL(getRouteRegex("/stock-entry"));
 
-			// API list call here intentionally runs after opening Stock Entry list so it exercises
-			// Desk's permission-filtered list endpoint for the logged-in user.
-			const visibleStockEntries = await callFrappeMethod(page, "frappe.client.get_list", {
-				doctype: "Stock Entry",
-				fields: JSON.stringify(["name", "branch", "custom_pea_shift"]),
-				filters: JSON.stringify([["name", "in", stockEntries]]),
-				limit_page_length: 50,
-			});
-			const visibleStockEntryNames = new Set(
-				(visibleStockEntries || []).map((row) => row.name)
-			);
-			expect(visibleStockEntryNames.has(branchBStockEntry.name)).toBe(false);
-			expect(visibleStockEntryNames.has(branchAStockEntry.name)).toBe(true);
-			expect(visibleStockEntries.length).toBe(1);
-			expect(visibleStockEntries[0].branch).toBe(branchA);
-			expect(visibleStockEntries[0].custom_pea_shift).toBe(ctx.shift_name);
+				// API list call here intentionally runs after opening Stock Entry list so it exercises
+				// Desk's permission-filtered list endpoint for the logged-in user.
+				const visibleStockEntries = await callFrappeMethod(
+					page,
+					"frappe.client.get_list",
+					{
+						doctype: "Stock Entry",
+						fields: JSON.stringify(["name", "branch", "custom_pea_shift"]),
+						filters: JSON.stringify([["name", "in", stockEntries]]),
+						limit_page_length: 50,
+					}
+				);
+				const visibleStockEntryNames = new Set(
+					(visibleStockEntries || []).map((row) => row.name)
+				);
+				expect(visibleStockEntryNames.has(branchBStockEntry.name)).toBe(false);
+				expect(visibleStockEntryNames.has(branchAStockEntry.name)).toBe(true);
+				expect(visibleStockEntries.length).toBe(1);
+				expect(visibleStockEntries[0].branch).toBe(branchA);
+				expect(visibleStockEntries[0].custom_pea_shift).toBe(ctx.shift_name);
+			} else {
+				test.info().annotations.push({
+					type: "skip",
+					description:
+						"Stock Entry.branch is host-owned and absent on this site; Stock Entry branch-list filtering is not applicable.",
+				});
+			}
 
 			await loginAs(page, unrestrictedEmail, TEST_PASSWORD);
 			await page.goto(getRoute("/shift"));
@@ -254,7 +277,11 @@ test.describe("Branch isolation", () => {
 				"frappe.client.get_list",
 				{
 					doctype: "Stock Entry",
-					fields: JSON.stringify(["name", "branch", "custom_pea_shift"]),
+					fields: JSON.stringify(
+						stockEntryHasBranch
+							? ["name", "branch", "custom_pea_shift"]
+							: ["name", "custom_pea_shift"]
+					),
 					filters: JSON.stringify([["name", "in", stockEntries]]),
 					limit_page_length: 50,
 				}
@@ -262,13 +289,15 @@ test.describe("Branch isolation", () => {
 			const unrestrictedStockEntryNames = new Set(
 				(unrestrictedVisibleStockEntries || []).map((row) => row.name)
 			);
-			const unrestrictedStockEntryBranches = new Set(
-				(unrestrictedVisibleStockEntries || []).map((row) => row.branch)
-			);
 			expect(unrestrictedStockEntryNames.has(branchAStockEntry.name)).toBe(true);
 			expect(unrestrictedStockEntryNames.has(branchBStockEntry.name)).toBe(true);
-			expect(unrestrictedStockEntryBranches.has(branchA)).toBe(true);
-			expect(unrestrictedStockEntryBranches.has(branchB)).toBe(true);
+			if (stockEntryHasBranch) {
+				const unrestrictedStockEntryBranches = new Set(
+					(unrestrictedVisibleStockEntries || []).map((row) => row.branch)
+				);
+				expect(unrestrictedStockEntryBranches.has(branchA)).toBe(true);
+				expect(unrestrictedStockEntryBranches.has(branchB)).toBe(true);
+			}
 			expect(unrestrictedVisibleStockEntries.length).toBe(2);
 		} finally {
 			await loginAsAdmin(page);

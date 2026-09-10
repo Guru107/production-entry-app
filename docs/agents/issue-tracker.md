@@ -1,26 +1,32 @@
 # Issue tracker: GitHub
 
-Issues and PRDs for this repo live as GitHub issues on `Guru107/production-entry-app`. Use the `gh` CLI for all operations.
+Issues and specs for this repo live as GitHub issues on `Guru107/production-entry-app`. Use the `gh` CLI for all operations.
 
 ## Conventions
 
-- **Create an issue**: `gh issue create --title "..." --body "..."`. Use a heredoc for multi-line bodies.
-- **Read an issue**: `gh issue view <number> --comments`, filtering comments by `jq` and also fetching labels.
-- **List issues**: `gh issue list --state open --json number,title,body,labels,comments --jq '[.[] | {number, title, body, labels: [.labels[].name], comments: [.comments[].body]}]'` with appropriate `--label` and `--state` filters.
-- **Comment on an issue**: `gh issue comment <number> --body "..."`
-- **Apply / remove labels**: `gh issue edit <number> --add-label "..."` / `--remove-label "..."`
+- **Create an issue**: `gh issue create --title "..." --body "..."`
+- **Read an issue**: `gh issue view <number> --comments`
+- **List issues**: `gh issue list` with appropriate label and state filters
+- **Comment**: `gh issue comment <number> --body "..."`
+- **Apply/remove labels**: `gh issue edit`
 - **Close**: `gh issue close <number> --comment "..."`
 
-Infer the repo from `git remote -v` — `gh` does this automatically when run inside a clone.
+Infer the repository from `git remote -v`.
 
 ## Pull requests as a triage surface
 
-**PRs as a request surface: no.** External PRs are not pulled into `/triage`.
+**PRs as a request surface: no.** External PRs are not pulled into triage.
 
-## When a skill says "publish to the issue tracker"
+## Skill operations
 
-Create a GitHub issue.
+- “Publish to the issue tracker” means create a GitHub issue.
+- “Fetch the relevant ticket” means read the issue and its comments.
 
-## When a skill says "fetch the relevant ticket"
+## Wayfinding operations
 
-Run `gh issue view <number> --comments`.
+- A map is one issue labelled `wayfinder:map`.
+- Child tickets use `wayfinder:research`, `wayfinder:prototype`, `wayfinder:grilling`, or `wayfinder:task`.
+- Use GitHub sub-issues and native issue dependencies when available.
+- Fall back to task lists and `Blocked by: #<number>` when unavailable.
+- Claim work with `gh issue edit <number> --add-assignee @me`.
+- Resolve work by commenting with the result, closing the issue, and updating the map’s decisions.

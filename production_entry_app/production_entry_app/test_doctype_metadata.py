@@ -8,14 +8,27 @@ APP_ROOT = Path(__file__).resolve().parents[2]
 DOCTYPE_ROOT = Path(__file__).parent / "doctype"
 CUSTOM_FIELD_FIXTURE = APP_ROOT / "production_entry_app" / "fixtures" / "custom_field.json"
 ROLE_FIXTURE = APP_ROOT / "production_entry_app" / "fixtures" / "role.json"
+STOCK_ENTRY_TYPE_FIXTURE = APP_ROOT / "production_entry_app" / "fixtures" / "stock_entry_type.json"
+WORKSPACE_JSON = (
+	APP_ROOT
+	/ "production_entry_app"
+	/ "production_entry_app"
+	/ "workspace"
+	/ "production_entry_app"
+	/ "production_entry_app.json"
+)
 
 EXPECTED_PEA_ROLE_NAMES = ("PEA User", "PEA Read Only")
 
 REQUIRED_SEARCH_INDEXES: dict[str, set[str]] = {
-	"Shift": {"branch", "shift_date", "status"},
+	"Rejection Breakup": {"is_rework"},
+	"Rework Type": {"is_active"},
+	"Shift": {"branch", "company", "shift_date", "status"},
 }
 
 REQUIRED_CUSTOM_FIELD_SEARCH_INDEXES: set[str] = {
+	"Stock Entry Type-custom_pea_joint_lh_rh_production",
+	"Stock Entry Type-custom_pea_rework_entry",
 	"Stock Entry-custom_pea_shift",
 	"Stock Entry-custom_pea_workstation",
 	"Stock Entry-custom_pea_operator",
@@ -33,6 +46,7 @@ def test_master_data_doctypes_do_not_allow_rename() -> None:
 	assert assert_doctype_json("Operator")["allow_rename"] == 0
 	assert assert_doctype_json("Downtime Reason")["allow_rename"] == 0
 	assert assert_doctype_json("Rejection Reason")["allow_rename"] == 0
+	assert assert_doctype_json("Rework Type")["allow_rename"] == 0
 
 
 def test_filtered_doctype_fields_are_search_indexed() -> None:
@@ -73,6 +87,182 @@ def test_stock_entry_detail_rejection_flag_uses_cross_version_anchor() -> None:
 		fields_by_name["Stock Entry Detail-custom_pea_is_rejection_item"].get("insert_after")
 		== "is_finished_item"
 	)
+
+
+def test_joint_lh_rh_production_metadata_is_exported() -> None:
+	fields_by_name = {field.get("name"): field for field in load_custom_field_fixture() if field.get("name")}
+	required_fields = {
+		"Stock Entry Type-custom_pea_joint_lh_rh_production",
+		"Stock Entry-custom_pea_operation",
+		"Stock Entry-custom_pea_lh_bom",
+		"Stock Entry-custom_pea_lh_gross_qty",
+		"Stock Entry-custom_pea_lh_rejection_qty",
+		"Stock Entry-custom_pea_rh_bom",
+		"Stock Entry-custom_pea_rh_gross_qty",
+		"Stock Entry-custom_pea_rh_rejection_qty",
+		"Stock Entry-custom_pea_total_strokes",
+		"Stock Entry-custom_pea_die_tool_item",
+		"Stock Entry-custom_pea_total_rm_consumption",
+		"Stock Entry-custom_pea_joint_fetch_items",
+		"Stock Entry Detail-custom_pea_joint_output_side",
+	}
+	missing_fields = sorted(required_fields.difference(fields_by_name))
+	assert not missing_fields, f"Missing joint-production custom fields: {missing_fields}"
+	assert "Stock Entry-custom_pea_is_joint_lh_rh" not in fields_by_name
+	operation_field = fields_by_name["Stock Entry-custom_pea_operation"]
+	joint_condition = (
+		"eval:(doc.__pea_joint_stock_entry_type && doc.stock_entry_type==doc.__pea_joint_stock_entry_type)"
+	)
+	assert operation_field.get("fieldtype") == "Link"
+	assert operation_field.get("options") == "Operation"
+	assert operation_field.get("insert_after") == "stock_entry_type"
+	assert operation_field.get("depends_on") == joint_condition
+	assert operation_field.get("mandatory_depends_on") == joint_condition
+	total_rm_field = fields_by_name["Stock Entry-custom_pea_total_rm_consumption"]
+	assert total_rm_field.get("read_only") == 1
+	assert not total_rm_field.get("mandatory_depends_on")
+	assert "Stock Entry-custom_pea_joint_scrap_qty" not in fields_by_name
+	for fieldname in (
+		"Stock Entry-custom_pea_lh_gross_qty",
+		"Stock Entry-custom_pea_lh_rejection_qty",
+		"Stock Entry-custom_pea_rh_gross_qty",
+		"Stock Entry-custom_pea_rh_rejection_qty",
+		"Stock Entry-custom_pea_total_strokes",
+	):
+		assert fields_by_name[fieldname].get("non_negative") == 1
+
+	rejection_fields = {
+		field.get("fieldname"): field
+		for field in assert_doctype_json("Rejection Breakup").get("fields", [])
+		if field.get("fieldname")
+	}
+	missing_rejection_fields = sorted({"output_side", "item_code"}.difference(rejection_fields))
+	assert not missing_rejection_fields, f"Missing Rejection Breakup fields: {missing_rejection_fields}"
+	assert rejection_fields["output_side"]["options"] == "\nLH\nRH"
+	assert rejection_fields["item_code"]["options"] == "Item"
+
+
+def test_canonical_joint_lh_rh_stock_entry_type_fixture_is_exported() -> None:
+	stock_entry_types = {row.get("name"): row for row in json.loads(STOCK_ENTRY_TYPE_FIXTURE.read_text())}
+	assert stock_entry_types == {
+		"Joint LH RH Production": {
+			"doctype": "Stock Entry Type",
+			"name": "Joint LH RH Production",
+			"purpose": "Repack",
+			"custom_pea_joint_lh_rh_production": 1,
+			"custom_pea_rework_entry": 0,
+		}
+	}
+
+
+def test_canonical_joint_lh_rh_stock_entry_type_fixture_is_registered_for_install() -> None:
+	from production_entry_app import hooks
+
+	assert {
+		"dt": "Stock Entry Type",
+		"filters": [["name", "=", "Joint LH RH Production"]],
+	} in hooks.fixtures
+
+
+def test_rework_stock_entry_metadata_is_exported() -> None:
+	fields_by_name = {field.get("name"): field for field in load_custom_field_fixture() if field.get("name")}
+	assert "Stock Entry-custom_stock_entry_purpose" not in fields_by_name
+	rework_fields = {
+		"Stock Entry-custom_pea_rework_type": ("Link", "Rework Type"),
+		"Stock Entry-custom_pea_rework_workstation": ("Link", "Workstation"),
+		"Stock Entry-custom_pea_rework_actual_start": ("Datetime", None),
+		"Stock Entry-custom_pea_rework_actual_end": ("Datetime", None),
+		"Stock Entry-custom_pea_rework_operators": ("Table", "Rework Operator"),
+		"Stock Entry-custom_pea_rework_cost": ("Currency", None),
+	}
+
+	for name, (fieldtype, options) in rework_fields.items():
+		field = fields_by_name[name]
+		assert field["fieldtype"] == fieldtype
+		assert field.get("options") == options
+		assert "stock_entry_type" in field.get("depends_on", "")
+
+	for name in set(rework_fields).difference({"Stock Entry-custom_pea_rework_cost"}):
+		assert fields_by_name[name].get("mandatory_depends_on") == fields_by_name[name].get("depends_on")
+	assert fields_by_name["Stock Entry-custom_pea_rework_cost"].get("read_only") == 1
+	assert fields_by_name["Stock Entry-custom_pea_rework_cost"].get("non_negative") == 1
+	assert fields_by_name["Stock Entry-custom_pea_rework_cost"].get("hidden") == 1
+	assert fields_by_name["Stock Entry-custom_pea_shift"].get("depends_on") == (
+		"eval:doc.custom_stock_entry_purpose=='Manufacture' || "
+		"(doc.__pea_joint_stock_entry_type && doc.stock_entry_type==doc.__pea_joint_stock_entry_type)"
+	)
+
+	rework_operator = assert_doctype_json("Rework Operator")
+	assert rework_operator["istable"] == 1
+	assert rework_operator["permissions"] == []
+	assert rework_operator["field_order"] == ["operator"]
+	assert rework_operator["fields"] == [
+		{
+			"fieldname": "operator",
+			"fieldtype": "Link",
+			"in_list_view": 1,
+			"label": "Operator",
+			"options": "Operator",
+			"reqd": 1,
+		}
+	]
+
+
+def test_rework_fields_have_a_dedicated_two_column_section() -> None:
+	fields_by_name = {field.get("name"): field for field in load_custom_field_fixture() if field.get("name")}
+
+	def field(fieldname: str) -> dict:
+		return fields_by_name[f"Stock Entry-{fieldname}"]
+
+	rework_condition = field("custom_pea_rework_type")["depends_on"]
+
+	assert field("custom_pea_shift")["insert_after"] == "custom_stock_entry_purpose"
+	assert field("custom_pea_rework_details_section") == {
+		"doctype": "Custom Field",
+		"name": "Stock Entry-custom_pea_rework_details_section",
+		"dt": "Stock Entry",
+		"fieldname": "custom_pea_rework_details_section",
+		"fieldtype": "Section Break",
+		"label": "Rework Details",
+		"insert_after": "apply_putaway_rule",
+		"depends_on": rework_condition,
+		"module": "Production Entry App",
+		"permlevel": 0,
+	}
+	assert field("custom_pea_rework_type")["insert_after"] == "custom_pea_rework_details_section"
+	assert field("custom_pea_rework_actual_start")["insert_after"] == "custom_pea_rework_type"
+	assert field("custom_pea_rework_actual_end")["insert_after"] == "custom_pea_rework_actual_start"
+	assert field("custom_pea_rework_column_break") == {
+		"doctype": "Custom Field",
+		"name": "Stock Entry-custom_pea_rework_column_break",
+		"dt": "Stock Entry",
+		"fieldname": "custom_pea_rework_column_break",
+		"fieldtype": "Column Break",
+		"insert_after": "custom_pea_rework_actual_end",
+		"module": "Production Entry App",
+		"permlevel": 0,
+	}
+	assert field("custom_pea_rework_workstation")["insert_after"] == "custom_pea_rework_column_break"
+	assert field("custom_pea_rework_operators")["insert_after"] == "custom_pea_rework_workstation"
+	assert field("custom_pea_rework_cost")["insert_after"] == "custom_pea_rework_operators"
+	assert field("custom_pea_rework_details_end_section") == {
+		"doctype": "Custom Field",
+		"name": "Stock Entry-custom_pea_rework_details_end_section",
+		"dt": "Stock Entry",
+		"fieldname": "custom_pea_rework_details_end_section",
+		"fieldtype": "Section Break",
+		"insert_after": "custom_pea_rework_cost",
+		"module": "Production Entry App",
+		"permlevel": 0,
+	}
+
+
+def test_metadata_load_tests_includes_rework_layout_contract() -> None:
+	suite = load_tests(unittest.TestLoader(), unittest.TestSuite(), None)
+	loaded_functions = {test_case._testFunc for test_case in suite}
+
+	assert test_rework_fields_have_a_dedicated_two_column_section in loaded_functions
+	assert test_production_stock_entry_purpose_metadata_is_available in loaded_functions
 
 
 def test_settings_has_no_access_control_fields() -> None:
@@ -128,6 +318,18 @@ def test_pea_roles_are_shipped() -> None:
 	assert frappe.db.exists("Role", "PEA Read Only")
 
 
+def test_production_stock_entry_purpose_metadata_is_available() -> None:
+	import frappe
+
+	field = frappe.get_doc("Custom Field", "Stock Entry-custom_stock_entry_purpose")
+
+	assert field.dt == "Stock Entry"
+	assert field.fieldname == "custom_stock_entry_purpose"
+	assert field.fieldtype == "Data"
+	assert field.fetch_from == "stock_entry_type.purpose"
+	assert field.read_only == 1
+
+
 def test_workspace_has_forms_and_reports_cards() -> None:
 	import frappe
 
@@ -136,7 +338,17 @@ def test_workspace_has_forms_and_reports_cards() -> None:
 	assert card_labels == ["Forms", "Reports"]
 	report_links = [row.link_to for row in ws.links if row.link_type == "Report"]
 	assert "Production OEE Report" in report_links
-	assert len(report_links) == 18
+	assert len(report_links) == 20
+	pending_rework = next(row for row in ws.links if row.label == "Pending Rework")
+	assert pending_rework.link_type == "Report"
+	assert pending_rework.is_query_report == 1
+
+
+def test_pending_rework_workspace_link_uses_query_report_route() -> None:
+	workspace = json.loads(WORKSPACE_JSON.read_text())
+	pending_rework = next(row for row in workspace["links"] if row["label"] == "Pending Rework")
+	assert pending_rework["link_type"] == "Report"
+	assert pending_rework["is_query_report"] == 1
 
 
 def assert_doctype_json(doctype: str) -> dict:
@@ -167,8 +379,13 @@ def load_tests(
 			test_filtered_custom_fields_are_search_indexed,
 			test_no_app_custom_field_uses_nonzero_permlevel,
 			test_stock_entry_detail_rejection_flag_uses_cross_version_anchor,
+			test_joint_lh_rh_production_metadata_is_exported,
+			test_rework_stock_entry_metadata_is_exported,
+			test_rework_fields_have_a_dedicated_two_column_section,
+			test_metadata_load_tests_includes_rework_layout_contract,
 			test_settings_has_no_access_control_fields,
 			test_pea_roles_are_shipped,
+			test_production_stock_entry_purpose_metadata_is_available,
 			test_workspace_has_forms_and_reports_cards,
 		)
 	)

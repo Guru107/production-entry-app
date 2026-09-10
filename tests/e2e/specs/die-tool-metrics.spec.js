@@ -205,7 +205,7 @@ test.describe("Die tool metrics and counter", () => {
 		page,
 	}) => {
 		await page.goto(getRoute("/home"));
-		const prefix = `${lifecycle.getPrefix()}-die-tool-precision`;
+		const prefix = lifecycle.getPrefix();
 		const ctx = await setupFreshContext(page, prefix);
 		await setSystemFloatPrecision(page, prefix, 4);
 

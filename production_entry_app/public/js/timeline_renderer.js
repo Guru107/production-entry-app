@@ -289,7 +289,7 @@ function _get_entry_bar_label(entry, floatPrecision) {
 	if (entry.entry_type === "downtime") {
 		return `DT ${entry.stop_reason || __("Downtime")}`;
 	}
-	return `${entry.fg_item || "-"} ${formatMetricDisplay(
+	return `${entry.fg_item_label || entry.fg_item || "-"} ${formatMetricDisplay(
 		entry.ok_qty || 0,
 		"Float",
 		floatPrecision
@@ -399,7 +399,7 @@ function _get_production_tooltip_html(entry, floatPrecision) {
 		`<div><strong>${_safe_tooltip_value(entry.name)}</strong></div>`,
 		`<div>${_safe_tooltip_value(__("Type"))}: ${_safe_tooltip_value(__("Production"))}</div>`,
 		`<div>${_safe_tooltip_value(__("FG"))}: ${_safe_tooltip_value(
-			entry.fg_item || "-"
+			entry.fg_item_label || entry.fg_item || "-"
 		)}</div>`,
 		_get_metric_tooltip_line(__("FG Qty"), entry.fg_qty, floatPrecision),
 		_get_metric_tooltip_line(__("Rejection Qty"), entry.rejection_qty, floatPrecision),

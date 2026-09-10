@@ -9,7 +9,6 @@ from production_entry_app.production_entry_app.report.report_utils import (
 	get_entry_production_minutes,
 	get_entry_total_strokes,
 	get_parent_loss_metrics,
-	get_parent_quantity_metrics,
 	get_report_rows,
 	iter_stock_entries_in_chunks,
 )
@@ -99,31 +98,19 @@ def _get_rows(filters: dict) -> list[dict]:
 	):
 		has_entries = True
 		entry_names = [entry.get("name") for entry in entries if entry.get("name")]
-		parent_quantity_metrics = get_parent_quantity_metrics(entry_names)
 		parent_loss_metrics = get_parent_loss_metrics(entry_names)
-		good_qty_map = {
-			parent: flt(metrics.get("good_qty") or 0) for parent, metrics in parent_quantity_metrics.items()
-		}
-		rejection_qty_map = {
-			parent: flt(metrics.get("rejection_qty") or 0)
-			for parent, metrics in parent_quantity_metrics.items()
-		}
-		total_rejected_qty_map = {
-			parent: flt(metrics.get("total_rejected_qty") or 0)
-			for parent, metrics in parent_quantity_metrics.items()
-		}
 
 		for entry in entries:
 			entry_name = entry.get("name")
 			loss_metrics = parent_loss_metrics.get(entry_name or "", {})
-			posting_date = str(entry.get("posting_date") or "")
+			production_date = str(entry.get("production_date") or "")
 			operator = entry.get("custom_pea_operator") or "Unassigned"
 			workstation = entry.get("custom_pea_workstation") or "Unassigned"
-			group_key = (posting_date, operator, workstation)
+			group_key = (production_date, operator, workstation)
 			agg = aggregates.setdefault(
 				group_key,
 				{
-					"date": posting_date,
+					"date": production_date,
 					"operator": operator,
 					"workstation": workstation,
 					"shift_names": set(),
@@ -143,12 +130,7 @@ def _get_rows(filters: dict) -> list[dict]:
 				agg["setting_time_hrs"] += float(loss_metrics.get("setup_mins") or 0) / 60
 				agg["loss_time_hrs"] += float(loss_metrics.get("loss_mins") or 0) / 60
 
-			total_strokes, _rejection_qty = get_entry_total_strokes(
-				entry,
-				good_qty_map=good_qty_map,
-				rejection_qty_map=rejection_qty_map,
-				total_rejected_qty_map=total_rejected_qty_map,
-			)
+			total_strokes, _rejection_qty = get_entry_total_strokes(entry)
 			agg["total_strokes"] += float(total_strokes)
 
 			setup_mins = float(loss_metrics.get("setup_mins") or 0)

@@ -4,13 +4,10 @@ from typing import Any
 
 import frappe
 from frappe import _
-from frappe.utils import getdate, nowdate
+from frappe.utils import flt, getdate, nowdate
 
-_PRODUCTION_ENTRY_SHIFT_SETTINGS_FIELDS: tuple[str, ...] = (
-	"shift_raw_material_warehouse",
-	"shift_wip_warehouse",
-	"shift_rejection_warehouse",
-	"shift_scrap_warehouse",
+PRODUCTION_ENTRY_SHIFT_SETTINGS_FIELDS: tuple[str, ...] = (
+	"branch_warehouse_defaults",
 	"shift_start_buffer_mins",
 	"shift_end_buffer_mins",
 )
@@ -130,10 +127,28 @@ def ensure_item(item_code: str, *, item_group: str = "Products", stock_uom: str 
 
 def ensure_production_entry_settings_shift_fields() -> None:
 	meta = frappe.get_meta("Production Entry Settings", cached=True)
-	if all(meta.has_field(fieldname) for fieldname in _PRODUCTION_ENTRY_SHIFT_SETTINGS_FIELDS):
+	if all(meta.has_field(fieldname) for fieldname in PRODUCTION_ENTRY_SHIFT_SETTINGS_FIELDS):
 		return
+	frappe.reload_doc("production_entry_app", "doctype", "branch_warehouse_default")
 	frappe.reload_doc("production_entry_app", "doctype", "production_entry_settings")
 	frappe.clear_document_cache("Production Entry Settings")
+
+
+def set_test_branch_warehouse_defaults(company: str, branch: str, **warehouses: str | None) -> None:
+	"""Update only the test's Company/Branch row; test cleanup restores the snapshot."""
+	settings = frappe.get_single("Production Entry Settings")
+	row = next(
+		(
+			row
+			for row in settings.branch_warehouse_defaults
+			if row.company == company and row.branch == branch
+		),
+		None,
+	)
+	if row is None:
+		row = settings.append("branch_warehouse_defaults", {"company": company, "branch": branch})
+	row.update(warehouses)
+	settings.save(ignore_permissions=True)
 
 
 def ensure_rejection_reason(name: str) -> None:
@@ -165,15 +180,30 @@ def ensure_operator(name: str) -> None:
 
 def save_test_user(user: frappe.model.document.Document) -> None:
 	"""Save a fixture user without tripping Frappe's user-creation throttle."""
+	previous_has_in_import = "in_import" in frappe.flags
 	previous_in_import = frappe.flags.get("in_import")
+	previous_has_flags_in_test = "in_test" in frappe.flags
+	previous_flags_in_test = frappe.flags.get("in_test")
+	previous_has_in_test = hasattr(frappe, "in_test")
+	previous_in_test = getattr(frappe, "in_test", None)
 	frappe.flags.in_import = True
+	frappe.flags.in_test = True
+	frappe.in_test = True
 	try:
 		user.save(ignore_permissions=True)
 	finally:
-		if previous_in_import is None:
-			frappe.flags.pop("in_import", None)
-		else:
+		if previous_has_in_import:
 			frappe.flags.in_import = previous_in_import
+		else:
+			frappe.flags.pop("in_import", None)
+		if previous_has_flags_in_test:
+			frappe.flags.in_test = previous_flags_in_test
+		else:
+			frappe.flags.pop("in_test", None)
+		if previous_has_in_test:
+			frappe.in_test = previous_in_test
+		elif hasattr(frappe, "in_test"):
+			delattr(frappe, "in_test")
 
 
 def ensure_workstation(name: str, standard_spm: float) -> None:
@@ -217,6 +247,136 @@ def ensure_default_bom(fg_item: str, rm_item: str, company: str) -> str:
 	return bom.name
 
 
+def build_joint_bom_scrap_row(
+	*, secondary_item_meta: Any, item_code: str, qty: float, rate: float, uom: str
+) -> dict[str, Any]:
+	type_field = "secondary_item_type" if secondary_item_meta.has_field("secondary_item_type") else "type"
+	row = {
+		type_field: "Scrap",
+		"item_code": item_code,
+		"qty": qty,
+		"uom": uom,
+		"conversion_factor": 1,
+		"cost_allocation_per": 0,
+		"process_loss_per": 0,
+	}
+	if secondary_item_meta.has_field("rate"):
+		row["rate"] = rate
+	else:
+		row["valuation_type"] = "Manual"
+		row["cost"] = flt(qty) * flt(rate)
+	return row
+
+
+def get_joint_bom_scrap_rate(row: Any) -> float:
+	rate = row.get("rate")
+	if flt(rate, 6):
+		return flt(rate, 6)
+	qty = flt(row.get("stock_qty") or row.get("qty"), 6)
+	return flt(flt(row.get("cost"), 6) / qty, 6) if qty else 0
+
+
+def ensure_operation(operation: str) -> str:
+	if not frappe.db.exists("Operation", operation):
+		frappe.get_doc({"doctype": "Operation", "name": operation}).insert(ignore_permissions=True)
+	return operation
+
+
+def ensure_joint_test_bom(
+	*,
+	item_code: str,
+	rm_item: str,
+	scrap_items: list[tuple[str, float, float]],
+	company: str,
+	bom_quantity: float = 100,
+	rm_qty: float = 49.125,
+	is_default: bool | None = None,
+	operation: str = "Shearing",
+) -> str:
+	"""Return a submitted BOM matching the requested quantities and scrap recipe.
+
+	ERPNext recalculates BOM Item rates from valuation during submission, so the
+	input RM rate is deliberately not part of fixture identity. Fixture scrap rates
+	are in Company currency, regardless of the current user's currency default.
+	"""
+	company_currency = frappe.get_cached_value("Company", company, "default_currency")
+	bom_meta = frappe.get_meta("BOM", cached=True)
+	operation_name = operation.strip()
+	if operation_name:
+		ensure_operation(operation_name)
+	for bom_name in frappe.get_all(
+		"BOM",
+		filters={
+			"item": item_code,
+			"company": company,
+			"currency": company_currency,
+			"is_active": 1,
+			"docstatus": 1,
+		},
+		pluck="name",
+		order_by="creation asc, name asc",
+	):
+		bom = frappe.get_doc("BOM", bom_name)
+		items = list(bom.get("items") or [])
+		bom_scrap = list(bom.get("secondary_items") or bom.get("scrap_items") or [])
+		actual_scrap = sorted(
+			(
+				row.get("item_code"),
+				flt(row.get("stock_qty") or row.get("qty"), 6),
+				get_joint_bom_scrap_rate(row),
+			)
+			for row in bom_scrap
+			if row.get("secondary_item_type") in (None, "Scrap") and row.get("type") in (None, "Scrap")
+		)
+		expected_scrap = sorted((code, flt(qty, 6), flt(rate, 6)) for code, qty, rate in scrap_items)
+		if (
+			flt(bom.quantity, 6) == flt(bom_quantity, 6)
+			and (is_default is None or int(bom.is_default or 0) == int(is_default))
+			and (
+				not bom_meta.has_field("custom_operation")
+				or (bom.get("custom_operation") or "").strip() == operation_name
+			)
+			and len(items) == 1
+			and items[0].get("item_code") == rm_item
+			and flt(items[0].get("stock_qty") or items[0].get("qty"), 6) == flt(rm_qty, 6)
+			and actual_scrap == expected_scrap
+		):
+			return bom.name
+
+	values = {
+		"doctype": "BOM",
+		"item": item_code,
+		"company": company,
+		"currency": company_currency,
+		"conversion_rate": 1,
+		"quantity": bom_quantity,
+		"is_default": int(bool(is_default)),
+		"is_active": 1,
+		"items": [{"item_code": rm_item, "qty": rm_qty, "rate": 50}],
+	}
+	if bom_meta.has_field("custom_operation"):
+		values["custom_operation"] = operation_name
+	if frappe.get_meta("BOM", cached=True).has_field("secondary_items"):
+		secondary_item_meta = frappe.get_meta("BOM Secondary Item", cached=True)
+		values["secondary_items"] = [
+			build_joint_bom_scrap_row(
+				secondary_item_meta=secondary_item_meta,
+				item_code=scrap_item,
+				qty=qty,
+				rate=rate,
+				uom=frappe.db.get_value("Item", scrap_item, "stock_uom"),
+			)
+			for scrap_item, qty, rate in scrap_items
+		]
+	else:
+		values["scrap_items"] = [
+			{"item_code": scrap_item, "stock_qty": qty, "rate": rate} for scrap_item, qty, rate in scrap_items
+		]
+	bom = frappe.get_doc(values).insert(ignore_permissions=True)
+	bom.submit()
+	return bom.name
+
+
 def _attach_fiscal_year_company(fiscal_year: str, company: str | None) -> None:
 	if not company:
 		return
@@ -231,17 +391,34 @@ def _attach_fiscal_year_company(fiscal_year: str, company: str | None) -> None:
 	doc.save(ignore_permissions=True)
 
 
-def ensure_fiscal_year_for_date(posting_date: str, company: str | None = None) -> None:
+def _get_existing_fiscal_year_for_date(posting_date: str, company: str | None = None) -> str | None:
 	date = getdate(posting_date)
-	existing_fiscal_year = frappe.db.get_value(
+	fiscal_years = frappe.get_all(
 		"Fiscal Year",
-		{
+		filters={
 			"year_start_date": ("<=", date),
 			"year_end_date": (">=", date),
 		},
-		"name",
-		order_by="year_start_date desc",
+		pluck="name",
+		order_by="year_start_date desc, name asc",
 	)
+	if not fiscal_years:
+		return None
+	if not company or not frappe.get_meta("Fiscal Year", cached=True).has_field("companies"):
+		return fiscal_years[0]
+
+	for fiscal_year in fiscal_years:
+		if frappe.db.exists("Fiscal Year Company", {"parent": fiscal_year, "company": company}):
+			return fiscal_year
+	for fiscal_year in fiscal_years:
+		if not frappe.db.exists("Fiscal Year Company", {"parent": fiscal_year}):
+			return fiscal_year
+	return None
+
+
+def ensure_fiscal_year_for_date(posting_date: str, company: str | None = None) -> None:
+	date = getdate(posting_date)
+	existing_fiscal_year = _get_existing_fiscal_year_for_date(posting_date, company)
 	if existing_fiscal_year:
 		if frappe.get_meta("Fiscal Year", cached=True).has_field("disabled"):
 			frappe.db.set_value("Fiscal Year", existing_fiscal_year, "disabled", 0, update_modified=False)
@@ -309,18 +486,15 @@ def bootstrap_manufacturing_test_context(prefix: str) -> dict[str, Any]:
 	fg_warehouse = ensure_warehouse(f"{prefix} FG - {abbr}", company)
 	rejection_warehouse = ensure_warehouse(f"{prefix} Rejection - {abbr}", company)
 	scrap_warehouse = ensure_warehouse(f"{prefix} Scrap - {abbr}", company)
-	if frappe.get_meta("Warehouse", cached=True).has_field("is_rejected_warehouse"):
-		frappe.db.set_value(
-			"Warehouse", rejection_warehouse, "is_rejected_warehouse", 1, update_modified=False
-		)
-	frappe.db.set_single_value("Production Entry Settings", "shift_raw_material_warehouse", rm_warehouse)
-	frappe.db.set_single_value("Production Entry Settings", "shift_wip_warehouse", wip_warehouse)
-	frappe.db.set_single_value("Production Entry Settings", "shift_rejection_warehouse", rejection_warehouse)
-	frappe.db.set_single_value("Production Entry Settings", "raw_material_warehouse", rm_warehouse)
-	frappe.db.set_single_value("Production Entry Settings", "work_in_progress_warehouse", wip_warehouse)
-	frappe.db.set_single_value("Production Entry Settings", "rejection_warehouse", rejection_warehouse)
-	frappe.db.set_single_value("Production Entry Settings", "scrap_warehouse", scrap_warehouse)
-	frappe.clear_document_cache("Production Entry Settings")
+	frappe.db.set_value("Warehouse", rejection_warehouse, "is_rejected_warehouse", 1, update_modified=False)
+	set_test_branch_warehouse_defaults(
+		company,
+		branch,
+		raw_material_warehouse=rm_warehouse,
+		work_in_progress_warehouse=wip_warehouse,
+		rejection_warehouse=rejection_warehouse,
+		scrap_warehouse=scrap_warehouse,
+	)
 	return {
 		"company": company,
 		"branch": branch,

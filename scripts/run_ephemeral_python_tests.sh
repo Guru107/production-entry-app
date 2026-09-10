@@ -9,8 +9,12 @@ DB_ROOT_USERNAME="${DB_ROOT_USERNAME:-root}"
 DB_ROOT_PASSWORD="${DB_ROOT_PASSWORD:-}"
 EPHEMERAL_ADMIN_PASSWORD="${EPHEMERAL_ADMIN_PASSWORD:-admin}"
 RUN_ID="${EPHEMERAL_SITE_RUN_ID:-$(date +%Y%m%d%H%M%S)-$$}"
+WITH_COVERAGE="${WITH_COVERAGE:-1}"
+COVERAGE_FAIL_UNDER="${COVERAGE_FAIL_UNDER:-85}"
+COVERAGE_FILE="${COVERAGE_FILE:-$BENCH_ROOT/sites/.coverage}"
+ORIGINAL_PYTHONPATH="${PYTHONPATH:-}"
 
-export PYTHONPATH="$APP_ROOT:$BENCH_ROOT/apps/frappe${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONPATH="$APP_ROOT:$BENCH_ROOT/apps/frappe${ORIGINAL_PYTHONPATH:+:$ORIGINAL_PYTHONPATH}"
 
 if [ -z "$DB_ROOT_PASSWORD" ]; then
 	echo "DB_ROOT_PASSWORD is required for ephemeral site creation and teardown." >&2
@@ -53,6 +57,7 @@ fi
 bench --site "$SITE_NAME" install-app erpnext
 bench --site "$SITE_NAME" install-app production_entry_app
 bench build --app production_entry_app
+export PYTHONPATH="$BENCH_ROOT/apps/production_entry_app:$BENCH_ROOT/apps/frappe${ORIGINAL_PYTHONPATH:+:$ORIGINAL_PYTHONPATH}"
 bench --site "$SITE_NAME" execute erpnext.setup.setup_wizard.operations.install_fixtures.install --args '["India"]'
 bench --site "$SITE_NAME" set-config allow_tests true
 bench --site "$SITE_NAME" execute production_entry_app.production_entry_app.utils.test_setup.before_tests
@@ -61,9 +66,15 @@ run_tests_cmd=(bench --site "$SITE_NAME" run-tests --app production_entry_app)
 if [ "${ERPNEXT_VERSION:-}" = "16" ]; then
 	run_tests_cmd+=(--lightmode)
 fi
+if [ "$WITH_COVERAGE" = "1" ]; then
+	run_tests_cmd+=(--coverage)
+fi
 
 if [ "$#" -gt 0 ]; then
 	run_tests_cmd+=(--module "$1")
 fi
 
 "${run_tests_cmd[@]}"
+if [ "$WITH_COVERAGE" = "1" ] && [ "$#" -eq 0 ]; then
+	"$BENCH_PYTHON" -m coverage report --data-file="$COVERAGE_FILE" --fail-under="$COVERAGE_FAIL_UNDER"
+fi

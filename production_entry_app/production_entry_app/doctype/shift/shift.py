@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import datetime
 from collections.abc import Callable
-from typing import Any
+from typing import Any, NamedTuple
 
 import frappe
 from frappe import _
@@ -11,10 +11,22 @@ from frappe.query_builder import DocType
 from frappe.query_builder.functions import CustomFunction, Sum
 from frappe.utils import add_to_date, cint, flt, get_datetime
 
+from production_entry_app.production_entry_app.report.report_utils import (
+	add_stock_entry_type_flags,
+	get_entry_output_quantities,
+	get_finished_item_maps,
+	get_parent_quantity_metrics,
+	is_joint_lh_rh_entry,
+	is_production_stock_entry,
+)
 from production_entry_app.production_entry_app.utils.loss_time import (
 	build_interval_overlap_criterion,
 	build_interval_overlap_filters,
 	get_loss_duration_minutes,
+)
+from production_entry_app.production_entry_app.utils.production_warehouses import (
+	get_shift_warehouses,
+	validate_warehouse_companies,
 )
 from production_entry_app.production_entry_app.utils.shift_time import combine_date_time
 from production_entry_app.production_entry_app.utils.system_precision import (
@@ -45,8 +57,26 @@ RUNNING_SHIFT_SERVER_COMPUTED_FIELDS: frozenset[str] = frozenset(
 		"shift_title",
 	}
 )
+
+
+class _EntrySummaryQuantities(NamedTuple):
+	total_qty: float
+	ok_qty: float
+	rejection_qty: float
+	total_strokes: float
+
+
 RUNNING_SHIFT_MUTABLE_FIELDS: frozenset[str] = (
 	RUNNING_SHIFT_USER_EDITABLE_FIELDS | RUNNING_SHIFT_SERVER_COMPUTED_FIELDS
+)
+COMPLETED_SHIFT_DURATION_EXTENSION_USER_FIELDS: frozenset[str] = frozenset({"shift_duration"})
+COMPLETED_SHIFT_DURATION_EXTENSION_COMPUTED_FIELDS: frozenset[str] = frozenset(
+	{
+		"planned_start_time_input",
+		"planned_end_time",
+		"shift_end_date",
+		"shift_title",
+	}
 )
 _SHIFT_START_LOSSES: list[tuple[str, int, int]] = [
 	("Shift Start Up", 0, 10),
@@ -109,6 +139,8 @@ def _send_shift_notification(
 	email_content: str | None = None,
 ) -> None:
 	"""Create notification log entries for shift start/end events."""
+	if getattr(frappe.flags, "suppress_shift_notifications", False):
+		return
 	recipients = _get_notification_recipients_for_shift(shift_doc)
 	if not recipients:
 		return
@@ -216,7 +248,7 @@ def get_linked_downtime_entries(shift_name: str | None = None) -> list[dict]:
 	if not shift_exists and shift_name.startswith("new-"):
 		return []
 	if not frappe.has_permission("Shift", "read", shift_name):
-		raise frappe.PermissionError
+		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
 	if not shift_exists:
 		return []
 
@@ -255,7 +287,7 @@ def check_running_shift_conflict(shift_name: str) -> dict:
 	if not shift_name:
 		return {"has_conflict": False, "conflicting_shifts": []}
 	if not frappe.has_permission("Shift", "read", shift_name):
-		raise frappe.PermissionError
+		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
 
 	current_shift = frappe.db.get_value(
 		"Shift",
@@ -323,22 +355,14 @@ def _empty_shift_summary() -> dict:
 
 
 def _get_shift_summary_cache_key(shift_name: str) -> str:
-	return f"pea:shift_summary:{shift_name}:admin"
-
-
-def _get_shift_metrics_cache_key(shift_name: str) -> str:
-	return _get_shift_summary_cache_key(shift_name)
+	return f"pea:shift_summary:{shift_name}"
 
 
 def _get_cached_shift_summary(shift_name: str) -> dict | None:
-	if frappe.session.user != "Administrator":
-		return None
 	return frappe.cache().get_value(_get_shift_summary_cache_key(shift_name))
 
 
 def _set_cached_shift_summary(shift_name: str, summary: dict) -> None:
-	if frappe.session.user != "Administrator":
-		return
 	frappe.cache().set_value(
 		_get_shift_summary_cache_key(shift_name), summary, expires_in_sec=METRICS_CACHE_TTL_SEC
 	)
@@ -353,7 +377,7 @@ def _with_shift_summary_float_precision(summary: dict) -> dict:
 def invalidate_shift_summary_cache(shift_name: str | None) -> None:
 	if not shift_name:
 		return
-	frappe.cache().delete_keys(f"pea:shift_summary:{shift_name}:")
+	frappe.cache().delete_value(_get_shift_summary_cache_key(shift_name))
 
 
 def invalidate_shift_summary_for_shift(doc, method: str | None = None) -> None:
@@ -433,7 +457,23 @@ def _top_reason_rows(reason_totals: dict[str, float], key_name: str = "reason") 
 	]
 
 
-def _build_workstation_summary_rows(entries: list[dict]) -> tuple[list[dict], dict | None]:
+def _get_entry_summary_quantities(
+	entry: dict,
+	normal_metrics: dict | None = None,
+) -> _EntrySummaryQuantities:
+	quantities = get_entry_output_quantities(entry, normal_metrics=normal_metrics)
+	return _EntrySummaryQuantities(
+		quantities.total_qty,
+		quantities.ok_qty,
+		quantities.rejection_qty,
+		flt(entry.get("custom_pea_total_strokes")),
+	)
+
+
+def _build_workstation_summary_rows(
+	entries: list[dict],
+	parent_quantity_metrics: dict[str, dict[str, float]] | None = None,
+) -> tuple[list[dict], dict | None]:
 	aggregates: dict[str, dict] = {}
 	for entry in entries:
 		workstation = entry.get("custom_pea_workstation") or "Unassigned"
@@ -442,6 +482,7 @@ def _build_workstation_summary_rows(entries: list[dict]) -> tuple[list[dict], di
 			{
 				"workstation": workstation,
 				"total_qty": 0.0,
+				"total_strokes": 0.0,
 				"ok_qty": 0.0,
 				"rejection_qty": 0.0,
 				"production_mins": 0.0,
@@ -449,12 +490,14 @@ def _build_workstation_summary_rows(entries: list[dict]) -> tuple[list[dict], di
 				"standard_weighted_sum": 0.0,
 			},
 		)
-		total_qty = flt(entry.get("fg_completed_qty") or 0)
-		rejection_qty = flt(entry.get("custom_pea_rejection_qty") or 0)
-		ok_qty = max(total_qty - rejection_qty, 0)
+		total_qty, ok_qty, rejection_qty, total_strokes = _get_entry_summary_quantities(
+			entry,
+			(parent_quantity_metrics or {}).get(entry.get("name")),
+		)
 		production_mins = _get_entry_production_minutes(entry)
 		standard_spm = flt(entry.get("custom_pea_standard_spm") or 0)
 		aggregate["total_qty"] += total_qty
+		aggregate["total_strokes"] += total_strokes
 		aggregate["ok_qty"] += ok_qty
 		aggregate["rejection_qty"] += rejection_qty
 		aggregate["production_mins"] += production_mins
@@ -466,7 +509,7 @@ def _build_workstation_summary_rows(entries: list[dict]) -> tuple[list[dict], di
 	for aggregate in aggregates.values():
 		production_mins = flt(aggregate["production_mins"])
 		target_mins = flt(aggregate["target_mins"])
-		throughput_spm = (flt(aggregate["total_qty"]) / production_mins) if production_mins > 0 else 0
+		throughput_spm = (flt(aggregate["total_strokes"]) / production_mins) if production_mins > 0 else 0
 		target_coverage_pct = (target_mins / production_mins) * 100 if production_mins > 0 else 0
 		weighted_target_spm = flt(aggregate["standard_weighted_sum"]) / target_mins if target_mins > 0 else 0
 		efficiency_pct = None
@@ -506,7 +549,10 @@ def _build_workstation_summary_rows(entries: list[dict]) -> tuple[list[dict], di
 	return worst_rows, best_row
 
 
-def _build_item_bom_rows(entries: list[dict]) -> list[dict]:
+def _build_item_bom_rows(
+	entries: list[dict],
+	parent_quantity_metrics: dict[str, dict[str, float]] | None = None,
+) -> list[dict]:
 	aggregates: dict[str, dict] = {}
 	for entry in entries:
 		item_code = entry.get("item_code") or entry.get("fg_item") or _("Unknown Item")
@@ -523,10 +569,12 @@ def _build_item_bom_rows(entries: list[dict]) -> list[dict]:
 				"rejection_qty": 0.0,
 			},
 		)
-		total_qty = flt(entry.get("fg_completed_qty") or 0)
-		rejection_qty = flt(entry.get("custom_pea_rejection_qty") or 0)
+		total_qty, ok_qty, rejection_qty, _total_strokes = _get_entry_summary_quantities(
+			entry,
+			(parent_quantity_metrics or {}).get(entry.get("name")),
+		)
 		aggregate["total_qty"] += total_qty
-		aggregate["ok_qty"] += max(total_qty - rejection_qty, 0)
+		aggregate["ok_qty"] += ok_qty
 		aggregate["rejection_qty"] += rejection_qty
 	rows: list[dict] = []
 	for aggregate in aggregates.values():
@@ -718,12 +766,12 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 	if not shift_exists and shift_name.startswith("new-"):
 		return _empty_shift_summary()
 	if not frappe.has_permission("Shift", "read", shift_name):
-		raise frappe.PermissionError
+		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
 	if not shift_exists:
 		return _empty_shift_summary()
 	for doctype in ("Stock Entry", "BOM", "Downtime Entry"):
 		if not frappe.has_permission(doctype, "read"):
-			raise frappe.PermissionError
+			frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
 	cached_summary = _get_cached_shift_summary(shift_name)
 	if cached_summary is not None:
 		return _with_shift_summary_float_precision(cached_summary)
@@ -737,11 +785,24 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 
 	entry_rows = frappe.get_list(
 		"Stock Entry",
-		filters={"docstatus": 1, "purpose": "Manufacture", "custom_pea_shift": shift_name},
+		filters={
+			"docstatus": 1,
+			"purpose": ["in", ["Manufacture", "Repack"]],
+			"custom_pea_shift": shift_name,
+		},
 		fields=[
 			"name",
+			"purpose",
+			"stock_entry_type",
 			"fg_completed_qty",
 			"custom_pea_rejection_qty",
+			"custom_pea_total_strokes",
+			"custom_pea_lh_gross_qty",
+			"custom_pea_lh_rejection_qty",
+			"custom_pea_rh_gross_qty",
+			"custom_pea_rh_rejection_qty",
+			"custom_pea_lh_bom",
+			"custom_pea_rh_bom",
 			"custom_pea_is_late_entry",
 			"custom_pea_actual_duration_mins",
 			"custom_pea_production_time_mins",
@@ -752,21 +813,19 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 		order_by="name asc",
 		limit_page_length=0,
 	)
+	add_stock_entry_type_flags(entry_rows)
+	entry_rows = [row for row in entry_rows if is_production_stock_entry(row)]
 	entry_names = [row.get("name") for row in entry_rows if row.get("name")]
-	item_by_entry = (
+	parent_quantity_metrics = get_parent_quantity_metrics(entry_names)
+	item_by_entry, _item_labels = get_finished_item_maps(entry_names)
+	bom_names = sorted(
 		{
-			row.get("parent"): row.get("item_code")
-			for row in frappe.get_all(
-				"Stock Entry Detail",
-				filters={"parent": ["in", entry_names], "is_finished_item": 1},
-				fields=["parent", "item_code"],
-				order_by="idx asc",
-			)
+			bom_no
+			for row in entry_rows
+			for bom_no in (row.get("bom_no"), row.get("custom_pea_lh_bom"), row.get("custom_pea_rh_bom"))
+			if bom_no
 		}
-		if entry_names
-		else {}
 	)
-	bom_names = sorted({row.get("bom_no") for row in entry_rows if row.get("bom_no")})
 	item_by_bom = (
 		{
 			row.get("name"): row.get("item")
@@ -781,6 +840,14 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 		else {}
 	)
 	for row in entry_rows:
+		if is_joint_lh_rh_entry(row):
+			lh_bom = row.get("custom_pea_lh_bom") or ""
+			rh_bom = row.get("custom_pea_rh_bom") or ""
+			row["bom_no"] = " + ".join(value for value in (lh_bom, rh_bom) if value)
+			row["item_code"] = " + ".join(
+				value for value in (item_by_bom.get(lh_bom), item_by_bom.get(rh_bom)) if value
+			)
+			continue
 		row["item_code"] = item_by_entry.get(row.get("name")) or item_by_bom.get(row.get("bom_no")) or ""
 	loss_rows = (
 		frappe.get_all(
@@ -810,13 +877,19 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 	entry_count = len(entry_rows)
 	late_entry_count = sum(1 for row in entry_rows if row.get("custom_pea_is_late_entry"))
 	total_qty = 0.0
+	total_strokes = 0.0
 	rejection_qty = 0.0
 	recorded_production_mins = 0.0
 	target_covered_mins = 0.0
 	weighted_target_sum = 0.0
 	for row in entry_rows:
-		total_qty += flt(row.get("fg_completed_qty") or 0)
-		rejection_qty += flt(row.get("custom_pea_rejection_qty") or 0)
+		entry_total, _entry_ok, entry_rejection, entry_strokes = _get_entry_summary_quantities(
+			row,
+			parent_quantity_metrics.get(row.get("name")),
+		)
+		total_qty += entry_total
+		total_strokes += entry_strokes
+		rejection_qty += entry_rejection
 		production_mins = _get_entry_production_minutes(row)
 		recorded_production_mins += production_mins
 		standard_spm = flt(row.get("custom_pea_standard_spm") or 0)
@@ -826,7 +899,7 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 
 	ok_qty = max(total_qty - rejection_qty, 0)
 	rejection_pct = flt((rejection_qty / total_qty) * 100) if total_qty > 0 else 0
-	overall_throughput_spm = (total_qty / recorded_production_mins) if recorded_production_mins > 0 else 0
+	overall_throughput_spm = (total_strokes / recorded_production_mins) if recorded_production_mins > 0 else 0
 	overall_ok_spm = (ok_qty / recorded_production_mins) if recorded_production_mins > 0 else 0
 	target_coverage_pct = (
 		(target_covered_mins / recorded_production_mins) * 100 if recorded_production_mins > 0 else 0
@@ -868,7 +941,10 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 	planned_shift_mins = flt(shift.get("shift_duration") or 0) * 60
 	planned_usable_mins = max(planned_shift_mins - planned_loss_mins, 0)
 
-	workstation_rows, best_workstation = _build_workstation_summary_rows(entry_rows)
+	workstation_rows, best_workstation = _build_workstation_summary_rows(
+		entry_rows,
+		parent_quantity_metrics,
+	)
 	summary = {
 		"float_precision": get_system_float_precision(),
 		"snapshot": {
@@ -893,7 +969,7 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 		},
 		"exceptions": {
 			"workstations": workstation_rows,
-			"item_boms": _build_item_bom_rows(entry_rows),
+			"item_boms": _build_item_bom_rows(entry_rows, parent_quantity_metrics),
 			"unplanned_loss_reasons": _top_reason_rows(unplanned_loss_reason_totals),
 		},
 		"logged_downtime": {
@@ -923,31 +999,60 @@ def get_shift_aggregate_production_entries(shift_name: str | None = None) -> lis
 	if not shift_exists and shift_name.startswith("new-"):
 		return []
 	if not frappe.has_permission("Shift", "read", shift_name):
-		raise frappe.PermissionError
+		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
 	if not shift_exists:
 		return []
 	for doctype in ("Stock Entry", "BOM"):
 		if not frappe.has_permission(doctype, "read"):
-			raise frappe.PermissionError
+			frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
 	float_precision = get_system_float_precision()
 	permitted_entries = frappe.get_list(
 		"Stock Entry",
-		filters={"docstatus": 1, "purpose": "Manufacture", "custom_pea_shift": shift_name},
-		fields=["name", "bom_no"],
+		filters={
+			"docstatus": 1,
+			"purpose": ["in", ["Manufacture", "Repack"]],
+			"custom_pea_shift": shift_name,
+		},
+		fields=[
+			"name",
+			"purpose",
+			"stock_entry_type",
+			"bom_no",
+			"custom_pea_lh_bom",
+			"custom_pea_rh_bom",
+			"custom_pea_lh_gross_qty",
+			"custom_pea_lh_rejection_qty",
+			"custom_pea_rh_gross_qty",
+			"custom_pea_rh_rejection_qty",
+			"custom_pea_total_strokes",
+			"custom_pea_actual_duration_mins",
+			"custom_pea_production_time_mins",
+		],
 		limit_page_length=0,
 	)
+	add_stock_entry_type_flags(permitted_entries)
+	permitted_entries = [row for row in permitted_entries if is_production_stock_entry(row)]
 	permitted_entry_names = [row.get("name") for row in permitted_entries if row.get("name")]
 	if not permitted_entry_names:
 		return []
-	requested_bom_names = sorted({row.get("bom_no") for row in permitted_entries if row.get("bom_no")})
-	permitted_bom_names = frappe.get_list(
+	requested_bom_names = sorted(
+		{
+			bom_no
+			for row in permitted_entries
+			for bom_no in (row.get("bom_no"), row.get("custom_pea_lh_bom"), row.get("custom_pea_rh_bom"))
+			if bom_no
+		}
+	)
+	permitted_bom_rows = frappe.get_list(
 		"BOM",
 		filters={"name": ["in", requested_bom_names]},
-		pluck="name",
+		fields=["name", "item"],
 		limit_page_length=0,
 	)
+	permitted_bom_names = [row.get("name") for row in permitted_bom_rows if row.get("name")]
 	if not permitted_bom_names:
 		return []
+	item_by_bom = {row.get("name"): row.get("item") for row in permitted_bom_rows}
 
 	stock_entry = DocType("Stock Entry")
 	bom = DocType("BOM")
@@ -964,13 +1069,11 @@ def get_shift_aggregate_production_entries(shift_name: str | None = None) -> lis
 		bom.item.as_("item_code"),
 		Sum(stock_entry.fg_completed_qty).as_("total_qty"),
 		Sum(stock_entry.custom_pea_rejection_qty).as_("total_reject_qty"),
+		Sum(stock_entry.custom_pea_total_strokes).as_("total_strokes"),
 		Sum(stock_entry.custom_pea_actual_duration_mins).as_("total_duration_mins"),
 	]
 	if has_production_time_field:
-		select_fields.insert(
-			4,
-			Sum(production_time_expr).as_("total_production_mins"),
-		)
+		select_fields.append(Sum(production_time_expr).as_("total_production_mins"))
 	rows = (
 		frappe.qb.from_(stock_entry)
 		.inner_join(bom)
@@ -1001,7 +1104,8 @@ def get_shift_aggregate_production_entries(shift_name: str | None = None) -> lis
 			if total_production_mins is not None
 			else (row.get("total_duration_mins") or 0),
 		)
-		avg_spm = (total_ok_qty / total_duration_mins) if total_duration_mins > 0 else 0
+		total_strokes = flt(row.get("total_strokes") or 0)
+		avg_spm = (total_strokes / total_duration_mins) if total_duration_mins > 0 else 0
 		result.append(
 			{
 				"bom_used": row.get("bom_used"),
@@ -1010,6 +1114,47 @@ def get_shift_aggregate_production_entries(shift_name: str | None = None) -> lis
 				"total_ok_qty": total_ok_qty,
 				"total_reject_qty": total_reject_qty,
 				"avg_spm": avg_spm,
+				"float_precision": float_precision,
+			}
+		)
+
+	joint_aggregates: dict[tuple[str, str], dict[str, float]] = {}
+	for entry in permitted_entries:
+		if not is_joint_lh_rh_entry(entry):
+			continue
+		lh_bom = entry.get("custom_pea_lh_bom") or ""
+		rh_bom = entry.get("custom_pea_rh_bom") or ""
+		key = (lh_bom, rh_bom)
+		aggregate = joint_aggregates.setdefault(
+			key,
+			{"total_qty": 0.0, "total_reject_qty": 0.0, "total_strokes": 0.0, "mins": 0.0},
+		)
+		aggregate["total_qty"] += flt(entry.get("custom_pea_lh_gross_qty")) + flt(
+			entry.get("custom_pea_rh_gross_qty")
+		)
+		aggregate["total_reject_qty"] += flt(entry.get("custom_pea_lh_rejection_qty")) + flt(
+			entry.get("custom_pea_rh_rejection_qty")
+		)
+		aggregate["total_strokes"] += flt(entry.get("custom_pea_total_strokes"))
+		aggregate["mins"] += flt(
+			entry.get("custom_pea_production_time_mins")
+			if entry.get("custom_pea_production_time_mins") is not None
+			else entry.get("custom_pea_actual_duration_mins")
+		)
+	for (lh_bom, rh_bom), aggregate in sorted(joint_aggregates.items()):
+		total_qty = flt(aggregate["total_qty"])
+		total_reject_qty = flt(aggregate["total_reject_qty"])
+		mins = flt(aggregate["mins"])
+		result.append(
+			{
+				"bom_used": " + ".join(value for value in (lh_bom, rh_bom) if value),
+				"item_code": " + ".join(
+					value for value in (item_by_bom.get(lh_bom), item_by_bom.get(rh_bom)) if value
+				),
+				"total_qty": total_qty,
+				"total_ok_qty": max(total_qty - total_reject_qty, 0),
+				"total_reject_qty": total_reject_qty,
+				"avg_spm": flt(aggregate["total_strokes"] / mins) if mins > 0 else 0,
 				"float_precision": float_precision,
 			}
 		)
@@ -1053,11 +1198,14 @@ class Shift(Document):
 
 	def before_insert(self) -> None:
 		self._set_defaults()
-		self._set_warehouse_defaults_from_production_entry_settings()
+		self._ensure_company()
+		self._ensure_branch()
+		self.update(get_shift_warehouses(self))
 
 	def validate(self) -> None:
 		self._ensure_company()
 		self._ensure_branch()
+		validate_warehouse_companies([self])
 		self._validate_status()
 		self._validate_field_locking()
 		self._calculate_planned_end_time_and_dates()
@@ -1177,10 +1325,11 @@ class Shift(Document):
 			frappe.throw(_("Status is system-managed. Use Start Shift / End Shift actions."))
 
 	def _validate_field_locking(self) -> None:
-		"""Enforce locking: planned_losses and most fields in Running; entire doc in Completed/Cancelled.
+		"""Enforce locking for active and closed shifts.
 
-		shift_duration changes are allowed in Running state and trigger recalculation of
-		planned_end_time, shift_end_date, and planned_losses.
+		shift_duration changes trigger recalculation of planned_end_time, shift_end_date,
+		and planned_losses. Completed shifts only permit duration extension; the normal
+		overlap guard later rejects extensions that collide with another shift.
 		"""
 		if self.is_new():
 			return
@@ -1195,7 +1344,10 @@ class Shift(Document):
 		if current_status == "Running":
 			self._validate_running_shift_edits()
 
-		if current_status in ("Completed", "Cancelled"):
+		if current_status == "Completed":
+			self._validate_completed_shift_edits()
+
+		if current_status == "Cancelled":
 			frappe.throw(
 				_("Shift in {0} state cannot be modified.").format(
 					frappe.bold(frappe.utils.escape_html(str(current_status)))
@@ -1212,15 +1364,41 @@ class Shift(Document):
 		if self._get_locked_scalar_field_changes():
 			frappe.throw(_("Only shift duration and warehouse fields can be edited when shift is Running."))
 
+	def _validate_completed_shift_edits(self) -> None:
+		changed_fields = self._get_changed_scalar_fields()
+		user_changed_fields = changed_fields - COMPLETED_SHIFT_DURATION_EXTENSION_COMPUTED_FIELDS
+		if not changed_fields and not self._planned_losses_changed():
+			return
+		if (
+			user_changed_fields != COMPLETED_SHIFT_DURATION_EXTENSION_USER_FIELDS
+			or self._planned_losses_changed()
+		):
+			frappe.throw(_("Only shift duration extension is allowed when shift is Completed."))
+		if not self._is_shift_duration_extension():
+			frappe.throw(_("Only shift duration extension is allowed when shift is Completed."))
+
+	def _is_shift_duration_extension(self) -> bool:
+		previous_duration = self._get_previous_shift_duration()
+		if previous_duration is None:
+			return False
+		return self._parse_duration_hours(self.shift_duration) > self._parse_duration_hours(previous_duration)
+
+	def _get_previous_shift_duration(self) -> str | None:
+		before = self.get_doc_before_save()
+		if before:
+			return before.shift_duration
+		return frappe.db.get_value("Shift", self.name, "shift_duration")
+
 	def _get_locked_scalar_field_changes(self) -> set[str]:
+		return self._get_changed_scalar_fields() - RUNNING_SHIFT_MUTABLE_FIELDS
+
+	def _get_changed_scalar_fields(self) -> set[str]:
 		# Only check scalar fields via has_value_changed; child tables (e.g. planned_losses)
 		# may report false positives after reload due to object identity vs content equality.
 		return {
 			f.fieldname
 			for f in self.meta.get("fields", [])
-			if f.fieldtype != "Table"
-			and self.has_value_changed(f.fieldname)
-			and f.fieldname not in RUNNING_SHIFT_MUTABLE_FIELDS
+			if f.fieldtype != "Table" and self.has_value_changed(f.fieldname)
 		}
 
 	def _planned_losses_changed(self) -> bool:
@@ -1246,6 +1424,7 @@ class Shift(Document):
 				self.planned_end_time,
 				self.department,
 				self.branch,
+				self.company,
 			]
 		):
 			return
@@ -1261,6 +1440,7 @@ class Shift(Document):
 			.where(shift.status != "Cancelled")
 			.where(shift.department == self.department)
 			.where(shift.branch == self.branch)
+			.where(shift.company == self.company)
 			.where(shift.shift_date >= add_to_date(self.shift_date, days=-1, as_string=True))
 			.where(shift.shift_date <= add_to_date(self.shift_date, days=1, as_string=True))
 			.where(
@@ -1430,28 +1610,3 @@ class Shift(Document):
 		self.planned_losses = []
 		for row in entries:
 			self.append("planned_losses", row)
-
-	def _set_warehouse_defaults_from_production_entry_settings(self) -> None:
-		"""Best-effort: populate missing warehouse defaults from Production Entry Settings."""
-
-		settings_doctype = "Production Entry Settings"
-
-		field_map = {
-			"raw_material_warehouse": "shift_raw_material_warehouse",
-			"work_in_progress_warehouse": "shift_wip_warehouse",
-			"rejection_warehouse": "shift_rejection_warehouse",
-			"scrap_warehouse": "shift_scrap_warehouse",
-		}
-
-		settings_meta = frappe.get_meta(settings_doctype, cached=True)
-
-		for target_field, settings_field in field_map.items():
-			if getattr(self, target_field, None):
-				continue
-
-			if not settings_meta.has_field(settings_field):
-				continue
-
-			value = frappe.db.get_single_value(settings_doctype, settings_field)
-			if value:
-				setattr(self, target_field, value)

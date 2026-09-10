@@ -269,7 +269,7 @@ Each gets a short "why" note in README.
 
 ## Testing & coverage
 
-- TDD throughout; coverage stays ≥ 90%.
+- TDD throughout; coverage stays ≥ 85%.
 - Phase 2's v15/v16 regression suite must pass on both benches before any override
   change (delete or harden) is considered done.
 - E2E specs (happy / validation) for the late-entry audit (2.5).

@@ -7,6 +7,20 @@ from production_entry_app.production_entry_app import performance_indexes
 
 APP_MODULE = "Production Entry App"
 CUSTOMIZATION_DOCTYPES = ("Property Setter", "Custom Field")
+REWORK_DETAILS_SECTION_CUSTOM_FIELD = "Stock Entry-custom_pea_rework_details_section"
+REWORK_LAYOUT_FIELDNAMES = frozenset(
+	{
+		"custom_pea_rework_details_section",
+		"custom_pea_rework_type",
+		"custom_pea_rework_actual_start",
+		"custom_pea_rework_actual_end",
+		"custom_pea_rework_column_break",
+		"custom_pea_rework_workstation",
+		"custom_pea_rework_operators",
+		"custom_pea_rework_cost",
+		"custom_pea_rework_details_end_section",
+	}
+)
 
 
 def after_sync() -> None:
@@ -36,35 +50,50 @@ def _warn_if_e2e_enabled_on_non_test_site() -> None:
 
 
 def _setup_app() -> None:
-	ensure_stock_entry_branch_field()
+	ensure_rework_details_layout()
 	performance_indexes.ensure_performance_indexes_with_recovery()
 	frappe.logger("production_entry_app").info(
-		"Production Entry App setup ran: branch field and performance indexes were reconciled during sync/migrate."
+		"Production Entry App setup ran: Rework Stock Entry layout and performance indexes were "
+		"reconciled during sync/migrate."
 	)
 
 
-def ensure_stock_entry_branch_field() -> None:
-	"""Add a persisted `branch` Link field to Stock Entry only if none exists.
-
-	Native Frappe User Permissions on Branch then isolate Stock Entry by branch.
-	Reuses an existing `branch` field (native or from another app) — never duplicates.
-	"""
-	if frappe.get_meta("Stock Entry", cached=True).has_field("branch"):
+def ensure_rework_details_layout() -> None:
+	"""Place Rework Details after the installed version's opening Stock Entry section."""
+	current_anchor = frappe.db.get_value("Custom Field", REWORK_DETAILS_SECTION_CUSTOM_FIELD, "insert_after")
+	if not current_anchor:
 		return
-	frappe.get_doc(
-		{
-			"doctype": "Custom Field",
-			"dt": "Stock Entry",
-			"fieldname": "branch",
-			"label": "Branch",
-			"fieldtype": "Link",
-			"options": "Branch",
-			"insert_after": "company",
-			"module": "Production Entry App",
-			"read_only": 1,
-		}
-	).insert(ignore_permissions=True)
+
+	meta = frappe.get_meta("Stock Entry", cached=False)
+	anchor = _get_rework_details_anchor(meta.fields)
+	if not anchor or anchor == current_anchor:
+		return
+
+	frappe.db.set_value(
+		"Custom Field",
+		REWORK_DETAILS_SECTION_CUSTOM_FIELD,
+		"insert_after",
+		anchor,
+		update_modified=False,
+	)
 	frappe.clear_cache(doctype="Stock Entry")
+
+
+def _get_rework_details_anchor(fields: list) -> str | None:
+	previous_fieldname = None
+	inside_opening_section = False
+	for field in fields:
+		fieldname = field.get("fieldname")
+		if not fieldname or fieldname in REWORK_LAYOUT_FIELDNAMES:
+			continue
+		if fieldname == "stock_entry_type":
+			inside_opening_section = True
+		if not inside_opening_section:
+			continue
+		if field.get("fieldtype") in ("Section Break", "Tab Break"):
+			return previous_fieldname
+		previous_fieldname = fieldname
+	return None
 
 
 def _delete_customizations(doctype: str) -> None:

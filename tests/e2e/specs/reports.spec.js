@@ -1,14 +1,52 @@
 const { test, expect } = require("@playwright/test");
 const { bootstrapE2E, cleanupE2E } = require("../fixtures/test-data");
 const { ReportsPage } = require("../pages/reports-page");
+const { ShiftPage } = require("../pages/shift-page");
 const { StockEntryPage } = require("../pages/stock-entry-page");
 const { getDoc, callFrappeMethod } = require("../fixtures/frappe");
 const { registerE2ELifecycle } = require("../fixtures/lifecycle");
+const { deleteUserIfExists, ensureUser, loginAs } = require("../fixtures/users");
 const { getRoute } = require("../utils/routing");
+
+const ADMIN_USERNAME = process.env.PLAYWRIGHT_USERNAME || "Administrator";
+const ADMIN_PASSWORD = process.env.PLAYWRIGHT_PASSWORD || "123";
+const TEST_PASSWORD = process.env.PLAYWRIGHT_TEST_USER_PASSWORD || "E2eT3st!Pass#2026";
 
 async function setupFreshContext(page, prefix) {
 	await cleanupE2E(page, prefix);
 	return await bootstrapE2E(page, prefix);
+}
+
+function addDays(dateString, days) {
+	const date = new Date(`${dateString}T00:00:00Z`);
+	date.setUTCDate(date.getUTCDate() + days);
+	return date.toISOString().slice(0, 10);
+}
+
+async function seedRawMaterialForPostingDate(page, ctx, postingDate) {
+	if (postingDate >= ctx.shift_date) {
+		return;
+	}
+	const receipt = await callFrappeMethod(page, "frappe.client.insert", {
+		doc: JSON.stringify({
+			doctype: "Stock Entry",
+			company: ctx.company,
+			purpose: "Material Receipt",
+			stock_entry_type: "Material Receipt",
+			set_posting_time: 1,
+			posting_date: postingDate,
+			posting_time: "08:00:00",
+			items: [
+				{
+					item_code: ctx.rm_item,
+					qty: 1000,
+					t_warehouse: ctx.wip_warehouse,
+					basic_rate: 1,
+				},
+			],
+		}),
+	});
+	await callFrappeMethod(page, "frappe.client.submit", { doc: JSON.stringify(receipt) });
 }
 
 async function createSubmittedStockEntryForReports(
@@ -24,6 +62,7 @@ async function createSubmittedStockEntryForReports(
 	const actualEnd = timeWindow.actualEnd || `${ctx.shift_date} 09:00:00`;
 	const plannedStart = timeWindow.plannedStart || actualStart;
 	const plannedEnd = timeWindow.plannedEnd || actualEnd;
+	const postingDate = timeWindow.postingDate || ctx.shift_date;
 	await stockEntryPage.openNew();
 	await stockEntryPage.setManufactureFields(ctx, {
 		fgQty: 100,
@@ -32,11 +71,13 @@ async function createSubmittedStockEntryForReports(
 		actualEnd,
 		plannedStart,
 		plannedEnd,
+		postingDate,
 	});
-	await page.evaluate(async (shiftDate) => {
-		await cur_frm.set_value("posting_date", shiftDate);
+	await page.evaluate(async (targetPostingDate) => {
+		await cur_frm.set_value("posting_date", targetPostingDate);
 		await cur_frm.set_value("posting_time", "09:00:00");
-	}, ctx.shift_date);
+	}, postingDate);
+	await seedRawMaterialForPostingDate(page, ctx, postingDate);
 	await stockEntryPage.fetchItems();
 	for (const row of unplannedLossRows) {
 		await stockEntryPage.addUnplannedLossRow(row);
@@ -52,11 +93,33 @@ async function createSubmittedStockEntryForReports(
 	const name = await page.evaluate(() => window.cur_frm?.doc?.name);
 	const doc = await getDoc(page, "Stock Entry", name);
 	await callFrappeMethod(page, "frappe.client.submit", { doc: JSON.stringify(doc) });
-	return { name, posting_date: doc.posting_date };
+	const shift = await getDoc(page, "Shift", ctx.shift_name);
+	if (shift.status !== "Completed") {
+		const shiftPage = new ShiftPage(page);
+		await shiftPage.open(ctx.shift_name);
+		await shiftPage.endShift();
+	}
+	return { name, posting_date: doc.posting_date, production_date: ctx.shift_date };
 }
 
 test.describe("Production reports", () => {
 	const lifecycle = registerE2ELifecycle(test);
+
+	test("@regression System Manager can open the native Stock Ledger report", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
+		const reportsPage = new ReportsPage(page);
+
+		await reportsPage.open("Stock Ledger");
+		await reportsPage.setFilterByFieldname("company", ctx.company);
+		await reportsPage.runWithDateRange(ctx.shift_date, ctx.shift_date);
+
+		await reportsPage.waitForRows(1);
+		const rows = await reportsPage.getRows();
+		expect(rows.length).toBeGreaterThan(0);
+	});
 
 	test("@smoke OEE report shows day-workstation aggregate row", async ({ page }) => {
 		await page.goto(getRoute("/home"));
@@ -76,7 +139,7 @@ test.describe("Production reports", () => {
 
 		const reportsPage = new ReportsPage(page);
 		await reportsPage.open("Production OEE Report");
-		await reportsPage.runWithDateRange(seeded.posting_date, seeded.posting_date);
+		await reportsPage.runWithDateRange(seeded.production_date, seeded.production_date);
 		await reportsPage.setFilterByFieldname("custom_pea_workstation", ctx.workstation);
 		await reportsPage.clickRefresh();
 		await reportsPage.waitForRows(1);
@@ -84,12 +147,91 @@ test.describe("Production reports", () => {
 		const rows = await reportsPage.getRows();
 		const seededRow = rows.find(
 			(row) =>
-				String(row.day || "").includes(seeded.posting_date) &&
+				String(row.day || "").includes(seeded.production_date) &&
 				row.workstation === ctx.workstation
 		);
 		expect(Boolean(seededRow)).toBeTruthy();
 		expect(Number(seededRow.total_strokes || 0)).toBeGreaterThan(0);
 		expect(Number(seededRow.other_1st || 0)).toBe(2);
+		const labels = await reportsPage.getColumnLabels();
+		expect(labels.filter((label) => label.startsWith("OEE"))).toEqual(["OEE %"]);
+		expect(seededRow).toHaveProperty("oee_mult_pct");
+		expect(seededRow).not.toHaveProperty("oee");
+	});
+
+	test("@regression OEE quality counts rework as rejected output", async ({ page }) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
+		const seeded = await createSubmittedStockEntryForReports(
+			page,
+			ctx,
+			5,
+			[],
+			[{ rejection_reason: "Burr", qty: 5, is_rework: 1 }]
+		);
+
+		const reportsPage = new ReportsPage(page);
+		await reportsPage.open("Production OEE Report");
+		await reportsPage.runWithDateRange(seeded.production_date, seeded.production_date);
+		await reportsPage.setFilterByFieldname("custom_pea_workstation", ctx.workstation);
+		await reportsPage.clickRefresh();
+		await reportsPage.waitForRows(1);
+
+		const rows = await reportsPage.getRows();
+		const seededRow = rows.find(
+			(row) =>
+				String(row.day || "").includes(seeded.production_date) &&
+				row.workstation === ctx.workstation
+		);
+		expect(Boolean(seededRow)).toBeTruthy();
+		expect(Number(seededRow.rejection)).toBe(5);
+		expect(Number(seededRow.quality_pct)).toBe(95);
+	});
+
+	test("@regression date-driven reports use Completed Shift date instead of Posting Date", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		const prefix = lifecycle.getPrefix();
+		const ctx = await setupFreshContext(page, prefix);
+		await createSubmittedStockEntryForReports(
+			page,
+			ctx,
+			5,
+			[],
+			[
+				{ rejection_reason: "Burr", qty: 2, is_rework: 0 },
+				{ rejection_reason: "Crack", qty: 3, is_rework: 1 },
+			],
+			{ postingDate: addDays(ctx.shift_date, -1) }
+		);
+
+		const reportsPage = new ReportsPage(page);
+		for (const reportName of [
+			"Daily Strokes SPM Monitor",
+			"Item BOM Rejection Hotspots",
+			"Item BOM Rework Hotspots",
+			"Operator Daily SPM Report",
+			"Operator Efficiency Report",
+			"Operator Rejection Performance",
+			"Operator Rework Performance",
+			"Production OEE Report",
+			"Rejection Pareto Report",
+			"Rejection PPM Report",
+			"Rejection Trend Report",
+			"Rework Pareto Report",
+			"Rework PPM Report",
+			"Rework Trend Report",
+			"Workstation Efficiency Report",
+			"Workstation Rejection Reason Matrix",
+			"Workstation Rework Reason Matrix",
+		]) {
+			await test.step(reportName, async () => {
+				await reportsPage.open(reportName);
+				await reportsPage.runWithDateRange(ctx.shift_date, ctx.shift_date);
+				await reportsPage.waitForRows(1);
+			});
+		}
 	});
 
 	test("@regression OEE report keeps source-controlled non-prepared mode", async ({ page }) => {
@@ -117,7 +259,7 @@ test.describe("Production reports", () => {
 
 		const reportsPage = new ReportsPage(page);
 		await reportsPage.open("Production OEE Report");
-		await reportsPage.runWithDateRange(seeded.posting_date, seeded.posting_date);
+		await reportsPage.runWithDateRange(seeded.production_date, seeded.production_date);
 		await reportsPage.setFilterByFieldname("custom_pea_workstation", ctx.workstation);
 		await reportsPage.clickRefresh();
 		await reportsPage.waitForRows(1);
@@ -137,7 +279,6 @@ test.describe("Production reports", () => {
 		await page.goto(getRoute("/home"));
 		const prefix = lifecycle.getPrefix();
 		const ctx = await setupFreshContext(page, prefix);
-		const seeded = await createSubmittedStockEntryForReports(page, ctx, 0);
 		await callFrappeMethod(
 			page,
 			"production_entry_app.production_entry_app.e2e_api.create_e2e_downtime_entry",
@@ -148,10 +289,11 @@ test.describe("Production reports", () => {
 				stop_reason: "Other",
 			}
 		);
+		const seeded = await createSubmittedStockEntryForReports(page, ctx, 0);
 
 		const reportsPage = new ReportsPage(page);
 		await reportsPage.open("Production OEE Report");
-		await reportsPage.runWithDateRange(seeded.posting_date, seeded.posting_date);
+		await reportsPage.runWithDateRange(seeded.production_date, seeded.production_date);
 		await reportsPage.setFilterByFieldname("custom_pea_workstation", ctx.workstation);
 		await reportsPage.clickRefresh();
 		await reportsPage.waitForRows(1);
@@ -170,7 +312,7 @@ test.describe("Production reports", () => {
 
 		const reportsPage = new ReportsPage(page);
 		await reportsPage.open("Operator Efficiency Report");
-		await reportsPage.runWithDateRange(seeded.posting_date, seeded.posting_date);
+		await reportsPage.runWithDateRange(seeded.production_date, seeded.production_date);
 		await reportsPage.setFilterByFieldname("custom_pea_operator", ctx.operator);
 		await reportsPage.setFilterByFieldname("custom_pea_shift", ctx.shift_name);
 		await reportsPage.clickRefresh();
@@ -223,7 +365,7 @@ test.describe("Production reports", () => {
 
 		const reportsPage = new ReportsPage(page);
 		await reportsPage.open("Workstation Efficiency Report");
-		await reportsPage.runWithDateRange(seeded.posting_date, seeded.posting_date);
+		await reportsPage.runWithDateRange(seeded.production_date, seeded.production_date);
 		await reportsPage.setFilterByFieldname("custom_pea_workstation", ctx.workstation);
 		await reportsPage.setFilterByFieldname("custom_pea_shift", ctx.shift_name);
 		await reportsPage.clickRefresh();
@@ -281,7 +423,7 @@ test.describe("Production reports", () => {
 
 		const reportsPage = new ReportsPage(page);
 		await reportsPage.open("Rejection Pareto Report");
-		await reportsPage.runWithDateRange(seeded.posting_date, seeded.posting_date);
+		await reportsPage.runWithDateRange(seeded.production_date, seeded.production_date);
 		await reportsPage.setFilterByFieldname("custom_pea_workstation", ctx.workstation);
 		await reportsPage.clickRefresh();
 		await reportsPage.waitForRows(1);
@@ -346,7 +488,7 @@ test.describe("Production reports", () => {
 
 		const reportsPage = new ReportsPage(page);
 		await reportsPage.open("Workstation Rejection Reason Matrix");
-		await reportsPage.runWithDateRange(seeded.posting_date, seeded.posting_date);
+		await reportsPage.runWithDateRange(seeded.production_date, seeded.production_date);
 		await reportsPage.setFilterByFieldname("custom_pea_workstation", ctx.workstation);
 		await reportsPage.setFilterByFieldname("top_n_reasons", 2);
 		await reportsPage.clickRefresh();
@@ -375,7 +517,7 @@ test.describe("Production reports", () => {
 
 		const reportsPage = new ReportsPage(page);
 		await reportsPage.open("Operator Rejection Performance");
-		await reportsPage.runWithDateRange(seeded.posting_date, seeded.posting_date);
+		await reportsPage.runWithDateRange(seeded.production_date, seeded.production_date);
 		await reportsPage.setFilterByFieldname("custom_pea_operator", ctx.operator);
 		await reportsPage.clickRefresh();
 		await reportsPage.waitForRows(1);
@@ -404,7 +546,7 @@ test.describe("Production reports", () => {
 
 		const reportsPage = new ReportsPage(page);
 		await reportsPage.open("Item BOM Rejection Hotspots");
-		await reportsPage.runWithDateRange(seeded.posting_date, seeded.posting_date);
+		await reportsPage.runWithDateRange(seeded.production_date, seeded.production_date);
 		await reportsPage.setFilterByFieldname("fg_item", ctx.fg_item);
 		await reportsPage.setFilterByFieldname("custom_pea_shift", ctx.shift_name);
 		await reportsPage.setFilterByFieldname("custom_pea_workstation", ctx.workstation);
@@ -436,7 +578,7 @@ test.describe("Production reports", () => {
 
 		const reportsPage = new ReportsPage(page);
 		await reportsPage.open("Rework Pareto Report");
-		await reportsPage.runWithDateRange(seeded.posting_date, seeded.posting_date);
+		await reportsPage.runWithDateRange(seeded.production_date, seeded.production_date);
 		await reportsPage.setFilterByFieldname("custom_pea_workstation", ctx.workstation);
 		await reportsPage.setFilterByFieldname("custom_pea_shift", ctx.shift_name);
 		await reportsPage.clickRefresh();
@@ -445,6 +587,85 @@ test.describe("Production reports", () => {
 		expect(rows.length).toBeGreaterThan(0);
 		expect(rows.some((row) => row.rejection_reason === "Crack")).toBeTruthy();
 		expect(await reportsPage.hasChart()).toBeTruthy();
+	});
+
+	test("@regression Pending Rework shows pool, warehouse balance, and source drill-down", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
+		const seeded = await createSubmittedStockEntryForReports(
+			page,
+			ctx,
+			5,
+			[],
+			[{ rejection_reason: "Crack", qty: 5, is_rework: 1 }]
+		);
+
+		const reportsPage = new ReportsPage(page);
+		await reportsPage.open("Pending Rework");
+		await reportsPage.setFilterByFieldname("item_code", ctx.fg_item);
+		await reportsPage.clickRefresh();
+		await reportsPage.waitForRows(2);
+
+		const rows = await reportsPage.getRows();
+		const summary = rows.find(
+			(row) => row.item_code === ctx.fg_item && Number(row.indent) === 0
+		);
+		const detail = rows.find(
+			(row) => row.source_entry === seeded.name && row.rejection_reason === "Crack"
+		);
+		expect(summary).toBeTruthy();
+		expect(Number(summary.derived_pending_qty)).toBe(5);
+		expect(Number(summary.rejection_warehouse_balance)).toBe(5);
+		expect(Number(summary.pool_balance_difference)).toBe(0);
+		expect(detail).toBeTruthy();
+		expect(Number(detail.flagged_rework_qty)).toBe(5);
+	});
+
+	test("@regression PEA Read Only can open Pending Rework without source access", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		const prefix = lifecycle.getPrefix();
+		const ctx = await setupFreshContext(page, prefix);
+		await createSubmittedStockEntryForReports(
+			page,
+			ctx,
+			5,
+			[],
+			[{ item_code: ctx.fg_item, rejection_reason: "Crack", qty: 5, is_rework: 1 }]
+		);
+		const email = `e2e.pending.rework.${Date.now()}@example.com`;
+		await ensureUser(page, {
+			email,
+			firstName: "E2E Pending Rework",
+			password: TEST_PASSWORD,
+			roles: ["PEA Read Only"],
+		});
+
+		try {
+			await loginAs(page, email, TEST_PASSWORD);
+			const reportsPage = new ReportsPage(page);
+			await reportsPage.open("Pending Rework");
+			await reportsPage.setFilterByFieldname("item_code", ctx.fg_item);
+			await reportsPage.clickRefresh();
+			expect(await reportsPage.getRuntimeState()).toMatchObject({
+				reportName: "Pending Rework",
+			});
+			await expect(page.locator("body")).not.toContainText(/Not permitted|No permission/i);
+			await reportsPage.waitForRows(1);
+			const rows = await reportsPage.getRows();
+			const summary = rows.find(
+				(row) => row.item_code === ctx.fg_item && Number(row.indent) === 0
+			);
+			expect(summary).toBeTruthy();
+			expect(Number(summary.derived_pending_qty)).toBe(5);
+			expect(Number(summary.rejection_warehouse_balance)).toBe(5);
+		} finally {
+			await loginAs(page, ADMIN_USERNAME, ADMIN_PASSWORD);
+			await deleteUserIfExists(page, email);
+		}
 	});
 
 	test("@regression Rework Trend and Rework PPM reports render rework aggregates", async ({
@@ -541,11 +762,13 @@ test.describe("Production reports", () => {
 		await page.goto(getRoute("/home"));
 		const reportsPage = new ReportsPage(page);
 		for (const reportName of [
+			"Daily Strokes SPM Monitor",
 			"Production OEE Report",
 			"Operator Efficiency Report",
 			"Operator Daily SPM Report",
 			"Workstation Efficiency Report",
 			"Rejection Pareto Report",
+			"Rejection PPM Report",
 			"Rejection Trend Report",
 			"Workstation Rejection Reason Matrix",
 			"Operator Rejection Performance",

@@ -1,4 +1,16 @@
 const { callFrappeMethod } = require("./frappe");
+const { getRoute } = require("../utils/routing");
+
+async function loginAs(page, username, password) {
+	const response = await page.request.post("/api/method/login", {
+		form: { usr: username, pwd: password },
+	});
+	if (!response.ok()) {
+		throw new Error(`Unable to login as ${username}.`);
+	}
+	await page.goto(getRoute("/home"));
+	await page.waitForFunction(() => Boolean(window.frappe?.csrf_token));
+}
 
 async function ensureRole(page, roleName) {
 	try {
@@ -35,6 +47,18 @@ function buildRolesRows(existingRows = [], roles = []) {
 async function ensureUser(page, { email, firstName, password = "123", roles = [] }) {
 	for (const roleName of roles) {
 		await ensureRole(page, roleName);
+	}
+	if (email.startsWith("e2e-user-") && email.endsWith("@example.com")) {
+		return await callFrappeMethod(
+			page,
+			"production_entry_app.production_entry_app.e2e_api.ensure_e2e_user",
+			{
+				email,
+				first_name: firstName || email.split("@", 1)[0],
+				password,
+				roles: JSON.stringify(roles),
+			}
+		);
 	}
 
 	let user = await getUserIfExists(page, email);
@@ -91,4 +115,5 @@ module.exports = {
 	deleteUserIfExists,
 	ensureRole,
 	ensureUser,
+	loginAs,
 };
