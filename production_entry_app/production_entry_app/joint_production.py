@@ -94,18 +94,35 @@ class JointProductionPlan:
 	@property
 	def expected_role_quantities(self) -> dict[str, float]:
 		quantities = {
-			"rm": self.total_rm_consumption,
 			"lh_good": self.lh_gross_qty - self.lh_rejection_qty,
 			"lh_rejection": self.lh_rejection_qty,
 			"rh_good": self.rh_gross_qty - self.rh_rejection_qty,
 			"rh_rejection": self.rh_rejection_qty,
 		}
+		if self.is_shearing:
+			quantities["rm"] = self.total_rm_consumption
+		else:
+			quantities.update(self._expected_post_shearing_source_quantities())
 		quantities.update({scrap.role: scrap.qty for scrap in self.scrap_items})
+		return quantities
+
+	def _expected_post_shearing_source_quantities(self) -> dict[str, float]:
+		quantities: dict[str, float] = {}
+		for bom, gross_qty in (
+			(self.lh_bom, self.lh_gross_qty),
+			(self.rh_bom, self.rh_gross_qty),
+		):
+			for item_code, qty in _merged_post_shearing_input_quantities(bom, gross_qty).items():
+				quantities[_post_shearing_source_role(bom.name, item_code)] = qty
 		return quantities
 
 
 def is_shearing_joint_operation(operation: str | None) -> bool:
 	return _normalize_operation(operation) == SHEARING_OPERATION
+
+
+def _post_shearing_source_role(bom_no: str, item_code: str) -> str:
+	return f"source:{bom_no}:{item_code}"
 
 
 def calculate_joint_rm_consumption(
@@ -424,6 +441,9 @@ def _get_joint_role_label(role: str) -> str:
 	}
 	if role.startswith("scrap:"):
 		return _("Scrap quantity for {0}").format(role.removeprefix("scrap:"))
+	if role.startswith("source:"):
+		_prefix, bom_no, item_code = role.split(":", 2)
+		return _("Source quantity for {0} from BOM {1}").format(item_code, bom_no)
 	return labels[role]
 
 
@@ -439,9 +459,16 @@ def _get_joint_row_role(row: BaseDocument, plan: JointProductionPlan) -> str:
 	item_code = row.get("item_code")
 
 	if has_source:
-		if side or is_rejection or is_scrap or item_code != plan.lh_bom.rm_item_code:
-			_throw_stale_joint_rows(_("The source row must be the common BOM raw material."))
-		return "rm"
+		if side or is_rejection or is_scrap:
+			_throw_stale_joint_rows(_("The source row must be source-only BOM input."))
+		if plan.is_shearing:
+			if item_code != plan.lh_bom.rm_item_code:
+				_throw_stale_joint_rows(_("The source row must be the common BOM raw material."))
+			return "rm"
+		role = _post_shearing_source_role(cstr(row.get("bom_no")), cstr(item_code))
+		if role not in plan.expected_role_quantities:
+			_throw_stale_joint_rows(_("The source row does not match the selected BOMs."))
+		return role
 
 	if is_scrap:
 		scrap = next((scrap for scrap in plan.scrap_items if scrap.item_code == item_code), None)
@@ -745,6 +772,15 @@ def _scale_bom_input_qty(bom_item_qty: float, bom_quantity: float, gross_qty: fl
 	return flt(gross_qty) * flt(bom_item_qty) / flt(bom_quantity)
 
 
+def _merged_post_shearing_input_quantities(bom: JointBomDetails, gross_qty: float) -> dict[str, float]:
+	quantities: dict[str, float] = {}
+	for item in bom.input_items:
+		quantities[item.item_code] = quantities.get(item.item_code, 0) + _scale_bom_input_qty(
+			item.qty, bom.quantity, gross_qty
+		)
+	return {item_code: qty for item_code, qty in quantities.items() if qty > 0}
+
+
 def _build_post_shearing_source_rows(
 	*,
 	bom: JointBomDetails,
@@ -752,15 +788,8 @@ def _build_post_shearing_source_rows(
 	s_warehouse: str | None,
 	item_details: dict[str, frappe._dict],
 ) -> list[dict[str, Any]]:
-	quantities: dict[str, float] = {}
-	for item in bom.input_items:
-		quantities[item.item_code] = quantities.get(item.item_code, 0) + _scale_bom_input_qty(
-			item.qty, bom.quantity, gross_qty
-		)
 	rows: list[dict[str, Any]] = []
-	for item_code, qty in quantities.items():
-		if qty <= 0:
-			continue
+	for item_code, qty in _merged_post_shearing_input_quantities(bom, gross_qty).items():
 		row = _item_row(
 			item_code=item_code,
 			qty=qty,

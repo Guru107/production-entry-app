@@ -1121,6 +1121,61 @@ class TestJointProductionItems(FrappeTestCase):
 			[(lh_wip, lh_bom, 3.0), (rh_wip, rh_bom, 5.0)],
 		)
 
+	def test_post_shearing_submit_accepts_fetched_independent_source_rows(self) -> None:
+		shift = make_running_shift(self.masters)
+		doc = self._make_post_shearing_entry(shift)
+
+		doc.insert(ignore_permissions=True)
+		doc.submit()
+
+		self.assertEqual(doc.docstatus, 1)
+		self.assertEqual(len([row for row in doc.items if row.s_warehouse]), 6)
+
+	def test_post_shearing_submit_rejects_stale_source_quantity(self) -> None:
+		shift = make_running_shift(self.masters)
+		doc = self._make_post_shearing_entry(shift)
+		source_row = next(row for row in doc.items if row.s_warehouse)
+		source_row.qty = flt(source_row.qty) + 1
+		source_row.transfer_qty = source_row.qty
+
+		with self.assertRaisesRegex(frappe.ValidationError, "Run Fetch Items again"):
+			validate_and_apply_joint_production(doc)
+
+	def test_post_shearing_submit_rejects_missing_expected_source_row(self) -> None:
+		shift = make_running_shift(self.masters)
+		doc = self._make_post_shearing_entry(shift)
+		source_idx = next(idx for idx, row in enumerate(doc.items) if row.s_warehouse)
+		doc.items.pop(source_idx)
+
+		with self.assertRaisesRegex(frappe.ValidationError, "Run Fetch Items again"):
+			validate_and_apply_joint_production(doc)
+
+	def test_post_shearing_submit_rejects_extra_non_bom_source_row(self) -> None:
+		shift = make_running_shift(self.masters)
+		doc = self._make_post_shearing_entry(shift)
+		extra_item = ensure_item(f"_Joint_Extra_WIP_{frappe.generate_hash(length=6)}")
+		source_row = next(row for row in doc.items if row.s_warehouse)
+		self._append_split_row(doc, source_row, qty=1)
+		doc.items[-1].item_code = extra_item
+		doc.items[-1].bom_no = ""
+
+		with self.assertRaisesRegex(frappe.ValidationError, "Run Fetch Items again"):
+			validate_and_apply_joint_production(doc)
+
+	def test_post_shearing_submit_allows_absent_zero_rejection_rows(self) -> None:
+		shift = make_running_shift(self.masters)
+		doc = self._make_post_shearing_entry(
+			shift,
+			lh_rejection_qty=0,
+			rh_rejection_qty=0,
+		)
+		self.assertFalse(any(row.custom_pea_is_rejection_item for row in doc.items))
+
+		doc.insert(ignore_permissions=True)
+		doc.submit()
+
+		self.assertEqual(doc.docstatus, 1)
+
 	def test_joint_items_api_fails_cleanly_when_an_item_cannot_be_loaded(self) -> None:
 		shift = make_running_shift(self.masters)
 		doc = self._make_joint_entry(shift)
@@ -1994,6 +2049,55 @@ class TestJointProductionItems(FrappeTestCase):
 				finally:
 					if cleanup:
 						cleanup()
+
+	def _make_post_shearing_entry(
+		self,
+		shift: object,
+		*,
+		lh_gross_qty: float = 20,
+		lh_rejection_qty: float = 2,
+		rh_gross_qty: float = 30,
+		rh_rejection_qty: float = 5,
+		fetch_items: bool = True,
+	) -> object:
+		operation = ensure_operation("Blanking")
+		lh_wip_a = ensure_item(f"_Joint_LH_WIP_A_{frappe.generate_hash(length=6)}")
+		lh_wip_b = ensure_item(f"_Joint_LH_WIP_B_{frappe.generate_hash(length=6)}")
+		rh_wip_a = ensure_item(f"_Joint_RH_WIP_A_{frappe.generate_hash(length=6)}")
+		rh_wip_b = ensure_item(f"_Joint_RH_WIP_B_{frappe.generate_hash(length=6)}")
+		shared_wip = ensure_item(f"_Joint_Shared_WIP_{frappe.generate_hash(length=6)}")
+		for item_code in (lh_wip_a, lh_wip_b, rh_wip_a, rh_wip_b, shared_wip):
+			ensure_stock(
+				item_code,
+				self.masters["wip_warehouse"],
+				self.masters["company"],
+				target_qty=1000,
+			)
+		lh_bom = self._make_bom(
+			self.lh_item,
+			bom_quantity=10,
+			rm_items=[(lh_wip_a, 2), (lh_wip_b, 3), (shared_wip, 1)],
+			scrap_qty=0.5,
+			operation=operation,
+		)
+		rh_bom = self._make_bom(
+			self.rh_item,
+			bom_quantity=10,
+			rm_items=[(rh_wip_a, 4), (rh_wip_b, 1), (shared_wip, 1)],
+			scrap_qty=0.75,
+			operation=operation,
+		)
+		return self._make_joint_entry(
+			shift,
+			lh_bom=lh_bom,
+			rh_bom=rh_bom,
+			operation=operation,
+			lh_gross_qty=lh_gross_qty,
+			lh_rejection_qty=lh_rejection_qty,
+			rh_gross_qty=rh_gross_qty,
+			rh_rejection_qty=rh_rejection_qty,
+			fetch_items=fetch_items,
+		)
 
 	def _make_joint_entry(
 		self,

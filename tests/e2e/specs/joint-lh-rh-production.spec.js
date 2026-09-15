@@ -727,6 +727,38 @@ test.describe("Joint LH/RH production form", () => {
 		]);
 	});
 
+	test("@regression post-Shearing submit rejects stale source rows until Fetch Items", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const stockEntryType = await getJointStockEntryType(page);
+		const form = new StockEntryPage(page);
+
+		await form.openNew();
+		await enableJointProduction(page, form, stockEntryType);
+		await setFieldValue(page, "company", ctx.company);
+		await setFieldValue(page, "custom_pea_shift", ctx.shift_name);
+		await setFieldValue(page, "from_warehouse", ctx.wip_warehouse);
+		await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
+		await form.fillJointProductionFields(
+			{
+				...ctx,
+				joint_operation: ctx.joint_post_shearing_operation,
+				joint_lh_bom: ctx.joint_post_shearing_lh_bom,
+				joint_rh_bom: ctx.joint_post_shearing_rh_bom,
+			},
+			{ lhGrossQty: 20, lhRejectionQty: 0, rhGrossQty: 30, rhRejectionQty: 0 }
+		);
+		await form.fetchItems();
+		await page.evaluate(async () => {
+			const row = cur_frm.doc.items.find((item) => item.s_warehouse);
+			await frappe.model.set_value(row.doctype, row.name, "qty", Number(row.qty) + 1);
+		});
+		await form.attemptSaveDraft();
+		await expectValidationError(page, /Run Fetch Items again/i);
+	});
+
 	test("@regression stale joint rows require Fetch Items without clearing logistics", async ({
 		page,
 	}) => {

@@ -428,14 +428,19 @@ function _schedule_joint_rm_consumption(frm) {
 	}
 	const requestId = (frm.__peaJointRmRequestId || 0) + 1;
 	frm.__peaJointRmRequestId = requestId;
+	// Shearing-only preview: post-Shearing multi-input totals come from Fetch Items (#117/#121).
+	const isShearing = String(frm.doc.custom_pea_operation || "").trim() === "Shearing";
 	const hasInputs =
 		_is_joint_doc(frm.doc) &&
+		isShearing &&
 		frm.doc.custom_pea_lh_bom &&
 		frm.doc.custom_pea_rh_bom &&
 		Number(frm.doc.custom_pea_lh_gross_qty || 0) > 0 &&
 		Number(frm.doc.custom_pea_rh_gross_qty || 0) > 0;
 	if (!hasInputs) {
-		frm.set_value("custom_pea_total_rm_consumption", 0);
+		if (_is_joint_doc(frm.doc) && isShearing) {
+			frm.set_value("custom_pea_total_rm_consumption", 0);
+		}
 		return;
 	}
 	frm.__peaJointRmTimer = setTimeout(() => {
