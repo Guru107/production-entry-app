@@ -50,12 +50,15 @@ authoritative for their topics; this record covers the remaining seams.
   and sets the rates in its `validate` hook, which Frappe runs after the ERPNext controller's
   `validate()`: scrap rows carry the BOM scrap rate; Shearing LH/RH rows share the net consumed value
   (raw material minus scrap) weighted by BOM unit cost; post-Shearing values each side like Manufacture
-  (`(side consumed amount - that side's scrap share) / side qty`, matching direct Manufacture without a
-  Work Order) so differing input rates are not cross-weighted; then
+  (`(side consumed amount - that side's scrap share) / side qty`, matching Manufacture material
+  valuation) so differing input rates are not cross-weighted; then
   `calculate_rate_and_amount(reset_outgoing_rate=False)` lets native code derive amounts, valuation rates,
   additional-cost distribution and ledgers (#89, #119). Fetch Items and submit fail clearly when either
-  BOM's `total_cost` is missing or non-positive. BOM operating cost is not auto-injected as Additional
-  Costs (that native path needs a Work Order); user Additional Cost rows stay native.
+  BOM's `total_cost` is missing or non-positive. Because Joint LH/RH skips Work Order creation, BOM
+  `operating_cost` is still applied as app-managed Additional Cost row(s) scaled by each side's gross
+  quantity / BOM quantity (Company default operating-cost account); user-entered Additional Cost rows
+  remain allowed alongside those rows. Actual time and total strokes stay production metrics and are not
+  recalculated from BOM operation time.
 - Save and submit validate the existing rows against the recalculated plan by role and aggregate stock
   quantity, so split, reordered, batched or serialised rows survive while missing, surplus or stale rows
   are rejected with guidance to run Fetch Items again (#82, #89, #90). Ad-hoc rows cannot be added to a
