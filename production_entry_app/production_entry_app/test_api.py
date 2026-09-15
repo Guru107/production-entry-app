@@ -47,6 +47,7 @@ from production_entry_app.production_entry_app.e2e_api import (
 	create_e2e_submitted_stock_entry,
 	ensure_e2e_user,
 	reset_e2e_die_tool_counter,
+	set_e2e_bom_company,
 	set_e2e_system_float_precision,
 )
 from production_entry_app.production_entry_app.utils.alternative_items import (
@@ -130,6 +131,7 @@ class TestE2EApi(FrappeTestCase):
 			"create_e2e_downtime_entry",
 			"reset_e2e_die_tool_counter",
 			"set_e2e_access_control",
+			"set_e2e_bom_company",
 			"set_e2e_system_float_precision",
 		):
 			assert not hasattr(api, name), f"{name} must live in e2e_api, not api"
@@ -142,6 +144,7 @@ class TestE2EApi(FrappeTestCase):
 		assert callable(e2e_api.create_e2e_rework_lifecycle_source)
 		assert callable(e2e_api.create_e2e_rework_register_row)
 		assert callable(e2e_api.ensure_e2e_user)
+		assert callable(e2e_api.set_e2e_bom_company)
 
 	def test_ensure_e2e_user_uses_throttle_safe_reserved_user_helper(self) -> None:
 		user = MagicMock()
@@ -728,6 +731,8 @@ class TestE2EApi(FrappeTestCase):
 				)
 			with self.assertRaises(frappe.PermissionError):
 				reset_e2e_die_tool_counter(prefix="E2E_GUARD_W0")
+			with self.assertRaises(frappe.PermissionError):
+				set_e2e_bom_company(prefix="E2E-Guard", bom_name="BOM-001", company="_Other Co")
 
 	def test_reset_e2e_die_tool_counter_restricts_item_to_reserved_prefix(self) -> None:
 		with (
@@ -2017,7 +2022,7 @@ class TestE2EApi(FrappeTestCase):
 			stack.enter_context(
 				patch(
 					"production_entry_app.production_entry_app.e2e_api.ensure_joint_test_bom",
-					side_effect=["BOM-JOINT-LH", "BOM-JOINT-RH"],
+					side_effect=["BOM-JOINT-LH", "BOM-JOINT-LH-ALT", "BOM-JOINT-RH"],
 				)
 			)
 			stack.enter_context(
@@ -2133,7 +2138,7 @@ class TestE2EApi(FrappeTestCase):
 			stack.enter_context(
 				patch(
 					"production_entry_app.production_entry_app.e2e_api.ensure_joint_test_bom",
-					side_effect=["BOM-JOINT-LH", "BOM-JOINT-RH"],
+					side_effect=["BOM-JOINT-LH", "BOM-JOINT-LH-ALT", "BOM-JOINT-RH"],
 				)
 			)
 			ensure_fiscal_year = stack.enter_context(
@@ -2214,6 +2219,33 @@ class TestE2EApi(FrappeTestCase):
 		self.assertEqual(clear_cache.call_count, 2)
 		clear_cache.assert_any_call(doctype="System Settings")
 		clear_cache.assert_any_call(user=frappe.session.user)
+		commit.assert_called_once()
+
+	def test_set_e2e_bom_company_updates_bom_and_commits(self) -> None:
+		with ExitStack() as stack:
+			stack.enter_context(
+				patch("production_entry_app.production_entry_app.e2e_api._assert_e2e_api_allowed")
+			)
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.e2e_api._reserved_e2e_prefix",
+					return_value="E2E-BOM",
+				)
+			)
+			exists = stack.enter_context(
+				patch("production_entry_app.production_entry_app.e2e_api.frappe.db.exists", return_value=True)
+			)
+			set_value = stack.enter_context(
+				patch("production_entry_app.production_entry_app.e2e_api.frappe.db.set_value")
+			)
+			commit = stack.enter_context(
+				patch("production_entry_app.production_entry_app.e2e_api.frappe.db.commit")
+			)
+
+			set_e2e_bom_company(prefix="E2E-BOM", bom_name="BOM-001", company="_Other Co")
+
+		exists.assert_called_once_with("BOM", "BOM-001")
+		set_value.assert_called_once_with("BOM", "BOM-001", "company", "_Other Co", update_modified=False)
 		commit.assert_called_once()
 
 	def test_create_e2e_submitted_stock_entry_appends_rejection_breakup_and_returns_doc(self) -> None:

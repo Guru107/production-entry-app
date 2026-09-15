@@ -725,6 +725,13 @@ def bootstrap_e2e_context(prefix: str = "E2E", cleanup_running: int = 1) -> dict
 		company=company,
 		is_default=True,
 	)
+	joint_lh_bom_alt = ensure_joint_test_bom(
+		item_code=joint_lh_item,
+		rm_item=joint_rm_item,
+		scrap_items=[(joint_scrap_item, 9.5, 10), (joint_scrap_nos_item, 2, 4)],
+		company=company,
+		is_default=False,
+	)
 	joint_rh_bom = ensure_joint_test_bom(
 		item_code=joint_rh_item,
 		rm_item=joint_rm_item,
@@ -768,6 +775,7 @@ def bootstrap_e2e_context(prefix: str = "E2E", cleanup_running: int = 1) -> dict
 		"joint_scrap_nos_item": joint_scrap_nos_item,
 		"joint_operation": "Shearing",
 		"joint_lh_bom": joint_lh_bom,
+		"joint_lh_bom_alt": joint_lh_bom_alt,
 		"joint_rh_bom": joint_rh_bom,
 		"shift_name": shift.name,
 		"shift_date": base_date,
@@ -785,6 +793,17 @@ def set_e2e_system_float_precision(prefix: str = "E2E", precision: int = 3) -> d
 	frappe.clear_cache(user=frappe.session.user)
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit - tests need deterministic persisted setup
 	return {"float_precision": cint(precision)}
+
+
+@frappe.whitelist()
+def set_e2e_bom_company(prefix: str, bom_name: str, company: str) -> None:
+	"""Set a BOM company without Link validation so E2E can seed a mismatch."""
+	_assert_e2e_api_allowed()
+	_reserved_e2e_prefix(prefix)
+	if not bom_name or not frappe.db.exists("BOM", bom_name):
+		frappe.throw(_("BOM {0} was not found.").format(frappe.utils.escape_html(str(bom_name))))
+	frappe.db.set_value("BOM", bom_name, "company", company, update_modified=False)
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit - tests need deterministic persisted setup
 
 
 def _get_e2e_cleanup_targets(prefix: str) -> dict[str, object]:

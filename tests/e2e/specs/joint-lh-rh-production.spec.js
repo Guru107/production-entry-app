@@ -29,6 +29,18 @@ async function enableJointProduction(page, form, stockEntryType) {
 	await form.waitForJointMode(stockEntryType);
 }
 
+async function openPreparedJointForm(page, ctx, stockEntryType) {
+	const form = new StockEntryPage(page);
+	await form.openNew();
+	await enableJointProduction(page, form, stockEntryType);
+	await setFieldValue(page, "company", ctx.company);
+	await setFieldValue(page, "custom_pea_shift", ctx.shift_name);
+	await setFieldValue(page, "from_warehouse", ctx.wip_warehouse);
+	await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
+	await form.fillJointProductionFields(ctx);
+	return form;
+}
+
 async function deleteDocIfExists(page, doctype, name) {
 	if (!name) return;
 	const rows = await callFrappeMethod(page, "frappe.client.get_list", {
@@ -607,19 +619,55 @@ test.describe("Joint LH/RH production form", () => {
 		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 		const stockEntryType = await getJointStockEntryType(page);
-		const form = new StockEntryPage(page);
 
-		await form.openNew();
-		await enableJointProduction(page, form, stockEntryType);
-		await setFieldValue(page, "company", ctx.company);
-		await setFieldValue(page, "custom_pea_shift", ctx.shift_name);
-		await setFieldValue(page, "from_warehouse", ctx.wip_warehouse);
-		await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
-		await form.fillJointProductionFields(ctx);
+		await openPreparedJointForm(page, ctx, stockEntryType);
 		await setFieldValue(page, "custom_pea_rh_bom", ctx.joint_lh_bom);
 		await page.locator('[data-fieldname="custom_pea_joint_fetch_items"] button').click();
 
 		await expectValidationError(page, /LH and RH BOMs must be different/i);
+	});
+
+	test("@regression joint Fetch Items blocks LH and RH BOMs with the same output item", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const stockEntryType = await getJointStockEntryType(page);
+
+		await openPreparedJointForm(page, ctx, stockEntryType);
+		await setFieldValue(page, "custom_pea_rh_bom", ctx.joint_lh_bom_alt);
+		await page.locator('[data-fieldname="custom_pea_joint_fetch_items"] button').click();
+
+		await expectValidationError(page, /LH and RH BOM output items must differ/i);
+	});
+
+	test("@regression joint Fetch Items blocks BOMs from another company", async ({ page }) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const stockEntryType = await getJointStockEntryType(page);
+		const prefix = lifecycle.getPrefix();
+		const otherCompany = `${prefix} Other Co`;
+
+		await openPreparedJointForm(page, ctx, stockEntryType);
+		try {
+			for (const bomName of [ctx.joint_lh_bom, ctx.joint_rh_bom]) {
+				await callFrappeMethod(
+					page,
+					"production_entry_app.production_entry_app.e2e_api.set_e2e_bom_company",
+					{ prefix, bom_name: bomName, company: otherCompany }
+				);
+			}
+			await page.locator('[data-fieldname="custom_pea_joint_fetch_items"] button').click();
+			await expectValidationError(page, /must belong to Company/i);
+		} finally {
+			for (const bomName of [ctx.joint_lh_bom, ctx.joint_rh_bom]) {
+				await callFrappeMethod(
+					page,
+					"production_entry_app.production_entry_app.e2e_api.set_e2e_bom_company",
+					{ prefix, bom_name: bomName, company: ctx.company }
+				);
+			}
+		}
 	});
 
 	test("@regression stale joint rows require Fetch Items without clearing logistics", async ({

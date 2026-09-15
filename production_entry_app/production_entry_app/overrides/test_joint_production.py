@@ -1079,158 +1079,135 @@ class TestJointProductionItems(FrappeTestCase):
 		with self.assertRaisesRegex(frappe.ValidationError, "same raw material quantity"):
 			self._make_joint_entry(shift, lh_bom=lh_bom, rh_bom=rh_bom)
 
-	def test_fetch_items_blocks_the_same_lh_and_rh_bom(self) -> None:
-		shift = make_running_shift(self.masters)
-		doc = self._make_joint_entry(shift, rh_bom=self.lh_bom, fetch_items=False)
+	def test_joint_blocks_the_same_lh_and_rh_bom(self) -> None:
+		self._assert_joint_rule_blocked(
+			"LH and RH BOMs must be different",
+			lambda doc: doc.set("custom_pea_rh_bom", self.lh_bom),
+		)
 
-		with self.assertRaisesRegex(frappe.ValidationError, "LH and RH BOMs must be different"):
-			get_joint_production_items(json.dumps(doc.as_dict(), default=str))
-
-	def test_submit_blocks_the_same_lh_and_rh_bom(self) -> None:
-		shift = make_running_shift(self.masters)
-		doc = self._make_joint_entry(shift)
-		doc.insert(ignore_permissions=True)
-		doc.custom_pea_rh_bom = self.lh_bom
-
-		with self.assertRaisesRegex(frappe.ValidationError, "LH and RH BOMs must be different"):
-			doc.submit()
-
-	def test_fetch_items_blocks_lh_and_rh_boms_with_the_same_output_item(self) -> None:
+	def test_joint_blocks_lh_and_rh_boms_with_the_same_output_item(self) -> None:
 		second_lh_bom = self._make_bom(self.lh_item, scrap_qty=9.5)
-		shift = make_running_shift(self.masters)
-		doc = self._make_joint_entry(shift, rh_bom=second_lh_bom, fetch_items=False)
+		self._assert_joint_rule_blocked(
+			"LH and RH BOM output items must differ",
+			lambda doc: doc.set("custom_pea_rh_bom", second_lh_bom),
+		)
 
-		with self.assertRaisesRegex(frappe.ValidationError, "LH and RH BOM output items must differ"):
-			get_joint_production_items(json.dumps(doc.as_dict(), default=str))
+	def test_joint_blocks_lh_and_rh_boms_from_different_companies(self) -> None:
+		original_company = frappe.db.get_value("BOM", self.rh_bom, "company")
+		other_company = f"_Other Co {frappe.generate_hash(length=6)}"
 
-	def test_submit_blocks_lh_and_rh_boms_with_the_same_output_item(self) -> None:
-		second_lh_bom = self._make_bom(self.lh_item, scrap_qty=9.5)
-		shift = make_running_shift(self.masters)
-		doc = self._make_joint_entry(shift)
-		doc.insert(ignore_permissions=True)
-		doc.custom_pea_rh_bom = second_lh_bom
+		def prepare(_doc: object) -> None:
+			frappe.db.set_value("BOM", self.rh_bom, "company", other_company, update_modified=False)
 
-		with self.assertRaisesRegex(frappe.ValidationError, "LH and RH BOM output items must differ"):
-			doc.submit()
+		def cleanup() -> None:
+			frappe.db.set_value("BOM", self.rh_bom, "company", original_company, update_modified=False)
 
-	def test_fetch_items_blocks_boms_from_another_company(self) -> None:
-		shift = make_running_shift(self.masters)
-		for side, bom_name in (("LH", self.lh_bom), ("RH", self.rh_bom)):
-			with self.subTest(side=side):
-				doc = self._make_joint_entry(shift, fetch_items=False)
-				original_company = frappe.db.get_value("BOM", bom_name, "company")
-				frappe.db.set_value(
-					"BOM",
-					bom_name,
-					"company",
-					f"_Other Co {frappe.generate_hash(length=6)}",
-					update_modified=False,
+		self._assert_joint_rule_blocked(
+			"LH and RH BOMs must belong to the same Company",
+			prepare,
+			cleanup=cleanup,
+		)
+
+	def test_joint_rm_consumption_blocks_boms_from_different_companies(self) -> None:
+		original_company = frappe.db.get_value("BOM", self.rh_bom, "company")
+		frappe.db.set_value(
+			"BOM",
+			self.rh_bom,
+			"company",
+			f"_Other Co {frappe.generate_hash(length=6)}",
+			update_modified=False,
+		)
+		try:
+			with self.assertRaisesRegex(
+				frappe.ValidationError, "LH and RH BOMs must belong to the same Company"
+			):
+				get_joint_rm_consumption(
+					lh_bom=self.lh_bom,
+					rh_bom=self.rh_bom,
+					lh_gross_qty=40,
+					rh_gross_qty=41,
 				)
-				try:
-					with self.assertRaisesRegex(frappe.ValidationError, "must belong to Company"):
-						get_joint_production_items(json.dumps(doc.as_dict(), default=str))
-				finally:
-					frappe.db.set_value(
-						"BOM",
-						bom_name,
-						"company",
-						original_company,
-						update_modified=False,
-					)
+		finally:
+			frappe.db.set_value("BOM", self.rh_bom, "company", original_company, update_modified=False)
 
-	def test_submit_blocks_boms_from_another_company(self) -> None:
-		shift = make_running_shift(self.masters)
-		for side, bom_name in (("LH", self.lh_bom), ("RH", self.rh_bom)):
-			with self.subTest(side=side):
-				doc = self._make_joint_entry(shift)
-				doc.insert(ignore_permissions=True)
-				original_company = frappe.db.get_value("BOM", bom_name, "company")
-				frappe.db.set_value(
-					"BOM",
-					bom_name,
-					"company",
-					f"_Other Co {frappe.generate_hash(length=6)}",
-					update_modified=False,
-				)
-				try:
-					with self.assertRaisesRegex(frappe.ValidationError, "must belong to Company"):
-						doc.submit()
-				finally:
-					frappe.db.set_value(
-						"BOM",
-						bom_name,
-						"company",
-						original_company,
-						update_modified=False,
-					)
+	def test_joint_blocks_boms_from_another_company(self) -> None:
+		original_companies = {
+			self.lh_bom: frappe.db.get_value("BOM", self.lh_bom, "company"),
+			self.rh_bom: frappe.db.get_value("BOM", self.rh_bom, "company"),
+		}
+		other_company = f"_Other Co {frappe.generate_hash(length=6)}"
 
-	def test_fetch_items_blocks_zero_gross_and_tells_user_to_use_manufacture(self) -> None:
-		shift = make_running_shift(self.masters)
+		def prepare(_doc: object) -> None:
+			for bom_name in original_companies:
+				frappe.db.set_value("BOM", bom_name, "company", other_company, update_modified=False)
+
+		def cleanup() -> None:
+			for bom_name, company in original_companies.items():
+				frappe.db.set_value("BOM", bom_name, "company", company, update_modified=False)
+
+		self._assert_joint_rule_blocked("must belong to Company", prepare, cleanup=cleanup)
+
+	def test_joint_blocks_zero_gross_and_tells_user_to_use_manufacture(self) -> None:
 		cases = (
 			("LH", "custom_pea_lh_gross_qty", "custom_pea_lh_rejection_qty"),
 			("RH", "custom_pea_rh_gross_qty", "custom_pea_rh_rejection_qty"),
 		)
 		for side, gross_field, rejection_field in cases:
 			with self.subTest(side=side):
-				doc = self._make_joint_entry(shift, fetch_items=False)
-				doc.set(gross_field, 0)
-				doc.set(rejection_field, 0)
-				with self.assertRaisesRegex(
-					frappe.ValidationError,
-					"independent Manufacture entry instead of Joint LH/RH",
-				):
-					get_joint_production_items(json.dumps(doc.as_dict(), default=str))
 
-	def test_submit_blocks_zero_gross_and_tells_user_to_use_manufacture(self) -> None:
-		shift = make_running_shift(self.masters)
-		cases = (
-			("LH", "custom_pea_lh_gross_qty", "custom_pea_lh_rejection_qty"),
-			("RH", "custom_pea_rh_gross_qty", "custom_pea_rh_rejection_qty"),
-		)
-		for side, gross_field, rejection_field in cases:
-			with self.subTest(side=side):
-				doc = self._make_joint_entry(shift)
-				doc.insert(ignore_permissions=True)
-				doc.set(gross_field, 0)
-				doc.set(rejection_field, 0)
-				with self.assertRaisesRegex(
-					frappe.ValidationError,
-					"independent Manufacture entry instead of Joint LH/RH",
-				):
-					doc.submit()
+				def prepare(
+					doc: object,
+					gross_field: str = gross_field,
+					rejection_field: str = rejection_field,
+				) -> None:
+					doc.set(gross_field, 0)
+					doc.set(rejection_field, 0)
 
-	def test_fetch_items_blocks_rejection_qty_above_gross_qty(self) -> None:
-		shift = make_running_shift(self.masters)
+				self._assert_joint_rule_blocked(
+					"independent Manufacture Production Entry instead of Joint LH/RH",
+					prepare,
+				)
+
+	def test_joint_blocks_rejection_qty_above_gross_qty(self) -> None:
 		cases = (
 			("LH", "custom_pea_lh_rejection_qty", 41),
 			("RH", "custom_pea_rh_rejection_qty", 42),
 		)
 		for side, fieldname, qty in cases:
 			with self.subTest(side=side):
-				doc = self._make_joint_entry(shift, fetch_items=False)
-				doc.set(fieldname, qty)
-				with self.assertRaisesRegex(
-					frappe.ValidationError,
+				self._assert_joint_rule_blocked(
 					f"{side} Rejection Quantity must be between zero and Gross Quantity",
-				):
-					get_joint_production_items(json.dumps(doc.as_dict(), default=str))
+					lambda doc, fieldname=fieldname, qty=qty: doc.set(fieldname, qty),
+				)
 
-	def test_submit_blocks_rejection_qty_above_gross_qty(self) -> None:
+	def test_fetch_items_allows_rejection_qty_equal_to_gross_qty(self) -> None:
 		shift = make_running_shift(self.masters)
 		cases = (
-			("LH", "custom_pea_lh_rejection_qty", 41),
-			("RH", "custom_pea_rh_rejection_qty", 42),
+			("LH", "custom_pea_lh_rejection_qty", 40),
+			("RH", "custom_pea_rh_rejection_qty", 41),
 		)
 		for side, fieldname, qty in cases:
 			with self.subTest(side=side):
-				doc = self._make_joint_entry(shift)
-				doc.insert(ignore_permissions=True)
+				doc = self._make_joint_entry(shift, fetch_items=False)
 				doc.set(fieldname, qty)
-				with self.assertRaisesRegex(
-					frappe.ValidationError,
-					f"{side} Rejection Quantity must be between zero and Gross Quantity",
-				):
-					doc.submit()
+				rows = get_joint_production_items(json.dumps(doc.as_dict(), default=str))
+				self.assertFalse(
+					[
+						row
+						for row in rows
+						if row.get("custom_pea_joint_output_side") == side
+						and not row.get("custom_pea_is_rejection_item")
+						and not _is_scrap_row(row)
+					]
+				)
+				self.assertTrue(
+					any(
+						row.get("custom_pea_joint_output_side") == side
+						and row.get("custom_pea_is_rejection_item")
+						and flt(row.get("qty")) == qty
+						for row in rows
+					)
+				)
 
 	def test_total_rm_consumption_must_match_the_single_rm_item_total(self) -> None:
 		shift = make_running_shift(self.masters)
@@ -1893,6 +1870,30 @@ class TestJointProductionItems(FrappeTestCase):
 			frappe.db.get_value("Die Tool Counter", self.masters["fg_item"], "current_stroke_count"),
 			40,
 		)
+
+	def _assert_joint_rule_blocked(
+		self,
+		message: str,
+		prepare: Any,
+		*,
+		cleanup: Any = None,
+	) -> None:
+		shift = make_running_shift(self.masters)
+		for seam in ("fetch", "submit"):
+			with self.subTest(seam=seam):
+				doc = self._make_joint_entry(shift, fetch_items=seam == "submit")
+				if seam == "submit":
+					doc.insert(ignore_permissions=True)
+				try:
+					prepare(doc)
+					with self.assertRaisesRegex(frappe.ValidationError, message):
+						if seam == "submit":
+							doc.submit()
+						else:
+							get_joint_production_items(json.dumps(doc.as_dict(), default=str))
+				finally:
+					if cleanup:
+						cleanup()
 
 	def _make_joint_entry(
 		self,

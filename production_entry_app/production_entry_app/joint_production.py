@@ -623,6 +623,8 @@ def _validate_joint_bom_pair(lh_bom: JointBomDetails, rh_bom: JointBomDetails) -
 		frappe.throw(_("LH and RH BOMs must be different."))
 	if lh_bom.item_code == rh_bom.item_code:
 		frappe.throw(_("LH and RH BOM output items must differ."))
+	if lh_bom.company != rh_bom.company:
+		frappe.throw(_("LH and RH BOMs must belong to the same Company."))
 	if (lh_bom.rm_item_code, lh_bom.rm_uom) != (rh_bom.rm_item_code, rh_bom.rm_uom):
 		frappe.throw(_("LH and RH BOMs must use the same raw material item and UOM."))
 	if abs(lh_bom.rm_qty - rh_bom.rm_qty) > RM_QTY_TOLERANCE:
@@ -633,8 +635,6 @@ def _validate_joint_bom_company(
 	lh_bom: JointBomDetails, rh_bom: JointBomDetails, company: str | None
 ) -> None:
 	stock_entry_company = cstr(company)
-	if not stock_entry_company:
-		frappe.throw(_("Company is required for joint LH/RH production."))
 	for side, bom in (("LH", lh_bom), ("RH", rh_bom)):
 		if bom.company != stock_entry_company:
 			frappe.throw(
@@ -653,7 +653,8 @@ def _validate_side_quantities(side: str, gross_qty: float, rejection_qty: float)
 		frappe.throw(
 			_(
 				"{0} Gross Quantity must be greater than zero. "
-				"If only one side is produced, create a normal independent Manufacture entry instead of Joint LH/RH."
+				"If only one side is produced, create a normal independent Manufacture Production Entry "
+				"instead of Joint LH/RH."
 			).format(side)
 		)
 	if rejection_qty < 0 or rejection_qty > gross_qty:
