@@ -2043,6 +2043,12 @@ class TestE2EApi(FrappeTestCase):
 				)
 			)
 			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.e2e_api._ensure_e2e_operating_cost_account",
+					return_value="Operating Cost - TC",
+				)
+			)
+			stack.enter_context(
 				patch("production_entry_app.production_entry_app.e2e_api.ensure_fiscal_year_for_date")
 			)
 			stack.enter_context(patch("production_entry_app.production_entry_app.e2e_api.ensure_stock"))
@@ -2173,6 +2179,12 @@ class TestE2EApi(FrappeTestCase):
 						"BOM-JOINT-POST-LH",
 						"BOM-JOINT-POST-RH",
 					],
+				)
+			)
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.e2e_api._ensure_e2e_operating_cost_account",
+					return_value="Operating Cost - TC",
 				)
 			)
 			ensure_fiscal_year = stack.enter_context(

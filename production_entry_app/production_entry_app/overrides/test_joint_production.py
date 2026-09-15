@@ -1300,6 +1300,30 @@ class TestJointProductionItems(FrappeTestCase):
 		# LH: 100/10*20 = 200; RH: 50/10*30 = 150
 		self.assertAlmostEqual(flt(bom_cost_rows[0].amount), 350, places=5)
 
+	def test_shearing_joint_applies_bom_operating_cost_without_work_order(self) -> None:
+		shift = make_running_shift(self.masters)
+		doc = self._make_joint_entry(
+			shift,
+			lh_gross_qty=40,
+			lh_rejection_qty=0,
+			rh_gross_qty=41,
+			rh_rejection_qty=0,
+		)
+		self._set_bom_operating_cost(doc.custom_pea_lh_bom, 100)
+		self._set_bom_operating_cost(doc.custom_pea_rh_bom, 50)
+		expense_account = self._require_operating_cost_account()
+
+		validate_and_apply_joint_production(doc)
+
+		bom_cost_rows = [row for row in doc.additional_costs if cint(row.get("has_operating_cost"))]
+		self.assertEqual(cstr(doc.custom_pea_operation), "Shearing")
+		self.assertFalse(doc.get("work_order"))
+		self.assertEqual(len(bom_cost_rows), 1)
+		self.assertEqual(bom_cost_rows[0].expense_account, expense_account)
+		self.assertEqual(cstr(bom_cost_rows[0].description), JOINT_BOM_OPERATING_COST_DESCRIPTION)
+		# Default shearing BOM qty is 100: LH 100/100*40 + RH 50/100*41 = 60.5
+		self.assertAlmostEqual(flt(bom_cost_rows[0].amount), 60.5, places=5)
+
 	def test_joint_bom_operating_cost_coexists_with_user_additional_costs(self) -> None:
 		shift = make_running_shift(self.masters)
 		doc = self._make_post_shearing_entry(
