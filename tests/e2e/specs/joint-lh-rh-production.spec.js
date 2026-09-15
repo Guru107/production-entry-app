@@ -603,6 +603,25 @@ test.describe("Joint LH/RH production form", () => {
 		await expectValidationError(page, /Operation is required/i);
 	});
 
+	test("@regression joint Fetch Items blocks the same LH and RH BOM", async ({ page }) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const stockEntryType = await getJointStockEntryType(page);
+		const form = new StockEntryPage(page);
+
+		await form.openNew();
+		await enableJointProduction(page, form, stockEntryType);
+		await setFieldValue(page, "company", ctx.company);
+		await setFieldValue(page, "custom_pea_shift", ctx.shift_name);
+		await setFieldValue(page, "from_warehouse", ctx.wip_warehouse);
+		await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
+		await form.fillJointProductionFields(ctx);
+		await setFieldValue(page, "custom_pea_rh_bom", ctx.joint_lh_bom);
+		await page.locator('[data-fieldname="custom_pea_joint_fetch_items"] button').click();
+
+		await expectValidationError(page, /LH and RH BOMs must be different/i);
+	});
+
 	test("@regression stale joint rows require Fetch Items without clearing logistics", async ({
 		page,
 	}) => {

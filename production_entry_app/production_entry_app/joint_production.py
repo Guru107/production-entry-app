@@ -46,6 +46,7 @@ class JointScrapItem:
 @dataclass(frozen=True)
 class JointBomDetails:
 	name: str
+	company: str
 	item_code: str
 	quantity: float
 	total_cost: float
@@ -231,6 +232,7 @@ def _build_joint_production_plan(doc: Document) -> JointProductionPlan:
 	rh_bom = _get_joint_bom_details(doc.get("custom_pea_rh_bom"))
 	_validate_joint_bom_operations(lh_bom, rh_bom, operation)
 	_validate_joint_bom_pair(lh_bom, rh_bom)
+	_validate_joint_bom_company(lh_bom, rh_bom, doc.get("company"))
 
 	lh_gross_qty = flt(doc.get("custom_pea_lh_gross_qty"))
 	lh_rejection_qty = flt(doc.get("custom_pea_lh_rejection_qty"))
@@ -552,6 +554,7 @@ def _get_joint_bom_details(bom_no: str) -> JointBomDetails:
 	stock_uom_by_item = _get_item_stock_uoms(scrap.item_code for scrap in scrap_items)
 	return JointBomDetails(
 		name=bom.name,
+		company=cstr(bom.company),
 		item_code=bom.item,
 		quantity=flt(bom.quantity),
 		total_cost=flt(bom.total_cost),
@@ -616,15 +619,43 @@ def _get_bom_scrap_item_details(scrap: BaseDocument, stock_uom_by_item: dict[str
 
 
 def _validate_joint_bom_pair(lh_bom: JointBomDetails, rh_bom: JointBomDetails) -> None:
+	if lh_bom.name == rh_bom.name:
+		frappe.throw(_("LH and RH BOMs must be different."))
+	if lh_bom.item_code == rh_bom.item_code:
+		frappe.throw(_("LH and RH BOM output items must differ."))
 	if (lh_bom.rm_item_code, lh_bom.rm_uom) != (rh_bom.rm_item_code, rh_bom.rm_uom):
 		frappe.throw(_("LH and RH BOMs must use the same raw material item and UOM."))
 	if abs(lh_bom.rm_qty - rh_bom.rm_qty) > RM_QTY_TOLERANCE:
 		frappe.throw(_("LH and RH BOMs must use the same raw material quantity."))
 
 
+def _validate_joint_bom_company(
+	lh_bom: JointBomDetails, rh_bom: JointBomDetails, company: str | None
+) -> None:
+	stock_entry_company = cstr(company)
+	if not stock_entry_company:
+		frappe.throw(_("Company is required for joint LH/RH production."))
+	for side, bom in (("LH", lh_bom), ("RH", rh_bom)):
+		if bom.company != stock_entry_company:
+			frappe.throw(
+				_("{0} BOM {1} must belong to Company {2}.").format(
+					side,
+					frappe.bold(frappe.utils.escape_html(bom.name)),
+					frappe.bold(frappe.utils.escape_html(stock_entry_company)),
+				)
+			)
+
+
 def _validate_side_quantities(side: str, gross_qty: float, rejection_qty: float) -> None:
-	if gross_qty <= 0:
-		frappe.throw(_("{0} Gross Quantity must be greater than zero.").format(side))
+	if gross_qty < 0:
+		frappe.throw(_("{0} Gross Quantity cannot be negative.").format(side))
+	if gross_qty == 0:
+		frappe.throw(
+			_(
+				"{0} Gross Quantity must be greater than zero. "
+				"If only one side is produced, create a normal independent Manufacture entry instead of Joint LH/RH."
+			).format(side)
+		)
 	if rejection_qty < 0 or rejection_qty > gross_qty:
 		frappe.throw(_("{0} Rejection Quantity must be between zero and Gross Quantity.").format(side))
 
