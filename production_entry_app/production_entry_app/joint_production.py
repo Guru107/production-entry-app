@@ -518,6 +518,17 @@ def _set_joint_output_valuation(
 				_get_row_stock_qty(row) * row.basic_rate,
 				row.precision("basic_amount"),
 			)
+	if plan.is_shearing:
+		_set_shearing_output_valuation(rows, plan)
+	else:
+		_set_post_shearing_output_valuation(rows, plan)
+
+	# Native Stock Entry recalculation applies the manual rates consistently to
+	# basic amounts, valuation rates, totals, and additional-cost distribution.
+	doc.calculate_rate_and_amount(reset_outgoing_rate=False)
+
+
+def _set_shearing_output_valuation(rows: list[Any], plan: JointProductionPlan) -> None:
 	outgoing_value = sum(
 		flt(row.get("basic_amount")) for row in rows if row.get("s_warehouse") and not row.get("t_warehouse")
 	)
@@ -535,24 +546,64 @@ def _set_joint_output_valuation(
 		rh_bom_unit_cost=plan.rh_bom.unit_cost,
 	)
 	for side in ("LH", "RH"):
-		side_rows = [
-			row for row in rows if row.get("custom_pea_joint_output_side") == side and not is_scrap_row(row)
-		]
-		side_qty = sum(_get_row_stock_qty(row) for row in side_rows)
-		if side_qty <= 0:
-			frappe.throw(_("Joint production requires at least one {0} output row.").format(side))
-		side_rate = allocation[side] / side_qty
-		for row in side_rows:
-			row.set_basic_rate_manually = 1
-			row.basic_rate = side_rate
-			row.basic_amount = flt(
-				_get_row_stock_qty(row) * side_rate,
-				row.precision("basic_amount"),
-			)
+		_apply_side_output_rate(rows, side, allocation[side])
 
-	# Native Stock Entry recalculation applies the manual rates consistently to
-	# basic amounts, valuation rates, totals, and the eventual ledger entries.
-	doc.calculate_rate_and_amount(reset_outgoing_rate=False)
+
+def _set_post_shearing_output_valuation(rows: list[Any], plan: JointProductionPlan) -> None:
+	"""Value each side like Manufacture: (side consumed amount - side scrap) / side qty."""
+	side_scrap_values = _post_shearing_side_scrap_values(plan)
+	for side, bom in (("LH", plan.lh_bom), ("RH", plan.rh_bom)):
+		outgoing_value = sum(
+			flt(row.get("basic_amount"))
+			for row in rows
+			if row.get("s_warehouse") and not row.get("t_warehouse") and row.get("bom_no") == bom.name
+		)
+		net_production_value = outgoing_value - side_scrap_values[side]
+		if net_production_value < -VALUATION_TOLERANCE:
+			frappe.throw(_("Joint production scrap value cannot exceed the consumed raw material value."))
+		_apply_side_output_rate(rows, side, max(net_production_value, 0))
+
+
+def _post_shearing_side_scrap_values(plan: JointProductionPlan) -> dict[str, float]:
+	side_values = {"LH": 0.0, "RH": 0.0}
+	for scrap in plan.scrap_items:
+		posted_value = flt(scrap.qty) * flt(scrap.rate)
+		contributions = {
+			"LH": _side_scrap_contribution(plan.lh_bom, plan.lh_gross_qty, scrap.item_code),
+			"RH": _side_scrap_contribution(plan.rh_bom, plan.rh_gross_qty, scrap.item_code),
+		}
+		total = contributions["LH"] + contributions["RH"]
+		if total <= 0:
+			continue
+		side_values["LH"] += posted_value * contributions["LH"] / total
+		side_values["RH"] += posted_value * contributions["RH"] / total
+	return side_values
+
+
+def _side_scrap_contribution(bom: JointBomDetails, gross_qty: float, item_code: str) -> float:
+	production_factor = flt(gross_qty) / bom.quantity
+	return sum(
+		production_factor * scrap.qty * scrap.rate
+		for scrap in bom.scrap_items
+		if scrap.item_code == item_code
+	)
+
+
+def _apply_side_output_rate(rows: list[Any], side: str, side_value: float) -> None:
+	side_rows = [
+		row for row in rows if row.get("custom_pea_joint_output_side") == side and not is_scrap_row(row)
+	]
+	side_qty = sum(_get_row_stock_qty(row) for row in side_rows)
+	if side_qty <= 0:
+		frappe.throw(_("Joint production requires at least one {0} output row.").format(side))
+	side_rate = flt(side_value) / side_qty
+	for row in side_rows:
+		row.set_basic_rate_manually = 1
+		row.basic_rate = side_rate
+		row.basic_amount = flt(
+			_get_row_stock_qty(row) * side_rate,
+			row.precision("basic_amount"),
+		)
 
 
 def is_scrap_row(row: BaseDocument) -> bool:
@@ -639,6 +690,11 @@ def _get_joint_bom_details(bom_no: str) -> JointBomDetails:
 		frappe.throw(_("BOM {0} must contain at least one input item.").format(bold_bom_no))
 	if flt(bom.quantity) <= 0:
 		frappe.throw(_("BOM {0} quantity must be greater than zero.").format(bold_bom_no))
+	total_cost = flt(bom.total_cost)
+	if total_cost <= 0:
+		frappe.throw(
+			_("BOM-derived manufacturing cost cannot be calculated for BOM {0}.").format(bold_bom_no)
+		)
 	stock_uom_by_item = _get_item_stock_uoms(
 		(*(row.item_code for row in items), *(scrap.item_code for scrap in scrap_items))
 	)
@@ -647,7 +703,7 @@ def _get_joint_bom_details(bom_no: str) -> JointBomDetails:
 		company=cstr(bom.company),
 		item_code=bom.item,
 		quantity=flt(bom.quantity),
-		total_cost=flt(bom.total_cost),
+		total_cost=total_cost,
 		operation=_normalize_operation(bom.get("custom_operation")),
 		input_items=tuple(
 			JointInputItem(

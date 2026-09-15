@@ -39,16 +39,23 @@ authoritative for their topics; this record covers the remaining seams.
 
 ## Joint Production rows and valuation
 
-- Fetch Items for a joint entry does not call native `get_items()`. The app materialises the rows: one
-  raw-material row from the additive LH and RH BOM share, LH and RH good and rejection rows, and every
-  BOM scrap row (CONTEXT.md "BOM Sheet Capacity", "Whole-number Scrap Boundary"). Rows use the stock UOM
-  with conversion factor 1. Native BOM explosion cannot express one raw-material row feeding two BOMs.
+- Fetch Items for a joint entry does not call native `get_items()`. The app materialises the rows: Shearing
+  uses one raw-material row from the additive LH and RH BOM share; post-Shearing uses independent source
+  rows per side from each BOM's inputs scaled by that side's gross quantity; both paths add LH and RH
+  good and rejection rows and every BOM scrap row (CONTEXT.md "BOM Sheet Capacity", "Whole-number Scrap
+  Boundary"). Rows use the stock UOM with conversion factor 1. Native BOM explosion cannot express one
+  raw-material row feeding two BOMs.
 - Native Repack prices several finished items at one uniform per-unit rate and requires manual rates
   when more than one finished item is present. The app marks its output rows `set_basic_rate_manually`
   and sets the rates in its `validate` hook, which Frappe runs after the ERPNext controller's
-  `validate()`: scrap rows carry the BOM scrap rate; LH and RH rows share the net consumed value (raw
-  material minus scrap) weighted by BOM unit cost; then `calculate_rate_and_amount(reset_outgoing_rate=False)`
-  lets native code derive amounts, valuation rates, additional-cost distribution and ledgers (#89).
+  `validate()`: scrap rows carry the BOM scrap rate; Shearing LH/RH rows share the net consumed value
+  (raw material minus scrap) weighted by BOM unit cost; post-Shearing values each side like Manufacture
+  (`(side consumed amount - that side's scrap share) / side qty`, matching direct Manufacture without a
+  Work Order) so differing input rates are not cross-weighted; then
+  `calculate_rate_and_amount(reset_outgoing_rate=False)` lets native code derive amounts, valuation rates,
+  additional-cost distribution and ledgers (#89, #119). Fetch Items and submit fail clearly when either
+  BOM's `total_cost` is missing or non-positive. BOM operating cost is not auto-injected as Additional
+  Costs (that native path needs a Work Order); user Additional Cost rows stay native.
 - Save and submit validate the existing rows against the recalculated plan by role and aggregate stock
   quantity, so split, reordered, batched or serialised rows survive while missing, surplus or stale rows
   are rejected with guidance to run Fetch Items again (#82, #89, #90). Ad-hoc rows cannot be added to a

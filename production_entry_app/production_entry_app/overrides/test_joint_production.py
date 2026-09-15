@@ -1176,6 +1176,106 @@ class TestJointProductionItems(FrappeTestCase):
 
 		self.assertEqual(doc.docstatus, 1)
 
+	def test_post_shearing_valuation_uses_each_side_consumed_value_when_inputs_differ(self) -> None:
+		shift = make_running_shift(self.masters)
+		doc = self._make_post_shearing_entry(
+			shift,
+			lh_gross_qty=20,
+			lh_rejection_qty=0,
+			rh_gross_qty=30,
+			rh_rejection_qty=0,
+		)
+		lh_bom = doc.custom_pea_lh_bom
+		rh_bom = doc.custom_pea_rh_bom
+		for row in doc.items:
+			if not row.s_warehouse:
+				continue
+			rate = 10 if row.bom_no == lh_bom else 40
+			row.basic_rate = rate
+			row.basic_amount = flt(row.qty) * rate
+
+		validate_and_apply_joint_production(doc)
+
+		lh_outgoing = sum(
+			flt(row.basic_amount) for row in doc.items if row.s_warehouse and row.bom_no == lh_bom
+		)
+		rh_outgoing = sum(
+			flt(row.basic_amount) for row in doc.items if row.s_warehouse and row.bom_no == rh_bom
+		)
+		lh_output_value = sum(
+			flt(row.basic_amount)
+			for row in doc.items
+			if row.custom_pea_joint_output_side == "LH" and not _is_scrap_row(row)
+		)
+		rh_output_value = sum(
+			flt(row.basic_amount)
+			for row in doc.items
+			if row.custom_pea_joint_output_side == "RH" and not _is_scrap_row(row)
+		)
+		scrap_value = sum(flt(row.basic_amount) for row in doc.items if _is_scrap_row(row))
+		# Fixture scrap rate is 10; planned scrap qty is side_gross / bom_qty * scrap_qty.
+		lh_scrap_value = (20 / 10) * 0.5 * 10
+		rh_scrap_value = (30 / 10) * 0.75 * 10
+
+		self.assertGreater(lh_outgoing, 0)
+		self.assertGreater(rh_outgoing, 0)
+		self.assertNotAlmostEqual(lh_outgoing, rh_outgoing, places=2)
+		self.assertAlmostEqual(scrap_value, lh_scrap_value + rh_scrap_value, places=5)
+		self.assertAlmostEqual(
+			lh_output_value + rh_output_value + scrap_value, lh_outgoing + rh_outgoing, places=5
+		)
+		# Manufacture-like: each side's outputs absorb only that side's consumed value minus scrap.
+		self.assertAlmostEqual(lh_output_value, lh_outgoing - lh_scrap_value, places=5)
+		self.assertAlmostEqual(rh_output_value, rh_outgoing - rh_scrap_value, places=5)
+
+	def test_post_shearing_valuation_covers_a_fully_rejected_side(self) -> None:
+		shift = make_running_shift(self.masters)
+		doc = self._make_post_shearing_entry(
+			shift,
+			lh_gross_qty=20,
+			lh_rejection_qty=20,
+			rh_gross_qty=30,
+			rh_rejection_qty=0,
+		)
+		for row in doc.items:
+			if row.s_warehouse:
+				row.basic_rate = 25
+				row.basic_amount = flt(row.qty) * 25
+
+		doc.insert(ignore_permissions=True)
+		doc.submit()
+
+		lh_rows = [
+			row for row in doc.items if row.custom_pea_joint_output_side == "LH" and not _is_scrap_row(row)
+		]
+		self.assertTrue(lh_rows)
+		self.assertTrue(all(row.custom_pea_is_rejection_item for row in lh_rows))
+		self.assertTrue(all(flt(row.basic_rate) > 0 for row in lh_rows))
+		self.assertAlmostEqual(sum(flt(row.qty) for row in lh_rows), 20, places=6)
+
+	def test_post_shearing_fails_when_bom_manufacturing_cost_is_unavailable(self) -> None:
+		shift = make_running_shift(self.masters)
+		doc = self._make_post_shearing_entry(shift, lh_rejection_qty=0, rh_rejection_qty=0)
+		original_cost = frappe.db.get_value("BOM", doc.custom_pea_lh_bom, "total_cost")
+		frappe.db.set_value("BOM", doc.custom_pea_lh_bom, "total_cost", 0, update_modified=False)
+		frappe.clear_document_cache("BOM", doc.custom_pea_lh_bom)
+		try:
+			with self.assertRaisesRegex(
+				frappe.ValidationError,
+				"manufacturing cost|BOM-derived|cannot be calculated",
+			):
+				get_joint_production_items(json.dumps(doc.as_dict(), default=str))
+			with self.assertRaisesRegex(
+				frappe.ValidationError,
+				"manufacturing cost|BOM-derived|cannot be calculated",
+			):
+				validate_and_apply_joint_production(doc)
+		finally:
+			frappe.db.set_value(
+				"BOM", doc.custom_pea_lh_bom, "total_cost", original_cost, update_modified=False
+			)
+			frappe.clear_document_cache("BOM", doc.custom_pea_lh_bom)
+
 	def test_joint_items_api_fails_cleanly_when_an_item_cannot_be_loaded(self) -> None:
 		shift = make_running_shift(self.masters)
 		doc = self._make_joint_entry(shift)
