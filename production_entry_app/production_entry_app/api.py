@@ -6,12 +6,11 @@ import json
 import frappe
 from frappe import _
 from frappe.query_builder import DocType
-from frappe.query_builder.functions import CustomFunction
 from frappe.utils import cint, get_datetime, get_time, now_datetime
 from pypika import Order
-from pypika import functions as fn
 
 from production_entry_app.production_entry_app.joint_production import (
+	_normalize_operation,
 	calculate_joint_rm_consumption_from_boms,
 	is_scrap_row,
 	materialize_joint_production_rows,
@@ -37,7 +36,6 @@ from production_entry_app.production_entry_app.utils.system_precision import (
 )
 
 _ALLOWED_STOCK_ENTRY_SHIFT_STATUSES: tuple[str, ...] = ("Running", "Completed")
-_Binary = CustomFunction("BINARY", ["value"])
 
 
 @frappe.whitelist()
@@ -65,19 +63,23 @@ def search_joint_boms_for_operation(
 	BOM = DocType("BOM")
 	rows = (
 		frappe.qb.from_(BOM)
-		.select(BOM.name, BOM.item)
+		.select(BOM.name, BOM.item, BOM.custom_operation)
 		.where(BOM.docstatus == 1)
 		.where(BOM.is_active == 1)
 		.where(BOM.company == company)
-		.where(_Binary(fn.Trim(fn.Coalesce(BOM.custom_operation, ""))) == _Binary(operation))
 		.where(BOM[searchfield].like(f"%{txt}%"))
 		.orderby(BOM.idx, order=Order.desc)
 		.orderby(BOM.name)
-		.limit(page_len or 20)
-		.offset(start or 0)
 		.run(as_dict=True)
 	)
-	return [(row.name, row.item) for row in rows if frappe.has_permission("BOM", "read", row.name)]
+	matched = [
+		(row.name, row.item)
+		for row in rows
+		if _normalize_operation(row.custom_operation) == operation
+		and frappe.has_permission("BOM", "read", row.name)
+	]
+	start = start or 0
+	return matched[start : start + (page_len or 20)]
 
 
 @frappe.whitelist()
