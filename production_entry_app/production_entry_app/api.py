@@ -6,6 +6,7 @@ import json
 import frappe
 from frappe import _
 from frappe.query_builder import DocType
+from frappe.query_builder.functions import CustomFunction
 from frappe.utils import cint, get_datetime, get_time, now_datetime
 from pypika import Order
 from pypika import functions as fn
@@ -36,6 +37,7 @@ from production_entry_app.production_entry_app.utils.system_precision import (
 )
 
 _ALLOWED_STOCK_ENTRY_SHIFT_STATUSES: tuple[str, ...] = ("Running", "Completed")
+_Binary = CustomFunction("BINARY", ["value"])
 
 
 @frappe.whitelist()
@@ -67,7 +69,7 @@ def search_joint_boms_for_operation(
 		.where(BOM.docstatus == 1)
 		.where(BOM.is_active == 1)
 		.where(BOM.company == company)
-		.where(fn.Trim(fn.Coalesce(BOM.custom_operation, "")) == operation)
+		.where(_Binary(fn.Trim(fn.Coalesce(BOM.custom_operation, ""))) == _Binary(operation))
 		.where(BOM[searchfield].like(f"%{txt}%"))
 		.orderby(BOM.idx, order=Order.desc)
 		.orderby(BOM.name)

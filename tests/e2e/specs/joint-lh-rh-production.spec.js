@@ -107,6 +107,26 @@ test.describe("Joint LH/RH production form", () => {
 			ctx.joint_lh_item
 		);
 		expect(lhBomResults.map((row) => row.value)).toContain(ctx.joint_lh_bom);
+		expect(
+			(await form.searchJointBomLinkResults("custom_pea_rh_bom", ctx.joint_rh_item)).map(
+				(row) => row.value
+			)
+		).toContain(ctx.joint_rh_bom);
+		await ensureOperation(page, "Blanking");
+		await setFieldValue(page, "custom_pea_operation", "Blanking");
+		await form.waitForFieldValue("custom_pea_operation", "Blanking");
+		expect(
+			(await form.searchJointBomLinkResults("custom_pea_lh_bom", ctx.joint_lh_item)).map(
+				(row) => row.value
+			)
+		).not.toContain(ctx.joint_lh_bom);
+		expect(
+			(await form.searchJointBomLinkResults("custom_pea_rh_bom", ctx.joint_rh_item)).map(
+				(row) => row.value
+			)
+		).not.toContain(ctx.joint_rh_bom);
+		await setFieldValue(page, "custom_pea_operation", ctx.joint_operation);
+		await form.waitForFieldValue("custom_pea_operation", ctx.joint_operation);
 		expect(await form.isFieldVisible("custom_pea_rejection_breakup")).toBe(false);
 		expect(await form.isFieldVisible("custom_pea_operation")).toBe(true);
 		expect(await form.isFieldVisible("custom_pea_lh_bom")).toBe(true);

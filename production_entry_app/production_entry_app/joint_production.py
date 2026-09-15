@@ -49,6 +49,7 @@ class JointBomDetails:
 	item_code: str
 	quantity: float
 	total_cost: float
+	operation: str
 	rm_item_code: str
 	rm_qty: float
 	rm_uom: str
@@ -226,8 +227,9 @@ def _set_scrap_row_classification(row: dict[str, Any]) -> None:
 def _build_joint_production_plan(doc: Document) -> JointProductionPlan:
 	_validate_joint_header(doc)
 	operation = _get_joint_operation(doc)
-	lh_bom = _get_joint_bom_details(doc.get("custom_pea_lh_bom"), operation=operation, side="LH")
-	rh_bom = _get_joint_bom_details(doc.get("custom_pea_rh_bom"), operation=operation, side="RH")
+	lh_bom = _get_joint_bom_details(doc.get("custom_pea_lh_bom"))
+	rh_bom = _get_joint_bom_details(doc.get("custom_pea_rh_bom"))
+	_validate_joint_bom_operations(lh_bom, rh_bom, operation)
 	_validate_joint_bom_pair(lh_bom, rh_bom)
 
 	lh_gross_qty = flt(doc.get("custom_pea_lh_gross_qty"))
@@ -530,18 +532,11 @@ def _normalize_operation(operation: Any) -> str:
 	return cstr(operation).strip()
 
 
-def _get_joint_bom_details(
-	bom_no: str,
-	*,
-	operation: str | None = None,
-	side: str | None = None,
-) -> JointBomDetails:
+def _get_joint_bom_details(bom_no: str) -> JointBomDetails:
 	bom = frappe.get_doc("BOM", bom_no)
 	bold_bom_no = frappe.bold(frappe.utils.escape_html(str(bom_no)))
 	if bom.docstatus != 1 or not bom.is_active:
 		frappe.throw(_("BOM {0} must be submitted and active.").format(bold_bom_no))
-	if operation is not None:
-		_validate_bom_operation(bom, operation, side=side)
 	items = list(bom.get("items") or [])
 	secondary_scrap_items = [
 		row
@@ -560,6 +555,7 @@ def _get_joint_bom_details(
 		item_code=bom.item,
 		quantity=flt(bom.quantity),
 		total_cost=flt(bom.total_cost),
+		operation=_normalize_operation(bom.get("custom_operation")),
 		rm_item_code=rm.item_code,
 		rm_qty=flt(rm.stock_qty or rm.qty),
 		rm_uom=rm.stock_uom or rm.uom,
@@ -567,16 +563,22 @@ def _get_joint_bom_details(
 	)
 
 
-def _validate_bom_operation(bom: Document, operation: str, *, side: str | None = None) -> None:
-	bom_operation = _normalize_operation(bom.get("custom_operation"))
-	if bom_operation == operation:
+def _validate_joint_bom_operations(lh_bom: JointBomDetails, rh_bom: JointBomDetails, operation: str) -> None:
+	mismatches = [
+		_("{0} BOM {1}").format(side, frappe.bold(frappe.utils.escape_html(bom.name)))
+		for side, bom in (("LH", lh_bom), ("RH", rh_bom))
+		if bom.operation != operation
+	]
+	if not mismatches:
 		return
-	label = _("{0} BOM").format(side) if side else _("BOM")
+	bold_operation = frappe.bold(frappe.utils.escape_html(operation))
+	if len(mismatches) == 1:
+		frappe.throw(_("{0} must match Operation {1}.").format(mismatches[0], bold_operation))
 	frappe.throw(
-		_("{0} {1} must match Operation {2}.").format(
-			label,
-			frappe.bold(frappe.utils.escape_html(str(bom.name))),
-			frappe.bold(frappe.utils.escape_html(operation)),
+		_("{0} and {1} must match Operation {2}.").format(
+			mismatches[0],
+			mismatches[1],
+			bold_operation,
 		)
 	)
 

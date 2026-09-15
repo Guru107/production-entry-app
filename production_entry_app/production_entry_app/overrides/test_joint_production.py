@@ -840,15 +840,64 @@ class TestJointProductionItems(FrappeTestCase):
 			with self.assertRaisesRegex(frappe.ValidationError, "BOM custom_operation metadata is required"):
 				materialize_joint_production_rows(doc)
 
-	def test_joint_boms_must_match_selected_operation(self) -> None:
+	def test_fetch_items_blocks_lh_rh_and_both_bom_operation_mismatches(self) -> None:
+		blanking = ensure_operation("Blanking")
+		lh_bom = self._make_bom(self.lh_item, scrap_qty=1.125, operation=blanking)
+		rh_bom = self._make_bom(self.rh_item, scrap_qty=2.125, operation=blanking)
+		shift = make_running_shift(self.masters)
+		cases = (
+			("LH", lh_bom, self.rh_bom, "LH BOM .* must match Operation .*Shearing"),
+			("RH", self.lh_bom, rh_bom, "RH BOM .* must match Operation .*Shearing"),
+			(
+				"both",
+				lh_bom,
+				rh_bom,
+				"LH BOM .* and RH BOM .* must match Operation .*Shearing",
+			),
+		)
+
+		for label, case_lh_bom, case_rh_bom, message in cases:
+			with self.subTest(label=label):
+				doc = self._make_joint_entry(
+					shift,
+					lh_bom=case_lh_bom,
+					rh_bom=case_rh_bom,
+					fetch_items=False,
+				)
+				doc.set("items", [])
+				with self.assertRaisesRegex(frappe.ValidationError, message):
+					get_joint_production_items(json.dumps(doc.as_dict(), default=str))
+
+	def test_fetch_items_trims_bom_operation_and_rejects_case_mismatch(self) -> None:
+		padded_lh_bom = self._make_bom(self.lh_item, scrap_qty=1.125)
+		frappe.db.set_value("BOM", padded_lh_bom, "custom_operation", " Shearing ", update_modified=False)
+		lowercase_rh_bom = self._make_bom(
+			self.rh_item, scrap_qty=2.125, operation=ensure_operation("shearing")
+		)
+		shift = make_running_shift(self.masters)
+
+		padded_doc = self._make_joint_entry(shift, lh_bom=padded_lh_bom, fetch_items=False)
+		padded_doc.set("items", [])
+		self.assertGreater(
+			len(get_joint_production_items(json.dumps(padded_doc.as_dict(), default=str))),
+			0,
+		)
+
+		case_doc = self._make_joint_entry(shift, rh_bom=lowercase_rh_bom, fetch_items=False)
+		case_doc.set("items", [])
+		with self.assertRaisesRegex(frappe.ValidationError, "RH BOM .* must match Operation .*Shearing"):
+			get_joint_production_items(json.dumps(case_doc.as_dict(), default=str))
+
+	def test_submit_validation_blocks_stale_bom_operation_mismatch(self) -> None:
 		blanking = ensure_operation("Blanking")
 		rh_bom = self._make_bom(self.rh_item, scrap_qty=2.125, operation=blanking)
 		shift = make_running_shift(self.masters)
-		doc = self._make_joint_entry(shift, rh_bom=rh_bom, fetch_items=False)
-		doc.set("items", [])
+		doc = self._make_joint_entry(shift)
+		doc.insert(ignore_permissions=True)
+		doc.custom_pea_rh_bom = rh_bom
 
 		with self.assertRaisesRegex(frappe.ValidationError, "RH BOM .* must match Operation .*Shearing"):
-			get_joint_production_items(json.dumps(doc.as_dict(), default=str))
+			doc.submit()
 
 	def test_joint_bom_link_query_requires_operation_and_trims_bom_operation(self) -> None:
 		trimmed_bom = self._make_bom(self.lh_item, scrap_qty=1.125)
@@ -871,10 +920,106 @@ class TestJointProductionItems(FrappeTestCase):
 			"name",
 			0,
 			20,
-			{"company": self.masters["company"], "operation": "Shearing"},
+			{"company": self.masters["company"], "operation": " Shearing "},
 		)
 
 		self.assertIn((trimmed_bom, self.lh_item), rows)
+
+	def test_joint_bom_link_query_filters_company_status_active_and_exact_operation(self) -> None:
+		suffix = frappe.generate_hash(length=6)
+		matching_item = ensure_item(f"_Joint_Filter_Match_{suffix}")
+		inactive_item = ensure_item(f"_Joint_Filter_Inactive_{suffix}")
+		draft_item = ensure_item(f"_Joint_Filter_Draft_{suffix}")
+		lowercase_item = ensure_item(f"_Joint_Filter_Lowercase_{suffix}")
+		punctuated_item = ensure_item(f"_Joint_Filter_Punct_{suffix}")
+		matching_bom = self._make_bom(matching_item, scrap_qty=1.125)
+		inactive_bom = self._make_bom(inactive_item, scrap_qty=1.125)
+		lowercase_bom = self._make_bom(
+			lowercase_item, scrap_qty=1.125, operation=ensure_operation("shearing")
+		)
+		punctuated_bom = self._make_bom(
+			punctuated_item, scrap_qty=1.125, operation=ensure_operation("Shearing.")
+		)
+		frappe.db.set_value("BOM", inactive_bom, "is_active", 0, update_modified=False)
+		draft_bom = frappe.copy_doc(frappe.get_doc("BOM", matching_bom))
+		draft_bom.item = draft_item
+		draft_bom.is_default = 0
+		draft_bom.docstatus = 0
+		draft_bom.insert(ignore_permissions=True)
+
+		rows = search_joint_boms_for_operation(
+			"BOM",
+			"_Joint_Filter_",
+			"item",
+			0,
+			20,
+			{"company": self.masters["company"], "operation": "Shearing"},
+		)
+		returned_boms = {row[0] for row in rows}
+		self.assertIn(matching_bom, returned_boms)
+		self.assertNotIn(inactive_bom, returned_boms)
+		self.assertNotIn(draft_bom.name, returned_boms)
+		self.assertNotIn(lowercase_bom, returned_boms)
+		self.assertNotIn(punctuated_bom, returned_boms)
+		self.assertEqual(
+			search_joint_boms_for_operation(
+				"BOM",
+				matching_item,
+				"name",
+				0,
+				20,
+				{"company": f"Wrong Company {suffix}", "operation": "Shearing"},
+			),
+			[],
+		)
+		self.assertEqual(
+			{
+				row[0]
+				for row in search_joint_boms_for_operation(
+					"BOM",
+					punctuated_item,
+					"item",
+					0,
+					20,
+					{"company": self.masters["company"], "operation": "Shearing."},
+				)
+			},
+			{punctuated_bom},
+		)
+
+	def test_shearing_keeps_existing_joint_row_generation_contract(self) -> None:
+		shift = make_running_shift(self.masters)
+		doc = self._make_joint_entry(shift)
+
+		self.assertEqual(doc.custom_pea_operation, "Shearing")
+		self.assertEqual([row.item_code for row in doc.items if row.s_warehouse], [self.rm_item])
+		self.assertAlmostEqual(
+			sum(row.qty for row in doc.items if row.s_warehouse),
+			39.79125,
+			places=6,
+		)
+		self.assertEqual(
+			[
+				(row.item_code, row.custom_pea_joint_output_side, row.qty)
+				for row in doc.items
+				if row.t_warehouse and not row.custom_pea_is_rejection_item and not _is_scrap_row(row)
+			],
+			[(self.lh_item, "LH", 39), (self.rh_item, "RH", 41)],
+		)
+		self.assertEqual(
+			[
+				(row.item_code, row.custom_pea_joint_output_side, row.qty)
+				for row in doc.items
+				if row.custom_pea_is_rejection_item
+			],
+			[(self.lh_item, "LH", 1)],
+		)
+		self.assertEqual([row.item_code for row in doc.items if _is_scrap_row(row)], [self.scrap_item])
+
+		doc.insert(ignore_permissions=True)
+		output_rows = [row for row in doc.items if row.t_warehouse and not _is_scrap_row(row)]
+		self.assertTrue(all(row.set_basic_rate_manually for row in output_rows))
+		self.assertTrue(all(flt(row.basic_rate) > 0 for row in output_rows))
 
 	def test_joint_items_api_fails_cleanly_when_an_item_cannot_be_loaded(self) -> None:
 		shift = make_running_shift(self.masters)
