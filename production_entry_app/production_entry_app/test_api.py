@@ -1990,6 +1990,11 @@ class TestE2EApi(FrappeTestCase):
 						"_E2E-DIE_Joint_RM_Item",
 						"_E2E-DIE_Joint_Scrap_Item",
 						"_E2E-DIE_Joint_Scrap_Nos_Item",
+						"_E2E-DIE_Joint_LH_WIP_A",
+						"_E2E-DIE_Joint_LH_WIP_B",
+						"_E2E-DIE_Joint_RH_WIP_A",
+						"_E2E-DIE_Joint_RH_WIP_B",
+						"_E2E-DIE_Joint_Shared_WIP",
 					],
 				)
 			)
@@ -2021,8 +2026,20 @@ class TestE2EApi(FrappeTestCase):
 			)
 			stack.enter_context(
 				patch(
+					"production_entry_app.production_entry_app.e2e_api.ensure_operation",
+					return_value="Blanking",
+				)
+			)
+			stack.enter_context(
+				patch(
 					"production_entry_app.production_entry_app.e2e_api.ensure_joint_test_bom",
-					side_effect=["BOM-JOINT-LH", "BOM-JOINT-LH-ALT", "BOM-JOINT-RH"],
+					side_effect=[
+						"BOM-JOINT-LH",
+						"BOM-JOINT-LH-ALT",
+						"BOM-JOINT-RH",
+						"BOM-JOINT-POST-LH",
+						"BOM-JOINT-POST-RH",
+					],
 				)
 			)
 			stack.enter_context(
@@ -2106,6 +2123,11 @@ class TestE2EApi(FrappeTestCase):
 						"_E2E_Joint_RM_Item",
 						"_E2E_Joint_Scrap_Item",
 						"_E2E_Joint_Scrap_Nos_Item",
+						"_E2E_Joint_LH_WIP_A",
+						"_E2E_Joint_LH_WIP_B",
+						"_E2E_Joint_RH_WIP_A",
+						"_E2E_Joint_RH_WIP_B",
+						"_E2E_Joint_Shared_WIP",
 					],
 				)
 			)
@@ -2137,8 +2159,20 @@ class TestE2EApi(FrappeTestCase):
 			)
 			stack.enter_context(
 				patch(
+					"production_entry_app.production_entry_app.e2e_api.ensure_operation",
+					return_value="Blanking",
+				)
+			)
+			stack.enter_context(
+				patch(
 					"production_entry_app.production_entry_app.e2e_api.ensure_joint_test_bom",
-					side_effect=["BOM-JOINT-LH", "BOM-JOINT-LH-ALT", "BOM-JOINT-RH"],
+					side_effect=[
+						"BOM-JOINT-LH",
+						"BOM-JOINT-LH-ALT",
+						"BOM-JOINT-RH",
+						"BOM-JOINT-POST-LH",
+						"BOM-JOINT-POST-RH",
+					],
 				)
 			)
 			ensure_fiscal_year = stack.enter_context(
@@ -2183,7 +2217,7 @@ class TestE2EApi(FrappeTestCase):
 			target_qty=1000,
 			posting_date="2099-01-20",
 		)
-		self.assertEqual(ensure_stock.call_count, 2)
+		self.assertEqual(ensure_stock.call_count, 7)
 		get_or_create.assert_called_once_with(
 			base_date="2099-01-20",
 			department="E2E Department - TC",

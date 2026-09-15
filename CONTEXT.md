@@ -10,8 +10,10 @@ A record of one physical production operation and its material, output, quality,
 _Avoid_: Manufacturing entry, operation entry
 
 **Joint Production**:
-One physical stamping operation that consumes common raw material and produces paired LH and RH outputs while
-tracking each side's gross quantity and rejection quantity separately.
+One physical stamping operation that produces paired LH and RH outputs while tracking each side's
+gross quantity and rejection quantity separately. For Shearing, both sides consume a common raw
+material sheet. For any other Operation (post-Shearing), each side consumes its own BOM-derived
+inputs independently; input item codes may differ and are not merged across sides.
 Operational validation classifies Joint Production from selected Stock Entry Type
 `custom_pea_joint_lh_rh_production`; submitted-entry reports join or batch-enrich the Stock Entry Type
 flag before classifying Repack entries.
@@ -24,8 +26,9 @@ _Avoid_: Derived stroke count, produced quantity
 
 **BOM Sheet Capacity**:
 The BOM quantity is the maximum total number of parts that can be produced from the raw-material quantity recorded
-in that BOM. In Joint Production, each side consumes its proportional share of raw material, and the LH and RH
-shares are added: `side gross quantity x BOM raw-material quantity / BOM quantity`.
+in that BOM. In Shearing Joint Production, each side consumes its proportional share of the common raw material,
+and the LH and RH shares are added: `side gross quantity x BOM raw-material quantity / BOM quantity`.
+Post-Shearing Joint Production scales each side's BOM inputs from that side's gross quantity alone.
 _Avoid_: Per-side sheet count, shared maximum consumption
 
 **Whole-number Scrap Boundary**:

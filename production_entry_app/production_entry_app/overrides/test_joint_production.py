@@ -1021,6 +1021,106 @@ class TestJointProductionItems(FrappeTestCase):
 		self.assertTrue(all(row.set_basic_rate_manually for row in output_rows))
 		self.assertTrue(all(flt(row.basic_rate) > 0 for row in output_rows))
 
+	def test_post_shearing_fetch_builds_independent_source_rows_from_each_bom(self) -> None:
+		operation = ensure_operation("Blanking")
+		lh_wip_a = ensure_item(f"_Joint_LH_WIP_A_{frappe.generate_hash(length=6)}")
+		lh_wip_b = ensure_item(f"_Joint_LH_WIP_B_{frappe.generate_hash(length=6)}")
+		rh_wip_a = ensure_item(f"_Joint_RH_WIP_A_{frappe.generate_hash(length=6)}")
+		rh_wip_b = ensure_item(f"_Joint_RH_WIP_B_{frappe.generate_hash(length=6)}")
+		shared_wip = ensure_item(f"_Joint_Shared_WIP_{frappe.generate_hash(length=6)}")
+		lh_bom = self._make_bom(
+			self.lh_item,
+			bom_quantity=10,
+			rm_items=[(lh_wip_a, 2), (lh_wip_b, 3), (shared_wip, 1)],
+			scrap_qty=0.5,
+			operation=operation,
+		)
+		rh_bom = self._make_bom(
+			self.rh_item,
+			bom_quantity=10,
+			rm_items=[(rh_wip_a, 4), (rh_wip_b, 1), (shared_wip, 1)],
+			scrap_qty=0.75,
+			operation=operation,
+		)
+		shift = make_running_shift(self.masters)
+		doc = self._make_joint_entry(
+			shift,
+			lh_bom=lh_bom,
+			rh_bom=rh_bom,
+			operation=operation,
+			lh_gross_qty=20,
+			lh_rejection_qty=2,
+			rh_gross_qty=30,
+			rh_rejection_qty=5,
+		)
+
+		source_rows = [(row.item_code, row.bom_no, flt(row.qty)) for row in doc.items if row.s_warehouse]
+		self.assertEqual(
+			source_rows,
+			[
+				(lh_wip_a, lh_bom, 4.0),
+				(lh_wip_b, lh_bom, 6.0),
+				(shared_wip, lh_bom, 2.0),
+				(rh_wip_a, rh_bom, 12.0),
+				(rh_wip_b, rh_bom, 3.0),
+				(shared_wip, rh_bom, 3.0),
+			],
+		)
+		self.assertEqual(
+			[
+				(row.item_code, row.custom_pea_joint_output_side, flt(row.qty), row.bom_no)
+				for row in doc.items
+				if row.t_warehouse and not row.custom_pea_is_rejection_item and not _is_scrap_row(row)
+			],
+			[
+				(self.lh_item, "LH", 18.0, lh_bom),
+				(self.rh_item, "RH", 25.0, rh_bom),
+			],
+		)
+		self.assertEqual(
+			[
+				(row.item_code, row.custom_pea_joint_output_side, flt(row.qty))
+				for row in doc.items
+				if row.custom_pea_is_rejection_item
+			],
+			[(self.lh_item, "LH", 2.0), (self.rh_item, "RH", 5.0)],
+		)
+
+	def test_post_shearing_fetch_merges_duplicate_inputs_within_one_side_only(self) -> None:
+		operation = ensure_operation("Blanking")
+		lh_wip = ensure_item(f"_Joint_LH_Dup_{frappe.generate_hash(length=6)}")
+		rh_wip = ensure_item(f"_Joint_RH_Dup_{frappe.generate_hash(length=6)}")
+		lh_bom = self._make_bom(
+			self.lh_item,
+			bom_quantity=10,
+			rm_items=[(lh_wip, 1), (lh_wip, 2)],
+			scrap_qty=0.5,
+			operation=operation,
+		)
+		rh_bom = self._make_bom(
+			self.rh_item,
+			bom_quantity=10,
+			rm_items=[(rh_wip, 5)],
+			scrap_qty=0.75,
+			operation=operation,
+		)
+		shift = make_running_shift(self.masters)
+		doc = self._make_joint_entry(
+			shift,
+			lh_bom=lh_bom,
+			rh_bom=rh_bom,
+			operation=operation,
+			lh_gross_qty=10,
+			lh_rejection_qty=0,
+			rh_gross_qty=10,
+			rh_rejection_qty=0,
+		)
+
+		self.assertEqual(
+			[(row.item_code, row.bom_no, flt(row.qty)) for row in doc.items if row.s_warehouse],
+			[(lh_wip, lh_bom, 3.0), (rh_wip, rh_bom, 5.0)],
+		)
+
 	def test_joint_items_api_fails_cleanly_when_an_item_cannot_be_loaded(self) -> None:
 		shift = make_running_shift(self.masters)
 		doc = self._make_joint_entry(shift)
@@ -1902,6 +2002,11 @@ class TestJointProductionItems(FrappeTestCase):
 		lh_bom: str | None = None,
 		rh_bom: str | None = None,
 		fetch_items: bool = True,
+		operation: str | None = None,
+		lh_gross_qty: float = 40,
+		lh_rejection_qty: float = 1,
+		rh_gross_qty: float = 41,
+		rh_rejection_qty: float = 0,
 	) -> object:
 		ensure_stock(
 			self.rm_item,
@@ -1914,6 +2019,7 @@ class TestJointProductionItems(FrappeTestCase):
 			minutes=15,
 		)
 		end = add_to_date(start, minutes=45)
+		selected_operation = operation or self.operation
 		doc = frappe.get_doc(
 			{
 				"doctype": "Stock Entry",
@@ -1925,33 +2031,47 @@ class TestJointProductionItems(FrappeTestCase):
 				"custom_pea_shift": shift.name,
 				"custom_pea_actual_start_date": start,
 				"custom_pea_actual_end_date": end,
-				"custom_pea_operation": self.operation,
+				"custom_pea_operation": selected_operation,
 				"custom_pea_lh_bom": lh_bom or self.lh_bom,
-				"custom_pea_lh_gross_qty": 40,
-				"custom_pea_lh_rejection_qty": 1,
+				"custom_pea_lh_gross_qty": lh_gross_qty,
+				"custom_pea_lh_rejection_qty": lh_rejection_qty,
 				"custom_pea_rh_bom": rh_bom or self.rh_bom,
-				"custom_pea_rh_gross_qty": 41,
-				"custom_pea_rh_rejection_qty": 0,
+				"custom_pea_rh_gross_qty": rh_gross_qty,
+				"custom_pea_rh_rejection_qty": rh_rejection_qty,
 				"custom_pea_total_strokes": 41,
 				"custom_pea_die_tool_item": self.lh_item,
-				"custom_pea_rejection_breakup": [
-					{
-						"rejection_reason": "Burr",
-						"qty": 1,
-						"output_side": "LH",
-						"item_code": self.lh_item,
-					}
-				],
+				"custom_pea_rejection_breakup": (
+					[
+						{
+							"rejection_reason": "Burr",
+							"qty": lh_rejection_qty,
+							"output_side": "LH",
+							"item_code": self.lh_item,
+						}
+					]
+					if lh_rejection_qty > 0
+					else []
+				),
 			}
 		)
+		if rh_rejection_qty > 0:
+			doc.append(
+				"custom_pea_rejection_breakup",
+				{
+					"rejection_reason": "Burr",
+					"qty": rh_rejection_qty,
+					"output_side": "RH",
+					"item_code": self.rh_item,
+				},
+			)
 		if fetch_items:
 			doc.set(
 				"items",
 				get_joint_production_items(json.dumps(doc.as_dict(), default=str)),
 			)
-			rm_row = next(row for row in doc.items if row.s_warehouse)
-			rm_row.basic_rate = 50
-			rm_row.basic_amount = rm_row.qty * rm_row.conversion_factor * rm_row.basic_rate
+			for rm_row in (row for row in doc.items if row.s_warehouse):
+				rm_row.basic_rate = 50
+				rm_row.basic_amount = rm_row.qty * rm_row.conversion_factor * rm_row.basic_rate
 		return doc
 
 	def _append_split_row(self, doc: object, source_row: object, *, qty: float) -> None:
@@ -1985,7 +2105,9 @@ class TestJointProductionItems(FrappeTestCase):
 		item_code: str,
 		*,
 		bom_quantity: float = 100,
+		rm_item: str | None = None,
 		rm_qty: float = 49.125,
+		rm_items: list[tuple[str, float]] | None = None,
 		scrap_qty: float | None = None,
 		scrap_items: list[tuple[str, float, float]] | None = None,
 		operation: str | None = None,
@@ -1993,7 +2115,8 @@ class TestJointProductionItems(FrappeTestCase):
 		scrap_items = scrap_items or [(self.scrap_item, flt(scrap_qty), 10)]
 		return ensure_joint_test_bom(
 			item_code=item_code,
-			rm_item=self.rm_item,
+			rm_item=rm_item or self.rm_item,
+			rm_items=rm_items,
 			scrap_items=scrap_items,
 			company=self.masters["company"],
 			bom_quantity=bom_quantity,

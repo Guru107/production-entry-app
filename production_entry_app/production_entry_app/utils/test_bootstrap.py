@@ -285,11 +285,12 @@ def ensure_operation(operation: str) -> str:
 def ensure_joint_test_bom(
 	*,
 	item_code: str,
-	rm_item: str,
+	rm_item: str | None = None,
 	scrap_items: list[tuple[str, float, float]],
 	company: str,
 	bom_quantity: float = 100,
 	rm_qty: float = 49.125,
+	rm_items: list[tuple[str, float]] | None = None,
 	is_default: bool | None = None,
 	operation: str = "Shearing",
 ) -> str:
@@ -299,11 +300,15 @@ def ensure_joint_test_bom(
 	input RM rate is deliberately not part of fixture identity. Fixture scrap rates
 	are in Company currency, regardless of the current user's currency default.
 	"""
+	resolved_rm_items = list(rm_items) if rm_items is not None else [(rm_item or "", rm_qty)]
+	if not resolved_rm_items or any(not code for code, _qty in resolved_rm_items):
+		frappe.throw(_("Joint test BOM fixtures require at least one raw material item."))
 	company_currency = frappe.get_cached_value("Company", company, "default_currency")
 	bom_meta = frappe.get_meta("BOM", cached=True)
 	operation_name = operation.strip()
 	if operation_name:
 		ensure_operation(operation_name)
+	expected_items = [(code, flt(qty, 6)) for code, qty in resolved_rm_items]
 	for bom_name in frappe.get_all(
 		"BOM",
 		filters={
@@ -329,6 +334,9 @@ def ensure_joint_test_bom(
 			if row.get("secondary_item_type") in (None, "Scrap") and row.get("type") in (None, "Scrap")
 		)
 		expected_scrap = sorted((code, flt(qty, 6), flt(rate, 6)) for code, qty, rate in scrap_items)
+		actual_items = [
+			(row.get("item_code"), flt(row.get("stock_qty") or row.get("qty"), 6)) for row in items
+		]
 		if (
 			flt(bom.quantity, 6) == flt(bom_quantity, 6)
 			and (is_default is None or int(bom.is_default or 0) == int(is_default))
@@ -336,9 +344,7 @@ def ensure_joint_test_bom(
 				not bom_meta.has_field("custom_operation")
 				or (bom.get("custom_operation") or "").strip() == operation_name
 			)
-			and len(items) == 1
-			and items[0].get("item_code") == rm_item
-			and flt(items[0].get("stock_qty") or items[0].get("qty"), 6) == flt(rm_qty, 6)
+			and actual_items == expected_items
 			and actual_scrap == expected_scrap
 		):
 			return bom.name
@@ -352,7 +358,7 @@ def ensure_joint_test_bom(
 		"quantity": bom_quantity,
 		"is_default": int(bool(is_default)),
 		"is_active": 1,
-		"items": [{"item_code": rm_item, "qty": rm_qty, "rate": 50}],
+		"items": [{"item_code": code, "qty": qty, "rate": 50} for code, qty in resolved_rm_items],
 	}
 	if bom_meta.has_field("custom_operation"):
 		values["custom_operation"] = operation_name

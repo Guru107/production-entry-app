@@ -29,6 +29,7 @@ VALUATION_TOLERANCE: float = 1e-9
 RM_QTY_TOLERANCE: float = 1e-6
 QTY_PRECISION: int = 6
 JOINT_LH_RH_STOCK_ENTRY_TYPE: str = "Joint LH RH Production"
+SHEARING_OPERATION: str = "Shearing"
 
 
 @dataclass(frozen=True)
@@ -44,6 +45,13 @@ class JointScrapItem:
 
 
 @dataclass(frozen=True)
+class JointInputItem:
+	item_code: str
+	qty: float
+	uom: str
+
+
+@dataclass(frozen=True)
 class JointBomDetails:
 	name: str
 	company: str
@@ -51,14 +59,24 @@ class JointBomDetails:
 	quantity: float
 	total_cost: float
 	operation: str
-	rm_item_code: str
-	rm_qty: float
-	rm_uom: str
+	input_items: tuple[JointInputItem, ...]
 	scrap_items: tuple[JointScrapItem, ...]
 
 	@property
 	def unit_cost(self) -> float:
 		return self.total_cost / self.quantity
+
+	@property
+	def rm_item_code(self) -> str:
+		return self.input_items[0].item_code
+
+	@property
+	def rm_qty(self) -> float:
+		return self.input_items[0].qty
+
+	@property
+	def rm_uom(self) -> str:
+		return self.input_items[0].uom
 
 
 @dataclass(frozen=True)
@@ -71,6 +89,7 @@ class JointProductionPlan:
 	rh_rejection_qty: float
 	total_rm_consumption: float
 	scrap_items: tuple[JointScrapItem, ...]
+	is_shearing: bool
 
 	@property
 	def expected_role_quantities(self) -> dict[str, float]:
@@ -83,6 +102,10 @@ class JointProductionPlan:
 		}
 		quantities.update({scrap.role: scrap.qty for scrap in self.scrap_items})
 		return quantities
+
+
+def is_shearing_joint_operation(operation: str | None) -> bool:
+	return _normalize_operation(operation) == SHEARING_OPERATION
 
 
 def calculate_joint_rm_consumption(
@@ -119,7 +142,9 @@ def calculate_joint_rm_consumption_from_boms(
 ) -> float:
 	lh_bom = _get_joint_bom_details(lh_bom_no)
 	rh_bom = _get_joint_bom_details(rh_bom_no)
-	_validate_joint_bom_pair(lh_bom, rh_bom)
+	_validate_shearing_bom_inputs(lh_bom)
+	_validate_shearing_bom_inputs(rh_bom)
+	_validate_joint_bom_pair(lh_bom, rh_bom, require_common_rm=True)
 	return calculate_joint_rm_consumption(
 		lh_gross_qty=lh_gross_qty,
 		lh_bom_quantity=lh_bom.quantity,
@@ -152,9 +177,14 @@ def materialize_joint_production_rows(doc: Document) -> list[dict[str, Any]]:
 	warehouses = get_production_warehouses(doc)
 	set_production_header_warehouses(doc, warehouses)
 	plan = _build_joint_production_plan(doc)
+	source_item_codes = (
+		[plan.lh_bom.rm_item_code]
+		if plan.is_shearing
+		else [item.item_code for bom in (plan.lh_bom, plan.rh_bom) for item in bom.input_items]
+	)
 	item_details = _get_item_details(
 		[
-			plan.lh_bom.rm_item_code,
+			*source_item_codes,
 			plan.lh_bom.item_code,
 			plan.rh_bom.item_code,
 			*(scrap.item_code for scrap in plan.scrap_items),
@@ -166,14 +196,30 @@ def materialize_joint_production_rows(doc: Document) -> list[dict[str, Any]]:
 		else ""
 	)
 
-	rows = [
-		_item_row(
-			item_code=plan.lh_bom.rm_item_code,
-			qty=plan.total_rm_consumption,
-			s_warehouse=doc.get("from_warehouse"),
-			item_details=item_details,
-		),
-	]
+	if plan.is_shearing:
+		rows = [
+			_item_row(
+				item_code=plan.lh_bom.rm_item_code,
+				qty=plan.total_rm_consumption,
+				s_warehouse=doc.get("from_warehouse"),
+				item_details=item_details,
+			),
+		]
+	else:
+		rows = [
+			*_build_post_shearing_source_rows(
+				bom=plan.lh_bom,
+				gross_qty=plan.lh_gross_qty,
+				s_warehouse=doc.get("from_warehouse"),
+				item_details=item_details,
+			),
+			*_build_post_shearing_source_rows(
+				bom=plan.rh_bom,
+				gross_qty=plan.rh_gross_qty,
+				s_warehouse=doc.get("from_warehouse"),
+				item_details=item_details,
+			),
+		]
 	rows.extend(
 		_build_side_rows(
 			side="LH",
@@ -228,10 +274,17 @@ def _set_scrap_row_classification(row: dict[str, Any]) -> None:
 def _build_joint_production_plan(doc: Document) -> JointProductionPlan:
 	_validate_joint_header(doc)
 	operation = _get_joint_operation(doc)
+	is_shearing = is_shearing_joint_operation(operation)
 	lh_bom = _get_joint_bom_details(doc.get("custom_pea_lh_bom"))
 	rh_bom = _get_joint_bom_details(doc.get("custom_pea_rh_bom"))
 	_validate_joint_bom_operations(lh_bom, rh_bom, operation)
-	_validate_joint_bom_pair(lh_bom, rh_bom)
+	if is_shearing:
+		_validate_shearing_bom_inputs(lh_bom)
+		_validate_shearing_bom_inputs(rh_bom)
+	else:
+		_validate_post_shearing_bom_inputs(lh_bom)
+		_validate_post_shearing_bom_inputs(rh_bom)
+	_validate_joint_bom_pair(lh_bom, rh_bom, require_common_rm=is_shearing)
 	_validate_joint_bom_company(lh_bom, rh_bom, doc.get("company"))
 
 	lh_gross_qty = flt(doc.get("custom_pea_lh_gross_qty"))
@@ -241,14 +294,22 @@ def _build_joint_production_plan(doc: Document) -> JointProductionPlan:
 	_validate_side_quantities("LH", lh_gross_qty, lh_rejection_qty)
 	_validate_side_quantities("RH", rh_gross_qty, rh_rejection_qty)
 
-	total_rm_consumption = calculate_joint_rm_consumption(
-		lh_gross_qty=lh_gross_qty,
-		lh_bom_quantity=lh_bom.quantity,
-		lh_rm_qty=lh_bom.rm_qty,
-		rh_gross_qty=rh_gross_qty,
-		rh_bom_quantity=rh_bom.quantity,
-		rh_rm_qty=rh_bom.rm_qty,
-	)
+	if is_shearing:
+		total_rm_consumption = calculate_joint_rm_consumption(
+			lh_gross_qty=lh_gross_qty,
+			lh_bom_quantity=lh_bom.quantity,
+			lh_rm_qty=lh_bom.rm_qty,
+			rh_gross_qty=rh_gross_qty,
+			rh_bom_quantity=rh_bom.quantity,
+			rh_rm_qty=rh_bom.rm_qty,
+		)
+	else:
+		total_rm_consumption = _calculate_post_shearing_source_consumption(
+			lh_bom=lh_bom,
+			lh_gross_qty=lh_gross_qty,
+			rh_bom=rh_bom,
+			rh_gross_qty=rh_gross_qty,
+		)
 	scrap_items = _build_planned_scrap_items(
 		lh_bom=lh_bom,
 		lh_gross_qty=lh_gross_qty,
@@ -265,6 +326,7 @@ def _build_joint_production_plan(doc: Document) -> JointProductionPlan:
 		rh_rejection_qty=rh_rejection_qty,
 		total_rm_consumption=total_rm_consumption,
 		scrap_items=scrap_items,
+		is_shearing=is_shearing,
 	)
 
 
@@ -546,12 +608,13 @@ def _get_joint_bom_details(bom_no: str) -> JointBomDetails:
 		if row.get("secondary_item_type") == "Scrap" or row.get("type") == "Scrap" or row.get("is_legacy")
 	]
 	scrap_items = secondary_scrap_items or list(bom.get("scrap_items") or [])
-	if len(items) != 1:
-		frappe.throw(_("BOM {0} must contain exactly one raw material item.").format(bold_bom_no))
+	if not items:
+		frappe.throw(_("BOM {0} must contain at least one input item.").format(bold_bom_no))
 	if flt(bom.quantity) <= 0:
 		frappe.throw(_("BOM {0} quantity must be greater than zero.").format(bold_bom_no))
-	rm = items[0]
-	stock_uom_by_item = _get_item_stock_uoms(scrap.item_code for scrap in scrap_items)
+	stock_uom_by_item = _get_item_stock_uoms(
+		(*(row.item_code for row in items), *(scrap.item_code for scrap in scrap_items))
+	)
 	return JointBomDetails(
 		name=bom.name,
 		company=cstr(bom.company),
@@ -559,9 +622,14 @@ def _get_joint_bom_details(bom_no: str) -> JointBomDetails:
 		quantity=flt(bom.quantity),
 		total_cost=flt(bom.total_cost),
 		operation=_normalize_operation(bom.get("custom_operation")),
-		rm_item_code=rm.item_code,
-		rm_qty=flt(rm.stock_qty or rm.qty),
-		rm_uom=rm.stock_uom or rm.uom,
+		input_items=tuple(
+			JointInputItem(
+				item_code=row.item_code,
+				qty=flt(row.stock_qty or row.qty),
+				uom=row.stock_uom or row.uom or stock_uom_by_item[row.item_code],
+			)
+			for row in items
+		),
 		scrap_items=tuple(_get_bom_scrap_item_details(scrap, stock_uom_by_item) for scrap in scrap_items),
 	)
 
@@ -618,17 +686,90 @@ def _get_bom_scrap_item_details(scrap: BaseDocument, stock_uom_by_item: dict[str
 	)
 
 
-def _validate_joint_bom_pair(lh_bom: JointBomDetails, rh_bom: JointBomDetails) -> None:
+def _validate_shearing_bom_inputs(bom: JointBomDetails) -> None:
+	bold_bom_no = frappe.bold(frappe.utils.escape_html(bom.name))
+	if len(bom.input_items) != 1:
+		frappe.throw(_("BOM {0} must contain exactly one raw material item.").format(bold_bom_no))
+	if bom.input_items[0].qty <= 0:
+		frappe.throw(_("LH and RH raw material quantities must be greater than zero."))
+
+
+def _validate_post_shearing_bom_inputs(bom: JointBomDetails) -> None:
+	bold_bom_no = frappe.bold(frappe.utils.escape_html(bom.name))
+	if not bom.input_items:
+		frappe.throw(_("BOM {0} must contain at least one input item.").format(bold_bom_no))
+	if any(item.qty <= 0 for item in bom.input_items):
+		frappe.throw(_("BOM {0} input quantities must be greater than zero.").format(bold_bom_no))
+
+
+def _validate_joint_bom_pair(
+	lh_bom: JointBomDetails,
+	rh_bom: JointBomDetails,
+	*,
+	require_common_rm: bool,
+) -> None:
 	if lh_bom.name == rh_bom.name:
 		frappe.throw(_("LH and RH BOMs must be different."))
 	if lh_bom.item_code == rh_bom.item_code:
 		frappe.throw(_("LH and RH BOM output items must differ."))
 	if lh_bom.company != rh_bom.company:
 		frappe.throw(_("LH and RH BOMs must belong to the same Company."))
+	if not require_common_rm:
+		return
 	if (lh_bom.rm_item_code, lh_bom.rm_uom) != (rh_bom.rm_item_code, rh_bom.rm_uom):
 		frappe.throw(_("LH and RH BOMs must use the same raw material item and UOM."))
 	if abs(lh_bom.rm_qty - rh_bom.rm_qty) > RM_QTY_TOLERANCE:
 		frappe.throw(_("LH and RH BOMs must use the same raw material quantity."))
+
+
+def _calculate_post_shearing_source_consumption(
+	*,
+	lh_bom: JointBomDetails,
+	lh_gross_qty: float,
+	rh_bom: JointBomDetails,
+	rh_gross_qty: float,
+) -> float:
+	return flt(
+		sum(
+			_scale_bom_input_qty(item.qty, bom.quantity, gross_qty)
+			for bom, gross_qty in (
+				(lh_bom, lh_gross_qty),
+				(rh_bom, rh_gross_qty),
+			)
+			for item in bom.input_items
+		)
+	)
+
+
+def _scale_bom_input_qty(bom_item_qty: float, bom_quantity: float, gross_qty: float) -> float:
+	return flt(gross_qty) * flt(bom_item_qty) / flt(bom_quantity)
+
+
+def _build_post_shearing_source_rows(
+	*,
+	bom: JointBomDetails,
+	gross_qty: float,
+	s_warehouse: str | None,
+	item_details: dict[str, frappe._dict],
+) -> list[dict[str, Any]]:
+	quantities: dict[str, float] = {}
+	for item in bom.input_items:
+		quantities[item.item_code] = quantities.get(item.item_code, 0) + _scale_bom_input_qty(
+			item.qty, bom.quantity, gross_qty
+		)
+	rows: list[dict[str, Any]] = []
+	for item_code, qty in quantities.items():
+		if qty <= 0:
+			continue
+		row = _item_row(
+			item_code=item_code,
+			qty=qty,
+			s_warehouse=s_warehouse,
+			item_details=item_details,
+		)
+		row["bom_no"] = bom.name
+		rows.append(row)
+	return rows
 
 
 def _validate_joint_bom_company(

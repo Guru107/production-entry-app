@@ -27,6 +27,7 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	ensure_fiscal_year_for_date,
 	ensure_item,
 	ensure_joint_test_bom,
+	ensure_operation,
 	ensure_operator,
 	ensure_production_entry_settings_shift_fields,
 	ensure_rejection_reason,
@@ -740,6 +741,38 @@ def bootstrap_e2e_context(prefix: str = "E2E", cleanup_running: int = 1) -> dict
 		is_default=True,
 	)
 	ensure_stock(joint_rm_item, wip_warehouse, company, target_qty=1000, posting_date=base_date)
+	joint_post_shearing_operation = ensure_operation("Blanking")
+	joint_lh_wip_a = ensure_item(f"_{prefix}_Joint_LH_WIP_A")
+	joint_lh_wip_b = ensure_item(f"_{prefix}_Joint_LH_WIP_B")
+	joint_rh_wip_a = ensure_item(f"_{prefix}_Joint_RH_WIP_A")
+	joint_rh_wip_b = ensure_item(f"_{prefix}_Joint_RH_WIP_B")
+	joint_shared_wip = ensure_item(f"_{prefix}_Joint_Shared_WIP")
+	joint_post_shearing_lh_bom = ensure_joint_test_bom(
+		item_code=joint_lh_item,
+		rm_items=[(joint_lh_wip_a, 2), (joint_lh_wip_b, 3), (joint_shared_wip, 1)],
+		scrap_items=[(joint_scrap_item, 0.5, 10)],
+		company=company,
+		bom_quantity=10,
+		is_default=False,
+		operation=joint_post_shearing_operation,
+	)
+	joint_post_shearing_rh_bom = ensure_joint_test_bom(
+		item_code=joint_rh_item,
+		rm_items=[(joint_rh_wip_a, 4), (joint_rh_wip_b, 1), (joint_shared_wip, 1)],
+		scrap_items=[(joint_scrap_item, 0.75, 10)],
+		company=company,
+		bom_quantity=10,
+		is_default=False,
+		operation=joint_post_shearing_operation,
+	)
+	for wip_item in (
+		joint_lh_wip_a,
+		joint_lh_wip_b,
+		joint_rh_wip_a,
+		joint_rh_wip_b,
+		joint_shared_wip,
+	):
+		ensure_stock(wip_item, wip_warehouse, company, target_qty=1000, posting_date=base_date)
 
 	dept_name = f"{prefix} Department"
 	department = ensure_department(dept_name, company)
@@ -777,6 +810,14 @@ def bootstrap_e2e_context(prefix: str = "E2E", cleanup_running: int = 1) -> dict
 		"joint_lh_bom": joint_lh_bom,
 		"joint_lh_bom_alt": joint_lh_bom_alt,
 		"joint_rh_bom": joint_rh_bom,
+		"joint_post_shearing_operation": joint_post_shearing_operation,
+		"joint_post_shearing_lh_bom": joint_post_shearing_lh_bom,
+		"joint_post_shearing_rh_bom": joint_post_shearing_rh_bom,
+		"joint_lh_wip_a": joint_lh_wip_a,
+		"joint_lh_wip_b": joint_lh_wip_b,
+		"joint_rh_wip_a": joint_rh_wip_a,
+		"joint_rh_wip_b": joint_rh_wip_b,
+		"joint_shared_wip": joint_shared_wip,
 		"shift_name": shift.name,
 		"shift_date": base_date,
 	}
