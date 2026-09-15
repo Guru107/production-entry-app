@@ -10,7 +10,7 @@ import frappe
 from frappe import _
 from frappe.model.base_document import BaseDocument
 from frappe.model.document import Document
-from frappe.utils import cstr, flt
+from frappe.utils import cint, cstr, flt
 
 from production_entry_app.production_entry_app.doctype.rejection_breakup.rejection_breakup import (
 	validate_rejection_breakup_row,
@@ -443,7 +443,7 @@ def _validate_joint_operating_cost_account(doc: Document, plan: JointProductionP
 
 def _apply_joint_bom_operating_costs(doc: Document, plan: JointProductionPlan) -> None:
 	for index in range(len(doc.get("additional_costs") or []) - 1, -1, -1):
-		if cstr(doc.additional_costs[index].get("description")) == JOINT_BOM_OPERATING_COST_DESCRIPTION:
+		if cint(doc.additional_costs[index].get("has_operating_cost")):
 			doc.additional_costs.pop(index)
 
 	expense_account = _validate_joint_operating_cost_account(doc, plan)

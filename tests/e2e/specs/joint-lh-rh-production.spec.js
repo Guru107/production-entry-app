@@ -759,6 +759,44 @@ test.describe("Joint LH/RH production form", () => {
 		await expectValidationError(page, /Run Fetch Items again/i);
 	});
 
+	test("@regression joint save applies BOM operating cost as Additional Cost", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const stockEntryType = await getJointStockEntryType(page);
+		const form = new StockEntryPage(page);
+		const lhGrossQty = 40;
+		const rhGrossQty = 41;
+		const expectedAmount =
+			(ctx.joint_lh_bom_operating_cost / 100) * lhGrossQty +
+			(ctx.joint_rh_bom_operating_cost / 100) * rhGrossQty;
+
+		await form.openNew();
+		await enableJointProduction(page, form, stockEntryType);
+		await setFieldValue(page, "company", ctx.company);
+		await setFieldValue(page, "custom_pea_shift", ctx.shift_name);
+		await setFieldValue(page, "from_warehouse", ctx.wip_warehouse);
+		await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
+		await form.fillJointProductionFields(ctx, { lhGrossQty, rhGrossQty, lhRejectionQty: 0 });
+		await form.fetchItems();
+		await form.saveDraft();
+
+		const additionalCosts = await page.evaluate(() =>
+			(cur_frm.doc.additional_costs || []).map((row) => ({
+				description: row.description || "",
+				amount: Number(row.amount || 0),
+				expense_account: row.expense_account || "",
+				has_operating_cost: Number(row.has_operating_cost || 0),
+			}))
+		);
+		const bomCostRows = additionalCosts.filter((row) => row.has_operating_cost === 1);
+		expect(bomCostRows).toHaveLength(1);
+		expect(bomCostRows[0].description).toBe("Operating Cost as per BOM");
+		expect(bomCostRows[0].expense_account).toBe(ctx.operating_cost_account);
+		expect(bomCostRows[0].amount).toBeCloseTo(expectedAmount, 5);
+	});
+
 	test("@regression stale joint rows require Fetch Items without clearing logistics", async ({
 		page,
 	}) => {

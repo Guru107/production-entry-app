@@ -9,7 +9,7 @@ import frappe
 import frappe.client
 import frappe.handler
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils import add_to_date, cstr, flt, get_datetime
+from frappe.utils import add_to_date, cint, cstr, flt, get_datetime
 
 from production_entry_app.production_entry_app.api import (
 	get_items_with_rejection,
@@ -1292,14 +1292,11 @@ class TestJointProductionItems(FrappeTestCase):
 
 		validate_and_apply_joint_production(doc)
 
-		bom_cost_rows = [
-			row
-			for row in doc.additional_costs
-			if cstr(row.description) == JOINT_BOM_OPERATING_COST_DESCRIPTION
-		]
+		bom_cost_rows = [row for row in doc.additional_costs if cint(row.get("has_operating_cost"))]
 		self.assertFalse(doc.get("work_order"))
 		self.assertEqual(len(bom_cost_rows), 1)
 		self.assertEqual(bom_cost_rows[0].expense_account, expense_account)
+		self.assertEqual(cstr(bom_cost_rows[0].description), JOINT_BOM_OPERATING_COST_DESCRIPTION)
 		# LH: 100/10*20 = 200; RH: 50/10*30 = 150
 		self.assertAlmostEqual(flt(bom_cost_rows[0].amount), 350, places=5)
 
@@ -1331,16 +1328,8 @@ class TestJointProductionItems(FrappeTestCase):
 
 		doc.insert(ignore_permissions=True)
 
-		bom_cost_rows = [
-			row
-			for row in doc.additional_costs
-			if cstr(row.description) == JOINT_BOM_OPERATING_COST_DESCRIPTION
-		]
-		manual = [
-			row
-			for row in doc.additional_costs
-			if cstr(row.description) != JOINT_BOM_OPERATING_COST_DESCRIPTION
-		]
+		bom_cost_rows = [row for row in doc.additional_costs if cint(row.get("has_operating_cost"))]
+		manual = [row for row in doc.additional_costs if not cint(row.get("has_operating_cost"))]
 		self.assertEqual(len(bom_cost_rows), 1)
 		self.assertAlmostEqual(flt(bom_cost_rows[0].amount), 350, places=5)
 		self.assertEqual(len(manual), 1)

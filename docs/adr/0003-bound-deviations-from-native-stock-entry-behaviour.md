@@ -57,8 +57,9 @@ authoritative for their topics; this record covers the remaining seams.
   BOM's `total_cost` is missing or non-positive. Joint LH/RH skips Work Order creation, so native
   `add_additional_cost(work_order, …)` is unavailable; the app applies each BOM's `operating_cost` as
   app-managed Additional Cost row(s) scaled by that side's gross quantity / BOM quantity (Company
-  default operating-cost account; description `Operating Cost as per BOM`), while user-entered
-  Additional Cost rows remain allowed alongside those rows (#119). Actual time and total strokes stay production metrics and are not
+  default operating-cost account; native `has_operating_cost` marks the rebuilt row, description
+  `Operating Cost as per BOM`), for both Shearing and post-Shearing. User-entered Additional Cost
+  rows remain allowed alongside those rows (#119). Actual time and total strokes stay production metrics and are not
   recalculated from BOM operation time.
 - Save and submit validate the existing rows against the recalculated plan by role and aggregate stock
   quantity, so split, reordered, batched or serialised rows survive while missing, surplus or stale rows

@@ -774,6 +774,19 @@ def bootstrap_e2e_context(prefix: str = "E2E", cleanup_running: int = 1) -> dict
 	):
 		ensure_stock(wip_item, wip_warehouse, company, target_qty=1000, posting_date=base_date)
 
+	operating_cost_account = _ensure_e2e_operating_cost_account(company)
+	joint_lh_bom_operating_cost = 100.0
+	joint_rh_bom_operating_cost = 50.0
+	for bom_no, operating_cost in (
+		(joint_lh_bom, joint_lh_bom_operating_cost),
+		(joint_lh_bom_alt, joint_lh_bom_operating_cost),
+		(joint_rh_bom, joint_rh_bom_operating_cost),
+		(joint_post_shearing_lh_bom, joint_lh_bom_operating_cost),
+		(joint_post_shearing_rh_bom, joint_rh_bom_operating_cost),
+	):
+		frappe.db.set_value("BOM", bom_no, "operating_cost", operating_cost, update_modified=False)
+		frappe.clear_document_cache("BOM", bom_no)
+
 	dept_name = f"{prefix} Department"
 	department = ensure_department(dept_name, company)
 	_complete_other_running_e2e_shifts(keep_department=department)
@@ -818,6 +831,9 @@ def bootstrap_e2e_context(prefix: str = "E2E", cleanup_running: int = 1) -> dict
 		"joint_rh_wip_a": joint_rh_wip_a,
 		"joint_rh_wip_b": joint_rh_wip_b,
 		"joint_shared_wip": joint_shared_wip,
+		"operating_cost_account": operating_cost_account,
+		"joint_lh_bom_operating_cost": joint_lh_bom_operating_cost,
+		"joint_rh_bom_operating_cost": joint_rh_bom_operating_cost,
 		"shift_name": shift.name,
 		"shift_date": base_date,
 	}
@@ -1224,23 +1240,42 @@ def _is_valid_e2e_expense_account(account: str | None, company: str) -> bool:
 def _configure_e2e_rework_expense_account(company: str) -> str:
 	expense_account = frappe.db.get_single_value("Production Entry Settings", "rework_expense_account")
 	if not _is_valid_e2e_expense_account(expense_account, company):
-		expense_account = frappe.db.get_value("Company", company, "default_operating_cost_account")
-		if not _is_valid_e2e_expense_account(expense_account, company):
-			expense_account = frappe.db.get_value(
-				"Account",
-				{
-					"company": company,
-					"account_type": "Expenses Included In Valuation",
-					"is_group": 0,
-					"disabled": 0,
-				},
-				"name",
-			)
+		expense_account = _ensure_e2e_operating_cost_account(company)
 	if not expense_account:
 		frappe.throw(_("Configure a rework expense account before running the E2E lifecycle."))
 
 	frappe.db.set_single_value("Production Entry Settings", "rework_expense_account", expense_account)
 	frappe.clear_document_cache("Production Entry Settings")
+	return str(expense_account)
+
+
+def _ensure_e2e_operating_cost_account(company: str) -> str:
+	expense_account = frappe.db.get_value("Company", company, "default_operating_cost_account")
+	if not _is_valid_e2e_expense_account(expense_account, company):
+		expense_account = frappe.db.get_value(
+			"Account",
+			{
+				"company": company,
+				"account_type": "Expenses Included In Valuation",
+				"is_group": 0,
+				"disabled": 0,
+			},
+			"name",
+		)
+		if not expense_account:
+			frappe.throw(
+				_("Configure Default Operating Cost Account on Company {0} before running Joint E2E.").format(
+					frappe.bold(frappe.utils.escape_html(company))
+				)
+			)
+		frappe.db.set_value(
+			"Company",
+			company,
+			"default_operating_cost_account",
+			expense_account,
+			update_modified=False,
+		)
+		frappe.clear_document_cache("Company", company)
 	return str(expense_account)
 
 
