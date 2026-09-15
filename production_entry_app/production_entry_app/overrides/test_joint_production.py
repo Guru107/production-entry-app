@@ -9,7 +9,7 @@ import frappe
 import frappe.client
 import frappe.handler
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils import add_to_date, flt, get_datetime
+from frappe.utils import add_to_date, cstr, flt, get_datetime
 
 from production_entry_app.production_entry_app.api import (
 	get_items_with_rejection,
@@ -24,6 +24,7 @@ from production_entry_app.production_entry_app.doctype.shift.shift import (
 	get_shift_summary,
 )
 from production_entry_app.production_entry_app.joint_production import (
+	JOINT_BOM_OPERATING_COST_DESCRIPTION,
 	JOINT_LH_RH_STOCK_ENTRY_TYPE,
 	_get_bom_scrap_item_details,
 	_get_item_details,
@@ -1276,6 +1277,110 @@ class TestJointProductionItems(FrappeTestCase):
 			)
 			frappe.clear_document_cache("BOM", doc.custom_pea_lh_bom)
 
+	def test_joint_applies_bom_operating_cost_without_work_order(self) -> None:
+		shift = make_running_shift(self.masters)
+		doc = self._make_post_shearing_entry(
+			shift,
+			lh_gross_qty=20,
+			lh_rejection_qty=0,
+			rh_gross_qty=30,
+			rh_rejection_qty=0,
+		)
+		self._set_bom_operating_cost(doc.custom_pea_lh_bom, 100)
+		self._set_bom_operating_cost(doc.custom_pea_rh_bom, 50)
+		expense_account = self._require_operating_cost_account()
+
+		validate_and_apply_joint_production(doc)
+
+		bom_cost_rows = [
+			row
+			for row in doc.additional_costs
+			if cstr(row.description) == JOINT_BOM_OPERATING_COST_DESCRIPTION
+		]
+		self.assertFalse(doc.get("work_order"))
+		self.assertEqual(len(bom_cost_rows), 1)
+		self.assertEqual(bom_cost_rows[0].expense_account, expense_account)
+		# LH: 100/10*20 = 200; RH: 50/10*30 = 150
+		self.assertAlmostEqual(flt(bom_cost_rows[0].amount), 350, places=5)
+
+	def test_joint_bom_operating_cost_coexists_with_user_additional_costs(self) -> None:
+		shift = make_running_shift(self.masters)
+		doc = self._make_post_shearing_entry(
+			shift,
+			lh_gross_qty=20,
+			lh_rejection_qty=0,
+			rh_gross_qty=30,
+			rh_rejection_qty=0,
+		)
+		self._set_bom_operating_cost(doc.custom_pea_lh_bom, 100)
+		self._set_bom_operating_cost(doc.custom_pea_rh_bom, 50)
+		self._require_operating_cost_account()
+		user_account = frappe.get_cached_value(
+			"Company",
+			self.masters["company"],
+			"stock_adjustment_account",
+		)
+		doc.append(
+			"additional_costs",
+			{
+				"expense_account": user_account,
+				"description": "Joint Production handling",
+				"amount": 40,
+			},
+		)
+
+		doc.insert(ignore_permissions=True)
+
+		bom_cost_rows = [
+			row
+			for row in doc.additional_costs
+			if cstr(row.description) == JOINT_BOM_OPERATING_COST_DESCRIPTION
+		]
+		manual = [
+			row
+			for row in doc.additional_costs
+			if cstr(row.description) != JOINT_BOM_OPERATING_COST_DESCRIPTION
+		]
+		self.assertEqual(len(bom_cost_rows), 1)
+		self.assertAlmostEqual(flt(bom_cost_rows[0].amount), 350, places=5)
+		self.assertEqual(len(manual), 1)
+		self.assertAlmostEqual(flt(manual[0].amount), 40, places=5)
+		self.assertAlmostEqual(flt(doc.total_additional_costs), 390, places=5)
+
+	def test_joint_fails_when_operating_cost_account_is_missing(self) -> None:
+		shift = make_running_shift(self.masters)
+		doc = self._make_post_shearing_entry(
+			shift,
+			lh_rejection_qty=0,
+			rh_rejection_qty=0,
+		)
+		self._set_bom_operating_cost(doc.custom_pea_lh_bom, 100)
+		self._set_bom_operating_cost(doc.custom_pea_rh_bom, 50)
+		company = self.masters["company"]
+		original_account = frappe.db.get_value("Company", company, "default_operating_cost_account")
+		frappe.db.set_value("Company", company, "default_operating_cost_account", None, update_modified=False)
+		frappe.clear_document_cache("Company", company)
+		try:
+			with self.assertRaisesRegex(
+				frappe.ValidationError,
+				"Operating Cost Account|default operating cost",
+			):
+				get_joint_production_items(json.dumps(doc.as_dict(), default=str))
+			with self.assertRaisesRegex(
+				frappe.ValidationError,
+				"Operating Cost Account|default operating cost",
+			):
+				validate_and_apply_joint_production(doc)
+		finally:
+			frappe.db.set_value(
+				"Company",
+				company,
+				"default_operating_cost_account",
+				original_account,
+				update_modified=False,
+			)
+			frappe.clear_document_cache("Company", company)
+
 	def test_joint_items_api_fails_cleanly_when_an_item_cannot_be_loaded(self) -> None:
 		shift = make_running_shift(self.masters)
 		doc = self._make_joint_entry(shift)
@@ -2303,6 +2408,26 @@ class TestJointProductionItems(FrappeTestCase):
 		}
 		row.update({"qty": qty, "transfer_qty": qty})
 		doc.append("items", row)
+
+	def _set_bom_operating_cost(self, bom_no: str, operating_cost: float) -> None:
+		frappe.db.set_value("BOM", bom_no, "operating_cost", operating_cost, update_modified=False)
+		frappe.clear_document_cache("BOM", bom_no)
+
+	def _require_operating_cost_account(self) -> str:
+		company = self.masters["company"]
+		account = frappe.db.get_value("Company", company, "default_operating_cost_account")
+		if account:
+			return account
+		account = frappe.get_cached_value("Company", company, "stock_adjustment_account")
+		frappe.db.set_value(
+			"Company",
+			company,
+			"default_operating_cost_account",
+			account,
+			update_modified=False,
+		)
+		frappe.clear_document_cache("Company", company)
+		return account
 
 	def _make_bom(
 		self,

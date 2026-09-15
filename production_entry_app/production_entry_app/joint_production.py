@@ -30,6 +30,7 @@ RM_QTY_TOLERANCE: float = 1e-6
 QTY_PRECISION: int = 6
 JOINT_LH_RH_STOCK_ENTRY_TYPE: str = "Joint LH RH Production"
 SHEARING_OPERATION: str = "Shearing"
+JOINT_BOM_OPERATING_COST_DESCRIPTION: str = "Operating Cost as per BOM"
 
 
 @dataclass(frozen=True)
@@ -58,6 +59,7 @@ class JointBomDetails:
 	item_code: str
 	quantity: float
 	total_cost: float
+	operating_cost: float
 	operation: str
 	input_items: tuple[JointInputItem, ...]
 	scrap_items: tuple[JointScrapItem, ...]
@@ -194,6 +196,7 @@ def materialize_joint_production_rows(doc: Document) -> list[dict[str, Any]]:
 	warehouses = get_production_warehouses(doc)
 	set_production_header_warehouses(doc, warehouses)
 	plan = _build_joint_production_plan(doc)
+	_validate_joint_operating_cost_account(doc, plan)
 	source_item_codes = (
 		[plan.lh_bom.rm_item_code]
 		if plan.is_shearing
@@ -410,7 +413,56 @@ def validate_and_apply_joint_production(doc: Document) -> None:
 	plan = _build_joint_production_plan(doc)
 	_validate_joint_item_rows(doc, plan)
 	_validate_joint_rejection_breakup(doc, plan)
+	_apply_joint_bom_operating_costs(doc, plan)
 	_set_joint_output_valuation(doc, plan)
+
+
+def _joint_scaled_operating_cost(bom: JointBomDetails, gross_qty: float) -> float:
+	return flt(bom.operating_cost) / bom.quantity * flt(gross_qty)
+
+
+def _joint_bom_operating_cost_amount(plan: JointProductionPlan) -> float:
+	return _joint_scaled_operating_cost(plan.lh_bom, plan.lh_gross_qty) + _joint_scaled_operating_cost(
+		plan.rh_bom, plan.rh_gross_qty
+	)
+
+
+def _validate_joint_operating_cost_account(doc: Document, plan: JointProductionPlan) -> str | None:
+	amount = _joint_bom_operating_cost_amount(plan)
+	if amount <= 0:
+		return None
+	expense_account = frappe.db.get_value("Company", doc.get("company"), "default_operating_cost_account")
+	if not expense_account:
+		frappe.throw(
+			_(
+				"Set Default Operating Cost Account on Company {0} to apply BOM operating cost for Joint LH/RH production."
+			).format(frappe.bold(frappe.utils.escape_html(cstr(doc.get("company")))))
+		)
+	return expense_account
+
+
+def _apply_joint_bom_operating_costs(doc: Document, plan: JointProductionPlan) -> None:
+	for index in range(len(doc.get("additional_costs") or []) - 1, -1, -1):
+		if cstr(doc.additional_costs[index].get("description")) == JOINT_BOM_OPERATING_COST_DESCRIPTION:
+			doc.additional_costs.pop(index)
+
+	expense_account = _validate_joint_operating_cost_account(doc, plan)
+	if not expense_account:
+		return
+
+	amount = flt(
+		_joint_bom_operating_cost_amount(plan),
+		frappe.get_precision("Landed Cost Taxes and Charges", "amount"),
+	)
+	doc.append(
+		"additional_costs",
+		{
+			"expense_account": expense_account,
+			"description": JOINT_BOM_OPERATING_COST_DESCRIPTION,
+			"amount": amount,
+			"has_operating_cost": 1,
+		},
+	)
 
 
 def _validate_joint_item_rows(doc: Document, plan: JointProductionPlan) -> None:
@@ -704,6 +756,7 @@ def _get_joint_bom_details(bom_no: str) -> JointBomDetails:
 		item_code=bom.item,
 		quantity=flt(bom.quantity),
 		total_cost=total_cost,
+		operating_cost=flt(bom.operating_cost),
 		operation=_normalize_operation(bom.get("custom_operation")),
 		input_items=tuple(
 			JointInputItem(
