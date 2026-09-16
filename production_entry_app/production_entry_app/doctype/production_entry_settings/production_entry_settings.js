@@ -16,8 +16,8 @@ frappe.ui.form.on("Production Entry Settings", {
 });
 
 frappe.ui.form.on("Branch Warehouse Default", {
-	company(frm, cdt, cdn) {
+	company(_frm, cdt, cdn) {
 		const cleared = Object.fromEntries(WAREHOUSE_FIELDS.map((fieldname) => [fieldname, ""]));
-		return frappe.model.set_value(cdt, cdn, cleared);
+		frappe.model.set_value(cdt, cdn, cleared);
 	},
 });

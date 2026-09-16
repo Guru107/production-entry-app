@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
@@ -26,7 +28,6 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 
 class TestBranchWarehouseSettings(FrappeTestCase):
 	def test_each_required_production_warehouse_has_a_validation_message(self) -> None:
-		# Keep the expected roles independent of production's mapping so missing roles fail the test.
 		for fieldname, label in (
 			("work_in_progress_warehouse", "Work In Progress Warehouse"),
 			("rejection_warehouse", "Rejection Warehouse"),
@@ -34,14 +35,23 @@ class TestBranchWarehouseSettings(FrappeTestCase):
 		):
 			with (
 				self.subTest(fieldname=fieldname),
-				self.assertRaisesRegex(frappe.ValidationError, f"Please set a {label} on the Shift"),
+				self.assertRaisesRegex(
+					frappe.ValidationError,
+					re.escape(
+						f"Please set a {label} on the Shift or in Production Entry Settings "
+						"for this Company and Branch."
+					),
+				),
 			):
 				require_warehouse({}, fieldname)
 
 	def test_raw_material_warehouse_has_a_clear_validation_message(self) -> None:
 		with self.assertRaisesRegex(
 			frappe.ValidationError,
-			"Please set a Raw Material Warehouse on the Shift",
+			re.escape(
+				"Please set a Raw Material Warehouse on the Shift or in Production Entry Settings "
+				"for this Company and Branch."
+			),
 		):
 			require_warehouse({}, "raw_material_warehouse")
 

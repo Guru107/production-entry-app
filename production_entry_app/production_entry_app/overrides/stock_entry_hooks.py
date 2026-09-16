@@ -862,7 +862,7 @@ def _validate_rejection_target_warehouses(doc: Document) -> None:
 		if row.t_warehouse not in rejected_warehouses:
 			frappe.throw(
 				_("Rejection row Target Warehouse must be marked as Rejected Warehouse: {0}").format(
-					row.t_warehouse
+					_safe_bold(row.t_warehouse)
 				)
 			)
 

@@ -548,9 +548,6 @@ class TestGetShiftTimelineData(FrappeTestCase):
 
 	def test_returns_cached_timeline_without_querying_stock_entries(self) -> None:
 		from production_entry_app.production_entry_app.api_timeline import get_shift_timeline_data
-		from production_entry_app.production_entry_app.utils.system_precision import (
-			get_system_float_precision,
-		)
 
 		shift = self._create_running_shift("2026-10-10")
 		cached = {
@@ -568,10 +565,16 @@ class TestGetShiftTimelineData(FrappeTestCase):
 				"planned_end_time": shift.planned_end_time,
 			}
 		]
+
+		def _get_list(doctype: str, *args, **kwargs):
+			if doctype == "Shift":
+				return running_shift
+			raise AssertionError(f"Unexpected get_list for {doctype} on timeline cache hit")
+
 		with (
 			patch(
 				"production_entry_app.production_entry_app.api_timeline.frappe.get_list",
-				return_value=running_shift,
+				side_effect=_get_list,
 			),
 			patch(
 				"production_entry_app.production_entry_app.api_timeline.get_system_float_precision",
@@ -582,18 +585,13 @@ class TestGetShiftTimelineData(FrappeTestCase):
 				return_value=cached,
 			),
 		):
-			with patch("production_entry_app.production_entry_app.api_timeline.frappe.qb.from_") as qb_from:
-				result = get_shift_timeline_data("Workstation", self.workstation_a)
+			result = get_shift_timeline_data("Workstation", self.workstation_a)
+
 		self.assertEqual(result["shift_name"], cached["shift_name"])
 		self.assertEqual(result["shift_start"], cached["shift_start"])
 		self.assertEqual(result["shift_end"], cached["shift_end"])
 		self.assertEqual(result["entries"], cached["entries"])
 		self.assertEqual(result["float_precision"], 4)
-		# Access control may query settings/shift metadata, but a cache hit must skip Stock Entry reads.
-		self.assertFalse(
-			any("tabStock Entry" in str(call) for call in qb_from.call_args_list),
-			msg=f"Unexpected Stock Entry query calls: {qb_from.call_args_list}",
-		)
 
 	def test_timeline_payload_uses_updated_shift_end_after_duration_change(self) -> None:
 		"""When a Running shift's duration changes, the timeline payload must use the
@@ -642,27 +640,33 @@ class TestGetShiftTimelineData(FrappeTestCase):
 	def test_timeline_cache_is_shared_after_permission_checks(self) -> None:
 		from production_entry_app.production_entry_app.api_timeline import (
 			_get_cached_timeline_data,
+			_get_timeline_cache_key,
 			_set_cached_timeline_data,
 		)
 
 		cache = MagicMock()
-		cache.get_value.return_value = {"entries": [{"name": "PRIVATE-ENTRY"}]}
 		with (
 			patch(
 				"production_entry_app.production_entry_app.api_timeline.frappe.session",
 				frappe._dict(user="restricted@example.com"),
 			),
 			patch(
+				"production_entry_app.production_entry_app.api_timeline.frappe.db.get_value",
+				return_value="2026-10-01 10:00:00",
+			),
+			patch(
 				"production_entry_app.production_entry_app.api_timeline.frappe.cache",
 				return_value=cache,
 			),
 		):
+			expected_key = _get_timeline_cache_key("Workstation", self.workstation_a, "SHIFT-001")
 			_set_cached_timeline_data("Workstation", self.workstation_a, "SHIFT-001", {"entries": []})
-			cached = _get_cached_timeline_data("Workstation", self.workstation_a, "SHIFT-001")
+			_get_cached_timeline_data("Workstation", self.workstation_a, "SHIFT-001")
 
-		self.assertEqual(cached, {"entries": [{"name": "PRIVATE-ENTRY"}]})
-		cache.get_value.assert_called_once()
 		cache.set_value.assert_called_once()
+		cache.get_value.assert_called_once_with(expected_key)
+		self.assertEqual(cache.set_value.call_args.args[0], expected_key)
+		self.assertNotIn("restricted@example.com", expected_key)
 
 	def test_stock_entry_invalidates_workstation_and_operator_timeline_caches(self) -> None:
 		from production_entry_app.production_entry_app.api_timeline import (

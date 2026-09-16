@@ -18,7 +18,6 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	ensure_stock,
 	ensure_warehouse,
 	ensure_workstation,
-	resolve_test_branch,
 	resolve_test_company,
 	set_test_branch_warehouse_defaults,
 )

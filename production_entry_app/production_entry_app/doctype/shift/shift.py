@@ -1379,7 +1379,7 @@ class Shift(Document):
 		):
 			frappe.throw(_("Only shift duration extension is allowed when shift is Completed."))
 		if not self._is_shift_duration_extension():
-			frappe.throw(_("Only shift duration extension is allowed when shift is Completed."))
+			frappe.throw(_("Shift duration can only be extended after completion, not reduced."))
 
 	def _is_shift_duration_extension(self) -> bool:
 		previous_duration = self._get_previous_shift_duration()

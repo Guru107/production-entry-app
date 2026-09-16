@@ -209,11 +209,13 @@ def _fetch_entry_chunk(
 	last_name: str | None,
 	chunk_size: int,
 ) -> list[frappe._dict]:
-	query_filters: list[list] = [
-		["docstatus", "=", 1],
-		["stock_entry_type", "in", rework_entry_types],
-	]
-	for fieldname, condition in filters.items():
+	merged_filters = {
+		"docstatus": 1,
+		"stock_entry_type": ["in", rework_entry_types],
+		**filters,
+	}
+	query_filters: list[list] = []
+	for fieldname, condition in merged_filters.items():
 		if isinstance(condition, list | tuple) and len(condition) == 2:
 			query_filters.append([fieldname, condition[0], condition[1]])
 		else:

@@ -21,6 +21,7 @@ REWORK_LAYOUT_FIELDNAMES = frozenset(
 		"custom_pea_rework_details_end_section",
 	}
 )
+OBSOLETE_TOTAL_RM_CONSUMPTION_FIELD = "Stock Entry-custom_pea_total_rm_consumption"
 
 
 def after_sync() -> None:
@@ -54,12 +55,9 @@ def _setup_app() -> None:
 	remove_obsolete_total_rm_consumption_field()
 	performance_indexes.ensure_performance_indexes_with_recovery()
 	frappe.logger("production_entry_app").info(
-		"Production Entry App setup ran: Rework Stock Entry layout and performance indexes were "
-		"reconciled during sync/migrate."
+		"Production Entry App setup ran: Rework Stock Entry layout, obsolete Total RM Consumption "
+		"field, and performance indexes were reconciled during sync/migrate."
 	)
-
-
-OBSOLETE_TOTAL_RM_CONSUMPTION_FIELD = "Stock Entry-custom_pea_total_rm_consumption"
 
 
 def remove_obsolete_total_rm_consumption_field() -> None:

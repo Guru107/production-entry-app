@@ -562,7 +562,9 @@ class TestShiftPureHelpers(FrappeTestCase):
 					side_effect=lambda fieldname: fieldname == "shift_duration",
 				):
 					with patch.object(shift, "_planned_losses_changed", return_value=False):
-						with self.assertRaisesRegex(frappe.ValidationError, "Only shift duration extension"):
+						with self.assertRaisesRegex(
+							frappe.ValidationError, "Shift duration can only be extended"
+						):
 							shift._validate_field_locking()
 
 		shift = frappe.new_doc("Shift")
