@@ -74,6 +74,9 @@ authoritative for their topics; this record covers the remaining seams.
   A `validate` hook on Stock Entry Type enforces the purpose per flag, forbids both flags on one type and
   allows only one joint-flagged type per site, so operational validation and reports classify entries
   from the type alone (CONTEXT.md "Joint Production").
+- Operation-aware Joint Production reads production-owned `BOM.custom_operation` and purpose-dependent
+  UI reads production-owned `Stock Entry.custom_stock_entry_purpose`. The app does not ship those
+  fields; benches and tests copy them as setup (CONTEXT.md "Production-Owned Joint Metadata").
 - The app ships the canonical type "Joint LH RH Production" as a fixture. Frappe fixture import deletes
   and re-inserts the record with validation on during every migrate, so edits to the shipped record are
   reset by migrate and flagging a second type makes migrate fail. Exactly one joint type per site, under
@@ -114,8 +117,10 @@ authoritative for their topics; this record covers the remaining seams.
 
 - Replace the Stock Entry form or add a Joint Production DocType. Rejected (#80, #87): the native
   lifecycle, permissions, batch and serial handling must stay available.
-- Drive joint rows through native `get_items()` and BOM explosion. Rejected: one raw-material row must feed
-  two BOMs with the additive share, and each scrap item must aggregate across both BOMs before rounding.
+- Drive joint rows through native `get_items()` and BOM explosion. Rejected: Shearing needs one
+  common raw-material row feeding both BOMs with the additive share, while post-Shearing needs
+  independent per-side source rows that must not merge across BOMs; each scrap item must still
+  aggregate across both BOMs before rounding.
 - Accept native uniform Repack pricing. Rejected (#89): outputs must follow BOM cost weighting.
 - Persist a joint checkbox on Stock Entry. Rejected by the maintainer (PR #79 Round 18): the Stock Entry
   Type flag is the single source of truth.

@@ -244,7 +244,7 @@ test.describe("Joint LH/RH production form", () => {
 		expect(Number(jointState.custom_pea_rejection_qty || 0)).toBe(0);
 	});
 
-	test("@smoke joint Fetch Items populates rows from both BOMs", async ({ page }) => {
+	test("@smoke joint Fetch Items populates Shearing rows from both BOMs", async ({ page }) => {
 		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 		const stockEntryType = await getJointStockEntryType(page);
@@ -664,7 +664,7 @@ test.describe("Joint LH/RH production form", () => {
 		}
 	});
 
-	test("@regression post-Shearing Fetch Items builds independent rows from both BOMs", async ({
+	test("@smoke @regression post-Shearing Fetch Items builds independent rows from both BOMs", async ({
 		page,
 	}) => {
 		await page.goto(getRoute("/home"));
@@ -718,6 +718,55 @@ test.describe("Joint LH/RH production form", () => {
 		).toEqual([
 			[ctx.joint_lh_item, "LH", 18, ctx.joint_post_shearing_lh_bom],
 			[ctx.joint_rh_item, "RH", 25, ctx.joint_post_shearing_rh_bom],
+		]);
+	});
+
+	test("@smoke post-Shearing Joint LH/RH saves and submits through the production form", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const stockEntryType = await getJointStockEntryType(page);
+		const form = new StockEntryPage(page);
+
+		await form.openNew();
+		await enableJointProduction(page, form, stockEntryType);
+		await setFieldValue(page, "company", ctx.company);
+		await form.setPostingDate(ctx.shift_date);
+		await setFieldValue(page, "custom_pea_shift", ctx.shift_name);
+		await setFieldValue(page, "from_warehouse", ctx.wip_warehouse);
+		await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
+		await form.fillJointProductionFields(
+			{
+				...ctx,
+				joint_operation: ctx.joint_post_shearing_operation,
+				joint_lh_bom: ctx.joint_post_shearing_lh_bom,
+				joint_rh_bom: ctx.joint_post_shearing_rh_bom,
+			},
+			{ lhGrossQty: 20, lhRejectionQty: 0, rhGrossQty: 30, rhRejectionQty: 0 }
+		);
+		await form.fetchItems();
+		await form.saveAndSubmit();
+
+		const name = await page.evaluate(() => cur_frm.doc.name);
+		const submitted = await callFrappeMethod(page, "frappe.client.get", {
+			doctype: "Stock Entry",
+			name,
+		});
+		expect(submitted.docstatus).toBe(1);
+		expect(submitted.custom_pea_operation).toBe(ctx.joint_post_shearing_operation);
+		expect(submitted.custom_pea_lh_bom).toBe(ctx.joint_post_shearing_lh_bom);
+		expect(submitted.custom_pea_rh_bom).toBe(ctx.joint_post_shearing_rh_bom);
+		const sourceRows = submitted.items.filter((row) => row.s_warehouse);
+		expect(sourceRows).toHaveLength(6);
+		expect(sourceRows.every((row) => row.bom_no)).toBe(true);
+		expect(
+			submitted.items
+				.filter((row) => row.custom_pea_joint_output_side && !row.custom_pea_is_rejection_item)
+				.map((row) => [row.custom_pea_joint_output_side, Number(row.qty), row.bom_no])
+		).toEqual([
+			["LH", 20, ctx.joint_post_shearing_lh_bom],
+			["RH", 30, ctx.joint_post_shearing_rh_bom],
 		]);
 	});
 

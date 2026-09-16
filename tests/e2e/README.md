@@ -17,6 +17,18 @@ Browser coverage includes a Joint/Repack resource-overlap popup smoke test. Focu
 save real Joint/Repack Stock Entries and verify overlap, resave, cancelled-entry, adjacent-window, and
 downtime behavior.
 
+## Operation-aware Joint LH/RH
+
+Smoke coverage includes Shearing Joint LH/RH (unchanged common-RM Fetch Items and submit) and a
+post-Shearing Joint LH/RH entry that materialises independent per-side source rows and submits.
+Regression specs cover stale post-Shearing rows, BOM pair rules, and operating-cost Additional Costs.
+Common raw material is Shearing-only; post-Shearing follows two BOM-derived Manufacture calculations
+combined into one Repack document (CONTEXT.md "Joint Production", "BOM Sheet Capacity").
+
+`BOM.custom_operation` and `Stock Entry.custom_stock_entry_purpose` are production-owned and are not
+shipped by this app; benches and E2E bootstrap copy them as setup (CONTEXT.md "Production-Owned Joint
+Metadata").
+
 ## Rework and Shift
 
 Rework Operations have no relation to Shift. The browser smoke and regression rework specs assert
