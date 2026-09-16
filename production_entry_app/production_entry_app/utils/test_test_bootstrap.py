@@ -250,9 +250,7 @@ class TestTestBootstrap(FrappeTestCase):
 				"production_entry_app.production_entry_app.utils.test_bootstrap.frappe.db.exists",
 				return_value=True,
 			),
-			patch(
-				"production_entry_app.production_entry_app.utils.test_bootstrap.frappe.get_doc"
-			) as get_doc,
+			patch("production_entry_app.production_entry_app.utils.test_bootstrap.frappe.get_doc") as get_doc,
 			patch(
 				"production_entry_app.production_entry_app.utils.test_bootstrap.frappe.clear_cache"
 			) as clear_cache,
