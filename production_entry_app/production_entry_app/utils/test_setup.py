@@ -44,7 +44,7 @@ def _ensure_test_company() -> str:
 	return _TEST_COMPANY
 
 
-def _stock_adjustment_account_filters(company: str) -> dict:
+def _stock_adjustment_account_filters(company: str) -> dict[str, object]:
 	return {
 		"company": company,
 		"account_type": "Stock Adjustment",
