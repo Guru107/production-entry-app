@@ -387,9 +387,7 @@ class TestShiftPureHelpers(FrappeTestCase):
 			patch(
 				"production_entry_app.production_entry_app.doctype.shift.shift.invalidate_shift_summary_cache"
 			) as invalidate,
-			patch(
-				"production_entry_app.production_entry_app.api_timeline.frappe.cache"
-			) as cache_factory,
+			patch("production_entry_app.production_entry_app.api_timeline.frappe.cache") as cache_factory,
 		):
 			cache = MagicMock()
 			cache_factory.return_value = cache

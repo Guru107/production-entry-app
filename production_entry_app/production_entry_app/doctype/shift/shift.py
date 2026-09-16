@@ -1066,7 +1066,9 @@ def get_shift_aggregate_production_entries(shift_name: str | None = None) -> lis
 		)
 		production_time_expr = (
 			frappe.qb.terms.Case()
-			.when(stock_entry.custom_pea_production_time_mins > 0, stock_entry.custom_pea_production_time_mins)
+			.when(
+				stock_entry.custom_pea_production_time_mins > 0, stock_entry.custom_pea_production_time_mins
+			)
 			.else_(stock_entry.custom_pea_actual_duration_mins)
 		)
 		select_fields = [
