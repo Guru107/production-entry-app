@@ -180,7 +180,7 @@ class TestLifecycle(FrappeTestCase):
 
 		delete_doc.assert_called_once_with(
 			"Custom Field",
-			lifecycle.OBSOLETE_TOTAL_RM_CONSUMPTION_FIELD,
+			"Stock Entry-custom_pea_total_rm_consumption",
 			ignore_permissions=True,
 			force=True,
 		)

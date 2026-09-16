@@ -21,7 +21,6 @@ REWORK_LAYOUT_FIELDNAMES = frozenset(
 		"custom_pea_rework_details_end_section",
 	}
 )
-OBSOLETE_TOTAL_RM_CONSUMPTION_FIELD = "Stock Entry-custom_pea_total_rm_consumption"
 
 
 def after_sync() -> None:
@@ -62,11 +61,12 @@ def _setup_app() -> None:
 
 def remove_obsolete_total_rm_consumption_field() -> None:
 	"""Remove Total RM Consumption once item rows are the material source of truth (#121)."""
-	if not frappe.db.exists("Custom Field", OBSOLETE_TOTAL_RM_CONSUMPTION_FIELD):
+	fieldname = "Stock Entry-custom_pea_total_rm_consumption"
+	if not frappe.db.exists("Custom Field", fieldname):
 		return
 	frappe.delete_doc(
 		"Custom Field",
-		OBSOLETE_TOTAL_RM_CONSUMPTION_FIELD,
+		fieldname,
 		ignore_permissions=True,
 		force=True,
 	)
