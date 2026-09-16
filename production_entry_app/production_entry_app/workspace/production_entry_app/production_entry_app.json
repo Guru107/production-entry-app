@@ -296,7 +296,6 @@
    "link_to": "Pending Rework",
    "link_type": "Report",
    "onboard": 0,
-   "report_ref_doctype": "Shift",
    "type": "Link"
   }
  ],

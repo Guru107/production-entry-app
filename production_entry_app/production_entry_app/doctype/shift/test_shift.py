@@ -379,14 +379,32 @@ class TestShiftPureHelpers(FrappeTestCase):
 				self.assertEqual(shift_module.get_shift_aggregate_production_entries("SHIFT-MISSING"), [])
 
 	def test_invalidate_shift_summary_for_downtime_entry_includes_previous_shift(self) -> None:
-		doc = frappe._dict({"custom_pea_shift": "SHIFT-NEW"})
-		doc.get_doc_before_save = MagicMock(return_value=frappe._dict({"custom_pea_shift": "SHIFT-OLD"}))
-		with patch(
-			"production_entry_app.production_entry_app.doctype.shift.shift.invalidate_shift_summary_cache"
-		) as invalidate:
+		doc = frappe._dict({"custom_pea_shift": "SHIFT-NEW", "workstation": "PRESS-001"})
+		doc.get_doc_before_save = MagicMock(
+			return_value=frappe._dict({"custom_pea_shift": "SHIFT-OLD", "workstation": "PRESS-002"})
+		)
+		with (
+			patch(
+				"production_entry_app.production_entry_app.doctype.shift.shift.invalidate_shift_summary_cache"
+			) as invalidate,
+			patch(
+				"production_entry_app.production_entry_app.api_timeline.frappe.cache"
+			) as cache_factory,
+		):
+			cache = MagicMock()
+			cache_factory.return_value = cache
 			shift_module.invalidate_shift_summary_for_downtime_entry(doc)
 
 		self.assertEqual({call.args[0] for call in invalidate.call_args_list}, {"SHIFT-NEW", "SHIFT-OLD"})
+		self.assertEqual(
+			{call.args[0] for call in cache.delete_keys.call_args_list},
+			{
+				"pea:timeline:Workstation:PRESS-001:SHIFT-NEW:",
+				"pea:timeline:Workstation:PRESS-001:SHIFT-OLD:",
+				"pea:timeline:Workstation:PRESS-002:SHIFT-NEW:",
+				"pea:timeline:Workstation:PRESS-002:SHIFT-OLD:",
+			},
+		)
 
 	def test_summary_row_builders_cover_unassigned_no_bom_and_sort_paths(self) -> None:
 		workstation_rows, best = shift_module._build_workstation_summary_rows(
@@ -3505,6 +3523,46 @@ class TestShiftAggregateProductionEntries(FrappeTestCase):
 			fields=["name", "item"],
 			limit_page_length=0,
 		)
+
+	def test_joint_aggregates_remain_when_bom_read_list_is_empty(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import (
+			get_shift_aggregate_production_entries,
+		)
+
+		shift = self._create_shift("2026-10-02", shift_label="2")
+		joint_entry = frappe._dict(
+			name="STE-JOINT-001",
+			purpose="Repack",
+			stock_entry_type="Joint",
+			custom_pea_joint_lh_rh_production=1,
+			custom_pea_lh_bom="LH-BOM",
+			custom_pea_rh_bom="RH-BOM",
+			custom_pea_lh_gross_qty=10,
+			custom_pea_rh_gross_qty=12,
+			custom_pea_lh_rejection_qty=1,
+			custom_pea_rh_rejection_qty=2,
+			custom_pea_total_strokes=22,
+			custom_pea_actual_duration_mins=60,
+			custom_pea_production_time_mins=60,
+		)
+		with (
+			patch(
+				"production_entry_app.production_entry_app.doctype.shift.shift.frappe.get_list",
+				side_effect=[[joint_entry], []],
+			),
+			patch(
+				"production_entry_app.production_entry_app.doctype.shift.shift.add_stock_entry_type_flags",
+				side_effect=lambda entries: entries,
+			),
+		):
+			rows = get_shift_aggregate_production_entries(shift.name)
+
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(rows[0]["bom_used"], "LH-BOM + RH-BOM")
+		self.assertEqual(rows[0]["item_code"], "")
+		self.assertEqual(float(rows[0]["total_qty"]), 22.0)
+		self.assertEqual(float(rows[0]["total_reject_qty"]), 3.0)
+		self.assertEqual(float(rows[0]["total_ok_qty"]), 19.0)
 
 	def test_aggregates_bom_based_quantities(self) -> None:
 		from production_entry_app.production_entry_app.doctype.shift.shift import (

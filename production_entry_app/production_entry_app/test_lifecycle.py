@@ -52,14 +52,14 @@ class TestReworkDetailsLayout(unittest.TestCase):
 			with self.subTest(version=version), patch.object(lifecycle, "frappe", fake_frappe):
 				lifecycle.ensure_rework_details_layout()
 
-			fake_frappe.db.set_value.assert_called_once_with(
-				"Custom Field",
-				"Stock Entry-custom_pea_rework_details_section",
-				"insert_after",
-				expected_anchor,
-				update_modified=False,
-			)
-			fake_frappe.clear_cache.assert_called_once_with(doctype="Stock Entry")
+				fake_frappe.db.set_value.assert_called_once_with(
+					"Custom Field",
+					"Stock Entry-custom_pea_rework_details_section",
+					"insert_after",
+					expected_anchor,
+					update_modified=False,
+				)
+				fake_frappe.clear_cache.assert_called_once_with(doctype="Stock Entry")
 
 	def test_rework_details_layout_is_idempotent(self) -> None:
 		fields = [
@@ -97,13 +97,13 @@ class TestReworkDetailsLayout(unittest.TestCase):
 			with self.subTest(boundary=boundary.fieldtype), patch.object(lifecycle, "frappe", fake_frappe):
 				lifecycle.ensure_rework_details_layout()
 
-			fake_frappe.db.set_value.assert_called_once_with(
-				"Custom Field",
-				"Stock Entry-custom_pea_rework_details_section",
-				"insert_after",
-				"opening_custom_field",
-				update_modified=False,
-			)
+				fake_frappe.db.set_value.assert_called_once_with(
+					"Custom Field",
+					"Stock Entry-custom_pea_rework_details_section",
+					"insert_after",
+					"opening_custom_field",
+					update_modified=False,
+				)
 
 	def test_rework_details_layout_returns_before_fixture_exists(self) -> None:
 		fake_frappe = Mock()

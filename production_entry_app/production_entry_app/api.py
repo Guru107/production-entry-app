@@ -60,6 +60,10 @@ def search_joint_boms_for_operation(
 	if not frappe.has_permission("BOM", "read"):
 		return []
 	BOM = DocType("BOM")
+	page_len = page_len or 20
+	start = start or 0
+	# Over-fetch so the exact operation normalize + per-row read filter can still fill a page.
+	fetch_limit = start + (page_len * 5)
 	rows = (
 		frappe.qb.from_(BOM)
 		.select(BOM.name, BOM.item, BOM.custom_operation)
@@ -67,8 +71,10 @@ def search_joint_boms_for_operation(
 		.where(BOM.is_active == 1)
 		.where(BOM.company == company)
 		.where(BOM[searchfield].like(f"%{txt}%"))
+		.where(BOM.custom_operation.like(f"%{operation}%"))
 		.orderby(BOM.idx, order=Order.desc)
 		.orderby(BOM.name)
+		.limit(fetch_limit)
 		.run(as_dict=True)
 	)
 	matched = [
@@ -77,8 +83,7 @@ def search_joint_boms_for_operation(
 		if _normalize_operation(row.custom_operation) == operation
 		and frappe.has_permission("BOM", "read", row.name)
 	]
-	start = start or 0
-	return matched[start : start + (page_len or 20)]
+	return matched[start : start + page_len]
 
 
 @frappe.whitelist()

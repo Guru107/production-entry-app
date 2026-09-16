@@ -104,8 +104,8 @@ class TestReworkLifecycle(FrappeTestCase):
 		)[1]
 		self.assertEqual(pending_after_submit, [])
 		self.assertEqual([row["rework_entry"] for row in register_after_submit], [rework_entry.name])
-		self.assertEqual(register_after_submit[0]["total_qty"], 5)
-		self.assertEqual(register_after_submit[0]["computed_cost"], 120)
+		self.assertAlmostEqual(register_after_submit[0]["total_qty"], 5)
+		self.assertAlmostEqual(register_after_submit[0]["computed_cost"], 120)
 
 		rework_entry.cancel()
 

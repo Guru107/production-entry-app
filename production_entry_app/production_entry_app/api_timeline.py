@@ -37,6 +37,24 @@ def invalidate_timeline_cache_for_stock_entry(doc: Document) -> None:
 			frappe.cache().delete_keys(get_timeline_cache_prefix(doctype, docname, shift_name))
 
 
+def invalidate_timeline_cache_for_downtime_entry(doc: Document) -> None:
+	"""Clear workstation timeline cache for the Downtime Entry's current and previous shift."""
+	workstations = {doc.get("workstation")}
+	shift_names = {doc.get("custom_pea_shift") or doc.get("shift")}
+	get_before_save = getattr(doc, "get_doc_before_save", None)
+	if callable(get_before_save):
+		before_doc = get_before_save()
+		if before_doc:
+			workstations.add(before_doc.get("workstation"))
+			shift_names.add(before_doc.get("custom_pea_shift") or before_doc.get("shift"))
+	for workstation in workstations:
+		if not workstation:
+			continue
+		for shift_name in shift_names:
+			if shift_name:
+				frappe.cache().delete_keys(get_timeline_cache_prefix("Workstation", workstation, shift_name))
+
+
 def _get_timeline_cache_key(doctype: str, docname: str, shift_name: str) -> str:
 	"""Cache key includes shift's modified timestamp so any change to the shift
 	automatically invalidates the timeline cache."""

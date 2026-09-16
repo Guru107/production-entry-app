@@ -228,6 +228,25 @@ class TestReworkRegister(FrappeTestCase):
 
 		self.assertEqual(rows, [])
 
+	def test_missing_rework_timestamps_do_not_crash_duration(self) -> None:
+		entry = self._insert_entry(
+			posting_date="2092-05-10",
+			rework_type="Deburring",
+			workstation="Register Workstation",
+			items=[(self.item_a, 2)],
+			operators=["Operator A"],
+			start=None,
+			end=None,
+			cost=60,
+		)
+
+		rows = rework_register._get_rows({"from_date": "2092-05-10", "to_date": "2092-05-10"})
+
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(rows[0]["rework_entry"], entry)
+		self.assertEqual(rows[0]["duration_hours"], 0.0)
+		self.assertEqual(rows[0]["operator_names"], "Operator A")
+
 	def _insert_stock_entry_type(self, name: str, *, is_rework: bool) -> None:
 		frappe.get_doc(
 			{

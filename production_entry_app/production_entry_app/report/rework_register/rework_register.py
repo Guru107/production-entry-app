@@ -150,6 +150,11 @@ def _get_rows(filters: dict) -> list[dict]:
 		operators = operators_by_parent[entry.name]
 		start = get_datetime(entry.custom_pea_rework_actual_start)
 		end = get_datetime(entry.custom_pea_rework_actual_end)
+		duration_hours = (
+			flt((end - start).total_seconds() / SECONDS_PER_HOUR, REWORK_QTY_PRECISION)
+			if start and end
+			else 0.0
+		)
 		rows.append(
 			{
 				"date": entry.posting_date,
@@ -160,10 +165,7 @@ def _get_rows(filters: dict) -> list[dict]:
 					f"{row.item_code} ({flt(row.qty, REWORK_QTY_PRECISION):g})" for row in items
 				),
 				"total_qty": flt(sum(flt(row.qty) for row in items), REWORK_QTY_PRECISION),
-				"duration_hours": flt(
-					(end - start).total_seconds() / SECONDS_PER_HOUR,
-					REWORK_QTY_PRECISION,
-				),
+				"duration_hours": duration_hours,
 				"operator_names": ", ".join(operators),
 				"operator_count": len(operators),
 				"computed_cost": flt(entry.custom_pea_rework_cost, REWORK_COST_PRECISION),
