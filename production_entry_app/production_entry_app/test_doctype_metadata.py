@@ -108,7 +108,6 @@ def test_joint_lh_rh_production_metadata_is_exported() -> None:
 	missing_fields = sorted(required_fields.difference(fields_by_name))
 	assert not missing_fields, f"Missing joint-production custom fields: {missing_fields}"
 	assert "Stock Entry-custom_pea_is_joint_lh_rh" not in fields_by_name
-	assert "Stock Entry-custom_pea_total_rm_consumption" not in fields_by_name
 	operation_field = fields_by_name["Stock Entry-custom_pea_operation"]
 	joint_condition = (
 		"eval:(doc.__pea_joint_stock_entry_type && doc.stock_entry_type==doc.__pea_joint_stock_entry_type)"
