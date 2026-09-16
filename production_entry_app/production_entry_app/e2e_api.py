@@ -1237,21 +1237,31 @@ def _is_valid_e2e_expense_account(account: str | None, company: str) -> bool:
 	)
 
 
+def _find_e2e_expenses_included_in_valuation_account(company: str) -> str | None:
+	expense_account = frappe.db.get_value(
+		"Account",
+		{
+			"company": company,
+			"account_type": "Expenses Included In Valuation",
+			"is_group": 0,
+			"disabled": 0,
+		},
+		"name",
+	)
+	return str(expense_account) if expense_account else None
+
+
+def _resolve_e2e_expense_account_fallback(company: str) -> str | None:
+	expense_account = frappe.db.get_value("Company", company, "default_operating_cost_account")
+	if _is_valid_e2e_expense_account(expense_account, company):
+		return str(expense_account)
+	return _find_e2e_expenses_included_in_valuation_account(company)
+
+
 def _configure_e2e_rework_expense_account(company: str) -> str:
 	expense_account = frappe.db.get_single_value("Production Entry Settings", "rework_expense_account")
 	if not _is_valid_e2e_expense_account(expense_account, company):
-		expense_account = frappe.db.get_value("Company", company, "default_operating_cost_account")
-		if not _is_valid_e2e_expense_account(expense_account, company):
-			expense_account = frappe.db.get_value(
-				"Account",
-				{
-					"company": company,
-					"account_type": "Expenses Included In Valuation",
-					"is_group": 0,
-					"disabled": 0,
-				},
-				"name",
-			)
+		expense_account = _resolve_e2e_expense_account_fallback(company)
 	if not expense_account:
 		frappe.throw(_("Configure a rework expense account before running the E2E lifecycle."))
 
@@ -1264,16 +1274,7 @@ def _ensure_e2e_operating_cost_account(company: str) -> str:
 	expense_account = frappe.db.get_value("Company", company, "default_operating_cost_account")
 	if _is_valid_e2e_expense_account(expense_account, company):
 		return str(expense_account)
-	expense_account = frappe.db.get_value(
-		"Account",
-		{
-			"company": company,
-			"account_type": "Expenses Included In Valuation",
-			"is_group": 0,
-			"disabled": 0,
-		},
-		"name",
-	)
+	expense_account = _find_e2e_expenses_included_in_valuation_account(company)
 	if not expense_account:
 		frappe.throw(
 			_("Configure Default Operating Cost Account on Company {0} before running Joint E2E.").format(

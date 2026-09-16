@@ -580,6 +580,12 @@ def _set_joint_output_valuation(
 	doc.calculate_rate_and_amount(reset_outgoing_rate=False)
 
 
+def _net_production_value_after_scrap(net_production_value: float) -> float:
+	if net_production_value < -VALUATION_TOLERANCE:
+		frappe.throw(_("Joint production scrap value cannot exceed the consumed raw material value."))
+	return max(net_production_value, 0)
+
+
 def _set_shearing_output_valuation(rows: list[Any], plan: JointProductionPlan) -> None:
 	outgoing_value = sum(
 		flt(row.get("basic_amount")) for row in rows if row.get("s_warehouse") and not row.get("t_warehouse")
@@ -587,11 +593,8 @@ def _set_shearing_output_valuation(rows: list[Any], plan: JointProductionPlan) -
 	scrap_value = sum(
 		_get_row_stock_qty(row) * flt(row.get("basic_rate")) for row in rows if is_scrap_row(row)
 	)
-	net_production_value = outgoing_value - scrap_value
-	if net_production_value < -VALUATION_TOLERANCE:
-		frappe.throw(_("Joint production scrap value cannot exceed the consumed raw material value."))
 	allocation = allocate_joint_output_value(
-		net_production_value=max(net_production_value, 0),
+		net_production_value=_net_production_value_after_scrap(outgoing_value - scrap_value),
 		lh_gross_qty=plan.lh_gross_qty,
 		lh_bom_unit_cost=plan.lh_bom.unit_cost,
 		rh_gross_qty=plan.rh_gross_qty,
@@ -610,10 +613,11 @@ def _set_post_shearing_output_valuation(rows: list[Any], plan: JointProductionPl
 			for row in rows
 			if row.get("s_warehouse") and not row.get("t_warehouse") and row.get("bom_no") == bom.name
 		)
-		net_production_value = outgoing_value - side_scrap_values[side]
-		if net_production_value < -VALUATION_TOLERANCE:
-			frappe.throw(_("Joint production scrap value cannot exceed the consumed raw material value."))
-		_apply_side_output_rate(rows, side, max(net_production_value, 0))
+		_apply_side_output_rate(
+			rows,
+			side,
+			_net_production_value_after_scrap(outgoing_value - side_scrap_values[side]),
+		)
 
 
 def _post_shearing_side_scrap_values(plan: JointProductionPlan) -> dict[str, float]:
