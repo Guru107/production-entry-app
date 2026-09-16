@@ -240,7 +240,10 @@ def _get_stock_entry_groups(
 
 
 def _get_stock_entry_filters(filters: dict) -> dict:
-	return build_stock_entry_filters(filters, filter_keys=("custom_pea_workstation",))
+	return build_stock_entry_filters(
+		filters,
+		filter_keys=("custom_pea_workstation", "custom_pea_operation"),
+	)
 
 
 def _get_stock_entry_fields() -> list[str]:
@@ -256,6 +259,7 @@ def _get_stock_entry_fields() -> list[str]:
 		"custom_pea_lh_rejection_qty",
 		"custom_pea_rh_gross_qty",
 		"custom_pea_rh_rejection_qty",
+		"custom_pea_operation",
 		"custom_pea_standard_spm",
 		"custom_pea_actual_duration_mins",
 		"custom_pea_production_time_mins",

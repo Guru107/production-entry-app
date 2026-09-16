@@ -42,7 +42,13 @@ def _get_columns() -> list[dict]:
 def _build_filters(filters: dict) -> dict:
 	return build_stock_entry_filters(
 		filters,
-		filter_keys=("custom_pea_workstation", "custom_pea_shift", "custom_pea_operator", "bom_no"),
+		filter_keys=(
+			"custom_pea_workstation",
+			"custom_pea_shift",
+			"custom_pea_operator",
+			"custom_pea_operation",
+			"bom_no",
+		),
 	)
 
 

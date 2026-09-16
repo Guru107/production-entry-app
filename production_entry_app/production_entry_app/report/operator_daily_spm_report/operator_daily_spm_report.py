@@ -37,6 +37,13 @@ def _get_columns() -> list[dict]:
 				"options": "Workstation",
 				"width": 160,
 			},
+			{
+				"label": _("Operation"),
+				"fieldname": "operation",
+				"fieldtype": "Link",
+				"options": "Operation",
+				"width": 150,
+			},
 			{"label": _("Working Hours"), "fieldname": "working_hours", "fieldtype": "Float", "width": 120},
 			{
 				"label": _("Setting Time (Hrs)"),
@@ -60,7 +67,12 @@ def _get_columns() -> list[dict]:
 def _build_filters(filters: dict) -> dict:
 	return build_stock_entry_filters(
 		filters,
-		filter_keys=("custom_pea_operator", "custom_pea_workstation", "custom_pea_shift"),
+		filter_keys=(
+			"custom_pea_operator",
+			"custom_pea_workstation",
+			"custom_pea_shift",
+			"custom_pea_operation",
+		),
 	)
 
 
@@ -77,7 +89,7 @@ def _get_shift_duration_map(shift_names: set[str]) -> dict[str, float]:
 
 
 def _get_rows(filters: dict) -> list[dict]:
-	aggregates: dict[tuple[str, str, str], dict] = {}
+	aggregates: dict[tuple[str, str, str, str], dict] = {}
 	shift_names: set[str] = set()
 	has_entries = False
 	for entries in iter_stock_entries_in_chunks(
@@ -93,6 +105,7 @@ def _get_rows(filters: dict) -> list[dict]:
 			"custom_pea_actual_start_date",
 			"custom_pea_actual_end_date",
 			"custom_pea_production_time_mins",
+			"custom_pea_operation",
 		],
 		order_by="posting_date asc, name asc",
 	):
@@ -106,13 +119,15 @@ def _get_rows(filters: dict) -> list[dict]:
 			production_date = str(entry.get("production_date") or "")
 			operator = entry.get("custom_pea_operator") or "Unassigned"
 			workstation = entry.get("custom_pea_workstation") or "Unassigned"
-			group_key = (production_date, operator, workstation)
+			operation = entry.get("custom_pea_operation") or ""
+			group_key = (production_date, operator, workstation, operation)
 			agg = aggregates.setdefault(
 				group_key,
 				{
 					"date": production_date,
 					"operator": operator,
 					"workstation": workstation,
+					"operation": operation,
 					"shift_names": set(),
 					"setting_time_hrs": 0.0,
 					"loss_time_hrs": 0.0,
@@ -157,6 +172,7 @@ def _get_rows(filters: dict) -> list[dict]:
 				"date": agg["date"],
 				"operator": agg["operator"],
 				"workstation": agg["workstation"],
+				"operation": agg.get("operation") or None,
 				"working_hours": working_hours,
 				"setting_time_hrs": setting_time_hrs,
 				"loss_time_hrs": loss_time_hrs,

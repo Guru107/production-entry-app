@@ -26,5 +26,8 @@ frappe.query_reports["Workstation Efficiency Report"] = {
 			fieldtype: "Link",
 			options: "Item",
 		},
+		...(window.production_entry_app?.report_filter_utils?.get_operation_filter?.()
+			? [window.production_entry_app.report_filter_utils.get_operation_filter()]
+			: []),
 	],
 };

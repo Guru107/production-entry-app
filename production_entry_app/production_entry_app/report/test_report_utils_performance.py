@@ -79,13 +79,50 @@ class TestReportUtilsPerformance(FrappeTestCase):
 			"purpose": ["in", ["Manufacture", "Repack"]],
 			"posting_date": [">=", "2026-01-01"],
 		}
-		with patch.object(report_utils, "get_report_rows", return_value=[{"name": "STE-JOINT-1"}]) as rows:
+
+		class _Query:
+			def inner_join(self, *_args: Any, **_kwargs: Any) -> _Query:
+				return self
+
+			def on(self, *_args: Any, **_kwargs: Any) -> _Query:
+				return self
+
+			def select(self, *_args: Any, **_kwargs: Any) -> _Query:
+				return self
+
+			def distinct(self) -> _Query:
+				return self
+
+			def where(self, *_args: Any, **_kwargs: Any) -> _Query:
+				return self
+
+			def limit(self, *_args: Any, **_kwargs: Any) -> _Query:
+				return self
+
+			def run(self, **_kwargs: Any) -> list[dict[str, str]]:
+				return [{"parent": "STE-JOINT-DETAIL"}]
+
+		with (
+			patch.object(
+				report_utils,
+				"get_report_rows",
+				side_effect=[
+					[{"name": "STE-JOINT-1"}],
+					[{"name": "STE-JOINT-1"}, {"name": "STE-JOINT-DETAIL"}],
+				],
+			) as rows,
+			patch(
+				"production_entry_app.production_entry_app.report.report_utils.frappe.qb.from_",
+				return_value=_Query(),
+			),
+		):
 			self.assertEqual(
 				report_utils.get_stock_entries_for_bom("BOM-LH-1", filters=scope),
-				["STE-JOINT-1"],
+				["STE-JOINT-1", "STE-JOINT-DETAIL"],
 			)
 
-		rows.assert_called_once_with(
+		self.assertEqual(rows.call_count, 2)
+		rows.assert_any_call(
 			"Stock Entry",
 			filters=scope,
 			or_filters=[
@@ -93,6 +130,12 @@ class TestReportUtilsPerformance(FrappeTestCase):
 				["custom_pea_lh_bom", "=", "BOM-LH-1"],
 				["custom_pea_rh_bom", "=", "BOM-LH-1"],
 			],
+			fields=["name"],
+			limit_page_length=report_utils._MAX_BOM_PARENT_MATCHES + 1,
+		)
+		rows.assert_any_call(
+			"Stock Entry",
+			filters={**scope, "name": ["in", ["STE-JOINT-1", "STE-JOINT-DETAIL"]]},
 			fields=["name"],
 			limit_page_length=report_utils._MAX_BOM_PARENT_MATCHES + 1,
 		)

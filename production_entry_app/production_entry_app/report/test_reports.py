@@ -26,7 +26,9 @@ from production_entry_app.production_entry_app.overrides.test_stock_entry_hooks 
 	_get_or_create_warehouse,
 	_set_shift_buffers,
 )
+from production_entry_app.production_entry_app.report.report_utils import get_stock_entries_for_bom
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
+	ensure_operation,
 	get_company_abbr,
 	resolve_test_company,
 	save_test_user,
@@ -2931,6 +2933,7 @@ class TestProductionReports(FrappeTestCase):
 			[
 				"date",
 				"operator",
+				"operation",
 				"setup_time_hrs",
 				"loss_time_hrs",
 				"prod_time_hrs",
@@ -2959,6 +2962,7 @@ class TestProductionReports(FrappeTestCase):
 			fieldnames,
 			[
 				"date",
+				"operation",
 				"setup_time_hrs",
 				"loss_time_hrs",
 				"prod_time_hrs",
@@ -2968,6 +2972,160 @@ class TestProductionReports(FrappeTestCase):
 				"rework",
 			],
 		)
+
+	def test_production_oee_report_counts_joint_strokes_once_per_stock_entry(self) -> None:
+		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
+			execute,
+		)
+
+		shift = self._create_shift_for_label("2026-09-01", "1", clear_planned_losses=True)
+		shearing = ensure_operation("Shearing")
+		entry = self._create_mock_submitted_entry(
+			posting_date="2026-09-01",
+			planned_start="2026-09-01 08:00:00",
+			planned_end="2026-09-01 09:00:00",
+			actual_start="2026-09-01 08:00:00",
+			actual_end="2026-09-01 09:00:00",
+			fg_qty=40,
+			rejection_qty=0,
+			total_strokes=41,
+			shift_name=shift.name,
+		)
+		self._configure_mock_joint_entry(entry, operation=shearing, total_strokes=41)
+		frappe.get_doc(
+			{
+				"doctype": "Stock Entry Detail",
+				"parent": entry.name,
+				"parenttype": "Stock Entry",
+				"parentfield": "items",
+				"item_code": self.fg_item,
+				"qty": 41,
+				"uom": "Nos",
+				"stock_uom": "Nos",
+				"conversion_factor": 1,
+				"t_warehouse": self.fg_warehouse,
+				"is_finished_item": 1,
+				"custom_pea_joint_output_side": "RH",
+			}
+		).insert(ignore_permissions=True)
+
+		_, rows = execute({"from_date": "2026-09-01", "to_date": "2026-09-01"})
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(float(rows[0]["total_strokes"]), 41.0)
+
+	def test_production_oee_report_filters_joint_entries_by_operation(self) -> None:
+		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
+			execute,
+		)
+
+		shift = self._create_shift_for_label("2026-09-02", "1", clear_planned_losses=True)
+		shearing = ensure_operation("Shearing")
+		blanking = ensure_operation("Blanking")
+		shearing_entry = self._create_mock_submitted_entry(
+			posting_date="2026-09-02",
+			planned_start="2026-09-02 08:00:00",
+			planned_end="2026-09-02 09:00:00",
+			actual_start="2026-09-02 08:00:00",
+			actual_end="2026-09-02 09:00:00",
+			fg_qty=40,
+			rejection_qty=0,
+			total_strokes=41,
+			shift_name=shift.name,
+		)
+		blanking_entry = self._create_mock_submitted_entry(
+			posting_date="2026-09-02",
+			planned_start="2026-09-02 10:00:00",
+			planned_end="2026-09-02 11:00:00",
+			actual_start="2026-09-02 10:00:00",
+			actual_end="2026-09-02 11:00:00",
+			fg_qty=40,
+			rejection_qty=0,
+			total_strokes=55,
+			shift_name=shift.name,
+		)
+		self._configure_mock_joint_entry(shearing_entry, operation=shearing, total_strokes=41)
+		self._configure_mock_joint_entry(blanking_entry, operation=blanking, total_strokes=55)
+
+		_, rows = execute(
+			{
+				"from_date": "2026-09-02",
+				"to_date": "2026-09-02",
+				"custom_pea_operation": shearing,
+			}
+		)
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(float(rows[0]["total_strokes"]), 41.0)
+
+	def test_daily_strokes_spm_monitor_filters_by_operation(self) -> None:
+		from production_entry_app.production_entry_app.report.daily_strokes_spm_monitor.daily_strokes_spm_monitor import (
+			execute,
+		)
+
+		shift = self._create_shift_for_label("2026-09-03", "1", clear_planned_losses=True)
+		shearing = ensure_operation("Shearing")
+		blanking = ensure_operation("Blanking")
+		shearing_entry = self._create_mock_submitted_entry(
+			posting_date="2026-09-03",
+			planned_start="2026-09-03 08:00:00",
+			planned_end="2026-09-03 09:00:00",
+			actual_start="2026-09-03 08:00:00",
+			actual_end="2026-09-03 09:00:00",
+			fg_qty=40,
+			rejection_qty=0,
+			total_strokes=41,
+			shift_name=shift.name,
+		)
+		blanking_entry = self._create_mock_submitted_entry(
+			posting_date="2026-09-03",
+			planned_start="2026-09-03 10:00:00",
+			planned_end="2026-09-03 11:00:00",
+			actual_start="2026-09-03 10:00:00",
+			actual_end="2026-09-03 11:00:00",
+			fg_qty=40,
+			rejection_qty=0,
+			total_strokes=55,
+			shift_name=shift.name,
+		)
+		self._configure_mock_joint_entry(shearing_entry, operation=shearing, total_strokes=41)
+		self._configure_mock_joint_entry(blanking_entry, operation=blanking, total_strokes=55)
+
+		_, rows = execute(
+			{
+				"from_date": "2026-09-03",
+				"to_date": "2026-09-03",
+				"custom_pea_operator": "Report Operator",
+				"custom_pea_operation": blanking,
+			}
+		)
+		data_rows = [row for row in rows if row.get("date") != "Total"]
+		self.assertEqual(len(data_rows), 1)
+		self.assertEqual(data_rows[0]["operation"], blanking)
+		self.assertEqual(float(data_rows[0]["total_strokes"]), 55.0)
+
+	def test_get_stock_entries_for_bom_finds_joint_row_bom_traceability(self) -> None:
+		shift = self._create_shift_for_label("2026-09-04", "1", clear_planned_losses=True)
+		entry = self._create_mock_submitted_entry(
+			posting_date="2026-09-04",
+			planned_start="2026-09-04 08:00:00",
+			planned_end="2026-09-04 09:00:00",
+			actual_start="2026-09-04 08:00:00",
+			actual_end="2026-09-04 09:00:00",
+			fg_qty=40,
+			rejection_qty=0,
+			shift_name=shift.name,
+		)
+		row_bom = f"BOM-ROW-{frappe.generate_hash(length=6)}"
+		detail_row = frappe.db.get_value("Stock Entry Detail", {"parent": entry.name}, "name")
+		frappe.db.set_value(
+			"Stock Entry Detail",
+			detail_row,
+			"bom_no",
+			row_bom,
+			update_modified=False,
+		)
+
+		matched_names = get_stock_entries_for_bom(row_bom, filters={"docstatus": 1})
+		self.assertIn(entry.name, matched_names)
 
 	def test_daily_strokes_spm_monitor_data(self) -> None:
 		from production_entry_app.production_entry_app.report.daily_strokes_spm_monitor.daily_strokes_spm_monitor import (
@@ -3195,6 +3353,7 @@ class TestProductionReports(FrappeTestCase):
 				"date",
 				"operator",
 				"workstation",
+				"operation",
 				"working_hours",
 				"setting_time_hrs",
 				"loss_time_hrs",
@@ -3414,6 +3573,34 @@ class TestProductionReports(FrappeTestCase):
 		_, rows = execute({"from_date": "2026-08-06", "to_date": "2026-08-06"})
 		self.assertEqual(len(rows), 1)
 		self.assertEqual(float(rows[0]["working_hours"]), 10.0)
+
+	def _configure_mock_joint_entry(
+		self,
+		stock_entry: frappe.Document,
+		*,
+		operation: str,
+		total_strokes: float = 41,
+		lh_gross: float = 40,
+		rh_gross: float = 41,
+	) -> None:
+		frappe.db.set_value(
+			"Stock Entry",
+			stock_entry.name,
+			{
+				"purpose": "Repack",
+				"stock_entry_type": self.joint_repack_type,
+				"custom_pea_operation": operation,
+				"custom_pea_lh_gross_qty": lh_gross,
+				"custom_pea_lh_rejection_qty": 0,
+				"custom_pea_rh_gross_qty": rh_gross,
+				"custom_pea_rh_rejection_qty": 0,
+				"custom_pea_total_strokes": total_strokes,
+				"fg_completed_qty": 0,
+				"custom_pea_rejection_qty": 0,
+			},
+			update_modified=False,
+		)
+		stock_entry.reload()
 
 	def _create_mock_submitted_entry(
 		self,

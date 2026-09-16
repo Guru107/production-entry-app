@@ -28,6 +28,15 @@ def _get_columns(filters: dict) -> list[dict]:
 	]
 	if not filters.get("custom_pea_operator"):
 		columns.append({"label": _("Operator"), "fieldname": "operator", "fieldtype": "Data", "width": 150})
+	columns.append(
+		{
+			"label": _("Operation"),
+			"fieldname": "operation",
+			"fieldtype": "Link",
+			"options": "Operation",
+			"width": 150,
+		}
+	)
 	columns.extend(
 		[
 			{
@@ -58,7 +67,10 @@ def _get_columns(filters: dict) -> list[dict]:
 
 
 def _get_rows(filters: dict) -> list[dict]:
-	db_filters = build_stock_entry_filters(filters, filter_keys=("custom_pea_operator",))
+	db_filters = build_stock_entry_filters(
+		filters,
+		filter_keys=("custom_pea_operator", "custom_pea_operation"),
+	)
 	group_by_operator = not filters.get("custom_pea_operator")
 
 	# Aggregate by group key
@@ -75,6 +87,7 @@ def _get_rows(filters: dict) -> list[dict]:
 			"custom_pea_rework_qty",
 			"custom_pea_actual_duration_mins",
 			"custom_pea_production_time_mins",
+			"custom_pea_operation",
 		],
 		order_by="posting_date asc, name asc",
 	):
@@ -90,11 +103,15 @@ def _get_rows(filters: dict) -> list[dict]:
 		for entry in entries:
 			production_date = str(entry.get("production_date") or "")
 			operator = entry.get("custom_pea_operator") or "Unassigned"
-			group_key = (production_date, operator) if group_by_operator else (production_date,)
+			operation = entry.get("custom_pea_operation") or ""
+			group_key = (
+				(production_date, operator, operation) if group_by_operator else (production_date, operation)
+			)
 
 			if group_key not in aggregates:
 				agg: dict = {
 					"date": production_date,
+					"operation": operation,
 					"setup_time_hrs": 0.0,
 					"loss_time_hrs": 0.0,
 					"prod_time_hrs": 0.0,
@@ -151,7 +168,7 @@ def _get_rows(filters: dict) -> list[dict]:
 		rework = float(agg["rework"])
 		spm = (strokes / (prod_hrs * 60)) if prod_hrs > 0 else 0.0
 
-		row: dict = {"date": agg["date"]}
+		row: dict = {"date": agg["date"], "operation": agg.get("operation") or None}
 		if group_by_operator:
 			row["operator"] = agg.get("operator", "")
 		row["setup_time_hrs"] = setup_hrs
@@ -179,7 +196,7 @@ def _build_totals_row(rows: list[dict], group_by_operator: bool) -> dict:
 	total_rework = sum(float(r["rework"]) for r in rows)
 	total_spm = (total_strokes / (total_prod * 60)) if total_prod > 0 else 0.0
 
-	totals: dict = {"date": _("Total")}
+	totals: dict = {"date": _("Total"), "operation": ""}
 	if group_by_operator:
 		totals["operator"] = ""
 	totals["setup_time_hrs"] = total_setup

@@ -280,9 +280,10 @@ def get_stock_entries_for_fg_item(item_code: str) -> list[str]:
 
 def get_stock_entries_for_bom(bom_no: str, *, filters: dict | None = None) -> list[str]:
 	"""Return permitted normal or joint Stock Entries linked to a BOM."""
-	rows = get_report_rows(
+	base_filters = dict(filters or {"docstatus": 1})
+	header_rows = get_report_rows(
 		"Stock Entry",
-		filters=dict(filters or {"docstatus": 1}),
+		filters=base_filters,
 		or_filters=[
 			["bom_no", "=", bom_no],
 			["custom_pea_lh_bom", "=", bom_no],
@@ -291,13 +292,39 @@ def get_stock_entries_for_bom(bom_no: str, *, filters: dict | None = None) -> li
 		fields=["name"],
 		limit_page_length=_MAX_BOM_PARENT_MATCHES + 1,
 	)
-	if len(rows) > _MAX_BOM_PARENT_MATCHES:
+	matched_names = {row.get("name") for row in header_rows if row.get("name")}
+	if len(matched_names) <= _MAX_BOM_PARENT_MATCHES:
+		stock_entry_detail = DocType("Stock Entry Detail")
+		stock_entry = DocType("Stock Entry")
+		detail_rows = (
+			frappe.qb.from_(stock_entry_detail)
+			.inner_join(stock_entry)
+			.on(stock_entry.name == stock_entry_detail.parent)
+			.select(stock_entry_detail.parent)
+			.distinct()
+			.where(stock_entry_detail.bom_no == bom_no)
+			.where(stock_entry.docstatus == 1)
+			.limit(_MAX_BOM_PARENT_MATCHES + 1)
+		).run(as_dict=True)
+		for row in detail_rows:
+			parent = row.get("parent")
+			if parent:
+				matched_names.add(parent)
+	if not matched_names:
+		return []
+	restricted_rows = get_report_rows(
+		"Stock Entry",
+		filters={**base_filters, "name": ["in", sorted(matched_names)]},
+		fields=["name"],
+		limit_page_length=_MAX_BOM_PARENT_MATCHES + 1,
+	)
+	if len(restricted_rows) > _MAX_BOM_PARENT_MATCHES:
 		frappe.throw(
 			_("BOM filter matches more than {0} Stock Entries. Add a date or shift filter and retry.").format(
 				_MAX_BOM_PARENT_MATCHES
 			)
 		)
-	return [row.get("name") for row in rows if row.get("name")]
+	return [row.get("name") for row in restricted_rows if row.get("name")]
 
 
 def _restrict_stock_entry_names(db_filters: dict, parent_names: list[str]) -> None:
@@ -700,7 +727,13 @@ def get_item_bom_quality_hotspot_rows(
 	"""Aggregate item/BOM quality facts for the rejection and rework hotspot reports."""
 	stock_entry_filters = build_stock_entry_filters(
 		filters,
-		filter_keys=("custom_pea_workstation", "custom_pea_shift", "custom_pea_operator", "bom_no"),
+		filter_keys=(
+			"custom_pea_workstation",
+			"custom_pea_shift",
+			"custom_pea_operator",
+			"custom_pea_operation",
+			"bom_no",
+		),
 	)
 	requested_bom = filters.get("bom_no")
 	agg: dict[tuple[str, str], dict] = {}
