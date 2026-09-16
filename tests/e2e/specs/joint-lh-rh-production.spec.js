@@ -762,7 +762,9 @@ test.describe("Joint LH/RH production form", () => {
 		expect(sourceRows.every((row) => row.bom_no)).toBe(true);
 		expect(
 			submitted.items
-				.filter((row) => row.custom_pea_joint_output_side && !row.custom_pea_is_rejection_item)
+				.filter(
+					(row) => row.custom_pea_joint_output_side && !row.custom_pea_is_rejection_item
+				)
 				.map((row) => [row.custom_pea_joint_output_side, Number(row.qty), row.bom_no])
 		).toEqual([
 			["LH", 20, ctx.joint_post_shearing_lh_bom],
