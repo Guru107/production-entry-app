@@ -30,6 +30,7 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	ensure_operation,
 	ensure_operator,
 	ensure_production_entry_settings_shift_fields,
+	ensure_production_owned_joint_metadata,
 	ensure_rejection_reason,
 	ensure_stock,
 	ensure_warehouse,
@@ -661,6 +662,7 @@ def bootstrap_e2e_context(prefix: str = "E2E", cleanup_running: int = 1) -> dict
 	_assert_e2e_api_allowed()
 	if cint(cleanup_running):
 		cleanup_running_shifts()
+	ensure_production_owned_joint_metadata()
 	ensure_production_entry_settings_shift_fields()
 	_cache_e2e_settings_snapshot(prefix)
 	company = resolve_test_company()

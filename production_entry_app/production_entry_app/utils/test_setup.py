@@ -7,7 +7,10 @@ from typing import Any
 import frappe
 from frappe.utils import now_datetime
 
-from production_entry_app.production_entry_app.utils.test_bootstrap import ensure_branch
+from production_entry_app.production_entry_app.utils.test_bootstrap import (
+	ensure_branch,
+	ensure_production_owned_joint_metadata,
+)
 from production_entry_app.production_entry_app.utils.test_cleanup import install_test_run_cleanup
 
 _ERPNEXT_TEST_FISCAL_YEAR_START = 2012
@@ -253,4 +256,5 @@ def before_tests() -> None:
 	_ensure_company_defaults()
 	_ensure_branch_defaults()
 	_ensure_gender_records()
+	ensure_production_owned_joint_metadata()
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit - test bootstrap must persist cross-app setup

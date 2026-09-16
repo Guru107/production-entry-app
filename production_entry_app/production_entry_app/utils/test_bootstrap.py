@@ -134,6 +134,48 @@ def ensure_production_entry_settings_shift_fields() -> None:
 	frappe.clear_document_cache("Production Entry Settings")
 
 
+def _ensure_custom_field(*, dt: str, fieldname: str, **field_values: Any) -> None:
+	"""Create a site-local Custom Field when missing. Does not ship via app fixtures."""
+	field_name = f"{dt}-{fieldname}"
+	if frappe.db.exists("Custom Field", field_name):
+		return
+	frappe.get_doc(
+		{
+			"doctype": "Custom Field",
+			"dt": dt,
+			"fieldname": fieldname,
+			**field_values,
+		}
+	).insert(ignore_permissions=True)
+	frappe.clear_cache(doctype=dt)
+
+
+def ensure_production_owned_joint_metadata() -> None:
+	"""Copy production-owned Joint metadata fields into ephemeral/local benches.
+
+	`BOM.custom_operation` and `Stock Entry.custom_stock_entry_purpose` are owned by the
+	production ERPNext instance and must not be exported as app fixtures. Test and E2E
+	hosts that lack them create the same shapes here (CONTEXT.md "Production-Owned Joint
+	Metadata").
+	"""
+	_ensure_custom_field(
+		dt="BOM",
+		fieldname="custom_operation",
+		label="Operation",
+		fieldtype="Data",
+		insert_after="item",
+	)
+	_ensure_custom_field(
+		dt="Stock Entry",
+		fieldname="custom_stock_entry_purpose",
+		label="Stock Entry Purpose",
+		fieldtype="Data",
+		fetch_from="stock_entry_type.purpose",
+		read_only=1,
+		insert_after="stock_entry_type",
+	)
+
+
 def set_test_branch_warehouse_defaults(company: str, branch: str, **warehouses: str | None) -> None:
 	"""Update only the test's Company/Branch row; test cleanup restores the snapshot."""
 	settings = frappe.get_single("Production Entry Settings")
@@ -483,6 +525,7 @@ def cleanup_running_shifts() -> None:
 
 
 def bootstrap_manufacturing_test_context(prefix: str) -> dict[str, Any]:
+	ensure_production_owned_joint_metadata()
 	ensure_production_entry_settings_shift_fields()
 	company = resolve_test_company()
 	abbr = get_company_abbr(company)

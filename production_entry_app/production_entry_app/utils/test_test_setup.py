@@ -174,6 +174,10 @@ class TestTestSetup(FrappeTestCase):
 				"production_entry_app.production_entry_app.utils.test_setup._ensure_gender_records"
 			) as ensure_genders,
 			patch(
+				"production_entry_app.production_entry_app.utils.test_setup"
+				".ensure_production_owned_joint_metadata"
+			) as ensure_joint_metadata,
+			patch(
 				"production_entry_app.production_entry_app.utils.test_setup._scope_global_fiscal_years_for_erpnext_tests"
 			) as scope_fiscal_years,
 			patch(
@@ -193,6 +197,7 @@ class TestTestSetup(FrappeTestCase):
 		ensure_defaults.assert_called_once_with()
 		ensure_branch_defaults.assert_called_once_with()
 		ensure_genders.assert_called_once_with()
+		ensure_joint_metadata.assert_called_once_with()
 
 	def test_before_tests_runs_erpnext_bootstrap_when_cost_center_missing(self) -> None:
 		def fake_exists(doctype, name=None):
@@ -215,6 +220,10 @@ class TestTestSetup(FrappeTestCase):
 			patch("production_entry_app.production_entry_app.utils.test_setup._ensure_company_defaults"),
 			patch("production_entry_app.production_entry_app.utils.test_setup._ensure_branch_defaults"),
 			patch("production_entry_app.production_entry_app.utils.test_setup._ensure_gender_records"),
+			patch(
+				"production_entry_app.production_entry_app.utils.test_setup"
+				".ensure_production_owned_joint_metadata"
+			),
 			patch(
 				"production_entry_app.production_entry_app.utils.test_setup"
 				"._scope_global_fiscal_years_for_erpnext_tests"
@@ -252,6 +261,10 @@ class TestTestSetup(FrappeTestCase):
 			patch("production_entry_app.production_entry_app.utils.test_setup._ensure_gender_records"),
 			patch(
 				"production_entry_app.production_entry_app.utils.test_setup"
+				".ensure_production_owned_joint_metadata"
+			),
+			patch(
+				"production_entry_app.production_entry_app.utils.test_setup"
 				"._scope_global_fiscal_years_for_erpnext_tests"
 			),
 			patch(
@@ -287,6 +300,10 @@ class TestTestSetup(FrappeTestCase):
 			patch("production_entry_app.production_entry_app.utils.test_setup._ensure_company_defaults"),
 			patch("production_entry_app.production_entry_app.utils.test_setup._ensure_branch_defaults"),
 			patch("production_entry_app.production_entry_app.utils.test_setup._ensure_gender_records"),
+			patch(
+				"production_entry_app.production_entry_app.utils.test_setup"
+				".ensure_production_owned_joint_metadata"
+			),
 			patch(
 				"production_entry_app.production_entry_app.utils.test_setup"
 				"._scope_global_fiscal_years_for_erpnext_tests"

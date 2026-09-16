@@ -26,6 +26,7 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	ensure_item,
 	ensure_operator,
 	ensure_production_entry_settings_shift_fields,
+	ensure_production_owned_joint_metadata,
 	ensure_rejection_reason,
 	ensure_warehouse,
 	ensure_workstation,
@@ -189,6 +190,77 @@ class TestTestBootstrap(FrappeTestCase):
 		ensure_downtime_reason("Bootstrap Downtime")
 		ensure_downtime_reason("Bootstrap Downtime")
 		self.assertTrue(frappe.db.exists("Downtime Reason", "Bootstrap Downtime"))
+
+	def test_ensure_production_owned_joint_metadata_creates_missing_fields(self) -> None:
+		created: list[dict] = []
+
+		class _FieldDoc:
+			def insert(self, ignore_permissions: bool = False) -> None:
+				return None
+
+		def fake_get_doc(values):
+			created.append(values)
+			return _FieldDoc()
+
+		with (
+			patch(
+				"production_entry_app.production_entry_app.utils.test_bootstrap.frappe.db.exists",
+				return_value=False,
+			),
+			patch(
+				"production_entry_app.production_entry_app.utils.test_bootstrap.frappe.get_doc",
+				side_effect=fake_get_doc,
+			) as get_doc,
+			patch(
+				"production_entry_app.production_entry_app.utils.test_bootstrap.frappe.clear_cache"
+			) as clear_cache,
+		):
+			ensure_production_owned_joint_metadata()
+
+		self.assertEqual(get_doc.call_count, 2)
+		self.assertEqual(
+			created,
+			[
+				{
+					"doctype": "Custom Field",
+					"dt": "BOM",
+					"fieldname": "custom_operation",
+					"label": "Operation",
+					"fieldtype": "Data",
+					"insert_after": "item",
+				},
+				{
+					"doctype": "Custom Field",
+					"dt": "Stock Entry",
+					"fieldname": "custom_stock_entry_purpose",
+					"label": "Stock Entry Purpose",
+					"fieldtype": "Data",
+					"fetch_from": "stock_entry_type.purpose",
+					"read_only": 1,
+					"insert_after": "stock_entry_type",
+				},
+			],
+		)
+		clear_cache.assert_any_call(doctype="BOM")
+		clear_cache.assert_any_call(doctype="Stock Entry")
+
+	def test_ensure_production_owned_joint_metadata_skips_existing_fields(self) -> None:
+		with (
+			patch(
+				"production_entry_app.production_entry_app.utils.test_bootstrap.frappe.db.exists",
+				return_value=True,
+			),
+			patch(
+				"production_entry_app.production_entry_app.utils.test_bootstrap.frappe.get_doc"
+			) as get_doc,
+			patch(
+				"production_entry_app.production_entry_app.utils.test_bootstrap.frappe.clear_cache"
+			) as clear_cache,
+		):
+			ensure_production_owned_joint_metadata()
+
+		get_doc.assert_not_called()
+		clear_cache.assert_not_called()
 
 	def test_bootstrap_manufacturing_test_context_has_expected_keys(self) -> None:
 		context = bootstrap_manufacturing_test_context("Bootstrap")
