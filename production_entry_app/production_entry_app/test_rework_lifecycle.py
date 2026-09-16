@@ -32,7 +32,7 @@ class TestReworkLifecycle(FrappeTestCase):
 		self.rework_type = f"Lifecycle Rework Type {self.suffix}"
 		self.workstation = f"Lifecycle Rework Workstation {self.suffix}"
 		self.operator = f"Lifecycle Rework Operator {self.suffix}"
-		self.expense_account = self._ensure_rework_expense_account()
+		self._ensure_rework_expense_account()
 		ensure_workstation(self.workstation, standard_spm=10)
 		frappe.db.set_value("Workstation", self.workstation, "hour_rate", 120, update_modified=False)
 		ensure_operator(self.operator)
@@ -147,7 +147,7 @@ class TestReworkLifecycle(FrappeTestCase):
 				"item_code": row.item_code,
 				"qty": row.qty,
 				"t_warehouse": row.s_warehouse,
-				"basic_rate": row.basic_rate or 50,
+				"basic_rate": row.basic_rate if row.basic_rate is not None else 50,
 			}
 			for row in source.items
 			if row.s_warehouse and float(row.qty or 0) > 0

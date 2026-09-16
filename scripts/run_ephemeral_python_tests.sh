@@ -57,7 +57,6 @@ fi
 bench --site "$SITE_NAME" install-app erpnext
 bench --site "$SITE_NAME" install-app production_entry_app
 bench build --app production_entry_app
-export PYTHONPATH="$BENCH_ROOT/apps/production_entry_app:$BENCH_ROOT/apps/frappe${ORIGINAL_PYTHONPATH:+:$ORIGINAL_PYTHONPATH}"
 bench --site "$SITE_NAME" execute erpnext.setup.setup_wizard.operations.install_fixtures.install --args '["India"]'
 bench --site "$SITE_NAME" set-config allow_tests true
 bench --site "$SITE_NAME" execute production_entry_app.production_entry_app.utils.test_setup.before_tests

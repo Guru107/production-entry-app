@@ -61,12 +61,13 @@ async function waitForFetchItemsCall({ stateSource, timeoutMs }) {
 		window.frappe.call = originalCall;
 		restoreCall = () => {};
 	};
+	let timeout;
 	let rejectFetchResult = (error) => {
 		throw error;
 	};
 	const fetchResult = new Promise((resolve, reject) => {
 		rejectFetchResult = reject;
-		const timeout = setTimeout(() => {
+		timeout = setTimeout(() => {
 			reject(
 				new Error(
 					`Fetch Items did not call the server. State: ${JSON.stringify(getState())}`
@@ -117,13 +118,18 @@ async function waitForFetchItemsCall({ stateSource, timeoutMs }) {
 
 	try {
 		const triggerResult = window.cur_frm?.script_manager?.trigger("custom_pea_fetch_items");
-		if (triggerResult?.catch) {
-			triggerResult.catch((error) => rejectFetchResult(error));
+		if (triggerResult?.then) {
+			triggerResult.then(undefined, (error) => {
+				clearTimeout(timeout);
+				rejectFetchResult(error);
+			});
 		}
 		const result = await fetchResult;
+		clearTimeout(timeout);
 		await window.frappe.after_ajax?.();
 		return { ...result, ...getState() };
 	} finally {
+		clearTimeout(timeout);
 		restoreCall();
 	}
 }
@@ -459,61 +465,61 @@ class StockEntryPage {
 	}
 
 	async searchShiftLinkResults(text) {
-		return await retryOnContextDestroyed(this.page, async () => {
-			await this.page.waitForFunction(
-				() =>
-					typeof window.cur_frm?.fields_dict?.custom_pea_shift?.get_query === "function"
-			);
-			return await this.page.evaluate(async (searchText) => {
-				const query = window.cur_frm?.fields_dict?.custom_pea_shift?.get_query?.() || {};
-				return await new Promise((resolve, reject) => {
-					frappe.call({
-						method: "frappe.desk.search.search_link",
-						args: {
-							doctype: "Shift",
-							txt: searchText,
-							page_length: 20,
-							filters: query.filters || {},
-						},
-						callback: (r) => resolve(r.message || []),
-						error: (err) =>
-							reject(
-								new Error(err?.message || "Failed to search Shift link options.")
-							),
-					});
-				});
-			}, text);
+		return await this._searchLinkResults({
+			fieldname: "custom_pea_shift",
+			doctype: "Shift",
+			text,
 		});
 	}
 
 	async searchJointBomLinkResults(fieldname, text) {
+		return await this._searchLinkResults({
+			fieldname,
+			doctype: "BOM",
+			text,
+			includeQuery: true,
+		});
+	}
+
+	async _searchLinkResults({ fieldname, doctype, text, includeQuery = false }) {
 		return await retryOnContextDestroyed(this.page, async () => {
 			await this.page.waitForFunction(
 				(name) => typeof window.cur_frm?.fields_dict?.[name]?.get_query === "function",
 				fieldname
 			);
 			return await this.page.evaluate(
-				async ({ name, searchText }) => {
+				async ({ name, searchText, targetDoctype, withQuery }) => {
 					const query = window.cur_frm?.fields_dict?.[name]?.get_query?.() || {};
 					return await new Promise((resolve, reject) => {
+						const args = {
+							doctype: targetDoctype,
+							txt: searchText,
+							page_length: 20,
+							filters: query.filters || {},
+						};
+						if (withQuery) {
+							args.query = query.query;
+						}
 						frappe.call({
 							method: "frappe.desk.search.search_link",
-							args: {
-								doctype: "BOM",
-								txt: searchText,
-								page_length: 20,
-								query: query.query,
-								filters: query.filters || {},
-							},
+							args,
 							callback: (r) => resolve(r.message || []),
 							error: (err) =>
 								reject(
-									new Error(err?.message || "Failed to search BOM link options.")
+									new Error(
+										err?.message ||
+											`Failed to search ${targetDoctype} link options.`
+									)
 								),
 						});
 					});
 				},
-				{ name: fieldname, searchText: text }
+				{
+					name: fieldname,
+					searchText: text,
+					targetDoctype: doctype,
+					withQuery: includeQuery,
+				}
 			);
 		});
 	}

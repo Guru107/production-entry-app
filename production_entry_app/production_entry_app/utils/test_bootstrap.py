@@ -404,7 +404,7 @@ def ensure_joint_test_bom(
 	}
 	if bom_meta.has_field("custom_operation"):
 		values["custom_operation"] = operation_name
-	if frappe.get_meta("BOM", cached=True).has_field("secondary_items"):
+	if bom_meta.has_field("secondary_items"):
 		secondary_item_meta = frappe.get_meta("BOM Secondary Item", cached=True)
 		values["secondary_items"] = [
 			build_joint_bom_scrap_row(

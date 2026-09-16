@@ -202,6 +202,10 @@ class TestPendingReworkPool(FrappeTestCase):
 		doc = self._rework_doc("REWORK-CONCURRENT", [(self.item_b, 1), (self.item_a, 1)])
 		events: list[tuple[str, object]] = []
 
+		def _record_read(**kwargs: object) -> dict[str, int]:
+			events.append(("read", kwargs))
+			return {self.item_a: 1, self.item_b: 1}
+
 		with (
 			patch.object(rework, "_validate_rework_route"),
 			patch.object(
@@ -212,9 +216,7 @@ class TestPendingReworkPool(FrappeTestCase):
 			patch.object(
 				rework,
 				"_get_pending_rework_by_item",
-				side_effect=lambda **kwargs: (
-					events.append(("read", kwargs)) or {self.item_a: 1, self.item_b: 1}
-				),
+				side_effect=_record_read,
 			),
 		):
 			rework.validate_rework_submission(doc)

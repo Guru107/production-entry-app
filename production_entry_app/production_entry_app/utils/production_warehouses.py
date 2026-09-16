@@ -33,7 +33,10 @@ def validate_warehouse_companies(rows: Iterable[BaseDocument | dict]) -> None:
 		)
 	)
 	for warehouse, company in assignments:
-		if not company or companies.get(warehouse) != company:
+		found_company = companies.get(warehouse)
+		if found_company is None:
+			frappe.throw(_("Warehouse {0} does not exist.").format(frappe.utils.escape_html(warehouse)))
+		if found_company != company:
 			frappe.throw(
 				_("Warehouse {0} must belong to Company {1}.").format(
 					frappe.utils.escape_html(warehouse),

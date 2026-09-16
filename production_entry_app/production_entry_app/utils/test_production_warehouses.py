@@ -5,6 +5,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from production_entry_app.production_entry_app.utils.production_warehouses import (
 	get_configured_scrap_warehouses,
+	validate_warehouse_companies,
 )
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	bootstrap_manufacturing_test_context,
@@ -12,6 +13,17 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	ensure_warehouse,
 	set_test_branch_warehouse_defaults,
 )
+
+
+class TestValidateWarehouseCompanies(FrappeTestCase):
+	def tearDown(self) -> None:
+		frappe.db.rollback()
+
+	def test_missing_warehouse_reports_does_not_exist(self) -> None:
+		with self.assertRaisesRegex(frappe.ValidationError, r"Warehouse .* does not exist"):
+			validate_warehouse_companies(
+				[{"company": "_Test Company", "work_in_progress_warehouse": "Missing Warehouse XYZ"}]
+			)
 
 
 class TestConfiguredScrapWarehouses(FrappeTestCase):

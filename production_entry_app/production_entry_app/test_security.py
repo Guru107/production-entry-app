@@ -55,11 +55,15 @@ class TestSecurityGuidelines(FrappeTestCase):
 
 	@staticmethod
 	def _production_trees() -> list[tuple[Path, ast.Module]]:
-		result = []
+		cached = getattr(TestSecurityGuidelines, "_cached_trees", None)
+		if cached is not None:
+			return cached
+		result: list[tuple[Path, ast.Module]] = []
 		for path in PACKAGE_ROOT.rglob("*.py"):
-			if path.name.startswith("test_") or path.name == "test_bootstrap.py":
+			if path.name.startswith("test_"):
 				continue
 			result.append((path, ast.parse(path.read_text(), filename=str(path))))
+		TestSecurityGuidelines._cached_trees = result
 		return result
 
 	@staticmethod

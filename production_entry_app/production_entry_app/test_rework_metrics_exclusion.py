@@ -113,7 +113,6 @@ class TestReworkMetricsExclusion(FrappeTestCase):
 	def test_submitted_rework_does_not_produce_a_report_selection_row(self) -> None:
 		shift = make_running_shift(bootstrap_manufacture_masters())
 		rework_name = self._insert_submitted_rework(shift.name, operator="Report Operator")
-		frappe.db.set_value("Shift", shift.name, "status", "Completed", update_modified=False)
 		filters = build_stock_entry_filters(
 			{"custom_pea_shift": shift.name},
 			filter_keys=("custom_pea_shift",),

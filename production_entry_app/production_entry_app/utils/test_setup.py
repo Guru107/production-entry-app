@@ -39,28 +39,31 @@ def _ensure_test_company() -> str:
 		_insert_native_test_company()
 
 	if not frappe.db.exists("Company", _TEST_COMPANY):
-		raise RuntimeError("ERPNext test setup did not create _Test Company")
+		raise RuntimeError("_insert_native_test_company() did not persist _Test Company")
 
 	return _TEST_COMPANY
+
+
+def _stock_adjustment_account_filters(company: str) -> dict:
+	return {
+		"company": company,
+		"account_type": "Stock Adjustment",
+		"is_group": 0,
+		"disabled": 0,
+	}
 
 
 def _get_usable_stock_adjustment_account(company: str) -> str | None:
 	configured_account = frappe.db.get_value("Company", company, "stock_adjustment_account")
 	if configured_account and frappe.db.exists(
 		"Account",
-		{
-			"name": configured_account,
-			"company": company,
-			"account_type": "Stock Adjustment",
-			"is_group": 0,
-			"disabled": 0,
-		},
+		{"name": configured_account, **_stock_adjustment_account_filters(company)},
 	):
 		return configured_account
 
 	return frappe.db.get_value(
 		"Account",
-		{"company": company, "account_type": "Stock Adjustment", "is_group": 0, "disabled": 0},
+		_stock_adjustment_account_filters(company),
 		"name",
 	)
 
@@ -82,13 +85,7 @@ def _ensure_company_defaults() -> None:
 	configured_account = frappe.db.get_value("Company", company, "stock_adjustment_account")
 	if not configured_account or not frappe.db.exists(
 		"Account",
-		{
-			"name": configured_account,
-			"company": company,
-			"account_type": "Stock Adjustment",
-			"is_group": 0,
-			"disabled": 0,
-		},
+		{"name": configured_account, **_stock_adjustment_account_filters(company)},
 	):
 		raise RuntimeError(f"{company} has no usable Stock Adjustment Account for ERPNext tests")
 

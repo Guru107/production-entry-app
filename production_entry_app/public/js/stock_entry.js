@@ -184,7 +184,6 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 
 			_ensure_use_multi_level_bom_unchecked(frm);
 			_apply_manufacture_visibility(frm);
-			_hide_native_get_items(frm);
 			_sync_stock_entry_helper_fields(frm);
 			_setup_stock_entry_quick_entry(frm);
 		},
@@ -234,13 +233,11 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 			_hide_native_get_items(frm);
 			_apply_native_manufacture_visibility(frm);
 			_ensure_use_multi_level_bom_unchecked(frm);
-			_hide_native_get_items(frm);
 			_apply_manufacture_visibility(frm);
 		},
 		bom_no(frm) {
 			_hide_native_get_items(frm);
 			_apply_native_manufacture_visibility(frm);
-			_hide_native_get_items(frm);
 			_apply_manufacture_visibility(frm);
 		},
 		custom_pea_actual_start_date_input(frm) {
@@ -866,11 +863,6 @@ function _sync_joint_mode_from_stock_entry_type(frm, requestId, previousStockEnt
 function _clear_production_mode_data(frm) {
 	_dieToolRequestId++;
 	delete frm.__peaTotalStrokesDefaultState;
-	frm.__peaJointRmRequestId = (frm.__peaJointRmRequestId || 0) + 1;
-	if (frm.__peaJointRmTimer) {
-		clearTimeout(frm.__peaJointRmTimer);
-		frm.__peaJointRmTimer = null;
-	}
 
 	const refreshFieldnames = new Set();
 	const scalarChanged = _clear_scalar_fields(
@@ -899,11 +891,6 @@ function _clear_joint_operation_dependents(frm) {
 		return;
 	}
 	_dieToolRequestId++;
-	frm.__peaJointRmRequestId = (frm.__peaJointRmRequestId || 0) + 1;
-	if (frm.__peaJointRmTimer) {
-		clearTimeout(frm.__peaJointRmTimer);
-		frm.__peaJointRmTimer = null;
-	}
 	const refreshFieldnames = new Set();
 	const scalarChanged = _clear_scalar_fields(
 		frm,
@@ -1025,20 +1012,23 @@ function _initialize_total_strokes_default_state(frm) {
 }
 
 function _default_total_strokes_from_fg(frm) {
-	if (!_is_manufacture_doc(frm.doc) || _is_joint_doc(frm.doc)) return;
+	if (!_is_manufacture_doc(frm.doc) || _is_joint_doc(frm.doc)) {
+		return Promise.resolve();
+	}
 	const state = _initialize_total_strokes_default_state(frm);
 	const currentTotalStrokes = Number(frm.doc.custom_pea_total_strokes || 0);
 	if (currentTotalStrokes > 0 && currentTotalStrokes !== state.defaultStrokeValue) {
-		return;
+		return Promise.resolve();
 	}
 
 	const completedQty = Number(frm.doc.fg_completed_qty || 0);
-	if (completedQty > 0) {
-		const update = frm.set_value("custom_pea_total_strokes", completedQty);
-		return Promise.resolve(update).finally(() => {
-			state.defaultStrokeValue = completedQty;
-		});
+	if (completedQty <= 0) {
+		return Promise.resolve();
 	}
+	const update = frm.set_value("custom_pea_total_strokes", completedQty);
+	return Promise.resolve(update).finally(() => {
+		state.defaultStrokeValue = completedQty;
+	});
 }
 
 function _get_time_entry_api() {

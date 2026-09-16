@@ -114,7 +114,7 @@ class TestTestSetup(FrappeTestCase):
 				"production_entry_app.production_entry_app.utils.test_setup.frappe.get_doc",
 				return_value=Mock(),
 			),
-			self.assertRaisesRegex(RuntimeError, "did not create _Test Company"),
+			self.assertRaisesRegex(RuntimeError, "did not persist _Test Company"),
 		):
 			test_setup._ensure_test_company()
 

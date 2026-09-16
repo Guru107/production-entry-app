@@ -46,11 +46,11 @@ class TestReworkStockEntryType(FrappeTestCase):
 
 	def test_passive_rework_stock_entry_type_discovery_allows_missing_configuration(self) -> None:
 		with patch.object(api.frappe, "get_list", return_value=[]):
-			self.assertEqual(api.get_rework_stock_entry_type(required="0"), "")
+			self.assertEqual(api.get_rework_stock_entry_type(required=0), "")
 
 	def test_passive_rework_stock_entry_type_discovery_allows_ambiguous_configuration(self) -> None:
 		with patch.object(api.frappe, "get_list", return_value=["Rework A", "Rework B"]):
-			self.assertEqual(api.get_rework_stock_entry_type(required="0"), "")
+			self.assertEqual(api.get_rework_stock_entry_type(required=0), "")
 
 	def test_selected_rework_stock_entry_type_is_identified_independently(self) -> None:
 		with patch.object(
@@ -59,7 +59,7 @@ class TestReworkStockEntryType(FrappeTestCase):
 			return_value=frappe._dict(purpose="Material Transfer", custom_pea_rework_entry=1),
 		):
 			self.assertEqual(
-				api.get_rework_stock_entry_type(stock_entry_type="Rework A", required="0"),
+				api.get_rework_stock_entry_type(stock_entry_type="Rework A", required=0),
 				"Rework A",
 			)
 
@@ -74,13 +74,13 @@ class TestReworkStockEntryType(FrappeTestCase):
 				patch.object(api.frappe.db, "get_value", return_value=selected_type),
 			):
 				self.assertEqual(
-					api.get_rework_stock_entry_type(stock_entry_type="Selected Type", required="0"),
+					api.get_rework_stock_entry_type(stock_entry_type="Selected Type", required=0),
 					"",
 				)
 
 	def test_blank_selected_stock_entry_type_returns_without_a_lookup(self) -> None:
 		with patch.object(api.frappe.db, "get_value") as get_value:
-			self.assertEqual(api.get_rework_stock_entry_type(stock_entry_type="", required="0"), "")
+			self.assertEqual(api.get_rework_stock_entry_type(stock_entry_type="", required=0), "")
 		get_value.assert_not_called()
 
 	def test_selected_rework_stock_entry_type_requires_read_permission(self) -> None:
@@ -110,7 +110,12 @@ class TestReworkStockEntryType(FrappeTestCase):
 			doc.insert(ignore_permissions=True)
 
 	def test_rework_stock_entry_type_resolution_requires_stock_entry_create_permission(self) -> None:
-		with patch.object(api.frappe, "has_permission", return_value=False):
+		def has_permission(doctype: str, ptype: str, doc: str | None = None) -> bool:
+			if (doctype, ptype) == ("Stock Entry", "create"):
+				return False
+			return True
+
+		with patch.object(api.frappe, "has_permission", side_effect=has_permission):
 			for required in (1, 0):
 				with self.subTest(required=required), self.assertRaises(frappe.PermissionError):
 					api.get_rework_stock_entry_type(required=required)
