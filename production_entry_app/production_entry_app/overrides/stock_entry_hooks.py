@@ -148,7 +148,9 @@ def _validate_rework_fields(doc: Document) -> None:
 		frappe.throw(_("Rework Workstation is required for Rework."))
 	actual_start = _as_datetime(doc.get("custom_pea_rework_actual_start"))
 	actual_end = _as_datetime(doc.get("custom_pea_rework_actual_end"))
-	if actual_start and actual_end and actual_end <= actual_start:
+	if not actual_start or not actual_end:
+		frappe.throw(_("Rework duration must be greater than zero."))
+	if actual_end <= actual_start:
 		frappe.throw(_("Rework Actual End must be after Rework Actual Start."))
 	operator_names = [
 		row.get("operator") for row in doc.get("custom_pea_rework_operators") or [] if row.get("operator")
@@ -172,19 +174,26 @@ def _apply_rework_cost(doc: Document) -> None:
 	if not is_rework_stock_entry_type(doc):
 		return
 
+	actual_start = _as_datetime(doc.get("custom_pea_rework_actual_start"))
+	actual_end = _as_datetime(doc.get("custom_pea_rework_actual_end"))
+	operator_names = [
+		row.get("operator") for row in doc.get("custom_pea_rework_operators") or [] if row.get("operator")
+	]
+	if not (
+		doc.get("custom_pea_rework_workstation")
+		and actual_start
+		and actual_end
+		and actual_end > actual_start
+		and operator_names
+	):
+		# Leave validation errors to _validate_rework_fields; do not mutate additional_costs yet.
+		return
+
 	for index in range(len(doc.get("additional_costs") or []) - 1, -1, -1):
 		if doc.additional_costs[index].get("custom_pea_is_rework_cost"):
 			doc.additional_costs.pop(index)
 
-	if not doc.get("custom_pea_rework_workstation"):
-		return
-
-	actual_start = _as_datetime(doc.get("custom_pea_rework_actual_start"))
-	actual_end = _as_datetime(doc.get("custom_pea_rework_actual_end"))
-	if not actual_start or not actual_end or actual_end <= actual_start:
-		frappe.throw(_("Rework duration must be greater than zero."))
-
-	operator_count = len([row for row in doc.get("custom_pea_rework_operators") or [] if row.get("operator")])
+	operator_count = len(operator_names)
 	hour_rate = flt(frappe.db.get_value("Workstation", doc.get("custom_pea_rework_workstation"), "hour_rate"))
 	duration_hours = (actual_end - actual_start).total_seconds() / SECONDS_PER_HOUR
 	rework_cost = flt(duration_hours * operator_count * hour_rate, REWORK_COST_PRECISION)

@@ -71,6 +71,7 @@ class TestReworkAdditionalCosts(FrappeTestCase):
 			ensure_operator(operator)
 
 	def tearDown(self) -> None:
+		frappe.local.enable_perpetual_inventory = {}
 		frappe.db.rollback()
 
 	def test_rework_cost_is_rebuilt_idempotently_without_removing_manual_costs(self) -> None:
@@ -139,10 +140,23 @@ class TestReworkAdditionalCosts(FrappeTestCase):
 
 	def test_rework_cost_requires_a_complete_duration(self) -> None:
 		doc = self._make_rework_entry()
+		doc.append(
+			"additional_costs",
+			{
+				"expense_account": self.expense_account,
+				"description": "Rework Cost",
+				"amount": 99,
+				"custom_pea_is_rework_cost": 1,
+			},
+		)
 		doc.custom_pea_rework_actual_end = None
 
+		before_validate_stock_entry(doc)
+
+		self.assertEqual(len(doc.additional_costs), 1)
+		self.assertEqual(doc.additional_costs[0].amount, 99)
 		with self.assertRaisesRegex(frappe.ValidationError, "Rework duration must be greater than zero"):
-			before_validate_stock_entry(doc)
+			validate_stock_entry(doc)
 
 	def test_rework_cost_skips_additional_cost_without_workstation(self) -> None:
 		doc = self._make_rework_entry()

@@ -142,7 +142,12 @@ class TestReworkRegister(FrappeTestCase):
 			frappe.set_user("Administrator")
 
 		self.assertEqual(result["result"][0]["rework_entry"], entry)
-		self.assertEqual(result["result"][-1][5:10], [2.0, 0.5, "", 1.0, 60.0])
+		row = result["result"][0]
+		self.assertEqual(row["total_qty"], 2.0)
+		self.assertEqual(row["duration_hours"], 0.5)
+		self.assertEqual(row["operator_names"], "Operator A")
+		self.assertEqual(row["operator_count"], 1)
+		self.assertEqual(row["computed_cost"], 60.0)
 
 	def test_entry_reads_use_keyset_chunks(self) -> None:
 		with patch.object(

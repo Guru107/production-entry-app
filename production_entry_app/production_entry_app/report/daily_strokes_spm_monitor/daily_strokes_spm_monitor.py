@@ -102,6 +102,8 @@ def _get_rows(filters: dict) -> list[dict]:
 
 		for entry in entries:
 			production_date = str(entry.get("production_date") or "")
+			if not production_date:
+				continue
 			operator = entry.get("custom_pea_operator") or "Unassigned"
 			operation = entry.get("custom_pea_operation") or ""
 			group_key = (

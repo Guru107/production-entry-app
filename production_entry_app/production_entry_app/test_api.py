@@ -670,6 +670,7 @@ class TestE2EApi(FrappeTestCase):
 			items=[frappe._dict(item_code="E2E FG", is_finished_item=1)],
 		)
 		stock_entry.cancel = MagicMock(side_effect=lambda: stock_entry.update(docstatus=2))
+		stock_entry.reload = MagicMock()
 		targets = {
 			"target_operator": "E2E Operator",
 			"target_workstation": "E2E Workstation",
@@ -691,6 +692,7 @@ class TestE2EApi(FrappeTestCase):
 			_cleanup_e2e_stock_entries(targets)
 
 		stock_entry.cancel.assert_called_once()
+		stock_entry.reload.assert_called_once()
 		delete_doc.assert_not_called()
 
 	def test_delete_e2e_stock_entry_rows_deletes_known_children_and_dynamic_links(self) -> None:
@@ -1453,6 +1455,7 @@ class TestE2EApi(FrappeTestCase):
 		submitted_stock_entry.cancel = MagicMock(
 			side_effect=lambda: submitted_stock_entry.update(docstatus=2)
 		)
+		submitted_stock_entry.reload = MagicMock()
 		failing_stock_entry = frappe._dict(
 			{"name": "STE-FAIL-CANCEL", "docstatus": 1, "custom_pea_operator": "E2E Operator", "items": []}
 		)

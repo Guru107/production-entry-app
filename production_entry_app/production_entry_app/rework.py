@@ -40,6 +40,7 @@ def get_pending_rework(item_code: str | None = None) -> list[dict[str, Any]]:
 	return [
 		{"item_code": code, "pending_qty": flt(pending_by_item[code], REWORK_QTY_PRECISION)}
 		for code in sorted(pending_by_item)
+		if flt(pending_by_item[code], REWORK_QTY_PRECISION) > 0
 	]
 
 
@@ -188,7 +189,7 @@ def _get_pending_rework_by_item(
 	pending_by_item = {row.item_code: flt(row.qty) for row in produced}
 	for row in consumed:
 		pending_by_item[row.item_code] = flt(pending_by_item.get(row.item_code)) - flt(row.qty)
-	return pending_by_item
+	return {item_code: max(flt(qty), 0.0) for item_code, qty in pending_by_item.items()}
 
 
 def _get_rework_produced(

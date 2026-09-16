@@ -3288,6 +3288,57 @@ class TestProductionReports(FrappeTestCase):
 		_, rows = execute({"from_date": "2079-04-01", "to_date": "2079-04-30"})
 		self.assertEqual(rows, [])
 
+	def test_daily_strokes_spm_monitor_skips_entries_without_production_date(self) -> None:
+		from production_entry_app.production_entry_app.report.daily_strokes_spm_monitor.daily_strokes_spm_monitor import (
+			_get_rows,
+		)
+
+		entry_rows = [
+			[
+				{
+					"name": "MAT-STE-NO-PROD-DATE",
+					"posting_date": "2092-05-01",
+					"custom_pea_operator": "Report Operator",
+					"custom_pea_operation": "Press",
+					"fg_completed_qty": 50,
+					"custom_pea_rejection_qty": 0,
+					"custom_pea_rework_qty": 0,
+					"custom_pea_actual_duration_mins": 60,
+					"custom_pea_production_time_mins": 60,
+				},
+				{
+					"name": "MAT-STE-WITH-PROD-DATE",
+					"posting_date": "2092-05-02",
+					"production_date": "2092-05-01",
+					"custom_pea_operator": "Report Operator",
+					"custom_pea_operation": "Press",
+					"fg_completed_qty": 40,
+					"custom_pea_rejection_qty": 0,
+					"custom_pea_rework_qty": 0,
+					"custom_pea_actual_duration_mins": 60,
+					"custom_pea_production_time_mins": 60,
+				},
+			]
+		]
+		with (
+			patch(
+				"production_entry_app.production_entry_app.report.daily_strokes_spm_monitor.daily_strokes_spm_monitor.iter_stock_entries_in_chunks",
+				return_value=entry_rows,
+			),
+			patch(
+				"production_entry_app.production_entry_app.report.daily_strokes_spm_monitor.daily_strokes_spm_monitor.get_parent_quantity_metrics",
+				return_value={},
+			),
+			patch(
+				"production_entry_app.production_entry_app.report.daily_strokes_spm_monitor.daily_strokes_spm_monitor.get_parent_loss_metrics",
+				return_value={},
+			),
+		):
+			rows = _get_rows({"from_date": "2092-05-01", "to_date": "2092-05-01"})
+
+		self.assertEqual([row["date"] for row in rows if row["date"] != "Total"], ["2092-05-01"])
+		self.assertNotIn("", [row["date"] for row in rows])
+
 	def test_daily_strokes_spm_monitor_supports_january_date_range(self) -> None:
 		from production_entry_app.production_entry_app.report.daily_strokes_spm_monitor.daily_strokes_spm_monitor import (
 			execute,

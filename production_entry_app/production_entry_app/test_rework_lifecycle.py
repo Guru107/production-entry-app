@@ -87,7 +87,7 @@ class TestReworkLifecycle(FrappeTestCase):
 		self.assertEqual(rework_entry.items[0].s_warehouse, self.masters["rejection_warehouse"])
 		rework_entry.submit()
 
-		self.assertEqual(rework.get_pending_rework(self.masters["fg_item"])[0]["pending_qty"], 0)
+		self.assertEqual(rework.get_pending_rework(self.masters["fg_item"]), [])
 		self.assertEqual(self._stock_qty(self.masters["rejection_warehouse"]), rejection_before - 5)
 		self.assertEqual(self._stock_qty(self.masters["fg_warehouse"]), good_before + 5)
 		self.assertAlmostEqual(rework_entry.custom_pea_rework_cost, 120, places=6)

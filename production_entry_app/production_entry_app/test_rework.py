@@ -77,6 +77,20 @@ class TestPendingReworkPool(FrappeTestCase):
 		self.assertEqual(rework.get_pending_rework(self.item_a), [])
 		self.assertEqual(rework.get_pending_rework(self.item_b), [])
 
+	def test_orphaned_rework_consumption_does_not_poison_pending_pool(self) -> None:
+		self._insert_rework_entry([(self.item_a, 3)])
+		self._insert_production_source(
+			stock_entry_type=self.normal_type,
+			breakups=[(None, None, 2)],
+			rejection_items=[self.item_a],
+		)
+
+		self.assertEqual(rework.get_pending_rework(self.item_a), [])
+		self.assertEqual(
+			rework._get_pending_rework_by_item(item_codes=[self.item_a]).get(self.item_a),
+			0.0,
+		)
+
 	def test_submission_does_not_use_ambiguous_blank_breakup_as_available_rework(self) -> None:
 		self._insert_production_source(
 			stock_entry_type=self.normal_type,

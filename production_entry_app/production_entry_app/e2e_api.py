@@ -956,6 +956,7 @@ def _cleanup_e2e_stock_entries(targets: dict[str, object]) -> None:
 					message=f"Unable to cancel Stock Entry {se.name}",
 				)
 				raise
+			se.reload()
 		if se.docstatus in (0, 2):
 			_delete_e2e_stock_entry_rows(se.name)
 			if frappe.db.exists("Stock Entry", se.name):
