@@ -102,13 +102,13 @@ def test_joint_lh_rh_production_metadata_is_exported() -> None:
 		"Stock Entry-custom_pea_rh_rejection_qty",
 		"Stock Entry-custom_pea_total_strokes",
 		"Stock Entry-custom_pea_die_tool_item",
-		"Stock Entry-custom_pea_total_rm_consumption",
 		"Stock Entry-custom_pea_joint_fetch_items",
 		"Stock Entry Detail-custom_pea_joint_output_side",
 	}
 	missing_fields = sorted(required_fields.difference(fields_by_name))
 	assert not missing_fields, f"Missing joint-production custom fields: {missing_fields}"
 	assert "Stock Entry-custom_pea_is_joint_lh_rh" not in fields_by_name
+	assert "Stock Entry-custom_pea_total_rm_consumption" not in fields_by_name
 	operation_field = fields_by_name["Stock Entry-custom_pea_operation"]
 	joint_condition = (
 		"eval:(doc.__pea_joint_stock_entry_type && doc.stock_entry_type==doc.__pea_joint_stock_entry_type)"
@@ -118,10 +118,9 @@ def test_joint_lh_rh_production_metadata_is_exported() -> None:
 	assert operation_field.get("insert_after") == "stock_entry_type"
 	assert operation_field.get("depends_on") == joint_condition
 	assert operation_field.get("mandatory_depends_on") == joint_condition
-	total_rm_field = fields_by_name["Stock Entry-custom_pea_total_rm_consumption"]
-	assert total_rm_field.get("read_only") == 1
-	assert not total_rm_field.get("mandatory_depends_on")
 	assert "Stock Entry-custom_pea_joint_scrap_qty" not in fields_by_name
+	fetch_items_field = fields_by_name["Stock Entry-custom_pea_joint_fetch_items"]
+	assert fetch_items_field.get("insert_after") == "custom_pea_joint_resources_col_break"
 	for fieldname in (
 		"Stock Entry-custom_pea_lh_gross_qty",
 		"Stock Entry-custom_pea_lh_rejection_qty",

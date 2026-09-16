@@ -75,7 +75,6 @@ const JOINT_PRODUCTION_SCALAR_FIELDS = [
 	"custom_pea_rh_rejection_qty",
 	"custom_pea_total_strokes",
 	"custom_pea_die_tool_item",
-	"custom_pea_total_rm_consumption",
 ];
 const PRODUCTION_MODE_SCALAR_FIELDS = [
 	"from_bom",
@@ -111,7 +110,6 @@ let _jointStockEntryTypeRequestId = 0;
 let _reworkStockEntryTypeRequestId = 0;
 let _reworkSourceWarehouseRequestId = 0;
 const _rejectionSideRequestIds = new Map();
-const JOINT_RM_DEBOUNCE_MS = 300;
 const REWORK_TYPE_DEBOUNCE_MS = 300;
 const REWORK_SOURCE_DEBOUNCE_MS = 300;
 
@@ -223,22 +221,14 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 			_default_total_strokes_from_fg(frm);
 		},
 		custom_pea_lh_bom(frm) {
-			_schedule_joint_rm_consumption(frm);
 			_refresh_joint_rejection_items(frm, "LH");
 		},
 		custom_pea_rh_bom(frm) {
-			_schedule_joint_rm_consumption(frm);
 			_refresh_joint_rejection_items(frm, "RH");
 		},
 		custom_pea_operation(frm) {
 			_clear_joint_operation_dependents(frm);
 			_apply_manufacture_visibility(frm);
-		},
-		custom_pea_lh_gross_qty(frm) {
-			_schedule_joint_rm_consumption(frm);
-		},
-		custom_pea_rh_gross_qty(frm) {
-			_schedule_joint_rm_consumption(frm);
 		},
 		from_bom(frm) {
 			_hide_native_get_items(frm);
@@ -318,10 +308,6 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 				freeze_message: __("Fetching items..."),
 				callback(r) {
 					_apply_fetch_items_response(frm, r.message);
-					if (isJoint) {
-						const rmRow = (r.message || []).find((row) => row.s_warehouse);
-						frm.set_value("custom_pea_total_rm_consumption", rmRow?.qty || 0);
-					}
 				},
 				error(error) {
 					_notify_call_error(__("Failed to fetch items."), error);
@@ -419,55 +405,6 @@ function _refresh_joint_rejection_items(frm, side) {
 				_notify_call_error(__("Failed to refresh the joint rejection item."), error);
 			}
 		});
-}
-
-function _schedule_joint_rm_consumption(frm) {
-	if (frm.__peaJointRmTimer) {
-		clearTimeout(frm.__peaJointRmTimer);
-		frm.__peaJointRmTimer = null;
-	}
-	const requestId = (frm.__peaJointRmRequestId || 0) + 1;
-	frm.__peaJointRmRequestId = requestId;
-	// Shearing-only preview: post-Shearing multi-input totals come from Fetch Items (#117/#121).
-	const isShearing = String(frm.doc.custom_pea_operation || "").trim() === "Shearing";
-	const hasInputs =
-		_is_joint_doc(frm.doc) &&
-		isShearing &&
-		frm.doc.custom_pea_lh_bom &&
-		frm.doc.custom_pea_rh_bom &&
-		Number(frm.doc.custom_pea_lh_gross_qty || 0) > 0 &&
-		Number(frm.doc.custom_pea_rh_gross_qty || 0) > 0;
-	if (!hasInputs) {
-		if (_is_joint_doc(frm.doc) && isShearing) {
-			frm.set_value("custom_pea_total_rm_consumption", 0);
-		}
-		return;
-	}
-	frm.__peaJointRmTimer = setTimeout(() => {
-		frm.__peaJointRmTimer = null;
-		_load_joint_rm_consumption(frm, requestId);
-	}, JOINT_RM_DEBOUNCE_MS);
-}
-
-function _load_joint_rm_consumption(frm, requestId) {
-	frappe.call({
-		method: "production_entry_app.production_entry_app.api.get_joint_rm_consumption",
-		args: {
-			lh_bom: frm.doc.custom_pea_lh_bom,
-			rh_bom: frm.doc.custom_pea_rh_bom,
-			lh_gross_qty: frm.doc.custom_pea_lh_gross_qty,
-			rh_gross_qty: frm.doc.custom_pea_rh_gross_qty,
-		},
-		callback(r) {
-			if (requestId !== frm.__peaJointRmRequestId) return;
-			frm.set_value("custom_pea_total_rm_consumption", Number(r.message || 0));
-		},
-		error(error) {
-			if (requestId !== frm.__peaJointRmRequestId) return;
-			frm.set_value("custom_pea_total_rm_consumption", 0);
-			_notify_call_error(__("Failed to calculate Total RM Consumption."), error);
-		},
-	});
 }
 
 function _apply_fetch_items_response(frm, items) {

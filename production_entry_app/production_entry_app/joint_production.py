@@ -336,7 +336,6 @@ def _build_joint_production_plan(doc: Document) -> JointProductionPlan:
 		rh_bom=rh_bom,
 		rh_gross_qty=rh_gross_qty,
 	)
-	doc.set("custom_pea_total_rm_consumption", total_rm_consumption)
 	return JointProductionPlan(
 		lh_bom=lh_bom,
 		rh_bom=rh_bom,
@@ -485,7 +484,7 @@ def _validate_joint_item_rows(doc: Document, plan: JointProductionPlan) -> None:
 
 def _get_joint_role_label(role: str) -> str:
 	labels = {
-		"rm": _("Total RM Consumption"),
+		"rm": _("Source RM quantity"),
 		"lh_good": _("LH Good quantity"),
 		"lh_rejection": _("LH Rejection quantity"),
 		"rh_good": _("RH Good quantity"),

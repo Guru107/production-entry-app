@@ -14,7 +14,6 @@ from frappe.utils import add_to_date, cint, cstr, flt, get_datetime
 from production_entry_app.production_entry_app.api import (
 	get_items_with_rejection,
 	get_joint_production_items,
-	get_joint_rm_consumption,
 	get_joint_stock_entry_type,
 	search_joint_boms_for_operation,
 )
@@ -32,6 +31,7 @@ from production_entry_app.production_entry_app.joint_production import (
 	_set_scrap_row_classification,
 	allocate_joint_output_value,
 	calculate_joint_rm_consumption,
+	calculate_joint_rm_consumption_from_boms,
 	is_joint_lh_rh_production,
 	materialize_joint_production_rows,
 	validate_and_apply_joint_production,
@@ -611,13 +611,11 @@ class TestJointProductionItems(FrappeTestCase):
 				"custom_pea_total_strokes": 41,
 				"custom_pea_die_tool_item": self.lh_item,
 				"custom_pea_operation": self.operation,
-				"custom_pea_total_rm_consumption": 1,
 			}
 		)
 
 		rows = materialize_joint_production_rows(doc)
 
-		self.assertAlmostEqual(doc.custom_pea_total_rm_consumption, 39.79125, places=6)
 		self.assertEqual(len([row for row in rows if row.get("s_warehouse")]), 1)
 		self.assertAlmostEqual(
 			sum(row["qty"] for row in rows if row.get("s_warehouse")),
@@ -745,7 +743,8 @@ class TestJointProductionItems(FrappeTestCase):
 
 		doc.insert(ignore_permissions=True)
 
-		self.assertAlmostEqual(doc.custom_pea_total_rm_consumption, 4.5, places=6)
+		rm_row = next(row for row in doc.items if row.s_warehouse)
+		self.assertAlmostEqual(rm_row.qty, 4.5, places=6)
 		scrap_row = next(row for row in doc.items if _is_scrap_row(row))
 		self.assertAlmostEqual(scrap_row.qty, 1.4, places=6)
 		self.assertAlmostEqual(scrap_row.basic_amount, 14, places=6)
@@ -1413,26 +1412,17 @@ class TestJointProductionItems(FrappeTestCase):
 			with self.assertRaisesRegex(frappe.ValidationError, "Unable to load Item"):
 				get_joint_production_items(json.dumps(doc.as_dict(), default=str))
 
-	def test_joint_rm_consumption_is_available_through_the_stock_entry_api(self) -> None:
+	def test_joint_rm_consumption_is_available_from_boms(self) -> None:
 		self.assertAlmostEqual(
-			get_joint_rm_consumption(
-				lh_bom=self.lh_bom,
-				rh_bom=self.rh_bom,
+			calculate_joint_rm_consumption_from_boms(
+				lh_bom_no=self.lh_bom,
+				rh_bom_no=self.rh_bom,
 				lh_gross_qty=101,
 				rh_gross_qty=41,
 			),
 			69.7575,
 			places=6,
 		)
-
-	def test_joint_rm_consumption_api_requires_both_boms(self) -> None:
-		with self.assertRaisesRegex(frappe.ValidationError, "Select both LH and RH BOMs"):
-			get_joint_rm_consumption(
-				lh_bom=self.lh_bom,
-				rh_bom="",
-				lh_gross_qty=40,
-				rh_gross_qty=41,
-			)
 
 	def test_joint_valuation_rejects_scrap_value_above_consumed_rm_value(self) -> None:
 		shift = make_running_shift(self.masters)
@@ -1494,9 +1484,9 @@ class TestJointProductionItems(FrappeTestCase):
 			with self.assertRaisesRegex(
 				frappe.ValidationError, "LH and RH BOMs must belong to the same Company"
 			):
-				get_joint_rm_consumption(
-					lh_bom=self.lh_bom,
-					rh_bom=self.rh_bom,
+				calculate_joint_rm_consumption_from_boms(
+					lh_bom_no=self.lh_bom,
+					rh_bom_no=self.rh_bom,
 					lh_gross_qty=40,
 					rh_gross_qty=41,
 				)
@@ -1582,14 +1572,14 @@ class TestJointProductionItems(FrappeTestCase):
 					)
 				)
 
-	def test_total_rm_consumption_must_match_the_single_rm_item_total(self) -> None:
+	def test_source_rm_quantity_must_match_the_single_rm_item_total(self) -> None:
 		shift = make_running_shift(self.masters)
 		doc = self._make_joint_entry(shift)
 		rm_row = next(row for row in doc.items if row.s_warehouse)
 		rm_row.qty = 49
 		rm_row.transfer_qty = 49
 
-		with self.assertRaisesRegex(frappe.ValidationError, "Total RM Consumption"):
+		with self.assertRaisesRegex(frappe.ValidationError, "Source RM quantity"):
 			doc.insert(ignore_permissions=True)
 
 	def test_stale_output_quantity_requires_fetch_items_again(self) -> None:

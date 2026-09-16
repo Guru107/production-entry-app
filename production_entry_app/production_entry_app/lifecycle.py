@@ -51,11 +51,28 @@ def _warn_if_e2e_enabled_on_non_test_site() -> None:
 
 def _setup_app() -> None:
 	ensure_rework_details_layout()
+	remove_obsolete_total_rm_consumption_field()
 	performance_indexes.ensure_performance_indexes_with_recovery()
 	frappe.logger("production_entry_app").info(
 		"Production Entry App setup ran: Rework Stock Entry layout and performance indexes were "
 		"reconciled during sync/migrate."
 	)
+
+
+OBSOLETE_TOTAL_RM_CONSUMPTION_FIELD = "Stock Entry-custom_pea_total_rm_consumption"
+
+
+def remove_obsolete_total_rm_consumption_field() -> None:
+	"""Remove Total RM Consumption once item rows are the material source of truth (#121)."""
+	if not frappe.db.exists("Custom Field", OBSOLETE_TOTAL_RM_CONSUMPTION_FIELD):
+		return
+	frappe.delete_doc(
+		"Custom Field",
+		OBSOLETE_TOTAL_RM_CONSUMPTION_FIELD,
+		ignore_permissions=True,
+		force=True,
+	)
+	frappe.clear_cache(doctype="Stock Entry")
 
 
 def ensure_rework_details_layout() -> None:

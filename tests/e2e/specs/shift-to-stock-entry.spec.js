@@ -216,7 +216,6 @@ test.describe("Shift to Stock Entry integration", () => {
 		expect(submitted.custom_pea_rh_gross_qty).toBe(41);
 		expect(submitted.custom_pea_total_strokes).toBe(41);
 		expect(submitted.custom_pea_ok_qty).toBe(80);
-		expect(submitted.custom_pea_total_rm_consumption).toBeCloseTo(39.79125, 6);
 		expect(submitted.custom_pea_actual_duration_mins).toBe(60);
 		expect(submitted.custom_pea_production_time_mins).toBeLessThan(60);
 		expect(submitted.custom_pea_actual_spm).toBeCloseTo(
@@ -225,6 +224,7 @@ test.describe("Shift to Stock Entry integration", () => {
 		);
 		expect(submitted.custom_pea_unplanned_losses).toHaveLength(1);
 		expect(submitted.items.filter((row) => row.s_warehouse)).toHaveLength(1);
+		expect(submitted.items.find((row) => row.s_warehouse).qty).toBeCloseTo(39.79125, 6);
 		expect(submitted.items.filter((row) => row.custom_pea_is_rejection_item)).toHaveLength(1);
 		expect(
 			submitted.items

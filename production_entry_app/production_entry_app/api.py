@@ -11,7 +11,6 @@ from pypika import Order
 
 from production_entry_app.production_entry_app.joint_production import (
 	_normalize_operation,
-	calculate_joint_rm_consumption_from_boms,
 	is_scrap_row,
 	materialize_joint_production_rows,
 )
@@ -163,28 +162,6 @@ def get_rework_source_warehouse(
 	if warehouse and not frappe.has_permission("Warehouse", "read", warehouse):
 		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
 	return warehouse
-
-
-@frappe.whitelist()
-def get_joint_rm_consumption(
-	lh_bom: str,
-	rh_bom: str,
-	lh_gross_qty: float,
-	rh_gross_qty: float,
-) -> float:
-	if not frappe.has_permission("Stock Entry", "create"):
-		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
-	if not lh_bom or not rh_bom:
-		frappe.throw(_("Select both LH and RH BOMs."))
-	for bom_no in (lh_bom, rh_bom):
-		if not frappe.has_permission("BOM", "read", bom_no):
-			frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
-	return calculate_joint_rm_consumption_from_boms(
-		lh_bom_no=lh_bom,
-		rh_bom_no=rh_bom,
-		lh_gross_qty=lh_gross_qty,
-		rh_gross_qty=rh_gross_qty,
-	)
 
 
 @frappe.whitelist()

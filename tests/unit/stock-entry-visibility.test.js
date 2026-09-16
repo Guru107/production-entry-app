@@ -54,7 +54,6 @@ function makeSavedJointStockEntryForm(options = {}) {
 			custom_pea_rh_rejection_qty: 2,
 			custom_pea_total_strokes: 41,
 			custom_pea_die_tool_item: "DIE-001",
-			custom_pea_total_rm_consumption: 49.125,
 			custom_pea_rejection_breakup: [{ output_side: "LH", qty: 1 }],
 			items: [{ item_code: "RM-001" }],
 		},
@@ -1447,7 +1446,6 @@ test("manually selecting a non-joint Stock Entry Type exits joint production and
 			custom_pea_rh_rejection_qty: 2,
 			custom_pea_total_strokes: 41,
 			custom_pea_die_tool_item: "DIE-001",
-			custom_pea_total_rm_consumption: 49.125,
 			custom_pea_rejection_breakup: [{ output_side: "LH", qty: 1 }],
 			items: [{ item_code: "RM-001" }],
 		},
@@ -1478,7 +1476,6 @@ test("manually selecting a non-joint Stock Entry Type exits joint production and
 		assert.equal(frm.doc.custom_pea_rh_bom, "");
 		assert.equal(frm.doc.custom_pea_total_strokes, "");
 		assert.equal(frm.doc.custom_pea_die_tool_item, "");
-		assert.equal(frm.doc.custom_pea_total_rm_consumption, "");
 		assert.deepEqual(frm.doc.custom_pea_rejection_breakup, []);
 		assert.deepEqual(frm.doc.items, []);
 	} finally {

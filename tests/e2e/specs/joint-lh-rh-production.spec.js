@@ -148,7 +148,7 @@ test.describe("Joint LH/RH production form", () => {
 			await page.evaluate(() =>
 				Boolean(window.cur_frm?.fields_dict?.custom_pea_total_rm_consumption)
 			)
-		).toBe(true);
+		).toBe(false);
 		expect(await form.isFieldVisible("custom_pea_joint_fetch_items")).toBe(true);
 		expect(await form.isFieldVisible("custom_pea_shift")).toBe(true);
 		expect(await form.isSectionVisible("bom_info_section")).toBe(false);
@@ -212,7 +212,6 @@ test.describe("Joint LH/RH production form", () => {
 			"custom_pea_rh_gross_qty",
 			"custom_pea_total_strokes",
 			"custom_pea_die_tool_item",
-			"custom_pea_total_rm_consumption",
 			"items",
 		]);
 		expect(manufactureState.custom_pea_shift).toBe(ctx.shift_name);
@@ -222,7 +221,6 @@ test.describe("Joint LH/RH production form", () => {
 		expect(Number(manufactureState.custom_pea_rh_gross_qty || 0)).toBe(0);
 		expect(Number(manufactureState.custom_pea_total_strokes || 0)).toBe(0);
 		expect(manufactureState.custom_pea_die_tool_item).toBeFalsy();
-		expect(Number(manufactureState.custom_pea_total_rm_consumption || 0)).toBe(0);
 		expect(manufactureState.items).toEqual([]);
 
 		await setFieldValue(page, "from_bom", 1);
@@ -259,8 +257,6 @@ test.describe("Joint LH/RH production form", () => {
 		await setFieldValue(page, "from_warehouse", ctx.wip_warehouse);
 		await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
 		await form.fillJointProductionFields(ctx);
-		await form.waitForFieldValue("custom_pea_total_rm_consumption", 39.79125);
-		expect(await form.isFieldVisible("custom_pea_total_rm_consumption")).toBe(true);
 
 		await page.locator('[data-fieldname="custom_pea_joint_fetch_items"] button').click();
 		await page.waitForFunction(() => (window.cur_frm?.doc?.items || []).length === 5);
@@ -306,14 +302,12 @@ test.describe("Joint LH/RH production form", () => {
 			"custom_pea_rh_bom",
 			"custom_pea_total_strokes",
 			"custom_pea_die_tool_item",
-			"custom_pea_total_rm_consumption",
 			"items",
 		]);
 		expect(clearedValues.custom_pea_lh_bom).toBeFalsy();
 		expect(clearedValues.custom_pea_rh_bom).toBeFalsy();
 		expect(Number(clearedValues.custom_pea_total_strokes || 0)).toBe(0);
 		expect(clearedValues.custom_pea_die_tool_item).toBeFalsy();
-		expect(Number(clearedValues.custom_pea_total_rm_consumption || 0)).toBe(0);
 		expect(clearedValues.items).toEqual([]);
 	});
 
