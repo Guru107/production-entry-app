@@ -1,7 +1,13 @@
 const { test, expect } = require("@playwright/test");
 
 const { expectValidationError } = require("../fixtures/assertions");
-const { callFrappeMethod, getDoc, saveForm, setFieldValue } = require("../fixtures/frappe");
+const {
+	callFrappeMethod,
+	getDoc,
+	saveForm,
+	setFieldValue,
+	triggerSaveForm,
+} = require("../fixtures/frappe");
 const { registerE2ELifecycle } = require("../fixtures/lifecycle");
 const { hasCurrentStockEntryBranchField } = require("../fixtures/stock-entry-meta");
 const { ensureUser, loginAs } = require("../fixtures/users");
@@ -162,14 +168,10 @@ async function getReportRows(page, reportName, context) {
 }
 
 async function expectSaveValidation(page, pattern) {
+	// Fire-and-forget save: awaiting cur_frm.save() races Frappe's Missing Fields path,
+	// which calls frm.refresh() and destroys the Playwright evaluate context.
 	const message = expectValidationError(page, pattern, 30_000);
-	const save = page.evaluate(async () => {
-		try {
-			await cur_frm.save();
-		} catch (error) {
-			// The visible validation message is the public behavior asserted by the caller.
-		}
-	});
+	const save = triggerSaveForm(page, "Save").catch(() => {});
 	await Promise.all([message, save]);
 }
 
