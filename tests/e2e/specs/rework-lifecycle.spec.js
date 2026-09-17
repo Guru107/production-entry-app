@@ -71,23 +71,18 @@ async function fillReworkEntry(page, context, options = {}) {
 			targetWarehouse: context.fg_warehouse,
 		}
 	);
-	if (options.includeTimes !== false) {
-		await setFieldValue(
-			page,
-			"custom_pea_rework_actual_start",
-			`${context.shift_date} 10:00:00`
-		);
-		await setFieldValue(
-			page,
-			"custom_pea_rework_actual_end",
-			`${context.shift_date} 11:00:00`
-		);
-	}
 	if (options.includeOperator !== false) {
-		await page.evaluate((operator) => {
-			cur_frm.add_child("custom_pea_rework_operators", { operator });
+		const operatorPayload = {
+			operator: context.operator,
+		};
+		if (options.includeTimes !== false) {
+			operatorPayload.actual_start = `${context.shift_date} 10:00:00`;
+			operatorPayload.actual_end = `${context.shift_date} 11:00:00`;
+		}
+		await page.evaluate((row) => {
+			cur_frm.add_child("custom_pea_rework_operators", row);
 			cur_frm.refresh_field("custom_pea_rework_operators");
-		}, context.operator);
+		}, operatorPayload);
 	}
 	return stockEntryPage;
 }
@@ -345,7 +340,7 @@ test.describe("Rework full lifecycle", () => {
 			includeOperator: true,
 			includeTimes: false,
 		});
-		await expectSaveValidation(page, /Rework duration must be greater than zero/i);
+		await expectSaveValidation(page, /working time|Actual Start|Actual End/i);
 	});
 
 	test("@regression shows the available pool when rework overdraws it", async ({ page }) => {

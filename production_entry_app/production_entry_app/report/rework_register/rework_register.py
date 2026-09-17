@@ -27,8 +27,6 @@ _ENTRY_FIELDS = [
 	"posting_date",
 	"custom_pea_rework_type",
 	"custom_pea_rework_workstation",
-	"custom_pea_rework_actual_start",
-	"custom_pea_rework_actual_end",
 	"custom_pea_rework_cost",
 ]
 
@@ -133,28 +131,28 @@ def _get_rows(filters: dict) -> list[dict]:
 	operator_rows = _get_child_rows(
 		"Rework Operator",
 		parent_names,
-		fields=["parent", "operator", "idx"],
+		fields=["parent", "operator", "actual_start", "actual_end", "idx"],
 		parentfield="custom_pea_rework_operators",
 	)
 	items_by_parent: defaultdict[str, list[dict]] = defaultdict(list)
 	operators_by_parent: defaultdict[str, list[str]] = defaultdict(list)
+	labour_hours_by_parent: defaultdict[str, float] = defaultdict(float)
 	for row in item_rows:
 		items_by_parent[row.parent].append(row)
 	for row in operator_rows:
-		if row.operator:
-			operators_by_parent[row.parent].append(row.operator)
+		if not row.operator:
+			continue
+		operators_by_parent[row.parent].append(row.operator)
+		start = get_datetime(row.actual_start)
+		end = get_datetime(row.actual_end)
+		if start and end and end > start:
+			labour_hours_by_parent[row.parent] += (end - start).total_seconds() / SECONDS_PER_HOUR
 
 	rows = []
 	for entry in sorted(entries, key=lambda row: (row.posting_date, row.name), reverse=True):
 		items = items_by_parent[entry.name]
 		operators = operators_by_parent[entry.name]
-		start = get_datetime(entry.custom_pea_rework_actual_start)
-		end = get_datetime(entry.custom_pea_rework_actual_end)
-		duration_hours = (
-			flt((end - start).total_seconds() / SECONDS_PER_HOUR, REWORK_QTY_PRECISION)
-			if start and end
-			else 0.0
-		)
+		duration_hours = flt(labour_hours_by_parent[entry.name], REWORK_QTY_PRECISION)
 		rows.append(
 			{
 				"date": entry.posting_date,

@@ -123,6 +123,9 @@ test("selecting a marked Rework Stock Entry Type shows fields under ambiguous ca
 
 		assert.equal(frm.doc.__pea_rework_stock_entry_type, "Rework Material Transfer");
 		assert.equal(REWORK_FIELDS.includes("custom_pea_rework_cost"), false);
+		assert.equal(REWORK_FIELDS.includes("custom_pea_rework_actual_start"), false);
+		assert.equal(REWORK_HIDDEN_FIELDS.includes("custom_pea_rework_actual_start"), true);
+		assert.equal(REWORK_HIDDEN_FIELDS.includes("custom_pea_rework_actual_end"), true);
 		assert.equal(callCount, 1);
 		assert.deepEqual(visibility, [
 			[REWORK_FIELDS, true],

@@ -92,10 +92,12 @@ const PRODUCTION_MODE_CLEAR_TABLE_FIELDS = ["custom_pea_rejection_breakup", "ite
 const REWORK_VISIBLE_SCALAR_FIELDS = [
 	"custom_pea_rework_type",
 	"custom_pea_rework_workstation",
+];
+const REWORK_HIDDEN_FIELDS = [
+	"custom_pea_rework_cost",
 	"custom_pea_rework_actual_start",
 	"custom_pea_rework_actual_end",
 ];
-const REWORK_HIDDEN_FIELDS = ["custom_pea_rework_cost"];
 const REWORK_SCALAR_FIELDS = [...REWORK_VISIBLE_SCALAR_FIELDS, ...REWORK_HIDDEN_FIELDS];
 const REWORK_TABLE_FIELDS = ["custom_pea_rework_operators"];
 const REWORK_FIELDS = [...REWORK_VISIBLE_SCALAR_FIELDS, ...REWORK_TABLE_FIELDS];

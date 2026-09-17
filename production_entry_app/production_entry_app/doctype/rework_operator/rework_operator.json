@@ -5,7 +5,9 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
-  "operator"
+  "operator",
+  "actual_start",
+  "actual_end"
  ],
  "fields": [
   {
@@ -15,10 +17,24 @@
    "label": "Operator",
    "options": "Operator",
    "reqd": 1
+  },
+  {
+   "fieldname": "actual_start",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Actual Start",
+   "reqd": 1
+  },
+  {
+   "fieldname": "actual_end",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Actual End",
+   "reqd": 1
   }
  ],
  "istable": 1,
- "modified": "2026-09-01 00:00:00.000000",
+ "modified": "2026-09-17 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Production Entry App",
  "name": "Rework Operator",

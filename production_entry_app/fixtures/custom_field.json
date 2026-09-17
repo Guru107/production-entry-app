@@ -127,8 +127,7 @@
   "fieldtype": "Datetime",
   "label": "Rework Actual Start",
   "insert_after": "custom_pea_rework_type",
-  "depends_on": "eval:doc.__pea_rework_stock_entry_type && doc.stock_entry_type==doc.__pea_rework_stock_entry_type",
-  "mandatory_depends_on": "eval:doc.__pea_rework_stock_entry_type && doc.stock_entry_type==doc.__pea_rework_stock_entry_type",
+  "hidden": 1,
   "module": "Production Entry App",
   "permlevel": 0
  },
@@ -140,8 +139,7 @@
   "fieldtype": "Datetime",
   "label": "Rework Actual End",
   "insert_after": "custom_pea_rework_actual_start",
-  "depends_on": "eval:doc.__pea_rework_stock_entry_type && doc.stock_entry_type==doc.__pea_rework_stock_entry_type",
-  "mandatory_depends_on": "eval:doc.__pea_rework_stock_entry_type && doc.stock_entry_type==doc.__pea_rework_stock_entry_type",
+  "hidden": 1,
   "module": "Production Entry App",
   "permlevel": 0
  },

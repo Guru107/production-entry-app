@@ -73,6 +73,80 @@ class TestReworkAdditionalCosts(FrappeTestCase):
 		frappe.local.enable_perpetual_inventory = {}
 		frappe.db.rollback()
 
+	def test_rework_cost_sums_per_operator_working_windows(self) -> None:
+		doc = self._make_rework_entry()
+		doc.set("custom_pea_rework_operators", [])
+		doc.append(
+			"custom_pea_rework_operators",
+			{
+				"operator": self.operators[0],
+				"actual_start": "2026-09-01 08:00:00",
+				"actual_end": "2026-09-01 09:00:00",
+			},
+		)
+		doc.append(
+			"custom_pea_rework_operators",
+			{
+				"operator": self.operators[1],
+				"actual_start": "2026-09-01 08:00:00",
+				"actual_end": "2026-09-01 08:30:00",
+			},
+		)
+
+		before_validate_stock_entry(doc)
+
+		# 1.0h + 0.5h = 1.5h labour × hour_rate 120
+		self.assertEqual(doc.custom_pea_rework_cost, 180)
+		self.assertEqual(doc.additional_costs[0].amount, 180)
+
+	def test_duplicate_operator_rows_with_separate_windows_sum_independently(self) -> None:
+		doc = self._make_rework_entry()
+		doc.set("custom_pea_rework_operators", [])
+		doc.append(
+			"custom_pea_rework_operators",
+			{
+				"operator": self.operators[0],
+				"actual_start": "2026-09-01 08:00:00",
+				"actual_end": "2026-09-01 09:00:00",
+			},
+		)
+		doc.append(
+			"custom_pea_rework_operators",
+			{
+				"operator": self.operators[0],
+				"actual_start": "2026-09-01 10:00:00",
+				"actual_end": "2026-09-01 10:30:00",
+			},
+		)
+
+		before_validate_stock_entry(doc)
+		validate_stock_entry(doc)
+
+		self.assertEqual(doc.custom_pea_rework_cost, 180)
+
+	def test_rework_rejects_operator_row_without_working_window(self) -> None:
+		doc = self._make_rework_entry()
+		doc.set("custom_pea_rework_operators", [])
+		doc.append("custom_pea_rework_operators", {"operator": self.operators[0]})
+
+		with self.assertRaisesRegex(frappe.ValidationError, "working time|Actual Start|Actual End"):
+			validate_stock_entry(doc)
+
+	def test_rework_rejects_operator_row_when_end_is_not_after_start(self) -> None:
+		doc = self._make_rework_entry()
+		doc.set("custom_pea_rework_operators", [])
+		doc.append(
+			"custom_pea_rework_operators",
+			{
+				"operator": self.operators[0],
+				"actual_start": "2026-09-01 09:00:00",
+				"actual_end": "2026-09-01 08:00:00",
+			},
+		)
+
+		with self.assertRaisesRegex(frappe.ValidationError, "Actual End must be after"):
+			validate_stock_entry(doc)
+
 	def test_rework_cost_is_rebuilt_idempotently_without_removing_manual_costs(self) -> None:
 		doc = self._make_rework_entry()
 		doc.append(
@@ -132,9 +206,9 @@ class TestReworkAdditionalCosts(FrappeTestCase):
 
 	def test_rework_rejects_zero_duration(self) -> None:
 		doc = self._make_rework_entry()
-		doc.custom_pea_rework_actual_end = doc.custom_pea_rework_actual_start
+		doc.custom_pea_rework_operators[0].actual_end = doc.custom_pea_rework_operators[0].actual_start
 
-		with self.assertRaisesRegex(frappe.ValidationError, "Rework Actual End must be after"):
+		with self.assertRaisesRegex(frappe.ValidationError, "Actual End must be after"):
 			validate_stock_entry(doc)
 
 	def test_rework_cost_requires_a_complete_duration(self) -> None:
@@ -148,13 +222,13 @@ class TestReworkAdditionalCosts(FrappeTestCase):
 				"custom_pea_is_rework_cost": 1,
 			},
 		)
-		doc.custom_pea_rework_actual_end = None
+		doc.custom_pea_rework_operators[0].actual_end = None
 
 		before_validate_stock_entry(doc)
 
 		self.assertEqual(len(doc.additional_costs), 1)
 		self.assertEqual(doc.additional_costs[0].amount, 99)
-		with self.assertRaisesRegex(frappe.ValidationError, "Rework duration must be greater than zero"):
+		with self.assertRaisesRegex(frappe.ValidationError, "working time|Actual End|duration"):
 			validate_stock_entry(doc)
 
 	def test_rework_cost_skips_additional_cost_without_workstation(self) -> None:
@@ -301,8 +375,13 @@ class TestReworkAdditionalCosts(FrappeTestCase):
 		doc.stock_entry_type = self.stock_entry_type
 		doc.custom_pea_rework_type = self.rework_type
 		doc.custom_pea_rework_workstation = self.workstation
-		doc.custom_pea_rework_actual_start = "2026-09-01 08:00:00"
-		doc.custom_pea_rework_actual_end = "2026-09-01 09:30:00"
 		for operator in self.operators:
-			doc.append("custom_pea_rework_operators", {"operator": operator})
+			doc.append(
+				"custom_pea_rework_operators",
+				{
+					"operator": operator,
+					"actual_start": "2026-09-01 08:00:00",
+					"actual_end": "2026-09-01 09:30:00",
+				},
+			)
 		return doc

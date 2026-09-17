@@ -2,10 +2,11 @@
 
 A Rework Operation is a native Stock Entry using a user-configured Stock Entry Type whose purpose is
 Material Transfer. It moves only successfully reworked quantity from the Rejection Warehouse to the good
-warehouse. The app computes rework cost as `duration hours x operator count x Workstation hour_rate` and
-records it as one `additional_costs` row; ERPNext's native distribution, valuation, Stock Ledger, and
-General Ledger behaviour then apply unchanged. Quantity that is not reworked stays in the Rejection
-Warehouse, and its eventual write-off is a separate manual Repack to the scrap Item, outside this app.
+warehouse. The app computes rework cost as the sum of each Rework Operator row's duration hours, multiplied
+by Workstation `hour_rate`, and records it as one `additional_costs` row; ERPNext's native distribution,
+valuation, Stock Ledger, and General Ledger behaviour then apply unchanged. Quantity that is not reworked
+stays in the Rejection Warehouse, and its eventual write-off is a separate manual Repack to the scrap Item,
+outside this app.
 
 ## Considered Options
 
@@ -20,8 +21,8 @@ Warehouse, and its eventual write-off is a separate manual Repack to the scrap I
   reworked stock is the stated requirement, and `additional_costs` is the native channel for it: ERPNext
   itself converts Workstation labour into finished-goods valuation through the same table.
 - Operator-multiplied component rates (`hour_rate_labour` per operator plus machine components once).
-  Rejected for now in favour of the net `hour_rate` multiplied by operator count, which behaves
-  identically on Frappe/ERPNext v15 and v16 and matches how the plant quotes rework labour.
+  Rejected for now in favour of the net Workstation `hour_rate` applied to total per-operator labour hours,
+  which behaves identically on Frappe/ERPNext v15 and v16 and matches how the plant quotes rework labour.
 
 ## Consequences
 

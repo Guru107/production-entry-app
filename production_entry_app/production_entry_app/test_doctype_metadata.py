@@ -168,10 +168,12 @@ def test_rework_stock_entry_metadata_is_exported() -> None:
 	rework_fields = {
 		"Stock Entry-custom_pea_rework_type": ("Link", "Rework Type"),
 		"Stock Entry-custom_pea_rework_workstation": ("Link", "Workstation"),
-		"Stock Entry-custom_pea_rework_actual_start": ("Datetime", None),
-		"Stock Entry-custom_pea_rework_actual_end": ("Datetime", None),
 		"Stock Entry-custom_pea_rework_operators": ("Table", "Rework Operator"),
 		"Stock Entry-custom_pea_rework_cost": ("Currency", None),
+	}
+	legacy_header_time_fields = {
+		"Stock Entry-custom_pea_rework_actual_start",
+		"Stock Entry-custom_pea_rework_actual_end",
 	}
 
 	for name, (fieldtype, options) in rework_fields.items():
@@ -185,6 +187,12 @@ def test_rework_stock_entry_metadata_is_exported() -> None:
 	assert fields_by_name["Stock Entry-custom_pea_rework_cost"].get("read_only") == 1
 	assert fields_by_name["Stock Entry-custom_pea_rework_cost"].get("non_negative") == 1
 	assert fields_by_name["Stock Entry-custom_pea_rework_cost"].get("hidden") == 1
+	for name in legacy_header_time_fields:
+		field = fields_by_name[name]
+		assert field["fieldtype"] == "Datetime"
+		assert field.get("hidden") == 1
+		assert not field.get("depends_on")
+		assert not field.get("mandatory_depends_on")
 	assert fields_by_name["Stock Entry-custom_pea_shift"].get("depends_on") == (
 		"eval:doc.custom_stock_entry_purpose=='Manufacture' || "
 		"(doc.__pea_joint_stock_entry_type && doc.stock_entry_type==doc.__pea_joint_stock_entry_type)"
@@ -193,7 +201,7 @@ def test_rework_stock_entry_metadata_is_exported() -> None:
 	rework_operator = assert_doctype_json("Rework Operator")
 	assert rework_operator["istable"] == 1
 	assert rework_operator["permissions"] == []
-	assert rework_operator["field_order"] == ["operator"]
+	assert rework_operator["field_order"] == ["operator", "actual_start", "actual_end"]
 	assert rework_operator["fields"] == [
 		{
 			"fieldname": "operator",
@@ -202,7 +210,21 @@ def test_rework_stock_entry_metadata_is_exported() -> None:
 			"label": "Operator",
 			"options": "Operator",
 			"reqd": 1,
-		}
+		},
+		{
+			"fieldname": "actual_start",
+			"fieldtype": "Datetime",
+			"in_list_view": 1,
+			"label": "Actual Start",
+			"reqd": 1,
+		},
+		{
+			"fieldname": "actual_end",
+			"fieldtype": "Datetime",
+			"in_list_view": 1,
+			"label": "Actual End",
+			"reqd": 1,
+		},
 	]
 
 

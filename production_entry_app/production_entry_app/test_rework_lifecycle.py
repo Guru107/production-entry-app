@@ -203,13 +203,14 @@ class TestReworkLifecycle(FrappeTestCase):
 				"posting_time": "11:00:00",
 				"custom_pea_rework_type": self.rework_type,
 				"custom_pea_rework_workstation": self.workstation,
-				"custom_pea_rework_actual_start": start,
-				"custom_pea_rework_actual_end": end,
 			}
 		)
 		if stock_entry_has_branch_field():
 			doc.branch = self.masters["branch"]
-		doc.append("custom_pea_rework_operators", {"operator": self.operator})
+		doc.append(
+			"custom_pea_rework_operators",
+			{"operator": self.operator, "actual_start": start, "actual_end": end},
+		)
 		doc.append(
 			"items",
 			{

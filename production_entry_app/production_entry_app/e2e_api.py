@@ -1461,8 +1461,6 @@ def create_e2e_rework_register_row(
 			StockEntry.posting_date,
 			StockEntry.custom_pea_rework_type,
 			StockEntry.custom_pea_rework_workstation,
-			StockEntry.custom_pea_rework_actual_start,
-			StockEntry.custom_pea_rework_actual_end,
 			StockEntry.custom_pea_rework_cost,
 		)
 		.insert(
@@ -1473,8 +1471,6 @@ def create_e2e_rework_register_row(
 			ctx["shift_date"],
 			rework_type,
 			ctx["workstation"],
-			actual_start,
-			actual_end,
 			float(cost),
 		)
 	).run()
@@ -1510,6 +1506,8 @@ def create_e2e_rework_register_row(
 			ReworkOperator.parentfield,
 			ReworkOperator.idx,
 			ReworkOperator.operator,
+			ReworkOperator.actual_start,
+			ReworkOperator.actual_end,
 		)
 		.insert(
 			frappe.generate_hash(length=10),
@@ -1518,6 +1516,8 @@ def create_e2e_rework_register_row(
 			"custom_pea_rework_operators",
 			1,
 			ctx["operator"],
+			actual_start,
+			actual_end,
 		)
 	).run()
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit - required for report read-after-write checks
