@@ -171,10 +171,6 @@ def test_rework_stock_entry_metadata_is_exported() -> None:
 		"Stock Entry-custom_pea_rework_operators": ("Table", "Rework Operator"),
 		"Stock Entry-custom_pea_rework_cost": ("Currency", None),
 	}
-	legacy_header_time_fields = {
-		"Stock Entry-custom_pea_rework_actual_start",
-		"Stock Entry-custom_pea_rework_actual_end",
-	}
 
 	for name, (fieldtype, options) in rework_fields.items():
 		field = fields_by_name[name]
@@ -187,12 +183,8 @@ def test_rework_stock_entry_metadata_is_exported() -> None:
 	assert fields_by_name["Stock Entry-custom_pea_rework_cost"].get("read_only") == 1
 	assert fields_by_name["Stock Entry-custom_pea_rework_cost"].get("non_negative") == 1
 	assert fields_by_name["Stock Entry-custom_pea_rework_cost"].get("hidden") == 1
-	for name in legacy_header_time_fields:
-		field = fields_by_name[name]
-		assert field["fieldtype"] == "Datetime"
-		assert field.get("hidden") == 1
-		assert not field.get("depends_on")
-		assert not field.get("mandatory_depends_on")
+	assert "Stock Entry-custom_pea_rework_actual_start" not in fields_by_name
+	assert "Stock Entry-custom_pea_rework_actual_end" not in fields_by_name
 	assert fields_by_name["Stock Entry-custom_pea_shift"].get("depends_on") == (
 		"eval:doc.custom_stock_entry_purpose=='Manufacture' || "
 		"(doc.__pea_joint_stock_entry_type && doc.stock_entry_type==doc.__pea_joint_stock_entry_type)"
@@ -250,15 +242,13 @@ def test_rework_fields_have_a_dedicated_two_column_section() -> None:
 		"permlevel": 0,
 	}
 	assert field("custom_pea_rework_type")["insert_after"] == "custom_pea_rework_details_section"
-	assert field("custom_pea_rework_actual_start")["insert_after"] == "custom_pea_rework_type"
-	assert field("custom_pea_rework_actual_end")["insert_after"] == "custom_pea_rework_actual_start"
 	assert field("custom_pea_rework_column_break") == {
 		"doctype": "Custom Field",
 		"name": "Stock Entry-custom_pea_rework_column_break",
 		"dt": "Stock Entry",
 		"fieldname": "custom_pea_rework_column_break",
 		"fieldtype": "Column Break",
-		"insert_after": "custom_pea_rework_actual_end",
+		"insert_after": "custom_pea_rework_type",
 		"module": "Production Entry App",
 		"permlevel": 0,
 	}

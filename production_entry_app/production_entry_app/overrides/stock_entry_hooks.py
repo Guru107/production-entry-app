@@ -76,8 +76,6 @@ _ALLOWED_STOCK_ENTRY_SHIFT_STATUSES: tuple[str, ...] = ("Running", "Completed")
 _REWORK_FIELDS: tuple[str, ...] = (
 	"custom_pea_rework_type",
 	"custom_pea_rework_workstation",
-	"custom_pea_rework_actual_start",
-	"custom_pea_rework_actual_end",
 	"custom_pea_rework_operators",
 	"custom_pea_rework_cost",
 )

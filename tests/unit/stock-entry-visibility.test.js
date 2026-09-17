@@ -123,9 +123,6 @@ test("selecting a marked Rework Stock Entry Type shows fields under ambiguous ca
 
 		assert.equal(frm.doc.__pea_rework_stock_entry_type, "Rework Material Transfer");
 		assert.equal(REWORK_FIELDS.includes("custom_pea_rework_cost"), false);
-		assert.equal(REWORK_FIELDS.includes("custom_pea_rework_actual_start"), false);
-		assert.equal(REWORK_HIDDEN_FIELDS.includes("custom_pea_rework_actual_start"), true);
-		assert.equal(REWORK_HIDDEN_FIELDS.includes("custom_pea_rework_actual_end"), true);
 		assert.equal(callCount, 1);
 		assert.deepEqual(visibility, [
 			[REWORK_FIELDS, true],
@@ -594,8 +591,6 @@ test("leaving the Rework Stock Entry Type clears all rework-owned fields", () =>
 			__pea_rework_stock_entry_type_checked: "Rework Material Transfer",
 			custom_pea_rework_type: "Deburring",
 			custom_pea_rework_workstation: "Rework Workstation",
-			custom_pea_rework_actual_start: "2026-09-01 08:00:00",
-			custom_pea_rework_actual_end: "2026-09-01 09:00:00",
 			custom_pea_rework_operators: [{ operator: "Operator One" }],
 			custom_pea_rework_cost: 50,
 		},
@@ -620,8 +615,6 @@ test("leaving the Rework Stock Entry Type clears all rework-owned fields", () =>
 
 		assert.equal(frm.doc.custom_pea_rework_type, "");
 		assert.equal(frm.doc.custom_pea_rework_workstation, "");
-		assert.equal(frm.doc.custom_pea_rework_actual_start, "");
-		assert.equal(frm.doc.custom_pea_rework_actual_end, "");
 		assert.deepEqual(frm.doc.custom_pea_rework_operators, []);
 		assert.equal(frm.doc.custom_pea_rework_cost, "");
 	} finally {
@@ -916,8 +909,6 @@ test("latest ordinary lookup clears Rework data after an intermediate response i
 			__pea_rework_stock_entry_type_checked: "Rework A",
 			custom_pea_rework_type: "Deburring",
 			custom_pea_rework_workstation: "Rework Workstation",
-			custom_pea_rework_actual_start: "2026-09-01 08:00:00",
-			custom_pea_rework_actual_end: "2026-09-01 09:00:00",
 			custom_pea_rework_operators: [{ operator: "Operator One" }],
 			custom_pea_rework_cost: 50,
 		},

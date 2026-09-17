@@ -121,35 +121,11 @@
  },
  {
   "doctype": "Custom Field",
-  "name": "Stock Entry-custom_pea_rework_actual_start",
-  "dt": "Stock Entry",
-  "fieldname": "custom_pea_rework_actual_start",
-  "fieldtype": "Datetime",
-  "label": "Rework Actual Start",
-  "insert_after": "custom_pea_rework_type",
-  "hidden": 1,
-  "module": "Production Entry App",
-  "permlevel": 0
- },
- {
-  "doctype": "Custom Field",
-  "name": "Stock Entry-custom_pea_rework_actual_end",
-  "dt": "Stock Entry",
-  "fieldname": "custom_pea_rework_actual_end",
-  "fieldtype": "Datetime",
-  "label": "Rework Actual End",
-  "insert_after": "custom_pea_rework_actual_start",
-  "hidden": 1,
-  "module": "Production Entry App",
-  "permlevel": 0
- },
- {
-  "doctype": "Custom Field",
   "name": "Stock Entry-custom_pea_rework_column_break",
   "dt": "Stock Entry",
   "fieldname": "custom_pea_rework_column_break",
   "fieldtype": "Column Break",
-  "insert_after": "custom_pea_rework_actual_end",
+  "insert_after": "custom_pea_rework_type",
   "module": "Production Entry App",
   "permlevel": 0
  },

@@ -150,9 +150,6 @@ test.describe("Rework fields on Stock Entry", () => {
 							"custom_pea_rework_operators",
 						].map((fieldname) => [fieldname, placement(fieldname)])
 					),
-					headerTimesVisible: ["custom_pea_rework_actual_start", "custom_pea_rework_actual_end"].every(
-						(fieldname) => Boolean(frm?.get_field?.(fieldname)?.$wrapper?.is(":visible"))
-					),
 					reworkCostVisible: Boolean(
 						frm?.get_field?.("custom_pea_rework_cost")?.$wrapper?.is(":visible")
 					),
@@ -166,7 +163,6 @@ test.describe("Rework fields on Stock Entry", () => {
 				["custom_pea_rework_type"],
 				["custom_pea_rework_workstation", "custom_pea_rework_operators"],
 			]);
-			expect(layout.headerTimesVisible).toBe(false);
 			expect(layout.reworkCostVisible).toBe(false);
 			expect(layout.nextNativeField.fieldname).toBeTruthy();
 			expect(layout.nextNativeField.section).not.toBe("custom_pea_rework_details_section");
@@ -281,8 +277,6 @@ test.describe("Rework fields on Stock Entry", () => {
 				return (
 					!doc.custom_pea_rework_type &&
 					!doc.custom_pea_rework_workstation &&
-					!doc.custom_pea_rework_actual_start &&
-					!doc.custom_pea_rework_actual_end &&
 					(doc.custom_pea_rework_operators || []).length === 0 &&
 					!doc.custom_pea_rework_cost
 				);

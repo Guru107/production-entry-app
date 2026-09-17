@@ -109,8 +109,6 @@ class TestReworkStockEntryFields(FrappeTestCase):
 		values = {
 			"custom_pea_rework_type": "Deburring",
 			"custom_pea_rework_workstation": "Rework Workstation",
-			"custom_pea_rework_actual_start": "2026-09-01 08:00:00",
-			"custom_pea_rework_actual_end": "2026-09-01 09:00:00",
 			"custom_pea_rework_cost": 50,
 		}
 		for fieldname, value in values.items():
