@@ -1,7 +1,13 @@
 const { test, expect } = require("@playwright/test");
 
 const { expectValidationError } = require("../fixtures/assertions");
-const { callFrappeMethod, getDoc, saveForm, setFieldValue } = require("../fixtures/frappe");
+const {
+	callFrappeMethod,
+	getDoc,
+	saveForm,
+	setFieldValue,
+	triggerSaveForm,
+} = require("../fixtures/frappe");
 const { registerE2ELifecycle } = require("../fixtures/lifecycle");
 const { hasCurrentStockEntryBranchField } = require("../fixtures/stock-entry-meta");
 const { ensureUser, loginAs } = require("../fixtures/users");
@@ -71,23 +77,18 @@ async function fillReworkEntry(page, context, options = {}) {
 			targetWarehouse: context.fg_warehouse,
 		}
 	);
-	if (options.includeTimes !== false) {
-		await setFieldValue(
-			page,
-			"custom_pea_rework_actual_start",
-			`${context.shift_date} 10:00:00`
-		);
-		await setFieldValue(
-			page,
-			"custom_pea_rework_actual_end",
-			`${context.shift_date} 11:00:00`
-		);
-	}
 	if (options.includeOperator !== false) {
-		await page.evaluate((operator) => {
-			cur_frm.add_child("custom_pea_rework_operators", { operator });
+		const operatorPayload = {
+			operator: context.operator,
+		};
+		if (options.includeTimes !== false) {
+			operatorPayload.actual_start = `${context.shift_date} 10:00:00`;
+			operatorPayload.actual_end = `${context.shift_date} 11:00:00`;
+		}
+		await page.evaluate((row) => {
+			cur_frm.add_child("custom_pea_rework_operators", row);
 			cur_frm.refresh_field("custom_pea_rework_operators");
-		}, context.operator);
+		}, operatorPayload);
 	}
 	return stockEntryPage;
 }
@@ -167,14 +168,10 @@ async function getReportRows(page, reportName, context) {
 }
 
 async function expectSaveValidation(page, pattern) {
+	// Fire-and-forget save: awaiting cur_frm.save() races Frappe's Missing Fields path,
+	// which calls frm.refresh() and destroys the Playwright evaluate context.
 	const message = expectValidationError(page, pattern, 30_000);
-	const save = page.evaluate(async () => {
-		try {
-			await cur_frm.save();
-		} catch (error) {
-			// The visible validation message is the public behavior asserted by the caller.
-		}
-	});
+	const save = triggerSaveForm(page, "Save").catch(() => {});
 	await Promise.all([message, save]);
 }
 
@@ -345,7 +342,7 @@ test.describe("Rework full lifecycle", () => {
 			includeOperator: true,
 			includeTimes: false,
 		});
-		await expectSaveValidation(page, /Rework duration must be greater than zero/i);
+		await expectSaveValidation(page, /working time|Actual Start|Actual End/i);
 	});
 
 	test("@regression shows the available pool when rework overdraws it", async ({ page }) => {

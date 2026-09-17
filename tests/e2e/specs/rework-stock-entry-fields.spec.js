@@ -146,8 +146,6 @@ test.describe("Rework fields on Stock Entry", () => {
 					placements: Object.fromEntries(
 						[
 							"custom_pea_rework_type",
-							"custom_pea_rework_actual_start",
-							"custom_pea_rework_actual_end",
 							"custom_pea_rework_workstation",
 							"custom_pea_rework_operators",
 						].map((fieldname) => [fieldname, placement(fieldname)])
@@ -162,11 +160,7 @@ test.describe("Rework fields on Stock Entry", () => {
 			expect(layout.reworkSectionTop).toBeGreaterThan(layout.stockEntrySectionTop);
 			expect(layout.reworkSectionIndex).toBe(layout.stockEntrySectionIndex + 1);
 			expect(layout.columnFieldOrder).toEqual([
-				[
-					"custom_pea_rework_type",
-					"custom_pea_rework_actual_start",
-					"custom_pea_rework_actual_end",
-				],
+				["custom_pea_rework_type"],
 				["custom_pea_rework_workstation", "custom_pea_rework_operators"],
 			]);
 			expect(layout.reworkCostVisible).toBe(false);
@@ -177,16 +171,10 @@ test.describe("Rework fields on Stock Entry", () => {
 			expect(leftColumn).toBeTruthy();
 			expect(rightColumn).toBe("custom_pea_rework_column_break");
 			expect(leftColumn).not.toBe(rightColumn);
-			for (const fieldname of [
-				"custom_pea_rework_type",
-				"custom_pea_rework_actual_start",
-				"custom_pea_rework_actual_end",
-			]) {
-				expect(layout.placements[fieldname]).toEqual({
-					section: "custom_pea_rework_details_section",
-					column: leftColumn,
-				});
-			}
+			expect(layout.placements.custom_pea_rework_type).toEqual({
+				section: "custom_pea_rework_details_section",
+				column: leftColumn,
+			});
 			for (const fieldname of [
 				"custom_pea_rework_workstation",
 				"custom_pea_rework_operators",
@@ -267,19 +255,20 @@ test.describe("Rework fields on Stock Entry", () => {
 			expect(await stockEntryPage.isFieldVisible("custom_pea_rework_cost")).toBe(false);
 			expect(await stockEntryPage.isFieldVisible("custom_pea_shift")).toBe(false);
 
-			await page.evaluate((operator) => {
-				cur_frm.add_child("custom_pea_rework_operators", { operator });
-				cur_frm.refresh_field("custom_pea_rework_operators");
-			}, context.operator);
-			await setFieldValue(
-				page,
-				"custom_pea_rework_actual_start",
-				`${context.shift_date} 08:00:00`
-			);
-			await setFieldValue(
-				page,
-				"custom_pea_rework_actual_end",
-				`${context.shift_date} 09:00:00`
+			await page.evaluate(
+				({ operator, actualStart, actualEnd }) => {
+					cur_frm.add_child("custom_pea_rework_operators", {
+						operator,
+						actual_start: actualStart,
+						actual_end: actualEnd,
+					});
+					cur_frm.refresh_field("custom_pea_rework_operators");
+				},
+				{
+					operator: context.operator,
+					actualStart: `${context.shift_date} 08:00:00`,
+					actualEnd: `${context.shift_date} 09:00:00`,
+				}
 			);
 
 			await setFieldValue(page, "stock_entry_type", "Material Transfer");
@@ -288,8 +277,6 @@ test.describe("Rework fields on Stock Entry", () => {
 				return (
 					!doc.custom_pea_rework_type &&
 					!doc.custom_pea_rework_workstation &&
-					!doc.custom_pea_rework_actual_start &&
-					!doc.custom_pea_rework_actual_end &&
 					(doc.custom_pea_rework_operators || []).length === 0 &&
 					!doc.custom_pea_rework_cost
 				);

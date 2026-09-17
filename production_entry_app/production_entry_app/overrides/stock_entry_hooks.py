@@ -76,8 +76,6 @@ _ALLOWED_STOCK_ENTRY_SHIFT_STATUSES: tuple[str, ...] = ("Running", "Completed")
 _REWORK_FIELDS: tuple[str, ...] = (
 	"custom_pea_rework_type",
 	"custom_pea_rework_workstation",
-	"custom_pea_rework_actual_start",
-	"custom_pea_rework_actual_end",
 	"custom_pea_rework_operators",
 	"custom_pea_rework_cost",
 )
@@ -146,17 +144,12 @@ def _validate_rework_fields(doc: Document) -> None:
 		frappe.throw(_("Rework Type is required for Rework."))
 	if not doc.get("custom_pea_rework_workstation"):
 		frappe.throw(_("Rework Workstation is required for Rework."))
-	actual_start = _as_datetime(doc.get("custom_pea_rework_actual_start"))
-	actual_end = _as_datetime(doc.get("custom_pea_rework_actual_end"))
-	if not actual_start or not actual_end:
-		frappe.throw(_("Rework duration must be greater than zero."))
-	if actual_end <= actual_start:
-		frappe.throw(_("Rework Actual End must be after Rework Actual Start."))
-	operator_names = [
-		row.get("operator") for row in doc.get("custom_pea_rework_operators") or [] if row.get("operator")
-	]
-	if not operator_names:
+	operator_rows = [row for row in doc.get("custom_pea_rework_operators") or [] if row.get("operator")]
+	if not operator_rows:
 		frappe.throw(_("Rework requires at least one active Operator."))
+	for row in operator_rows:
+		_validate_rework_operator_working_window(row)
+	operator_names = [row.get("operator") for row in operator_rows]
 	inactive_operators = frappe.get_all(
 		"Operator",
 		filters={"name": ["in", operator_names], "is_active": 0},
@@ -170,22 +163,46 @@ def _validate_rework_fields(doc: Document) -> None:
 		)
 
 
+def _validate_rework_operator_working_window(row: Document | frappe._dict) -> None:
+	operator_label = row.get("operator") or _("Operator")
+	actual_start = _as_datetime(row.get("actual_start"))
+	actual_end = _as_datetime(row.get("actual_end"))
+	if not actual_start or not actual_end:
+		frappe.throw(
+			_("Operator {0} requires working time Actual Start and Actual End.").format(
+				_safe_bold(operator_label)
+			)
+		)
+	if actual_end <= actual_start:
+		frappe.throw(
+			_("Operator {0}: Actual End must be after Actual Start.").format(_safe_bold(operator_label))
+		)
+
+
+def _rework_operator_labour_hours(doc: Document) -> float | None:
+	"""Return total labour hours from operator windows, or None when inputs are incomplete."""
+	total_seconds = 0.0
+	has_named_operator = False
+	for row in doc.get("custom_pea_rework_operators") or []:
+		if not row.get("operator"):
+			continue
+		has_named_operator = True
+		actual_start = _as_datetime(row.get("actual_start"))
+		actual_end = _as_datetime(row.get("actual_end"))
+		if not actual_start or not actual_end or actual_end <= actual_start:
+			return None
+		total_seconds += (actual_end - actual_start).total_seconds()
+	if not has_named_operator:
+		return None
+	return total_seconds / SECONDS_PER_HOUR
+
+
 def _apply_rework_cost(doc: Document) -> None:
 	if not is_rework_stock_entry_type(doc):
 		return
 
-	actual_start = _as_datetime(doc.get("custom_pea_rework_actual_start"))
-	actual_end = _as_datetime(doc.get("custom_pea_rework_actual_end"))
-	operator_names = [
-		row.get("operator") for row in doc.get("custom_pea_rework_operators") or [] if row.get("operator")
-	]
-	if not (
-		doc.get("custom_pea_rework_workstation")
-		and actual_start
-		and actual_end
-		and actual_end > actual_start
-		and operator_names
-	):
+	labour_hours = _rework_operator_labour_hours(doc)
+	if not (doc.get("custom_pea_rework_workstation") and labour_hours is not None and labour_hours > 0):
 		# Leave validation errors to _validate_rework_fields; do not mutate additional_costs yet.
 		return
 
@@ -193,10 +210,8 @@ def _apply_rework_cost(doc: Document) -> None:
 		if doc.additional_costs[index].get("custom_pea_is_rework_cost"):
 			doc.additional_costs.pop(index)
 
-	operator_count = len(operator_names)
 	hour_rate = flt(frappe.db.get_value("Workstation", doc.get("custom_pea_rework_workstation"), "hour_rate"))
-	duration_hours = (actual_end - actual_start).total_seconds() / SECONDS_PER_HOUR
-	rework_cost = flt(duration_hours * operator_count * hour_rate, REWORK_COST_PRECISION)
+	rework_cost = flt(labour_hours * hour_rate, REWORK_COST_PRECISION)
 	expense_account = frappe.db.get_single_value(
 		"Production Entry Settings", "rework_expense_account"
 	) or frappe.db.get_value("Company", doc.get("company"), "default_operating_cost_account")

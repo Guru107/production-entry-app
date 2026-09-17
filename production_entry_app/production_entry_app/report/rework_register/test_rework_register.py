@@ -78,10 +78,21 @@ class TestReworkRegister(FrappeTestCase):
 		self.assertEqual(rows[0]["rework_entry"], entry)
 		self.assertEqual(rows[0]["items"], f"{self.item_a} (4), {self.item_b} (2)")
 		self.assertEqual(rows[0]["total_qty"], 6)
-		self.assertEqual(rows[0]["duration_hours"], 1.5)
+		self.assertEqual(rows[0]["duration_hours"], 3.0)
 		self.assertEqual(rows[0]["operator_names"], "Operator A, Operator B")
 		self.assertEqual(rows[0]["operator_count"], 2)
 		self.assertEqual(rows[0]["computed_cost"], 360)
+		frappe.db.set_value(
+			"Workstation",
+			"Register Workstation",
+			"hour_rate",
+			999,
+			update_modified=False,
+		)
+		_, rows_after_rate_change = rework_register.execute(
+			{"from_date": "2092-01-10", "to_date": "2092-01-10"}
+		)
+		self.assertEqual(rows_after_rate_change[0]["computed_cost"], 360)
 
 	def test_report_filters_by_date_type_item_and_workstation(self) -> None:
 		matching = self._insert_entry(
@@ -290,8 +301,6 @@ class TestReworkRegister(FrappeTestCase):
 				StockEntry.posting_date,
 				StockEntry.custom_pea_rework_type,
 				StockEntry.custom_pea_rework_workstation,
-				StockEntry.custom_pea_rework_actual_start,
-				StockEntry.custom_pea_rework_actual_end,
 				StockEntry.custom_pea_rework_cost,
 			)
 			.insert(
@@ -302,8 +311,6 @@ class TestReworkRegister(FrappeTestCase):
 				posting_date,
 				rework_type,
 				workstation,
-				start,
-				end,
 				cost,
 			)
 		).run()
@@ -340,6 +347,8 @@ class TestReworkRegister(FrappeTestCase):
 					ReworkOperator.parenttype,
 					ReworkOperator.parentfield,
 					ReworkOperator.operator,
+					ReworkOperator.actual_start,
+					ReworkOperator.actual_end,
 					ReworkOperator.idx,
 				)
 				.insert(
@@ -348,6 +357,8 @@ class TestReworkRegister(FrappeTestCase):
 					"Stock Entry",
 					"custom_pea_rework_operators",
 					operator,
+					start,
+					end,
 					idx,
 				)
 			).run()

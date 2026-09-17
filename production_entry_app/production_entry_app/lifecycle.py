@@ -12,8 +12,6 @@ REWORK_LAYOUT_FIELDNAMES = frozenset(
 	{
 		"custom_pea_rework_details_section",
 		"custom_pea_rework_type",
-		"custom_pea_rework_actual_start",
-		"custom_pea_rework_actual_end",
 		"custom_pea_rework_column_break",
 		"custom_pea_rework_workstation",
 		"custom_pea_rework_operators",

@@ -66,12 +66,13 @@ _Avoid_: Reopening a shift, editing a completed shift
 **Rework Operation**:
 A native Material Transfer Stock Entry, using the configured rework Stock Entry Type, that moves successfully
 reworked quantity from the Rejection Warehouse to the good warehouse and loads its labour cost onto that stock
-through one native additional-cost row. It records the Rework Type, Workstation, actual start/end times, and the
-named Operators involved. It is not managed through Shift: selecting the rework Stock Entry Type drops any
-Shift link together with the planned window, late-entry flag and loss links derived from it. The production
-instance owns `Stock Entry.branch`, so the source Rejection Warehouse resolves from the Company/Branch defaults;
-only hosts without that field (test environments) fall back to an explicitly set warehouse marked as rejected.
-Quantity not reworked stays in the Rejection Warehouse. See ADR 0002.
+through one native additional-cost row. It records the Rework Type, Workstation, and named Operators, each with
+their own working Actual Start and Actual End. Labour cost and Rework Register duration use the sum of those
+per-operator windows against the Workstation hour rate. It is not managed through Shift: selecting the rework
+Stock Entry Type drops any Shift link together with the planned window, late-entry flag and loss links derived
+from it. The production instance owns `Stock Entry.branch`, so the source Rejection Warehouse resolves from the
+Company/Branch defaults; only hosts without that field (test environments) fall back to an explicitly set
+warehouse marked as rejected. Quantity not reworked stays in the Rejection Warehouse. See ADR 0002.
 _Avoid_: Rework entry document type, rework repack
 
 **Rework Type**:

@@ -43,9 +43,16 @@ class TestReworkStockEntryFields(FrappeTestCase):
 
 	def test_rework_actual_end_must_be_later_than_start(self) -> None:
 		doc = self._make_rework_entry()
-		doc.custom_pea_rework_actual_end = doc.custom_pea_rework_actual_start
+		doc.append(
+			"custom_pea_rework_operators",
+			{
+				"operator": self.active_operator,
+				"actual_start": "2026-09-01 09:00:00",
+				"actual_end": "2026-09-01 08:00:00",
+			},
+		)
 
-		with self.assertRaisesRegex(frappe.ValidationError, "Rework Actual End must be after"):
+		with self.assertRaisesRegex(frappe.ValidationError, "Actual End must be after"):
 			validate_stock_entry(doc)
 
 	def test_rework_requires_at_least_one_operator(self) -> None:
@@ -56,7 +63,14 @@ class TestReworkStockEntryFields(FrappeTestCase):
 
 	def test_rework_rejects_inactive_operators(self) -> None:
 		doc = self._make_rework_entry()
-		doc.append("custom_pea_rework_operators", {"operator": self.inactive_operator})
+		doc.append(
+			"custom_pea_rework_operators",
+			{
+				"operator": self.inactive_operator,
+				"actual_start": "2026-09-01 08:00:00",
+				"actual_end": "2026-09-01 09:00:00",
+			},
+		)
 
 		with self.assertRaisesRegex(frappe.ValidationError, "Inactive Rework Operator.*is inactive"):
 			validate_stock_entry(doc)
@@ -64,7 +78,14 @@ class TestReworkStockEntryFields(FrappeTestCase):
 	def test_rework_requires_rework_type(self) -> None:
 		doc = self._make_rework_entry()
 		doc.custom_pea_rework_type = None
-		doc.append("custom_pea_rework_operators", {"operator": self.active_operator})
+		doc.append(
+			"custom_pea_rework_operators",
+			{
+				"operator": self.active_operator,
+				"actual_start": "2026-09-01 08:00:00",
+				"actual_end": "2026-09-01 09:00:00",
+			},
+		)
 
 		with self.assertRaisesRegex(frappe.ValidationError, "Rework Type is required"):
 			validate_stock_entry(doc)
@@ -72,7 +93,14 @@ class TestReworkStockEntryFields(FrappeTestCase):
 	def test_rework_requires_workstation(self) -> None:
 		doc = self._make_rework_entry()
 		doc.custom_pea_rework_workstation = None
-		doc.append("custom_pea_rework_operators", {"operator": self.active_operator})
+		doc.append(
+			"custom_pea_rework_operators",
+			{
+				"operator": self.active_operator,
+				"actual_start": "2026-09-01 08:00:00",
+				"actual_end": "2026-09-01 09:00:00",
+			},
+		)
 
 		with self.assertRaisesRegex(frappe.ValidationError, "Rework Workstation is required"):
 			validate_stock_entry(doc)
@@ -81,8 +109,6 @@ class TestReworkStockEntryFields(FrappeTestCase):
 		values = {
 			"custom_pea_rework_type": "Deburring",
 			"custom_pea_rework_workstation": "Rework Workstation",
-			"custom_pea_rework_actual_start": "2026-09-01 08:00:00",
-			"custom_pea_rework_actual_end": "2026-09-01 09:00:00",
 			"custom_pea_rework_cost": 50,
 		}
 		for fieldname, value in values.items():
@@ -97,13 +123,27 @@ class TestReworkStockEntryFields(FrappeTestCase):
 		doc = frappe.new_doc("Stock Entry")
 		doc.purpose = "Material Transfer"
 		doc.stock_entry_type = self.normal_stock_entry_type
-		doc.append("custom_pea_rework_operators", {"operator": self.active_operator})
+		doc.append(
+			"custom_pea_rework_operators",
+			{
+				"operator": self.active_operator,
+				"actual_start": "2026-09-01 08:00:00",
+				"actual_end": "2026-09-01 09:00:00",
+			},
+		)
 		with self.assertRaisesRegex(frappe.ValidationError, "Rework fields can only be used"):
 			validate_stock_entry(doc)
 
 	def test_active_operator_with_valid_rework_times_passes_validation(self) -> None:
 		doc = self._make_rework_entry()
-		doc.append("custom_pea_rework_operators", {"operator": self.active_operator})
+		doc.append(
+			"custom_pea_rework_operators",
+			{
+				"operator": self.active_operator,
+				"actual_start": "2026-09-01 08:00:00",
+				"actual_end": "2026-09-01 09:00:00",
+			},
+		)
 
 		validate_stock_entry(doc)
 
@@ -116,7 +156,14 @@ class TestReworkStockEntryFields(FrappeTestCase):
 
 	def test_rework_entry_drops_stale_shift_and_shift_derived_fields(self) -> None:
 		doc = self._make_rework_entry()
-		doc.append("custom_pea_rework_operators", {"operator": self.active_operator})
+		doc.append(
+			"custom_pea_rework_operators",
+			{
+				"operator": self.active_operator,
+				"actual_start": "2026-09-01 08:00:00",
+				"actual_end": "2026-09-01 09:00:00",
+			},
+		)
 		doc.custom_pea_shift = "SHIFT-STALE"
 		doc.custom_pea_planned_start_date = "2026-09-01 08:00:00"
 		doc.custom_pea_planned_end_date = "2026-09-01 16:00:00"
@@ -137,6 +184,4 @@ class TestReworkStockEntryFields(FrappeTestCase):
 		doc.stock_entry_type = self.rework_stock_entry_type
 		doc.custom_pea_rework_type = "Deburring"
 		doc.custom_pea_rework_workstation = "Rework Workstation"
-		doc.custom_pea_rework_actual_start = "2026-09-01 08:00:00"
-		doc.custom_pea_rework_actual_end = "2026-09-01 09:00:00"
 		return doc

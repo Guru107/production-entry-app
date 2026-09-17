@@ -8,7 +8,7 @@ Each row represents one submitted Stock Entry whose Stock Entry Type is marked a
   Production Date.
 - `Items + Qty` lists each Stock Entry Detail item and its quantity in child-row order.
 - `Total Qty = sum(Stock Entry Detail qty)`.
-- `Duration (Hours) = (Rework Actual End - Rework Actual Start) / 3600`.
+- `Duration (Hours) = sum over Rework Operator rows of (Actual End - Actual Start) / 3600`.
 - `Operators` lists the named Rework Operator rows in child-row order.
 - `Operator Count = count(named Rework Operator rows)`.
 - `Computed Cost = stored Stock Entry custom_pea_rework_cost`. The report does not recalculate historical cost
