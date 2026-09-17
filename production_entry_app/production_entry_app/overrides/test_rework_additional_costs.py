@@ -95,7 +95,7 @@ class TestReworkAdditionalCosts(FrappeTestCase):
 
 		before_validate_stock_entry(doc)
 
-		# 1.0h + 0.5h = 1.5h labour × hour_rate 120
+		# 1.0h + 0.5h = 1.5h labour x hour_rate 120
 		self.assertEqual(doc.custom_pea_rework_cost, 180)
 		self.assertEqual(doc.additional_costs[0].amount, 180)
 
