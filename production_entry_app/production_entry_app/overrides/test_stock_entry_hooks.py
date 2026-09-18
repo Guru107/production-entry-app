@@ -1094,6 +1094,17 @@ def _create_bom_stock_entry(
 	return se
 
 
+def _set_shift_capture_defaults(se: Document, shift: Document) -> None:
+	se.custom_pea_workstation = "SE Hook Default Workstation"
+	se.custom_pea_operator = "SE Hook Default Operator"
+	ensure_workstation(se.custom_pea_workstation, standard_spm=2)
+	ensure_operator(se.custom_pea_operator)
+	start = frappe.utils.get_datetime(f"{shift.shift_date} {shift.planned_start_time}")
+	end = frappe.utils.add_to_date(start, hours=int(shift.shift_duration))
+	se.custom_pea_actual_start_date = start
+	se.custom_pea_actual_end_date = end
+
+
 def _create_manufacture_stock_entry(
 	company: str,
 	fg_item: str,
@@ -1120,6 +1131,8 @@ def _create_manufacture_stock_entry(
 
 	if custom_pea_shift:
 		se.custom_pea_shift = custom_pea_shift
+		shift = frappe.get_doc("Shift", custom_pea_shift)
+		_set_shift_capture_defaults(se, shift)
 	if custom_pea_rejection_qty:
 		se.custom_pea_rejection_qty = custom_pea_rejection_qty
 
@@ -1777,7 +1790,9 @@ class TestStockEntryHooks(FrappeTestCase):
 			places=3,
 		)
 		self.assertAlmostEqual(
-			float(se.custom_pea_operator_efficiency_pct), float((total_strokes / 80.0) * 100), places=2
+			float(se.custom_pea_operator_efficiency_pct),
+			float((total_strokes / (80.0 * se.custom_pea_standard_spm)) * 100),
+			places=2,
 		)
 		self.assertNotIsInstance(se.get("custom_pea_actual_spm"), str)
 		self.assertNotIsInstance(se.get("custom_pea_operator_efficiency_pct"), str)
@@ -1971,7 +1986,7 @@ class TestStockEntryHooks(FrappeTestCase):
 		)
 		self.assertFalse(se.get("custom_pea_metrics_note"))
 
-	def test_metrics_remain_empty_when_actual_times_missing(self) -> None:
+	def test_metrics_require_complete_actual_times(self) -> None:
 		shift = _create_test_shift(
 			shift_date="2026-04-17",
 			wip_warehouse=self.wip_warehouse,
@@ -1988,13 +2003,8 @@ class TestStockEntryHooks(FrappeTestCase):
 		)
 		se.custom_pea_actual_start_date = "2026-04-17 08:00:00"
 		se.custom_pea_actual_end_date = None
-		se.save()
-
-		self.assertFalse(se.get("custom_pea_actual_duration_mins"))
-		self.assertFalse(se.get("custom_pea_production_time_mins"))
-		self.assertFalse(se.get("custom_pea_actual_spm"))
-		self.assertFalse(se.get("custom_pea_cycle_time_sec"))
-		self.assertFalse(se.get("custom_pea_operator_efficiency_pct"))
+		with self.assertRaisesRegex(ValidationError, "Actual End Date"):
+			se.save()
 
 	def test_metrics_zero_duration_clears_metric_fields(self) -> None:
 		shift = _create_test_shift(
@@ -2269,6 +2279,7 @@ class TestStockEntryHooks(FrappeTestCase):
 			rm_warehouse=self.rm_warehouse,
 		)
 		se.custom_pea_shift = shift.name
+		_set_shift_capture_defaults(se, shift)
 
 		se.save()
 
@@ -2967,7 +2978,7 @@ class TestStockEntryHooks(FrappeTestCase):
 
 		se.custom_pea_shift = ""
 		se.save()
-		self.assertEqual(se.custom_pea_unplanned_losses[0].shift, "")
+		self.assertEqual(se.custom_pea_unplanned_losses, [])
 
 	def test_draft_stock_entry_rehydrates_updated_planned_end_from_running_shift(self) -> None:
 		"""When a Running shift's duration is changed, a new (draft) Stock Entry
@@ -3209,8 +3220,14 @@ class TestOverlapValidation(FrappeTestCase):
 			se.custom_pea_actual_end_date = end
 		if workstation:
 			se.custom_pea_workstation = workstation
+		elif operator:
+			se.custom_pea_workstation = (
+				self.workstation_2 if start and ":30:" in start else self.workstation_1
+			)
 		if operator:
 			se.custom_pea_operator = operator
+		elif workstation:
+			se.custom_pea_operator = self.operator_2 if workstation == self.workstation_2 else self.operator_1
 		return se
 
 	def _create_repack_entry(
@@ -3260,8 +3277,14 @@ class TestOverlapValidation(FrappeTestCase):
 			se.custom_pea_actual_end_date = end
 		if workstation:
 			se.custom_pea_workstation = workstation
+		elif operator:
+			se.custom_pea_workstation = (
+				self.workstation_2 if start and ":30:" in start else self.workstation_1
+			)
 		if operator:
 			se.custom_pea_operator = operator
+		elif workstation:
+			se.custom_pea_operator = self.operator_2 if workstation == self.workstation_2 else self.operator_1
 		return se
 
 	def _create_joint_repack_entry(
@@ -3274,6 +3297,10 @@ class TestOverlapValidation(FrappeTestCase):
 		operator: str | None = None,
 		stock_entry_type: str | None = None,
 	) -> frappe.Document:
+		if workstation and not operator:
+			operator = self.operator_2 if workstation == self.workstation_2 else self.operator_1
+		elif operator and not workstation:
+			workstation = self.workstation_2 if start and ":30:" in start else self.workstation_1
 		posting_date = frappe.db.get_value("Shift", shift_name, "shift_date") if shift_name else None
 		ensure_stock(
 			self.joint_rm_item,
@@ -3464,9 +3491,11 @@ class TestOverlapValidation(FrappeTestCase):
 		) as find_overlap:
 			se.save()
 
-		find_overlap.assert_called_once_with(se, "custom_pea_workstation", self.workstation_1)
+		self.assertEqual(find_overlap.call_count, 2)
+		find_overlap.assert_any_call(se, "custom_pea_workstation", self.workstation_1)
+		find_overlap.assert_any_call(se, "custom_pea_operator", self.operator_1)
 
-	def test_workstation_overlap_skipped_without_actual_times(self) -> None:
+	def test_shift_based_entry_requires_actual_times_before_overlap(self) -> None:
 		shift = _create_test_shift(shift_date="2026-05-06", wip_warehouse=self.wip_warehouse)
 		first = self._create_entry(
 			shift_name=shift.name,
@@ -3480,10 +3509,12 @@ class TestOverlapValidation(FrappeTestCase):
 			shift_name=shift.name,
 			workstation=self.workstation_1,
 		)
-		second.save()
-		self.assertTrue(bool(second.name))
+		second.custom_pea_actual_start_date = None
+		second.custom_pea_actual_end_date = None
+		with self.assertRaisesRegex(ValidationError, "Actual Start Date"):
+			second.save()
 
-	def test_workstation_overlap_skipped_without_workstation(self) -> None:
+	def test_shift_based_entry_requires_workstation_before_overlap(self) -> None:
 		shift = _create_test_shift(shift_date="2026-05-07", wip_warehouse=self.wip_warehouse)
 		first = self._create_entry(
 			shift_name=shift.name,
@@ -3498,8 +3529,9 @@ class TestOverlapValidation(FrappeTestCase):
 			start="2026-05-07 08:30:00",
 			end="2026-05-07 09:30:00",
 		)
-		second.save()
-		self.assertTrue(bool(second.name))
+		second.custom_pea_workstation = None
+		with self.assertRaisesRegex(ValidationError, "Workstation"):
+			second.save()
 
 	def test_workstation_error_is_prioritized_when_both_workstation_and_operator_overlap(self) -> None:
 		shift = _create_test_shift(
@@ -3872,7 +3904,7 @@ class TestOverlapValidation(FrappeTestCase):
 
 		find_overlap.assert_called_once_with(se, "custom_pea_operator", self.operator_2)
 
-	def test_operator_overlap_skipped_without_operator(self) -> None:
+	def test_shift_based_entry_requires_operator_before_overlap(self) -> None:
 		shift = _create_test_shift(
 			shift_date="2026-05-01",
 			shift_label="2",
@@ -3892,8 +3924,9 @@ class TestOverlapValidation(FrappeTestCase):
 			start="2026-05-01 16:30:00",
 			end="2026-05-01 17:30:00",
 		)
-		second.save()
-		self.assertTrue(bool(second.name))
+		second.custom_pea_operator = None
+		with self.assertRaisesRegex(ValidationError, "Operator"):
+			second.save()
 
 	def test_overlap_blocks_joint_repack_when_workstation_and_operator_match_manufacture(self) -> None:
 		shift = _create_test_shift(

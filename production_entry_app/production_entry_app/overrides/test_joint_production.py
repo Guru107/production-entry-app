@@ -59,6 +59,7 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	ensure_item,
 	ensure_joint_test_bom,
 	ensure_operation,
+	ensure_operator,
 	ensure_stock,
 	ensure_workstation,
 	get_joint_bom_scrap_rate,
@@ -414,6 +415,10 @@ class TestJointProductionItems(FrappeTestCase):
 			with self.subTest(shift=shift_name):
 				entry = frappe.copy_doc(doc)
 				entry.custom_pea_shift = shift_name
+				if not shift_name:
+					entry.custom_pea_lh_rejection_qty = 0
+					entry.custom_pea_rh_rejection_qty = 0
+					entry.set("custom_pea_rejection_breakup", [])
 				entry.set("items", get_joint_production_items(json.dumps(entry.as_dict(), default=str)))
 				entry.insert(ignore_permissions=True)
 				entry.submit()
@@ -548,6 +553,10 @@ class TestJointProductionItems(FrappeTestCase):
 			update_modified=False,
 		)
 		self.stock_entry_type = JOINT_LH_RH_STOCK_ENTRY_TYPE
+		self.workstation = "Joint Production Workstation"
+		self.operator = "Joint Production Operator"
+		ensure_workstation(self.workstation, standard_spm=2)
+		ensure_operator(self.operator)
 
 	def tearDown(self) -> None:
 		frappe.db.rollback()
@@ -2318,6 +2327,8 @@ class TestJointProductionItems(FrappeTestCase):
 				finally:
 					if cleanup:
 						cleanup()
+					if doc.name and frappe.db.exists("Stock Entry", doc.name):
+						frappe.delete_doc("Stock Entry", doc.name, force=True, ignore_permissions=True)
 
 	def _make_post_shearing_entry(
 		self,
@@ -2414,6 +2425,8 @@ class TestJointProductionItems(FrappeTestCase):
 				"custom_pea_total_strokes": 41,
 				"custom_pea_standard_spm": 2,
 				"custom_pea_die_tool_item": self.lh_item,
+				"custom_pea_workstation": self.workstation,
+				"custom_pea_operator": self.operator,
 				"custom_pea_rejection_breakup": (
 					[
 						{
