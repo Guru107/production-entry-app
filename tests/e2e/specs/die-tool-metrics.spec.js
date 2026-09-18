@@ -77,7 +77,9 @@ test.describe("Die tool metrics and counter", () => {
 		expect(Number(stockEntry.custom_pea_production_time_mins || 0)).toBe(20);
 	});
 
-	test("@regression missing actual end is required for Shift-based entries", async ({ page }) => {
+	test("@regression missing actual end is required for Shift-based entries", async ({
+		page,
+	}) => {
 		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 
