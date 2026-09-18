@@ -118,6 +118,7 @@ def validate_stock_entry(doc: Document, method: str | None = None) -> None:
 	_validate_workstation_overlap(doc)
 	_validate_operator_overlap(doc)
 	_validate_workstation_downtime_overlap(doc)
+	_validate_standard_spm(doc)
 	_default_total_strokes(doc)
 	if is_joint_lh_rh_production(doc):
 		validate_and_apply_joint_production(doc)
@@ -506,6 +507,39 @@ def is_production_overlap_entry(doc: Document) -> bool:
 		doc.get("purpose") == "Manufacture"
 		or (doc.get("purpose") == "Repack" and is_joint_lh_rh_stock_entry_type(doc))
 	)
+
+
+def _validate_standard_spm(doc: Document) -> None:
+	"""Require a positive Standard SPM snapshot on manufacture / joint production entries.
+
+	When the entry value is missing or zero, copy Workstation.custom_pea_standard_spm once so
+	drafts pick up a master rate set after the entry was created. Still fail if the rate remains
+	zero — OEE and efficiency metrics cannot use a zero standard.
+	"""
+	if not is_production_overlap_entry(doc):
+		return
+	_sync_standard_spm_from_workstation(doc)
+	if flt(doc.get("custom_pea_standard_spm") or 0) > 0:
+		return
+	workstation = doc.get("custom_pea_workstation")
+	if workstation:
+		frappe.throw(
+			_(
+				"Standard SPM must be greater than zero. Set Standard SPM on Workstation {0}."
+			).format(_safe_bold(workstation))
+		)
+	frappe.throw(_("Standard SPM must be greater than zero."))
+
+
+def _sync_standard_spm_from_workstation(doc: Document) -> None:
+	if flt(doc.get("custom_pea_standard_spm") or 0) > 0:
+		return
+	workstation = doc.get("custom_pea_workstation")
+	if not workstation:
+		return
+	workstation_spm = frappe.db.get_value("Workstation", workstation, "custom_pea_standard_spm")
+	if flt(workstation_spm) > 0:
+		doc.set("custom_pea_standard_spm", flt(workstation_spm))
 
 
 def _did_overlap_inputs_change(doc: Document, fieldnames: tuple[str, ...]) -> bool:

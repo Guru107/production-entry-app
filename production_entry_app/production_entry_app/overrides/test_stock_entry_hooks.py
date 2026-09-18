@@ -395,6 +395,93 @@ class TestStockEntryHookPureHelpers(FrappeTestCase):
 		):
 			self.assertEqual(stock_entry_hooks._get_docfield_precision("Stock Entry", "missing", object()), 3)
 
+	def test_validate_standard_spm_rejects_zero_on_manufacture(self) -> None:
+		doc = frappe._dict(
+			{
+				"purpose": "Manufacture",
+				"stock_entry_type": "Manufacture",
+				"custom_pea_workstation": "WS-SPM-ZERO",
+				"custom_pea_standard_spm": 0,
+			}
+		)
+		with (
+			patch.object(stock_entry_hooks, "is_production_overlap_entry", return_value=True),
+			patch(
+				"production_entry_app.production_entry_app.overrides.stock_entry_hooks.frappe.db.get_value",
+				return_value=0,
+			),
+			self.assertRaisesRegex(frappe.ValidationError, "Standard SPM must be greater than zero"),
+		):
+			stock_entry_hooks._validate_standard_spm(doc)
+
+	def test_validate_standard_spm_syncs_from_workstation_when_entry_is_zero(self) -> None:
+		doc = frappe._dict(
+			{
+				"purpose": "Manufacture",
+				"stock_entry_type": "Manufacture",
+				"custom_pea_workstation": "WS-SPM-EIGHT",
+				"custom_pea_standard_spm": 0,
+			}
+		)
+		doc.set = lambda fieldname, value: doc.update({fieldname: value})
+		with (
+			patch.object(stock_entry_hooks, "is_production_overlap_entry", return_value=True),
+			patch(
+				"production_entry_app.production_entry_app.overrides.stock_entry_hooks.frappe.db.get_value",
+				return_value=8,
+			),
+		):
+			stock_entry_hooks._validate_standard_spm(doc)
+		self.assertEqual(float(doc.custom_pea_standard_spm), 8.0)
+
+	def test_validate_standard_spm_keeps_positive_entry_snapshot(self) -> None:
+		doc = frappe._dict(
+			{
+				"purpose": "Manufacture",
+				"custom_pea_workstation": "WS-SPM-EIGHT",
+				"custom_pea_standard_spm": 5,
+			}
+		)
+		with (
+			patch.object(stock_entry_hooks, "is_production_overlap_entry", return_value=True),
+			patch(
+				"production_entry_app.production_entry_app.overrides.stock_entry_hooks.frappe.db.get_value",
+				return_value=8,
+			) as get_value,
+		):
+			stock_entry_hooks._validate_standard_spm(doc)
+		get_value.assert_not_called()
+		self.assertEqual(float(doc.custom_pea_standard_spm), 5.0)
+
+	def test_validate_standard_spm_skips_non_production_entries(self) -> None:
+		doc = frappe._dict(
+			{
+				"purpose": "Material Transfer",
+				"custom_pea_standard_spm": 0,
+			}
+		)
+		with patch.object(stock_entry_hooks, "is_production_overlap_entry", return_value=False):
+			stock_entry_hooks._validate_standard_spm(doc)
+
+	def test_validate_standard_spm_rejects_zero_on_joint_production(self) -> None:
+		doc = frappe._dict(
+			{
+				"purpose": "Repack",
+				"stock_entry_type": JOINT_LH_RH_STOCK_ENTRY_TYPE,
+				"custom_pea_workstation": "WS-JOINT-SPM-ZERO",
+				"custom_pea_standard_spm": 0,
+			}
+		)
+		with (
+			patch.object(stock_entry_hooks, "is_production_overlap_entry", return_value=True),
+			patch(
+				"production_entry_app.production_entry_app.overrides.stock_entry_hooks.frappe.db.get_value",
+				return_value=0,
+			),
+			self.assertRaisesRegex(frappe.ValidationError, "Standard SPM must be greater than zero"),
+		):
+			stock_entry_hooks._validate_standard_spm(doc)
+
 	def test_validate_rejection_target_warehouses_requires_target(self) -> None:
 		doc = frappe._dict(
 			{
@@ -733,6 +820,7 @@ def _create_manufacture_stock_entry(
 			"company": company,
 			"fg_completed_qty": fg_qty,
 			"custom_pea_total_strokes": fg_qty,
+			"custom_pea_standard_spm": 2,
 		}
 	)
 
@@ -2847,6 +2935,7 @@ class TestOverlapValidation(FrappeTestCase):
 				"purpose": "Repack",
 				"stock_entry_type": stock_entry_type or self.joint_repack_type,
 				"company": self.company,
+				"custom_pea_standard_spm": 2,
 			}
 		)
 		se.append(

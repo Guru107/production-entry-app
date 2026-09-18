@@ -2351,6 +2351,7 @@ class TestJointProductionItems(FrappeTestCase):
 				"custom_pea_rh_gross_qty": rh_gross_qty,
 				"custom_pea_rh_rejection_qty": rh_rejection_qty,
 				"custom_pea_total_strokes": 41,
+				"custom_pea_standard_spm": 2,
 				"custom_pea_die_tool_item": self.lh_item,
 				"custom_pea_rejection_breakup": (
 					[

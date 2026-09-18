@@ -78,6 +78,7 @@ def direct_manufacture_doc_dict(
 		"purpose": "Manufacture",
 		"stock_entry_type": "Manufacture",
 		"custom_pea_rejection_qty": rejection_qty,
+		"custom_pea_standard_spm": 2,
 		"use_multi_level_bom": 0,
 	}
 
@@ -139,6 +140,7 @@ def make_direct_manufacture_entry(
 			"fg_completed_qty": fg_qty,
 			"custom_pea_shift": shift,
 			"custom_pea_rejection_qty": rejection_qty,
+			"custom_pea_standard_spm": 2,
 			"from_warehouse": masters["wip_warehouse"],
 			"to_warehouse": masters["fg_warehouse"],
 			"posting_date": shift_doc.shift_date,
