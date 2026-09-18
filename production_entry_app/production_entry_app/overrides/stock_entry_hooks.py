@@ -274,12 +274,13 @@ def _apply_rework_cost(doc: Document) -> None:
 def _default_total_strokes(doc: Document) -> None:
 	if doc.get("purpose") != "Manufacture" or is_joint_lh_rh_production(doc):
 		return
-	total_strokes = doc.get("custom_pea_total_strokes")
-	if total_strokes in (None, "") or flt(total_strokes) == 0:
-		doc.set("custom_pea_total_strokes", flt(doc.get("fg_completed_qty")))
+	if not is_shift_based_production_entry(doc):
 		return
-	if flt(total_strokes) <= 0:
-		frappe.throw(_("Total Press Strokes must be greater than zero."))
+	total_strokes = doc.get("custom_pea_total_strokes")
+	if total_strokes in (None, ""):
+		return
+	if flt(total_strokes) < 0:
+		frappe.throw(_("Total Press Strokes cannot be negative."))
 
 
 def _clear_shift_context(doc: Document) -> None:

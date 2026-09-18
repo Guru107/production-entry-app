@@ -246,7 +246,7 @@ class TestJointProductionCalculations(FrappeTestCase):
 					[("SCRAP-V16", 1.5, "Kg")],
 				)
 
-	def test_normal_manufacture_defaults_zero_strokes_and_rejects_negative_strokes(self) -> None:
+	def test_normal_manufacture_leaves_zero_strokes_and_rejects_negative_strokes(self) -> None:
 		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
 			_default_total_strokes,
 		)
@@ -255,15 +255,16 @@ class TestJointProductionCalculations(FrappeTestCase):
 			{
 				"doctype": "Stock Entry",
 				"purpose": "Manufacture",
+				"custom_pea_shift": "SHIFT-1",
 				"fg_completed_qty": 100,
 				"custom_pea_total_strokes": 0,
 			}
 		)
 		_default_total_strokes(entry)
-		self.assertEqual(entry.custom_pea_total_strokes, 100)
+		self.assertEqual(entry.custom_pea_total_strokes, 0)
 
 		entry.custom_pea_total_strokes = -1
-		with self.assertRaisesRegex(frappe.ValidationError, "greater than zero"):
+		with self.assertRaisesRegex(frappe.ValidationError, "Total Press Strokes"):
 			_default_total_strokes(entry)
 
 	def test_joint_rm_consumption_adds_bom_sheet_capacity_shares(self) -> None:
@@ -2183,7 +2184,7 @@ class TestJointProductionItems(FrappeTestCase):
 			fg_qty=100,
 			rejection_qty=2,
 		)
-		self.assertEqual(draft.custom_pea_total_strokes, 100)
+		self.assertEqual(flt(draft.custom_pea_total_strokes or 0), 0)
 		draft.custom_pea_total_strokes = 40
 		doc = frappe.get_doc("Stock Entry", frappe.client.submit(draft.as_dict())["name"])
 

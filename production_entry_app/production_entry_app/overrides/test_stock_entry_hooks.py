@@ -9,6 +9,7 @@ import frappe
 from frappe.exceptions import ValidationError
 from frappe.model.document import Document
 from frappe.tests.utils import FrappeTestCase
+from frappe.utils import flt
 
 from production_entry_app.production_entry_app.api import get_joint_production_items
 from production_entry_app.production_entry_app.joint_production import JOINT_LH_RH_STOCK_ENTRY_TYPE
@@ -526,6 +527,109 @@ class TestStockEntryHookPureHelpers(FrappeTestCase):
 		self.assertEqual(doc.custom_pea_lh_gross_qty, 10)
 		self.assertEqual(doc.custom_pea_rh_gross_qty, 11)
 		self.assertEqual(doc.custom_pea_operation, "Shearing")
+
+	def test_default_total_strokes_skips_stock_only_manufacture(self) -> None:
+		doc = frappe._dict(
+			{
+				"purpose": "Manufacture",
+				"custom_pea_shift": "",
+				"fg_completed_qty": 100,
+				"custom_pea_total_strokes": 0,
+			}
+		)
+		doc.set = lambda fieldname, value: doc.update({fieldname: value})
+		with patch.object(stock_entry_hooks, "is_joint_lh_rh_production", return_value=False):
+			stock_entry_hooks._default_total_strokes(doc)
+		self.assertEqual(flt(doc.custom_pea_total_strokes), 0)
+
+	def test_default_total_strokes_leaves_zero_on_shift_based_assembly(self) -> None:
+		doc = frappe._dict(
+			{
+				"purpose": "Manufacture",
+				"custom_pea_shift": "SHIFT-1",
+				"fg_completed_qty": 100,
+				"custom_pea_total_strokes": 0,
+			}
+		)
+		doc.set = lambda fieldname, value: doc.update({fieldname: value})
+		with patch.object(stock_entry_hooks, "is_joint_lh_rh_production", return_value=False):
+			stock_entry_hooks._default_total_strokes(doc)
+		self.assertEqual(flt(doc.custom_pea_total_strokes), 0)
+
+	def test_default_total_strokes_rejects_negative(self) -> None:
+		doc = frappe._dict(
+			{
+				"purpose": "Manufacture",
+				"custom_pea_shift": "SHIFT-1",
+				"custom_pea_total_strokes": -1,
+			}
+		)
+		with (
+			patch.object(stock_entry_hooks, "is_joint_lh_rh_production", return_value=False),
+			self.assertRaisesRegex(frappe.ValidationError, "Total Press Strokes"),
+		):
+			stock_entry_hooks._default_total_strokes(doc)
+
+	def test_stock_only_clear_then_default_total_strokes_leaves_zero_or_none(self) -> None:
+		scalar_fields = (
+			"custom_pea_planned_start_date",
+			"custom_pea_planned_end_date",
+			"custom_pea_actual_start_date",
+			"custom_pea_actual_end_date",
+			"custom_pea_actual_start_date_input",
+			"custom_pea_actual_start_time_input",
+			"custom_pea_actual_end_date_input",
+			"custom_pea_actual_end_time_input",
+			"custom_pea_workstation",
+			"custom_pea_operator",
+			"custom_pea_standard_spm",
+			"custom_pea_rejection_qty",
+			"custom_pea_rework_qty",
+			"custom_pea_ok_qty",
+			"custom_pea_total_strokes",
+			"custom_pea_die_tool_item",
+			"custom_pea_lh_rejection_qty",
+			"custom_pea_rh_rejection_qty",
+			"custom_pea_actual_duration_mins",
+			"custom_pea_production_time_mins",
+			"custom_pea_actual_spm",
+			"custom_pea_cycle_time_sec",
+			"custom_pea_operator_efficiency_pct",
+			"custom_pea_metrics_note",
+			"custom_pea_die_tool_utilization_pct",
+			"custom_pea_die_tool_maintenance_due",
+		)
+		table_fields = ("custom_pea_unplanned_losses", "custom_pea_rejection_breakup")
+		gated_values = {
+			fieldname: [{"value": "set"}] if fieldname in table_fields else "set"
+			for fieldname in (*scalar_fields, *table_fields)
+		}
+		doc = frappe._dict(
+			{
+				"purpose": "Manufacture",
+				"stock_entry_type": "Manufacture",
+				"custom_pea_shift": "",
+				"fg_completed_qty": 100,
+				**gated_values,
+			}
+		)
+		doc.set = lambda fieldname, value: doc.update({fieldname: value})
+		meta = type("Meta", (), {"has_field": lambda self, fieldname: True})()
+
+		with (
+			patch.object(stock_entry_hooks, "is_rework_stock_entry_type", return_value=False),
+			patch.object(stock_entry_hooks, "is_production_overlap_entry", return_value=True),
+			patch.object(stock_entry_hooks.frappe, "get_meta", return_value=meta),
+		):
+			stock_entry_hooks._clear_shift_gated_capture_fields(doc)
+			stock_entry_hooks._default_total_strokes(doc)
+
+		self.assertIsNone(doc.get("custom_pea_total_strokes"))
+
+		doc.custom_pea_total_strokes = 0
+		with patch.object(stock_entry_hooks, "is_joint_lh_rh_production", return_value=False):
+			stock_entry_hooks._default_total_strokes(doc)
+		self.assertEqual(flt(doc.custom_pea_total_strokes), 0)
 
 	def test_shift_based_requires_workstation(self) -> None:
 		doc = self._shift_based_required_fields_doc(custom_pea_workstation="")
