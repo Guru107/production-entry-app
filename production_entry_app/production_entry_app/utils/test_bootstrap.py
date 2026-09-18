@@ -175,6 +175,7 @@ def ensure_production_owned_joint_metadata() -> None:
 		insert_after="stock_entry_type",
 	)
 
+
 def set_test_branch_warehouse_defaults(company: str, branch: str, **warehouses: str | None) -> None:
 	"""Update only the test's Company/Branch row; test cleanup restores the snapshot."""
 	settings = frappe.get_single("Production Entry Settings")
