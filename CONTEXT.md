@@ -9,6 +9,16 @@ outputs, quality quantities, elapsed time, losses, and press strokes.
 A record of one physical production operation and its material, output, quality, time, loss, and stroke facts.
 _Avoid_: Manufacturing entry, operation entry
 
+**Shift-based Production Entry**:
+A Manufacture or Joint Production Entry with `custom_pea_shift` set. Captures time,
+resources, losses, rejection, strokes, and metrics in addition to stock.
+_Avoid_: Full production entry, supervised entry
+
+**Stock-only Production Entry**:
+A Manufacture or Joint Production Entry with no Shift. Records inventory from BOM(s)
+and fetch-items only. Excluded from Shift summaries and Production Date Range.
+_Avoid_: Non-shift manufacturing entry, simple stock manufacture
+
 **Joint Production**:
 One physical stamping operation that produces paired LH and RH outputs while tracking each side's
 gross quantity and rejection quantity separately. It is always two selected BOMs — one LH and one RH —

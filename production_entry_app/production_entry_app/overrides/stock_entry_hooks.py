@@ -509,6 +509,10 @@ def is_production_overlap_entry(doc: Document) -> bool:
 	)
 
 
+def is_shift_based_production_entry(doc: Document) -> bool:
+	return bool(doc.get("custom_pea_shift") and is_production_overlap_entry(doc))
+
+
 def _validate_standard_spm(doc: Document) -> None:
 	"""Require a positive Standard SPM snapshot on manufacture / joint production entries.
 
@@ -516,7 +520,7 @@ def _validate_standard_spm(doc: Document) -> None:
 	drafts pick up a master rate set after the entry was created. Still fail if the rate remains
 	zero — OEE and efficiency metrics cannot use a zero standard.
 	"""
-	if not is_production_overlap_entry(doc):
+	if not is_shift_based_production_entry(doc):
 		return
 	_sync_standard_spm_from_workstation(doc)
 	if flt(doc.get("custom_pea_standard_spm") or 0) > 0:

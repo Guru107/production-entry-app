@@ -395,11 +395,43 @@ class TestStockEntryHookPureHelpers(FrappeTestCase):
 		):
 			self.assertEqual(stock_entry_hooks._get_docfield_precision("Stock Entry", "missing", object()), 3)
 
+	def test_is_shift_based_production_entry_requires_shift_and_production(self) -> None:
+		self.assertFalse(
+			stock_entry_hooks.is_shift_based_production_entry(
+				frappe._dict({"purpose": "Manufacture", "custom_pea_shift": ""})
+			)
+		)
+		with patch.object(stock_entry_hooks, "is_production_overlap_entry", return_value=True):
+			self.assertTrue(
+				stock_entry_hooks.is_shift_based_production_entry(
+					frappe._dict({"purpose": "Manufacture", "custom_pea_shift": "SHIFT-1"})
+				)
+			)
+		with patch.object(stock_entry_hooks, "is_production_overlap_entry", return_value=False):
+			self.assertFalse(
+				stock_entry_hooks.is_shift_based_production_entry(
+					frappe._dict({"purpose": "Material Transfer", "custom_pea_shift": "SHIFT-1"})
+				)
+			)
+
+	def test_validate_standard_spm_skips_stock_only_manufacture(self) -> None:
+		doc = frappe._dict(
+			{
+				"purpose": "Manufacture",
+				"custom_pea_shift": "",
+				"custom_pea_standard_spm": 0,
+				"custom_pea_workstation": "",
+			}
+		)
+		with patch.object(stock_entry_hooks, "is_shift_based_production_entry", return_value=False):
+			stock_entry_hooks._validate_standard_spm(doc)
+
 	def test_validate_standard_spm_rejects_zero_on_manufacture(self) -> None:
 		doc = frappe._dict(
 			{
 				"purpose": "Manufacture",
 				"stock_entry_type": "Manufacture",
+				"custom_pea_shift": "SHIFT-1",
 				"custom_pea_workstation": "WS-SPM-ZERO",
 				"custom_pea_standard_spm": 0,
 			}
@@ -419,6 +451,7 @@ class TestStockEntryHookPureHelpers(FrappeTestCase):
 			{
 				"purpose": "Manufacture",
 				"stock_entry_type": "Manufacture",
+				"custom_pea_shift": "SHIFT-1",
 				"custom_pea_workstation": "WS-SPM-EIGHT",
 				"custom_pea_standard_spm": 0,
 			}
@@ -438,6 +471,7 @@ class TestStockEntryHookPureHelpers(FrappeTestCase):
 		doc = frappe._dict(
 			{
 				"purpose": "Manufacture",
+				"custom_pea_shift": "SHIFT-1",
 				"custom_pea_workstation": "WS-SPM-EIGHT",
 				"custom_pea_standard_spm": 5,
 			}
@@ -468,6 +502,7 @@ class TestStockEntryHookPureHelpers(FrappeTestCase):
 			{
 				"purpose": "Repack",
 				"stock_entry_type": JOINT_LH_RH_STOCK_ENTRY_TYPE,
+				"custom_pea_shift": "SHIFT-1",
 				"custom_pea_workstation": "WS-JOINT-SPM-ZERO",
 				"custom_pea_standard_spm": 0,
 			}
