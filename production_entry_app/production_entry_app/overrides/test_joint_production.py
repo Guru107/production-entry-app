@@ -848,6 +848,41 @@ class TestJointProductionItems(FrappeTestCase):
 		):
 			get_joint_production_items(json.dumps(doc.as_dict(), default=str))
 
+	def test_stock_only_joint_does_not_require_die_tool_item(self) -> None:
+		doc = frappe.get_doc(
+			{
+				"doctype": "Stock Entry",
+				"purpose": "Repack",
+				"company": self.masters["company"],
+				"branch": self.masters["branch"],
+				"from_warehouse": self.masters["wip_warehouse"],
+				"to_warehouse": self.masters["fg_warehouse"],
+				"custom_pea_lh_bom": self.lh_bom,
+				"custom_pea_lh_gross_qty": 40,
+				"custom_pea_lh_rejection_qty": 0,
+				"custom_pea_rh_bom": self.rh_bom,
+				"custom_pea_rh_gross_qty": 41,
+				"custom_pea_rh_rejection_qty": 0,
+				"custom_pea_total_strokes": 0,
+				"custom_pea_operation": self.operation,
+			}
+		)
+
+		rows = materialize_joint_production_rows(doc)
+
+		self.assertTrue(rows)
+
+	def test_shift_based_joint_requires_die_tool_item(self) -> None:
+		shift = make_running_shift(self.masters)
+		doc = self._make_joint_entry(shift, fetch_items=False)
+		doc.custom_pea_die_tool_item = ""
+		doc.set("items", [])
+
+		with self.assertRaisesRegex(
+			frappe.ValidationError, "Die Tool Item is required for joint LH/RH production"
+		):
+			get_joint_production_items(json.dumps(doc.as_dict(), default=str))
+
 	def test_joint_items_api_requires_bom_operation_metadata(self) -> None:
 		shift = make_running_shift(self.masters)
 		doc = self._make_joint_entry(shift)

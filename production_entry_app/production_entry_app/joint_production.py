@@ -706,10 +706,11 @@ def _validate_joint_header(doc: Document) -> None:
 		("custom_pea_operation", _("Operation")),
 		("custom_pea_lh_bom", _("LH BOM")),
 		("custom_pea_rh_bom", _("RH BOM")),
-		("custom_pea_die_tool_item", _("Die Tool Item")),
 	):
 		if not doc.get(fieldname):
 			frappe.throw(_("{0} is required for joint LH/RH production.").format(label))
+	if doc.get("custom_pea_shift") and not doc.get("custom_pea_die_tool_item"):
+		frappe.throw(_("Die Tool Item is required for joint LH/RH production."))
 	# Warehouses are required by Fetch Items, not by recipe validation: native Repack
 	# clears mixed-direction headers on save. ERPNext validates the actual item rows.
 	if flt(doc.get("custom_pea_total_strokes")) < 0:

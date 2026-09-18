@@ -278,48 +278,7 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 			_update_die_tool_metrics(frm);
 		},
 		custom_pea_fetch_items(frm) {
-			const isJoint = _is_joint_doc(frm.doc);
-			if (!isJoint && !frm.doc.fg_completed_qty) {
-				frappe.msgprint(__("Please set Qty to Manufacture before fetching items."));
-				return;
-			}
-			if (isJoint && !String(frm.doc.custom_pea_operation || "").trim()) {
-				frappe.msgprint(__("Operation is required for joint LH/RH production."));
-				return;
-			}
-			if (isJoint && !frm.doc.custom_pea_lh_bom) {
-				frappe.msgprint(__("LH BOM is required for joint LH/RH production."));
-				return;
-			}
-			if (isJoint && !frm.doc.custom_pea_rh_bom) {
-				frappe.msgprint(__("RH BOM is required for joint LH/RH production."));
-				return;
-			}
-			if (isJoint && !frm.doc.custom_pea_die_tool_item) {
-				frappe.msgprint(__("Die Tool Item is required for joint LH/RH production."));
-				return;
-			}
-			if (
-				isJoint &&
-				(!frm.doc.custom_pea_lh_gross_qty || !frm.doc.custom_pea_rh_gross_qty)
-			) {
-				frappe.msgprint(__("Please set LH and RH Gross Quantity before fetching items."));
-				return;
-			}
-			return frappe.call({
-				method: isJoint
-					? "production_entry_app.production_entry_app.api.get_joint_production_items"
-					: "production_entry_app.production_entry_app.api.get_items_with_rejection",
-				args: { doc: frm.doc },
-				freeze: true,
-				freeze_message: __("Fetching items..."),
-				callback(r) {
-					_apply_fetch_items_response(frm, r.message);
-				},
-				error(error) {
-					_notify_call_error(__("Failed to fetch items."), error);
-				},
-			});
+			return _handle_custom_pea_fetch_items(frm);
 		},
 		custom_pea_joint_fetch_items(frm) {
 			return frm.trigger("custom_pea_fetch_items");
@@ -1419,6 +1378,51 @@ function _configure_rejection_breakup_grid(frm) {
 	grid.update_docfield_property("item_code", "hidden", isJoint ? 0 : 1);
 }
 
+function _handle_custom_pea_fetch_items(frm) {
+	const isJoint = _is_joint_doc(frm.doc);
+	if (!isJoint && !frm.doc.fg_completed_qty) {
+		frappe.msgprint(__("Please set Qty to Manufacture before fetching items."));
+		return;
+	}
+	if (isJoint && !String(frm.doc.custom_pea_operation || "").trim()) {
+		frappe.msgprint(__("Operation is required for joint LH/RH production."));
+		return;
+	}
+	if (isJoint && !frm.doc.custom_pea_lh_bom) {
+		frappe.msgprint(__("LH BOM is required for joint LH/RH production."));
+		return;
+	}
+	if (isJoint && !frm.doc.custom_pea_rh_bom) {
+		frappe.msgprint(__("RH BOM is required for joint LH/RH production."));
+		return;
+	}
+	if (isJoint && frm.doc.custom_pea_shift && !frm.doc.custom_pea_die_tool_item) {
+		frappe.msgprint(__("Die Tool Item is required for joint LH/RH production."));
+		return;
+	}
+	if (
+		isJoint &&
+		(!frm.doc.custom_pea_lh_gross_qty || !frm.doc.custom_pea_rh_gross_qty)
+	) {
+		frappe.msgprint(__("Please set LH and RH Gross Quantity before fetching items."));
+		return;
+	}
+	return frappe.call({
+		method: isJoint
+			? "production_entry_app.production_entry_app.api.get_joint_production_items"
+			: "production_entry_app.production_entry_app.api.get_items_with_rejection",
+		args: { doc: frm.doc },
+		freeze: true,
+		freeze_message: __("Fetching items..."),
+		callback(r) {
+			_apply_fetch_items_response(frm, r.message);
+		},
+		error(error) {
+			_notify_call_error(__("Failed to fetch items."), error);
+		},
+	});
+}
+
 function _update_die_tool_metrics(frm) {
 	if (!_is_production_doc(frm.doc)) return;
 
@@ -1558,6 +1562,7 @@ if (typeof module !== "undefined" && module.exports) {
 		_get_rework_source_context,
 		_default_rework_item_source,
 		_apply_fetch_items_response,
+		_handle_custom_pea_fetch_items,
 		_apply_manufacture_visibility,
 		_sync_joint_stock_entry_type,
 		_sync_rework_mode_from_stock_entry_type,

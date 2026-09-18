@@ -17,6 +17,7 @@ const {
 	_get_rework_source_context,
 	_default_rework_item_source,
 	_apply_fetch_items_response,
+	_handle_custom_pea_fetch_items,
 	_apply_manufacture_visibility,
 	_sync_joint_stock_entry_type,
 	_default_total_strokes_from_fg,
@@ -1320,6 +1321,79 @@ test("error extraction parses Frappe encoded server message lists", () => {
 	});
 
 	assert.equal(detail, "Die Tool Item is required for joint LH/RH production.");
+});
+
+test("stock-only joint fetch skips die tool requirement", () => {
+	const originalFrappe = global.frappe;
+	const originalTranslate = global.__;
+	const messages = [];
+	let called = false;
+	global.__ = (text) => text;
+	global.frappe = {
+		call() {
+			called = true;
+		},
+		msgprint(message) {
+			messages.push(message);
+		},
+	};
+
+	try {
+		_handle_custom_pea_fetch_items({
+			doc: {
+				custom_stock_entry_purpose: "Repack",
+				stock_entry_type: "Joint LH RH Production",
+				__pea_joint_stock_entry_type: "Joint LH RH Production",
+				custom_pea_operation: "Shearing",
+				custom_pea_lh_bom: "BOM-LH",
+				custom_pea_rh_bom: "BOM-RH",
+				custom_pea_lh_gross_qty: 40,
+				custom_pea_rh_gross_qty: 41,
+			},
+		});
+		assert.deepEqual(messages, []);
+		assert.equal(called, true);
+	} finally {
+		global.frappe = originalFrappe;
+		global.__ = originalTranslate;
+	}
+});
+
+test("shift-based joint fetch requires die tool item", () => {
+	const originalFrappe = global.frappe;
+	const originalTranslate = global.__;
+	const messages = [];
+	global.__ = (text) => text;
+	global.frappe = {
+		call() {
+			throw new Error("fetch should not run");
+		},
+		msgprint(message) {
+			messages.push(message);
+		},
+	};
+
+	try {
+		_handle_custom_pea_fetch_items({
+			doc: {
+				custom_stock_entry_purpose: "Repack",
+				stock_entry_type: "Joint LH RH Production",
+				__pea_joint_stock_entry_type: "Joint LH RH Production",
+				custom_pea_shift: "SHIFT-001",
+				custom_pea_operation: "Shearing",
+				custom_pea_lh_bom: "BOM-LH",
+				custom_pea_rh_bom: "BOM-RH",
+				custom_pea_lh_gross_qty: 40,
+				custom_pea_rh_gross_qty: 41,
+			},
+		});
+		assert.deepEqual(messages, [
+			"Die Tool Item is required for joint LH/RH production.",
+		]);
+	} finally {
+		global.frappe = originalFrappe;
+		global.__ = originalTranslate;
+	}
 });
 
 test("error extraction ignores server message objects without text", () => {
