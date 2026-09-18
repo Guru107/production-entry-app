@@ -161,6 +161,8 @@ class TestStockEntryHookPureHelpers(FrappeTestCase):
 		)
 		with (
 			patch.object(stock_entry_hooks, "is_rework_stock_entry_type", return_value=False),
+			patch.object(stock_entry_hooks, "_clear_shift_gated_capture_fields") as clear_capture,
+			patch.object(stock_entry_hooks, "_validate_shift_based_required_fields") as validate_required,
 			patch.object(
 				stock_entry_hooks, "_validate_linked_shift_can_accept_stock_entry"
 			) as validate_shift,
@@ -175,8 +177,40 @@ class TestStockEntryHookPureHelpers(FrappeTestCase):
 
 		validate_shift.assert_not_called()
 		apply_defaults.assert_not_called()
+		clear_capture.assert_called_once_with(doc)
+		validate_required.assert_not_called()
 		stamp_late.assert_called_once_with(doc)
 		sync_losses.assert_called_once_with(doc)
+
+	def test_shift_validate_requires_capture_fields_after_applying_defaults(self) -> None:
+		doc = frappe._dict(
+			custom_pea_shift="SHIFT-1",
+			purpose="Manufacture",
+			stock_entry_type="Manufacture",
+			flags=frappe._dict(),
+		)
+		doc.set = lambda fieldname, value: doc.update({fieldname: value})
+		with (
+			patch.object(stock_entry_hooks, "is_rework_stock_entry_type", return_value=False),
+			patch.object(stock_entry_hooks, "_clear_shift_gated_capture_fields") as clear_capture,
+			patch.object(
+				stock_entry_hooks, "_validate_linked_shift_can_accept_stock_entry"
+			) as validate_shift,
+			patch.object(stock_entry_hooks, "_apply_shift_defaults") as apply_defaults,
+			patch.object(stock_entry_hooks, "_validate_shift_based_required_fields") as validate_required,
+			patch.object(stock_entry_hooks, "_stamp_late_entry_flag"),
+			patch.object(stock_entry_hooks, "_sync_unplanned_loss_shift_links"),
+			patch.object(stock_entry_hooks, "_validate_rework_fields"),
+			patch.object(stock_entry_hooks, "_validate_standard_spm"),
+			patch.object(stock_entry_hooks, "is_joint_lh_rh_production", return_value=False),
+			patch.object(stock_entry_hooks, "_set_entry_metrics"),
+		):
+			stock_entry_hooks.validate_stock_entry(doc)
+
+		validate_shift.assert_called_once_with(doc)
+		apply_defaults.assert_called_once_with(doc)
+		validate_required.assert_called_once_with(doc)
+		clear_capture.assert_not_called()
 
 	def test_rework_clears_shift_link_and_shift_derived_fields(self) -> None:
 		doc = frappe._dict(
@@ -426,6 +460,124 @@ class TestStockEntryHookPureHelpers(FrappeTestCase):
 		with patch.object(stock_entry_hooks, "is_shift_based_production_entry", return_value=False):
 			stock_entry_hooks._validate_standard_spm(doc)
 
+	def test_stock_only_validate_clears_shift_gated_capture_fields(self) -> None:
+		scalar_fields = (
+			"custom_pea_planned_start_date",
+			"custom_pea_planned_end_date",
+			"custom_pea_actual_start_date",
+			"custom_pea_actual_end_date",
+			"custom_pea_actual_start_date_input",
+			"custom_pea_actual_start_time_input",
+			"custom_pea_actual_end_date_input",
+			"custom_pea_actual_end_time_input",
+			"custom_pea_workstation",
+			"custom_pea_operator",
+			"custom_pea_standard_spm",
+			"custom_pea_rejection_qty",
+			"custom_pea_rework_qty",
+			"custom_pea_ok_qty",
+			"custom_pea_total_strokes",
+			"custom_pea_die_tool_item",
+			"custom_pea_lh_rejection_qty",
+			"custom_pea_rh_rejection_qty",
+			"custom_pea_actual_duration_mins",
+			"custom_pea_production_time_mins",
+			"custom_pea_actual_spm",
+			"custom_pea_cycle_time_sec",
+			"custom_pea_operator_efficiency_pct",
+			"custom_pea_metrics_note",
+			"custom_pea_die_tool_utilization_pct",
+			"custom_pea_die_tool_maintenance_due",
+		)
+		table_fields = ("custom_pea_unplanned_losses", "custom_pea_rejection_breakup")
+		gated_values = {
+			fieldname: [{"value": "set"}] if fieldname in table_fields else "set"
+			for fieldname in (*scalar_fields, *table_fields)
+		}
+		doc = frappe._dict(
+			{
+				"purpose": "Manufacture",
+				"stock_entry_type": "Manufacture",
+				"custom_pea_shift": "",
+				"custom_pea_joint_lh_bom": "BOM-LH",
+				"custom_pea_joint_rh_bom": "BOM-RH",
+				"custom_pea_lh_gross_qty": 10,
+				"custom_pea_rh_gross_qty": 11,
+				"custom_pea_operation": "Shearing",
+				**gated_values,
+			}
+		)
+		doc.set = lambda fieldname, value: doc.update({fieldname: value})
+		meta = type("Meta", (), {"has_field": lambda self, fieldname: True})()
+
+		with (
+			patch.object(stock_entry_hooks, "is_rework_stock_entry_type", return_value=False),
+			patch.object(stock_entry_hooks, "is_production_overlap_entry", return_value=True),
+			patch.object(stock_entry_hooks.frappe, "get_meta", return_value=meta),
+		):
+			stock_entry_hooks._clear_shift_gated_capture_fields(doc)
+
+		for fieldname in scalar_fields:
+			self.assertIsNone(doc.get(fieldname))
+		for fieldname in table_fields:
+			self.assertEqual(doc.get(fieldname), [])
+		self.assertEqual(doc.custom_pea_joint_lh_bom, "BOM-LH")
+		self.assertEqual(doc.custom_pea_joint_rh_bom, "BOM-RH")
+		self.assertEqual(doc.custom_pea_lh_gross_qty, 10)
+		self.assertEqual(doc.custom_pea_rh_gross_qty, 11)
+		self.assertEqual(doc.custom_pea_operation, "Shearing")
+
+	def test_shift_based_requires_workstation(self) -> None:
+		doc = self._shift_based_required_fields_doc(custom_pea_workstation="")
+		with (
+			patch.object(stock_entry_hooks, "is_shift_based_production_entry", return_value=True),
+			self.assertRaisesRegex(frappe.ValidationError, "Workstation"),
+		):
+			stock_entry_hooks._validate_shift_based_required_fields(doc)
+
+	def test_shift_based_requires_operator(self) -> None:
+		doc = self._shift_based_required_fields_doc(custom_pea_operator="")
+		with (
+			patch.object(stock_entry_hooks, "is_shift_based_production_entry", return_value=True),
+			self.assertRaisesRegex(frappe.ValidationError, "Operator"),
+		):
+			stock_entry_hooks._validate_shift_based_required_fields(doc)
+
+	def test_shift_based_requires_actual_start(self) -> None:
+		doc = self._shift_based_required_fields_doc(custom_pea_actual_start_date=None)
+		with (
+			patch.object(stock_entry_hooks, "is_shift_based_production_entry", return_value=True),
+			self.assertRaisesRegex(frappe.ValidationError, "Actual Start Date"),
+		):
+			stock_entry_hooks._validate_shift_based_required_fields(doc)
+
+	def test_shift_based_requires_actual_end(self) -> None:
+		doc = self._shift_based_required_fields_doc(custom_pea_actual_end_date=None)
+		with (
+			patch.object(stock_entry_hooks, "is_shift_based_production_entry", return_value=True),
+			self.assertRaisesRegex(frappe.ValidationError, "Actual End Date"),
+		):
+			stock_entry_hooks._validate_shift_based_required_fields(doc)
+
+	def test_shift_based_required_fields_accept_complete_capture(self) -> None:
+		doc = self._shift_based_required_fields_doc()
+		with patch.object(stock_entry_hooks, "is_shift_based_production_entry", return_value=True):
+			stock_entry_hooks._validate_shift_based_required_fields(doc)
+
+	@staticmethod
+	def _shift_based_required_fields_doc(**overrides: object) -> frappe._dict:
+		values = {
+			"purpose": "Manufacture",
+			"custom_pea_shift": "SHIFT-1",
+			"custom_pea_workstation": "WS-1",
+			"custom_pea_operator": "OP-1",
+			"custom_pea_actual_start_date": "2026-09-01 08:00:00",
+			"custom_pea_actual_end_date": "2026-09-01 09:00:00",
+			"custom_pea_standard_spm": 2,
+		}
+		values.update(overrides)
+		return frappe._dict(values)
+
 	def test_validate_standard_spm_rejects_zero_on_manufacture(self) -> None:
 		doc = frappe._dict(
 			{
@@ -433,6 +585,9 @@ class TestStockEntryHookPureHelpers(FrappeTestCase):
 				"stock_entry_type": "Manufacture",
 				"custom_pea_shift": "SHIFT-1",
 				"custom_pea_workstation": "WS-SPM-ZERO",
+				"custom_pea_operator": "OP-1",
+				"custom_pea_actual_start_date": "2026-09-01 08:00:00",
+				"custom_pea_actual_end_date": "2026-09-01 09:00:00",
 				"custom_pea_standard_spm": 0,
 			}
 		)

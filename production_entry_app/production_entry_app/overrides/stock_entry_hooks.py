@@ -79,6 +79,38 @@ _REWORK_FIELDS: tuple[str, ...] = (
 	"custom_pea_rework_operators",
 	"custom_pea_rework_cost",
 )
+_SHIFT_GATED_SCALAR_FIELDS: tuple[str, ...] = (
+	"custom_pea_planned_start_date",
+	"custom_pea_planned_end_date",
+	"custom_pea_actual_start_date",
+	"custom_pea_actual_end_date",
+	"custom_pea_actual_start_date_input",
+	"custom_pea_actual_start_time_input",
+	"custom_pea_actual_end_date_input",
+	"custom_pea_actual_end_time_input",
+	"custom_pea_workstation",
+	"custom_pea_operator",
+	"custom_pea_standard_spm",
+	"custom_pea_rejection_qty",
+	"custom_pea_rework_qty",
+	"custom_pea_ok_qty",
+	"custom_pea_total_strokes",
+	"custom_pea_die_tool_item",
+	"custom_pea_lh_rejection_qty",
+	"custom_pea_rh_rejection_qty",
+	"custom_pea_actual_duration_mins",
+	"custom_pea_production_time_mins",
+	"custom_pea_actual_spm",
+	"custom_pea_cycle_time_sec",
+	"custom_pea_operator_efficiency_pct",
+	"custom_pea_metrics_note",
+	"custom_pea_die_tool_utilization_pct",
+	"custom_pea_die_tool_maintenance_due",
+)
+_SHIFT_GATED_TABLE_FIELDS: tuple[str, ...] = (
+	"custom_pea_unplanned_losses",
+	"custom_pea_rejection_breakup",
+)
 
 
 def _safe_bold(value: Any) -> str:
@@ -109,6 +141,9 @@ def validate_stock_entry(doc: Document, method: str | None = None) -> None:
 		if doc.get("custom_pea_shift"):
 			_validate_linked_shift_can_accept_stock_entry(doc)
 			_apply_shift_defaults(doc)
+			_validate_shift_based_required_fields(doc)
+		else:
+			_clear_shift_gated_capture_fields(doc)
 		_stamp_late_entry_flag(doc)
 		_sync_unplanned_loss_shift_links(doc)
 
@@ -257,6 +292,33 @@ def _clear_shift_context(doc: Document) -> None:
 	doc.custom_pea_planned_end_date = None
 	_stamp_late_entry_flag(doc)
 	_sync_unplanned_loss_shift_links(doc)
+
+
+def _clear_shift_gated_capture_fields(doc: Document) -> None:
+	if is_rework_stock_entry_type(doc) or doc.get("custom_pea_shift"):
+		return
+	if not is_production_overlap_entry(doc):
+		return
+	meta = frappe.get_meta("Stock Entry", cached=True)
+	for fieldname in _SHIFT_GATED_SCALAR_FIELDS:
+		if meta.has_field(fieldname):
+			doc.set(fieldname, None)
+	for fieldname in _SHIFT_GATED_TABLE_FIELDS:
+		if meta.has_field(fieldname):
+			doc.set(fieldname, [])
+
+
+def _validate_shift_based_required_fields(doc: Document) -> None:
+	if not is_shift_based_production_entry(doc):
+		return
+	if not doc.get("custom_pea_workstation"):
+		frappe.throw(_("Workstation is required for Shift-based Production Entries."))
+	if not doc.get("custom_pea_operator"):
+		frappe.throw(_("Operator is required for Shift-based Production Entries."))
+	if not doc.get("custom_pea_actual_start_date"):
+		frappe.throw(_("Actual Start Date is required for Shift-based Production Entries."))
+	if not doc.get("custom_pea_actual_end_date"):
+		frappe.throw(_("Actual End Date is required for Shift-based Production Entries."))
 
 
 def _stamp_late_entry_flag(doc: Document) -> None:
@@ -528,9 +590,9 @@ def _validate_standard_spm(doc: Document) -> None:
 	workstation = doc.get("custom_pea_workstation")
 	if workstation:
 		frappe.throw(
-			_(
-				"Standard SPM must be greater than zero. Set Standard SPM on Workstation {0}."
-			).format(_safe_bold(workstation))
+			_("Standard SPM must be greater than zero. Set Standard SPM on Workstation {0}.").format(
+				_safe_bold(workstation)
+			)
 		)
 	frappe.throw(_("Standard SPM must be greater than zero."))
 
