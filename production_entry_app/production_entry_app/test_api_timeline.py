@@ -93,6 +93,24 @@ class TestGetShiftTimelineData(FrappeTestCase):
 		rejection_qty: float = 0,
 		docstatus: int = 1,
 	) -> str:
+		# Shift-based validate requires capture fields on save. Tests that need missing
+		# actual times (timeline exclusion) clear them after save via db.set_value.
+		clear_actual_times = actual_start is None and actual_end is None
+		if clear_actual_times:
+			shift = frappe.db.get_value(
+				"Shift",
+				shift_name,
+				["shift_date", "planned_start_time"],
+				as_dict=True,
+			)
+			start_dt = frappe.utils.get_datetime(
+				f"{shift.shift_date} {shift.planned_start_time or '08:00:00'}"
+			)
+			save_start = start_dt.strftime("%Y-%m-%d %H:%M:%S")
+			save_end = frappe.utils.add_to_date(start_dt, hours=1).strftime("%Y-%m-%d %H:%M:%S")
+		else:
+			save_start = actual_start
+			save_end = actual_end
 		entry = _create_manufacture_stock_entry(
 			company=self.ctx["company"],
 			fg_item=self.fg_item,
@@ -106,9 +124,19 @@ class TestGetShiftTimelineData(FrappeTestCase):
 		)
 		entry.custom_pea_workstation = workstation
 		entry.custom_pea_operator = operator
-		entry.custom_pea_actual_start_date = actual_start
-		entry.custom_pea_actual_end_date = actual_end
+		entry.custom_pea_actual_start_date = save_start
+		entry.custom_pea_actual_end_date = save_end
 		entry.save()
+		if clear_actual_times:
+			frappe.db.set_value(
+				"Stock Entry",
+				entry.name,
+				{
+					"custom_pea_actual_start_date": None,
+					"custom_pea_actual_end_date": None,
+				},
+				update_modified=False,
+			)
 		frappe.db.set_value("Stock Entry", entry.name, "docstatus", docstatus, update_modified=False)
 		return entry.name
 

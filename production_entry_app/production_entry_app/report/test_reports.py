@@ -3672,6 +3672,12 @@ class TestProductionReports(FrappeTestCase):
 		complete_shift: bool = True,
 	):
 		entry_fg_item = fg_item or self.fg_item
+		# Shift-based validate requires operator/workstation on save. Tests that assert
+		# report "Unassigned" buckets clear those fields after save via db.set_value.
+		clear_operator = shift_name and operator == ""
+		clear_workstation = shift_name and workstation == ""
+		save_operator = "Report Operator" if clear_operator else operator
+		save_workstation = "Report Workstation" if clear_workstation else workstation
 		stock_entry = _create_manufacture_stock_entry(
 			company=self.company,
 			fg_item=entry_fg_item,
@@ -3682,8 +3688,8 @@ class TestProductionReports(FrappeTestCase):
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
-		stock_entry.custom_pea_operator = operator
-		stock_entry.custom_pea_workstation = workstation
+		stock_entry.custom_pea_operator = save_operator
+		stock_entry.custom_pea_workstation = save_workstation
 		stock_entry.custom_pea_shift = shift_name
 		stock_entry.custom_pea_standard_spm = standard_spm
 		stock_entry.custom_pea_total_strokes = fg_qty if total_strokes is None else total_strokes
@@ -3715,6 +3721,13 @@ class TestProductionReports(FrappeTestCase):
 		frappe.db.set_value(
 			"Stock Entry", stock_entry.name, "posting_date", posting_date, update_modified=False
 		)
+		clear_values: dict[str, str] = {}
+		if clear_operator:
+			clear_values["custom_pea_operator"] = ""
+		if clear_workstation:
+			clear_values["custom_pea_workstation"] = ""
+		if clear_values:
+			frappe.db.set_value("Stock Entry", stock_entry.name, clear_values, update_modified=False)
 		# Intentionally mark submitted in DB for report isolation; these tests
 		# validate query/report logic, not full stock-entry submit side effects.
 		frappe.db.set_value("Stock Entry", stock_entry.name, "docstatus", 1, update_modified=False)
