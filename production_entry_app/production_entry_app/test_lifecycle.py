@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import unittest
-from unittest.mock import Mock, call, patch
+from unittest.mock import MagicMock, Mock, call, patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -140,6 +140,9 @@ class TestLifecycle(FrappeTestCase):
 				"production_entry_app.production_entry_app.lifecycle.remove_obsolete_total_rm_consumption_field"
 			) as remove_total_rm,
 			patch(
+				"production_entry_app.production_entry_app.lifecycle.reconcile_stock_entry_purpose_field"
+			) as reconcile_purpose,
+			patch(
 				"production_entry_app.production_entry_app.lifecycle.performance_indexes.ensure_performance_indexes_with_recovery"
 			) as ensure_indexes,
 		):
@@ -147,6 +150,7 @@ class TestLifecycle(FrappeTestCase):
 
 		ensure_rework_layout.assert_called_once_with()
 		remove_total_rm.assert_called_once_with()
+		reconcile_purpose.assert_called_once_with()
 		ensure_indexes.assert_called_once_with()
 
 	def test_after_migrate_runs_idempotent_setup(self) -> None:
@@ -158,6 +162,9 @@ class TestLifecycle(FrappeTestCase):
 				"production_entry_app.production_entry_app.lifecycle.remove_obsolete_total_rm_consumption_field"
 			) as remove_total_rm,
 			patch(
+				"production_entry_app.production_entry_app.lifecycle.reconcile_stock_entry_purpose_field"
+			) as reconcile_purpose,
+			patch(
 				"production_entry_app.production_entry_app.lifecycle.performance_indexes.ensure_performance_indexes_with_recovery"
 			) as ensure_indexes,
 		):
@@ -165,6 +172,7 @@ class TestLifecycle(FrappeTestCase):
 
 		ensure_rework_layout.assert_called_once_with()
 		remove_total_rm.assert_called_once_with()
+		reconcile_purpose.assert_called_once_with()
 		ensure_indexes.assert_called_once_with()
 
 	def test_remove_obsolete_total_rm_consumption_field_deletes_when_present(self) -> None:
@@ -197,6 +205,90 @@ class TestLifecycle(FrappeTestCase):
 			lifecycle.remove_obsolete_total_rm_consumption_field()
 
 		delete_doc.assert_not_called()
+
+	def test_reconcile_stock_entry_purpose_field_ensures_production_owned_field(self) -> None:
+		with (
+			patch(
+				"production_entry_app.production_entry_app.lifecycle.ensure_production_owned_stock_entry_purpose"
+			) as ensure_purpose,
+			patch(
+				"production_entry_app.production_entry_app.lifecycle._backfill_stock_entry_purpose_values"
+			) as backfill,
+			patch(
+				"production_entry_app.production_entry_app.lifecycle._delete_legacy_stock_entry_purpose_field"
+			) as delete_obsolete,
+		):
+			lifecycle.reconcile_stock_entry_purpose_field()
+
+		ensure_purpose.assert_called_once_with()
+		backfill.assert_called_once_with()
+		delete_obsolete.assert_called_once_with()
+
+	def test_ensure_production_owned_stock_entry_purpose_creates_missing_field(self) -> None:
+		created: list[dict] = []
+
+		class _FieldDoc:
+			def insert(self, ignore_permissions: bool = False) -> None:
+				return None
+
+		def fake_get_doc(values: dict) -> _FieldDoc:
+			created.append(values)
+			return _FieldDoc()
+
+		with (
+			patch(
+				"production_entry_app.production_entry_app.lifecycle.frappe.db.exists",
+				return_value=False,
+			),
+			patch(
+				"production_entry_app.production_entry_app.lifecycle.frappe.get_doc",
+				side_effect=fake_get_doc,
+			),
+			patch("production_entry_app.production_entry_app.lifecycle.frappe.clear_cache") as clear_cache,
+		):
+			lifecycle.ensure_production_owned_stock_entry_purpose()
+
+		self.assertEqual(
+			created,
+			[
+				{
+					"doctype": "Custom Field",
+					"dt": "Stock Entry",
+					"fieldname": "custom_stock_entry_purpose",
+					"label": "Stock Entry Purpose",
+					"fieldtype": "Data",
+					"fetch_from": "stock_entry_type.purpose",
+					"read_only": 1,
+					"insert_after": "stock_entry_type",
+				}
+			],
+		)
+		clear_cache.assert_called_once_with(doctype="Stock Entry")
+
+	def test_ensure_production_owned_stock_entry_purpose_skips_existing_field(self) -> None:
+		with (
+			patch(
+				"production_entry_app.production_entry_app.lifecycle.frappe.db.exists",
+				return_value=True,
+			),
+			patch("production_entry_app.production_entry_app.lifecycle.frappe.get_doc") as get_doc,
+			patch("production_entry_app.production_entry_app.lifecycle.frappe.clear_cache") as clear_cache,
+		):
+			lifecycle.ensure_production_owned_stock_entry_purpose()
+
+		get_doc.assert_not_called()
+		clear_cache.assert_not_called()
+
+	def test_backfill_stock_entry_purpose_values_copies_from_purpose_when_blank(self) -> None:
+		fake_db = MagicMock()
+		fake_db.has_column.side_effect = lambda dt, column: column == "custom_stock_entry_purpose"
+		with patch("production_entry_app.production_entry_app.lifecycle.frappe.db", fake_db):
+			lifecycle._backfill_stock_entry_purpose_values()
+
+		fake_db.sql.assert_called_once()
+		sql = fake_db.sql.call_args.args[0]
+		self.assertIn("`custom_stock_entry_purpose`", sql)
+		self.assertIn("`purpose`", sql)
 
 	def test_setup_app_logs_summary(self) -> None:
 		from production_entry_app.production_entry_app import lifecycle

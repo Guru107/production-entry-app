@@ -5,3 +5,4 @@
 [post_model_sync]
 # Patches added in this section will be executed after doctypes are migrated
 production_entry_app.patches.v1_0.remove_total_rm_consumption_field
+production_entry_app.patches.v1_0.reconcile_stock_entry_purpose_field
