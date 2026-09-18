@@ -8,5 +8,8 @@ frappe.query_reports["Production OEE Report"] = {
 			fieldtype: "Link",
 			options: "Workstation",
 		},
+		...(window.production_entry_app?.report_filter_utils?.get_operation_filter?.()
+			? [window.production_entry_app.report_filter_utils.get_operation_filter()]
+			: []),
 	],
 };

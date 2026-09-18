@@ -20,5 +20,8 @@ frappe.query_reports["Operator Daily SPM Report"] = {
 			fieldtype: "Link",
 			options: "Shift",
 		},
+		...(window.production_entry_app?.report_filter_utils?.get_operation_filter?.()
+			? [window.production_entry_app.report_filter_utils.get_operation_filter()]
+			: []),
 	],
 };

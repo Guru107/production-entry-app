@@ -6,10 +6,14 @@ const { ShiftPage } = require("../pages/shift-page");
 const { registerE2ELifecycle } = require("../fixtures/lifecycle");
 const { getRoute } = require("../utils/routing");
 
-function plusOneDay(dateString) {
+function plusDays(dateString, days) {
 	const nextDate = new Date(dateString);
-	nextDate.setDate(nextDate.getDate() + 1);
+	nextDate.setDate(nextDate.getDate() + days);
 	return nextDate.toISOString().slice(0, 10);
+}
+
+function plusOneDay(dateString) {
+	return plusDays(dateString, 1);
 }
 
 async function setupFreshContext(page, prefix) {
@@ -36,6 +40,23 @@ async function deleteShiftIfExists(page, name) {
 		) {
 			throw error;
 		}
+	}
+}
+
+async function deleteShiftsForDate(page, { shiftDate, company, department, branch }) {
+	const rows = await callFrappeMethod(page, "frappe.client.get_list", {
+		doctype: "Shift",
+		filters: JSON.stringify({
+			company,
+			department,
+			branch,
+			shift_date: shiftDate,
+		}),
+		fields: JSON.stringify(["name"]),
+		limit_page_length: 100,
+	});
+	for (const row of rows || []) {
+		await deleteShiftIfExists(page, row.name);
 	}
 }
 
@@ -76,6 +97,7 @@ test.describe("Shift validations", () => {
 		const shiftDate = plusOneDay(ctx.shift_date);
 
 		await shiftPage.createDraftViaApi({
+			company: seededShift.company,
 			department: seededShift.department,
 			branch: seededShift.branch,
 			date: shiftDate,
@@ -85,6 +107,7 @@ test.describe("Shift validations", () => {
 
 		await shiftPage.openNew();
 		await shiftPage.setDraftFields({
+			company: seededShift.company,
 			department: seededShift.department,
 			branch: seededShift.branch,
 			date: shiftDate,
@@ -122,6 +145,71 @@ test.describe("Shift validations", () => {
 		});
 		await shiftPage.attemptSaveDraft();
 		await expectValidationError(page, /already exists/i);
+	});
+
+	test("@regression completed shift duration can extend but not overlap", async ({ page }) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const seededShift = await getDoc(page, "Shift", ctx.shift_name);
+		const shiftPage = new ShiftPage(page);
+
+		await shiftPage.open(ctx.shift_name);
+		if (seededShift.status === "Draft") {
+			await shiftPage.startShift();
+		}
+		if (seededShift.status !== "Completed") {
+			await shiftPage.endShift();
+		}
+		const shiftScope = {
+			company: seededShift.company,
+			department: seededShift.department,
+			branch: seededShift.branch,
+		};
+
+		const isolatedDate = plusDays(ctx.shift_date, 2);
+		await deleteShiftsForDate(page, { ...shiftScope, shiftDate: isolatedDate });
+		const isolatedShift = await shiftPage.createDraftViaApi({
+			...shiftScope,
+			date: isolatedDate,
+			label: "2",
+			startTime: "08:00:00",
+		});
+		await shiftPage.open(isolatedShift.name);
+		await shiftPage.startShift();
+		await shiftPage.endShift();
+		await shiftPage.setDraftFields({ duration: "10" });
+		await shiftPage.saveDraft();
+
+		const extendedShift = await getDoc(page, "Shift", isolatedShift.name);
+		expect(extendedShift.status).toBe("Completed");
+		expect(extendedShift.shift_duration).toBe("10");
+		expect(extendedShift.planned_end_time).toBe("18:00:00");
+
+		const overlapDate = plusDays(ctx.shift_date, 3);
+		await deleteShiftsForDate(page, { ...shiftScope, shiftDate: overlapDate });
+		const firstShift = await shiftPage.createDraftViaApi({
+			...shiftScope,
+			date: overlapDate,
+			label: "1",
+			startTime: "08:00:00",
+		});
+		await shiftPage.open(firstShift.name);
+		await shiftPage.startShift();
+		await shiftPage.endShift();
+		await shiftPage.createDraftViaApi({
+			...shiftScope,
+			date: overlapDate,
+			label: "2",
+			startTime: "16:00:00",
+		});
+
+		await shiftPage.open(firstShift.name);
+		await shiftPage.setDraftFields({ duration: "10" });
+		await shiftPage.attemptSaveDraft();
+		await expectValidationError(page, /overlap/i);
+
+		const unchangedShift = await getDoc(page, "Shift", firstShift.name);
+		expect(unchangedShift.shift_duration).toBe("8");
 	});
 
 	test("@regression planned losses auto-populate and repopulate on duration change", async ({

@@ -60,15 +60,15 @@ def _normalize_time_grain(value: str | None) -> str:
 	return time_grain
 
 
-def _period_key(posting_date: datetime.date, time_grain: str) -> tuple[datetime.date, str]:
+def _period_key(production_date: datetime.date, time_grain: str) -> tuple[datetime.date, str]:
 	if time_grain == "Weekly":
-		period_start = posting_date - datetime.timedelta(days=posting_date.weekday())
+		period_start = production_date - datetime.timedelta(days=production_date.weekday())
 		period_end = period_start + datetime.timedelta(days=6)
 		return period_start, f"{period_start.isoformat()} to {period_end.isoformat()}"
 	if time_grain == "Monthly":
-		period_start = posting_date.replace(day=1)
+		period_start = production_date.replace(day=1)
 		return period_start, period_start.strftime("%Y-%m")
-	return posting_date, posting_date.isoformat()
+	return production_date, production_date.isoformat()
 
 
 def _get_rows(filters: dict) -> list[dict]:
@@ -85,8 +85,8 @@ def _get_rows(filters: dict) -> list[dict]:
 		entry_names = [entry.get("name") for entry in entries if entry.get("name")]
 		parent_quantity_metrics = get_parent_quantity_metrics(entry_names, include_rework=True)
 		for entry in entries:
-			posting_date = getdate(entry.get("posting_date"))
-			if not posting_date:
+			production_date = getdate(entry.get("production_date"))
+			if not production_date:
 				continue
 			entry_name = entry.get("name")
 			entry_metrics = parent_quantity_metrics.get(entry_name or "", {})
@@ -98,7 +98,7 @@ def _get_rows(filters: dict) -> list[dict]:
 					entry_metrics.get("total_rejected_qty") or 0
 				)
 
-			key_date, period_label = _period_key(posting_date, time_grain)
+			key_date, period_label = _period_key(production_date, time_grain)
 			aggregate = aggregates.setdefault(
 				key_date,
 				{

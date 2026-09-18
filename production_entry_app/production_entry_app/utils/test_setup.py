@@ -7,19 +7,87 @@ from typing import Any
 import frappe
 from frappe.utils import now_datetime
 
-from production_entry_app.production_entry_app.utils.test_bootstrap import ensure_branch
+from production_entry_app.production_entry_app.utils.test_bootstrap import (
+	ensure_branch,
+	ensure_production_owned_joint_metadata,
+)
 from production_entry_app.production_entry_app.utils.test_cleanup import install_test_run_cleanup
 
 _ERPNEXT_TEST_FISCAL_YEAR_START = 2012
 _ERPNEXT_TEST_FISCAL_YEAR_LOOKAHEAD_YEARS = 25
+_TEST_COMPANY = "_Test Company"
+
+
+def _insert_native_test_company() -> None:
+	frappe.get_doc(
+		{
+			"doctype": "Company",
+			"company_name": _TEST_COMPANY,
+			"abbr": "_TC",
+			"country": "India",
+			"default_currency": "INR",
+			"domain": "Manufacturing",
+			"create_chart_of_accounts_based_on": "Standard Template",
+			"chart_of_accounts": "Standard",
+			"enable_perpetual_inventory": 0,
+		}
+	).insert(ignore_permissions=True)
+
+
+def _ensure_test_company() -> str:
+	if not frappe.db.exists("Company", _TEST_COMPANY):
+		_insert_native_test_company()
+
+	if not frappe.db.exists("Company", _TEST_COMPANY):
+		raise RuntimeError("_insert_native_test_company() did not persist _Test Company")
+
+	return _TEST_COMPANY
+
+
+def _stock_adjustment_account_filters(company: str) -> dict[str, object]:
+	return {
+		"company": company,
+		"account_type": "Stock Adjustment",
+		"is_group": 0,
+		"disabled": 0,
+	}
+
+
+def _get_usable_stock_adjustment_account(company: str) -> str | None:
+	configured_account = frappe.db.get_value("Company", company, "stock_adjustment_account")
+	if configured_account and frappe.db.exists(
+		"Account",
+		{"name": configured_account, **_stock_adjustment_account_filters(company)},
+	):
+		return configured_account
+
+	return frappe.db.get_value(
+		"Account",
+		_stock_adjustment_account_filters(company),
+		"name",
+	)
 
 
 def _ensure_company_defaults() -> None:
-	company = "_Test Company" if frappe.db.exists("Company", "_Test Company") else None
-	if not company:
-		company = frappe.db.get_value("Company", {}, "name", order_by="creation asc")
-	if not company:
-		return
+	company = _ensure_test_company()
+
+	stock_adjustment_account = _get_usable_stock_adjustment_account(company)
+	if stock_adjustment_account:
+		frappe.db.set_value(
+			"Company",
+			company,
+			"stock_adjustment_account",
+			stock_adjustment_account,
+			update_modified=False,
+		)
+		frappe.clear_document_cache("Company", company)
+
+	configured_account = frappe.db.get_value("Company", company, "stock_adjustment_account")
+	if not configured_account or not frappe.db.exists(
+		"Account",
+		{"name": configured_account, **_stock_adjustment_account_filters(company)},
+	):
+		raise RuntimeError(f"{company} has no usable Stock Adjustment Account for ERPNext tests")
 
 	frappe.db.set_single_value("Global Defaults", "default_company", company)
 	frappe.defaults.set_user_default("company", company)
@@ -185,4 +253,5 @@ def before_tests() -> None:
 	_ensure_company_defaults()
 	_ensure_branch_defaults()
 	_ensure_gender_records()
+	ensure_production_owned_joint_metadata()
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit - test bootstrap must persist cross-app setup

@@ -12,6 +12,12 @@ class TestTestCleanup(FrappeTestCase):
 		original_run = FrappeTestCase.run
 		original_flag = getattr(FrappeTestCase, "_pea_cleanup_installed", None)
 		self.addCleanup(setattr, FrappeTestCase, "run", original_run)
+		self.addCleanup(
+			setattr,
+			test_cleanup,
+			"_ORIGINAL_FRAPPE_TEST_CASE_RUN",
+			test_cleanup._ORIGINAL_FRAPPE_TEST_CASE_RUN,
+		)
 		if original_flag is None:
 			self.addCleanup(lambda: delattr(FrappeTestCase, "_pea_cleanup_installed"))
 		else:

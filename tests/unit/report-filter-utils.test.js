@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 
 const {
 	get_standard_report_date_filters,
+	get_operation_filter,
 	validate_report_date_range,
 } = require("../../production_entry_app/public/js/report_filter_utils.js");
 
@@ -54,4 +55,12 @@ test("get_standard_report_date_filters includes required date filters", (t) => {
 	assert.equal(toDateFilter.default, "2026-06-30");
 	assert.equal(fromDateFilter.on_change, validate_report_date_range);
 	assert.equal(toDateFilter.on_change, validate_report_date_range);
+});
+
+test("get_operation_filter exposes the joint operation link filter", () => {
+	global.__ = (text) => text;
+	const operationFilter = get_operation_filter();
+	assert.equal(operationFilter.fieldname, "custom_pea_operation");
+	assert.equal(operationFilter.fieldtype, "Link");
+	assert.equal(operationFilter.options, "Operation");
 });

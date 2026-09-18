@@ -20,4 +20,5 @@ yarn.lock
 .codegraph/
 .codex/
 .cursor/
+.serena/
 dump.rdb

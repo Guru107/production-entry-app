@@ -26,8 +26,7 @@ def _get_columns() -> list[dict]:
 			{
 				"label": _("Rejection Reason"),
 				"fieldname": "rejection_reason",
-				"fieldtype": "Link",
-				"options": "Rejection Reason",
+				"fieldtype": "Data",
 				"width": 220,
 			},
 			{"label": _("Rejection Qty"), "fieldname": "rejection_qty", "fieldtype": "Float", "width": 130},
