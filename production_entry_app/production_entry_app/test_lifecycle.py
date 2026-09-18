@@ -137,16 +137,12 @@ class TestLifecycle(FrappeTestCase):
 				"production_entry_app.production_entry_app.lifecycle.ensure_rework_details_layout"
 			) as ensure_rework_layout,
 			patch(
-				"production_entry_app.production_entry_app.lifecycle.remove_obsolete_total_rm_consumption_field"
-			) as remove_total_rm,
-			patch(
 				"production_entry_app.production_entry_app.lifecycle.performance_indexes.ensure_performance_indexes_with_recovery"
 			) as ensure_indexes,
 		):
 			lifecycle.after_sync()
 
 		ensure_rework_layout.assert_called_once_with()
-		remove_total_rm.assert_called_once_with()
 		ensure_indexes.assert_called_once_with()
 
 	def test_after_migrate_runs_idempotent_setup(self) -> None:
@@ -155,48 +151,13 @@ class TestLifecycle(FrappeTestCase):
 				"production_entry_app.production_entry_app.lifecycle.ensure_rework_details_layout"
 			) as ensure_rework_layout,
 			patch(
-				"production_entry_app.production_entry_app.lifecycle.remove_obsolete_total_rm_consumption_field"
-			) as remove_total_rm,
-			patch(
 				"production_entry_app.production_entry_app.lifecycle.performance_indexes.ensure_performance_indexes_with_recovery"
 			) as ensure_indexes,
 		):
 			lifecycle.after_migrate()
 
 		ensure_rework_layout.assert_called_once_with()
-		remove_total_rm.assert_called_once_with()
 		ensure_indexes.assert_called_once_with()
-
-	def test_remove_obsolete_total_rm_consumption_field_deletes_when_present(self) -> None:
-		with (
-			patch(
-				"production_entry_app.production_entry_app.lifecycle.frappe.db.exists",
-				return_value=True,
-			),
-			patch("production_entry_app.production_entry_app.lifecycle.frappe.delete_doc") as delete_doc,
-			patch("production_entry_app.production_entry_app.lifecycle.frappe.clear_cache") as clear_cache,
-		):
-			lifecycle.remove_obsolete_total_rm_consumption_field()
-
-		delete_doc.assert_called_once_with(
-			"Custom Field",
-			"Stock Entry-custom_pea_total_rm_consumption",
-			ignore_permissions=True,
-			force=True,
-		)
-		clear_cache.assert_called_once_with(doctype="Stock Entry")
-
-	def test_remove_obsolete_total_rm_consumption_field_is_noop_when_absent(self) -> None:
-		with (
-			patch(
-				"production_entry_app.production_entry_app.lifecycle.frappe.db.exists",
-				return_value=False,
-			),
-			patch("production_entry_app.production_entry_app.lifecycle.frappe.delete_doc") as delete_doc,
-		):
-			lifecycle.remove_obsolete_total_rm_consumption_field()
-
-		delete_doc.assert_not_called()
 
 	def test_setup_app_logs_summary(self) -> None:
 		from production_entry_app.production_entry_app import lifecycle
