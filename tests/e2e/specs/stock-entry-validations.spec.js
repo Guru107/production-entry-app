@@ -569,7 +569,7 @@ test.describe("Stock Entry validation matrix", () => {
 		expect(Number(savedStockEntry.custom_pea_ok_qty || 0)).toBe(90);
 	});
 
-	test("@regression total press strokes defaults from quantity and remains editable", async ({
+	test("@regression total press strokes are not invented from quantity and remain editable", async ({
 		page,
 	}) => {
 		await page.goto(getRoute("/home"));
@@ -584,7 +584,7 @@ test.describe("Stock Entry validation matrix", () => {
 				(await stockEntryPage.getFieldValues(["custom_pea_total_strokes"]))
 					.custom_pea_total_strokes || 0
 			)
-		).toBe(100);
+		).toBe(0);
 
 		await setFieldValue(page, "fg_completed_qty", 120);
 		expect(
@@ -592,7 +592,8 @@ test.describe("Stock Entry validation matrix", () => {
 				(await stockEntryPage.getFieldValues(["custom_pea_total_strokes"]))
 					.custom_pea_total_strokes || 0
 			)
-		).toBe(120);
+		).toBe(0);
+		await setFieldValue(page, "custom_pea_total_strokes", 40);
 		await stockEntryPage.fetchItems();
 		await stockEntryPage.saveDraft();
 		const stockEntryName = await page.evaluate(() => window.cur_frm?.doc?.name);
@@ -604,9 +605,8 @@ test.describe("Stock Entry validation matrix", () => {
 				(await stockEntryPage.getFieldValues(["custom_pea_total_strokes"]))
 					.custom_pea_total_strokes || 0
 			)
-		).toBe(130);
+		).toBe(40);
 
-		await setFieldValue(page, "custom_pea_total_strokes", 40);
 		await setFieldValue(page, "fg_completed_qty", 140);
 		expect(
 			Number(
@@ -692,7 +692,7 @@ test.describe("Stock Entry validation matrix", () => {
 		);
 	});
 
-	test("@regression zero total press strokes defaults from quantity", async ({ page }) => {
+	test("@regression zero total press strokes remains zero", async ({ page }) => {
 		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 
@@ -706,7 +706,7 @@ test.describe("Stock Entry validation matrix", () => {
 
 		const stockEntryName = await page.evaluate(() => window.cur_frm?.doc?.name);
 		const savedStockEntry = await getDoc(page, "Stock Entry", stockEntryName);
-		expect(Number(savedStockEntry.custom_pea_total_strokes || 0)).toBe(100);
+		expect(Number(savedStockEntry.custom_pea_total_strokes || 0)).toBe(0);
 	});
 
 	test("@regression blocks overlapping stock entry when workstation is already in use", async ({

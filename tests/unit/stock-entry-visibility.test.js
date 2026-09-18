@@ -1387,9 +1387,7 @@ test("shift-based joint fetch requires die tool item", () => {
 				custom_pea_rh_gross_qty: 41,
 			},
 		});
-		assert.deepEqual(messages, [
-			"Die Tool Item is required for joint LH/RH production.",
-		]);
+		assert.deepEqual(messages, ["Die Tool Item is required for joint LH/RH production."]);
 	} finally {
 		global.frappe = originalFrappe;
 		global.__ = originalTranslate;

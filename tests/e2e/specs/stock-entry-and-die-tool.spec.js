@@ -8,6 +8,28 @@ const { getRoute } = require("../utils/routing");
 test.describe("Stock Entry integration", () => {
 	const lifecycle = registerE2ELifecycle(test);
 
+	test("@smoke stock-only manufacture submits without Shift capture fields", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+
+		const stockEntryPage = new StockEntryPage(page);
+		await stockEntryPage.openNew();
+		await stockEntryPage.fillStockOnlyManufactureEntry(ctx);
+		await expect(
+			page.locator('[data-fieldname="custom_pea_workstation"]').first()
+		).not.toBeVisible();
+		await stockEntryPage.fetchItems();
+		await stockEntryPage.saveAndSubmit();
+
+		const stockEntryName = await page.evaluate(() => cur_frm.doc.name);
+		const stockEntry = await getDoc(page, "Stock Entry", stockEntryName);
+		expect(stockEntry.docstatus).toBe(1);
+		expect(stockEntry.custom_pea_shift).toBeFalsy();
+		expect(stockEntry.custom_pea_workstation).toBeFalsy();
+	});
+
 	test("@smoke manufacture stock entry computes metrics and updates die tool counter", async ({
 		page,
 	}) => {

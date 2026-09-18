@@ -368,3 +368,43 @@ test("Stock Entry page waits for the joint Stock Entry Type marker before contin
 		assert.deepEqual(calls, [{ argument: "Joint LH RH Production" }]);
 	});
 });
+
+test("Stock Entry page fills stock-only manufacture without Shift capture fields", async () => {
+	const fieldValues = [];
+	const page = {
+		async waitForFunction(predicate, argument) {
+			if (argument?.name) {
+				assert.equal(argument.name, "custom_stock_entry_purpose");
+				assert.equal(argument.value, "Manufacture");
+			}
+		},
+		async evaluate(predicate, argument) {
+			fieldValues.push(argument);
+		},
+	};
+	const ctx = {
+		company: "Test Company",
+		shift_date: "2026-09-18",
+		bom: "BOM-FG-001",
+		wip_warehouse: "Work In Progress - TC",
+	};
+
+	await new StockEntryPage(page).fillStockOnlyManufactureEntry(ctx);
+
+	assert.deepEqual(fieldValues, [
+		{ key: "stock_entry_type", val: "Manufacture" },
+		{ key: "company", val: ctx.company },
+		{ key: "set_posting_time", val: 1 },
+		{ key: "posting_date", val: ctx.shift_date },
+		{ key: "posting_time", val: "09:00:00" },
+		{ key: "from_bom", val: 1 },
+		{ key: "bom_no", val: ctx.bom },
+		{ key: "from_warehouse", val: ctx.wip_warehouse },
+		{ key: "to_warehouse", val: ctx.wip_warehouse },
+		{ key: "fg_completed_qty", val: 100 },
+	]);
+	assert.equal(
+		fieldValues.some(({ key }) => key === "custom_pea_shift"),
+		false
+	);
+});

@@ -213,6 +213,18 @@ class StockEntryPage {
 		await setFieldValue(this.page, "custom_pea_actual_end_date", `${ctx.shift_date} 09:00:00`);
 	}
 
+	async fillStockOnlyManufactureEntry(ctx) {
+		await setFieldValue(this.page, "stock_entry_type", "Manufacture");
+		await this.waitForFieldValue("custom_stock_entry_purpose", "Manufacture");
+		await setFieldValue(this.page, "company", ctx.company);
+		await this.setPostingDate(ctx.shift_date);
+		await setFieldValue(this.page, "from_bom", 1);
+		await setFieldValue(this.page, "bom_no", ctx.bom);
+		await setFieldValue(this.page, "from_warehouse", ctx.wip_warehouse);
+		await setFieldValue(this.page, "to_warehouse", ctx.wip_warehouse);
+		await setFieldValue(this.page, "fg_completed_qty", 100);
+	}
+
 	async setManufactureFields(ctx, options = {}) {
 		const {
 			fgQty = 100,

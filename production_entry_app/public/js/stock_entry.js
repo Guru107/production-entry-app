@@ -1400,10 +1400,7 @@ function _handle_custom_pea_fetch_items(frm) {
 		frappe.msgprint(__("Die Tool Item is required for joint LH/RH production."));
 		return;
 	}
-	if (
-		isJoint &&
-		(!frm.doc.custom_pea_lh_gross_qty || !frm.doc.custom_pea_rh_gross_qty)
-	) {
+	if (isJoint && (!frm.doc.custom_pea_lh_gross_qty || !frm.doc.custom_pea_rh_gross_qty)) {
 		frappe.msgprint(__("Please set LH and RH Gross Quantity before fetching items."));
 		return;
 	}
