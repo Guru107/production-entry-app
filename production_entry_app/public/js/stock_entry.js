@@ -10,13 +10,12 @@ const NATIVE_MANUFACTURE_FIELDS = [
 	"fg_completed_qty",
 ];
 
-const PEA_MANUFACTURE_FIELDS = [
+const PEA_ALWAYS_VISIBLE_PRODUCTION_FIELDS = ["custom_pea_shift", "custom_pea_fetch_items"];
+const PEA_SHIFT_GATED_FIELDS = [
 	"custom_pea_rejection_qty",
 	"custom_pea_ok_qty",
 	"custom_pea_rework_qty",
-	"custom_pea_fetch_items",
 	"custom_pea_rejection_breakup",
-	"custom_pea_shift",
 	"custom_pea_planned_start_date",
 	"custom_pea_planned_end_date",
 	"custom_pea_operation_details_col_break",
@@ -40,6 +39,28 @@ const PEA_MANUFACTURE_FIELDS = [
 	"custom_pea_metrics_note",
 	"custom_pea_die_tool_utilization_pct",
 	"custom_pea_die_tool_maintenance_due",
+	"custom_pea_total_strokes",
+	"custom_pea_die_tool_item",
+	"custom_pea_lh_rejection_qty",
+	"custom_pea_rh_rejection_qty",
+];
+const PEA_MANUFACTURE_FIELDS = [
+	...PEA_ALWAYS_VISIBLE_PRODUCTION_FIELDS,
+	...PEA_SHIFT_GATED_FIELDS,
+];
+const PEA_SHIFT_GATED_SECTIONS = [
+	"custom_pea_operation_details_section",
+	"custom_pea_workstation_operator_section",
+	"custom_pea_unplanned_losses_section",
+	"custom_pea_rejection_section",
+	"custom_pea_metrics_section",
+];
+const SHIFT_BASED_REQUIRED_FIELDS = [
+	"custom_pea_workstation",
+	"custom_pea_operator",
+	"custom_pea_actual_start_date",
+	"custom_pea_actual_end_date",
+	"custom_pea_standard_spm",
 ];
 
 const NORMAL_ONLY_PEA_FIELDS = ["custom_pea_rejection_qty", "custom_pea_rework_qty"];
@@ -49,13 +70,7 @@ const MANUFACTURE_FIELDS = [...NATIVE_MANUFACTURE_FIELDS, ...PEA_MANUFACTURE_FIE
 
 const NATIVE_MANUFACTURE_SECTIONS = ["bom_info_section"];
 
-const PEA_MANUFACTURE_SECTIONS = [
-	"custom_pea_operation_details_section",
-	"custom_pea_workstation_operator_section",
-	"custom_pea_unplanned_losses_section",
-	"custom_pea_rejection_section",
-	"custom_pea_metrics_section",
-];
+const PEA_MANUFACTURE_SECTIONS = PEA_SHIFT_GATED_SECTIONS;
 
 const MANUFACTURE_SECTIONS = [...NATIVE_MANUFACTURE_SECTIONS, ...PEA_MANUFACTURE_SECTIONS];
 
@@ -313,6 +328,7 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 			_schedule_rework_workstation_default(frm);
 		},
 		custom_pea_shift(frm) {
+			_apply_manufacture_visibility(frm);
 			_handle_shift_change(frm);
 		},
 	});
@@ -430,15 +446,19 @@ function _apply_manufacture_visibility(frm) {
 	const isManufacture = _is_manufacture_doc(frm.doc);
 	const isProduction = _is_production_doc(frm.doc);
 	const isJoint = _is_joint_doc(frm.doc);
+	const hasShift = Boolean(frm.doc?.custom_pea_shift);
 	_apply_native_manufacture_visibility(frm);
-	// Keep this explicit list in sync with Stock Entry custom manufacture-only fields.
-	frm.toggle_display(PEA_MANUFACTURE_FIELDS, isProduction);
-	frm.toggle_display(PEA_MANUFACTURE_SECTIONS, isProduction);
-	frm.toggle_display(NORMAL_ONLY_PEA_FIELDS, isManufacture);
+	frm.toggle_display(PEA_ALWAYS_VISIBLE_PRODUCTION_FIELDS, isProduction);
+	frm.toggle_display(PEA_SHIFT_GATED_FIELDS, isProduction && hasShift);
+	frm.toggle_display(PEA_SHIFT_GATED_SECTIONS, isProduction && hasShift);
+	frm.toggle_display(NORMAL_ONLY_PEA_FIELDS, isManufacture && hasShift);
 	frm.toggle_display(JOINT_ONLY_PEA_FIELDS, isJoint);
 	frm.toggle_reqd?.("custom_pea_operation", isJoint);
-	if (isProduction) {
-		_expand_sections(frm, PEA_MANUFACTURE_SECTIONS);
+	for (const fieldname of SHIFT_BASED_REQUIRED_FIELDS) {
+		frm.toggle_reqd?.(fieldname, isProduction && hasShift);
+	}
+	if (isProduction && hasShift) {
+		_expand_sections(frm, PEA_SHIFT_GATED_SECTIONS);
 	}
 
 	_position_rejection_breakup_section(frm);
@@ -1007,26 +1027,11 @@ function _initialize_total_strokes_default_state(frm) {
 }
 
 function _default_total_strokes_from_fg(frm) {
-	if (!_is_manufacture_doc(frm.doc) || _is_joint_doc(frm.doc)) {
-		return Promise.resolve();
-	}
-	const state = _initialize_total_strokes_default_state(frm);
-	const currentTotalStrokes = Number(frm.doc.custom_pea_total_strokes || 0);
-	if (currentTotalStrokes > 0 && currentTotalStrokes !== state.defaultStrokeValue) {
-		return Promise.resolve();
-	}
-
-	const completedQty = Number(frm.doc.fg_completed_qty || 0);
-	if (completedQty <= 0) {
-		return Promise.resolve();
-	}
-	const update = frm.set_value("custom_pea_total_strokes", completedQty);
-	return Promise.resolve(update).finally(() => {
-		state.defaultStrokeValue = completedQty;
-	});
+	return Promise.resolve();
 }
 
 function _get_time_entry_api() {
+	if (typeof window === "undefined") return null;
 	return window.production_entry_app?.time_entry || null;
 }
 
@@ -1162,11 +1167,11 @@ function _handle_shift_change(frm) {
 	}
 	if (!frm.doc.custom_pea_shift) {
 		_shiftDetailsRequestId++;
-		_clear_shift_derived_fields(frm, { clearWarehouses: true }).finally(() => {
+		_clear_shift_gated_capture_fields(frm);
+		return _clear_shift_derived_fields(frm, { clearWarehouses: true }).finally(() => {
 			_sync_stock_entry_helper_fields(frm);
 			_setup_stock_entry_quick_entry(frm);
 		});
-		return;
 	}
 
 	const selectedShift = frm.doc.custom_pea_shift;
@@ -1188,6 +1193,29 @@ function _handle_shift_change(frm) {
 			_notify_call_error(__("Failed to fetch shift details."), error);
 		},
 	});
+}
+
+function _clear_shift_gated_capture_fields(frm) {
+	const tableFields = ["custom_pea_unplanned_losses", "custom_pea_rejection_breakup"];
+	const layoutFields = new Set([
+		"custom_pea_operation_details_col_break",
+		"custom_pea_workstation_operator_col_break",
+		"custom_pea_metrics_col_break",
+	]);
+	const scalarFields = PEA_SHIFT_GATED_FIELDS.filter(
+		(fieldname) => !tableFields.includes(fieldname) && !layoutFields.has(fieldname)
+	);
+	const refreshFieldnames = new Set();
+	const scalarChanged = _clear_scalar_fields(frm, scalarFields, refreshFieldnames, {
+		onlyExisting: true,
+	});
+	const tableChanged = _clear_table_fields(frm, tableFields, refreshFieldnames);
+	if (refreshFieldnames.size) {
+		frm.refresh_fields?.([...refreshFieldnames]);
+	}
+	if (scalarChanged || tableChanged) {
+		frm.dirty?.();
+	}
 }
 
 function _apply_shift_details_response(frm, selectedShift, reqId, data) {
@@ -1359,7 +1387,7 @@ function _normalize_purpose(purpose) {
 }
 
 function _toggle_rejection_breakup(frm) {
-	if (!_is_production_doc(frm.doc)) {
+	if (!_is_production_doc(frm.doc) || !frm.doc?.custom_pea_shift) {
 		frm.toggle_display("custom_pea_rejection_breakup", false);
 		frm.toggle_reqd("custom_pea_rejection_breakup", false);
 		return;
@@ -1511,7 +1539,11 @@ if (typeof module !== "undefined" && module.exports) {
 		_apply_native_manufacture_visibility,
 		NATIVE_MANUFACTURE_FIELDS,
 		NATIVE_MANUFACTURE_SECTIONS,
+		PEA_ALWAYS_VISIBLE_PRODUCTION_FIELDS,
 		PEA_MANUFACTURE_FIELDS,
+		PEA_SHIFT_GATED_FIELDS,
+		PEA_SHIFT_GATED_SECTIONS,
+		SHIFT_BASED_REQUIRED_FIELDS,
 		JOINT_ONLY_PEA_FIELDS,
 		PEA_MANUFACTURE_SECTIONS,
 		MANUFACTURE_FIELDS,

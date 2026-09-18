@@ -19,7 +19,6 @@ const {
 	_apply_fetch_items_response,
 	_apply_manufacture_visibility,
 	_sync_joint_stock_entry_type,
-	_initialize_total_strokes_default_state,
 	_default_total_strokes_from_fg,
 	_get_rejection_qty_for_visibility,
 	_get_joint_bom_query,
@@ -30,6 +29,9 @@ const {
 	REWORK_HIDDEN_FIELDS,
 	MANUFACTURE_FIELDS,
 	PEA_MANUFACTURE_FIELDS,
+	PEA_SHIFT_GATED_FIELDS,
+	PEA_SHIFT_GATED_SECTIONS,
+	SHIFT_BASED_REQUIRED_FIELDS,
 	JOINT_ONLY_PEA_FIELDS,
 	MANUFACTURE_SECTIONS,
 	ALWAYS_HIDDEN_FIELDS,
@@ -329,6 +331,38 @@ test("clearing the Shift on rework drops the planned window but keeps branch and
 	assert.equal(frm.doc.branch, "Original Branch");
 	assert.equal(frm.doc.from_warehouse, "Rejection Warehouse");
 	assert.equal(frm.doc.to_warehouse, "Good Warehouse");
+});
+
+test("clearing Shift clears gated production capture values", async () => {
+	const frm = {
+		doc: {
+			custom_stock_entry_purpose: "Manufacture",
+			custom_pea_shift: "",
+			custom_pea_workstation: "PRESS-1",
+			custom_pea_operator: "OP-1",
+			custom_pea_actual_start_date: "2026-09-18 08:00:00",
+			custom_pea_actual_end_date: "2026-09-18 09:00:00",
+			custom_pea_unplanned_losses: [{ duration_mins: 5 }],
+			custom_pea_rejection_breakup: [{ qty: 1 }],
+		},
+		fields_dict: {},
+		set_value() {
+			return Promise.resolve();
+		},
+		clear_table(fieldname) {
+			this.doc[fieldname] = [];
+		},
+		refresh_fields() {},
+	};
+
+	await _handle_shift_change(frm);
+
+	assert.equal(frm.doc.custom_pea_workstation, "");
+	assert.equal(frm.doc.custom_pea_operator, "");
+	assert.equal(frm.doc.custom_pea_actual_start_date, "");
+	assert.equal(frm.doc.custom_pea_actual_end_date, "");
+	assert.deepEqual(frm.doc.custom_pea_unplanned_losses, []);
+	assert.deepEqual(frm.doc.custom_pea_rejection_breakup, []);
 });
 
 test("configured rejection warehouse defaults blank rework header and item sources", async () => {
@@ -1175,7 +1209,7 @@ test("current Rework Workstation default failures notify the user", async (t) =>
 	}
 });
 
-test("manufacture strokes follow quantity until the operator edits them", async () => {
+test("manufacture strokes are not invented from finished goods without Shift", async () => {
 	const frm = {
 		doc: {
 			__islocal: 1,
@@ -1190,43 +1224,26 @@ test("manufacture strokes follow quantity until the operator edits them", async 
 	};
 
 	await _default_total_strokes_from_fg(frm);
-	assert.equal(frm.doc.custom_pea_total_strokes, 100);
-
-	frm.doc.fg_completed_qty = 120;
-	await _default_total_strokes_from_fg(frm);
-	assert.equal(frm.doc.custom_pea_total_strokes, 120);
-
-	frm.doc.custom_pea_total_strokes = 40;
-	frm.doc.fg_completed_qty = 130;
-	await _default_total_strokes_from_fg(frm);
-	assert.equal(frm.doc.custom_pea_total_strokes, 40);
+	assert.equal(frm.doc.custom_pea_total_strokes, 0);
 });
 
-test("saved manufacture strokes keep following quantity only while auto-derived", async () => {
-	const makeForm = (totalStrokes) => ({
+test("shift-based manufacture preserves zero total strokes", async () => {
+	const frm = {
 		doc: {
 			__islocal: 0,
 			custom_stock_entry_purpose: "Manufacture",
+			custom_pea_shift: "SHIFT-1",
 			fg_completed_qty: 100,
-			custom_pea_total_strokes: totalStrokes,
+			custom_pea_total_strokes: 0,
 		},
 		set_value(fieldname, value) {
 			this.doc[fieldname] = value;
 			return Promise.resolve();
 		},
-	});
+	};
 
-	const autoDerived = makeForm(100);
-	_initialize_total_strokes_default_state(autoDerived);
-	autoDerived.doc.fg_completed_qty = 120;
-	await _default_total_strokes_from_fg(autoDerived);
-	assert.equal(autoDerived.doc.custom_pea_total_strokes, 120);
-
-	const manuallyEdited = makeForm(40);
-	_initialize_total_strokes_default_state(manuallyEdited);
-	manuallyEdited.doc.fg_completed_qty = 120;
-	await _default_total_strokes_from_fg(manuallyEdited);
-	assert.equal(manuallyEdited.doc.custom_pea_total_strokes, 40);
+	await _default_total_strokes_from_fg(frm);
+	assert.equal(frm.doc.custom_pea_total_strokes, 0);
 });
 
 test("normalize purpose trims whitespace and handles empty values", () => {
@@ -1396,6 +1413,85 @@ test("manufacture visibility targets include key fields and sections", () => {
 	assert.ok(ALWAYS_HIDDEN_SECTIONS.includes("section_break_7qsm"));
 	assert.ok(MANUFACTURE_CLEAR_TABLE_FIELDS.includes("custom_pea_rejection_breakup"));
 	assert.ok(MANUFACTURE_CLEAR_TABLE_FIELDS.includes("items"));
+});
+
+test("shift-gated fields stay hidden until Shift is selected", () => {
+	const calls = [];
+	const frm = {
+		fields_dict: {},
+		layout: { sections: [] },
+		doc: {
+			custom_stock_entry_purpose: "Manufacture",
+			custom_pea_shift: "",
+		},
+		toggle_display(fieldnames, visible) {
+			calls.push(["display", fieldnames, visible]);
+		},
+		toggle_reqd(fieldname, required) {
+			calls.push(["reqd", fieldname, required]);
+		},
+		refresh_fields() {},
+	};
+
+	_apply_manufacture_visibility(frm);
+
+	assert.ok(
+		calls.some(
+			([kind, fieldnames, visible]) =>
+				kind === "display" &&
+				Array.isArray(fieldnames) &&
+				fieldnames.includes("custom_pea_workstation") &&
+				visible === false
+		)
+	);
+	assert.ok(
+		calls.some(
+			([kind, fieldnames, visible]) =>
+				kind === "display" &&
+				Array.isArray(fieldnames) &&
+				fieldnames.includes("custom_pea_shift") &&
+				visible === true
+		)
+	);
+});
+
+test("selecting Shift shows gated fields and marks capture fields required", () => {
+	const calls = [];
+	const frm = {
+		fields_dict: {},
+		layout: { sections: [] },
+		doc: {
+			custom_stock_entry_purpose: "Manufacture",
+			custom_pea_shift: "SHIFT-1",
+		},
+		toggle_display(fieldnames, visible) {
+			calls.push(["display", fieldnames, visible]);
+		},
+		toggle_reqd(fieldname, required) {
+			calls.push(["reqd", fieldname, required]);
+		},
+		refresh_fields() {},
+	};
+
+	_apply_manufacture_visibility(frm);
+
+	assert.ok(
+		calls.some(
+			([kind, fieldnames, visible]) =>
+				kind === "display" &&
+				Array.isArray(fieldnames) &&
+				fieldnames.includes("custom_pea_workstation") &&
+				visible === true
+		)
+	);
+	for (const fieldname of SHIFT_BASED_REQUIRED_FIELDS) {
+		assert.ok(
+			calls.some(
+				([kind, requiredField, required]) =>
+					kind === "reqd" && requiredField === fieldname && required === true
+			)
+		);
+	}
 });
 
 test("rejection visibility quantity sums joint sides and uses normal rejection otherwise", () => {
