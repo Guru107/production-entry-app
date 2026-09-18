@@ -214,13 +214,10 @@ class TestTestBootstrap(FrappeTestCase):
 			patch(
 				"production_entry_app.production_entry_app.utils.test_bootstrap.frappe.clear_cache"
 			) as clear_cache,
-			patch(
-				"production_entry_app.production_entry_app.lifecycle.ensure_production_owned_stock_entry_purpose"
-			) as ensure_purpose,
 		):
 			ensure_production_owned_joint_metadata()
 
-		self.assertEqual(get_doc.call_count, 1)
+		self.assertEqual(get_doc.call_count, 2)
 		self.assertEqual(
 			created,
 			[
@@ -232,10 +229,20 @@ class TestTestBootstrap(FrappeTestCase):
 					"fieldtype": "Data",
 					"insert_after": "item",
 				},
+				{
+					"doctype": "Custom Field",
+					"dt": "Stock Entry",
+					"fieldname": "custom_stock_entry_purpose",
+					"label": "Stock Entry Purpose",
+					"fieldtype": "Data",
+					"fetch_from": "stock_entry_type.purpose",
+					"read_only": 1,
+					"insert_after": "stock_entry_type",
+				},
 			],
 		)
-		ensure_purpose.assert_called_once_with()
 		clear_cache.assert_any_call(doctype="BOM")
+		clear_cache.assert_any_call(doctype="Stock Entry")
 
 	def test_ensure_production_owned_joint_metadata_skips_existing_fields(self) -> None:
 		with (
@@ -247,15 +254,11 @@ class TestTestBootstrap(FrappeTestCase):
 			patch(
 				"production_entry_app.production_entry_app.utils.test_bootstrap.frappe.clear_cache"
 			) as clear_cache,
-			patch(
-				"production_entry_app.production_entry_app.lifecycle.ensure_production_owned_stock_entry_purpose"
-			) as ensure_purpose,
 		):
 			ensure_production_owned_joint_metadata()
 
 		get_doc.assert_not_called()
 		clear_cache.assert_not_called()
-		ensure_purpose.assert_called_once_with()
 
 	def test_bootstrap_manufacturing_test_context_has_expected_keys(self) -> None:
 		context = bootstrap_manufacturing_test_context("Bootstrap")

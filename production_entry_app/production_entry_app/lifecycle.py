@@ -50,12 +50,10 @@ def _warn_if_e2e_enabled_on_non_test_site() -> None:
 def _setup_app() -> None:
 	ensure_rework_details_layout()
 	remove_obsolete_total_rm_consumption_field()
-	reconcile_stock_entry_purpose_field()
 	performance_indexes.ensure_performance_indexes_with_recovery()
 	frappe.logger("production_entry_app").info(
 		"Production Entry App setup ran: Rework Stock Entry layout, obsolete Total RM Consumption "
-		"field, Stock Entry Purpose metadata, and performance indexes were reconciled during "
-		"sync/migrate."
+		"field, and performance indexes were reconciled during sync/migrate."
 	)
 
 
@@ -71,79 +69,6 @@ def remove_obsolete_total_rm_consumption_field() -> None:
 		force=True,
 	)
 	frappe.clear_cache(doctype="Stock Entry")
-
-
-def reconcile_stock_entry_purpose_field() -> None:
-	"""Ensure production-owned Stock Entry Purpose exists, backfill values, drop legacy copy."""
-	ensure_production_owned_stock_entry_purpose()
-	_backfill_stock_entry_purpose_values()
-	_delete_legacy_stock_entry_purpose_field()
-
-
-def ensure_production_owned_stock_entry_purpose() -> None:
-	"""Create production-owned Stock Entry Purpose on hosts that lack it (CONTEXT.md)."""
-	field_name = "Stock Entry-custom_stock_entry_purpose"
-	if frappe.db.exists("Custom Field", field_name):
-		return
-	frappe.get_doc(
-		{
-			"doctype": "Custom Field",
-			"dt": "Stock Entry",
-			"fieldname": "custom_stock_entry_purpose",
-			"label": "Stock Entry Purpose",
-			"fieldtype": "Data",
-			"fetch_from": "stock_entry_type.purpose",
-			"read_only": 1,
-			"insert_after": "stock_entry_type",
-		}
-	).insert(ignore_permissions=True)
-	frappe.clear_cache(doctype="Stock Entry")
-
-
-def _backfill_stock_entry_purpose_values() -> None:
-	"""Fill blank Stock Entry Purpose from a legacy column (if present) or native purpose."""
-	_clear_stock_entry_column_cache()
-	if not frappe.db.has_column("Stock Entry", "custom_stock_entry_purpose"):
-		return
-
-	legacy_source = (
-		"NULLIF(`custom_pea_stock_entry_purpose`, ''), "
-		if frappe.db.has_column("Stock Entry", "custom_pea_stock_entry_purpose")
-		else ""
-	)
-	frappe.db.sql(
-		f"""
-		UPDATE `tabStock Entry`
-		SET `custom_stock_entry_purpose` = COALESCE(
-			NULLIF(`custom_stock_entry_purpose`, ''),
-			{legacy_source}
-			NULLIF(`purpose`, '')
-		)
-		WHERE IFNULL(`custom_stock_entry_purpose`, '') = ''
-		"""
-	)
-
-
-def _delete_legacy_stock_entry_purpose_field() -> None:
-	"""Drop the obsolete PEA-prefixed Stock Entry Purpose Custom Field and column."""
-	field_name = "Stock Entry-custom_pea_stock_entry_purpose"
-	fieldname = "custom_pea_stock_entry_purpose"
-	if frappe.db.exists("Custom Field", field_name):
-		frappe.delete_doc(
-			"Custom Field",
-			field_name,
-			ignore_permissions=True,
-			force=True,
-		)
-	_clear_stock_entry_column_cache()
-	if frappe.db.has_column("Stock Entry", fieldname):
-		frappe.model.delete_fields({"Stock Entry": [fieldname]}, delete=1)
-		_clear_stock_entry_column_cache()
-	frappe.clear_cache(doctype="Stock Entry")
-
-
-def _clear_stock_entry_column_cache() -> None:
-	frappe.cache.hdel("table_columns", "tabStock Entry")
 
 
 def ensure_rework_details_layout() -> None:

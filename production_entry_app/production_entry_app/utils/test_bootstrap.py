@@ -158,10 +158,6 @@ def ensure_production_owned_joint_metadata() -> None:
 	hosts that lack them create the same shapes here (CONTEXT.md "Production-Owned Joint
 	Metadata").
 	"""
-	from production_entry_app.production_entry_app.lifecycle import (
-		ensure_production_owned_stock_entry_purpose,
-	)
-
 	_ensure_custom_field(
 		dt="BOM",
 		fieldname="custom_operation",
@@ -169,8 +165,15 @@ def ensure_production_owned_joint_metadata() -> None:
 		fieldtype="Data",
 		insert_after="item",
 	)
-	ensure_production_owned_stock_entry_purpose()
-
+	_ensure_custom_field(
+		dt="Stock Entry",
+		fieldname="custom_stock_entry_purpose",
+		label="Stock Entry Purpose",
+		fieldtype="Data",
+		fetch_from="stock_entry_type.purpose",
+		read_only=1,
+		insert_after="stock_entry_type",
+	)
 
 def set_test_branch_warehouse_defaults(company: str, branch: str, **warehouses: str | None) -> None:
 	"""Update only the test's Company/Branch row; test cleanup restores the snapshot."""
