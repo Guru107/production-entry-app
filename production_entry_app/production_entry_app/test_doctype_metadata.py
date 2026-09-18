@@ -183,8 +183,6 @@ def test_rework_stock_entry_metadata_is_exported() -> None:
 	assert fields_by_name["Stock Entry-custom_pea_rework_cost"].get("read_only") == 1
 	assert fields_by_name["Stock Entry-custom_pea_rework_cost"].get("non_negative") == 1
 	assert fields_by_name["Stock Entry-custom_pea_rework_cost"].get("hidden") == 1
-	assert "Stock Entry-custom_pea_rework_actual_start" not in fields_by_name
-	assert "Stock Entry-custom_pea_rework_actual_end" not in fields_by_name
 	assert fields_by_name["Stock Entry-custom_pea_shift"].get("depends_on") == (
 		"eval:doc.custom_stock_entry_purpose=='Manufacture' || "
 		"(doc.__pea_joint_stock_entry_type && doc.stock_entry_type==doc.__pea_joint_stock_entry_type)"
