@@ -18,7 +18,8 @@ those fields mandatory.
 2. **UI without Shift:** shift-dependent capture fields are **hidden**.
 3. **Scope:** both normal **Manufacture** and **Joint LH/RH Production**.
 4. **Mandatory when Shift is set:** Workstation, Operator, Actual Start, Actual
-   End, Standard SPM > 0, Total Press Strokes > 0.
+   End, Standard SPM > 0. Total Press Strokes stays shift-gated and optional
+   (assembly and other non-press operations may have zero strokes).
 5. **Clearing Shift:** clears gated field values (client and server).
 6. **Rework** stays out of scope (already non-shift).
 
@@ -71,7 +72,11 @@ Client `toggle_reqd` and server `frappe.throw`:
 | Actual Start | required |
 | Actual End | required |
 | Standard SPM | must be > 0 |
-| Total Press Strokes | must be > 0 |
+
+Total Press Strokes remains visible in shift mode but is **not** required to be
+> 0 (assembly and other non-press operations). If the user enters a value, it
+must not be negative; existing die-tool counter logic already no-ops when
+strokes ≤ 0.
 
 Rejection and unplanned losses remain optional unless the user fills them (then
 existing row validations apply).
@@ -92,7 +97,7 @@ Introduce `is_shift_based_production_entry(doc)`:
 Skip shift-capture validations and mutations:
 
 - Standard SPM require / sync-from-workstation require path
-- Total strokes default-to-FG and > 0 require
+- Total strokes default-to-FG (do not invent strokes on stock-only entries)
 - Actual-time window checks (already no-op without planned window)
 - Workstation / operator / downtime overlap (already gated on Shift today)
 - Rejection apply / breakup require paths that only matter when rejection UI is
@@ -107,7 +112,12 @@ depth vs client-only clear).
 ### With Shift (shift-based)
 
 Keep current Shift defaults and existing checks; **add** the mandatory-field
-checks listed above.
+checks listed above (Workstation, Operator, Actual Start/End, Standard SPM > 0).
+
+Total Press Strokes: do **not** require > 0. Do **not** coerce empty/zero to
+`fg_completed_qty` in a way that invents strokes for assembly — leave blank/zero
+unless the user enters a value (negative values still rejected if that check
+already exists).
 
 ### Submit side effects
 
@@ -133,7 +143,7 @@ Primary seam: `production_entry_app/public/js/stock_entry.js` visibility helpers
 
 | Seam | Coverage |
 | --- | --- |
-| `validate_stock_entry` | Stock-only Manufacture and Joint save/validate without SPM/strokes/workstation; Shift-based requires the mandatory set |
+| `validate_stock_entry` | Stock-only Manufacture and Joint save/validate without SPM/workstation; Shift-based requires the mandatory set; Shift-based with zero Total Press Strokes is allowed |
 | Client visibility | Gated fields hidden/optional without Shift; shown/required with Shift; clear-on-clear |
 | E2E | One stock-only Manufacture path: BOM + fetch + submit without Shift capture fields |
 
@@ -149,7 +159,7 @@ Primary seam: `production_entry_app/public/js/stock_entry.js` visibility helpers
 1. User can submit Manufacture or Joint stock from BOM without selecting Shift,
    with no PEA capture-field validation failures.
 2. Selecting Shift reveals capture fields and blocks save until Workstation,
-   Operator, Actual Start/End, Standard SPM > 0, and Total Press Strokes > 0
-   are set.
+   Operator, Actual Start/End, and Standard SPM > 0 are set. Zero Total Press
+   Strokes remains allowed (e.g. assembly).
 3. Clearing Shift hides and clears those capture fields.
 4. Existing Shift-based and Rework flows keep passing their tests.
