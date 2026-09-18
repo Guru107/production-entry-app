@@ -12,15 +12,19 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	ensure_default_bom,
 	ensure_department,
 	ensure_item,
+	ensure_operator,
 	ensure_production_entry_settings_shift_fields,
 	ensure_stock,
 	ensure_warehouse,
+	ensure_workstation,
 	resolve_test_branch,
 	resolve_test_company,
 	set_test_branch_warehouse_defaults,
 )
 
 _SHIFT_SEQUENCE = 0
+_WORKSTATION = "Audit #1 Workstation"
+_OPERATOR = "Audit #1 Operator"
 
 
 def bootstrap_manufacture_masters() -> dict[str, Any]:
@@ -51,6 +55,8 @@ def bootstrap_manufacture_masters() -> dict[str, Any]:
 
 	bom = ensure_default_bom(fg_item=fg_item, rm_item=rm_item, company=company)
 	ensure_stock(rm_item, wip_warehouse, company, target_qty=1000)
+	ensure_workstation(_WORKSTATION, standard_spm=2)
+	ensure_operator(_OPERATOR)
 	return {
 		"company": company,
 		"branch": branch,
@@ -62,6 +68,8 @@ def bootstrap_manufacture_masters() -> dict[str, Any]:
 		"fg_item": fg_item,
 		"rm_item": rm_item,
 		"rm_warehouse": rm_warehouse,
+		"workstation": _WORKSTATION,
+		"operator": _OPERATOR,
 	}
 
 
@@ -141,6 +149,8 @@ def make_direct_manufacture_entry(
 			"custom_pea_shift": shift,
 			"custom_pea_rejection_qty": rejection_qty,
 			"custom_pea_standard_spm": 2,
+			"custom_pea_workstation": masters["workstation"],
+			"custom_pea_operator": masters["operator"],
 			"from_warehouse": masters["wip_warehouse"],
 			"to_warehouse": masters["fg_warehouse"],
 			"posting_date": shift_doc.shift_date,

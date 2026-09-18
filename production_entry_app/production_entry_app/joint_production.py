@@ -712,8 +712,8 @@ def _validate_joint_header(doc: Document) -> None:
 			frappe.throw(_("{0} is required for joint LH/RH production.").format(label))
 	# Warehouses are required by Fetch Items, not by recipe validation: native Repack
 	# clears mixed-direction headers on save. ERPNext validates the actual item rows.
-	if flt(doc.get("custom_pea_total_strokes")) <= 0:
-		frappe.throw(_("Total Press Strokes must be greater than zero."))
+	if flt(doc.get("custom_pea_total_strokes")) < 0:
+		frappe.throw(_("Total Press Strokes cannot be negative."))
 
 
 def _get_joint_operation(doc: Document) -> str:

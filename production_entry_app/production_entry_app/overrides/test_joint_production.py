@@ -639,6 +639,31 @@ class TestJointProductionItems(FrappeTestCase):
 		self.assertEqual(scrap["item_code"], self.scrap_item)
 		self.assertGreater(scrap["qty"], 0)
 
+	def test_joint_header_accepts_zero_total_strokes(self) -> None:
+		doc = frappe.get_doc(
+			{
+				"doctype": "Stock Entry",
+				"purpose": "Repack",
+				"company": self.masters["company"],
+				"branch": self.masters["branch"],
+				"from_warehouse": self.masters["wip_warehouse"],
+				"to_warehouse": self.masters["fg_warehouse"],
+				"custom_pea_lh_bom": self.lh_bom,
+				"custom_pea_lh_gross_qty": 40,
+				"custom_pea_lh_rejection_qty": 0,
+				"custom_pea_rh_bom": self.rh_bom,
+				"custom_pea_rh_gross_qty": 41,
+				"custom_pea_rh_rejection_qty": 0,
+				"custom_pea_total_strokes": 0,
+				"custom_pea_die_tool_item": self.lh_item,
+				"custom_pea_operation": self.operation,
+			}
+		)
+
+		rows = materialize_joint_production_rows(doc)
+
+		self.assertTrue(rows)
+
 	def test_materializes_every_bom_scrap_item_with_mixed_uoms(self) -> None:
 		# Cost these additional BOMs from actual RM stock, not an empty-bin fallback.
 		ensure_stock(
