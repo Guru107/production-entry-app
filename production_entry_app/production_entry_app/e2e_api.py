@@ -1005,7 +1005,12 @@ def _cleanup_e2e_master_data(prefix: str) -> None:
 	target_workstation = f"{prefix} Workstation"
 	target_fg_item = f"_{prefix}_FG_Item"
 	target_rm_item = f"_{prefix}_RM_Item"
-	for doctype, name in (("Workstation", target_workstation), ("Operator", target_operator)):
+	for doctype, name in (
+		("Workstation", target_workstation),
+		("Workstation", f"{prefix} Other Workstation"),
+		("Operator", target_operator),
+		("Operator", f"{prefix} Other Operator"),
+	):
 		if frappe.db.exists(doctype, name):
 			_safe_force_delete(doctype, name, context="cleanup_e2e_context")
 
@@ -1557,6 +1562,7 @@ def _build_e2e_manufacture_entry(
 			"custom_pea_operator": ctx["operator"],
 			"custom_pea_workstation": ctx["workstation"],
 			"custom_pea_rejection_qty": rejection_qty,
+			"custom_pea_total_strokes": 100,
 			"custom_pea_actual_start_date": f"{shift_date} {actual_start_time}",
 			"custom_pea_actual_end_date": f"{shift_date} {actual_end_time}",
 			"set_posting_time": 1,
@@ -1617,6 +1623,7 @@ def _build_e2e_full_shift_entry_payloads(ctx: dict) -> list[dict]:
 				"custom_pea_operator": ctx["operator"],
 				"custom_pea_workstation": ctx["workstation"],
 				"custom_pea_rejection_qty": float(ctx["rejection_qty"] or 0),
+				"custom_pea_total_strokes": 100,
 				"custom_pea_actual_start_date": str(current_start),
 				"custom_pea_actual_end_date": str(current_end),
 				"set_posting_time": 1,

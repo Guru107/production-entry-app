@@ -143,13 +143,17 @@ test.describe("Joint LH/RH production form", () => {
 		expect(await form.isFieldVisible("custom_pea_operation")).toBe(true);
 		expect(await form.isFieldVisible("custom_pea_lh_bom")).toBe(true);
 		expect(await form.isFieldVisible("custom_pea_rh_bom")).toBe(true);
-		expect(await form.isFieldVisible("custom_pea_total_strokes")).toBe(true);
+		expect(await form.isFieldVisible("custom_pea_total_strokes")).toBe(false);
 		expect(await form.isFieldVisible("custom_pea_joint_fetch_items")).toBe(true);
 		expect(await form.isFieldVisible("custom_pea_shift")).toBe(true);
 		expect(await form.isSectionVisible("bom_info_section")).toBe(false);
-		expect(await form.isSectionVisible("custom_pea_operation_details_section")).toBe(true);
+		expect(await form.isSectionVisible("custom_pea_operation_details_section")).toBe(false);
 		expect(await form.isSectionVisible("custom_pea_joint_production_section")).toBe(true);
 		expect(await form.isSectionVisible("custom_pea_joint_resources_section")).toBe(true);
+
+		await setFieldValue(page, "custom_pea_shift", ctx.shift_name);
+		expect(await form.isFieldVisible("custom_pea_total_strokes")).toBe(true);
+		expect(await form.isSectionVisible("custom_pea_operation_details_section")).toBe(true);
 		const sectionTops = await page.evaluate(() => {
 			const top = (fieldname) =>
 				document.querySelector(`[data-fieldname="${fieldname}"]`)?.getBoundingClientRect()
@@ -317,6 +321,7 @@ test.describe("Joint LH/RH production form", () => {
 		await form.openNew();
 		await enableJointProduction(page, form, stockEntryType);
 		await setFieldValue(page, "company", ctx.company);
+		await setFieldValue(page, "custom_pea_shift", ctx.shift_name);
 		await setFieldValue(page, "custom_pea_operation", ctx.joint_operation);
 		await setFieldValue(page, "custom_pea_lh_bom", ctx.joint_lh_bom);
 		await setFieldValue(page, "custom_pea_rh_bom", ctx.joint_rh_bom);
@@ -400,7 +405,6 @@ test.describe("Joint LH/RH production form", () => {
 				}),
 			])
 		);
-		await setFieldValue(page, "custom_pea_shift", ctx.shift_name);
 		await setFieldValue(page, "from_warehouse", ctx.wip_warehouse);
 		await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
 		await setFieldValue(page, "custom_pea_lh_gross_qty", 40);

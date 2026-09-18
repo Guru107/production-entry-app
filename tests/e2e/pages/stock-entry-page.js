@@ -203,6 +203,7 @@ class StockEntryPage {
 		await setFieldValue(this.page, "to_warehouse", ctx.wip_warehouse);
 		await setFieldValue(this.page, "fg_completed_qty", 100);
 		await setFieldValue(this.page, "custom_pea_rejection_qty", 5);
+		await setFieldValue(this.page, "custom_pea_total_strokes", 100);
 		await setFieldValue(this.page, "custom_pea_workstation", ctx.workstation);
 		await setFieldValue(this.page, "custom_pea_operator", ctx.operator);
 		await setFieldValue(
@@ -232,6 +233,9 @@ class StockEntryPage {
 			shiftName = ctx.shift_name,
 			actualStart = `${ctx.shift_date} 08:00:00`,
 			actualEnd = `${ctx.shift_date} 09:00:00`,
+			totalStrokes = fgQty,
+			workstation = ctx.workstation,
+			operator = ctx.operator,
 		} = options;
 
 		await setFieldValue(this.page, "stock_entry_type", "Manufacture");
@@ -249,8 +253,11 @@ class StockEntryPage {
 		await setFieldValue(this.page, "to_warehouse", options.toWarehouse || ctx.wip_warehouse);
 		await setFieldValue(this.page, "fg_completed_qty", fgQty);
 		await setFieldValue(this.page, "custom_pea_rejection_qty", rejectionQty);
-		await setFieldValue(this.page, "custom_pea_workstation", ctx.workstation);
-		await setFieldValue(this.page, "custom_pea_operator", ctx.operator);
+		if (totalStrokes !== null && totalStrokes !== undefined) {
+			await setFieldValue(this.page, "custom_pea_total_strokes", totalStrokes);
+		}
+		await setFieldValue(this.page, "custom_pea_workstation", workstation);
+		await setFieldValue(this.page, "custom_pea_operator", operator);
 		if (actualStart !== null && actualStart !== undefined) {
 			await setFieldValue(this.page, "custom_pea_actual_start_date", actualStart);
 		}

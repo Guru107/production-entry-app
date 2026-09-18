@@ -51,6 +51,52 @@ async function getOrCreateEmployee(page, ctx, employeeNumber) {
 	return created.name;
 }
 
+async function ensureExtraOperator(page, name) {
+	const exists = await callFrappeMethod(page, "frappe.client.get_list", {
+		doctype: "Operator",
+		filters: JSON.stringify({ name }),
+		limit_page_length: 1,
+	});
+	if (exists?.length) {
+		return name;
+	}
+	const created = await callFrappeMethod(page, "frappe.client.insert", {
+		doc: JSON.stringify({
+			doctype: "Operator",
+			operator_name: name,
+			is_active: 1,
+		}),
+	});
+	return created.name;
+}
+
+async function ensureExtraWorkstation(page, name) {
+	const exists = await callFrappeMethod(page, "frappe.client.get_list", {
+		doctype: "Workstation",
+		filters: JSON.stringify({ name }),
+		limit_page_length: 1,
+	});
+	if (exists?.length) {
+		await callFrappeMethod(page, "frappe.client.set_value", {
+			doctype: "Workstation",
+			name,
+			fieldname: "custom_pea_standard_spm",
+			value: 2,
+		});
+		return name;
+	}
+	const created = await callFrappeMethod(page, "frappe.client.insert", {
+		doc: JSON.stringify({
+			doctype: "Workstation",
+			workstation_name: name,
+			production_capacity: 1,
+			hour_rate: 100,
+			custom_pea_standard_spm: 2,
+		}),
+	});
+	return created.name;
+}
+
 test.describe("Stock Entry validation matrix", () => {
 	const lifecycle = registerE2ELifecycle(test);
 
@@ -578,6 +624,7 @@ test.describe("Stock Entry validation matrix", () => {
 		const stockEntryPage = await openManufactureEntry(page, ctx, {
 			fgQty: 100,
 			rejectionQty: 0,
+			totalStrokes: null,
 		});
 		expect(
 			Number(
@@ -713,7 +760,9 @@ test.describe("Stock Entry validation matrix", () => {
 		page,
 	}) => {
 		await page.goto(getRoute("/home"));
-		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
+		const prefix = lifecycle.getPrefix();
+		const ctx = await setupFreshContext(page, prefix);
+		const otherOperator = await ensureExtraOperator(page, `${prefix} Other Operator`);
 
 		const firstStockEntryPage = await openManufactureEntry(page, ctx, {
 			fgQty: 100,
@@ -722,7 +771,6 @@ test.describe("Stock Entry validation matrix", () => {
 			actualEnd: `${ctx.shift_date} 09:00:00`,
 		});
 		await firstStockEntryPage.fetchItems();
-		await setFieldValue(page, "custom_pea_operator", null);
 		await firstStockEntryPage.saveDraft();
 
 		const stockEntryPage = await openManufactureEntry(page, ctx, {
@@ -730,9 +778,9 @@ test.describe("Stock Entry validation matrix", () => {
 			rejectionQty: 0,
 			actualStart: `${ctx.shift_date} 08:30:00`,
 			actualEnd: `${ctx.shift_date} 09:30:00`,
+			operator: otherOperator,
 		});
 		await stockEntryPage.fetchItems();
-		await setFieldValue(page, "custom_pea_operator", null);
 		await stockEntryPage.attemptSaveDraft();
 		await expectValidationError(page, /Workstation .* already in use/i);
 	});
@@ -741,7 +789,9 @@ test.describe("Stock Entry validation matrix", () => {
 		page,
 	}) => {
 		await page.goto(getRoute("/home"));
-		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
+		const prefix = lifecycle.getPrefix();
+		const ctx = await setupFreshContext(page, prefix);
+		const otherWorkstation = await ensureExtraWorkstation(page, `${prefix} Other Workstation`);
 
 		const firstStockEntryPage = await openManufactureEntry(page, ctx, {
 			fgQty: 100,
@@ -750,7 +800,6 @@ test.describe("Stock Entry validation matrix", () => {
 			actualEnd: `${ctx.shift_date} 09:00:00`,
 		});
 		await firstStockEntryPage.fetchItems();
-		await setFieldValue(page, "custom_pea_workstation", null);
 		await firstStockEntryPage.saveDraft();
 
 		const stockEntryPage = await openManufactureEntry(page, ctx, {
@@ -758,9 +807,9 @@ test.describe("Stock Entry validation matrix", () => {
 			rejectionQty: 0,
 			actualStart: `${ctx.shift_date} 08:30:00`,
 			actualEnd: `${ctx.shift_date} 09:30:00`,
+			workstation: otherWorkstation,
 		});
 		await stockEntryPage.fetchItems();
-		await setFieldValue(page, "custom_pea_workstation", null);
 		await stockEntryPage.attemptSaveDraft();
 		await expectValidationError(page, /Operator .* already assigned/i);
 	});
@@ -794,7 +843,6 @@ test.describe("Stock Entry validation matrix", () => {
 				actualEnd: `${ctx.shift_date} 09:30:00`,
 			});
 			await stockEntryPage.fetchItems();
-			await setFieldValue(page, "custom_pea_operator", null);
 			await stockEntryPage.attemptSaveDraft();
 			await expectValidationError(page, /downtime entry/i);
 		} finally {
