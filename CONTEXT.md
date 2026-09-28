@@ -114,6 +114,22 @@ normal Manufacture and Joint Production, because the part was not good on its fi
 themselves are excluded from OEE and utilization.
 _Avoid_: Scrap-only quality, mode-specific rework treatment
 
+**Downtime Entry**:
+A workstation stop with a start, an end, and a stop reason. It may name a Shift. It is a different record from a
+Loss Entry.
+_Avoid_: Downtime Reason, production loss
+
+**Machine Downtime**:
+The minutes of a Downtime Entry on a workstation during a Completed Shift that are outside planned Shift losses
+and outside Loss Entries on Production Entries. Each minute counts once.
+_Avoid_: the whole idle shift, Downtime Reason
+
+**OEE running time**:
+Time counted as actual production. It is zero when the workstation has no Production Entry. When Production
+Entries exist, it is the Completed Shift time remaining after planned losses, Production Entry losses, and
+Machine Downtime.
+_Avoid_: Shift duration
+
 ## Warehouse defaults
 
 Production Entry Settings holds one warehouse-default row per Company and Branch. A Shift's explicit
