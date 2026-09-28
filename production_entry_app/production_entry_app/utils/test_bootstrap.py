@@ -201,12 +201,12 @@ def ensure_rejection_reason(name: str) -> None:
 	)
 
 
-def ensure_downtime_reason(name: str) -> None:
-	if frappe.db.exists("Downtime Reason", name):
+def ensure_downtime_reason(code: str, description: str) -> None:
+	if frappe.db.exists("Downtime Reason", code):
 		if frappe.get_meta("Downtime Reason", cached=True).has_field("is_active"):
-			frappe.db.set_value("Downtime Reason", name, "is_active", 1, update_modified=False)
+			frappe.db.set_value("Downtime Reason", code, "is_active", 1, update_modified=False)
 		return
-	doc = {"doctype": "Downtime Reason", "downtime_reason_name": name}
+	doc = {"doctype": "Downtime Reason", "code": code, "description": description}
 	if frappe.get_meta("Downtime Reason", cached=True).has_field("is_active"):
 		doc["is_active"] = 1
 	frappe.get_doc(doc).insert(ignore_permissions=True)

@@ -77,25 +77,21 @@ class TestProductionReports(FrappeTestCase):
 		_ensure_rejection_breakup_custom_field()
 		_ensure_stock_entry_metric_fields()
 		_ensure_item_die_tool_fields()
-		for reason in (
-			"Setup Time",
-			"Trial",
-			"Mtrl Handl",
-			"No Operator",
-			"No Mtrl",
-			"Maint",
-			"P. Maint",
-			"Tool Break",
-			"Other",
-			"No Helper",
-			"Power Off",
-			"Tea Break",
-			"Lunch Break",
+		for code, description in (
+			("00", "Other"),
+			("01", "Setup"),
+			("05", "Maintenance"),
+			("10", "Shift Start Up"),
+			("13", "JH Activity"),
+			("14", "Tea Break"),
+			("19", "Lunch Break"),
+			("20", "Dinner"),
+			("21", "PM"),
 		):
-			if not frappe.db.exists("Downtime Reason", reason):
-				frappe.get_doc({"doctype": "Downtime Reason", "downtime_reason_name": reason}).insert(
-					ignore_permissions=True
-				)
+			if not frappe.db.exists("Downtime Reason", code):
+				frappe.get_doc(
+					{"doctype": "Downtime Reason", "code": code, "description": description}
+				).insert(ignore_permissions=True)
 
 		cls.company = resolve_test_company()
 		abbr = get_company_abbr(cls.company)
@@ -172,7 +168,7 @@ class TestProductionReports(FrappeTestCase):
 			frappe.set_user(original_user)
 
 	def _get_pea_read_only_report_filters(self, report_name: str) -> dict:
-		if report_name == "Daily Strokes SPM Monitor":
+		if report_name in ("Daily Strokes SPM Monitor", "Operator Daily SPM Report"):
 			return {"from_date": "2090-04-01", "to_date": "2090-04-30"}
 		return {}
 
@@ -703,9 +699,7 @@ class TestProductionReports(FrappeTestCase):
 			fg_qty=100,
 			rejection_qty=0,
 			shift_name=shift_1.name,
-			unplanned_losses=[
-				{"downtime_reason": "Setup Time", "start_time": "10:00:00", "end_time": "10:30:00"}
-			],
+			unplanned_losses=[{"downtime_reason": "01", "start_time": "10:00:00", "end_time": "10:30:00"}],
 		)
 		self._create_mock_submitted_entry(
 			posting_date="2026-06-02",
@@ -716,9 +710,7 @@ class TestProductionReports(FrappeTestCase):
 			fg_qty=80,
 			rejection_qty=10,
 			shift_name=shift_2.name,
-			unplanned_losses=[
-				{"downtime_reason": "P. Maint", "start_time": "18:00:00", "end_time": "19:00:00"}
-			],
+			unplanned_losses=[{"downtime_reason": "21", "start_time": "18:00:00", "end_time": "19:00:00"}],
 		)
 		_, rows = execute({"from_date": "2026-06-02", "to_date": "2026-06-02"})
 		self.assertEqual(len(rows), 1)
@@ -746,7 +738,7 @@ class TestProductionReports(FrappeTestCase):
 			fg_qty=100,
 			rejection_qty=0,
 			shift_name=shift_2.name,
-			unplanned_losses=[{"downtime_reason": "Other", "start_time": "23:30:00", "end_time": "00:30:00"}],
+			unplanned_losses=[{"downtime_reason": "00", "start_time": "23:30:00", "end_time": "00:30:00"}],
 		)
 
 		_, rows = execute({"from_date": "2026-06-09", "to_date": "2026-06-09"})
@@ -761,11 +753,12 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		shift = self._create_shift_for_label("2026-06-07", "1", clear_planned_losses=True)
-		if not frappe.db.exists("Downtime Reason", "Excessive machine set up time"):
+		if not frappe.db.exists("Downtime Reason", "88"):
 			frappe.get_doc(
 				{
 					"doctype": "Downtime Reason",
-					"downtime_reason_name": "Excessive machine set up time",
+					"code": "88",
+					"description": "Excessive machine set up time",
 				}
 			).insert(ignore_permissions=True)
 		self._create_mock_submitted_entry(
@@ -779,7 +772,7 @@ class TestProductionReports(FrappeTestCase):
 			shift_name=shift.name,
 			unplanned_losses=[
 				{
-					"downtime_reason": "Excessive machine set up time",
+					"downtime_reason": "88",
 					"start_time": "10:00:00",
 					"end_time": "10:30:00",
 				}
@@ -854,9 +847,7 @@ class TestProductionReports(FrappeTestCase):
 			fg_qty=100,
 			rejection_qty=0,
 			shift_name=shift.name,
-			unplanned_losses=[
-				{"downtime_reason": "Setup Time", "start_time": "10:00:00", "end_time": "10:30:00"}
-			],
+			unplanned_losses=[{"downtime_reason": "01", "start_time": "10:00:00", "end_time": "10:30:00"}],
 		)
 		self._create_downtime_entry(
 			workstation="Report Workstation",
@@ -1454,7 +1445,7 @@ class TestProductionReports(FrappeTestCase):
 			fg_qty=120,
 			rejection_qty=0,
 			shift_name=shift.name,
-			unplanned_losses=[{"downtime_reason": "Other", "start_time": "12:00:00", "end_time": "14:00:00"}],
+			unplanned_losses=[{"downtime_reason": "00", "start_time": "12:00:00", "end_time": "14:00:00"}],
 		)
 
 		_, rows = execute({"from_date": "2026-06-03", "to_date": "2026-06-03"})
@@ -1478,7 +1469,7 @@ class TestProductionReports(FrappeTestCase):
 			fg_qty=120,
 			rejection_qty=0,
 			shift_name=shift.name,
-			unplanned_losses=[{"downtime_reason": "Other", "start_time": "10:00:00", "end_time": "10:00:20"}],
+			unplanned_losses=[{"downtime_reason": "00", "start_time": "10:00:00", "end_time": "10:00:20"}],
 		)
 
 		_, rows = execute({"from_date": "2026-06-13", "to_date": "2026-06-13"})
@@ -1891,8 +1882,8 @@ class TestProductionReports(FrappeTestCase):
 			standard_spm=2,
 			shift_name=shift.name,
 			unplanned_losses=[
-				{"downtime_reason": "Setup Time", "start_time": "08:00:00", "end_time": "08:30:00"},
-				{"downtime_reason": "Maint", "start_time": "08:30:00", "end_time": "08:45:00"},
+				{"downtime_reason": "01", "start_time": "08:00:00", "end_time": "08:30:00"},
+				{"downtime_reason": "05", "start_time": "08:30:00", "end_time": "08:45:00"},
 			],
 		)
 
@@ -1968,8 +1959,8 @@ class TestProductionReports(FrappeTestCase):
 			standard_spm=3,
 			shift_name=shift.name,
 			unplanned_losses=[
-				{"downtime_reason": "Setup Time", "start_time": "08:00:00", "end_time": "08:20:00"},
-				{"downtime_reason": "Maint", "start_time": "08:20:00", "end_time": "08:30:00"},
+				{"downtime_reason": "01", "start_time": "08:00:00", "end_time": "08:20:00"},
+				{"downtime_reason": "05", "start_time": "08:20:00", "end_time": "08:30:00"},
 			],
 		)
 
@@ -3751,13 +3742,13 @@ class TestProductionReports(FrappeTestCase):
 			shift_name=shift.name,
 			unplanned_losses=[
 				{
-					"downtime_reason": "Setup Time",
+					"downtime_reason": "01",
 					"start_time": "08:00:00",
 					"end_time": "08:30:00",
 					"remark": "setup",
 				},
 				{
-					"downtime_reason": "Maint",
+					"downtime_reason": "05",
 					"start_time": "08:30:00",
 					"end_time": "08:45:00",
 					"remark": "maint",
@@ -3806,12 +3797,12 @@ class TestProductionReports(FrappeTestCase):
 			shift_name=shift.name,
 			unplanned_losses=[
 				{
-					"downtime_reason": "Setup Time",
+					"downtime_reason": "01",
 					"start_time": "08:00:00",
 					"end_time": "08:00:20",
 				},
 				{
-					"downtime_reason": "Maint",
+					"downtime_reason": "05",
 					"start_time": "08:00:20",
 					"end_time": "08:00:40",
 				},
@@ -4043,13 +4034,13 @@ class TestProductionReports(FrappeTestCase):
 			shift_name=shift.name,
 			unplanned_losses=[
 				{
-					"downtime_reason": "Setup Time",
+					"downtime_reason": "01",
 					"start_time": "08:00:00",
 					"end_time": "08:30:00",
 					"remark": "setup",
 				},
 				{
-					"downtime_reason": "Maint",
+					"downtime_reason": "05",
 					"start_time": "09:00:00",
 					"end_time": "10:00:00",
 					"remark": "maint",
@@ -4089,8 +4080,8 @@ class TestProductionReports(FrappeTestCase):
 			rejection_qty=0,
 			shift_name=shift.name,
 			unplanned_losses=[
-				{"downtime_reason": "Setup Time", "start_time": "08:00:00", "end_time": "08:00:20"},
-				{"downtime_reason": "Maint", "start_time": "08:00:20", "end_time": "08:00:40"},
+				{"downtime_reason": "01", "start_time": "08:00:00", "end_time": "08:00:20"},
+				{"downtime_reason": "05", "start_time": "08:00:20", "end_time": "08:00:40"},
 			],
 		)
 

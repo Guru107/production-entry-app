@@ -187,9 +187,9 @@ class TestTestBootstrap(FrappeTestCase):
 		ensure_rejection_reason("Bootstrap Rejection")
 		ensure_rejection_reason("Bootstrap Rejection")
 		self.assertTrue(frappe.db.exists("Rejection Reason", "Bootstrap Rejection"))
-		ensure_downtime_reason("Bootstrap Downtime")
-		ensure_downtime_reason("Bootstrap Downtime")
-		self.assertTrue(frappe.db.exists("Downtime Reason", "Bootstrap Downtime"))
+		ensure_downtime_reason("90", "Bootstrap Downtime")
+		ensure_downtime_reason("90", "Bootstrap Downtime")
+		self.assertTrue(frappe.db.exists("Downtime Reason", "90"))
 
 	def test_ensure_production_owned_joint_metadata_creates_missing_fields(self) -> None:
 		created: list[dict] = []

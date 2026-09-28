@@ -49,10 +49,15 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 
 
 def _ensure_downtime_reasons() -> None:
-	"""Ensure Tea Break and Lunch Break Downtime Reasons exist."""
-	for name in ("Tea Break", "Lunch Break", "Setup Time", "Maint"):
-		if not frappe.db.exists("Downtime Reason", name):
-			frappe.get_doc({"doctype": "Downtime Reason", "downtime_reason_name": name}).insert()
+	"""Ensure the coded loss Downtime Reasons used by these tests exist."""
+	for code, description in (
+		("14", "14"),
+		("19", "19"),
+		("01", "Setup"),
+		("05", "Maintenance"),
+	):
+		if not frappe.db.exists("Downtime Reason", code):
+			frappe.get_doc({"doctype": "Downtime Reason", "code": code, "description": description}).insert()
 
 
 def _ensure_rejection_breakup_doctype() -> None:
@@ -1856,7 +1861,7 @@ class TestStockEntryHooks(FrappeTestCase):
 		se.append(
 			"custom_pea_unplanned_losses",
 			{
-				"downtime_reason": "Setup Time",
+				"downtime_reason": "01",
 				"start_time": "08:00:00",
 				"end_time": "08:20:00",
 				"remark": "setup",
@@ -1866,7 +1871,7 @@ class TestStockEntryHooks(FrappeTestCase):
 		se.append(
 			"custom_pea_unplanned_losses",
 			{
-				"downtime_reason": "Maint",
+				"downtime_reason": "05",
 				"start_time": "08:20:00",
 				"end_time": "08:30:00",
 				"remark": "maint",
@@ -1939,7 +1944,7 @@ class TestStockEntryHooks(FrappeTestCase):
 		se.append(
 			"custom_pea_unplanned_losses",
 			{
-				"downtime_reason": "Tea Break",
+				"downtime_reason": "14",
 				"start_time": "09:00:00",
 				"end_time": "09:10:00",
 				"remark": "duplicate planned break",
@@ -1975,7 +1980,7 @@ class TestStockEntryHooks(FrappeTestCase):
 		se.append(
 			"custom_pea_unplanned_losses",
 			{
-				"downtime_reason": "Setup Time",
+				"downtime_reason": "01",
 				"start_time": "08:00:00",
 				"end_time": "08:10:00",
 				"remark": "setup",
@@ -2901,7 +2906,7 @@ class TestStockEntryHooks(FrappeTestCase):
 		se.append(
 			"custom_pea_unplanned_losses",
 			{
-				"downtime_reason": "Tea Break",
+				"downtime_reason": "14",
 				"start_time": "10:00:00",
 				"end_time": "10:15:00",
 			},
@@ -2909,7 +2914,7 @@ class TestStockEntryHooks(FrappeTestCase):
 		se.save()
 
 		self.assertEqual(len(se.custom_pea_unplanned_losses), 1)
-		self.assertEqual(se.custom_pea_unplanned_losses[0].downtime_reason, "Tea Break")
+		self.assertEqual(se.custom_pea_unplanned_losses[0].downtime_reason, "14")
 		self.assertEqual(se.custom_pea_unplanned_losses[0].shift, shift.name)
 
 	def test_unplanned_loss_outside_actual_window_throws(self) -> None:
@@ -2932,7 +2937,7 @@ class TestStockEntryHooks(FrappeTestCase):
 		se.append(
 			"custom_pea_unplanned_losses",
 			{
-				"downtime_reason": "Setup Time",
+				"downtime_reason": "01",
 				"start_time": "09:00:00",
 				"end_time": "09:10:00",
 			},
@@ -2961,7 +2966,7 @@ class TestStockEntryHooks(FrappeTestCase):
 		se.append(
 			"custom_pea_unplanned_losses",
 			{
-				"downtime_reason": "Setup Time",
+				"downtime_reason": "01",
 				"start_time": "09:00:00",
 				"end_time": "09:10:00",
 			},
@@ -2987,7 +2992,7 @@ class TestStockEntryHooks(FrappeTestCase):
 		se.append(
 			"custom_pea_unplanned_losses",
 			{
-				"downtime_reason": "Tea Break",
+				"downtime_reason": "14",
 				"start_time": "10:00:00",
 				"end_time": "10:15:00",
 			},

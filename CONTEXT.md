@@ -124,11 +124,23 @@ The minutes of a Downtime Entry on a workstation during a Completed Shift that a
 and outside Loss Entries on Production Entries. Each minute counts once.
 _Avoid_: the whole idle shift, Downtime Reason
 
+**Downtime Reason**:
+Master data naming the cause of planned or unplanned lost time. Identified by a short standard code that is the
+record's identity; carries an editable human-readable description. Shift planned losses and Production Entry
+unplanned losses reference reasons by code. Reasons outside the standard set can be removed; entries that
+referenced a removed reason resolve to Other (00).
+_Avoid_: reason name as identity, free-text reason
+
 **OEE running time**:
 Time counted as actual production. It is zero when the workstation has no Production Entry. When Production
 Entries exist, it is the Completed Shift time remaining after planned losses, Production Entry losses, and
 Machine Downtime.
 _Avoid_: Shift duration
+
+**OEE Loss Breakdown**:
+The per-reason split of loss time in the Production OEE Report, one column pair per reason chosen in the report
+filter. With no reasons chosen, the report shows only the grand total of loss time, not a breakdown.
+_Avoid_: fixed loss buckets, fixed loss-type columns
 
 ## Warehouse defaults
 

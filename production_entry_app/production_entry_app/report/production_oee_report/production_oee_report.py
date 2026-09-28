@@ -55,19 +55,16 @@ _SHIFT_WINDOW_FIELDS = [
 	"shift_duration",
 ]
 
+# Keys are Downtime Reason codes (interim rigid buckets; superseded by the OEE Loss Breakdown filter).
 LOSS_REASON_TO_BUCKET: dict[str, str] = {
-	"Setup Time": "setup",
-	"Setup time": "setup",
-	"Trial": "trial",
-	"Mtrl Handl": "mtrl_handl",
-	"No Operator": "no_operator",
-	"No Mtrl": "no_mtrl",
-	"Maint": "maint",
-	"P. Maint": "p_maint",
-	"Tool Break": "tool_break",
-	"Other": "other",
-	"No Helper": "no_helper",
-	"Power Off": "power_off",
+	"01": "setup",
+	"22": "trial",
+	"03": "no_operator",
+	"04": "no_mtrl",
+	"05": "maint",
+	"21": "p_maint",
+	"00": "other",
+	"11": "power_off",
 }
 
 

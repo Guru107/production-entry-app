@@ -5,7 +5,7 @@ from typing import Any
 
 from frappe.utils import flt, get_time
 
-SETUP_TIME_REASON: str = "Setup Time"
+SETUP_TIME_REASON: str = "01"
 
 
 def get_loss_duration_minutes(start_value, end_value) -> float:

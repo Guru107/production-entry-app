@@ -321,19 +321,19 @@ class TestReportUtilsPerformance(FrappeTestCase):
 		rows = [
 			{
 				"parent": "STE-001",
-				"downtime_reason": "Setup Time",
+				"downtime_reason": "01",
 				"start_time": "2026-01-01 08:00:00",
 				"end_time": "2026-01-01 08:15:00",
 			},
 			{
 				"parent": "STE-001",
-				"downtime_reason": "Tea Break",
+				"downtime_reason": "14",
 				"start_time": "2026-01-01 09:00:00",
 				"end_time": "2026-01-01 09:30:00",
 			},
 			{
 				"parent": "",
-				"downtime_reason": "Tea Break",
+				"downtime_reason": "14",
 				"start_time": "2026-01-01 10:00:00",
 				"end_time": "2026-01-01 10:15:00",
 			},

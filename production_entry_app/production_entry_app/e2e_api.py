@@ -690,11 +690,11 @@ def bootstrap_e2e_context(prefix: str = "E2E", cleanup_running: int = 1) -> dict
 	ensure_workstation(workstation_name, standard_spm=2)
 	ensure_rejection_reason("Burr")
 	ensure_rejection_reason("Crack")
-	ensure_downtime_reason("Tea Break")
-	ensure_downtime_reason("Lunch Break")
-	ensure_downtime_reason("Shift Start Up")
-	ensure_downtime_reason("JH Activity")
-	ensure_downtime_reason("Dinner")
+	ensure_downtime_reason("14", "Tea Break")
+	ensure_downtime_reason("19", "Lunch Break")
+	ensure_downtime_reason("10", "Shift Start Up")
+	ensure_downtime_reason("13", "JH Activity")
+	ensure_downtime_reason("20", "Dinner")
 
 	set_test_branch_warehouse_defaults(
 		company,

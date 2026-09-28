@@ -78,29 +78,31 @@ COMPLETED_SHIFT_DURATION_EXTENSION_COMPUTED_FIELDS: frozenset[str] = frozenset(
 		"shift_title",
 	}
 )
+# Planned-loss Downtime Reason codes: 10 Shift Start Up, 13 JH Activity, 14 Tea Break,
+# 19 Lunch Break, 20 Dinner.
 _SHIFT_START_LOSSES: list[tuple[str, int, int]] = [
-	("Shift Start Up", 0, 10),
+	("10", 0, 10),
 ]
 # JH Activity is scheduled at a fixed absolute time (10:00-10:10) if the shift window overlaps.
-_JH_ACTIVITY_REASON: str = "JH Activity"
+_JH_ACTIVITY_REASON: str = "13"
 _JH_ACTIVITY_FIXED_START_TIME: datetime.time = datetime.time(10, 0, 0)
 _JH_ACTIVITY_DURATION_MINS: int = 10
 _FIXED_TIME_BREAKS: dict[int, list[tuple[str, str, int]]] = {
-	8: [("Tea Break", "09:00", 10)],
-	10: [("Tea Break", "09:00", 10), ("Lunch Break", "12:00", 30), ("Tea Break", "17:00", 10)],
-	12: [("Tea Break", "09:00", 10), ("Lunch Break", "12:00", 30), ("Tea Break", "17:00", 20)],
+	8: [("14", "09:00", 10)],
+	10: [("14", "09:00", 10), ("19", "12:00", 30), ("14", "17:00", 10)],
+	12: [("14", "09:00", 10), ("19", "12:00", 30), ("14", "17:00", 20)],
 	14: [
-		("Tea Break", "09:00", 10),
-		("Lunch Break", "12:00", 30),
-		("Tea Break", "17:00", 20),
-		("Tea Break", "20:00", 10),
+		("14", "09:00", 10),
+		("19", "12:00", 30),
+		("14", "17:00", 20),
+		("14", "20:00", 10),
 	],
 	16: [
-		("Tea Break", "09:00", 10),
-		("Lunch Break", "12:00", 30),
-		("Tea Break", "17:00", 20),
-		("Tea Break", "20:00", 10),
-		("Dinner", "22:00", 30),
+		("14", "09:00", 10),
+		("19", "12:00", 30),
+		("14", "17:00", 20),
+		("14", "20:00", 10),
+		("20", "22:00", 30),
 	],
 }
 

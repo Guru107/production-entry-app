@@ -33,11 +33,17 @@ def _ensure_downtime_reasons() -> None:
 	if not frappe.get_meta("Downtime Reason", cached=True).has_field("is_active"):
 		frappe.reload_doc("production_entry_app", "doctype", "downtime_reason")
 		frappe.clear_cache(doctype="Downtime Reason")
-	for name in ("Shift Start Up", "JH Activity", "Tea Break", "Lunch Break", "Dinner"):
-		if not frappe.db.exists("Downtime Reason", name):
-			frappe.get_doc({"doctype": "Downtime Reason", "downtime_reason_name": name}).insert()
+	for code, description in (
+		("10", "10"),
+		("13", "13"),
+		("14", "14"),
+		("19", "19"),
+		("20", "20"),
+	):
+		if not frappe.db.exists("Downtime Reason", code):
+			frappe.get_doc({"doctype": "Downtime Reason", "code": code, "description": description}).insert()
 		if frappe.get_meta("Downtime Reason", cached=True).has_field("is_active"):
-			frappe.db.set_value("Downtime Reason", name, "is_active", 1, update_modified=False)
+			frappe.db.set_value("Downtime Reason", code, "is_active", 1, update_modified=False)
 
 
 def _ensure_test_department() -> str:
@@ -178,7 +184,7 @@ class TestShiftPureHelpers(FrappeTestCase):
 				"planned_losses": [
 					frappe._dict(
 						{
-							"downtime_reason": "Tea Break",
+							"downtime_reason": "14",
 							"start_time": "09:00:00",
 							"end_time": "09:10:00",
 						}
@@ -195,7 +201,7 @@ class TestShiftPureHelpers(FrappeTestCase):
 
 		self.assertEqual(
 			result,
-			[{"downtime_reason": "Tea Break", "start_time": "09:00:00", "end_time": "09:10:00"}],
+			[{"downtime_reason": "14", "start_time": "09:00:00", "end_time": "09:10:00"}],
 		)
 		self.assertEqual(fake_shift.shift_duration, "8")
 		fake_shift._populate_planned_losses.assert_called_once()
@@ -648,7 +654,7 @@ class TestShiftPureHelpers(FrappeTestCase):
 		shift = frappe.new_doc("Shift")
 		shift.append(
 			"planned_losses",
-			{"downtime_reason": "Tea Break", "start_time": "09:00:00", "end_time": "09:10:00"},
+			{"downtime_reason": "14", "start_time": "09:00:00", "end_time": "09:10:00"},
 		)
 		with patch.object(shift, "get_doc_before_save", return_value=None):
 			self.assertTrue(shift._planned_losses_changed())
@@ -658,7 +664,7 @@ class TestShiftPureHelpers(FrappeTestCase):
 				"planned_losses": [
 					frappe._dict(
 						{
-							"downtime_reason": "Tea Break",
+							"downtime_reason": "14",
 							"start_time": datetime.time(9, 0),
 							"end_time": datetime.time(9, 10),
 						}
@@ -669,7 +675,7 @@ class TestShiftPureHelpers(FrappeTestCase):
 		shift.planned_losses = []
 		shift.append(
 			"planned_losses",
-			{"downtime_reason": "Lunch Break", "start_time": "09:00:00", "end_time": "09:10:00"},
+			{"downtime_reason": "19", "start_time": "09:00:00", "end_time": "09:10:00"},
 		)
 		with patch.object(shift, "get_doc_before_save", return_value=before):
 			self.assertTrue(shift._planned_losses_changed())
@@ -677,7 +683,7 @@ class TestShiftPureHelpers(FrappeTestCase):
 		shift.planned_losses = []
 		shift.append(
 			"planned_losses",
-			{"downtime_reason": "Tea Break", "start_time": "09:00:00", "end_time": "09:10:00"},
+			{"downtime_reason": "14", "start_time": "09:00:00", "end_time": "09:10:00"},
 		)
 		with patch.object(shift, "get_doc_before_save", return_value=frappe._dict({"planned_losses": []})):
 			self.assertTrue(shift._planned_losses_changed())
@@ -687,7 +693,7 @@ class TestShiftPureHelpers(FrappeTestCase):
 				"planned_losses": [
 					frappe._dict(
 						{
-							"downtime_reason": "Tea Break",
+							"downtime_reason": "14",
 							"start_time": datetime.time(9, 0),
 							"end_time": datetime.time(9, 10),
 						}
@@ -699,7 +705,7 @@ class TestShiftPureHelpers(FrappeTestCase):
 		shift.append(
 			"planned_losses",
 			{
-				"downtime_reason": "Tea Break",
+				"downtime_reason": "14",
 				"start_time": datetime.time(9, 0),
 				"end_time": datetime.time(9, 10),
 			},
@@ -1478,10 +1484,10 @@ class TestShift(FrappeTestCase):
 		self.assertEqual(
 			rows,
 			[
-				("Shift Start Up", "08:00:00", "08:10:00"),
-				("Tea Break", "09:00:00", "09:10:00"),
+				("10", "08:00:00", "08:10:00"),
+				("14", "09:00:00", "09:10:00"),
 				# JH Activity is fixed at 10:00-10:10 when the shift window overlaps it (08:00-16:00)
-				("JH Activity", "10:00:00", "10:10:00"),
+				("13", "10:00:00", "10:10:00"),
 			],
 		)
 
@@ -1501,7 +1507,7 @@ class TestShift(FrappeTestCase):
 			}
 		).insert()
 
-		tea_break = next((row for row in doc.planned_losses if row.downtime_reason == "Tea Break"), None)
+		tea_break = next((row for row in doc.planned_losses if row.downtime_reason == "14"), None)
 		self.assertIsNotNone(tea_break)
 		self.assertEqual(tea_break.start_time, "09:00:00")
 		self.assertEqual(tea_break.end_time, "09:05:00")
@@ -1529,12 +1535,12 @@ class TestShift(FrappeTestCase):
 		self.assertEqual(
 			rows,
 			[
-				("Shift Start Up", "08:00:00", "08:10:00"),
-				("Tea Break", "09:00:00", "09:10:00"),
+				("10", "08:00:00", "08:10:00"),
+				("14", "09:00:00", "09:10:00"),
 				# JH Activity is fixed at 10:00-10:10 (shift window 08:00-18:00 overlaps)
-				("JH Activity", "10:00:00", "10:10:00"),
-				("Lunch Break", "12:00:00", "12:30:00"),
-				("Tea Break", "17:00:00", "17:10:00"),
+				("13", "10:00:00", "10:10:00"),
+				("19", "12:00:00", "12:30:00"),
+				("14", "17:00:00", "17:10:00"),
 			],
 		)
 
@@ -1559,12 +1565,12 @@ class TestShift(FrappeTestCase):
 		self.assertEqual(
 			rows,
 			[
-				("Shift Start Up", "06:00:00", "06:10:00"),
-				("Tea Break", "09:00:00", "09:10:00"),
+				("10", "06:00:00", "06:10:00"),
+				("14", "09:00:00", "09:10:00"),
 				# JH Activity is fixed at 10:00-10:10 (shift window 06:00-18:00 overlaps)
-				("JH Activity", "10:00:00", "10:10:00"),
-				("Lunch Break", "12:00:00", "12:30:00"),
-				("Tea Break", "17:00:00", "17:20:00"),
+				("13", "10:00:00", "10:10:00"),
+				("19", "12:00:00", "12:30:00"),
+				("14", "17:00:00", "17:20:00"),
 			],
 		)
 
@@ -1587,13 +1593,13 @@ class TestShift(FrappeTestCase):
 		self.assertEqual(
 			rows,
 			[
-				("Shift Start Up", "08:00:00", "08:10:00"),
-				("Tea Break", "09:00:00", "09:10:00"),
+				("10", "08:00:00", "08:10:00"),
+				("14", "09:00:00", "09:10:00"),
 				# JH Activity is fixed at 10:00-10:10 (shift window 08:00-22:00 overlaps)
-				("JH Activity", "10:00:00", "10:10:00"),
-				("Lunch Break", "12:00:00", "12:30:00"),
-				("Tea Break", "17:00:00", "17:20:00"),
-				("Tea Break", "20:00:00", "20:10:00"),
+				("13", "10:00:00", "10:10:00"),
+				("19", "12:00:00", "12:30:00"),
+				("14", "17:00:00", "17:20:00"),
+				("14", "20:00:00", "20:10:00"),
 			],
 		)
 
@@ -1617,14 +1623,14 @@ class TestShift(FrappeTestCase):
 		self.assertEqual(
 			rows,
 			[
-				("Shift Start Up", "08:00:00", "08:10:00"),
-				("Tea Break", "09:00:00", "09:10:00"),
+				("10", "08:00:00", "08:10:00"),
+				("14", "09:00:00", "09:10:00"),
 				# JH Activity is fixed at 10:00-10:10 (shift window 08:00-24:00 overlaps)
-				("JH Activity", "10:00:00", "10:10:00"),
-				("Lunch Break", "12:00:00", "12:30:00"),
-				("Tea Break", "17:00:00", "17:20:00"),
-				("Tea Break", "20:00:00", "20:10:00"),
-				("Dinner", "22:00:00", "22:30:00"),
+				("13", "10:00:00", "10:10:00"),
+				("19", "12:00:00", "12:30:00"),
+				("14", "17:00:00", "17:20:00"),
+				("14", "20:00:00", "20:10:00"),
+				("20", "22:00:00", "22:30:00"),
 			],
 		)
 
@@ -1650,7 +1656,7 @@ class TestShift(FrappeTestCase):
 		doc.save()
 
 		self.assertEqual(len(doc.planned_losses), 5)
-		self.assertEqual(doc.planned_losses[4].downtime_reason, "Tea Break")
+		self.assertEqual(doc.planned_losses[4].downtime_reason, "14")
 		self.assertEqual(doc.planned_losses[4].start_time, "17:00:00")
 
 	def test_inactive_downtime_reason_not_included_in_planned_losses(self) -> None:
@@ -1658,9 +1664,9 @@ class TestShift(FrappeTestCase):
 			self.skipTest("Downtime Reason.is_active field is not available in current schema.")
 		name = self._expected_name(self._test_department, "2026-06-01", "1")
 		self._delete_shift_if_exists(name)
-		original_tea_state = frappe.db.get_value("Downtime Reason", "Tea Break", "is_active")
+		original_tea_state = frappe.db.get_value("Downtime Reason", "14", "is_active")
 		try:
-			frappe.db.set_value("Downtime Reason", "Tea Break", "is_active", 0, update_modified=False)
+			frappe.db.set_value("Downtime Reason", "14", "is_active", 0, update_modified=False)
 			doc = frappe.get_doc(
 				{
 					"doctype": "Shift",
@@ -1672,12 +1678,12 @@ class TestShift(FrappeTestCase):
 				}
 			).insert()
 			reasons = [row.downtime_reason for row in doc.planned_losses]
-			self.assertNotIn("Tea Break", reasons)
-			self.assertIn("Lunch Break", reasons)
+			self.assertNotIn("14", reasons)
+			self.assertIn("19", reasons)
 		finally:
 			frappe.db.set_value(
 				"Downtime Reason",
-				"Tea Break",
+				"14",
 				"is_active",
 				1 if original_tea_state is None else original_tea_state,
 				update_modified=False,
@@ -2506,7 +2512,7 @@ class TestShift(FrappeTestCase):
 		# 10-hour shift should have 5 planned losses: Startup, JH Activity, Tea, Lunch, Tea
 		self.assertEqual(len(running_doc.planned_losses), 5)
 		loss_reasons = [row.downtime_reason for row in running_doc.planned_losses]
-		self.assertIn("Lunch Break", loss_reasons)
+		self.assertIn("19", loss_reasons)
 
 		# End shift so it does not leak into subsequent tests
 		frappe.get_doc("Shift", name).end_shift()
@@ -2528,7 +2534,7 @@ class TestShift(FrappeTestCase):
 			}
 		).insert()
 
-		jh_activity = next((row for row in doc.planned_losses if row.downtime_reason == "JH Activity"), None)
+		jh_activity = next((row for row in doc.planned_losses if row.downtime_reason == "13"), None)
 		self.assertIsNotNone(jh_activity, "JH Activity should be present")
 		self.assertEqual(jh_activity.start_time, "10:00:00")
 		self.assertEqual(jh_activity.end_time, "10:10:00")
@@ -2550,7 +2556,7 @@ class TestShift(FrappeTestCase):
 			}
 		).insert()
 
-		jh_activity = next((row for row in doc.planned_losses if row.downtime_reason == "JH Activity"), None)
+		jh_activity = next((row for row in doc.planned_losses if row.downtime_reason == "13"), None)
 		self.assertIsNone(jh_activity, "JH Activity should NOT be present for overnight shift")
 
 	def test_cross_midnight_shift_generates_jh_activity_on_next_day(self) -> None:
@@ -2570,7 +2576,7 @@ class TestShift(FrappeTestCase):
 			}
 		).insert()
 
-		jh_activity = next((row for row in doc.planned_losses if row.downtime_reason == "JH Activity"), None)
+		jh_activity = next((row for row in doc.planned_losses if row.downtime_reason == "13"), None)
 		self.assertIsNotNone(
 			jh_activity, "JH Activity should be present for cross-midnight shift spanning 10:00 AM next day"
 		)
@@ -3195,13 +3201,13 @@ class TestShiftSummary(FrappeTestCase):
 			workstation="WS-LINE-1",
 			unplanned_losses=[
 				{
-					"downtime_reason": "Tea Break",
+					"downtime_reason": "14",
 					"start_time": "09:00:00",
 					"end_time": "09:10:00",
 					"shift": shift.name,
 				},
 				{
-					"downtime_reason": "Lunch Break",
+					"downtime_reason": "19",
 					"start_time": "09:10:00",
 					"end_time": "09:30:00",
 					"shift": shift.name,
@@ -3221,7 +3227,7 @@ class TestShiftSummary(FrappeTestCase):
 		self.assertAlmostEqual(float(summary["logged_downtime"]["total_mins"]), 30.0, places=6)
 		self.assertTrue(summary["logged_downtime"]["recorded"])
 		self.assertEqual(summary["logged_downtime"]["top_reasons"][0]["reason"], "Other")
-		self.assertEqual(summary["exceptions"]["unplanned_loss_reasons"][0]["reason"], "Lunch Break")
+		self.assertEqual(summary["exceptions"]["unplanned_loss_reasons"][0]["reason"], "19")
 
 	def test_logged_downtime_ignores_overlapping_rows_from_other_shifts(self) -> None:
 		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
@@ -3789,12 +3795,14 @@ class TestShiftPermissions(FrappeTestCase):
 		_ensure_user_with_role("test_shift_pea_user@example.com", "PEA User")
 		frappe.set_user("test_shift_pea_user@example.com")
 
-		reason_name = f"Test Downtime Reason {frappe.generate_hash(length=6)}"
-		if frappe.db.exists("Downtime Reason", reason_name):
-			frappe.delete_doc("Downtime Reason", reason_name)
+		reason_code = frappe.generate_hash(length=6)
+		if frappe.db.exists("Downtime Reason", reason_code):
+			frappe.delete_doc("Downtime Reason", reason_code)
 
 		with self.assertRaises(frappe.PermissionError):
-			frappe.get_doc({"doctype": "Downtime Reason", "downtime_reason_name": reason_name}).insert()
+			frappe.get_doc(
+				{"doctype": "Downtime Reason", "code": reason_code, "description": "Test Downtime Reason"}
+			).insert()
 
 	def test_user_without_pea_role_cannot_access_shift(self) -> None:
 		"""User with only Blogger role must not have Shift permission."""
