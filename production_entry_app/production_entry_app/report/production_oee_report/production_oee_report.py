@@ -169,6 +169,7 @@ def _get_columns() -> list[dict]:
 def _get_rows(filters: dict, timeout_guard) -> list[dict]:
 	shift_label_cache: dict[str, str] = {}
 	groups = _get_stock_entry_groups(filters, shift_label_cache, timeout_guard)
+	_add_downtime_only_groups(groups, filters, timeout_guard)
 	if not groups:
 		return []
 
@@ -181,13 +182,15 @@ def _get_rows(filters: dict, timeout_guard) -> list[dict]:
 		group_key = (group["day"], group["workstation"])
 		avl_time_hrs = flt(availability_hours_by_group.get(group_key) or 0)
 		machine_downtime = flt(machine_downtime_by_group.get(group_key) or 0)
+		if group.get("downtime_only") and machine_downtime <= 0:
+			continue
 		total_loss_time = machine_downtime
 		for key, _label in LOSS_BUCKETS:
 			total_loss_time += flt(group[f"{key}_1st"])
 			total_loss_time += flt(group[f"{key}_2nd"])
 		total_loss_time = flt(total_loss_time)
 
-		raw_running_time = flt(max(avl_time_hrs - total_loss_time, 0))
+		raw_running_time = 0.0 if group.get("downtime_only") else flt(max(avl_time_hrs - total_loss_time, 0))
 		running_time = flt(raw_running_time)
 		std_spm = flt(group["standard_spm"])
 		stroke_required = flt(raw_running_time * std_spm * 60)
@@ -462,7 +465,8 @@ def _get_machine_downtime_hours_by_group(
 	overall_end = max(end for _start, end in windows.values())
 	timeout_guard()
 	downtime_rows = _get_downtime_rows(workstations, overall_start, overall_end)
-	covered_by_group = _get_covered_loss_intervals_by_group(groups, windows, shift_dates)
+	covered_by_group = _get_covered_loss_intervals_by_group(groups, windows)
+	planned_by_shift = _planned_loss_intervals_by_shift(windows)
 	hours_by_group: dict[tuple[str, str], float] = {}
 	for key, group in groups.items():
 		timeout_guard()
@@ -472,6 +476,7 @@ def _get_machine_downtime_hours_by_group(
 			shift_dates,
 			downtime_rows,
 			covered_by_group.get(key, []),
+			planned_by_shift,
 		)
 	return hours_by_group
 
@@ -494,6 +499,75 @@ def _get_completed_shift_windows(
 		],
 		limit_page_length=0,
 	)
+	return _shift_windows_from_rows(rows)
+
+
+def _add_downtime_only_groups(
+	groups: dict[tuple[str, str], dict],
+	filters: dict,
+	timeout_guard: Callable[[], None],
+) -> None:
+	if filters.get("custom_pea_operation"):
+		return
+	timeout_guard()
+	windows, shift_dates = _get_completed_shift_windows_in_range(filters)
+	if not windows:
+		return
+	overall_start = min(start for start, _end in windows.values())
+	overall_end = max(end for _start, end in windows.values())
+	workstation_filter = filters.get("custom_pea_workstation")
+	downtime_rows = _get_downtime_rows(
+		[workstation_filter] if workstation_filter else None,
+		overall_start,
+		overall_end,
+	)
+	for row in downtime_rows:
+		workstation = row.get("workstation") or "Unassigned"
+		for shift_name in _shifts_joined_by_downtime(row, windows):
+			day = shift_dates.get(shift_name or "")
+			if not day:
+				continue
+			key = (day, workstation)
+			existing = groups.get(key)
+			if existing and not existing.get("downtime_only"):
+				continue
+			group = existing or _new_group(day, workstation)
+			group["downtime_only"] = True
+			group["shift_names"].add(shift_name)
+			groups[key] = group
+
+
+def _get_completed_shift_windows_in_range(
+	filters: dict,
+) -> tuple[dict[str, tuple[datetime.datetime, datetime.datetime]], dict[str, str]]:
+	shift_filters: dict = {"status": "Completed"}
+	from_date = filters.get("from_date")
+	to_date = filters.get("to_date")
+	if from_date and to_date:
+		shift_filters["shift_date"] = ["between", [from_date, to_date]]
+	elif from_date:
+		shift_filters["shift_date"] = [">=", from_date]
+	elif to_date:
+		shift_filters["shift_date"] = ["<=", to_date]
+	rows = get_report_rows(
+		"Shift",
+		filters=shift_filters,
+		fields=[
+			"name",
+			"shift_date",
+			"planned_start_time",
+			"shift_end_date",
+			"planned_end_time",
+			"shift_duration",
+		],
+		limit_page_length=0,
+	)
+	return _shift_windows_from_rows(rows)
+
+
+def _shift_windows_from_rows(
+	rows: list[dict],
+) -> tuple[dict[str, tuple[datetime.datetime, datetime.datetime]], dict[str, str]]:
 	windows: dict[str, tuple[datetime.datetime, datetime.datetime]] = {}
 	shift_dates: dict[str, str] = {}
 	for row in rows:
@@ -515,18 +589,37 @@ def _get_completed_shift_windows(
 	return windows, shift_dates
 
 
+def _shifts_joined_by_downtime(
+	row: dict,
+	windows: dict[str, tuple[datetime.datetime, datetime.datetime]],
+) -> list[str]:
+	start_dt = get_datetime(row.get("from_time")) if row.get("from_time") else None
+	end_dt = get_datetime(row.get("to_time")) if row.get("to_time") else None
+	if not start_dt or not end_dt or end_dt <= start_dt:
+		return []
+	linked_shift = row.get("custom_pea_shift")
+	candidates = [linked_shift] if linked_shift else list(windows)
+	joined: list[str] = []
+	for shift_name in candidates:
+		window = windows.get(shift_name or "")
+		if window and get_interval_overlap(start_dt, end_dt, window[0], window[1]):
+			joined.append(shift_name)
+	return joined
+
+
 def _get_downtime_rows(
-	workstations: list[str],
+	workstations: list[str] | None,
 	overall_start: datetime.datetime,
 	overall_end: datetime.datetime,
 ) -> list[dict]:
-	if not workstations:
+	if workstations is not None and not workstations:
 		return []
 	filters: list = [
-		["workstation", "in", workstations],
 		*build_interval_overlap_filters("from_time", "to_time", overall_start, overall_end),
 		["docstatus", "!=", 2],
 	]
+	if workstations:
+		filters.insert(0, ["workstation", "in", workstations])
 	return get_report_rows(
 		"Downtime Entry",
 		filters=filters,
@@ -541,6 +634,7 @@ def _sum_machine_downtime_hours(
 	shift_dates: dict[str, str],
 	downtime_rows: list[dict],
 	covered_intervals: list[tuple[datetime.datetime, datetime.datetime]],
+	planned_by_shift: dict[str, list[tuple[datetime.datetime, datetime.datetime]]],
 ) -> float:
 	workstation = group.get("workstation")
 	day = str(group.get("day") or "")
@@ -567,7 +661,8 @@ def _sum_machine_downtime_hours(
 				continue
 			overlap = get_interval_overlap(start_dt, end_dt, window[0], window[1])
 			if overlap:
-				uncovered.extend(_subtract_intervals(overlap, covered_intervals))
+				blockers = [*covered_intervals, *planned_by_shift.get(shift_name or "", [])]
+				uncovered.extend(_subtract_intervals(overlap, blockers))
 	total_mins = sum(get_interval_minutes(*interval) for interval in merge_intervals(uncovered))
 	return flt(total_mins / 60)
 
@@ -575,7 +670,6 @@ def _sum_machine_downtime_hours(
 def _get_covered_loss_intervals_by_group(
 	groups: dict[tuple[str, str], dict],
 	windows: dict[str, tuple[datetime.datetime, datetime.datetime]],
-	shift_dates: dict[str, str],
 ) -> dict[tuple[str, str], list[tuple[datetime.datetime, datetime.datetime]]]:
 	entry_group: dict[str, tuple[str, str]] = {}
 	entry_shift: dict[str, str] = {}
@@ -597,35 +691,29 @@ def _get_covered_loss_intervals_by_group(
 		overlap = _clip_clock_times_to_window(row.get("start_time"), row.get("end_time"), window)
 		if overlap:
 			intervals[key].append(overlap)
-	_append_planned_loss_intervals(groups, windows, shift_dates, intervals)
 	return intervals
 
 
-def _append_planned_loss_intervals(
-	groups: dict[tuple[str, str], dict],
+def _planned_loss_intervals_by_shift(
 	windows: dict[str, tuple[datetime.datetime, datetime.datetime]],
-	shift_dates: dict[str, str],
-	intervals: dict[tuple[str, str], list[tuple[datetime.datetime, datetime.datetime]]],
-) -> None:
+) -> dict[str, list[tuple[datetime.datetime, datetime.datetime]]]:
 	if not windows:
-		return
+		return {}
 	loss_rows = get_report_rows(
 		"Loss Entry",
 		filters={"parenttype": "Shift", "parent": ["in", list(windows)]},
 		fields=["parent", "start_time", "end_time"],
 	)
+	intervals: dict[str, list[tuple[datetime.datetime, datetime.datetime]]] = {}
 	for row in loss_rows:
 		shift_name = row.get("parent")
 		window = windows.get(shift_name or "")
-		if not window:
+		if not shift_name or not window:
 			continue
 		overlap = _clip_clock_times_to_window(row.get("start_time"), row.get("end_time"), window)
-		if not overlap:
-			continue
-		shift_day = shift_dates.get(shift_name or "")
-		for key, group in groups.items():
-			if shift_day and shift_day == str(group.get("day") or ""):
-				intervals[key].append(overlap)
+		if overlap:
+			intervals.setdefault(shift_name, []).append(overlap)
+	return intervals
 
 
 def _clip_clock_times_to_window(

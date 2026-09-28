@@ -18,11 +18,12 @@ The same quantity semantics apply to normal Manufacture and Joint LH/RH Producti
 - `std_spm`: weighted average by production hours:
   - `std_spm = standard_spm_weighted_sum / duration_hours_sum`
   - `standard_spm_weighted_sum += custom_pea_standard_spm * entry_production_hours`
-- `avl_time_hrs`: `max(linked_shift_hours - linked_shift_planned_loss_hours, 0)`, where linked shifts are the `custom_pea_shift` values of Stock Entries inside the same `(day, workstation)` row.
-  - Shifts with zero linked Stock Entries for the row are excluded from `avl_time_hrs`.
+- `avl_time_hrs`: on a row with Production Entries, `max(linked_shift_hours - linked_shift_planned_loss_hours, 0)`, where linked shifts are the `custom_pea_shift` values of Stock Entries inside the same `(day, workstation)` row.
+  - Shifts with zero linked Stock Entries for that row are excluded from `avl_time_hrs`.
+  - On a row with Machine Downtime and no Production Entry, `avl_time_hrs` is the Completed Shifts those Downtime Entries joined, minus their planned Shift losses.
 - `machine_downtime`: uncovered Downtime Entry hours for the row workstation. Each entry is clipped to a Completed Shift on that Production Date. A filled Shift link counts only inside the named Shift. A blank Shift link is clipped to every Completed Shift on that Production Date. Cancelled Downtime Entries are ignored. Minutes that overlap a Production Entry Loss Entry or a planned Shift loss are excluded. Overlapping Downtime Entries count once. Minutes outside the Shift window are excluded. Native stop reasons are not mapped onto Loss Entry buckets.
 - `total_loss_time`: `machine_downtime` plus the sum of all loss bucket hour columns (`*_1st` + `*_2nd`).
-- `running_time`: `max(avl_time_hrs - total_loss_time, 0)`.
+- `running_time`: on a row with Production Entries, `max(avl_time_hrs - total_loss_time, 0)`. On a row with Machine Downtime and no Production Entry, `running_time` is 0, so `stroke_required`, `act_spm`, `productivity_pct`, `quality_pct`, `availability_pct`, and `oee_mult_pct` are 0. `machine_downtime` on that row is still only the logged uncovered hours. That row is omitted when the report is filtered by operation. A workstation with neither a Production Entry nor Machine Downtime has no row. Downtime on a Running or Draft Shift does not create one.
 - `stroke_required`: `running_time * std_spm * 60`.
 - `act_spm`: `total_strokes / (running_time * 60)` if `running_time > 0` else `0`.
 - `productivity_pct`: `(act_spm / std_spm) * 100` if `std_spm > 0` else `0`.
