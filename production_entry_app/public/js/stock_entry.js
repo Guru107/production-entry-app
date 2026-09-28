@@ -167,7 +167,7 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 			_apply_native_manufacture_visibility(frm);
 			_apply_manufacture_visibility(frm);
 		},
-			refresh(frm) {
+		refresh(frm) {
 			// Covers cached navigation, reloads, and the new-to-saved document rename.
 			_set_prev_purpose(frm);
 			_set_prev_stock_entry_type(frm);
@@ -234,13 +234,13 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 			_clear_joint_operation_dependents(frm);
 			_apply_manufacture_visibility(frm);
 		},
-			from_bom(frm) {
-				_hide_native_get_items(frm);
-				_apply_native_manufacture_visibility(frm);
-				_ensure_use_multi_level_bom_unchecked(frm);
-				_apply_manufacture_visibility(frm);
-				_default_total_strokes_from_fg(frm);
-			},
+		from_bom(frm) {
+			_hide_native_get_items(frm);
+			_apply_native_manufacture_visibility(frm);
+			_ensure_use_multi_level_bom_unchecked(frm);
+			_apply_manufacture_visibility(frm);
+			_default_total_strokes_from_fg(frm);
+		},
 		bom_no(frm) {
 			_hide_native_get_items(frm);
 			_apply_native_manufacture_visibility(frm);
@@ -282,11 +282,11 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 		custom_pea_rework_type(frm) {
 			_schedule_rework_workstation_default(frm);
 		},
-			custom_pea_shift(frm) {
-				_apply_manufacture_visibility(frm);
-				_handle_shift_change(frm);
-				_default_total_strokes_from_fg(frm);
-			},
+		custom_pea_shift(frm) {
+			_apply_manufacture_visibility(frm);
+			_handle_shift_change(frm);
+			_default_total_strokes_from_fg(frm);
+		},
 	});
 
 	frappe.ui.form.on("Rejection Breakup", {

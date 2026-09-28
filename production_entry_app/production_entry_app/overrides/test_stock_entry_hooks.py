@@ -585,9 +585,7 @@ class TestStockEntryHookPureHelpers(FrappeTestCase):
 		doc.set = lambda fieldname, value: doc.update({fieldname: value})
 		with (
 			patch.object(stock_entry_hooks, "is_joint_lh_rh_production", return_value=False),
-			self.assertRaisesRegex(
-				frappe.ValidationError, "Total Press Strokes must be greater than zero"
-			),
+			self.assertRaisesRegex(frappe.ValidationError, "Total Press Strokes must be greater than zero"),
 		):
 			stock_entry_hooks._default_total_strokes(doc)
 
