@@ -75,13 +75,7 @@ def build_stock_entry_filters(filters: dict, filter_keys: tuple[str, ...]) -> di
 	from_date = filters.get("from_date")
 	to_date = filters.get("to_date")
 	if from_date or to_date:
-		shift_filters: dict = {"status": "Completed"}
-		if from_date and to_date:
-			shift_filters["shift_date"] = ["between", [from_date, to_date]]
-		elif from_date:
-			shift_filters["shift_date"] = [">=", from_date]
-		else:
-			shift_filters["shift_date"] = ["<=", to_date]
+		shift_filters = completed_shift_filters(from_date, to_date)
 		shift_names = get_report_rows("Shift", filters=shift_filters, pluck="name")
 		requested_shift = filters.get("custom_pea_shift")
 		if requested_shift:
@@ -100,6 +94,18 @@ def build_stock_entry_filters(filters: dict, filter_keys: tuple[str, ...]) -> di
 		)
 
 	return db_filters
+
+
+def completed_shift_filters(from_date: str | None, to_date: str | None) -> dict:
+	"""Completed Shifts, narrowed to the report Production Date Range when one is set."""
+	shift_filters: dict = {"status": "Completed"}
+	if from_date and to_date:
+		shift_filters["shift_date"] = ["between", [from_date, to_date]]
+	elif from_date:
+		shift_filters["shift_date"] = [">=", from_date]
+	elif to_date:
+		shift_filters["shift_date"] = ["<=", to_date]
+	return shift_filters
 
 
 def get_shift_production_dates(shift_names: list[str] | set[str]) -> dict[str, Any]:

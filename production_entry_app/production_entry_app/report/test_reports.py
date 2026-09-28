@@ -1157,17 +1157,7 @@ class TestProductionReports(FrappeTestCase):
 			execute,
 		)
 
-		other_workstation = "Report Workstation OEE Alt"
-		if not frappe.db.exists("Workstation", other_workstation):
-			frappe.get_doc(
-				{
-					"doctype": "Workstation",
-					"workstation_name": other_workstation,
-					"production_capacity": 1,
-					"hour_rate": 100,
-					"custom_pea_standard_spm": 2,
-				}
-			).insert(ignore_permissions=True)
+		other_workstation = self._ensure_oee_alt_workstation()
 		shift = self._create_shift_for_label("2026-07-09", "1", clear_planned_losses=True)
 		self._create_mock_submitted_entry(
 			posting_date="2026-07-09",
@@ -1350,17 +1340,7 @@ class TestProductionReports(FrappeTestCase):
 			execute,
 		)
 
-		other_workstation = "Report Workstation OEE Alt"
-		if not frappe.db.exists("Workstation", other_workstation):
-			frappe.get_doc(
-				{
-					"doctype": "Workstation",
-					"workstation_name": other_workstation,
-					"production_capacity": 1,
-					"hour_rate": 100,
-					"custom_pea_standard_spm": 2,
-				}
-			).insert(ignore_permissions=True)
+		other_workstation = self._ensure_oee_alt_workstation()
 		shift = self._create_shift_for_label("2026-07-16", "1", clear_planned_losses=True)
 		frappe.db.set_value("Shift", shift.name, "status", "Completed", update_modified=False)
 		self._create_downtime_entry(
@@ -1394,17 +1374,7 @@ class TestProductionReports(FrappeTestCase):
 			execute,
 		)
 
-		other_workstation = "Report Workstation OEE Alt"
-		if not frappe.db.exists("Workstation", other_workstation):
-			frappe.get_doc(
-				{
-					"doctype": "Workstation",
-					"workstation_name": other_workstation,
-					"production_capacity": 1,
-					"hour_rate": 100,
-					"custom_pea_standard_spm": 2,
-				}
-			).insert(ignore_permissions=True)
+		other_workstation = self._ensure_oee_alt_workstation()
 		shift = self._create_shift_for_label("2026-07-17", "1", clear_planned_losses=True)
 		frappe.db.set_value("Shift", shift.name, "status", "Completed", update_modified=False)
 		self._create_downtime_entry(
@@ -1561,17 +1531,7 @@ class TestProductionReports(FrappeTestCase):
 			execute,
 		)
 
-		other_workstation = "Report Workstation OEE Alt"
-		if not frappe.db.exists("Workstation", other_workstation):
-			frappe.get_doc(
-				{
-					"doctype": "Workstation",
-					"workstation_name": other_workstation,
-					"production_capacity": 1,
-					"hour_rate": 100,
-					"custom_pea_standard_spm": 2,
-				}
-			).insert(ignore_permissions=True)
+		other_workstation = self._ensure_oee_alt_workstation()
 
 		shift_1 = self._create_shift_for_label("2026-08-11", "1", clear_planned_losses=True)
 		shift_2 = self._create_shift_for_label("2026-08-11", "2", clear_planned_losses=True)
@@ -4473,6 +4433,20 @@ class TestProductionReports(FrappeTestCase):
 		frappe.db.set_value("Shift", shift.name, "status", "Running", update_modified=False)
 		shift.reload()
 		return shift
+
+	def _ensure_oee_alt_workstation(self) -> str:
+		workstation = "Report Workstation OEE Alt"
+		if not frappe.db.exists("Workstation", workstation):
+			frappe.get_doc(
+				{
+					"doctype": "Workstation",
+					"workstation_name": workstation,
+					"production_capacity": 1,
+					"hour_rate": 100,
+					"custom_pea_standard_spm": 2,
+				}
+			).insert(ignore_permissions=True)
+		return workstation
 
 	def _create_downtime_entry(
 		self,
