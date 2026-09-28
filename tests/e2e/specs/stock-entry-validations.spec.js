@@ -615,9 +615,7 @@ test.describe("Stock Entry validation matrix", () => {
 		expect(Number(savedStockEntry.custom_pea_ok_qty || 0)).toBe(90);
 	});
 
-	test("@regression total press strokes are not invented from quantity and remain editable", async ({
-		page,
-	}) => {
+	test("@regression total press strokes follow finished quantity", async ({ page }) => {
 		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 
@@ -626,120 +624,33 @@ test.describe("Stock Entry validation matrix", () => {
 			rejectionQty: 0,
 			totalStrokes: null,
 		});
-		expect(
-			Number(
-				(await stockEntryPage.getFieldValues(["custom_pea_total_strokes"]))
-					.custom_pea_total_strokes || 0
-			)
-		).toBe(0);
-
 		await setFieldValue(page, "fg_completed_qty", 120);
 		expect(
 			Number(
 				(await stockEntryPage.getFieldValues(["custom_pea_total_strokes"]))
 					.custom_pea_total_strokes || 0
 			)
-		).toBe(0);
+		).toBe(120);
 		await setFieldValue(page, "custom_pea_total_strokes", 40);
 		await stockEntryPage.fetchItems();
 		await stockEntryPage.saveDraft();
 		const stockEntryName = await page.evaluate(() => window.cur_frm?.doc?.name);
-		await stockEntryPage.open(stockEntryName);
-
-		await setFieldValue(page, "fg_completed_qty", 130);
-		expect(
-			Number(
-				(await stockEntryPage.getFieldValues(["custom_pea_total_strokes"]))
-					.custom_pea_total_strokes || 0
-			)
-		).toBe(40);
-
-		await setFieldValue(page, "fg_completed_qty", 140);
-		expect(
-			Number(
-				(await stockEntryPage.getFieldValues(["custom_pea_total_strokes"]))
-					.custom_pea_total_strokes || 0
-			)
-		).toBe(40);
-
-		await stockEntryPage.fetchItems();
-		await stockEntryPage.saveDraft();
 		const savedStockEntry = await getDoc(page, "Stock Entry", stockEntryName);
-		expect(Number(savedStockEntry.custom_pea_total_strokes || 0)).toBe(40);
-	});
+		expect(Number(savedStockEntry.custom_pea_total_strokes || 0)).toBe(120);
 
-	test("@regression total press strokes preserve manual values across document navigation", async ({
-		page,
-	}) => {
-		await page.goto(getRoute("/home"));
-		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
-		const form = await openManufactureEntry(page, ctx, { fgQty: 100 });
-		await setFieldValue(page, "custom_pea_total_strokes", 40);
-		await form.fetchItems();
-		await form.saveDraft();
-		const manualEntryName = await page.evaluate(() => window.cur_frm.doc.name);
-
-		await form.openNew();
-		await form.setManufactureFields(ctx, {
-			fgQty: 40,
-			actualStart: `${ctx.shift_date} 09:00:00`,
-			actualEnd: `${ctx.shift_date} 10:00:00`,
-		});
-		await form.fetchItems();
-		await form.saveDraft();
-
-		await form.openInDesk(manualEntryName);
-		await setFieldValue(page, "fg_completed_qty", 120);
-		expect(
-			Number(
-				(await form.getFieldValues(["custom_pea_total_strokes"])).custom_pea_total_strokes
-			)
-		).toBe(40);
-		await form.fetchItems();
-		await form.saveDraft();
-		const savedEntry = await getDoc(page, "Stock Entry", manualEntryName);
-		expect(Number(savedEntry.custom_pea_total_strokes)).toBe(40);
-	});
-
-	test("@regression total press strokes preserve external manual edits after reload", async ({
-		page,
-	}) => {
-		await page.goto(getRoute("/home"));
-		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
-		const form = await openManufactureEntry(page, ctx, { fgQty: 100 });
-		await form.fetchItems();
-		await form.saveDraft();
-		const name = await page.evaluate(() => window.cur_frm.doc.name);
-
-		// Another client changes quantity but explicitly retains 100 physical strokes.
-		const externalDoc = await getDoc(page, "Stock Entry", name);
-		externalDoc.fg_completed_qty = 120;
-		externalDoc.custom_pea_total_strokes = 100;
-		externalDoc.items = await callFrappeMethod(
-			page,
-			"production_entry_app.production_entry_app.api.get_items_with_rejection",
-			{ doc: JSON.stringify(externalDoc) }
-		);
-		const externallySaved = await callFrappeMethod(page, "frappe.client.save", {
-			doc: JSON.stringify(externalDoc),
-		});
-		expect(Number(externallySaved.fg_completed_qty)).toBe(120);
-		expect(Number(externallySaved.custom_pea_total_strokes)).toBe(100);
-		await form.reload();
+		await stockEntryPage.open(stockEntryName);
 		await setFieldValue(page, "fg_completed_qty", 130);
 		expect(
 			Number(
-				(await form.getFieldValues(["custom_pea_total_strokes"])).custom_pea_total_strokes
+				(await stockEntryPage.getFieldValues(["custom_pea_total_strokes"]))
+					.custom_pea_total_strokes || 0
 			)
-		).toBe(100);
-		await form.fetchItems();
-		await form.saveDraft();
-		expect(Number((await getDoc(page, "Stock Entry", name)).custom_pea_total_strokes)).toBe(
-			100
-		);
+		).toBe(130);
 	});
 
-	test("@regression zero total press strokes remains zero", async ({ page }) => {
+	test("@regression zero finished quantity cannot be saved as total press strokes", async ({
+		page,
+	}) => {
 		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 
@@ -748,12 +659,9 @@ test.describe("Stock Entry validation matrix", () => {
 			rejectionQty: 0,
 		});
 		await stockEntryPage.fetchItems();
-		await setFieldValue(page, "custom_pea_total_strokes", 0);
-		await stockEntryPage.saveDraft();
-
-		const stockEntryName = await page.evaluate(() => window.cur_frm?.doc?.name);
-		const savedStockEntry = await getDoc(page, "Stock Entry", stockEntryName);
-		expect(Number(savedStockEntry.custom_pea_total_strokes || 0)).toBe(0);
+		await setFieldValue(page, "fg_completed_qty", 0);
+		await stockEntryPage.attemptSaveDraft();
+		await expectValidationError(page, /Total Press Strokes must be greater than zero/);
 	});
 
 	test("@regression blocks overlapping stock entry when workstation is already in use", async ({

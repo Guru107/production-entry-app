@@ -31,9 +31,12 @@ batch-enrich the Stock Entry Type flag before classifying Repack entries.
 _Avoid_: Combined production, dual production
 
 **Total Press Strokes**:
-The authoritative number of physical strokes performed by the die tool during a Production Entry. It is entered
-on the Production Entry and may differ from the quantity produced because one stroke may produce multiple parts.
-_Avoid_: Derived stroke count, produced quantity
+The number of physical strokes recorded on a Production Entry. A Shift-based normal Manufacture entry that
+uses a BOM sets this from `fg_completed_qty`, and the value must be greater than zero. Manufacture without a
+BOM keeps an entered stroke count because ERPNext clears `fg_completed_qty`. Joint Production enters one
+stroke count for the shared press operation; that count may differ from either side's quantity because one
+stroke may produce multiple parts. Stock-only Production Entries do not keep the field.
+_Avoid_: Optional stroke count on BOM Manufacture, zero strokes on shift-based BOM Manufacture
 
 **BOM Sheet Capacity**:
 The BOM quantity is the maximum total number of parts that can be produced from the raw-material quantity recorded

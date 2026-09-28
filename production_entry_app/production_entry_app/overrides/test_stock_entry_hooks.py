@@ -542,31 +542,52 @@ class TestStockEntryHookPureHelpers(FrappeTestCase):
 			stock_entry_hooks._default_total_strokes(doc)
 		self.assertEqual(flt(doc.custom_pea_total_strokes), 0)
 
-	def test_default_total_strokes_leaves_zero_on_shift_based_assembly(self) -> None:
+	def test_shift_based_manufacture_sets_total_strokes_from_finished_qty(self) -> None:
 		doc = frappe._dict(
 			{
 				"purpose": "Manufacture",
+				"from_bom": 1,
 				"custom_pea_shift": "SHIFT-1",
 				"fg_completed_qty": 100,
-				"custom_pea_total_strokes": 0,
+				"custom_pea_total_strokes": 40,
 			}
 		)
 		doc.set = lambda fieldname, value: doc.update({fieldname: value})
 		with patch.object(stock_entry_hooks, "is_joint_lh_rh_production", return_value=False):
 			stock_entry_hooks._default_total_strokes(doc)
-		self.assertEqual(flt(doc.custom_pea_total_strokes), 0)
+		self.assertEqual(flt(doc.custom_pea_total_strokes), 100)
 
-	def test_default_total_strokes_rejects_negative(self) -> None:
+	def test_shift_based_manufacture_without_bom_keeps_entered_strokes(self) -> None:
 		doc = frappe._dict(
 			{
 				"purpose": "Manufacture",
+				"from_bom": 0,
 				"custom_pea_shift": "SHIFT-1",
-				"custom_pea_total_strokes": -1,
+				"fg_completed_qty": 100,
+				"custom_pea_total_strokes": 40,
 			}
 		)
+		doc.set = lambda fieldname, value: doc.update({fieldname: value})
+		with patch.object(stock_entry_hooks, "is_joint_lh_rh_production", return_value=False):
+			stock_entry_hooks._default_total_strokes(doc)
+		self.assertEqual(flt(doc.custom_pea_total_strokes), 40)
+
+	def test_shift_based_manufacture_rejects_non_positive_total_strokes(self) -> None:
+		doc = frappe._dict(
+			{
+				"purpose": "Manufacture",
+				"from_bom": 1,
+				"custom_pea_shift": "SHIFT-1",
+				"fg_completed_qty": 0,
+				"custom_pea_total_strokes": 5,
+			}
+		)
+		doc.set = lambda fieldname, value: doc.update({fieldname: value})
 		with (
 			patch.object(stock_entry_hooks, "is_joint_lh_rh_production", return_value=False),
-			self.assertRaisesRegex(frappe.ValidationError, "Total Press Strokes"),
+			self.assertRaisesRegex(
+				frappe.ValidationError, "Total Press Strokes must be greater than zero"
+			),
 		):
 			stock_entry_hooks._default_total_strokes(doc)
 

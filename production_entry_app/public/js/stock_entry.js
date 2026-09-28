@@ -160,10 +160,6 @@ if (typeof window !== "undefined" && window.erpnext && erpnext.stock && erpnext.
 
 if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 	frappe.ui.form.on("Stock Entry", {
-		before_load(frm) {
-			// Desk reuses this form when loading a different document.
-			_initialize_total_strokes_default_state(frm);
-		},
 		onload(frm) {
 			_set_prev_purpose(frm);
 			_set_prev_stock_entry_type(frm);
@@ -171,9 +167,8 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 			_apply_native_manufacture_visibility(frm);
 			_apply_manufacture_visibility(frm);
 		},
-		refresh(frm) {
+			refresh(frm) {
 			// Covers cached navigation, reloads, and the new-to-saved document rename.
-			_initialize_total_strokes_default_state(frm);
 			_set_prev_purpose(frm);
 			_set_prev_stock_entry_type(frm);
 			_sync_joint_stock_entry_type(frm);
@@ -239,12 +234,13 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 			_clear_joint_operation_dependents(frm);
 			_apply_manufacture_visibility(frm);
 		},
-		from_bom(frm) {
-			_hide_native_get_items(frm);
-			_apply_native_manufacture_visibility(frm);
-			_ensure_use_multi_level_bom_unchecked(frm);
-			_apply_manufacture_visibility(frm);
-		},
+			from_bom(frm) {
+				_hide_native_get_items(frm);
+				_apply_native_manufacture_visibility(frm);
+				_ensure_use_multi_level_bom_unchecked(frm);
+				_apply_manufacture_visibility(frm);
+				_default_total_strokes_from_fg(frm);
+			},
 		bom_no(frm) {
 			_hide_native_get_items(frm);
 			_apply_native_manufacture_visibility(frm);
@@ -286,10 +282,11 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 		custom_pea_rework_type(frm) {
 			_schedule_rework_workstation_default(frm);
 		},
-		custom_pea_shift(frm) {
-			_apply_manufacture_visibility(frm);
-			_handle_shift_change(frm);
-		},
+			custom_pea_shift(frm) {
+				_apply_manufacture_visibility(frm);
+				_handle_shift_change(frm);
+				_default_total_strokes_from_fg(frm);
+			},
 	});
 
 	frappe.ui.form.on("Rejection Breakup", {
@@ -966,27 +963,20 @@ function _is_production_doc(doc) {
 	return _is_manufacture_doc(doc) || _is_joint_doc(doc);
 }
 
-function _initialize_total_strokes_default_state(frm) {
-	const documentName = frm.doc?.name;
-	if (
-		frm.__peaTotalStrokesDefaultState &&
-		frm.__peaTotalStrokesDefaultState.documentName === documentName &&
-		frm.__peaTotalStrokesDefaultState.document === frm.doc
-	) {
-		return frm.__peaTotalStrokesDefaultState;
-	}
-	const completedQty = Number(frm.doc?.fg_completed_qty || 0);
-	frm.__peaTotalStrokesDefaultState = {
-		documentName,
-		// reload_doc replaces the document object even when its name is unchanged.
-		document: frm.doc,
-		defaultStrokeValue: completedQty,
-	};
-	return frm.__peaTotalStrokesDefaultState;
-}
-
 function _default_total_strokes_from_fg(frm) {
-	return Promise.resolve();
+	if (
+		!_is_manufacture_doc(frm.doc) ||
+		_is_joint_doc(frm.doc) ||
+		!frm.doc?.custom_pea_shift ||
+		!frm.doc?.from_bom
+	) {
+		return Promise.resolve();
+	}
+	const completedQty = Number(frm.doc.fg_completed_qty || 0);
+	if (Number(frm.doc.custom_pea_total_strokes) === completedQty) {
+		return Promise.resolve();
+	}
+	return Promise.resolve(frm.set_value("custom_pea_total_strokes", completedQty));
 }
 
 function _get_time_entry_api() {
@@ -1567,7 +1557,6 @@ if (typeof module !== "undefined" && module.exports) {
 		REWORK_FIELDS,
 		REWORK_HIDDEN_FIELDS,
 		_extract_error_detail,
-		_initialize_total_strokes_default_state,
 		_default_total_strokes_from_fg,
 		_get_rejection_qty_for_visibility,
 		_get_joint_bom_query,

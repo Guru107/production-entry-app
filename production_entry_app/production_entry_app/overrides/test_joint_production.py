@@ -247,7 +247,7 @@ class TestJointProductionCalculations(FrappeTestCase):
 					[("SCRAP-V16", 1.5, "Kg")],
 				)
 
-	def test_normal_manufacture_leaves_zero_strokes_and_rejects_negative_strokes(self) -> None:
+	def test_normal_manufacture_sets_total_strokes_from_finished_qty(self) -> None:
 		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
 			_default_total_strokes,
 		)
@@ -256,16 +256,18 @@ class TestJointProductionCalculations(FrappeTestCase):
 			{
 				"doctype": "Stock Entry",
 				"purpose": "Manufacture",
+				"from_bom": 1,
 				"custom_pea_shift": "SHIFT-1",
 				"fg_completed_qty": 100,
 				"custom_pea_total_strokes": 0,
 			}
 		)
 		_default_total_strokes(entry)
-		self.assertEqual(entry.custom_pea_total_strokes, 0)
+		self.assertEqual(entry.custom_pea_total_strokes, 100)
 
+		entry.fg_completed_qty = 0
 		entry.custom_pea_total_strokes = -1
-		with self.assertRaisesRegex(frappe.ValidationError, "Total Press Strokes"):
+		with self.assertRaisesRegex(frappe.ValidationError, "Total Press Strokes must be greater than zero"):
 			_default_total_strokes(entry)
 
 	def test_joint_rm_consumption_adds_bom_sheet_capacity_shares(self) -> None:
@@ -2253,16 +2255,15 @@ class TestJointProductionItems(FrappeTestCase):
 			fg_qty=100,
 			rejection_qty=2,
 		)
-		self.assertEqual(flt(draft.custom_pea_total_strokes or 0), 0)
-		draft.custom_pea_total_strokes = 40
+		self.assertEqual(flt(draft.custom_pea_total_strokes), 100)
 		doc = frappe.get_doc("Stock Entry", frappe.client.submit(draft.as_dict())["name"])
 
 		self.assertEqual(doc.docstatus, 1)
-		self.assertEqual(doc.custom_pea_total_strokes, 40)
-		self.assertAlmostEqual(doc.custom_pea_actual_spm, 40 / 45, places=6)
+		self.assertEqual(doc.custom_pea_total_strokes, 100)
+		self.assertAlmostEqual(doc.custom_pea_actual_spm, 100 / 45, places=6)
 		self.assertEqual(
 			frappe.db.get_value("Die Tool Counter", self.masters["fg_item"], "current_stroke_count"),
-			40,
+			100,
 		)
 		self.assertTrue(
 			frappe.get_all(
@@ -2292,16 +2293,16 @@ class TestJointProductionItems(FrappeTestCase):
 		amended.docstatus = 0
 		amended.amended_from = doc.name
 		amended.insert(ignore_permissions=True)
-		self.assertEqual(amended.custom_pea_total_strokes, 40)
+		self.assertEqual(amended.custom_pea_total_strokes, 100)
 
 		amended.submit()
 
 		self.assertEqual(amended.docstatus, 1)
 		self.assertEqual(amended.amended_from, doc.name)
-		self.assertEqual(amended.custom_pea_total_strokes, 40)
+		self.assertEqual(amended.custom_pea_total_strokes, 100)
 		self.assertEqual(
 			frappe.db.get_value("Die Tool Counter", self.masters["fg_item"], "current_stroke_count"),
-			40,
+			100,
 		)
 
 	def _assert_joint_rule_blocked(

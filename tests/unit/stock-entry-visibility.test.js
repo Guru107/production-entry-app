@@ -1228,14 +1228,15 @@ test("manufacture strokes are not invented from finished goods without Shift", a
 	assert.equal(frm.doc.custom_pea_total_strokes, 0);
 });
 
-test("shift-based manufacture preserves zero total strokes", async () => {
+test("shift-based manufacture sets total strokes from finished quantity", async () => {
 	const frm = {
 		doc: {
 			__islocal: 0,
 			custom_stock_entry_purpose: "Manufacture",
+			from_bom: 1,
 			custom_pea_shift: "SHIFT-1",
 			fg_completed_qty: 100,
-			custom_pea_total_strokes: 0,
+			custom_pea_total_strokes: 40,
 		},
 		set_value(fieldname, value) {
 			this.doc[fieldname] = value;
@@ -1244,7 +1245,7 @@ test("shift-based manufacture preserves zero total strokes", async () => {
 	};
 
 	await _default_total_strokes_from_fg(frm);
-	assert.equal(frm.doc.custom_pea_total_strokes, 0);
+	assert.equal(frm.doc.custom_pea_total_strokes, 100);
 });
 
 test("normalize purpose trims whitespace and handles empty values", () => {

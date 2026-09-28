@@ -272,15 +272,27 @@ def _apply_rework_cost(doc: Document) -> None:
 
 
 def _default_total_strokes(doc: Document) -> None:
+	"""Copy finished quantity onto Total Press Strokes for shift-based BOM Manufacture.
+
+	ERPNext clears fg_completed_qty when from_bom is unset, so those entries keep an entered
+	stroke count and only reject a negative value. Stock-only Manufacture leaves the field
+	untouched. Joint Production keeps one entered stroke count for the shared press.
+	"""
 	if doc.get("purpose") != "Manufacture" or is_joint_lh_rh_production(doc):
 		return
 	if not is_shift_based_production_entry(doc):
 		return
-	total_strokes = doc.get("custom_pea_total_strokes")
-	if total_strokes in (None, ""):
+	if not doc.get("from_bom"):
+		total_strokes = doc.get("custom_pea_total_strokes")
+		if total_strokes in (None, ""):
+			return
+		if flt(total_strokes) < 0:
+			frappe.throw(_("Total Press Strokes cannot be negative."))
 		return
-	if flt(total_strokes) < 0:
-		frappe.throw(_("Total Press Strokes cannot be negative."))
+	completed_qty = flt(doc.get("fg_completed_qty"))
+	doc.custom_pea_total_strokes = completed_qty
+	if completed_qty <= 0:
+		frappe.throw(_("Total Press Strokes must be greater than zero."))
 
 
 def _clear_shift_context(doc: Document) -> None:
