@@ -421,6 +421,7 @@ class TestProductionReports(FrappeTestCase):
 				"no_helper_2nd",
 				"power_off_1st",
 				"power_off_2nd",
+				"machine_downtime",
 				"total_loss_time",
 				"running_time",
 			],
@@ -793,35 +794,442 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(float(row["other_1st"]), 0.0)
 		self.assertEqual(float(row["total_loss_time"]), 0.0)
 
-	def test_production_oee_report_does_not_use_downtime_entry_for_losses(self) -> None:
+	def test_production_oee_report_counts_uncovered_downtime_as_machine_downtime(self) -> None:
 		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
 			execute,
 		)
 
-		shift = self._create_shift_for_label("2026-06-08", "1", clear_planned_losses=True)
+		shift = self._create_shift_for_label("2026-07-01", "1", clear_planned_losses=True)
 		self._create_mock_submitted_entry(
-			posting_date="2026-06-08",
-			planned_start="2026-06-08 08:00:00",
-			planned_end="2026-06-08 09:00:00",
-			actual_start="2026-06-08 08:00:00",
-			actual_end="2026-06-08 09:00:00",
+			posting_date="2026-07-01",
+			planned_start="2026-07-01 08:00:00",
+			planned_end="2026-07-01 09:00:00",
+			actual_start="2026-07-01 08:00:00",
+			actual_end="2026-07-01 09:00:00",
 			fg_qty=120,
 			rejection_qty=0,
 			shift_name=shift.name,
 		)
 		self._create_downtime_entry(
 			workstation="Report Workstation",
-			from_time="2026-06-08 12:00:00",
-			to_time="2026-06-08 13:00:00",
+			from_time="2026-07-01 12:00:00",
+			to_time="2026-07-01 13:00:00",
 			shift_name=shift.name,
 			stop_reason="Other",
 		)
 
-		_, rows = execute({"from_date": "2026-06-08", "to_date": "2026-06-08"})
+		columns, rows = execute({"from_date": "2026-07-01", "to_date": "2026-07-01"})
+		machine_downtime_columns = [
+			column for column in columns if column.get("fieldname") == "machine_downtime"
+		]
+		self.assertEqual(
+			[(column.get("label"), column.get("fieldtype")) for column in machine_downtime_columns],
+			[("Machine Downtime", "Float")],
+		)
 		self.assertEqual(len(rows), 1)
 		row = rows[0]
 		self.assertEqual(float(row["other_1st"]), 0.0)
-		self.assertEqual(float(row["total_loss_time"]), 0.0)
+		self.assertEqual(float(row["avl_time_hrs"]), 8.0)
+		self.assertEqual(float(row["machine_downtime"]), 1.0)
+		self.assertEqual(float(row["total_loss_time"]), 1.0)
+		self.assertEqual(float(row["running_time"]), 7.0)
+		self.assertEqual(float(row["availability_pct"]), 87.5)
+		self.assertEqual(float(row["stroke_required"]), 840.0)
+		self.assertAlmostEqual(float(row["act_spm"]), 120 / (7 * 60), places=4)
+		self.assertAlmostEqual(float(row["productivity_pct"]), (120 / (7 * 60) / 2) * 100, places=4)
+		self.assertEqual(float(row["quality_pct"]), 100.0)
+
+	def test_production_oee_report_machine_downtime_keeps_only_minutes_outside_loss_entries(self) -> None:
+		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
+			execute,
+		)
+
+		shift = self._create_shift_for_label("2026-07-02", "1", clear_planned_losses=True)
+		self._create_mock_submitted_entry(
+			posting_date="2026-07-02",
+			planned_start="2026-07-02 08:00:00",
+			planned_end="2026-07-02 11:00:00",
+			actual_start="2026-07-02 08:00:00",
+			actual_end="2026-07-02 11:00:00",
+			fg_qty=100,
+			rejection_qty=0,
+			shift_name=shift.name,
+			unplanned_losses=[
+				{"downtime_reason": "Setup Time", "start_time": "10:00:00", "end_time": "10:30:00"}
+			],
+		)
+		self._create_downtime_entry(
+			workstation="Report Workstation",
+			from_time="2026-07-02 10:00:00",
+			to_time="2026-07-02 11:00:00",
+			shift_name=shift.name,
+			stop_reason="Other",
+		)
+
+		_, rows = execute({"from_date": "2026-07-02", "to_date": "2026-07-02"})
+		self.assertEqual(len(rows), 1)
+		row = rows[0]
+		self.assertEqual(float(row["setup_1st"]), 0.5)
+		self.assertEqual(float(row["machine_downtime"]), 0.5)
+		self.assertEqual(float(row["total_loss_time"]), 1.0)
+		self.assertEqual(float(row["running_time"]), 7.0)
+
+	def test_production_oee_report_machine_downtime_excludes_planned_shift_losses(self) -> None:
+		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
+			execute,
+		)
+
+		shift = self._create_shift_for_label("2026-07-03", "1")
+		self._create_mock_submitted_entry(
+			posting_date="2026-07-03",
+			planned_start="2026-07-03 08:00:00",
+			planned_end="2026-07-03 09:00:00",
+			actual_start="2026-07-03 08:00:00",
+			actual_end="2026-07-03 09:00:00",
+			fg_qty=120,
+			rejection_qty=0,
+			shift_name=shift.name,
+		)
+		self._create_downtime_entry(
+			workstation="Report Workstation",
+			from_time="2026-07-03 09:00:00",
+			to_time="2026-07-03 09:30:00",
+			shift_name=shift.name,
+			stop_reason="Other",
+		)
+
+		_, rows = execute({"from_date": "2026-07-03", "to_date": "2026-07-03"})
+		self.assertEqual(len(rows), 1)
+		row = rows[0]
+		self.assertAlmostEqual(float(row["avl_time_hrs"]), 7.5, places=2)
+		self.assertAlmostEqual(float(row["machine_downtime"]), 20 / 60, places=4)
+		self.assertAlmostEqual(float(row["total_loss_time"]), 20 / 60, places=4)
+		self.assertAlmostEqual(float(row["running_time"]), 7.5 - (20 / 60), places=4)
+
+	def test_production_oee_report_overlapping_downtime_entries_count_once(self) -> None:
+		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
+			execute,
+		)
+
+		shift = self._create_shift_for_label("2026-07-04", "1", clear_planned_losses=True)
+		self._create_mock_submitted_entry(
+			posting_date="2026-07-04",
+			planned_start="2026-07-04 08:00:00",
+			planned_end="2026-07-04 09:00:00",
+			actual_start="2026-07-04 08:00:00",
+			actual_end="2026-07-04 09:00:00",
+			fg_qty=120,
+			rejection_qty=0,
+			shift_name=shift.name,
+		)
+		self._create_downtime_entry(
+			workstation="Report Workstation",
+			from_time="2026-07-04 12:00:00",
+			to_time="2026-07-04 13:00:00",
+			shift_name=shift.name,
+			stop_reason="Other",
+		)
+		self._create_downtime_entry(
+			workstation="Report Workstation",
+			from_time="2026-07-04 12:30:00",
+			to_time="2026-07-04 13:30:00",
+			shift_name=shift.name,
+			stop_reason="Machine malfunction",
+		)
+
+		_, rows = execute({"from_date": "2026-07-04", "to_date": "2026-07-04"})
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(float(rows[0]["machine_downtime"]), 1.5)
+		self.assertEqual(float(rows[0]["running_time"]), 6.5)
+
+	def test_production_oee_report_clips_downtime_to_the_completed_shift(self) -> None:
+		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
+			execute,
+		)
+
+		shift = self._create_shift_for_label("2026-07-05", "1", clear_planned_losses=True)
+		self._create_mock_submitted_entry(
+			posting_date="2026-07-05",
+			planned_start="2026-07-05 08:00:00",
+			planned_end="2026-07-05 09:00:00",
+			actual_start="2026-07-05 08:00:00",
+			actual_end="2026-07-05 09:00:00",
+			fg_qty=120,
+			rejection_qty=0,
+			shift_name=shift.name,
+		)
+		self._create_downtime_entry(
+			workstation="Report Workstation",
+			from_time="2026-07-05 07:00:00",
+			to_time="2026-07-05 09:00:00",
+			shift_name=shift.name,
+			stop_reason="Other",
+		)
+		self._create_downtime_entry(
+			workstation="Report Workstation",
+			from_time="2026-07-05 06:00:00",
+			to_time="2026-07-05 07:00:00",
+			shift_name=shift.name,
+			stop_reason="Other",
+		)
+
+		_, rows = execute({"from_date": "2026-07-05", "to_date": "2026-07-05"})
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(float(rows[0]["machine_downtime"]), 1.0)
+		self.assertEqual(float(rows[0]["avl_time_hrs"]), 8.0)
+
+	def test_production_oee_report_splits_downtime_across_completed_shifts(self) -> None:
+		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
+			execute,
+		)
+
+		shift_1 = self._create_shift_for_label("2026-07-06", "1", clear_planned_losses=True)
+		shift_2 = self._create_shift_for_label("2026-07-06", "2", clear_planned_losses=True)
+		for shift_name, start, end in (
+			(shift_1.name, "08:00:00", "09:00:00"),
+			(shift_2.name, "16:00:00", "17:00:00"),
+		):
+			self._create_mock_submitted_entry(
+				posting_date="2026-07-06",
+				planned_start=f"2026-07-06 {start}",
+				planned_end=f"2026-07-06 {end}",
+				actual_start=f"2026-07-06 {start}",
+				actual_end=f"2026-07-06 {end}",
+				fg_qty=60,
+				rejection_qty=0,
+				shift_name=shift_name,
+			)
+		self._create_downtime_entry(
+			workstation="Report Workstation",
+			from_time="2026-07-06 15:30:00",
+			to_time="2026-07-06 16:30:00",
+			shift_name=None,
+			stop_reason="Other",
+		)
+
+		_, rows = execute({"from_date": "2026-07-06", "to_date": "2026-07-06"})
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(float(rows[0]["machine_downtime"]), 1.0)
+		self.assertEqual(float(rows[0]["avl_time_hrs"]), 16.0)
+		self.assertEqual(float(rows[0]["running_time"]), 15.0)
+
+	def test_production_oee_report_counts_crossing_downtime_only_inside_its_linked_shift(self) -> None:
+		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
+			execute,
+		)
+
+		shift_1 = self._create_shift_for_label("2026-07-11", "1", clear_planned_losses=True)
+		shift_2 = self._create_shift_for_label("2026-07-11", "2", clear_planned_losses=True)
+		for shift_name, start, end in (
+			(shift_1.name, "08:00:00", "09:00:00"),
+			(shift_2.name, "16:00:00", "17:00:00"),
+		):
+			self._create_mock_submitted_entry(
+				posting_date="2026-07-11",
+				planned_start=f"2026-07-11 {start}",
+				planned_end=f"2026-07-11 {end}",
+				actual_start=f"2026-07-11 {start}",
+				actual_end=f"2026-07-11 {end}",
+				fg_qty=60,
+				rejection_qty=0,
+				shift_name=shift_name,
+			)
+		self._create_downtime_entry(
+			workstation="Report Workstation",
+			from_time="2026-07-11 15:30:00",
+			to_time="2026-07-11 16:30:00",
+			shift_name=shift_1.name,
+			stop_reason="Other",
+		)
+
+		_, rows = execute({"from_date": "2026-07-11", "to_date": "2026-07-11"})
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(float(rows[0]["machine_downtime"]), 0.5)
+
+	def test_production_oee_report_counts_downtime_during_a_completed_shift_without_production(
+		self,
+	) -> None:
+		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
+			execute,
+		)
+
+		shift_1 = self._create_shift_for_label("2026-07-12", "1", clear_planned_losses=True)
+		shift_2 = self._create_shift_for_label("2026-07-12", "2", clear_planned_losses=True)
+		self._create_mock_submitted_entry(
+			posting_date="2026-07-12",
+			planned_start="2026-07-12 08:00:00",
+			planned_end="2026-07-12 09:00:00",
+			actual_start="2026-07-12 08:00:00",
+			actual_end="2026-07-12 09:00:00",
+			fg_qty=120,
+			rejection_qty=0,
+			shift_name=shift_1.name,
+		)
+		frappe.db.set_value("Shift", shift_2.name, "status", "Completed", update_modified=False)
+		self._create_downtime_entry(
+			workstation="Report Workstation",
+			from_time="2026-07-12 15:30:00",
+			to_time="2026-07-12 16:30:00",
+			shift_name=None,
+			stop_reason="Other",
+		)
+
+		_, rows = execute({"from_date": "2026-07-12", "to_date": "2026-07-12"})
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(float(rows[0]["avl_time_hrs"]), 8.0)
+		self.assertEqual(float(rows[0]["machine_downtime"]), 1.0)
+		self.assertEqual(float(rows[0]["running_time"]), 7.0)
+
+	def test_production_oee_report_ignores_downtime_linked_to_another_shift(self) -> None:
+		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
+			execute,
+		)
+
+		shift_1 = self._create_shift_for_label("2026-07-07", "1", clear_planned_losses=True)
+		shift_2 = self._create_shift_for_label("2026-07-07", "2", clear_planned_losses=True)
+		self._create_mock_submitted_entry(
+			posting_date="2026-07-07",
+			planned_start="2026-07-07 08:00:00",
+			planned_end="2026-07-07 09:00:00",
+			actual_start="2026-07-07 08:00:00",
+			actual_end="2026-07-07 09:00:00",
+			fg_qty=120,
+			rejection_qty=0,
+			shift_name=shift_1.name,
+		)
+		self._create_downtime_entry(
+			workstation="Report Workstation",
+			from_time="2026-07-07 12:00:00",
+			to_time="2026-07-07 13:00:00",
+			shift_name=shift_2.name,
+			stop_reason="Other",
+		)
+		self._create_downtime_entry(
+			workstation="Report Workstation",
+			from_time="2026-07-07 14:00:00",
+			to_time="2026-07-07 14:30:00",
+			shift_name=None,
+			stop_reason="Other",
+		)
+
+		_, rows = execute({"from_date": "2026-07-07", "to_date": "2026-07-07"})
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(float(rows[0]["machine_downtime"]), 0.5)
+
+	def test_production_oee_report_ignores_cancelled_downtime_entries(self) -> None:
+		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
+			execute,
+		)
+
+		shift = self._create_shift_for_label("2026-07-08", "1", clear_planned_losses=True)
+		self._create_mock_submitted_entry(
+			posting_date="2026-07-08",
+			planned_start="2026-07-08 08:00:00",
+			planned_end="2026-07-08 09:00:00",
+			actual_start="2026-07-08 08:00:00",
+			actual_end="2026-07-08 09:00:00",
+			fg_qty=120,
+			rejection_qty=0,
+			shift_name=shift.name,
+		)
+		cancelled = self._create_downtime_entry(
+			workstation="Report Workstation",
+			from_time="2026-07-08 12:00:00",
+			to_time="2026-07-08 13:00:00",
+			shift_name=shift.name,
+			stop_reason="Other",
+		)
+		frappe.db.set_value("Downtime Entry", cancelled, "docstatus", 2, update_modified=False)
+		self._create_downtime_entry(
+			workstation="Report Workstation",
+			from_time="2026-07-08 14:00:00",
+			to_time="2026-07-08 14:30:00",
+			shift_name=shift.name,
+			stop_reason="Other",
+		)
+
+		_, rows = execute({"from_date": "2026-07-08", "to_date": "2026-07-08"})
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(float(rows[0]["machine_downtime"]), 0.5)
+
+	def test_production_oee_report_ignores_downtime_on_another_workstation(self) -> None:
+		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
+			execute,
+		)
+
+		other_workstation = "Report Workstation OEE Alt"
+		if not frappe.db.exists("Workstation", other_workstation):
+			frappe.get_doc(
+				{
+					"doctype": "Workstation",
+					"workstation_name": other_workstation,
+					"production_capacity": 1,
+					"hour_rate": 100,
+					"custom_pea_standard_spm": 2,
+				}
+			).insert(ignore_permissions=True)
+		shift = self._create_shift_for_label("2026-07-09", "1", clear_planned_losses=True)
+		self._create_mock_submitted_entry(
+			posting_date="2026-07-09",
+			planned_start="2026-07-09 08:00:00",
+			planned_end="2026-07-09 09:00:00",
+			actual_start="2026-07-09 08:00:00",
+			actual_end="2026-07-09 09:00:00",
+			fg_qty=120,
+			rejection_qty=0,
+			shift_name=shift.name,
+		)
+		self._create_downtime_entry(
+			workstation=other_workstation,
+			from_time="2026-07-09 12:00:00",
+			to_time="2026-07-09 13:00:00",
+			shift_name=shift.name,
+			stop_reason="Other",
+		)
+
+		_, rows = execute({"from_date": "2026-07-09", "to_date": "2026-07-09"})
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(float(rows[0]["machine_downtime"]), 0.0)
+		self.assertEqual(float(rows[0]["running_time"]), 8.0)
+
+	def test_production_oee_report_keeps_machine_downtime_when_filtered_by_operation(self) -> None:
+		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
+			execute,
+		)
+
+		operation = ensure_operation("Shearing")
+		shift = self._create_shift_for_label("2026-07-10", "1", clear_planned_losses=True)
+		entry = self._create_mock_submitted_entry(
+			posting_date="2026-07-10",
+			planned_start="2026-07-10 08:00:00",
+			planned_end="2026-07-10 09:00:00",
+			actual_start="2026-07-10 08:00:00",
+			actual_end="2026-07-10 09:00:00",
+			fg_qty=120,
+			rejection_qty=0,
+			shift_name=shift.name,
+		)
+		frappe.db.set_value(
+			"Stock Entry", entry.name, "custom_pea_operation", operation, update_modified=False
+		)
+		self._create_downtime_entry(
+			workstation="Report Workstation",
+			from_time="2026-07-10 12:00:00",
+			to_time="2026-07-10 13:00:00",
+			shift_name=shift.name,
+			stop_reason="Other",
+		)
+
+		_, rows = execute(
+			{
+				"from_date": "2026-07-10",
+				"to_date": "2026-07-10",
+				"custom_pea_operation": operation,
+			}
+		)
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(float(rows[0]["machine_downtime"]), 1.0)
+		self.assertEqual(float(rows[0]["running_time"]), 7.0)
 
 	def test_production_oee_report_availability_uses_shift_duration_hours(self) -> None:
 		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
@@ -3837,7 +4245,7 @@ class TestProductionReports(FrappeTestCase):
 		workstation: str,
 		from_time: str,
 		to_time: str,
-		shift_name: str,
+		shift_name: str | None,
 		stop_reason: str,
 	) -> str:
 		operator = frappe.db.get_value("Employee", {"employee_number": "REPORT-EMP"}, "name")
@@ -3859,21 +4267,17 @@ class TestProductionReports(FrappeTestCase):
 				.insert(ignore_permissions=True)
 				.name
 			)
-		return (
-			frappe.get_doc(
-				{
-					"doctype": "Downtime Entry",
-					"workstation": workstation,
-					"operator": operator,
-					"from_time": from_time,
-					"to_time": to_time,
-					"custom_pea_shift": shift_name,
-					"stop_reason": stop_reason,
-				}
-			)
-			.insert(ignore_permissions=True)
-			.name
-		)
+		payload = {
+			"doctype": "Downtime Entry",
+			"workstation": workstation,
+			"operator": operator,
+			"from_time": from_time,
+			"to_time": to_time,
+			"stop_reason": stop_reason,
+		}
+		if shift_name:
+			payload["custom_pea_shift"] = shift_name
+		return frappe.get_doc(payload).insert(ignore_permissions=True).name
 
 
 def _ensure_user_with_exact_roles(email: str, roles: tuple[str, ...]) -> None:

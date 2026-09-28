@@ -20,7 +20,8 @@ The same quantity semantics apply to normal Manufacture and Joint LH/RH Producti
   - `standard_spm_weighted_sum += custom_pea_standard_spm * entry_production_hours`
 - `avl_time_hrs`: `max(linked_shift_hours - linked_shift_planned_loss_hours, 0)`, where linked shifts are the `custom_pea_shift` values of Stock Entries inside the same `(day, workstation)` row.
   - Shifts with zero linked Stock Entries for the row are excluded from `avl_time_hrs`.
-- `total_loss_time`: sum of all loss bucket hour columns (`*_1st` + `*_2nd`).
+- `machine_downtime`: uncovered Downtime Entry hours for the row workstation. Each entry is clipped to a Completed Shift on that Production Date. A filled Shift link counts only inside the named Shift. A blank Shift link is clipped to every Completed Shift on that Production Date. Cancelled Downtime Entries are ignored. Minutes that overlap a Production Entry Loss Entry or a planned Shift loss are excluded. Overlapping Downtime Entries count once. Minutes outside the Shift window are excluded. Native stop reasons are not mapped onto Loss Entry buckets.
+- `total_loss_time`: `machine_downtime` plus the sum of all loss bucket hour columns (`*_1st` + `*_2nd`).
 - `running_time`: `max(avl_time_hrs - total_loss_time, 0)`.
 - `stroke_required`: `running_time * std_spm * 60`.
 - `act_spm`: `total_strokes / (running_time * 60)` if `running_time > 0` else `0`.

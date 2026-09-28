@@ -273,7 +273,7 @@ test.describe("Production reports", () => {
 		expect(row.avl_time_hrs).toBeDefined();
 	});
 
-	test("@regression OEE report ignores Downtime Entry rows for loss buckets", async ({
+	test("@regression OEE report counts uncovered Downtime Entry hours as Machine Downtime", async ({
 		page,
 	}) => {
 		await page.goto(getRoute("/home"));
@@ -301,7 +301,8 @@ test.describe("Production reports", () => {
 		const seededRow = rows.find((row) => row.workstation === ctx.workstation);
 		expect(Boolean(seededRow)).toBeTruthy();
 		expect(Number(seededRow.other_1st || 0)).toBe(0);
-		expect(Number(seededRow.total_loss_time || 0)).toBe(0);
+		expect(Number(seededRow.machine_downtime || 0)).toBe(2);
+		expect(Number(seededRow.total_loss_time || 0)).toBe(2);
 	});
 
 	test("@regression Operator report honors operator and shift filters", async ({ page }) => {
