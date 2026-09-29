@@ -8,6 +8,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from production_entry_app.production_entry_app.utils.downtime_reason_seed import (
 	STANDARD_DOWNTIME_REASONS,
+	ensure_downtime_reason,
 	seed_standard_downtime_reasons,
 )
 
@@ -43,6 +44,7 @@ class TestDowntimeReasonSeed(FrappeTestCase):
 		self.assertEqual(_reason_rows(), before)
 
 	def test_seed_activates_an_inactive_standard_master(self) -> None:
+		ensure_downtime_reason("05")
 		frappe.db.set_value("Downtime Reason", "05", "is_active", 0, update_modified=False)
 
 		seed_standard_downtime_reasons()
@@ -50,9 +52,8 @@ class TestDowntimeReasonSeed(FrappeTestCase):
 		self.assertTrue(frappe.db.get_value("Downtime Reason", "05", "is_active"))
 
 	def test_seed_preserves_an_edited_description(self) -> None:
-		frappe.db.set_value(
-			"Downtime Reason", "01", "description", "Die Change", update_modified=False
-		)
+		ensure_downtime_reason("01")
+		frappe.db.set_value("Downtime Reason", "01", "description", "Die Change", update_modified=False)
 
 		seed_standard_downtime_reasons()
 

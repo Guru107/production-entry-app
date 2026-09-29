@@ -31,18 +31,17 @@ STANDARD_DOWNTIME_REASONS: dict[str, str] = {
 
 def ensure_downtime_reason(code: str, description: str | None = None) -> None:
 	if frappe.db.exists("Downtime Reason", code):
-		if frappe.get_meta("Downtime Reason", cached=True).has_field("is_active"):
-			if not frappe.db.get_value("Downtime Reason", code, "is_active"):
-				frappe.db.set_value("Downtime Reason", code, "is_active", 1, update_modified=False)
+		if not frappe.db.get_value("Downtime Reason", code, "is_active"):
+			frappe.db.set_value("Downtime Reason", code, "is_active", 1, update_modified=False)
 		return
-	doc: dict[str, str | int] = {
-		"doctype": "Downtime Reason",
-		"code": code,
-		"description": description or STANDARD_DOWNTIME_REASONS.get(code, code),
-	}
-	if frappe.get_meta("Downtime Reason", cached=True).has_field("is_active"):
-		doc["is_active"] = 1
-	frappe.get_doc(doc).insert(ignore_permissions=True)
+	frappe.get_doc(
+		{
+			"doctype": "Downtime Reason",
+			"code": code,
+			"description": description or STANDARD_DOWNTIME_REASONS.get(code, code),
+			"is_active": 1,
+		}
+	).insert()
 
 
 def seed_standard_downtime_reasons() -> None:
