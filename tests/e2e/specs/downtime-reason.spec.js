@@ -52,7 +52,9 @@ test.describe("Downtime Reason master", () => {
 			const editedDescription = `${description} edited`;
 			await setFieldValue(page, "description", editedDescription);
 			await saveForm(page);
-			expect(await page.evaluate(() => window.cur_frm?.doc?.description)).toBe(editedDescription);
+			expect(await page.evaluate(() => window.cur_frm?.doc?.description)).toBe(
+				editedDescription
+			);
 			expect(await page.evaluate(() => window.cur_frm?.doc?.name)).toBe(code);
 
 			await page.goto(getRoute("/downtime-reason"));
@@ -79,7 +81,9 @@ test.describe("Downtime Reason master", () => {
 					Promise.resolve(cur_frm.save("Save")).catch(() => {});
 					const startedAt = Date.now();
 					const timer = setInterval(() => {
-						const message = (window.frappe?.msg_dialog?.msg_area?.text?.() || "").trim();
+						const message = (
+							window.frappe?.msg_dialog?.msg_area?.text?.() || ""
+						).trim();
 						if (message || Date.now() - startedAt > 10000) {
 							clearInterval(timer);
 							resolve(message);
