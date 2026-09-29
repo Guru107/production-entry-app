@@ -14,6 +14,9 @@ from production_entry_app.production_entry_app.api import (
 	_cleanup_orphan_stock_entry_loss_links,
 	reset_die_tool_counter,
 )
+from production_entry_app.production_entry_app.utils.downtime_reason_seed import (
+	seed_standard_downtime_reasons,
+)
 from production_entry_app.production_entry_app.utils.production_warehouses import WAREHOUSE_FIELDS
 from production_entry_app.production_entry_app.utils.shift_time import get_shift_planned_end_datetime
 from production_entry_app.production_entry_app.utils.stock_entry_branch import stock_entry_has_branch_field
@@ -23,7 +26,6 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	ensure_branch,
 	ensure_default_bom,
 	ensure_department,
-	ensure_downtime_reason,
 	ensure_fiscal_year_for_date,
 	ensure_item,
 	ensure_joint_test_bom,
@@ -690,11 +692,7 @@ def bootstrap_e2e_context(prefix: str = "E2E", cleanup_running: int = 1) -> dict
 	ensure_workstation(workstation_name, standard_spm=2)
 	ensure_rejection_reason("Burr")
 	ensure_rejection_reason("Crack")
-	ensure_downtime_reason("14", "Tea Break")
-	ensure_downtime_reason("19", "Lunch Break")
-	ensure_downtime_reason("10", "Shift Start Up")
-	ensure_downtime_reason("13", "JH Activity")
-	ensure_downtime_reason("20", "Dinner")
+	seed_standard_downtime_reasons()
 
 	set_test_branch_warehouse_defaults(
 		company,

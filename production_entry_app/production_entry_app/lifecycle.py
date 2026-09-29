@@ -4,6 +4,9 @@ import frappe
 from frappe.utils import cint
 
 from production_entry_app.production_entry_app import performance_indexes
+from production_entry_app.production_entry_app.utils.downtime_reason_seed import (
+	seed_standard_downtime_reasons,
+)
 
 APP_MODULE = "Production Entry App"
 CUSTOMIZATION_DOCTYPES = ("Property Setter", "Custom Field")
@@ -49,10 +52,11 @@ def _warn_if_e2e_enabled_on_non_test_site() -> None:
 
 def _setup_app() -> None:
 	ensure_rework_details_layout()
+	seed_standard_downtime_reasons()
 	performance_indexes.ensure_performance_indexes_with_recovery()
 	frappe.logger("production_entry_app").info(
-		"Production Entry App setup ran: Rework Stock Entry layout and performance indexes "
-		"were reconciled during sync/migrate."
+		"Production Entry App setup ran: Rework Stock Entry layout, standard Downtime Reasons "
+		"and performance indexes were reconciled during sync/migrate."
 	)
 
 

@@ -10,13 +10,15 @@ from frappe.tests.utils import FrappeTestCase
 
 from production_entry_app.production_entry_app.doctype.shift import shift as shift_module
 from production_entry_app.production_entry_app.doctype.shift.shift import _resolve_shift_company
+from production_entry_app.production_entry_app.utils.downtime_reason_seed import (
+	ensure_downtime_reason,
+)
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	bootstrap_manufacturing_test_context,
 	cleanup_running_shifts,
 	ensure_branch,
 	ensure_default_bom,
 	ensure_department,
-	ensure_downtime_reason,
 	ensure_item,
 	ensure_warehouse,
 	ensure_workstation,

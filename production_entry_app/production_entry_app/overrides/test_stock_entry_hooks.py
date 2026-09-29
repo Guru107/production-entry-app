@@ -23,6 +23,9 @@ from production_entry_app.production_entry_app.tests.support.manufacture_builder
 from production_entry_app.production_entry_app.utils.alternative_items import (
 	get_bom_alternative_allowed_items,
 )
+from production_entry_app.production_entry_app.utils.downtime_reason_seed import (
+	ensure_downtime_reason,
+)
 from production_entry_app.production_entry_app.utils.rejection_warehouse import resolve_rejection_warehouse
 from production_entry_app.production_entry_app.utils.stock_entry_branch import stock_entry_has_branch_field
 from production_entry_app.production_entry_app.utils.stock_entry_type_flags import (
@@ -33,7 +36,6 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	cleanup_running_shifts,
 	ensure_branch,
 	ensure_department,
-	ensure_downtime_reason,
 	ensure_item,
 	ensure_joint_test_bom,
 	ensure_operation,

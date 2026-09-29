@@ -2016,7 +2016,7 @@ class TestE2EApi(FrappeTestCase):
 				patch("production_entry_app.production_entry_app.e2e_api.ensure_rejection_reason")
 			)
 			stack.enter_context(
-				patch("production_entry_app.production_entry_app.e2e_api.ensure_downtime_reason")
+				patch("production_entry_app.production_entry_app.e2e_api.seed_standard_downtime_reasons")
 			)
 			stack.enter_context(
 				patch("production_entry_app.production_entry_app.e2e_api.frappe.db.set_single_value")
@@ -2155,7 +2155,7 @@ class TestE2EApi(FrappeTestCase):
 				patch("production_entry_app.production_entry_app.e2e_api.ensure_rejection_reason")
 			)
 			stack.enter_context(
-				patch("production_entry_app.production_entry_app.e2e_api.ensure_downtime_reason")
+				patch("production_entry_app.production_entry_app.e2e_api.seed_standard_downtime_reasons")
 			)
 			stack.enter_context(
 				patch("production_entry_app.production_entry_app.e2e_api.frappe.db.set_single_value")

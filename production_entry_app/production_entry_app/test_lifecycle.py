@@ -139,17 +139,24 @@ class TestLifecycle(FrappeTestCase):
 			patch(
 				"production_entry_app.production_entry_app.lifecycle.performance_indexes.ensure_performance_indexes_with_recovery"
 			) as ensure_indexes,
+			patch(
+				"production_entry_app.production_entry_app.lifecycle.seed_standard_downtime_reasons"
+			) as seed_downtime_reasons,
 		):
 			lifecycle.after_sync()
 
 		ensure_rework_layout.assert_called_once_with()
 		ensure_indexes.assert_called_once_with()
+		seed_downtime_reasons.assert_called_once_with()
 
 	def test_after_migrate_runs_idempotent_setup(self) -> None:
 		with (
 			patch(
 				"production_entry_app.production_entry_app.lifecycle.ensure_rework_details_layout"
 			) as ensure_rework_layout,
+			patch(
+				"production_entry_app.production_entry_app.lifecycle.seed_standard_downtime_reasons"
+			) as seed_downtime_reasons,
 			patch(
 				"production_entry_app.production_entry_app.lifecycle.performance_indexes.ensure_performance_indexes_with_recovery"
 			) as ensure_indexes,
@@ -158,6 +165,7 @@ class TestLifecycle(FrappeTestCase):
 
 		ensure_rework_layout.assert_called_once_with()
 		ensure_indexes.assert_called_once_with()
+		seed_downtime_reasons.assert_called_once_with()
 
 	def test_setup_app_logs_summary(self) -> None:
 		from production_entry_app.production_entry_app import lifecycle

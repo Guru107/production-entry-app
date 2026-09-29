@@ -12,6 +12,9 @@ from production_entry_app.production_entry_app.e2e_api import (
 	_restore_cached_e2e_settings,
 	set_e2e_system_float_precision,
 )
+from production_entry_app.production_entry_app.utils.downtime_reason_seed import (
+	ensure_downtime_reason,
+)
 from production_entry_app.production_entry_app.utils.production_warehouses import (
 	WAREHOUSE_FIELDS,
 	get_branch_warehouse_defaults,
@@ -22,7 +25,6 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	bootstrap_manufacturing_test_context,
 	ensure_default_bom,
 	ensure_department,
-	ensure_downtime_reason,
 	ensure_item,
 	ensure_operator,
 	ensure_production_entry_settings_shift_fields,

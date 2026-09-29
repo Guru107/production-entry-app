@@ -27,8 +27,10 @@ from production_entry_app.production_entry_app.overrides.test_stock_entry_hooks 
 	_set_shift_buffers,
 )
 from production_entry_app.production_entry_app.report.report_utils import get_stock_entries_for_bom
-from production_entry_app.production_entry_app.utils.test_bootstrap import (
+from production_entry_app.production_entry_app.utils.downtime_reason_seed import (
 	ensure_downtime_reason,
+)
+from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	ensure_operation,
 	get_company_abbr,
 	resolve_test_company,
