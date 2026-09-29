@@ -30,13 +30,20 @@ LEGACY_DOWNTIME_REASON_CODES: dict[str, str] = {
 def convert_legacy_downtime_reasons() -> None:
 	seed_standard_downtime_reasons()
 	for legacy_name, code in LEGACY_DOWNTIME_REASON_CODES.items():
-		if not frappe.db.exists("Downtime Reason", legacy_name):
-			continue
-		rename_doc(
-			"Downtime Reason",
-			legacy_name,
-			code,
-			merge=True,
-			force=True,
-			show_alert=False,
-		)
+		if frappe.db.exists("Downtime Reason", legacy_name):
+			rename_doc(
+				"Downtime Reason",
+				legacy_name,
+				code,
+				merge=True,
+				force=True,
+				show_alert=False,
+			)
+		else:
+			frappe.db.set_value(
+				"Loss Entry",
+				{"downtime_reason": legacy_name},
+				"downtime_reason",
+				code,
+				update_modified=False,
+			)
