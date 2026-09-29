@@ -33,6 +33,7 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	cleanup_running_shifts,
 	ensure_branch,
 	ensure_department,
+	ensure_downtime_reason,
 	ensure_item,
 	ensure_joint_test_bom,
 	ensure_operation,
@@ -50,14 +51,8 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 
 def _ensure_downtime_reasons() -> None:
 	"""Ensure the coded loss Downtime Reasons used by these tests exist."""
-	for code, description in (
-		("14", "14"),
-		("19", "19"),
-		("01", "Setup"),
-		("05", "Maintenance"),
-	):
-		if not frappe.db.exists("Downtime Reason", code):
-			frappe.get_doc({"doctype": "Downtime Reason", "code": code, "description": description}).insert()
+	for code in ("14", "19", "01", "05"):
+		ensure_downtime_reason(code)
 
 
 def _ensure_rejection_breakup_doctype() -> None:

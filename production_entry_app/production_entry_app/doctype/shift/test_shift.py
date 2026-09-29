@@ -16,6 +16,7 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	ensure_branch,
 	ensure_default_bom,
 	ensure_department,
+	ensure_downtime_reason,
 	ensure_item,
 	ensure_warehouse,
 	ensure_workstation,
@@ -33,15 +34,8 @@ def _ensure_downtime_reasons() -> None:
 	if not frappe.get_meta("Downtime Reason", cached=True).has_field("is_active"):
 		frappe.reload_doc("production_entry_app", "doctype", "downtime_reason")
 		frappe.clear_cache(doctype="Downtime Reason")
-	for code, description in (
-		("10", "10"),
-		("13", "13"),
-		("14", "14"),
-		("19", "19"),
-		("20", "20"),
-	):
-		if not frappe.db.exists("Downtime Reason", code):
-			frappe.get_doc({"doctype": "Downtime Reason", "code": code, "description": description}).insert()
+	for code in ("10", "13", "14", "19", "20"):
+		ensure_downtime_reason(code)
 		if frappe.get_meta("Downtime Reason", cached=True).has_field("is_active"):
 			frappe.db.set_value("Downtime Reason", code, "is_active", 1, update_modified=False)
 
@@ -3795,7 +3789,7 @@ class TestShiftPermissions(FrappeTestCase):
 		_ensure_user_with_role("test_shift_pea_user@example.com", "PEA User")
 		frappe.set_user("test_shift_pea_user@example.com")
 
-		reason_code = frappe.generate_hash(length=6)
+		reason_code = "97"
 		if frappe.db.exists("Downtime Reason", reason_code):
 			frappe.delete_doc("Downtime Reason", reason_code)
 

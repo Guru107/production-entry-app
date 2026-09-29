@@ -78,31 +78,42 @@ COMPLETED_SHIFT_DURATION_EXTENSION_COMPUTED_FIELDS: frozenset[str] = frozenset(
 		"shift_title",
 	}
 )
-# Planned-loss Downtime Reason codes: 10 Shift Start Up, 13 JH Activity, 14 Tea Break,
-# 19 Lunch Break, 20 Dinner.
+# Planned-loss Downtime Reason codes (standard plant codes, see ADR 0005).
+_SHIFT_START_UP_REASON: str = "10"
+_JH_ACTIVITY_REASON: str = "13"
+_TEA_BREAK_REASON: str = "14"
+_LUNCH_BREAK_REASON: str = "19"
+_DINNER_REASON: str = "20"
 _SHIFT_START_LOSSES: list[tuple[str, int, int]] = [
-	("10", 0, 10),
+	(_SHIFT_START_UP_REASON, 0, 10),
 ]
 # JH Activity is scheduled at a fixed absolute time (10:00-10:10) if the shift window overlaps.
-_JH_ACTIVITY_REASON: str = "13"
 _JH_ACTIVITY_FIXED_START_TIME: datetime.time = datetime.time(10, 0, 0)
 _JH_ACTIVITY_DURATION_MINS: int = 10
 _FIXED_TIME_BREAKS: dict[int, list[tuple[str, str, int]]] = {
-	8: [("14", "09:00", 10)],
-	10: [("14", "09:00", 10), ("19", "12:00", 30), ("14", "17:00", 10)],
-	12: [("14", "09:00", 10), ("19", "12:00", 30), ("14", "17:00", 20)],
+	8: [(_TEA_BREAK_REASON, "09:00", 10)],
+	10: [
+		(_TEA_BREAK_REASON, "09:00", 10),
+		(_LUNCH_BREAK_REASON, "12:00", 30),
+		(_TEA_BREAK_REASON, "17:00", 10),
+	],
+	12: [
+		(_TEA_BREAK_REASON, "09:00", 10),
+		(_LUNCH_BREAK_REASON, "12:00", 30),
+		(_TEA_BREAK_REASON, "17:00", 20),
+	],
 	14: [
-		("14", "09:00", 10),
-		("19", "12:00", 30),
-		("14", "17:00", 20),
-		("14", "20:00", 10),
+		(_TEA_BREAK_REASON, "09:00", 10),
+		(_LUNCH_BREAK_REASON, "12:00", 30),
+		(_TEA_BREAK_REASON, "17:00", 20),
+		(_TEA_BREAK_REASON, "20:00", 10),
 	],
 	16: [
-		("14", "09:00", 10),
-		("19", "12:00", 30),
-		("14", "17:00", 20),
-		("14", "20:00", 10),
-		("20", "22:00", 30),
+		(_TEA_BREAK_REASON, "09:00", 10),
+		(_LUNCH_BREAK_REASON, "12:00", 30),
+		(_TEA_BREAK_REASON, "17:00", 20),
+		(_TEA_BREAK_REASON, "20:00", 10),
+		(_DINNER_REASON, "22:00", 30),
 	],
 }
 

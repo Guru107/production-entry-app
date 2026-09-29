@@ -28,6 +28,7 @@ from production_entry_app.production_entry_app.overrides.test_stock_entry_hooks 
 )
 from production_entry_app.production_entry_app.report.report_utils import get_stock_entries_for_bom
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
+	ensure_downtime_reason,
 	ensure_operation,
 	get_company_abbr,
 	resolve_test_company,
@@ -77,21 +78,8 @@ class TestProductionReports(FrappeTestCase):
 		_ensure_rejection_breakup_custom_field()
 		_ensure_stock_entry_metric_fields()
 		_ensure_item_die_tool_fields()
-		for code, description in (
-			("00", "Other"),
-			("01", "Setup"),
-			("05", "Maintenance"),
-			("10", "Shift Start Up"),
-			("13", "JH Activity"),
-			("14", "Tea Break"),
-			("19", "Lunch Break"),
-			("20", "Dinner"),
-			("21", "PM"),
-		):
-			if not frappe.db.exists("Downtime Reason", code):
-				frappe.get_doc(
-					{"doctype": "Downtime Reason", "code": code, "description": description}
-				).insert(ignore_permissions=True)
+		for code in ("00", "01", "05", "10", "13", "14", "19", "20", "21"):
+			ensure_downtime_reason(code)
 
 		cls.company = resolve_test_company()
 		abbr = get_company_abbr(cls.company)

@@ -27,6 +27,14 @@ class TestDowntimeReason(FrappeTestCase):
 		with self.assertRaises(frappe.MandatoryError):
 			frappe.get_doc({"doctype": "Downtime Reason", "code": "95"}).insert()
 
+	def test_code_must_be_two_digit_number(self) -> None:
+		for bad_code in ("1", "123", "1a", "ab", "-1"):
+			with self.subTest(code=bad_code):
+				with self.assertRaises(frappe.ValidationError):
+					frappe.get_doc(
+						{"doctype": "Downtime Reason", "code": bad_code, "description": "Bad Format"}
+					).insert()
+
 	def test_autoname_uses_code(self) -> None:
 		doc = frappe.get_doc(
 			{"doctype": "Downtime Reason", "code": "95", "description": "Test Autoname Reason"}
