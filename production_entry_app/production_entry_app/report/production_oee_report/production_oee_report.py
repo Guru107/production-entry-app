@@ -32,20 +32,6 @@ from production_entry_app.production_entry_app.utils.shift_time import (
 	get_shift_planned_end_datetime,
 )
 
-LOSS_BUCKETS: tuple[tuple[str, str], ...] = (
-	("setup", "Setup Time"),
-	("trial", "Trial Time"),
-	("mtrl_handl", "Material Handling Time"),
-	("no_operator", "No Operator Time"),
-	("no_mtrl", "No Material Time"),
-	("maint", "Maintenance Time"),
-	("p_maint", "P. Maintenance Time"),
-	("tool_break", "Tool Break Time"),
-	("other", "Other Time"),
-	("no_helper", "No Helper Time"),
-	("power_off", "Power Off Time"),
-)
-
 _SHIFT_WINDOW_FIELDS = [
 	"name",
 	"shift_date",
@@ -55,28 +41,50 @@ _SHIFT_WINDOW_FIELDS = [
 	"shift_duration",
 ]
 
-# Keys are Downtime Reason codes (interim rigid buckets; superseded by the OEE Loss Breakdown filter).
-LOSS_REASON_TO_BUCKET: dict[str, str] = {
-	"01": "setup",
-	"22": "trial",
-	"03": "no_operator",
-	"04": "no_mtrl",
-	"05": "maint",
-	"21": "p_maint",
-	"00": "other",
-	"11": "power_off",
-}
-
 
 def execute(filters: dict | None = None):
 	filters = filters or {}
-	columns = _get_columns()
+	reason_codes = _get_selected_reason_codes(filters)
+	columns = _get_columns(filters, reason_codes)
 	timeout_guard = new_interactive_report_timeout_guard(_("Production OEE Report"))
-	rows = _get_rows(filters, timeout_guard)
+	rows = _get_rows(filters, timeout_guard, reason_codes)
 	return columns, rows
 
 
-def _get_columns() -> list[dict]:
+def _get_selected_reason_codes(filters: dict) -> list[str]:
+	value = filters.get("downtime_reason")
+	if not value:
+		return []
+	if isinstance(value, str):
+		parsed = frappe.parse_json(value)
+		if isinstance(parsed, list):
+			value = parsed
+		else:
+			value = value.split(",")
+	if not isinstance(value, (list, tuple, set)):
+		value = [value]
+	return sorted({str(code).strip() for code in value if str(code or "").strip()})
+
+
+def _get_reason_descriptions(reason_codes: list[str]) -> dict[str, str]:
+	if not reason_codes:
+		return {}
+	rows = get_report_rows(
+		"Downtime Reason",
+		filters={"name": ["in", reason_codes]},
+		fields=["name", "description"],
+	)
+	return {row.get("name"): str(row.get("description") or "") for row in rows if row.get("name")}
+
+
+def _reason_fieldname(code: str, shift_suffix: str) -> str:
+	return f"reason_{code}_{shift_suffix}"
+
+
+def _get_columns(filters: dict | None = None, reason_codes: list[str] | None = None) -> list[dict]:
+	if reason_codes is None:
+		reason_codes = _get_selected_reason_codes(filters or {})
+	reason_descriptions = _get_reason_descriptions(reason_codes)
 	columns = [
 		{"label": _("Day"), "fieldname": "day", "fieldtype": "Date", "width": 110},
 		{
@@ -134,19 +142,20 @@ def _get_columns() -> list[dict]:
 		{"label": _("Avl. time (hrs)"), "fieldname": "avl_time_hrs", "fieldtype": "Float", "width": 110},
 	]
 
-	for key, label in LOSS_BUCKETS:
+	for code in reason_codes:
+		reason_label = reason_descriptions.get(code) or code
 		columns.append(
 			{
-				"label": _("1st Shift {0}").format(label),
-				"fieldname": f"{key}_1st",
+				"label": _("1st Shift {0}").format(reason_label),
+				"fieldname": _reason_fieldname(code, "1st"),
 				"fieldtype": "Float",
 				"width": 145,
 			}
 		)
 		columns.append(
 			{
-				"label": _("2nd Shift {0}").format(label),
-				"fieldname": f"{key}_2nd",
+				"label": _("2nd Shift {0}").format(reason_label),
+				"fieldname": _reason_fieldname(code, "2nd"),
 				"fieldtype": "Float",
 				"width": 145,
 			}
@@ -173,7 +182,7 @@ def _get_columns() -> list[dict]:
 	return apply_system_precision(columns)
 
 
-def _get_rows(filters: dict, timeout_guard) -> list[dict]:
+def _get_rows(filters: dict, timeout_guard, reason_codes: list[str]) -> list[dict]:
 	shift_label_cache: dict[str, str] = {}
 	groups = _get_stock_entry_groups(filters, shift_label_cache, timeout_guard)
 	windows, shift_dates = _completed_windows_for_report(groups, filters)
@@ -194,11 +203,7 @@ def _get_rows(filters: dict, timeout_guard) -> list[dict]:
 		machine_downtime = flt(machine_downtime_by_group.get(group_key) or 0)
 		if group.get("downtime_only") and machine_downtime <= 0:
 			continue
-		total_loss_time = machine_downtime
-		for key, _label in LOSS_BUCKETS:
-			total_loss_time += flt(group[f"{key}_1st"])
-			total_loss_time += flt(group[f"{key}_2nd"])
-		total_loss_time = flt(total_loss_time)
+		total_loss_time = flt(machine_downtime + sum(group["reason_hours"].values()))
 
 		raw_running_time = 0.0 if group.get("downtime_only") else flt(max(avl_time_hrs - total_loss_time, 0))
 		running_time = flt(raw_running_time)
@@ -233,9 +238,9 @@ def _get_rows(filters: dict, timeout_guard) -> list[dict]:
 			"running_time": running_time,
 		}
 
-		for key, _label in LOSS_BUCKETS:
-			row[f"{key}_1st"] = flt(group[f"{key}_1st"])
-			row[f"{key}_2nd"] = flt(group[f"{key}_2nd"])
+		for code in reason_codes:
+			row[_reason_fieldname(code, "1st")] = flt(group["reason_hours"].get((code, "1"), 0))
+			row[_reason_fieldname(code, "2nd")] = flt(group["reason_hours"].get((code, "2"), 0))
 
 		rows.append(row)
 
@@ -268,7 +273,7 @@ def _get_stock_entry_groups(
 				shift_labels,
 			)
 
-		_apply_loss_buckets_for_chunk(groups, entry_meta_by_name, loss_rows, shift_labels)
+		_apply_loss_reasons_for_chunk(groups, entry_meta_by_name, loss_rows, shift_labels)
 
 	if not has_rows:
 		return {}
@@ -778,7 +783,7 @@ def _get_shift_labels(
 
 
 def _new_group(day: str, workstation: str) -> dict:
-	group = {
+	return {
 		"day": day,
 		"workstation": workstation,
 		"shift_names": set(),
@@ -789,14 +794,11 @@ def _new_group(day: str, workstation: str) -> dict:
 		"quality_rejection": 0.0,
 		"standard_spm": 0.0,
 		"entry_shifts": {},
+		"reason_hours": {},
 	}
-	for key, _label in LOSS_BUCKETS:
-		group[f"{key}_1st"] = 0.0
-		group[f"{key}_2nd"] = 0.0
-	return group
 
 
-def _apply_loss_buckets_for_chunk(
+def _apply_loss_reasons_for_chunk(
 	groups: dict[tuple[str, str], dict],
 	entry_meta_by_name: dict[str, dict[str, str]],
 	loss_rows: list[dict],
@@ -805,18 +807,18 @@ def _apply_loss_buckets_for_chunk(
 	if not groups or not entry_meta_by_name or not loss_rows:
 		return
 	for row in loss_rows:
-		_apply_loss_bucket_row(groups, entry_meta_by_name, row, shift_label_by_name)
+		_apply_loss_reason_row(groups, entry_meta_by_name, row, shift_label_by_name)
 
 
-def _apply_loss_bucket_row(
+def _apply_loss_reason_row(
 	groups: dict[tuple[str, str], dict],
 	entry_meta_by_name: dict[str, dict[str, str]],
 	row: dict,
 	shift_label_by_name: dict[str, str],
 ) -> None:
-	bucket = LOSS_REASON_TO_BUCKET.get(row.get("downtime_reason") or "")
+	reason_code = str(row.get("downtime_reason") or "").strip()
 	entry_meta = entry_meta_by_name.get(row.get("parent") or "")
-	if not bucket or not entry_meta:
+	if not reason_code or not entry_meta:
 		return
 
 	shift_label = _get_loss_shift_label(row, entry_meta, shift_label_by_name)
@@ -827,8 +829,8 @@ def _apply_loss_bucket_row(
 	group = groups.get((entry_meta["day"], entry_meta["workstation"]))
 	if not group:
 		return
-	fieldname = f"{bucket}_1st" if shift_label == "1" else f"{bucket}_2nd"
-	group[fieldname] += hours
+	key = (reason_code, shift_label)
+	group["reason_hours"][key] = flt(group["reason_hours"].get(key, 0) + hours)
 
 
 def _get_loss_shift_label(

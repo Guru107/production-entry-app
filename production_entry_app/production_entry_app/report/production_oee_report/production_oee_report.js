@@ -11,5 +11,11 @@ frappe.query_reports["Production OEE Report"] = {
 		...(window.production_entry_app?.report_filter_utils?.get_operation_filter?.()
 			? [window.production_entry_app.report_filter_utils.get_operation_filter()]
 			: []),
+		{
+			fieldname: "downtime_reason",
+			label: __("Downtime Reason"),
+			fieldtype: "MultiSelectList",
+			options: "Downtime Reason",
+		},
 	],
 };

@@ -129,7 +129,7 @@ test.describe("Production reports", () => {
 			page,
 			ctx,
 			0,
-			[{ downtime_reason: "Other", start_time: "11:00:00", end_time: "13:00:00" }],
+			[{ downtime_reason: "00", start_time: "11:00:00", end_time: "13:00:00" }],
 			null,
 			{
 				actualEnd: `${ctx.shift_date} 13:00:00`,
@@ -152,11 +152,29 @@ test.describe("Production reports", () => {
 		);
 		expect(Boolean(seededRow)).toBeTruthy();
 		expect(Number(seededRow.total_strokes || 0)).toBeGreaterThan(0);
-		expect(Number(seededRow.other_1st || 0)).toBe(2);
-		const labels = await reportsPage.getColumnLabels();
+		expect(Number(seededRow.total_loss_time || 0)).toBe(2);
+		expect(seededRow).not.toHaveProperty("reason_00_1st");
+		let labels = await reportsPage.getColumnLabels();
 		expect(labels.filter((label) => label.startsWith("OEE"))).toEqual(["OEE %"]);
 		expect(seededRow).toHaveProperty("oee_mult_pct");
 		expect(seededRow).not.toHaveProperty("oee");
+
+		await reportsPage.setFilterByFieldname("downtime_reason", ["00"]);
+		await reportsPage.clickRefresh();
+		await reportsPage.waitForRows(1);
+		labels = await reportsPage.getColumnLabels();
+		expect(labels).toContain("1st Shift Other");
+		expect(labels).toContain("2nd Shift Other");
+		const breakdownRows = await reportsPage.getRows();
+		const breakdownRow = breakdownRows.find(
+			(row) =>
+				String(row.day || "").includes(seeded.production_date) &&
+				row.workstation === ctx.workstation
+		);
+		expect(Boolean(breakdownRow)).toBeTruthy();
+		expect(Number(breakdownRow.reason_00_1st || 0)).toBe(2);
+		expect(Number(breakdownRow.reason_00_2nd || 0)).toBe(0);
+		expect(Number(breakdownRow.total_loss_time || 0)).toBe(2);
 	});
 
 	test("@regression OEE quality counts rework as rejected output", async ({ page }) => {
@@ -300,7 +318,7 @@ test.describe("Production reports", () => {
 		const rows = await reportsPage.getRows();
 		const seededRow = rows.find((row) => row.workstation === ctx.workstation);
 		expect(Boolean(seededRow)).toBeTruthy();
-		expect(Number(seededRow.other_1st || 0)).toBe(0);
+		expect(seededRow).not.toHaveProperty("reason_00_1st");
 		expect(Number(seededRow.machine_downtime || 0)).toBe(2);
 		expect(Number(seededRow.total_loss_time || 0)).toBe(2);
 	});

@@ -385,28 +385,6 @@ class TestProductionReports(FrappeTestCase):
 				"availability_pct",
 				"oee_mult_pct",
 				"avl_time_hrs",
-				"setup_1st",
-				"setup_2nd",
-				"trial_1st",
-				"trial_2nd",
-				"mtrl_handl_1st",
-				"mtrl_handl_2nd",
-				"no_operator_1st",
-				"no_operator_2nd",
-				"no_mtrl_1st",
-				"no_mtrl_2nd",
-				"maint_1st",
-				"maint_2nd",
-				"p_maint_1st",
-				"p_maint_2nd",
-				"tool_break_1st",
-				"tool_break_2nd",
-				"other_1st",
-				"other_2nd",
-				"no_helper_1st",
-				"no_helper_2nd",
-				"power_off_1st",
-				"power_off_2nd",
 				"machine_downtime",
 				"total_loss_time",
 				"running_time",
@@ -414,6 +392,48 @@ class TestProductionReports(FrappeTestCase):
 		)
 		oee_columns = [column for column in columns if column["fieldname"].startswith("oee")]
 		self.assertEqual([column["label"] for column in oee_columns], ["OEE %"])
+
+	def test_production_oee_report_adds_one_column_pair_per_selected_reason(self) -> None:
+		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
+			execute,
+		)
+
+		ensure_downtime_reason("04")
+		columns, _rows = execute({"downtime_reason": ["21", "01", "04"]})
+		fieldnames = [column.get("fieldname") for column in columns]
+		self.assertEqual(
+			fieldnames,
+			[
+				"day",
+				"workstation",
+				"stroke_required",
+				"first_shift_strokes",
+				"second_shift_strokes",
+				"total_strokes",
+				"rejection",
+				"std_spm",
+				"act_spm",
+				"productivity_pct",
+				"quality_pct",
+				"availability_pct",
+				"oee_mult_pct",
+				"avl_time_hrs",
+				"reason_01_1st",
+				"reason_01_2nd",
+				"reason_04_1st",
+				"reason_04_2nd",
+				"reason_21_1st",
+				"reason_21_2nd",
+				"machine_downtime",
+				"total_loss_time",
+				"running_time",
+			],
+		)
+		labels_by_fieldname = {column["fieldname"]: column["label"] for column in columns}
+		self.assertEqual(labels_by_fieldname["reason_01_1st"], "1st Shift Setup")
+		self.assertEqual(labels_by_fieldname["reason_01_2nd"], "2nd Shift Setup")
+		self.assertEqual(labels_by_fieldname["reason_04_1st"], "1st Shift No Material")
+		self.assertEqual(labels_by_fieldname["reason_21_2nd"], "2nd Shift PM")
 
 	def test_report_metric_columns_follow_system_precision(self) -> None:
 		from production_entry_app.production_entry_app.report.daily_strokes_spm_monitor.daily_strokes_spm_monitor import (
@@ -673,7 +693,58 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual([float(row["quality_pct"]) for row in rows], [95.0, 95.0])
 		self.assertEqual([float(row["rejection"]) for row in rows], [5.0, 5.0])
 
-	def test_production_oee_report_shift_split_and_loss_bucket_mapping(self) -> None:
+	def test_production_oee_report_shift_split_and_loss_breakdown(self) -> None:
+		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
+			execute,
+		)
+
+		ensure_downtime_reason("04")
+		shift_1 = self._create_shift_for_label("2026-06-02", "1", clear_planned_losses=True)
+		shift_2 = self._create_shift_for_label("2026-06-02", "2", clear_planned_losses=True)
+		self._create_mock_submitted_entry(
+			posting_date="2026-06-02",
+			planned_start="2026-06-02 08:00:00",
+			planned_end="2026-06-02 10:30:00",
+			actual_start="2026-06-02 08:00:00",
+			actual_end="2026-06-02 10:30:00",
+			fg_qty=100,
+			rejection_qty=0,
+			shift_name=shift_1.name,
+			unplanned_losses=[{"downtime_reason": "01", "start_time": "10:00:00", "end_time": "10:30:00"}],
+		)
+		self._create_mock_submitted_entry(
+			posting_date="2026-06-02",
+			planned_start="2026-06-02 16:00:00",
+			planned_end="2026-06-02 19:00:00",
+			actual_start="2026-06-02 16:00:00",
+			actual_end="2026-06-02 19:00:00",
+			fg_qty=80,
+			rejection_qty=10,
+			shift_name=shift_2.name,
+			unplanned_losses=[{"downtime_reason": "21", "start_time": "18:00:00", "end_time": "19:00:00"}],
+		)
+		_, rows = execute(
+			{
+				"from_date": "2026-06-02",
+				"to_date": "2026-06-02",
+				"downtime_reason": ["01", "04", "21"],
+			}
+		)
+		self.assertEqual(len(rows), 1)
+		row = rows[0]
+		self.assertEqual(float(row["first_shift_strokes"]), 100.0)
+		self.assertEqual(float(row["second_shift_strokes"]), 80.0)
+		self.assertEqual(float(row["reason_01_1st"]), 0.5)
+		self.assertEqual(float(row["reason_01_2nd"]), 0.0)
+		self.assertEqual(float(row["reason_21_1st"]), 0.0)
+		self.assertEqual(float(row["reason_21_2nd"]), 1.0)
+		self.assertEqual(float(row["reason_04_1st"]), 0.0)
+		self.assertEqual(float(row["reason_04_2nd"]), 0.0)
+		self.assertEqual(float(row["total_loss_time"]), 1.5)
+		self.assertEqual(float(row["avl_time_hrs"]), 16.0)
+		self.assertEqual(float(row["running_time"]), 14.5)
+
+	def test_production_oee_report_total_loss_time_does_not_change_with_the_filter(self) -> None:
 		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
 			execute,
 		)
@@ -705,10 +776,8 @@ class TestProductionReports(FrappeTestCase):
 		_, rows = execute({"from_date": "2026-06-02", "to_date": "2026-06-02"})
 		self.assertEqual(len(rows), 1)
 		row = rows[0]
-		self.assertEqual(float(row["first_shift_strokes"]), 100.0)
-		self.assertEqual(float(row["second_shift_strokes"]), 80.0)
-		self.assertEqual(float(row["setup_1st"]), 0.5)
-		self.assertEqual(float(row["p_maint_2nd"]), 1.0)
+		self.assertNotIn("reason_01_1st", row)
+		self.assertNotIn("reason_21_2nd", row)
 		self.assertEqual(float(row["total_loss_time"]), 1.5)
 		self.assertEqual(float(row["avl_time_hrs"]), 16.0)
 		self.assertEqual(float(row["running_time"]), 14.5)
@@ -731,13 +800,16 @@ class TestProductionReports(FrappeTestCase):
 			unplanned_losses=[{"downtime_reason": "00", "start_time": "23:30:00", "end_time": "00:30:00"}],
 		)
 
-		_, rows = execute({"from_date": "2026-06-09", "to_date": "2026-06-09"})
+		_, rows = execute(
+			{"from_date": "2026-06-09", "to_date": "2026-06-09", "downtime_reason": ["00"]}
+		)
 		self.assertEqual(len(rows), 1)
 		row = rows[0]
-		self.assertEqual(float(row["other_2nd"]), 1.0)
+		self.assertEqual(float(row["reason_00_1st"]), 0.0)
+		self.assertEqual(float(row["reason_00_2nd"]), 1.0)
 		self.assertEqual(float(row["total_loss_time"]), 1.0)
 
-	def test_production_oee_report_ignores_unmapped_loss_reasons(self) -> None:
+	def test_production_oee_report_counts_unselected_reasons_only_in_total_loss_time(self) -> None:
 		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
 			execute,
 		)
@@ -769,13 +841,15 @@ class TestProductionReports(FrappeTestCase):
 			],
 		)
 
-		_, rows = execute({"from_date": "2026-06-07", "to_date": "2026-06-07"})
+		_, rows = execute(
+			{"from_date": "2026-06-07", "to_date": "2026-06-07", "downtime_reason": ["01"]}
+		)
 		self.assertEqual(len(rows), 1)
 		row = rows[0]
-		self.assertEqual(float(row["setup_1st"]), 0.0)
-		self.assertEqual(float(row["trial_1st"]), 0.0)
-		self.assertEqual(float(row["other_1st"]), 0.0)
-		self.assertEqual(float(row["total_loss_time"]), 0.0)
+		self.assertEqual(float(row["reason_01_1st"]), 0.0)
+		self.assertEqual(float(row["reason_01_2nd"]), 0.0)
+		self.assertNotIn("reason_88_1st", row)
+		self.assertEqual(float(row["total_loss_time"]), 0.5)
 
 	def test_production_oee_report_counts_uncovered_downtime_as_machine_downtime(self) -> None:
 		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
@@ -811,7 +885,6 @@ class TestProductionReports(FrappeTestCase):
 		)
 		self.assertEqual(len(rows), 1)
 		row = rows[0]
-		self.assertEqual(float(row["other_1st"]), 0.0)
 		self.assertEqual(float(row["avl_time_hrs"]), 8.0)
 		self.assertEqual(float(row["machine_downtime"]), 1.0)
 		self.assertEqual(float(row["total_loss_time"]), 1.0)
@@ -847,10 +920,12 @@ class TestProductionReports(FrappeTestCase):
 			stop_reason="Other",
 		)
 
-		_, rows = execute({"from_date": "2026-07-02", "to_date": "2026-07-02"})
+		_, rows = execute(
+			{"from_date": "2026-07-02", "to_date": "2026-07-02", "downtime_reason": ["01"]}
+		)
 		self.assertEqual(len(rows), 1)
 		row = rows[0]
-		self.assertEqual(float(row["setup_1st"]), 0.5)
+		self.assertEqual(float(row["reason_01_1st"]), 0.5)
 		self.assertEqual(float(row["machine_downtime"]), 0.5)
 		self.assertEqual(float(row["total_loss_time"]), 1.0)
 		self.assertEqual(float(row["running_time"]), 7.0)
