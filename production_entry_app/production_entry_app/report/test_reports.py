@@ -800,9 +800,7 @@ class TestProductionReports(FrappeTestCase):
 			unplanned_losses=[{"downtime_reason": "00", "start_time": "23:30:00", "end_time": "00:30:00"}],
 		)
 
-		_, rows = execute(
-			{"from_date": "2026-06-09", "to_date": "2026-06-09", "downtime_reason": ["00"]}
-		)
+		_, rows = execute({"from_date": "2026-06-09", "to_date": "2026-06-09", "downtime_reason": ["00"]})
 		self.assertEqual(len(rows), 1)
 		row = rows[0]
 		self.assertEqual(float(row["reason_00_1st"]), 0.0)
@@ -841,9 +839,7 @@ class TestProductionReports(FrappeTestCase):
 			],
 		)
 
-		_, rows = execute(
-			{"from_date": "2026-06-07", "to_date": "2026-06-07", "downtime_reason": ["01"]}
-		)
+		_, rows = execute({"from_date": "2026-06-07", "to_date": "2026-06-07", "downtime_reason": ["01"]})
 		self.assertEqual(len(rows), 1)
 		row = rows[0]
 		self.assertEqual(float(row["reason_01_1st"]), 0.0)
@@ -920,9 +916,7 @@ class TestProductionReports(FrappeTestCase):
 			stop_reason="Other",
 		)
 
-		_, rows = execute(
-			{"from_date": "2026-07-02", "to_date": "2026-07-02", "downtime_reason": ["01"]}
-		)
+		_, rows = execute({"from_date": "2026-07-02", "to_date": "2026-07-02", "downtime_reason": ["01"]})
 		self.assertEqual(len(rows), 1)
 		row = rows[0]
 		self.assertEqual(float(row["reason_01_1st"]), 0.5)

@@ -61,7 +61,7 @@ def _get_selected_reason_codes(filters: dict) -> list[str]:
 			value = parsed
 		else:
 			value = value.split(",")
-	if not isinstance(value, (list, tuple, set)):
+	if not isinstance(value, list | tuple | set):
 		value = [value]
 	return sorted({str(code).strip() for code in value if str(code or "").strip()})
 
