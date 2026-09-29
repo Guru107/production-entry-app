@@ -37,6 +37,6 @@ def convert_legacy_downtime_reasons() -> None:
 			legacy_name,
 			code,
 			merge=True,
-			ignore_permissions=True,
+			force=True,
 			show_alert=False,
 		)
