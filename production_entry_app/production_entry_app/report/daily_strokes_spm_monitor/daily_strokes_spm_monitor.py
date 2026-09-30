@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-import calendar
-
-import frappe
 from frappe import _
-from frappe.utils import flt, getdate
+from frappe.utils import flt
 
 from production_entry_app.production_entry_app.report.report_utils import (
 	apply_system_precision,
@@ -16,36 +13,6 @@ from production_entry_app.production_entry_app.report.report_utils import (
 	get_parent_quantity_metrics,
 	iter_stock_entries_in_chunks,
 )
-
-MONTH_OPTIONS: tuple[str, ...] = (
-	"April",
-	"May",
-	"June",
-	"July",
-	"August",
-	"September",
-	"October",
-	"November",
-	"December",
-	"January",
-	"February",
-	"March",
-)
-
-MONTH_NAME_TO_NUMBER: dict[str, int] = {
-	"January": 1,
-	"February": 2,
-	"March": 3,
-	"April": 4,
-	"May": 5,
-	"June": 6,
-	"July": 7,
-	"August": 8,
-	"September": 9,
-	"October": 10,
-	"November": 11,
-	"December": 12,
-}
 
 
 def execute(filters: dict | None = None):
@@ -61,6 +28,15 @@ def _get_columns(filters: dict) -> list[dict]:
 	]
 	if not filters.get("custom_pea_operator"):
 		columns.append({"label": _("Operator"), "fieldname": "operator", "fieldtype": "Data", "width": 150})
+	columns.append(
+		{
+			"label": _("Operation"),
+			"fieldname": "operation",
+			"fieldtype": "Link",
+			"options": "Operation",
+			"width": 150,
+		}
+	)
 	columns.extend(
 		[
 			{
@@ -90,70 +66,11 @@ def _get_columns(filters: dict) -> list[dict]:
 	return apply_system_precision(columns)
 
 
-def _get_date_range(filters: dict) -> tuple[str, str]:
-	fiscal_year = filters.get("fiscal_year")
-	month_name = filters.get("month")
-	if not fiscal_year or not month_name:
-		frappe.throw(_("Fiscal Year and Month are required."))
-
-	fy_dates = frappe.db.get_value(
-		"Fiscal Year",
-		fiscal_year,
-		["year_start_date", "year_end_date"],
-		as_dict=True,
-	)
-	if not fy_dates or not fy_dates.get("year_start_date") or not fy_dates.get("year_end_date"):
-		frappe.throw(
-			_("Fiscal Year {0} not found.").format(frappe.bold(frappe.utils.escape_html(str(fiscal_year))))
-		)
-	fy_start = getdate(fy_dates.get("year_start_date"))
-	fy_end = getdate(fy_dates.get("year_end_date"))
-	if fy_end < fy_start:
-		frappe.throw(
-			_("Fiscal Year {0} has invalid date boundaries.").format(
-				frappe.bold(frappe.utils.escape_html(str(fiscal_year)))
-			)
-		)
-
-	month_num = MONTH_NAME_TO_NUMBER.get(month_name)
-	if not month_num:
-		frappe.throw(_("Invalid month: {0}").format(frappe.bold(frappe.utils.escape_html(str(month_name)))))
-
-	start_month = fy_start.month
-	end_month = fy_end.month
-	if fy_start.year == fy_end.year:
-		if not (start_month <= month_num <= end_month):
-			frappe.throw(
-				_("Month {0} is outside Fiscal Year {1}.").format(
-					frappe.bold(frappe.utils.escape_html(str(month_name))),
-					frappe.bold(frappe.utils.escape_html(str(fiscal_year))),
-				)
-			)
-		year = fy_start.year
-	elif month_num >= start_month:
-		year = fy_start.year
-	elif month_num <= end_month:
-		year = fy_end.year
-	else:
-		frappe.throw(
-			_("Month {0} is outside Fiscal Year {1}.").format(
-				frappe.bold(frappe.utils.escape_html(str(month_name))),
-				frappe.bold(frappe.utils.escape_html(str(fiscal_year))),
-			)
-		)
-
-	last_day = calendar.monthrange(year, month_num)[1]
-	from_date = f"{year}-{month_num:02d}-01"
-	to_date = f"{year}-{month_num:02d}-{last_day:02d}"
-	return from_date, to_date
-
-
 def _get_rows(filters: dict) -> list[dict]:
-	from_date, to_date = _get_date_range(filters)
-	filters["from_date"] = from_date
-	filters["to_date"] = to_date
-
-	db_filters = build_stock_entry_filters(filters, filter_keys=("custom_pea_operator",))
+	db_filters = build_stock_entry_filters(
+		filters,
+		filter_keys=("custom_pea_operator", "custom_pea_operation"),
+	)
 	group_by_operator = not filters.get("custom_pea_operator")
 
 	# Aggregate by group key
@@ -170,6 +87,7 @@ def _get_rows(filters: dict) -> list[dict]:
 			"custom_pea_rework_qty",
 			"custom_pea_actual_duration_mins",
 			"custom_pea_production_time_mins",
+			"custom_pea_operation",
 		],
 		order_by="posting_date asc, name asc",
 	):
@@ -177,26 +95,25 @@ def _get_rows(filters: dict) -> list[dict]:
 		entry_names = [e.get("name") for e in entries if e.get("name")]
 		parent_quantity_metrics = get_parent_quantity_metrics(entry_names, include_rework=True)
 		parent_loss_metrics = get_parent_loss_metrics(entry_names)
-		good_qty_map = {
-			parent: flt(metrics.get("good_qty") or 0) for parent, metrics in parent_quantity_metrics.items()
-		}
 		rejection_qty_map = {
 			parent: flt(metrics.get("rejection_qty") or 0)
 			for parent, metrics in parent_quantity_metrics.items()
 		}
-		total_rejected_qty_map = {
-			parent: flt(metrics.get("total_rejected_qty") or 0)
-			for parent, metrics in parent_quantity_metrics.items()
-		}
 
 		for entry in entries:
-			posting_date = str(entry.get("posting_date") or "")
+			production_date = str(entry.get("production_date") or "")
+			if not production_date:
+				continue
 			operator = entry.get("custom_pea_operator") or "Unassigned"
-			group_key = (posting_date, operator) if group_by_operator else (posting_date,)
+			operation = entry.get("custom_pea_operation") or ""
+			group_key = (
+				(production_date, operator, operation) if group_by_operator else (production_date, operation)
+			)
 
 			if group_key not in aggregates:
 				agg: dict = {
-					"date": posting_date,
+					"date": production_date,
+					"operation": operation,
 					"setup_time_hrs": 0.0,
 					"loss_time_hrs": 0.0,
 					"prod_time_hrs": 0.0,
@@ -219,9 +136,7 @@ def _get_rows(filters: dict) -> list[dict]:
 			rework_qty = float(entry.get("custom_pea_rework_qty") or entry_metrics.get("rework_qty") or 0)
 			total_strokes, rejection_qty = get_entry_total_strokes(
 				entry,
-				good_qty_map=good_qty_map,
 				rejection_qty_map=rejection_qty_map,
-				total_rejected_qty_map=total_rejected_qty_map,
 			)
 			production_time_mins = get_entry_production_minutes(
 				entry,
@@ -255,7 +170,7 @@ def _get_rows(filters: dict) -> list[dict]:
 		rework = float(agg["rework"])
 		spm = (strokes / (prod_hrs * 60)) if prod_hrs > 0 else 0.0
 
-		row: dict = {"date": agg["date"]}
+		row: dict = {"date": agg["date"], "operation": agg.get("operation") or None}
 		if group_by_operator:
 			row["operator"] = agg.get("operator", "")
 		row["setup_time_hrs"] = setup_hrs
@@ -283,7 +198,7 @@ def _build_totals_row(rows: list[dict], group_by_operator: bool) -> dict:
 	total_rework = sum(float(r["rework"]) for r in rows)
 	total_spm = (total_strokes / (total_prod * 60)) if total_prod > 0 else 0.0
 
-	totals: dict = {"date": _("Total")}
+	totals: dict = {"date": _("Total"), "operation": ""}
 	if group_by_operator:
 		totals["operator"] = ""
 	totals["setup_time_hrs"] = total_setup

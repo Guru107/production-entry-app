@@ -20,6 +20,15 @@
 		];
 	}
 
+	function get_operation_filter() {
+		return {
+			fieldname: "custom_pea_operation",
+			label: __("Operation"),
+			fieldtype: "Link",
+			options: "Operation",
+		};
+	}
+
 	function validate_report_date_range(report) {
 		const fromDate = report?.get_filter_value?.("from_date");
 		const toDate = report?.get_filter_value?.("to_date");
@@ -35,6 +44,7 @@
 	}
 	const api = {
 		get_standard_report_date_filters,
+		get_operation_filter,
 		validate_report_date_range,
 	};
 

@@ -70,6 +70,7 @@ class TestGetShiftTimelineData(FrappeTestCase):
 		shift = frappe.get_doc(
 			{
 				"doctype": "Shift",
+				"company": self.ctx["company"],
 				"department": department,
 				"shift_label": shift_label,
 				"shift_duration": "8",
@@ -92,6 +93,24 @@ class TestGetShiftTimelineData(FrappeTestCase):
 		rejection_qty: float = 0,
 		docstatus: int = 1,
 	) -> str:
+		# Shift-based validate requires capture fields on save. Tests that need missing
+		# actual times (timeline exclusion) clear them after save via db.set_value.
+		clear_actual_times = actual_start is None and actual_end is None
+		if clear_actual_times:
+			shift = frappe.db.get_value(
+				"Shift",
+				shift_name,
+				["shift_date", "planned_start_time"],
+				as_dict=True,
+			)
+			start_dt = frappe.utils.get_datetime(
+				f"{shift.shift_date} {shift.planned_start_time or '08:00:00'}"
+			)
+			save_start = start_dt.strftime("%Y-%m-%d %H:%M:%S")
+			save_end = frappe.utils.add_to_date(start_dt, hours=1).strftime("%Y-%m-%d %H:%M:%S")
+		else:
+			save_start = actual_start
+			save_end = actual_end
 		entry = _create_manufacture_stock_entry(
 			company=self.ctx["company"],
 			fg_item=self.fg_item,
@@ -105,9 +124,19 @@ class TestGetShiftTimelineData(FrappeTestCase):
 		)
 		entry.custom_pea_workstation = workstation
 		entry.custom_pea_operator = operator
-		entry.custom_pea_actual_start_date = actual_start
-		entry.custom_pea_actual_end_date = actual_end
+		entry.custom_pea_actual_start_date = save_start
+		entry.custom_pea_actual_end_date = save_end
 		entry.save()
+		if clear_actual_times:
+			frappe.db.set_value(
+				"Stock Entry",
+				entry.name,
+				{
+					"custom_pea_actual_start_date": None,
+					"custom_pea_actual_end_date": None,
+				},
+				update_modified=False,
+			)
 		frappe.db.set_value("Stock Entry", entry.name, "docstatus", docstatus, update_modified=False)
 		return entry.name
 
@@ -268,16 +297,6 @@ class TestGetShiftTimelineData(FrappeTestCase):
 		from production_entry_app.production_entry_app.api_timeline import get_shift_timeline_data
 
 		shift = self._create_running_shift("2026-10-05")
-		frappe.db.set_single_value(
-			"Production Entry Settings",
-			"shift_raw_material_warehouse",
-			self.ctx["rm_warehouse"],
-		)
-		frappe.db.set_single_value(
-			"Production Entry Settings",
-			"shift_rejection_warehouse",
-			self.ctx["rejection_warehouse"],
-		)
 		self._create_submitted_like_entry(
 			shift.name,
 			workstation=self.workstation_a,
@@ -354,6 +373,60 @@ class TestGetShiftTimelineData(FrappeTestCase):
 		)
 		result = get_shift_timeline_data("Workstation", self.workstation_a)
 		self.assertEqual(result["entries"][0]["fg_item"], self.fg_item)
+
+	def test_entry_keeps_link_safe_fg_item_and_exposes_combined_display_label(self) -> None:
+		from production_entry_app.production_entry_app.api_timeline import get_shift_timeline_data
+
+		shift = self._create_running_shift("2026-10-16")
+		entry_name = self._create_submitted_like_entry(
+			shift.name,
+			workstation=self.workstation_a,
+			operator=self.operator_a,
+			actual_start="2026-10-16 09:00:00",
+			actual_end="2026-10-16 10:00:00",
+		)
+		second_item = ensure_item("_TIMELINE_FG_SECOND")
+		frappe.get_doc(
+			{
+				"doctype": "Stock Entry Detail",
+				"parent": entry_name,
+				"parenttype": "Stock Entry",
+				"parentfield": "items",
+				"idx": 3,
+				"item_code": second_item,
+				"qty": 1,
+				"transfer_qty": 1,
+				"uom": "Nos",
+				"stock_uom": "Nos",
+				"conversion_factor": 1,
+				"t_warehouse": self.ctx["fg_warehouse"],
+				"is_finished_item": 1,
+			}
+		).db_insert()
+
+		result = get_shift_timeline_data("Workstation", self.workstation_a)
+
+		self.assertEqual(result["entries"][0]["fg_item"], self.fg_item)
+		self.assertEqual(result["entries"][0]["fg_item_label"], f"{self.fg_item} + {second_item}")
+
+	def test_entry_quantity_falls_back_to_header_when_finished_rows_are_unavailable(self) -> None:
+		from production_entry_app.production_entry_app.api_timeline import get_shift_timeline_data
+
+		shift = self._create_running_shift("2026-10-17")
+		entry_name = self._create_submitted_like_entry(
+			shift.name,
+			workstation=self.workstation_a,
+			operator=self.operator_a,
+			actual_start="2026-10-17 09:00:00",
+			actual_end="2026-10-17 10:00:00",
+			good_qty=37,
+		)
+		frappe.db.delete("Stock Entry Detail", {"parent": entry_name})
+		frappe.db.set_value("Stock Entry", entry_name, "fg_completed_qty", 37, update_modified=False)
+
+		result = get_shift_timeline_data("Workstation", self.workstation_a)
+
+		self.assertEqual(result["entries"][0]["fg_qty"], 37)
 
 	def test_entries_without_actual_times_excluded(self) -> None:
 		from production_entry_app.production_entry_app.api_timeline import get_shift_timeline_data
@@ -503,9 +576,6 @@ class TestGetShiftTimelineData(FrappeTestCase):
 
 	def test_returns_cached_timeline_without_querying_stock_entries(self) -> None:
 		from production_entry_app.production_entry_app.api_timeline import get_shift_timeline_data
-		from production_entry_app.production_entry_app.utils.system_precision import (
-			get_system_float_precision,
-		)
 
 		shift = self._create_running_shift("2026-10-10")
 		cached = {
@@ -523,10 +593,16 @@ class TestGetShiftTimelineData(FrappeTestCase):
 				"planned_end_time": shift.planned_end_time,
 			}
 		]
+
+		def _get_list(doctype: str, *args, **kwargs):
+			if doctype == "Shift":
+				return running_shift
+			raise AssertionError(f"Unexpected get_list for {doctype} on timeline cache hit")
+
 		with (
 			patch(
 				"production_entry_app.production_entry_app.api_timeline.frappe.get_list",
-				return_value=running_shift,
+				side_effect=_get_list,
 			),
 			patch(
 				"production_entry_app.production_entry_app.api_timeline.get_system_float_precision",
@@ -537,18 +613,13 @@ class TestGetShiftTimelineData(FrappeTestCase):
 				return_value=cached,
 			),
 		):
-			with patch("production_entry_app.production_entry_app.api_timeline.frappe.qb.from_") as qb_from:
-				result = get_shift_timeline_data("Workstation", self.workstation_a)
+			result = get_shift_timeline_data("Workstation", self.workstation_a)
+
 		self.assertEqual(result["shift_name"], cached["shift_name"])
 		self.assertEqual(result["shift_start"], cached["shift_start"])
 		self.assertEqual(result["shift_end"], cached["shift_end"])
 		self.assertEqual(result["entries"], cached["entries"])
 		self.assertEqual(result["float_precision"], 4)
-		# Access control may query settings/shift metadata, but a cache hit must skip Stock Entry reads.
-		self.assertFalse(
-			any("tabStock Entry" in str(call) for call in qb_from.call_args_list),
-			msg=f"Unexpected Stock Entry query calls: {qb_from.call_args_list}",
-		)
 
 	def test_timeline_payload_uses_updated_shift_end_after_duration_change(self) -> None:
 		"""When a Running shift's duration changes, the timeline payload must use the
@@ -594,30 +665,58 @@ class TestGetShiftTimelineData(FrappeTestCase):
 		result = get_shift_timeline_data("Workstation", self.workstation_a)
 		self.assertIn("18:00", result["shift_end"])
 
-	def test_timeline_cache_is_disabled_for_non_administrator_users(self) -> None:
+	def test_timeline_cache_is_shared_after_permission_checks(self) -> None:
 		from production_entry_app.production_entry_app.api_timeline import (
 			_get_cached_timeline_data,
+			_get_timeline_cache_key,
 			_set_cached_timeline_data,
 		)
 
 		cache = MagicMock()
-		cache.get_value.return_value = {"entries": [{"name": "PRIVATE-ENTRY"}]}
 		with (
 			patch(
 				"production_entry_app.production_entry_app.api_timeline.frappe.session",
 				frappe._dict(user="restricted@example.com"),
 			),
 			patch(
+				"production_entry_app.production_entry_app.api_timeline.frappe.db.get_value",
+				return_value="2026-10-01 10:00:00",
+			),
+			patch(
 				"production_entry_app.production_entry_app.api_timeline.frappe.cache",
 				return_value=cache,
 			),
 		):
+			expected_key = _get_timeline_cache_key("Workstation", self.workstation_a, "SHIFT-001")
 			_set_cached_timeline_data("Workstation", self.workstation_a, "SHIFT-001", {"entries": []})
-			cached = _get_cached_timeline_data("Workstation", self.workstation_a, "SHIFT-001")
+			_get_cached_timeline_data("Workstation", self.workstation_a, "SHIFT-001")
 
-		self.assertIsNone(cached)
-		cache.get_value.assert_not_called()
-		cache.set_value.assert_not_called()
+		cache.set_value.assert_called_once()
+		cache.get_value.assert_called_once_with(expected_key)
+		self.assertEqual(cache.set_value.call_args.args[0], expected_key)
+		self.assertNotIn("restricted@example.com", expected_key)
+
+	def test_stock_entry_invalidates_workstation_and_operator_timeline_caches(self) -> None:
+		from production_entry_app.production_entry_app.api_timeline import (
+			invalidate_timeline_cache_for_stock_entry,
+		)
+
+		cache = MagicMock()
+		with patch(
+			"production_entry_app.production_entry_app.api_timeline.frappe.cache",
+			return_value=cache,
+		):
+			invalidate_timeline_cache_for_stock_entry(
+				frappe._dict(
+					custom_pea_shift="SHIFT-001",
+					custom_pea_workstation="PRESS-001",
+					custom_pea_operator="OP-001",
+				)
+			)
+
+		self.assertEqual(cache.delete_keys.call_count, 2)
+		cache.delete_keys.assert_any_call("pea:timeline:Workstation:PRESS-001:SHIFT-001:")
+		cache.delete_keys.assert_any_call("pea:timeline:Operator:OP-001:SHIFT-001:")
 
 	def test_timeline_cache_is_invalidated_when_running_shift_duration_changes(self) -> None:
 		"""When a Running shift's duration is updated, the timeline cache must be

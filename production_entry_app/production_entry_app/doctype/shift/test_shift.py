@@ -10,6 +10,9 @@ from frappe.tests.utils import FrappeTestCase
 
 from production_entry_app.production_entry_app.doctype.shift import shift as shift_module
 from production_entry_app.production_entry_app.doctype.shift.shift import _resolve_shift_company
+from production_entry_app.production_entry_app.utils.downtime_reason_seed import (
+	ensure_downtime_reason,
+)
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	bootstrap_manufacturing_test_context,
 	cleanup_running_shifts,
@@ -33,11 +36,10 @@ def _ensure_downtime_reasons() -> None:
 	if not frappe.get_meta("Downtime Reason", cached=True).has_field("is_active"):
 		frappe.reload_doc("production_entry_app", "doctype", "downtime_reason")
 		frappe.clear_cache(doctype="Downtime Reason")
-	for name in ("Shift Start Up", "JH Activity", "Tea Break", "Lunch Break", "Dinner"):
-		if not frappe.db.exists("Downtime Reason", name):
-			frappe.get_doc({"doctype": "Downtime Reason", "downtime_reason_name": name}).insert()
+	for code in ("10", "13", "14", "19", "20"):
+		ensure_downtime_reason(code)
 		if frappe.get_meta("Downtime Reason", cached=True).has_field("is_active"):
-			frappe.db.set_value("Downtime Reason", name, "is_active", 1, update_modified=False)
+			frappe.db.set_value("Downtime Reason", code, "is_active", 1, update_modified=False)
 
 
 def _ensure_test_department() -> str:
@@ -116,6 +118,23 @@ class TestShiftPureHelpers(FrappeTestCase):
 				subject="Shift started",
 			)
 
+	def test_send_shift_notification_returns_when_suppressed(self) -> None:
+		shift_doc = frappe._dict({"name": "SHIFT-UNIT-001", "supervisor": None})
+		frappe.flags.suppress_shift_notifications = True
+		try:
+			with patch(
+				"production_entry_app.production_entry_app.doctype.shift.shift._get_notification_recipients_for_shift",
+			) as get_recipients:
+				shift_module._send_shift_notification(
+					shift_doc,
+					event="start",
+					subject="Shift started",
+				)
+		finally:
+			frappe.flags.pop("suppress_shift_notifications", None)
+
+		get_recipients.assert_not_called()
+
 	def test_resolve_shift_branch_prefers_current_then_default_then_sole_branch(self) -> None:
 		self.assertEqual(
 			shift_module._resolve_shift_branch("Current Branch", "Default Branch"), "Current Branch"
@@ -161,7 +180,7 @@ class TestShiftPureHelpers(FrappeTestCase):
 				"planned_losses": [
 					frappe._dict(
 						{
-							"downtime_reason": "Tea Break",
+							"downtime_reason": "14",
 							"start_time": "09:00:00",
 							"end_time": "09:10:00",
 						}
@@ -178,7 +197,7 @@ class TestShiftPureHelpers(FrappeTestCase):
 
 		self.assertEqual(
 			result,
-			[{"downtime_reason": "Tea Break", "start_time": "09:00:00", "end_time": "09:10:00"}],
+			[{"downtime_reason": "14", "start_time": "09:00:00", "end_time": "09:10:00"}],
 		)
 		self.assertEqual(fake_shift.shift_duration, "8")
 		fake_shift._populate_planned_losses.assert_called_once()
@@ -249,8 +268,8 @@ class TestShiftPureHelpers(FrappeTestCase):
 		summary = shift_module._empty_shift_summary()
 		self.assertEqual(summary["snapshot"]["entry_count"], 0)
 		self.assertEqual(
-			shift_module._get_shift_metrics_cache_key("SHIFT-001"),
-			"pea:shift_summary:SHIFT-001:admin",
+			shift_module._get_shift_summary_cache_key("SHIFT-001"),
+			"pea:shift_summary:SHIFT-001",
 		)
 		self.assertEqual(shift_module._with_shift_summary_float_precision({"snapshot": {}})["snapshot"], {})
 		with patch(
@@ -258,7 +277,7 @@ class TestShiftPureHelpers(FrappeTestCase):
 		) as cache_factory:
 			shift_module.invalidate_shift_summary_cache(None)
 			shift_module.invalidate_shift_summary_cache("SHIFT-001")
-		cache_factory.return_value.delete_keys.assert_called_once_with("pea:shift_summary:SHIFT-001:")
+		cache_factory.return_value.delete_value.assert_called_once_with("pea:shift_summary:SHIFT-001")
 
 	def test_shift_window_and_logged_downtime_helpers_handle_missing_data(self) -> None:
 		with patch(
@@ -322,7 +341,7 @@ class TestShiftPureHelpers(FrappeTestCase):
 		self.assertEqual(summary["snapshot"]["entry_count"], 0)
 		set_cache.assert_called_once()
 
-	def test_shift_summary_cache_is_disabled_for_non_administrator_users(self) -> None:
+	def test_shift_summary_cache_is_shared_after_permission_checks(self) -> None:
 		cache = MagicMock()
 		cache.get_value.return_value = {"snapshot": {"entry_count": 1}}
 		with (
@@ -338,9 +357,13 @@ class TestShiftPureHelpers(FrappeTestCase):
 			shift_module._set_cached_shift_summary("SHIFT-001", {"snapshot": {"entry_count": 0}})
 			cached = shift_module._get_cached_shift_summary("SHIFT-001")
 
-		self.assertIsNone(cached)
-		cache.get_value.assert_not_called()
-		cache.set_value.assert_not_called()
+		self.assertEqual(cached, {"snapshot": {"entry_count": 1}})
+		cache.get_value.assert_called_once_with("pea:shift_summary:SHIFT-001")
+		cache.set_value.assert_called_once_with(
+			"pea:shift_summary:SHIFT-001",
+			{"snapshot": {"entry_count": 0}},
+			expires_in_sec=shift_module.METRICS_CACHE_TTL_SEC,
+		)
 
 	def test_summary_and_aggregate_return_empty_when_shift_was_deleted(self) -> None:
 		with patch(
@@ -358,14 +381,30 @@ class TestShiftPureHelpers(FrappeTestCase):
 				self.assertEqual(shift_module.get_shift_aggregate_production_entries("SHIFT-MISSING"), [])
 
 	def test_invalidate_shift_summary_for_downtime_entry_includes_previous_shift(self) -> None:
-		doc = frappe._dict({"custom_pea_shift": "SHIFT-NEW"})
-		doc.get_doc_before_save = MagicMock(return_value=frappe._dict({"custom_pea_shift": "SHIFT-OLD"}))
-		with patch(
-			"production_entry_app.production_entry_app.doctype.shift.shift.invalidate_shift_summary_cache"
-		) as invalidate:
+		doc = frappe._dict({"custom_pea_shift": "SHIFT-NEW", "workstation": "PRESS-001"})
+		doc.get_doc_before_save = MagicMock(
+			return_value=frappe._dict({"custom_pea_shift": "SHIFT-OLD", "workstation": "PRESS-002"})
+		)
+		with (
+			patch(
+				"production_entry_app.production_entry_app.doctype.shift.shift.invalidate_shift_summary_cache"
+			) as invalidate,
+			patch("production_entry_app.production_entry_app.api_timeline.frappe.cache") as cache_factory,
+		):
+			cache = MagicMock()
+			cache_factory.return_value = cache
 			shift_module.invalidate_shift_summary_for_downtime_entry(doc)
 
 		self.assertEqual({call.args[0] for call in invalidate.call_args_list}, {"SHIFT-NEW", "SHIFT-OLD"})
+		self.assertEqual(
+			{call.args[0] for call in cache.delete_keys.call_args_list},
+			{
+				"pea:timeline:Workstation:PRESS-001:SHIFT-NEW:",
+				"pea:timeline:Workstation:PRESS-001:SHIFT-OLD:",
+				"pea:timeline:Workstation:PRESS-002:SHIFT-NEW:",
+				"pea:timeline:Workstation:PRESS-002:SHIFT-OLD:",
+			},
+		)
 
 	def test_summary_row_builders_cover_unassigned_no_bom_and_sort_paths(self) -> None:
 		workstation_rows, best = shift_module._build_workstation_summary_rows(
@@ -510,6 +549,24 @@ class TestShiftPureHelpers(FrappeTestCase):
 				with self.assertRaisesRegex(frappe.ValidationError, "Only shift duration"):
 					shift._validate_running_shift_edits()
 
+		completed_before = frappe._dict({"status": "Completed", "shift_duration": "10", "planned_losses": []})
+		shift = frappe.new_doc("Shift")
+		shift.name = "SHIFT-LOCK-004"
+		shift.flags = frappe._dict()
+		shift.shift_duration = "8"
+		with patch.object(shift, "is_new", return_value=False):
+			with patch.object(shift, "get_doc_before_save", return_value=completed_before):
+				with patch.object(
+					shift,
+					"has_value_changed",
+					side_effect=lambda fieldname: fieldname == "shift_duration",
+				):
+					with patch.object(shift, "_planned_losses_changed", return_value=False):
+						with self.assertRaisesRegex(
+							frappe.ValidationError, "Shift duration can only be extended"
+						):
+							shift._validate_field_locking()
+
 		shift = frappe.new_doc("Shift")
 		shift.company = None
 		with patch(
@@ -593,7 +650,7 @@ class TestShiftPureHelpers(FrappeTestCase):
 		shift = frappe.new_doc("Shift")
 		shift.append(
 			"planned_losses",
-			{"downtime_reason": "Tea Break", "start_time": "09:00:00", "end_time": "09:10:00"},
+			{"downtime_reason": "14", "start_time": "09:00:00", "end_time": "09:10:00"},
 		)
 		with patch.object(shift, "get_doc_before_save", return_value=None):
 			self.assertTrue(shift._planned_losses_changed())
@@ -603,7 +660,7 @@ class TestShiftPureHelpers(FrappeTestCase):
 				"planned_losses": [
 					frappe._dict(
 						{
-							"downtime_reason": "Tea Break",
+							"downtime_reason": "14",
 							"start_time": datetime.time(9, 0),
 							"end_time": datetime.time(9, 10),
 						}
@@ -614,7 +671,7 @@ class TestShiftPureHelpers(FrappeTestCase):
 		shift.planned_losses = []
 		shift.append(
 			"planned_losses",
-			{"downtime_reason": "Lunch Break", "start_time": "09:00:00", "end_time": "09:10:00"},
+			{"downtime_reason": "19", "start_time": "09:00:00", "end_time": "09:10:00"},
 		)
 		with patch.object(shift, "get_doc_before_save", return_value=before):
 			self.assertTrue(shift._planned_losses_changed())
@@ -622,7 +679,7 @@ class TestShiftPureHelpers(FrappeTestCase):
 		shift.planned_losses = []
 		shift.append(
 			"planned_losses",
-			{"downtime_reason": "Tea Break", "start_time": "09:00:00", "end_time": "09:10:00"},
+			{"downtime_reason": "14", "start_time": "09:00:00", "end_time": "09:10:00"},
 		)
 		with patch.object(shift, "get_doc_before_save", return_value=frappe._dict({"planned_losses": []})):
 			self.assertTrue(shift._planned_losses_changed())
@@ -632,7 +689,7 @@ class TestShiftPureHelpers(FrappeTestCase):
 				"planned_losses": [
 					frappe._dict(
 						{
-							"downtime_reason": "Tea Break",
+							"downtime_reason": "14",
 							"start_time": datetime.time(9, 0),
 							"end_time": datetime.time(9, 10),
 						}
@@ -644,23 +701,13 @@ class TestShiftPureHelpers(FrappeTestCase):
 		shift.append(
 			"planned_losses",
 			{
-				"downtime_reason": "Tea Break",
+				"downtime_reason": "14",
 				"start_time": datetime.time(9, 0),
 				"end_time": datetime.time(9, 10),
 			},
 		)
 		with patch.object(shift, "get_doc_before_save", return_value=before):
 			self.assertFalse(shift._planned_losses_changed())
-
-	def test_warehouse_defaults_skip_existing_values_and_missing_settings_fields(self) -> None:
-		shift = frappe.new_doc("Shift")
-		shift.raw_material_warehouse = "Existing RM"
-		with patch(
-			"production_entry_app.production_entry_app.doctype.shift.shift.frappe.get_meta",
-			return_value=type("Meta", (), {"has_field": lambda self, fieldname: False})(),
-		):
-			shift._set_warehouse_defaults_from_production_entry_settings()
-		self.assertEqual(shift.raw_material_warehouse, "Existing RM")
 
 
 class TestShift(FrappeTestCase):
@@ -1213,6 +1260,7 @@ class TestShift(FrappeTestCase):
 				"shift_duration": "8",
 				"shift_date": shift_date,
 				"planned_start_time": "08:00:00",
+				"company": company,
 				"work_in_progress_warehouse": initial_wip,
 			}
 		).insert()
@@ -1248,9 +1296,129 @@ class TestShift(FrappeTestCase):
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so _validate_field_locking sees persisted status via get_value
 		doc = frappe.get_doc("Shift", name)
 
-		doc.shift_duration = "10"
+		doc.shift_label = "Locked"
 		with self.assertRaises(ValidationError):
 			doc.save()
+
+	def test_completed_shift_allows_duration_extension_and_recomputes_end_fields(self) -> None:
+		"""A completed shift may be extended when the new window does not overlap another shift."""
+		self._delete_shifts_for_date("2026-03-10")
+		name = self._expected_name(self._test_department, "2026-03-10", "1")
+
+		doc = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"department": self._test_department,
+				"branch": self._test_branch,
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": "2026-03-10",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+		doc.start_shift()
+		doc.end_shift()
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so Completed state is visible
+
+		completed_doc = frappe.get_doc("Shift", name)
+		completed_doc.shift_duration = "10"
+		completed_doc.save()
+		completed_doc.reload()
+
+		self.assertEqual(completed_doc.status, "Completed")
+		self.assertEqual(completed_doc.shift_duration, "10")
+		self.assertEqual(_to_time_str(completed_doc.planned_end_time), "18:00:00")
+		self.assertEqual(_to_date_str(completed_doc.shift_end_date), "2026-03-10")
+
+	def test_completed_shift_extension_rejects_overlap_with_same_scope_shift(self) -> None:
+		"""A completed shift extension is rejected when it overlaps the same company/department/branch."""
+		self._delete_shifts_for_date("2026-03-11")
+
+		doc1 = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"department": self._test_department,
+				"branch": self._test_branch,
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": "2026-03-11",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+		doc1.start_shift()
+		doc1.end_shift()
+		frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"department": self._test_department,
+				"branch": self._test_branch,
+				"shift_label": "2",
+				"shift_duration": "8",
+				"shift_date": "2026-03-11",
+				"planned_start_time": "16:00:00",
+			}
+		).insert()
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so overlap check sees both shifts
+
+		completed_doc = frappe.get_doc("Shift", doc1.name)
+		completed_doc.shift_duration = "10"
+		with self.assertRaises(ValidationError) as cm:
+			completed_doc.save()
+		self.assertIn("overlap", str(cm.exception).lower())
+
+	def test_completed_shift_extension_allows_overlap_in_different_company(self) -> None:
+		"""Company is part of the completed-shift extension overlap scope."""
+		self._delete_shifts_for_date("2026-03-12")
+		company = resolve_test_company()
+		other_company = (
+			frappe.get_doc(
+				{
+					"doctype": "Company",
+					"company_name": f"_Shift Extension {frappe.generate_hash(length=6)}",
+					"abbr": frappe.generate_hash(length=5).upper(),
+					"default_currency": frappe.db.get_value("Company", company, "default_currency"),
+					"country": frappe.db.get_value("Company", company, "country"),
+				}
+			)
+			.insert(ignore_permissions=True)
+			.name
+		)
+
+		doc1 = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"company": company,
+				"department": self._test_department,
+				"branch": self._test_branch,
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": "2026-03-12",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+		doc1.start_shift()
+		doc1.end_shift()
+		frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"company": other_company,
+				"department": self._test_department,
+				"branch": self._test_branch,
+				"shift_label": "2",
+				"shift_duration": "8",
+				"shift_date": "2026-03-12",
+				"planned_start_time": "16:00:00",
+			}
+		).insert()
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so overlap check sees both shifts
+
+		completed_doc = frappe.get_doc("Shift", doc1.name)
+		completed_doc.shift_duration = "10"
+		completed_doc.save()
+		completed_doc.reload()
+
+		self.assertEqual(completed_doc.shift_duration, "10")
+		self.assertEqual(_to_time_str(completed_doc.planned_end_time), "18:00:00")
 
 	def test_document_locked_in_cancelled_state(self) -> None:
 		name = self._expected_name(self._test_department, "2026-02-19", "2")
@@ -1312,10 +1480,10 @@ class TestShift(FrappeTestCase):
 		self.assertEqual(
 			rows,
 			[
-				("Shift Start Up", "08:00:00", "08:10:00"),
-				("Tea Break", "09:00:00", "09:10:00"),
+				("10", "08:00:00", "08:10:00"),
+				("14", "09:00:00", "09:10:00"),
 				# JH Activity is fixed at 10:00-10:10 when the shift window overlaps it (08:00-16:00)
-				("JH Activity", "10:00:00", "10:10:00"),
+				("13", "10:00:00", "10:10:00"),
 			],
 		)
 
@@ -1335,7 +1503,7 @@ class TestShift(FrappeTestCase):
 			}
 		).insert()
 
-		tea_break = next((row for row in doc.planned_losses if row.downtime_reason == "Tea Break"), None)
+		tea_break = next((row for row in doc.planned_losses if row.downtime_reason == "14"), None)
 		self.assertIsNotNone(tea_break)
 		self.assertEqual(tea_break.start_time, "09:00:00")
 		self.assertEqual(tea_break.end_time, "09:05:00")
@@ -1363,12 +1531,12 @@ class TestShift(FrappeTestCase):
 		self.assertEqual(
 			rows,
 			[
-				("Shift Start Up", "08:00:00", "08:10:00"),
-				("Tea Break", "09:00:00", "09:10:00"),
+				("10", "08:00:00", "08:10:00"),
+				("14", "09:00:00", "09:10:00"),
 				# JH Activity is fixed at 10:00-10:10 (shift window 08:00-18:00 overlaps)
-				("JH Activity", "10:00:00", "10:10:00"),
-				("Lunch Break", "12:00:00", "12:30:00"),
-				("Tea Break", "17:00:00", "17:10:00"),
+				("13", "10:00:00", "10:10:00"),
+				("19", "12:00:00", "12:30:00"),
+				("14", "17:00:00", "17:10:00"),
 			],
 		)
 
@@ -1393,12 +1561,12 @@ class TestShift(FrappeTestCase):
 		self.assertEqual(
 			rows,
 			[
-				("Shift Start Up", "06:00:00", "06:10:00"),
-				("Tea Break", "09:00:00", "09:10:00"),
+				("10", "06:00:00", "06:10:00"),
+				("14", "09:00:00", "09:10:00"),
 				# JH Activity is fixed at 10:00-10:10 (shift window 06:00-18:00 overlaps)
-				("JH Activity", "10:00:00", "10:10:00"),
-				("Lunch Break", "12:00:00", "12:30:00"),
-				("Tea Break", "17:00:00", "17:20:00"),
+				("13", "10:00:00", "10:10:00"),
+				("19", "12:00:00", "12:30:00"),
+				("14", "17:00:00", "17:20:00"),
 			],
 		)
 
@@ -1421,13 +1589,13 @@ class TestShift(FrappeTestCase):
 		self.assertEqual(
 			rows,
 			[
-				("Shift Start Up", "08:00:00", "08:10:00"),
-				("Tea Break", "09:00:00", "09:10:00"),
+				("10", "08:00:00", "08:10:00"),
+				("14", "09:00:00", "09:10:00"),
 				# JH Activity is fixed at 10:00-10:10 (shift window 08:00-22:00 overlaps)
-				("JH Activity", "10:00:00", "10:10:00"),
-				("Lunch Break", "12:00:00", "12:30:00"),
-				("Tea Break", "17:00:00", "17:20:00"),
-				("Tea Break", "20:00:00", "20:10:00"),
+				("13", "10:00:00", "10:10:00"),
+				("19", "12:00:00", "12:30:00"),
+				("14", "17:00:00", "17:20:00"),
+				("14", "20:00:00", "20:10:00"),
 			],
 		)
 
@@ -1451,14 +1619,14 @@ class TestShift(FrappeTestCase):
 		self.assertEqual(
 			rows,
 			[
-				("Shift Start Up", "08:00:00", "08:10:00"),
-				("Tea Break", "09:00:00", "09:10:00"),
+				("10", "08:00:00", "08:10:00"),
+				("14", "09:00:00", "09:10:00"),
 				# JH Activity is fixed at 10:00-10:10 (shift window 08:00-24:00 overlaps)
-				("JH Activity", "10:00:00", "10:10:00"),
-				("Lunch Break", "12:00:00", "12:30:00"),
-				("Tea Break", "17:00:00", "17:20:00"),
-				("Tea Break", "20:00:00", "20:10:00"),
-				("Dinner", "22:00:00", "22:30:00"),
+				("13", "10:00:00", "10:10:00"),
+				("19", "12:00:00", "12:30:00"),
+				("14", "17:00:00", "17:20:00"),
+				("14", "20:00:00", "20:10:00"),
+				("20", "22:00:00", "22:30:00"),
 			],
 		)
 
@@ -1484,7 +1652,7 @@ class TestShift(FrappeTestCase):
 		doc.save()
 
 		self.assertEqual(len(doc.planned_losses), 5)
-		self.assertEqual(doc.planned_losses[4].downtime_reason, "Tea Break")
+		self.assertEqual(doc.planned_losses[4].downtime_reason, "14")
 		self.assertEqual(doc.planned_losses[4].start_time, "17:00:00")
 
 	def test_inactive_downtime_reason_not_included_in_planned_losses(self) -> None:
@@ -1492,9 +1660,9 @@ class TestShift(FrappeTestCase):
 			self.skipTest("Downtime Reason.is_active field is not available in current schema.")
 		name = self._expected_name(self._test_department, "2026-06-01", "1")
 		self._delete_shift_if_exists(name)
-		original_tea_state = frappe.db.get_value("Downtime Reason", "Tea Break", "is_active")
+		original_tea_state = frappe.db.get_value("Downtime Reason", "14", "is_active")
 		try:
-			frappe.db.set_value("Downtime Reason", "Tea Break", "is_active", 0, update_modified=False)
+			frappe.db.set_value("Downtime Reason", "14", "is_active", 0, update_modified=False)
 			doc = frappe.get_doc(
 				{
 					"doctype": "Shift",
@@ -1506,12 +1674,12 @@ class TestShift(FrappeTestCase):
 				}
 			).insert()
 			reasons = [row.downtime_reason for row in doc.planned_losses]
-			self.assertNotIn("Tea Break", reasons)
-			self.assertIn("Lunch Break", reasons)
+			self.assertNotIn("14", reasons)
+			self.assertIn("19", reasons)
 		finally:
 			frappe.db.set_value(
 				"Downtime Reason",
-				"Tea Break",
+				"14",
 				"is_active",
 				1 if original_tea_state is None else original_tea_state,
 				update_modified=False,
@@ -2340,7 +2508,7 @@ class TestShift(FrappeTestCase):
 		# 10-hour shift should have 5 planned losses: Startup, JH Activity, Tea, Lunch, Tea
 		self.assertEqual(len(running_doc.planned_losses), 5)
 		loss_reasons = [row.downtime_reason for row in running_doc.planned_losses]
-		self.assertIn("Lunch Break", loss_reasons)
+		self.assertIn("19", loss_reasons)
 
 		# End shift so it does not leak into subsequent tests
 		frappe.get_doc("Shift", name).end_shift()
@@ -2362,7 +2530,7 @@ class TestShift(FrappeTestCase):
 			}
 		).insert()
 
-		jh_activity = next((row for row in doc.planned_losses if row.downtime_reason == "JH Activity"), None)
+		jh_activity = next((row for row in doc.planned_losses if row.downtime_reason == "13"), None)
 		self.assertIsNotNone(jh_activity, "JH Activity should be present")
 		self.assertEqual(jh_activity.start_time, "10:00:00")
 		self.assertEqual(jh_activity.end_time, "10:10:00")
@@ -2384,7 +2552,7 @@ class TestShift(FrappeTestCase):
 			}
 		).insert()
 
-		jh_activity = next((row for row in doc.planned_losses if row.downtime_reason == "JH Activity"), None)
+		jh_activity = next((row for row in doc.planned_losses if row.downtime_reason == "13"), None)
 		self.assertIsNone(jh_activity, "JH Activity should NOT be present for overnight shift")
 
 	def test_cross_midnight_shift_generates_jh_activity_on_next_day(self) -> None:
@@ -2404,7 +2572,7 @@ class TestShift(FrappeTestCase):
 			}
 		).insert()
 
-		jh_activity = next((row for row in doc.planned_losses if row.downtime_reason == "JH Activity"), None)
+		jh_activity = next((row for row in doc.planned_losses if row.downtime_reason == "13"), None)
 		self.assertIsNotNone(
 			jh_activity, "JH Activity should be present for cross-midnight shift spanning 10:00 AM next day"
 		)
@@ -2683,6 +2851,7 @@ class TestShiftSummary(FrappeTestCase):
 			{
 				"doctype": "Shift",
 				"department": dept,
+				"company": self.ctx["company"],
 				"branch": branch,
 				"shift_label": shift_label,
 				"shift_duration": "8",
@@ -2696,7 +2865,7 @@ class TestShiftSummary(FrappeTestCase):
 				"planned_start_time": "08:00:00",
 			}
 		).insert()
-		frappe.cache().delete_keys(f"pea:shift_summary:{shift.name}:")
+		shift_module.invalidate_shift_summary_cache(shift.name)
 		return shift
 
 	def _create_submitted_like_entry(
@@ -2708,6 +2877,7 @@ class TestShiftSummary(FrappeTestCase):
 		duration_mins: float = 0,
 		production_time_mins: float | None | object = _USE_DURATION,
 		standard_spm: float = 0,
+		total_strokes: float | None = None,
 		workstation: str | None = None,
 		fg_item: str | None = None,
 		bom_no: str | None = None,
@@ -2729,6 +2899,7 @@ class TestShiftSummary(FrappeTestCase):
 				"custom_pea_actual_duration_mins": duration_mins,
 				"custom_pea_production_time_mins": production_minutes,
 				"custom_pea_standard_spm": standard_spm,
+				"custom_pea_total_strokes": total_qty if total_strokes is None else total_strokes,
 				"custom_pea_workstation": workstation,
 				"bom_no": bom_no,
 				"docstatus": docstatus,
@@ -2833,6 +3004,29 @@ class TestShiftSummary(FrappeTestCase):
 		self.assertFalse(summary["logged_downtime"]["recorded"])
 		self.assertTrue(summary["completeness"]["show_banner"])
 
+	def test_summary_item_label_excludes_finished_scrap_and_rejection_rows(self) -> None:
+		shift = self._create_shift("2026-09-11")
+		entry = self._create_submitted_like_entry(
+			shift.name, total_qty=10, rejection_qty=1, fg_item="SUMMARY-GOOD"
+		)
+		for idx, marker in enumerate(("is_scrap_item", "custom_pea_is_rejection_item"), start=2):
+			values = {
+				"doctype": "Stock Entry Detail",
+				"parenttype": "Stock Entry",
+				"parent": entry,
+				"parentfield": "items",
+				"idx": idx,
+				"item_code": "SUMMARY-NOT-GOOD",
+				"is_finished_item": 1,
+				marker: 1,
+			}
+			if marker == "is_scrap_item" and not frappe.get_meta("Stock Entry Detail").has_field(marker):
+				values["secondary_item_type"] = "Scrap"
+			frappe.get_doc(values).db_insert()
+			shift_module.invalidate_shift_summary_cache(shift.name)
+			summary = shift_module.get_shift_summary(shift.name)
+			self.assertEqual(summary["exceptions"]["item_boms"][0]["item_code"], "SUMMARY-GOOD")
+
 	def test_returns_zeroed_summary_when_shift_name_missing(self) -> None:
 		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
 
@@ -2892,6 +3086,7 @@ class TestShiftSummary(FrappeTestCase):
 			duration_mins=30,
 			production_time_mins=20,
 			standard_spm=2,
+			total_strokes=30,
 			workstation="WS-A",
 		)
 		self._create_submitted_like_entry(
@@ -2901,6 +3096,7 @@ class TestShiftSummary(FrappeTestCase):
 			duration_mins=20,
 			production_time_mins=20,
 			standard_spm=2,
+			total_strokes=20,
 			workstation="WS-B",
 		)
 		summary = get_shift_summary(shift.name)
@@ -2910,10 +3106,10 @@ class TestShiftSummary(FrappeTestCase):
 		self.assertAlmostEqual(float(summary["snapshot"]["ok_qty"]), 90.0, places=6)
 		self.assertAlmostEqual(float(summary["snapshot"]["rejection_pct"]), 10.0, places=6)
 		self.assertAlmostEqual(float(summary["snapshot"]["recorded_production_mins"]), 40.0, places=6)
-		self.assertAlmostEqual(float(summary["snapshot"]["overall_throughput_spm"]), 2.5, places=6)
+		self.assertAlmostEqual(float(summary["snapshot"]["overall_throughput_spm"]), 1.25, places=6)
 		self.assertAlmostEqual(float(summary["snapshot"]["overall_ok_spm"]), 2.25, places=6)
 		self.assertAlmostEqual(float(summary["snapshot"]["target_coverage_pct"]), 100.0, places=6)
-		self.assertAlmostEqual(float(summary["snapshot"]["overall_shift_efficiency_pct"]), 125.0, places=6)
+		self.assertAlmostEqual(float(summary["snapshot"]["overall_shift_efficiency_pct"]), 62.5, places=6)
 		self.assertFalse(summary["completeness"]["show_banner"])
 
 	def test_hides_efficiency_when_target_coverage_below_threshold(self) -> None:
@@ -3001,13 +3197,13 @@ class TestShiftSummary(FrappeTestCase):
 			workstation="WS-LINE-1",
 			unplanned_losses=[
 				{
-					"downtime_reason": "Tea Break",
+					"downtime_reason": "14",
 					"start_time": "09:00:00",
 					"end_time": "09:10:00",
 					"shift": shift.name,
 				},
 				{
-					"downtime_reason": "Lunch Break",
+					"downtime_reason": "19",
 					"start_time": "09:10:00",
 					"end_time": "09:30:00",
 					"shift": shift.name,
@@ -3027,7 +3223,7 @@ class TestShiftSummary(FrappeTestCase):
 		self.assertAlmostEqual(float(summary["logged_downtime"]["total_mins"]), 30.0, places=6)
 		self.assertTrue(summary["logged_downtime"]["recorded"])
 		self.assertEqual(summary["logged_downtime"]["top_reasons"][0]["reason"], "Other")
-		self.assertEqual(summary["exceptions"]["unplanned_loss_reasons"][0]["reason"], "Lunch Break")
+		self.assertEqual(summary["exceptions"]["unplanned_loss_reasons"][0]["reason"], "19")
 
 	def test_logged_downtime_ignores_overlapping_rows_from_other_shifts(self) -> None:
 		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
@@ -3206,6 +3402,7 @@ class TestShiftAggregateProductionEntries(FrappeTestCase):
 			{
 				"doctype": "Shift",
 				"department": dept,
+				"company": self.ctx["company"],
 				"branch": branch,
 				"shift_label": shift_label,
 				"shift_duration": "8",
@@ -3228,6 +3425,7 @@ class TestShiftAggregateProductionEntries(FrappeTestCase):
 		rejection_qty: float,
 		duration_mins: float,
 		production_time_mins: float | None | object = _USE_DURATION,
+		total_strokes: float | None = None,
 		bom_no: str | None = None,
 		purpose: str = "Manufacture",
 	) -> str:
@@ -3246,6 +3444,7 @@ class TestShiftAggregateProductionEntries(FrappeTestCase):
 				"custom_pea_rejection_qty": rejection_qty,
 				"custom_pea_actual_duration_mins": duration_mins,
 				"custom_pea_production_time_mins": production_minutes,
+				"custom_pea_total_strokes": good_qty if total_strokes is None else total_strokes,
 				"docstatus": 1,
 			}
 		)
@@ -3323,9 +3522,49 @@ class TestShiftAggregateProductionEntries(FrappeTestCase):
 		get_list.assert_any_call(
 			"BOM",
 			filters={"name": ["in", [self.bom]]},
-			pluck="name",
+			fields=["name", "item"],
 			limit_page_length=0,
 		)
+
+	def test_joint_aggregates_remain_when_bom_read_list_is_empty(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import (
+			get_shift_aggregate_production_entries,
+		)
+
+		shift = self._create_shift("2026-10-02", shift_label="2")
+		joint_entry = frappe._dict(
+			name="STE-JOINT-001",
+			purpose="Repack",
+			stock_entry_type="Joint",
+			custom_pea_joint_lh_rh_production=1,
+			custom_pea_lh_bom="LH-BOM",
+			custom_pea_rh_bom="RH-BOM",
+			custom_pea_lh_gross_qty=10,
+			custom_pea_rh_gross_qty=12,
+			custom_pea_lh_rejection_qty=1,
+			custom_pea_rh_rejection_qty=2,
+			custom_pea_total_strokes=22,
+			custom_pea_actual_duration_mins=60,
+			custom_pea_production_time_mins=60,
+		)
+		with (
+			patch(
+				"production_entry_app.production_entry_app.doctype.shift.shift.frappe.get_list",
+				side_effect=[[joint_entry], []],
+			),
+			patch(
+				"production_entry_app.production_entry_app.doctype.shift.shift.add_stock_entry_type_flags",
+				side_effect=lambda entries: entries,
+			),
+		):
+			rows = get_shift_aggregate_production_entries(shift.name)
+
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(rows[0]["bom_used"], "LH-BOM + RH-BOM")
+		self.assertEqual(rows[0]["item_code"], "")
+		self.assertEqual(float(rows[0]["total_qty"]), 22.0)
+		self.assertEqual(float(rows[0]["total_reject_qty"]), 3.0)
+		self.assertEqual(float(rows[0]["total_ok_qty"]), 19.0)
 
 	def test_aggregates_bom_based_quantities(self) -> None:
 		from production_entry_app.production_entry_app.doctype.shift.shift import (
@@ -3338,6 +3577,7 @@ class TestShiftAggregateProductionEntries(FrappeTestCase):
 			good_qty=100,
 			rejection_qty=5,
 			duration_mins=60,
+			total_strokes=60,
 			bom_no=self.bom,
 		)
 		self._create_submitted_like_entry(
@@ -3345,6 +3585,7 @@ class TestShiftAggregateProductionEntries(FrappeTestCase):
 			good_qty=50,
 			rejection_qty=3,
 			duration_mins=30,
+			total_strokes=30,
 			bom_no=self.bom,
 		)
 		rows = get_shift_aggregate_production_entries(shift.name)
@@ -3354,7 +3595,7 @@ class TestShiftAggregateProductionEntries(FrappeTestCase):
 		self.assertEqual(float(rows[0]["total_qty"]), 150.0)
 		self.assertEqual(float(rows[0]["total_reject_qty"]), 8.0)
 		self.assertEqual(float(rows[0]["total_ok_qty"]), 142.0)
-		expected_avg_spm = 142 / 90
+		expected_avg_spm = 90 / 90
 		derived_abs_tol = 1e-6
 		self.assertAlmostEqual(float(rows[0]["avg_spm"]), expected_avg_spm, delta=derived_abs_tol)
 
@@ -3550,12 +3791,14 @@ class TestShiftPermissions(FrappeTestCase):
 		_ensure_user_with_role("test_shift_pea_user@example.com", "PEA User")
 		frappe.set_user("test_shift_pea_user@example.com")
 
-		reason_name = f"Test Downtime Reason {frappe.generate_hash(length=6)}"
-		if frappe.db.exists("Downtime Reason", reason_name):
-			frappe.delete_doc("Downtime Reason", reason_name)
+		reason_code = "97"
+		if frappe.db.exists("Downtime Reason", reason_code):
+			frappe.delete_doc("Downtime Reason", reason_code)
 
 		with self.assertRaises(frappe.PermissionError):
-			frappe.get_doc({"doctype": "Downtime Reason", "downtime_reason_name": reason_name}).insert()
+			frappe.get_doc(
+				{"doctype": "Downtime Reason", "code": reason_code, "description": "Test Downtime Reason"}
+			).insert()
 
 	def test_user_without_pea_role_cannot_access_shift(self) -> None:
 		"""User with only Blogger role must not have Shift permission."""

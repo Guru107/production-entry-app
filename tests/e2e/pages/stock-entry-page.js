@@ -4,13 +4,150 @@ const {
 	retryOnContextDestroyed,
 	saveForm,
 	setFieldValue,
+	triggerSaveForm,
 } = require("../fixtures/frappe");
-const {
-	escapeRegexLiteral,
-	getRoute,
-	getRouteRegex,
-	getRoutePrefix,
-} = require("../utils/routing");
+const { hasCurrentStockEntryBranchField } = require("../fixtures/stock-entry-meta");
+const { escapeRegexLiteral, getRoute, getRoutePrefix } = require("../utils/routing");
+
+const STOCK_ENTRY_READY_TIMEOUT_MS = 10_000;
+const FETCH_ITEMS_CALL_TIMEOUT_MS = 5_000;
+
+function isStockEntryReady(requireAjaxIdle) {
+	if (document.querySelector(".modal.show")) {
+		return true;
+	}
+	const frm = window.cur_frm;
+	if (frm?.doctype !== "Stock Entry" || !frm?.is_new?.()) {
+		return false;
+	}
+	return !requireAjaxIdle || window.frappe?.request?.ajax_count === 0;
+}
+
+function triggerFetchItems() {
+	return window.cur_frm?.script_manager?.trigger("custom_pea_fetch_items");
+}
+
+// Runs inside the page, so it must stay self-contained for Playwright serialization.
+// It is the single source of the Fetch Items completion state; the other predicates
+// receive its serialized source instead of re-implementing it. A red indicator marks a
+// Frappe error dialog. Dialogs raised by unrelated form lookups through the app's plain
+// message convention carry no indicator and must not fail a fetch whose RPC succeeded;
+// the RPC error path in waitForFetchItemsCall is the primary guard for the fetch itself.
+function getVisibleFetchItemsState() {
+	const modal = document.querySelector(".modal.show");
+	return {
+		hasErrorIndicator: Boolean(modal?.querySelector?.(".indicator.red, .indicator-pill.red")),
+		hasMessageDialog: Boolean(modal),
+		itemCount: (window.cur_frm?.doc?.items || []).length,
+		modalText: modal ? (modal.innerText || modal.textContent || "").trim() : "",
+	};
+}
+
+function hasVisibleFetchItemsMessage(stateSource) {
+	return Function(`return (${stateSource})`)()().hasMessageDialog;
+}
+
+async function waitForFetchItemsCall({ stateSource, timeoutMs }) {
+	const getState = Function(`return (${stateSource})`)();
+	const fetchMethods = new Set([
+		"production_entry_app.production_entry_app.api.get_items_with_rejection",
+		"production_entry_app.production_entry_app.api.get_joint_production_items",
+	]);
+	const originalCall = window.frappe?.call;
+	if (typeof originalCall !== "function") {
+		throw new Error("frappe.call is not available.");
+	}
+	let restoreCall = () => {
+		window.frappe.call = originalCall;
+		restoreCall = () => {};
+	};
+	let timeout;
+	let rejectFetchResult = (error) => {
+		throw error;
+	};
+	const fetchResult = new Promise((resolve, reject) => {
+		rejectFetchResult = reject;
+		timeout = setTimeout(() => {
+			reject(
+				new Error(
+					`Fetch Items did not call the server. State: ${JSON.stringify(getState())}`
+				)
+			);
+		}, timeoutMs);
+
+		window.frappe.call = function (options) {
+			const method = typeof options === "string" ? options : options?.method;
+			if (!fetchMethods.has(method)) {
+				return originalCall.apply(this, arguments);
+			}
+
+			const wrappedOptions = { ...options };
+			const originalCallback = options.callback;
+			const originalError = options.error;
+			wrappedOptions.callback = async function (response) {
+				try {
+					clearTimeout(timeout);
+					await originalCallback?.apply(this, arguments);
+					resolve({
+						rowCount: Array.isArray(response?.message)
+							? response.message.length
+							: null,
+					});
+				} catch (error) {
+					clearTimeout(timeout);
+					reject(error);
+				}
+			};
+			wrappedOptions.error = function (error) {
+				try {
+					originalError?.apply(this, arguments);
+				} finally {
+					clearTimeout(timeout);
+					reject(
+						new Error(
+							`Fetch Items call failed. State: ${JSON.stringify(
+								getState()
+							)} Error: ${JSON.stringify(error || {})}`
+						)
+					);
+				}
+			};
+			return originalCall.call(this, wrappedOptions);
+		};
+	});
+
+	try {
+		const triggerResult = window.cur_frm?.script_manager?.trigger("custom_pea_fetch_items");
+		if (triggerResult?.then) {
+			triggerResult.then(undefined, (error) => {
+				clearTimeout(timeout);
+				rejectFetchResult(error);
+			});
+		}
+		const result = await fetchResult;
+		clearTimeout(timeout);
+		await window.frappe.after_ajax?.();
+		return { ...result, ...getState() };
+	} finally {
+		clearTimeout(timeout);
+		restoreCall();
+	}
+}
+
+async function waitForStockEntryReady(page) {
+	await retryOnContextDestroyed(
+		page,
+		async () => {
+			await page.waitForFunction(isStockEntryReady, false, {
+				timeout: STOCK_ENTRY_READY_TIMEOUT_MS,
+			});
+			await page.waitForFunction(isStockEntryReady, true, {
+				timeout: STOCK_ENTRY_READY_TIMEOUT_MS,
+			});
+		},
+		5
+	);
+}
 
 class StockEntryPage {
 	constructor(page) {
@@ -19,10 +156,11 @@ class StockEntryPage {
 
 	async openNew() {
 		await this.page.goto(getRoute("/stock-entry/new"));
-		await expect(this.page).toHaveURL(getRouteRegex("/stock-entry/new-stock-entry-"));
-		await this.page.waitForFunction(
-			() => window.cur_frm?.doctype === "Stock Entry" && window.cur_frm?.is_new?.()
+		await expect(this.page).toHaveURL(
+			new RegExp(`/${getRoutePrefix()}/stock-entry/(?:new|new-stock-entry-)`)
 		);
+		await waitForStockEntryReady(this.page);
+		await expect(this.page.locator(".modal.show")).toHaveCount(0);
 	}
 
 	async open(name) {
@@ -37,9 +175,25 @@ class StockEntryPage {
 		await this.page.waitForFunction((docname) => window.cur_frm?.doc?.name === docname, name);
 	}
 
+	async openInDesk(name) {
+		// Preserve the Desk and its reused Stock Entry form instance.
+		await this.page.evaluate(async (docname) => {
+			await frappe.set_route("Form", "Stock Entry", docname);
+			await frappe.after_ajax();
+		}, name);
+		await this.page.waitForFunction((docname) => window.cur_frm?.doc?.name === docname, name);
+	}
+
+	async reload() {
+		await this.page.evaluate(async () => {
+			await window.cur_frm.reload_doc();
+			await frappe.after_ajax();
+		});
+	}
+
 	async fillManufactureEntry(ctx) {
 		await setFieldValue(this.page, "stock_entry_type", "Manufacture");
-		await setFieldValue(this.page, "custom_pea_stock_entry_purpose", "Manufacture");
+		await this.waitForFieldValue("custom_stock_entry_purpose", "Manufacture");
 		await setFieldValue(this.page, "company", ctx.company);
 		await this.setPostingDate(ctx.shift_date);
 		await setFieldValue(this.page, "from_bom", 1);
@@ -49,6 +203,7 @@ class StockEntryPage {
 		await setFieldValue(this.page, "to_warehouse", ctx.wip_warehouse);
 		await setFieldValue(this.page, "fg_completed_qty", 100);
 		await setFieldValue(this.page, "custom_pea_rejection_qty", 5);
+		await setFieldValue(this.page, "custom_pea_total_strokes", 100);
 		await setFieldValue(this.page, "custom_pea_workstation", ctx.workstation);
 		await setFieldValue(this.page, "custom_pea_operator", ctx.operator);
 		await setFieldValue(
@@ -59,6 +214,18 @@ class StockEntryPage {
 		await setFieldValue(this.page, "custom_pea_actual_end_date", `${ctx.shift_date} 09:00:00`);
 	}
 
+	async fillStockOnlyManufactureEntry(ctx) {
+		await setFieldValue(this.page, "stock_entry_type", "Manufacture");
+		await this.waitForFieldValue("custom_stock_entry_purpose", "Manufacture");
+		await setFieldValue(this.page, "company", ctx.company);
+		await this.setPostingDate(ctx.shift_date);
+		await setFieldValue(this.page, "from_bom", 1);
+		await setFieldValue(this.page, "bom_no", ctx.bom);
+		await setFieldValue(this.page, "from_warehouse", ctx.wip_warehouse);
+		await setFieldValue(this.page, "to_warehouse", ctx.wip_warehouse);
+		await setFieldValue(this.page, "fg_completed_qty", 100);
+	}
+
 	async setManufactureFields(ctx, options = {}) {
 		const {
 			fgQty = 100,
@@ -66,10 +233,13 @@ class StockEntryPage {
 			shiftName = ctx.shift_name,
 			actualStart = `${ctx.shift_date} 08:00:00`,
 			actualEnd = `${ctx.shift_date} 09:00:00`,
+			totalStrokes = fgQty,
+			workstation = ctx.workstation,
+			operator = ctx.operator,
 		} = options;
 
 		await setFieldValue(this.page, "stock_entry_type", "Manufacture");
-		await setFieldValue(this.page, "custom_pea_stock_entry_purpose", "Manufacture");
+		await this.waitForFieldValue("custom_stock_entry_purpose", "Manufacture");
 		await setFieldValue(this.page, "company", ctx.company);
 		await this.setPostingDate(options.postingDate || ctx.shift_date);
 		await setFieldValue(this.page, "from_bom", 1);
@@ -83,8 +253,11 @@ class StockEntryPage {
 		await setFieldValue(this.page, "to_warehouse", options.toWarehouse || ctx.wip_warehouse);
 		await setFieldValue(this.page, "fg_completed_qty", fgQty);
 		await setFieldValue(this.page, "custom_pea_rejection_qty", rejectionQty);
-		await setFieldValue(this.page, "custom_pea_workstation", ctx.workstation);
-		await setFieldValue(this.page, "custom_pea_operator", ctx.operator);
+		if (totalStrokes !== null && totalStrokes !== undefined) {
+			await setFieldValue(this.page, "custom_pea_total_strokes", totalStrokes);
+		}
+		await setFieldValue(this.page, "custom_pea_workstation", workstation);
+		await setFieldValue(this.page, "custom_pea_operator", operator);
 		if (actualStart !== null && actualStart !== undefined) {
 			await setFieldValue(this.page, "custom_pea_actual_start_date", actualStart);
 		}
@@ -100,6 +273,31 @@ class StockEntryPage {
 		await setFieldValue(this.page, "set_posting_time", 1);
 		await setFieldValue(this.page, "posting_date", postingDate);
 		await setFieldValue(this.page, "posting_time", "09:00:00");
+	}
+
+	async fillJointProductionFields(ctx, options = {}) {
+		await setFieldValue(this.page, "custom_pea_operation", ctx.joint_operation);
+		await this.waitForFieldValue("custom_pea_operation", ctx.joint_operation);
+		await setFieldValue(this.page, "custom_pea_lh_bom", ctx.joint_lh_bom);
+		await setFieldValue(this.page, "custom_pea_lh_gross_qty", options.lhGrossQty ?? 40);
+		await setFieldValue(this.page, "custom_pea_lh_rejection_qty", options.lhRejectionQty ?? 0);
+		await setFieldValue(this.page, "custom_pea_rh_bom", ctx.joint_rh_bom);
+		await setFieldValue(this.page, "custom_pea_rh_gross_qty", options.rhGrossQty ?? 41);
+		await setFieldValue(this.page, "custom_pea_rh_rejection_qty", options.rhRejectionQty ?? 0);
+		await setFieldValue(this.page, "custom_pea_total_strokes", options.totalStrokes ?? 41);
+		await setFieldValue(this.page, "custom_pea_die_tool_item", ctx.joint_lh_item);
+		await setFieldValue(this.page, "custom_pea_workstation", ctx.workstation);
+		await setFieldValue(this.page, "custom_pea_operator", ctx.operator);
+		await setFieldValue(
+			this.page,
+			"custom_pea_actual_start_date",
+			options.actualStart || `${ctx.shift_date} 08:00:00`
+		);
+		await setFieldValue(
+			this.page,
+			"custom_pea_actual_end_date",
+			options.actualEnd || `${ctx.shift_date} 09:00:00`
+		);
 	}
 
 	async setShift(shiftName) {
@@ -120,9 +318,11 @@ class StockEntryPage {
 		fromWarehouse,
 		toWarehouse,
 	}) {
+		const hasBranchField = await hasCurrentStockEntryBranchField(this.page);
 		await this.page.waitForFunction(
 			({
 				expectedBranch,
+				hasBranchField,
 				expectedFromWarehouse,
 				expectedToWarehouse,
 				startSnippet,
@@ -131,7 +331,6 @@ class StockEntryPage {
 				const doc = window.cur_frm?.doc || {};
 				const plannedStart = String(doc.custom_pea_planned_start_date || "");
 				const plannedEnd = String(doc.custom_pea_planned_end_date || "");
-				const hasBranchField = Boolean(window.cur_frm?.fields_dict?.branch);
 				const branchMatch =
 					expectedBranch && hasBranchField ? doc.branch === expectedBranch : true;
 				const fromWarehouseMatch = expectedFromWarehouse
@@ -148,6 +347,7 @@ class StockEntryPage {
 			},
 			{
 				expectedBranch: branch || null,
+				hasBranchField,
 				expectedFromWarehouse: fromWarehouse || warehouse || null,
 				expectedToWarehouse: toWarehouse || warehouse || null,
 				startSnippet: plannedStartIncludes || null,
@@ -202,6 +402,17 @@ class StockEntryPage {
 			},
 			{ name: fieldname, value: expectedValue }
 		);
+	}
+
+	async waitForJointMode(stockEntryType) {
+		await this.page.waitForFunction((expectedType) => {
+			const doc = window.cur_frm?.doc || {};
+			return (
+				doc.stock_entry_type === expectedType &&
+				doc.custom_stock_entry_purpose === "Repack" &&
+				doc.__pea_joint_stock_entry_type === expectedType
+			);
+		}, stockEntryType);
 	}
 
 	async setRejectionBreakupRows(rows) {
@@ -265,54 +476,95 @@ class StockEntryPage {
 	}
 
 	async attemptSaveDraft() {
-		try {
-			await this.saveDraft();
-		} catch (error) {
-			// Validation errors are asserted by message matchers in tests.
-		}
+		await retryOnContextDestroyed(
+			this.page,
+			async () => triggerSaveForm(this.page, "Save"),
+			3
+		);
 	}
 
 	async searchShiftLinkResults(text) {
-		return await retryOnContextDestroyed(this.page, async () => {
-			await this.page.waitForFunction(
-				() =>
-					typeof window.cur_frm?.fields_dict?.custom_pea_shift?.get_query === "function"
-			);
-			return await this.page.evaluate(async (searchText) => {
-				const query = window.cur_frm?.fields_dict?.custom_pea_shift?.get_query?.() || {};
-				return await new Promise((resolve, reject) => {
-					frappe.call({
-						method: "frappe.desk.search.search_link",
-						args: {
-							doctype: "Shift",
-							txt: searchText,
-							page_length: 20,
-							filters: query.filters || {},
-						},
-						callback: (r) => resolve(r.message || []),
-						error: (err) =>
-							reject(
-								new Error(err?.message || "Failed to search Shift link options.")
-							),
-					});
-				});
-			}, text);
+		return await this._searchLinkResults({
+			fieldname: "custom_pea_shift",
+			doctype: "Shift",
+			text,
 		});
 	}
 
-	async fetchItems() {
+	async searchJointBomLinkResults(fieldname, text) {
+		return await this._searchLinkResults({
+			fieldname,
+			doctype: "BOM",
+			text,
+			includeQuery: true,
+		});
+	}
+
+	async _searchLinkResults({ fieldname, doctype, text, includeQuery = false }) {
+		return await retryOnContextDestroyed(this.page, async () => {
+			await this.page.waitForFunction(
+				(name) => typeof window.cur_frm?.fields_dict?.[name]?.get_query === "function",
+				fieldname
+			);
+			return await this.page.evaluate(
+				async ({ name, searchText, targetDoctype, withQuery }) => {
+					const query = window.cur_frm?.fields_dict?.[name]?.get_query?.() || {};
+					return await new Promise((resolve, reject) => {
+						const args = {
+							doctype: targetDoctype,
+							txt: searchText,
+							page_length: 20,
+							filters: query.filters || {},
+						};
+						if (withQuery) {
+							args.query = query.query;
+						}
+						frappe.call({
+							method: "frappe.desk.search.search_link",
+							args,
+							callback: (r) => resolve(r.message || []),
+							error: (err) =>
+								reject(
+									new Error(
+										err?.message ||
+											`Failed to search ${targetDoctype} link options.`
+									)
+								),
+						});
+					});
+				},
+				{
+					name: fieldname,
+					searchText: text,
+					targetDoctype: doctype,
+					withQuery: includeQuery,
+				}
+			);
+		});
+	}
+
+	async fetchItems({ expectValidation = false } = {}) {
+		const stateSource = getVisibleFetchItemsState.toString();
 		await retryOnContextDestroyed(
 			this.page,
 			async () => {
 				await this.page.waitForFunction(
 					() => window.cur_frm?.doctype === "Stock Entry" && Boolean(window.cur_frm?.doc)
 				);
-				await this.page.evaluate(async () => {
-					await cur_frm.script_manager.trigger("custom_pea_fetch_items");
+				if (expectValidation) {
+					await this.page.evaluate(triggerFetchItems);
+					await this.page.waitForFunction(hasVisibleFetchItemsMessage, stateSource);
+					return;
+				}
+				const result = await this.page.evaluate(waitForFetchItemsCall, {
+					stateSource,
+					timeoutMs: FETCH_ITEMS_CALL_TIMEOUT_MS,
 				});
-				await this.page.waitForFunction(
-					() => (window.cur_frm?.doc?.items || []).length > 0
-				);
+				if (!result.itemCount || result.hasErrorIndicator) {
+					throw new Error(
+						`Fetch Items did not complete cleanly. State: ${JSON.stringify(result)}`
+					);
+				}
 			},
 			5
 		);
@@ -368,4 +620,12 @@ class StockEntryPage {
 	}
 }
 
-module.exports = { StockEntryPage };
+module.exports = {
+	getVisibleFetchItemsState,
+	hasVisibleFetchItemsMessage,
+	isStockEntryReady,
+	StockEntryPage,
+	triggerFetchItems,
+	waitForStockEntryReady,
+	waitForFetchItemsCall,
+};

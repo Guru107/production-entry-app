@@ -5,30 +5,37 @@ import time
 
 import frappe
 from frappe import _
+from frappe.model.document import Document
 from frappe.query_builder import DocType as QBDocType
 from frappe.query_builder.functions import CustomFunction
 from frappe.utils import cint, get_datetime, now_datetime
 
+from production_entry_app.production_entry_app.joint_production import (
+	is_joint_lh_rh_production,
+)
 
-def update_counter_for_stock_entry(doc, direction: int = 1) -> None:
-	if doc.get("purpose") != "Manufacture":
+
+def update_counter_for_stock_entry(doc: Document, direction: int = 1) -> None:
+	if is_joint_lh_rh_production(doc):
+		item_code = doc.get("custom_pea_die_tool_item")
+	elif doc.get("purpose") == "Manufacture":
+		item_code = _get_fg_item_code(doc)
+	else:
 		return
 
-	item_code = _get_fg_item_code(doc)
 	if not item_code:
 		return
 	if not is_die_tool_enabled(item_code):
 		return
 
-	strokes_per_unit = float(frappe.db.get_value("Item", item_code, "custom_pea_strokes_per_unit") or 0)
-	if strokes_per_unit <= 0:
+	total_strokes = float(doc.get("custom_pea_total_strokes") or 0)
+	if total_strokes <= 0:
 		return
 
-	total_units = _get_total_units(doc)
-	if total_units <= 0:
-		return
+	_update_counter(item_code, total_strokes * direction)
 
-	stroke_delta = total_units * strokes_per_unit * direction
+
+def _update_counter(item_code: str, stroke_delta: float) -> None:
 	counter_name = _ensure_counter_exists(item_code)
 	die_tool_counter = QBDocType("Die Tool Counter")
 
@@ -142,21 +149,4 @@ def _get_fg_item_code(doc) -> str | None:
 	for row in doc.get("items", []):
 		if row.get("is_finished_item"):
 			return row.get("item_code")
-	return None
-
-
-def _get_total_units(doc) -> float:
-	rejection_qty = float(doc.get("custom_pea_rejection_qty") or 0)
-	if doc.get("fg_completed_qty"):
-		return float(doc.get("fg_completed_qty") or 0) + rejection_qty
-	fg_row = _get_fg_row(doc)
-	if not fg_row:
-		return 0.0
-	return float(fg_row.get("qty") or 0) + rejection_qty
-
-
-def _get_fg_row(doc):
-	for row in doc.get("items", []):
-		if row.get("is_finished_item"):
-			return row
 	return None
