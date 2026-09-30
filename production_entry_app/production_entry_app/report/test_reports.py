@@ -435,6 +435,20 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(labels_by_fieldname["reason_04_1st"], "1st Shift No Material")
 		self.assertEqual(labels_by_fieldname["reason_21_2nd"], "2nd Shift PM")
 
+	def test_production_oee_report_accepts_string_reason_filter_forms(self) -> None:
+		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
+			execute,
+		)
+
+		ensure_downtime_reason("04")
+		for value in ("01", "01,04", '["01", "04"]'):
+			with self.subTest(value=value):
+				columns, _rows = execute({"downtime_reason": value})
+				fieldnames = [column.get("fieldname") for column in columns]
+				self.assertIn("reason_01_1st", fieldnames)
+				self.assertIn("reason_04_2nd", fieldnames)
+				self.assertNotIn("reason_21_1st", fieldnames)
+
 	def test_report_metric_columns_follow_system_precision(self) -> None:
 		from production_entry_app.production_entry_app.report.daily_strokes_spm_monitor.daily_strokes_spm_monitor import (
 			_get_columns as get_daily_columns,

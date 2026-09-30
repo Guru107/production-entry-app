@@ -2,11 +2,14 @@
 
 Downtime Reason masters were named by their description ("Setup Time", "Power Off"), and the Production OEE Report mapped those names onto fixed loss buckets through a hardcoded dictionary that silently dropped any reason it did not list. The plant standard gives every cause a two-digit code, so the Downtime Reason document name is now that code and a separate editable description carries the human-readable name. Selection matches the code or the description; grids display the description. The standard set spans 00-22, including the planned-loss masters (Shift Start Up 10, JH Activity 13, Tea Break 14, Lunch Break 19, Dinner 20); there is no 99. A migration renamed existing documents to their codes — Frappe cascades those renames into Loss Entry rows on submitted Shifts and Production Entries — and replaced Mtrl Handl, Tool Break and No Helper with Other (00) before deleting them. The name-to-bucket dictionary was rekeyed onto the codes and remains as the interim Machine Downtime classification, superseded per reason by the filter-chosen breakdown: with no reasons selected the report shows only Machine Downtime, Total Loss Time and Running Time.
 
+The staging conversion also met free-text masters beyond the rename map. Obvious restatements of standard causes ("Maintenance" → 05, "TEA TIME" → 14) and composite notes mixing standard reasons ("lunch & puwer cut") merge into their standard code or Other (00); genuinely site-specific reasons (part-specific material shortages, fixture-breakdown notes) are retained as custom codes from the free 23-98 range with the legacy text kept as the description. Custom codes are assigned deterministically in sorted name order from the codes free at conversion time, so a rerun from the same starting state lands on the same mapping. The conversion runs as a one-time data fix per instance (the staging run was executed through the REST API following this rule), not as a shipped patch.
+
 ## Considered Options
 
 - Keep description-named documents and add a code as a secondary field. Rejected because identity would stay with a free-text name while the standard speaks in codes.
 - Keep old names as document names and surface codes only in search. Rejected because stored names like "Power Off" would permanently disagree with standard descriptions like "No Power".
 - Retain Mtrl Handl, Tool Break and No Helper as inactive masters. Rejected because they are outside the standard; entries that referenced them resolve to Other (00) and users can recreate a reason if one is genuinely needed.
+- Give every off-map extra its own custom code. Rejected as the blanket rule because restatements of standard causes would fragment history across duplicate masters; custom codes are kept only for reasons a standard code cannot name.
 
 ## Consequences
 

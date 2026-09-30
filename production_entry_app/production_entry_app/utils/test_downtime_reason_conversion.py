@@ -7,6 +7,7 @@ from frappe.model.rename_doc import rename_doc
 from frappe.tests.utils import FrappeTestCase
 
 from production_entry_app.production_entry_app.utils.downtime_reason_conversion import (
+	EXTRA_DOWNTIME_REASON_CODES,
 	LEGACY_DOWNTIME_REASON_CODES,
 	convert_legacy_downtime_reasons,
 )
@@ -106,4 +107,111 @@ class TestDowntimeReasonConversion(FrappeTestCase):
 		self.assertEqual(set_value.call_count, len(LEGACY_DOWNTIME_REASON_CODES) - 1)
 		self.assertFalse(
 			any(call.args[1] == {"downtime_reason": "Power Off"} for call in set_value.call_args_list)
+		)
+
+
+class TestExtraDowntimeReasonConversion(FrappeTestCase):
+	def test_curated_extra_merges_into_the_standard_code(self) -> None:
+		_delete_all_downtime_reasons()
+		_insert_legacy_master("Maintenance", "90")
+		_insert_legacy_master("TEA TIME", "91")
+
+		convert_legacy_downtime_reasons()
+
+		self.assertFalse(frappe.db.exists("Downtime Reason", "Maintenance"))
+		self.assertFalse(frappe.db.exists("Downtime Reason", "TEA TIME"))
+		self.assertEqual(frappe.db.get_value("Downtime Reason", "05", "description"), "Maintenance")
+		self.assertEqual(frappe.db.get_value("Downtime Reason", "14", "description"), "Tea Break")
+		self.assertTrue(frappe.db.get_value("Downtime Reason", "05", "is_active"))
+
+	def test_curated_extra_rolls_composite_free_text_into_other(self) -> None:
+		_delete_all_downtime_reasons()
+		_insert_legacy_master("lunch & puwer cut", "90")
+
+		convert_legacy_downtime_reasons()
+
+		self.assertFalse(frappe.db.exists("Downtime Reason", "lunch & puwer cut"))
+		self.assertEqual(frappe.db.get_value("Downtime Reason", "00", "description"), "Other")
+
+	def test_extra_map_retargets_orphaned_loss_entry_references_when_master_is_absent(self) -> None:
+		with (
+			patch(f"{_CONVERSION_MODULE}.seed_standard_downtime_reasons"),
+			patch(f"{_CONVERSION_MODULE}.assign_codes_to_uncoded_downtime_reasons"),
+			patch(f"{_CONVERSION_MODULE}.frappe.db.exists", return_value=False),
+			patch(f"{_CONVERSION_MODULE}.rename_doc") as rename_doc,
+			patch(f"{_CONVERSION_MODULE}.frappe.db.set_value") as set_value,
+		):
+			convert_legacy_downtime_reasons()
+
+		rename_doc.assert_not_called()
+		self.assertEqual(
+			set_value.call_count, len(LEGACY_DOWNTIME_REASON_CODES) + len(EXTRA_DOWNTIME_REASON_CODES)
+		)
+		set_value.assert_any_call(
+			"Loss Entry",
+			{"downtime_reason": "Maintenance"},
+			"downtime_reason",
+			"05",
+			update_modified=False,
+		)
+
+	def test_genuinely_custom_extra_gets_deterministic_free_code(self) -> None:
+		_delete_all_downtime_reasons()
+		_insert_legacy_master("MATERIAL SHORT PART NO.84562", "90")
+		_insert_legacy_master("Development Die issue", "91")
+
+		convert_legacy_downtime_reasons()
+
+		self.assertFalse(frappe.db.exists("Downtime Reason", "MATERIAL SHORT PART NO.84562"))
+		self.assertFalse(frappe.db.exists("Downtime Reason", "Development Die issue"))
+		self.assertEqual(frappe.db.get_value("Downtime Reason", "23", "description"), "Development Die issue")
+		self.assertEqual(
+			frappe.db.get_value("Downtime Reason", "24", "description"), "MATERIAL SHORT PART NO.84562"
+		)
+
+	def test_uncoded_master_with_quirk_code_field_is_still_coded(self) -> None:
+		_delete_all_downtime_reasons()
+		_insert_legacy_master("Inventory", "90")
+		frappe.db.set_value("Downtime Reason", "Inventory", "code", "Inventory", update_modified=False)
+
+		convert_legacy_downtime_reasons()
+
+		self.assertFalse(frappe.db.exists("Downtime Reason", "Inventory"))
+		self.assertEqual(frappe.db.get_value("Downtime Reason", "23", "description"), "Inventory")
+
+	def test_custom_code_assignment_skips_codes_taken_by_existing_coded_masters(self) -> None:
+		_delete_all_downtime_reasons()
+		frappe.get_doc(
+			{
+				"doctype": "Downtime Reason",
+				"code": "23",
+				"description": "Prior Custom",
+				"is_active": 1,
+			}
+		).insert(ignore_permissions=True)
+		_insert_legacy_master("Inventory", "90")
+		_insert_legacy_master("Shift Close", "91")
+
+		convert_legacy_downtime_reasons()
+
+		self.assertEqual(frappe.db.get_value("Downtime Reason", "23", "description"), "Prior Custom")
+		self.assertEqual(frappe.db.get_value("Downtime Reason", "24", "description"), "Inventory")
+		self.assertEqual(frappe.db.get_value("Downtime Reason", "25", "description"), "Shift Close")
+
+	def test_uncoded_assignment_is_a_noop_on_rerun(self) -> None:
+		_delete_all_downtime_reasons()
+		_insert_legacy_master("Machine Breakdown", "90")
+
+		convert_legacy_downtime_reasons()
+		before = frappe.get_all(
+			"Downtime Reason", fields=["name", "code", "description", "is_active"], order_by="name"
+		)
+
+		convert_legacy_downtime_reasons()
+
+		self.assertEqual(
+			frappe.get_all(
+				"Downtime Reason", fields=["name", "code", "description", "is_active"], order_by="name"
+			),
+			before,
 		)

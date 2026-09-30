@@ -56,7 +56,10 @@ def _get_selected_reason_codes(filters: dict) -> list[str]:
 	if not value:
 		return []
 	if isinstance(value, str):
-		parsed = frappe.parse_json(value)
+		try:
+			parsed = frappe.parse_json(value)
+		except ValueError:
+			parsed = None
 		if isinstance(parsed, list):
 			value = parsed
 		else:

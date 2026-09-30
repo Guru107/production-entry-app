@@ -127,7 +127,9 @@ _Avoid_: the whole idle shift, Downtime Reason
 **Downtime Reason**:
 Master data naming the cause of planned or unplanned lost time. Identified by a short standard code that is the
 record's identity; carries an editable human-readable description. Shift planned losses and Production Entry
-unplanned losses reference reasons by code. Reasons outside the standard set can be removed; entries that
+unplanned losses reference reasons by code. The standard set spans codes 00-22; a reason a standard code cannot
+name keeps its identity with a free code from 23-98 and its legacy text as the description, while restatements of
+standard causes merge into their standard code. Reasons outside the standard set can be removed; entries that
 referenced a removed reason resolve to Other (00).
 _Avoid_: reason name as identity, free-text reason
 
