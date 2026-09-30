@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { bootstrapE2E, cleanupE2E } = require("../fixtures/test-data");
+const { bootstrapE2E, cleanupE2E, DOWNTIME_REASON } = require("../fixtures/test-data");
 const { getDoc, callFrappeMethod, setFieldValue } = require("../fixtures/frappe");
 const { expectValidationError } = require("../fixtures/assertions");
 const { registerE2ELifecycle } = require("../fixtures/lifecycle");
@@ -199,7 +199,7 @@ test.describe("Shift to Stock Entry integration", () => {
 			},
 		]);
 		await stockEntryPage.addUnplannedLossRow({
-			downtime_reason: "Tea Break",
+			downtime_reason: DOWNTIME_REASON.TEA_BREAK,
 			start_time: "08:30:00",
 			end_time: "08:40:00",
 		});

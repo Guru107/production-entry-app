@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { bootstrapE2E, cleanupE2E } = require("../fixtures/test-data");
+const { bootstrapE2E, cleanupE2E, DOWNTIME_REASON } = require("../fixtures/test-data");
 const { getDoc, callFrappeMethod, retryOnContextDestroyed } = require("../fixtures/frappe");
 const { StockEntryPage } = require("../pages/stock-entry-page");
 const { registerE2ELifecycle } = require("../fixtures/lifecycle");
@@ -127,7 +127,7 @@ test.describe("Die tool metrics and counter", () => {
 			actualEnd: `${ctx.shift_date} 08:20:00`,
 		});
 		await stockEntryPage.addUnplannedLossRow({
-			downtime_reason: "Setup Time",
+			downtime_reason: DOWNTIME_REASON.SETUP,
 			start_time: "08:10:00",
 			end_time: "08:20:00",
 		});

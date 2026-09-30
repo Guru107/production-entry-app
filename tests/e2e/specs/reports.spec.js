@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { bootstrapE2E, cleanupE2E } = require("../fixtures/test-data");
+const { bootstrapE2E, cleanupE2E, DOWNTIME_REASON } = require("../fixtures/test-data");
 const { ReportsPage } = require("../pages/reports-page");
 const { ShiftPage } = require("../pages/shift-page");
 const { StockEntryPage } = require("../pages/stock-entry-page");
@@ -352,7 +352,11 @@ test.describe("Production reports", () => {
 		const prefix = lifecycle.getPrefix();
 		const ctx = await setupFreshContext(page, prefix);
 		await createSubmittedStockEntryForReports(page, ctx, 0, [
-			{ downtime_reason: "Setup Time", start_time: "08:00:00", end_time: "08:30:00" },
+			{
+				downtime_reason: DOWNTIME_REASON.SETUP,
+				start_time: "08:00:00",
+				end_time: "08:30:00",
+			},
 		]);
 
 		const reportsPage = new ReportsPage(page);

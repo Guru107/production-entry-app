@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { bootstrapE2E, cleanupE2E } = require("../fixtures/test-data");
+const { bootstrapE2E, cleanupE2E, DOWNTIME_REASON } = require("../fixtures/test-data");
 const { getDoc, callFrappeMethod, setFieldValue } = require("../fixtures/frappe");
 const { expectValidationError } = require("../fixtures/assertions");
 const { StockEntryPage } = require("../pages/stock-entry-page");
@@ -282,7 +282,7 @@ test.describe("Stock Entry validation matrix", () => {
 		await stockEntryPage.fetchItems();
 		await stockEntryPage.setRejectionBreakupRows([{ rejection_reason: "Burr", qty: 5 }]);
 		await stockEntryPage.addUnplannedLossRow({
-			downtime_reason: "Tea Break",
+			downtime_reason: DOWNTIME_REASON.TEA_BREAK,
 			start_time: "10:00:00",
 			end_time: "10:15:00",
 		});
@@ -444,7 +444,7 @@ test.describe("Stock Entry validation matrix", () => {
 		});
 		await stockEntryPage.fetchItems();
 		await stockEntryPage.addUnplannedLossRow({
-			downtime_reason: "Tea Break",
+			downtime_reason: DOWNTIME_REASON.TEA_BREAK,
 		});
 		await stockEntryPage.setUnplannedLossHelperRow(0, {
 			start_time_input: "0830",
@@ -456,7 +456,9 @@ test.describe("Stock Entry validation matrix", () => {
 		const savedStockEntry = await getDoc(page, "Stock Entry", stockEntryName);
 
 		expect(savedStockEntry.custom_pea_unplanned_losses || []).toHaveLength(1);
-		expect(savedStockEntry.custom_pea_unplanned_losses[0].downtime_reason).toBe("Tea Break");
+		expect(savedStockEntry.custom_pea_unplanned_losses[0].downtime_reason).toBe(
+			DOWNTIME_REASON.TEA_BREAK
+		);
 		expect(normalizeTime(savedStockEntry.custom_pea_unplanned_losses[0].start_time)).toBe(
 			"08:30:00"
 		);

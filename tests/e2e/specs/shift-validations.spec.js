@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { bootstrapE2E, cleanupE2E } = require("../fixtures/test-data");
+const { bootstrapE2E, cleanupE2E, DOWNTIME_REASON } = require("../fixtures/test-data");
 const { getDoc, callFrappeMethod } = require("../fixtures/frappe");
 const { expectValidationError } = require("../fixtures/assertions");
 const { ShiftPage } = require("../pages/shift-page");
@@ -230,25 +230,25 @@ test.describe("Shift validations", () => {
 		await shiftPage.waitForPlannedLossRows(3);
 		const planned8h = await shiftPage.getPlannedLosses();
 		expect(planned8h).toHaveLength(3);
-		expect(planned8h[0].downtime_reason).toBe("Shift Start Up");
+		expect(planned8h[0].downtime_reason).toBe(DOWNTIME_REASON.SHIFT_START_UP);
 		expect(planned8h[0].start_time).toBe("08:00:00");
-		expect(planned8h[1].downtime_reason).toBe("Tea Break");
+		expect(planned8h[1].downtime_reason).toBe(DOWNTIME_REASON.TEA_BREAK);
 		expect(planned8h[1].start_time).toBe("09:00:00");
-		expect(planned8h[2].downtime_reason).toBe("JH Activity");
+		expect(planned8h[2].downtime_reason).toBe(DOWNTIME_REASON.JH_ACTIVITY);
 		expect(planned8h[2].start_time).toBe("10:00:00");
 
 		await shiftPage.setDraftFields({ duration: "10" });
 		await shiftPage.waitForPlannedLossRows(5);
 		const planned10h = await shiftPage.getPlannedLosses();
 		expect(planned10h).toHaveLength(5);
-		expect(planned10h[4].downtime_reason).toBe("Tea Break");
+		expect(planned10h[4].downtime_reason).toBe(DOWNTIME_REASON.TEA_BREAK);
 		expect(planned10h[4].start_time).toBe("17:00:00");
 
 		await shiftPage.setDraftFields({ duration: "12" });
 		await shiftPage.waitForPlannedLossRows(5);
 		const planned12h = await shiftPage.getPlannedLosses();
 		expect(planned12h).toHaveLength(5);
-		expect(planned12h[4].downtime_reason).toBe("Tea Break");
+		expect(planned12h[4].downtime_reason).toBe(DOWNTIME_REASON.TEA_BREAK);
 		expect(planned12h[4].start_time).toBe("17:00:00");
 	});
 

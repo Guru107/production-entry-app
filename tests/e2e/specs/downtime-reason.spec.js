@@ -57,7 +57,11 @@ test.describe("Downtime Reason master", () => {
 			);
 			expect(await page.evaluate(() => window.cur_frm?.doc?.name)).toBe(code);
 
-			await page.goto(getRoute("/downtime-reason"));
+			await page.evaluate(
+				(filterCode) => frappe.set_route("List", "Downtime Reason", { code: filterCode }),
+				code
+			);
+			await page.locator(".list-row-container").first().waitFor();
 			await expect(
 				page.locator(".list-row-container").filter({ hasText: editedDescription })
 			).toBeVisible();
