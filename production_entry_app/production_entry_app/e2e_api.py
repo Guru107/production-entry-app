@@ -133,7 +133,7 @@ def insert_pending_rework_source(
 	return stock_entry_name
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def ensure_e2e_user(
 	email: str,
 	first_name: str,
@@ -177,7 +177,7 @@ def ensure_e2e_user(
 	return {"email": email_value, "roles": requested_roles}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def set_e2e_branch_user_permission(user: str, branch: str) -> dict:
 	"""Assign a native Branch User Permission for E2E isolation."""
 	_assert_e2e_api_allowed()
@@ -658,7 +658,7 @@ def _get_e2e_joint_item_codes(prefix: str) -> tuple[str, str, str, str, str]:
 	)
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def bootstrap_e2e_context(prefix: str = "E2E", cleanup_running: int = 1) -> dict:
 	"""Create deterministic test masters for Playwright E2E tests."""
 	_assert_e2e_api_allowed()
@@ -839,7 +839,7 @@ def bootstrap_e2e_context(prefix: str = "E2E", cleanup_running: int = 1) -> dict
 	}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def set_e2e_system_float_precision(prefix: str = "E2E", precision: int = 3) -> dict:
 	"""Set System Settings float precision for a specific E2E context."""
 	_assert_e2e_api_allowed()
@@ -852,7 +852,7 @@ def set_e2e_system_float_precision(prefix: str = "E2E", precision: int = 3) -> d
 	return {"float_precision": cint(precision)}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def set_e2e_bom_company(prefix: str, bom_name: str, company: str) -> None:
 	"""Set a BOM company without Link validation so E2E can seed a mismatch."""
 	_assert_e2e_api_allowed()
@@ -1126,14 +1126,14 @@ def _cleanup_e2e_context(prefix: str = "E2E") -> dict:
 	return result
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def cleanup_e2e_context(prefix: str = "E2E") -> dict:
 	"""Remove seeded E2E docs and end running shifts created for E2E."""
 	_assert_e2e_api_allowed()
 	return _cleanup_e2e_context(prefix=prefix)
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def reset_e2e_die_tool_counter(prefix: str = "E2E") -> dict:
 	"""Reset only the finished-good item reserved for an E2E context."""
 	_assert_e2e_api_allowed()
@@ -1181,13 +1181,13 @@ def _cleanup_reserved_e2e_artifacts() -> dict[str, object]:
 	return {"ok": True, "prefixes": cleaned_prefixes}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def cleanup_reserved_e2e_artifacts() -> dict[str, object]:
 	_assert_e2e_api_allowed()
 	return _cleanup_reserved_e2e_artifacts()
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def create_e2e_submitted_stock_entry(
 	prefix: str = "E2E",
 	rejection_qty: float = 0,
@@ -1298,7 +1298,7 @@ def _ensure_e2e_operating_cost_account(company: str) -> str:
 	return str(expense_account)
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def create_e2e_rework_lifecycle_source(prefix: str = "E2E", qty: float = 5) -> dict:
 	"""Create a submitted, rework-flagged production rejection for browser lifecycle tests."""
 	_assert_e2e_api_allowed()
@@ -1394,7 +1394,7 @@ def create_e2e_rework_lifecycle_source(prefix: str = "E2E", qty: float = 5) -> d
 	}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def create_e2e_ambiguous_pending_rework_source(prefix: str = "E2E", qty: float = 5) -> dict:
 	"""Create a submitted multi-item rejection source with an ambiguous blank breakup item."""
 	_assert_e2e_api_allowed()
@@ -1420,7 +1420,7 @@ def create_e2e_ambiguous_pending_rework_source(prefix: str = "E2E", qty: float =
 	}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def create_e2e_rework_register_row(
 	prefix: str = "E2E",
 	qty: float = 4,
@@ -1651,7 +1651,7 @@ def _insert_e2e_full_shift_stock_entry(payload: dict) -> str:
 	return doc.name
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def create_e2e_full_shift_stock_entries(
 	prefix: str = "E2E", slot_minutes: int = 60, rejection_qty: float = 0
 ) -> dict:
@@ -1694,7 +1694,7 @@ def create_e2e_full_shift_stock_entries(
 	}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def create_e2e_downtime_entry(
 	prefix: str = "E2E",
 	from_time: str = "10:00:00",
