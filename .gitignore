@@ -21,4 +21,5 @@ yarn.lock
 .codex/
 .cursor/
 .serena/
+.scratch/
 dump.rdb
