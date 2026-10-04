@@ -157,7 +157,7 @@ test.describe("Production reports", () => {
 		let labels = await reportsPage.getColumnLabels();
 		expect(labels.filter((label) => label.includes("OEE"))).toEqual(["Avg. OEE", "OEE %"]);
 		expect(seededRow).toHaveProperty("oee_mult_pct");
-		expect(seededRow).toHaveProperty("oee");
+		expect(seededRow).toHaveProperty("oee_avg_pct");
 
 		await reportsPage.setFilterByFieldname("downtime_reason", ["00"]);
 		await reportsPage.clickRefresh();

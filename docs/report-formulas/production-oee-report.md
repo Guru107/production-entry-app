@@ -27,13 +27,13 @@ The same quantity semantics apply to normal Manufacture and Joint LH/RH Producti
 - `machine_downtime`: uncovered Downtime Entry hours for the row workstation. Each entry is clipped to a Completed Shift on that Production Date. A filled Shift link counts only inside the named Shift. A blank Shift link is clipped to every Completed Shift on that Production Date. Cancelled Downtime Entries are ignored. Minutes that overlap a Production Entry Loss Entry or a planned Shift loss are excluded. Overlapping Downtime Entries count once. Minutes outside the Shift window are excluded. Native stop reasons are not mapped onto Loss Entry buckets.
 - `total_loss_time`: `machine_downtime` plus the sum of all merged Production Entry loss-reason hours
   (every `(reason, shift_label)` bucket, whether or not that reason is selected in the filter).
-- `running_time`: on a row with Production Entries, `max(avl_time_hrs - total_loss_time, 0)`. On a row with Machine Downtime and no Production Entry, `running_time` is 0, so `stroke_required`, `act_spm`, `productivity_pct`, `quality_pct`, `availability_pct`, `oee`, and `oee_mult_pct` are 0. `machine_downtime` on that row is still only the logged uncovered hours. That row is omitted when the report is filtered by operation. A workstation with neither a Production Entry nor Machine Downtime has no row. Downtime on a Running or Draft Shift does not create one.
+- `running_time`: on a row with Production Entries, `max(avl_time_hrs - total_loss_time, 0)`. On a row with Machine Downtime and no Production Entry, `running_time` is 0, so `stroke_required`, `act_spm`, `productivity_pct`, `quality_pct`, `availability_pct`, `oee_avg_pct`, and `oee_mult_pct` are 0. `machine_downtime` on that row is still only the logged uncovered hours. That row is omitted when the report is filtered by operation. A workstation with neither a Production Entry nor Machine Downtime has no row. Downtime on a Running or Draft Shift does not create one.
 - `stroke_required`: `running_time * std_spm * 60`.
 - `act_spm`: `total_strokes / (running_time * 60)` if `running_time > 0` else `0`.
 - `productivity_pct`: `(act_spm / std_spm) * 100` if `std_spm > 0` else `0`.
 - `quality_pct`: `((quality_total - rejection) / quality_total) * 100` if `quality_total > 0` else `0`.
 - `availability_pct`: `(running_time / avl_time_hrs) * 100` if `avl_time_hrs > 0` else `0`.
-- `oee` (Avg. OEE): `(availability_pct + quality_pct + productivity_pct) / 3`.
+- `oee_avg_pct` (Avg. OEE): `(availability_pct + quality_pct + productivity_pct) / 3`.
 - `oee_mult_pct` (OEE %): `(availability_pct * quality_pct * productivity_pct) / 10000`.
 
 Loss reason columns (when the report filter selects Downtime Reason codes):

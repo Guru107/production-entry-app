@@ -18,9 +18,9 @@ and OEE. See ADR 0007.
   daily rows.
 - `stroke_required`: `running_time × std_spm × 60`.
 - `act_spm`: `total_strokes / (running_time × 60)` if `running_time > 0` else `0`.
-- `productivity_pct`, `quality_pct`, `availability_pct`, `oee` (Avg. OEE), `oee_mult_pct`:
-  same formulas as Production OEE Report, applied to the month totals (never averages of
-  daily percentages).
+- `productivity_pct`, `quality_pct`, `availability_pct`, `oee_avg_pct` (Avg. OEE),
+  `oee_mult_pct`: same formulas as Production OEE Report, applied to the month totals
+  (never averages of daily percentages).
 - Downtime-only Production Dates are included. There is no cross-workstation totals row.
 
 Filters: Year, Month, Workstation, Operation, Downtime Reason. Operation filter keeps the daily
