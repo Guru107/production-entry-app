@@ -240,6 +240,10 @@ def _get_rows(filters: dict, timeout_guard, reason_codes: list[str]) -> list[dic
 			"machine_downtime": machine_downtime,
 			"total_loss_time": total_loss_time,
 			"running_time": running_time,
+			# Rollup bases for Monthly Production OEE Report (not report columns).
+			"quality_total": quality_total,
+			"production_mins_sum": flt(group.get("production_mins_sum") or 0),
+			"standard_spm_weighted_sum": flt(group.get("standard_spm_weighted_sum") or 0),
 		}
 
 		for code in reason_codes:

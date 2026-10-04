@@ -29,6 +29,28 @@
 		};
 	}
 
+	function get_year_month_filters() {
+		const today = frappe.datetime.str_to_obj(frappe.datetime.get_today());
+		const currentYear = today.getFullYear();
+		const currentMonth = today.getMonth() + 1;
+		return [
+			{
+				fieldname: "year",
+				label: __("Year"),
+				fieldtype: "Int",
+				reqd: 1,
+				default: currentYear,
+			},
+			{
+				fieldname: "month",
+				label: __("Month"),
+				fieldtype: "Int",
+				reqd: 1,
+				default: currentMonth,
+			},
+		];
+	}
+
 	function validate_report_date_range(report) {
 		const fromDate = report?.get_filter_value?.("from_date");
 		const toDate = report?.get_filter_value?.("to_date");
@@ -45,6 +67,7 @@
 	const api = {
 		get_standard_report_date_filters,
 		get_operation_filter,
+		get_year_month_filters,
 		validate_report_date_range,
 	};
 

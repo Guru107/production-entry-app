@@ -155,6 +155,14 @@ The per-reason split of loss time in the Production OEE Report, one column pair 
 filter. With no reasons chosen, the report shows only the grand total of loss time, not a breakdown.
 _Avoid_: fixed loss buckets, fixed loss-type columns
 
+**Monthly Production OEE Report**:
+A Script Report with one row per Workstation for one calendar month of Production Dates. It sums the same bases
+the Production OEE Report uses for each day (available time, running time, strokes, quality quantities, rejection,
+Machine Downtime, and OEE Loss Breakdown hours), keeps OEE Standard SPM production-time-weighted across the
+month, then recomputes Availability, Quality, Productivity, and OEE from those month totals. Downtime-only
+Production Dates are included. There is no cross-workstation totals row.
+_Avoid_: average of daily OEE percentages, posting-date month, plant-wide OEE average
+
 ## Warehouse defaults
 
 Production Entry Settings holds one warehouse-default row per Company and Branch. A Shift's explicit

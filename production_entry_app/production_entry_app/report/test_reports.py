@@ -160,6 +160,8 @@ class TestProductionReports(FrappeTestCase):
 	def _get_pea_read_only_report_filters(self, report_name: str) -> dict:
 		if report_name in ("Daily Strokes SPM Monitor", "Operator Daily SPM Report"):
 			return {"from_date": "2090-04-01", "to_date": "2090-04-30"}
+		if report_name == "Monthly Production OEE Report":
+			return {"year": 2090, "month": 4}
 		return {}
 
 	def test_manufacturing_user_cannot_run_pea_report_through_query_report_runner(self) -> None:
@@ -324,6 +326,15 @@ class TestProductionReports(FrappeTestCase):
 				)
 				self.assertGreater(len(result["result"]), 0)
 
+		frappe.reload_doc("production_entry_app", "report", "monthly_production_oee_report")
+		monthly = run_query_report(
+			"Monthly Production OEE Report",
+			filters={"year": 2091, "month": 9},
+			ignore_prepared_report=True,
+		)
+		self.assertGreater(len(monthly["result"]), 0)
+		self.assertEqual(str(monthly["result"][0]["month"]), "2091-09")
+
 	def test_report_date_range_excludes_entries_outside_completed_shift_contract(self) -> None:
 		running_shift = self._create_shift_for_label("2091-09-15", "1")
 		self._create_mock_submitted_entry(
@@ -392,6 +403,159 @@ class TestProductionReports(FrappeTestCase):
 		)
 		oee_columns = [column for column in columns if column["fieldname"].startswith("oee")]
 		self.assertEqual([column["label"] for column in oee_columns], ["OEE %"])
+
+	def test_monthly_production_oee_report_columns_use_month_grain(self) -> None:
+		from production_entry_app.production_entry_app.report.monthly_production_oee_report.monthly_production_oee_report import (
+			execute,
+		)
+
+		columns, _rows = execute({"year": 2026, "month": 6})
+		fieldnames = [column.get("fieldname") for column in columns]
+		self.assertEqual(
+			fieldnames,
+			[
+				"month",
+				"workstation",
+				"stroke_required",
+				"first_shift_strokes",
+				"second_shift_strokes",
+				"total_strokes",
+				"rejection",
+				"std_spm",
+				"act_spm",
+				"productivity_pct",
+				"quality_pct",
+				"availability_pct",
+				"oee_mult_pct",
+				"avl_time_hrs",
+				"machine_downtime",
+				"total_loss_time",
+				"running_time",
+			],
+		)
+		self.assertNotIn("day", fieldnames)
+
+	def test_monthly_production_oee_report_sums_bases_then_recomputes(self) -> None:
+		from production_entry_app.production_entry_app.report.monthly_production_oee_report.monthly_production_oee_report import (
+			execute,
+		)
+		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
+			execute as daily_execute,
+		)
+
+		for production_date in ("2026-06-01", "2026-06-02"):
+			shift = self._create_shift_for_label(production_date, "1", clear_planned_losses=True)
+			self._create_mock_submitted_entry(
+				posting_date=production_date,
+				planned_start=f"{production_date} 08:00:00",
+				planned_end=f"{production_date} 09:00:00",
+				actual_start=f"{production_date} 08:00:00",
+				actual_end=f"{production_date} 09:00:00",
+				fg_qty=120,
+				rejection_qty=0,
+				shift_name=shift.name,
+			)
+
+		_daily_columns, daily_rows = daily_execute({"from_date": "2026-06-01", "to_date": "2026-06-02"})
+		self.assertEqual(len(daily_rows), 2)
+
+		_, rows = execute({"year": 2026, "month": 6})
+		self.assertEqual(len(rows), 1)
+		row = rows[0]
+		self.assertEqual(row["month"], "2026-06")
+		self.assertEqual(float(row["avl_time_hrs"]), sum(float(r["avl_time_hrs"]) for r in daily_rows))
+		self.assertEqual(float(row["running_time"]), sum(float(r["running_time"]) for r in daily_rows))
+		self.assertEqual(float(row["total_strokes"]), sum(float(r["total_strokes"]) for r in daily_rows))
+		# Two identical 12.5% OEE days must not average to 12.5% of averaged percentages alone —
+		# recomputed month OEE from summed bases stays 12.5 here, and must not be 0.
+		self.assertEqual(float(row["availability_pct"]), 100.0)
+		self.assertEqual(float(row["quality_pct"]), 100.0)
+		self.assertEqual(float(row["productivity_pct"]), 12.5)
+		self.assertEqual(float(row["oee_mult_pct"]), 12.5)
+		self.assertNotIn("day", row)
+
+	def test_monthly_production_oee_report_includes_downtime_only_days(self) -> None:
+		from production_entry_app.production_entry_app.report.monthly_production_oee_report.monthly_production_oee_report import (
+			execute,
+		)
+
+		shift = self._create_shift_for_label("2026-07-01", "1", clear_planned_losses=True)
+		frappe.db.set_value("Shift", shift.name, "status", "Completed", update_modified=False)
+		self._create_downtime_entry(
+			workstation="Report Workstation",
+			from_time="2026-07-01 10:00:00",
+			to_time="2026-07-01 11:00:00",
+			shift_name=shift.name,
+			stop_reason="Other",
+		)
+
+		_, rows = execute({"year": 2026, "month": 7})
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(rows[0]["month"], "2026-07")
+		self.assertEqual(float(rows[0]["running_time"]), 0.0)
+		self.assertGreater(float(rows[0]["machine_downtime"]), 0.0)
+		self.assertGreater(float(rows[0]["avl_time_hrs"]), 0.0)
+		self.assertEqual(float(rows[0]["oee_mult_pct"]), 0.0)
+
+	def test_monthly_production_oee_report_adds_reason_column_pairs(self) -> None:
+		from production_entry_app.production_entry_app.report.monthly_production_oee_report.monthly_production_oee_report import (
+			execute,
+		)
+
+		ensure_downtime_reason("01")
+		columns, _rows = execute({"year": 2026, "month": 6, "downtime_reason": ["01"]})
+		fieldnames = [column.get("fieldname") for column in columns]
+		self.assertIn("reason_01_1st", fieldnames)
+		self.assertIn("reason_01_2nd", fieldnames)
+		month_index = fieldnames.index("month")
+		self.assertEqual(month_index, 0)
+
+	def test_monthly_production_oee_report_does_not_average_daily_oee_percentages(self) -> None:
+		from production_entry_app.production_entry_app.report.monthly_production_oee_report.monthly_production_oee_report import (
+			execute,
+		)
+		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
+			execute as daily_execute,
+		)
+
+		# Day 1: 120 good parts, Q=100%, OEE=12.5%
+		shift_1 = self._create_shift_for_label("2026-08-01", "1", clear_planned_losses=True)
+		self._create_mock_submitted_entry(
+			posting_date="2026-08-01",
+			planned_start="2026-08-01 08:00:00",
+			planned_end="2026-08-01 09:00:00",
+			actual_start="2026-08-01 08:00:00",
+			actual_end="2026-08-01 09:00:00",
+			fg_qty=120,
+			rejection_qty=0,
+			shift_name=shift_1.name,
+		)
+		# Day 2: small volume with 50% quality so a naive average of daily OEE% drifts from
+		# the month recomputed from summed quality bases.
+		shift_2 = self._create_shift_for_label("2026-08-02", "1", clear_planned_losses=True)
+		self._create_mock_submitted_entry(
+			posting_date="2026-08-02",
+			planned_start="2026-08-02 08:00:00",
+			planned_end="2026-08-02 09:00:00",
+			actual_start="2026-08-02 08:00:00",
+			actual_end="2026-08-02 09:00:00",
+			fg_qty=5,
+			rejection_qty=5,
+			total_strokes=120,
+			shift_name=shift_2.name,
+		)
+
+		_daily_columns, daily_rows = daily_execute({"from_date": "2026-08-01", "to_date": "2026-08-02"})
+		self.assertEqual(len(daily_rows), 2)
+		self.assertEqual([float(row["oee_mult_pct"]) for row in daily_rows], [12.5, 0.0])
+
+		_, rows = execute({"year": 2026, "month": 8})
+		self.assertEqual(len(rows), 1)
+		month_row = rows[0]
+		# Naive average of daily OEE% would be 6.25; summed bases yield Q=96% and OEE=12%.
+		self.assertAlmostEqual(float(month_row["quality_pct"]), 96.0, places=6)
+		self.assertAlmostEqual(float(month_row["oee_mult_pct"]), 12.0, places=6)
+		self.assertNotAlmostEqual(float(month_row["oee_mult_pct"]), 6.25, places=6)
 
 	def test_production_oee_report_adds_one_column_pair_per_selected_reason(self) -> None:
 		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
@@ -469,6 +633,9 @@ class TestProductionReports(FrappeTestCase):
 		from production_entry_app.production_entry_app.report.item_bom_rework_hotspots.item_bom_rework_hotspots import (
 			_get_columns as get_rework_hotspot_columns,
 		)
+		from production_entry_app.production_entry_app.report.monthly_production_oee_report.monthly_production_oee_report import (
+			_get_columns as get_monthly_oee_columns,
+		)
 		from production_entry_app.production_entry_app.report.operator_daily_spm_report.operator_daily_spm_report import (
 			_get_columns as get_operator_daily_columns,
 		)
@@ -516,6 +683,11 @@ class TestProductionReports(FrappeTestCase):
 
 			self._assert_column_precision(
 				get_oee_columns(),
+				("act_spm", "oee_mult_pct", "running_time"),
+				expected_precision=4,
+			)
+			self._assert_column_precision(
+				get_monthly_oee_columns({"year": 2026, "month": 6}),
 				("act_spm", "oee_mult_pct", "running_time"),
 				expected_precision=4,
 			)
