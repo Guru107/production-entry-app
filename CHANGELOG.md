@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-10-04
+
+### Added
+
+-   Operator DocType bulk import via standard Frappe import (#75)
+-   Select permissions for `PEA User` and `PEA Read Only` across Production Entry App DocTypes (#77)
+-   Explicit PEA Read Only report authorization boundary for all app query reports (#78)
+
+### Fixed
+
+-   Frappe row-level permissions enforced on Shift timelines, summaries, aggregates, and production reports (#78)
+-   `PEA Read Only` limited to the 18 reports shipped by Production Entry App (#78)
+-   PEA User dependency read access for Stock Settings and related filter DocTypes (#78)
+-   Stale `DocPerm` / `Custom DocPerm` rows cleaned during upgrades (#78)
+-   Die-tool counter reads made side-effect-free; whitelisted Stock Entry payloads and linked-document permissions validated (#78)
+
+### Changed
+
+-   Inaccessible report Link columns render as plain text for `PEA Read Only` users (#78)
+-   Shift summary caches partitioned by user; dynamic `frappe.bold` values HTML-escaped (#78)
+
+### Infrastructure
+
+-   Pinned `@playwright/test` to `1.58.2` for Node 18 CI compatibility (#76)
+
 ## [1.0.0] - 2026-07-19
 
 ### Added
