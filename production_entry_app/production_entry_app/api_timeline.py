@@ -188,17 +188,30 @@ def get_shift_timeline_data(doctype: str, docname: str) -> dict:
 		downtime_rows = frappe.get_list(
 			"Downtime Entry",
 			filters=downtime_filters,
-			fields=["name", "from_time as actual_start", "to_time as actual_end", "stop_reason"],
+			fields=[
+				"name",
+				"from_time as actual_start",
+				"to_time as actual_end",
+				"custom_pea_downtime_reason",
+			],
 			order_by="from_time asc",
 			limit_page_length=0,
 		)
+		from production_entry_app.production_entry_app.overrides.downtime_entry_hooks import (
+			get_downtime_reason_labels,
+		)
+
+		reason_labels = get_downtime_reason_labels(
+			row.get("custom_pea_downtime_reason") for row in downtime_rows
+		)
 		for row in downtime_rows:
+			reason_code = row.get("custom_pea_downtime_reason")
 			entries.append(
 				{
 					"name": row.get("name"),
 					"actual_start": str(row.get("actual_start")),
 					"actual_end": str(row.get("actual_end")),
-					"stop_reason": row.get("stop_reason"),
+					"stop_reason": reason_labels.get(reason_code) or reason_code,
 					"entry_type": "downtime",
 				}
 			)

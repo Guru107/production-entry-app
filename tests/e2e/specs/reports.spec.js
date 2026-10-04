@@ -304,7 +304,7 @@ test.describe("Production reports", () => {
 				prefix,
 				from_time: "11:00:00",
 				to_time: "13:00:00",
-				stop_reason: "Other",
+				downtime_reason: "00",
 			}
 		);
 		const seeded = await createSubmittedStockEntryForReports(page, ctx, 0);

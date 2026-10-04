@@ -15,6 +15,7 @@ from production_entry_app.production_entry_app.api import (
 	reset_die_tool_counter,
 )
 from production_entry_app.production_entry_app.utils.downtime_reason_seed import (
+	ensure_downtime_reason,
 	seed_standard_downtime_reasons,
 )
 from production_entry_app.production_entry_app.utils.production_warehouses import WAREHOUSE_FIELDS
@@ -1699,24 +1700,15 @@ def create_e2e_downtime_entry(
 	prefix: str = "E2E",
 	from_time: str = "10:00:00",
 	to_time: str = "10:30:00",
-	stop_reason: str = "Other",
+	downtime_reason: str = "00",
 ) -> dict:
 	"""Create one downtime entry for E2E timeline coverage."""
 	_assert_e2e_api_allowed()
 	ctx = bootstrap_e2e_context(prefix=prefix)
 	shift = frappe.get_doc("Shift", ctx["shift_name"])
 	employee = _get_or_create_e2e_employee(prefix, ctx["company"])
-	allowed_stop_reasons = {
-		"",
-		"Excessive machine set up time",
-		"Unplanned machine maintenance",
-		"On-machine press checks",
-		"Machine operator errors",
-		"Machine malfunction",
-		"Electricity down",
-		"Other",
-	}
-	normalized_reason = stop_reason if stop_reason in allowed_stop_reasons else "Other"
+	reason_code = downtime_reason if frappe.db.exists("Downtime Reason", downtime_reason) else "00"
+	ensure_downtime_reason(reason_code)
 	doc = frappe.get_doc(
 		{
 			"doctype": "Downtime Entry",
@@ -1724,7 +1716,7 @@ def create_e2e_downtime_entry(
 			"operator": employee,
 			"from_time": f"{shift.shift_date} {from_time}",
 			"to_time": f"{shift.shift_date} {to_time}",
-			"stop_reason": normalized_reason,
+			"custom_pea_downtime_reason": reason_code,
 		}
 	).insert(ignore_permissions=True)
 	_clear_timeline_cache_for_context(ctx, ctx["shift_name"])

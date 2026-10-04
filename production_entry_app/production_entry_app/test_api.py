@@ -2741,7 +2741,7 @@ class TestE2EApi(FrappeTestCase):
 			frappe.set_user("Administrator")
 			_clear_role_docperm("Die Tool Maintenance Log", role_name)
 
-	def test_create_e2e_downtime_entry_normalizes_unknown_stop_reason(self) -> None:
+	def test_create_e2e_downtime_entry_normalizes_unknown_downtime_reason(self) -> None:
 		shift = MagicMock()
 		shift.shift_date = "2099-01-20"
 		doc = MagicMock()
@@ -2768,6 +2768,15 @@ class TestE2EApi(FrappeTestCase):
 					return_value="HR-EMP-001",
 				)
 			)
+			stack.enter_context(
+				patch(
+					"production_entry_app.production_entry_app.e2e_api.frappe.db.exists",
+					return_value=False,
+				)
+			)
+			stack.enter_context(
+				patch("production_entry_app.production_entry_app.e2e_api.ensure_downtime_reason")
+			)
 			get_doc = stack.enter_context(
 				patch(
 					"production_entry_app.production_entry_app.e2e_api.frappe.get_doc",
@@ -2779,12 +2788,12 @@ class TestE2EApi(FrappeTestCase):
 			)
 			stack.enter_context(patch("production_entry_app.production_entry_app.e2e_api.frappe.db.commit"))
 
-			result = create_e2e_downtime_entry(prefix="E2E", stop_reason="Unsupported")
+			result = create_e2e_downtime_entry(prefix="E2E", downtime_reason="Unsupported")
 
 		self.assertEqual(
 			result, {"name": "DT-001", "workstation": "E2E Workstation", "shift_name": "SHIFT-001"}
 		)
-		self.assertEqual(get_doc.call_args_list[1].args[0]["stop_reason"], "Other")
+		self.assertEqual(get_doc.call_args_list[1].args[0]["custom_pea_downtime_reason"], "00")
 		builder.insert.assert_called_once_with(ignore_permissions=True)
 
 

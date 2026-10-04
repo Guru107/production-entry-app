@@ -1986,7 +1986,7 @@ class TestShift(FrappeTestCase):
 				"operator": employee,
 				"from_time": "2026-03-10 10:00:00",
 				"to_time": "2026-03-10 11:00:00",
-				"stop_reason": "Other",
+				"custom_pea_downtime_reason": "00",
 			}
 		).insert()
 		# Downtime 18:00-19:00 does NOT overlap with shift 08:00-16:00
@@ -1997,7 +1997,7 @@ class TestShift(FrappeTestCase):
 				"operator": employee,
 				"from_time": "2026-03-10 18:00:00",
 				"to_time": "2026-03-10 19:00:00",
-				"stop_reason": "Other",
+				"custom_pea_downtime_reason": "00",
 			}
 		).insert()
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit
@@ -2967,9 +2967,10 @@ class TestShiftSummary(FrappeTestCase):
 		from_time: str,
 		to_time: str,
 		shift_name: str,
-		stop_reason: str = "Other",
+		downtime_reason: str = "00",
 	) -> str:
 		ensure_workstation(workstation, standard_spm=2)
+		ensure_downtime_reason(downtime_reason)
 		return (
 			frappe.get_doc(
 				{
@@ -2979,7 +2980,7 @@ class TestShiftSummary(FrappeTestCase):
 					"from_time": from_time,
 					"to_time": to_time,
 					"custom_pea_shift": shift_name,
-					"stop_reason": stop_reason,
+					"custom_pea_downtime_reason": downtime_reason,
 				}
 			)
 			.insert(ignore_permissions=True)
@@ -3215,7 +3216,7 @@ class TestShiftSummary(FrappeTestCase):
 			from_time="2026-09-04 10:00:00",
 			to_time="2026-09-04 10:30:00",
 			shift_name=shift.name,
-			stop_reason="Other",
+			downtime_reason="00",
 		)
 		summary = get_shift_summary(shift.name)
 		self.assertAlmostEqual(float(summary["losses"]["unplanned_loss_mins"]), 30.0, places=6)
@@ -3235,14 +3236,14 @@ class TestShiftSummary(FrappeTestCase):
 			from_time="2026-09-04 10:00:00",
 			to_time="2026-09-04 10:15:00",
 			shift_name=shift.name,
-			stop_reason="Other",
+			downtime_reason="00",
 		)
 		self._create_downtime_entry(
 			workstation="WS-LINE-2",
 			from_time="2026-09-04 10:05:00",
 			to_time="2026-09-04 10:25:00",
 			shift_name=other_shift.name,
-			stop_reason="Machine malfunction",
+			downtime_reason="05",
 		)
 
 		summary = get_shift_summary(shift.name)
@@ -3362,7 +3363,7 @@ class TestShiftSummary(FrappeTestCase):
 			from_time="2026-09-09 10:00:00",
 			to_time="2026-09-09 10:20:00",
 			shift_name=shift.name,
-			stop_reason="Other",
+			downtime_reason="00",
 		)
 
 		second = get_shift_summary(shift.name)

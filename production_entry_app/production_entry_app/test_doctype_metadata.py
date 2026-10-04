@@ -33,6 +33,7 @@ REQUIRED_CUSTOM_FIELD_SEARCH_INDEXES: set[str] = {
 	"Stock Entry-custom_pea_workstation",
 	"Stock Entry-custom_pea_operator",
 	"Stock Entry Detail-custom_pea_is_rejection_item",
+	"Downtime Entry-custom_pea_downtime_reason",
 }
 
 
@@ -362,6 +363,23 @@ def test_pending_rework_workspace_link_uses_query_report_route() -> None:
 	assert pending_rework["is_query_report"] == 1
 
 
+def test_downtime_entry_uses_downtime_reason_link() -> None:
+	fields_by_name = {field.get("name"): field for field in load_custom_field_fixture() if field.get("name")}
+	reason_field = fields_by_name["Downtime Entry-custom_pea_downtime_reason"]
+	assert reason_field.get("fieldtype") == "Link"
+	assert reason_field.get("options") == "Downtime Reason"
+	assert reason_field.get("reqd") == 1
+	assert reason_field.get("insert_after") == "stop_reason"
+
+	property_setters = {
+		row.get("name"): row
+		for row in json.loads((APP_ROOT / "production_entry_app" / "fixtures" / "property_setter.json").read_text())
+		if row.get("name")
+	}
+	assert property_setters["Downtime Entry-stop_reason-hidden"].get("value") == "1"
+	assert property_setters["Downtime Entry-stop_reason-reqd"].get("value") == "0"
+
+
 def assert_doctype_json(doctype: str) -> dict:
 	doctype_path = DOCTYPE_ROOT / scrub_doctype(doctype) / f"{scrub_doctype(doctype)}.json"
 	return json.loads(doctype_path.read_text())
@@ -401,5 +419,6 @@ def load_tests(
 			test_production_stock_entry_purpose_metadata_is_available,
 			test_workspace_has_forms_and_reports_cards,
 			test_pending_rework_workspace_link_uses_query_report_route,
+			test_downtime_entry_uses_downtime_reason_link,
 		)
 	)

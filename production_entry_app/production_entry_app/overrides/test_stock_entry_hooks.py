@@ -1214,6 +1214,7 @@ def _get_or_create_employee(employee_number: str = "SE-HOOK-EMP") -> str:
 
 
 def _create_downtime_entry(workstation: str, operator: str, from_time: str, to_time: str) -> frappe.Document:
+	ensure_downtime_reason("00")
 	return frappe.get_doc(
 		{
 			"doctype": "Downtime Entry",
@@ -1221,7 +1222,7 @@ def _create_downtime_entry(workstation: str, operator: str, from_time: str, to_t
 			"operator": operator,
 			"from_time": from_time,
 			"to_time": to_time,
-			"stop_reason": "Other",
+			"custom_pea_downtime_reason": "00",
 		}
 	).insert(ignore_permissions=True)
 

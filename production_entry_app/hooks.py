@@ -50,6 +50,7 @@ doctype_js = {
 	"Stock Entry": "public/js/stock_entry.js",
 	"Workstation": "public/js/workstation.js",
 	"Operator": "public/js/operator.js",
+	"Downtime Entry": "public/js/downtime_entry.js",
 }
 
 after_sync = ["production_entry_app.production_entry_app.lifecycle.after_sync"]
@@ -166,6 +167,7 @@ doc_events = {
 		"on_trash": "production_entry_app.production_entry_app.overrides.stock_entry_hooks.on_trash_stock_entry",
 	},
 	"Downtime Entry": {
+		"validate": "production_entry_app.production_entry_app.overrides.downtime_entry_hooks.validate_downtime_entry",
 		"after_insert": "production_entry_app.production_entry_app.doctype.shift.shift.invalidate_shift_summary_for_downtime_entry",
 		"on_update": "production_entry_app.production_entry_app.doctype.shift.shift.invalidate_shift_summary_for_downtime_entry",
 		"on_trash": "production_entry_app.production_entry_app.doctype.shift.shift.invalidate_shift_summary_for_downtime_entry",

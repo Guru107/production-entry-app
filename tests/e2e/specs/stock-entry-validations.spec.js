@@ -741,7 +741,7 @@ test.describe("Stock Entry validation matrix", () => {
 					operator: employeeName,
 					from_time: `${ctx.shift_date} 08:15:00`,
 					to_time: `${ctx.shift_date} 08:45:00`,
-					stop_reason: "Other",
+					custom_pea_downtime_reason: "00",
 				}),
 			});
 			downtimeEntryName = downtimeEntry.name;

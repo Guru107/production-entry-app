@@ -515,7 +515,7 @@ class TestProductionReports(FrappeTestCase):
 			from_time="2026-07-01 10:00:00",
 			to_time="2026-07-01 11:00:00",
 			shift_name=shift.name,
-			stop_reason="Other",
+			downtime_reason="00",
 		)
 
 		_, rows = execute({"year": 2026, "month": 7})
@@ -1091,7 +1091,7 @@ class TestProductionReports(FrappeTestCase):
 			from_time="2026-07-01 12:00:00",
 			to_time="2026-07-01 13:00:00",
 			shift_name=shift.name,
-			stop_reason="Other",
+			downtime_reason="00",
 		)
 
 		columns, rows = execute({"from_date": "2026-07-01", "to_date": "2026-07-01"})
@@ -1136,7 +1136,7 @@ class TestProductionReports(FrappeTestCase):
 			from_time="2026-07-02 10:00:00",
 			to_time="2026-07-02 11:00:00",
 			shift_name=shift.name,
-			stop_reason="Other",
+			downtime_reason="00",
 		)
 
 		_, rows = execute({"from_date": "2026-07-02", "to_date": "2026-07-02", "downtime_reason": ["01"]})
@@ -1168,7 +1168,7 @@ class TestProductionReports(FrappeTestCase):
 			from_time="2026-07-03 09:00:00",
 			to_time="2026-07-03 09:30:00",
 			shift_name=shift.name,
-			stop_reason="Other",
+			downtime_reason="00",
 		)
 
 		_, rows = execute({"from_date": "2026-07-03", "to_date": "2026-07-03"})
@@ -1200,14 +1200,14 @@ class TestProductionReports(FrappeTestCase):
 			from_time="2026-07-04 12:00:00",
 			to_time="2026-07-04 13:00:00",
 			shift_name=shift.name,
-			stop_reason="Other",
+			downtime_reason="00",
 		)
 		self._create_downtime_entry(
 			workstation="Report Workstation",
 			from_time="2026-07-04 12:30:00",
 			to_time="2026-07-04 13:30:00",
 			shift_name=shift.name,
-			stop_reason="Machine malfunction",
+			downtime_reason="05",
 		)
 
 		_, rows = execute({"from_date": "2026-07-04", "to_date": "2026-07-04"})
@@ -1236,14 +1236,14 @@ class TestProductionReports(FrappeTestCase):
 			from_time="2026-07-05 07:00:00",
 			to_time="2026-07-05 09:00:00",
 			shift_name=shift.name,
-			stop_reason="Other",
+			downtime_reason="00",
 		)
 		self._create_downtime_entry(
 			workstation="Report Workstation",
 			from_time="2026-07-05 06:00:00",
 			to_time="2026-07-05 07:00:00",
 			shift_name=shift.name,
-			stop_reason="Other",
+			downtime_reason="00",
 		)
 
 		_, rows = execute({"from_date": "2026-07-05", "to_date": "2026-07-05"})
@@ -1277,7 +1277,7 @@ class TestProductionReports(FrappeTestCase):
 			from_time="2026-07-06 15:30:00",
 			to_time="2026-07-06 16:30:00",
 			shift_name=None,
-			stop_reason="Other",
+			downtime_reason="00",
 		)
 
 		_, rows = execute({"from_date": "2026-07-06", "to_date": "2026-07-06"})
@@ -1312,7 +1312,7 @@ class TestProductionReports(FrappeTestCase):
 			from_time="2026-07-11 15:30:00",
 			to_time="2026-07-11 16:30:00",
 			shift_name=shift_1.name,
-			stop_reason="Other",
+			downtime_reason="00",
 		)
 
 		_, rows = execute({"from_date": "2026-07-11", "to_date": "2026-07-11"})
@@ -1344,7 +1344,7 @@ class TestProductionReports(FrappeTestCase):
 			from_time="2026-07-12 15:30:00",
 			to_time="2026-07-12 16:30:00",
 			shift_name=None,
-			stop_reason="Other",
+			downtime_reason="00",
 		)
 
 		_, rows = execute({"from_date": "2026-07-12", "to_date": "2026-07-12"})
@@ -1375,14 +1375,14 @@ class TestProductionReports(FrappeTestCase):
 			from_time="2026-07-07 12:00:00",
 			to_time="2026-07-07 13:00:00",
 			shift_name=shift_2.name,
-			stop_reason="Other",
+			downtime_reason="00",
 		)
 		self._create_downtime_entry(
 			workstation="Report Workstation",
 			from_time="2026-07-07 14:00:00",
 			to_time="2026-07-07 14:30:00",
 			shift_name=None,
-			stop_reason="Other",
+			downtime_reason="00",
 		)
 
 		_, rows = execute({"from_date": "2026-07-07", "to_date": "2026-07-07"})
@@ -1410,7 +1410,7 @@ class TestProductionReports(FrappeTestCase):
 			from_time="2026-07-08 12:00:00",
 			to_time="2026-07-08 13:00:00",
 			shift_name=shift.name,
-			stop_reason="Other",
+			downtime_reason="00",
 		)
 		frappe.db.set_value("Downtime Entry", cancelled, "docstatus", 2, update_modified=False)
 		self._create_downtime_entry(
@@ -1418,7 +1418,7 @@ class TestProductionReports(FrappeTestCase):
 			from_time="2026-07-08 14:00:00",
 			to_time="2026-07-08 14:30:00",
 			shift_name=shift.name,
-			stop_reason="Other",
+			downtime_reason="00",
 		)
 
 		_, rows = execute({"from_date": "2026-07-08", "to_date": "2026-07-08"})
@@ -1447,7 +1447,7 @@ class TestProductionReports(FrappeTestCase):
 			from_time="2026-07-09 12:00:00",
 			to_time="2026-07-09 13:00:00",
 			shift_name=shift.name,
-			stop_reason="Other",
+			downtime_reason="00",
 		)
 
 		_, rows = execute({"from_date": "2026-07-09", "to_date": "2026-07-09"})
@@ -1483,7 +1483,7 @@ class TestProductionReports(FrappeTestCase):
 			from_time="2026-07-10 12:00:00",
 			to_time="2026-07-10 13:00:00",
 			shift_name=shift.name,
-			stop_reason="Other",
+			downtime_reason="00",
 		)
 
 		_, rows = execute(
@@ -1509,7 +1509,7 @@ class TestProductionReports(FrappeTestCase):
 			from_time="2026-07-13 12:00:00",
 			to_time="2026-07-13 13:00:00",
 			shift_name=shift.name,
-			stop_reason="Other",
+			downtime_reason="00",
 		)
 
 		columns, rows = execute({"from_date": "2026-07-13", "to_date": "2026-07-13"})
@@ -1581,7 +1581,7 @@ class TestProductionReports(FrappeTestCase):
 			from_time="2026-07-14 12:00:00",
 			to_time="2026-07-14 13:00:00",
 			shift_name=shift.name,
-			stop_reason="Other",
+			downtime_reason="00",
 		)
 
 		_, rows = execute(
@@ -1605,7 +1605,7 @@ class TestProductionReports(FrappeTestCase):
 			from_time="2026-07-15 12:00:00",
 			to_time="2026-07-15 13:00:00",
 			shift_name=shift.name,
-			stop_reason="Other",
+			downtime_reason="00",
 		)
 
 		_, rows = execute({"from_date": "2026-07-15", "to_date": "2026-07-15"})
@@ -1628,7 +1628,7 @@ class TestProductionReports(FrappeTestCase):
 			from_time="2026-07-21 12:00:00",
 			to_time="2026-07-21 13:00:00",
 			shift_name=None,
-			stop_reason="Other",
+			downtime_reason="00",
 		)
 
 		_, rows = execute({"from_date": "2026-07-21", "to_date": "2026-07-21"})
@@ -1650,14 +1650,14 @@ class TestProductionReports(FrappeTestCase):
 			from_time="2026-07-16 12:00:00",
 			to_time="2026-07-16 13:00:00",
 			shift_name=shift.name,
-			stop_reason="Other",
+			downtime_reason="00",
 		)
 		self._create_downtime_entry(
 			workstation=other_workstation,
 			from_time="2026-07-16 14:00:00",
 			to_time="2026-07-16 16:00:00",
 			shift_name=shift.name,
-			stop_reason="Other",
+			downtime_reason="00",
 		)
 
 		_, rows = execute(
@@ -1684,14 +1684,14 @@ class TestProductionReports(FrappeTestCase):
 			from_time="2026-07-17 12:00:00",
 			to_time="2026-07-17 13:00:00",
 			shift_name=shift.name,
-			stop_reason="Other",
+			downtime_reason="00",
 		)
 		self._create_downtime_entry(
 			workstation=other_workstation,
 			from_time="2026-07-17 12:00:00",
 			to_time="2026-07-17 15:00:00",
 			shift_name=shift.name,
-			stop_reason="Other",
+			downtime_reason="00",
 		)
 
 		_, rows = execute({"from_date": "2026-07-17", "to_date": "2026-07-17"})
@@ -1721,7 +1721,7 @@ class TestProductionReports(FrappeTestCase):
 			from_time="2026-07-19 12:00:00",
 			to_time="2026-07-19 13:00:00",
 			shift_name=running_shift.name,
-			stop_reason="Other",
+			downtime_reason="00",
 		)
 		draft_shift = self._create_shift_for_label("2026-07-20", "1", clear_planned_losses=True)
 		frappe.db.set_value("Shift", draft_shift.name, "status", "Draft", update_modified=False)
@@ -1730,7 +1730,7 @@ class TestProductionReports(FrappeTestCase):
 			from_time="2026-07-20 12:00:00",
 			to_time="2026-07-20 13:00:00",
 			shift_name=draft_shift.name,
-			stop_reason="Other",
+			downtime_reason="00",
 		)
 
 		_, running_rows = execute({"from_date": "2026-07-19", "to_date": "2026-07-19"})
@@ -4775,8 +4775,13 @@ class TestProductionReports(FrappeTestCase):
 		from_time: str,
 		to_time: str,
 		shift_name: str | None,
-		stop_reason: str,
+		downtime_reason: str = "00",
 	) -> str:
+		from production_entry_app.production_entry_app.utils.downtime_reason_seed import (
+			ensure_downtime_reason,
+		)
+
+		ensure_downtime_reason(downtime_reason)
 		operator = frappe.db.get_value("Employee", {"employee_number": "REPORT-EMP"}, "name")
 		if not operator:
 			operator = (
@@ -4802,7 +4807,7 @@ class TestProductionReports(FrappeTestCase):
 			"operator": operator,
 			"from_time": from_time,
 			"to_time": to_time,
-			"stop_reason": stop_reason,
+			"custom_pea_downtime_reason": downtime_reason,
 		}
 		if shift_name:
 			payload["custom_pea_shift"] = shift_name

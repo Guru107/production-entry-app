@@ -283,10 +283,26 @@ def get_linked_downtime_entries(shift_name: str | None = None) -> list[dict]:
 	entries = frappe.get_list(
 		"Downtime Entry",
 		filters=build_interval_overlap_filters("from_time", "to_time", start_dt, end_dt),
-		fields=["name", "workstation", "operator", "from_time", "to_time", "downtime", "stop_reason"],
+		fields=[
+			"name",
+			"workstation",
+			"operator",
+			"from_time",
+			"to_time",
+			"downtime",
+			"custom_pea_downtime_reason",
+		],
 		order_by="from_time asc",
 		limit_page_length=0,
 	)
+	from production_entry_app.production_entry_app.overrides.downtime_entry_hooks import (
+		get_downtime_reason_labels,
+	)
+
+	reason_labels = get_downtime_reason_labels(row.get("custom_pea_downtime_reason") for row in entries)
+	for row in entries:
+		reason_code = row.get("custom_pea_downtime_reason")
+		row["stop_reason"] = reason_labels.get(reason_code) or reason_code
 	return entries
 
 
@@ -882,9 +898,16 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 			["custom_pea_shift", "=", shift_name],
 			*build_interval_overlap_filters("from_time", "to_time", start_dt, end_dt),
 		],
-		fields=["name", "downtime", "from_time", "to_time", "stop_reason"],
+		fields=["name", "downtime", "from_time", "to_time", "custom_pea_downtime_reason"],
 		order_by="from_time asc",
 		limit_page_length=0,
+	)
+	from production_entry_app.production_entry_app.overrides.downtime_entry_hooks import (
+		get_downtime_reason_labels,
+	)
+
+	logged_downtime_reason_labels = get_downtime_reason_labels(
+		row.get("custom_pea_downtime_reason") for row in logged_downtime_rows
 	)
 	planned_loss_rows = frappe.get_all(
 		"Loss Entry",
@@ -944,7 +967,8 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 	logged_downtime_reason_totals: dict[str, float] = {}
 	logged_downtime_total_mins = 0.0
 	for row in logged_downtime_rows:
-		reason = row.get("stop_reason") or _("Unknown")
+		reason_code = row.get("custom_pea_downtime_reason")
+		reason = logged_downtime_reason_labels.get(reason_code) or reason_code or _("Unknown")
 		duration_mins = _get_logged_downtime_minutes(row)
 		if duration_mins <= 0:
 			continue

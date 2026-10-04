@@ -146,8 +146,13 @@ class TestGetShiftTimelineData(FrappeTestCase):
 		workstation: str,
 		from_time: str,
 		to_time: str,
-		stop_reason: str = "Other",
+		downtime_reason: str = "00",
 	) -> str:
+		from production_entry_app.production_entry_app.utils.downtime_reason_seed import (
+			ensure_downtime_reason,
+		)
+
+		ensure_downtime_reason(downtime_reason)
 		operator = frappe.db.get_value("Employee", {"employee_number": "TIMELINE-EMP"}, "name")
 		if not operator:
 			operator = (
@@ -174,7 +179,7 @@ class TestGetShiftTimelineData(FrappeTestCase):
 				"operator": operator,
 				"from_time": from_time,
 				"to_time": to_time,
-				"stop_reason": stop_reason,
+				"custom_pea_downtime_reason": downtime_reason,
 			}
 		).insert(ignore_permissions=True)
 		return doc.name
@@ -465,6 +470,7 @@ class TestGetShiftTimelineData(FrappeTestCase):
 			workstation=self.workstation_a,
 			from_time="2026-10-11 10:00:00",
 			to_time="2026-10-11 10:30:00",
+			downtime_reason="05",
 		)
 		self._create_downtime_entry(
 			workstation=self.workstation_a,
@@ -479,6 +485,7 @@ class TestGetShiftTimelineData(FrappeTestCase):
 			["production", "downtime"],
 		)
 		self.assertEqual(result["entries"][1]["name"], downtime_name)
+		self.assertEqual(result["entries"][1]["stop_reason"], "Maintenance")
 
 	def test_operator_timeline_excludes_downtime_entries(self) -> None:
 		from production_entry_app.production_entry_app.api_timeline import get_shift_timeline_data

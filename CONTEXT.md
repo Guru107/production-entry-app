@@ -115,9 +115,9 @@ themselves are excluded from OEE and utilization.
 _Avoid_: Scrap-only quality, mode-specific rework treatment
 
 **Downtime Entry**:
-A workstation stop with a start, an end, and a stop reason. It may name a Shift. It is a different record from a
-Loss Entry.
-_Avoid_: Downtime Reason, production loss
+A workstation stop with a start, an end, and a linked Downtime Reason. From Time must be before To Time. It may
+name a Shift. It is a different record from a Loss Entry.
+_Avoid_: native Select stop reason, production loss
 
 **Machine Downtime**:
 The minutes of a Downtime Entry on a workstation during a Completed Shift that are outside planned Shift losses

@@ -413,7 +413,7 @@ test.describe("Shift validations", () => {
 					operator: employeeName,
 					from_time: `${ctx.shift_date} 10:00:00`,
 					to_time: `${ctx.shift_date} 11:00:00`,
-					stop_reason: "Other",
+					custom_pea_downtime_reason: "00",
 				}),
 			});
 
@@ -424,7 +424,7 @@ test.describe("Shift validations", () => {
 					operator: employeeName,
 					from_time: `${ctx.shift_date} 18:00:00`,
 					to_time: `${ctx.shift_date} 19:00:00`,
-					stop_reason: "Other",
+					custom_pea_downtime_reason: "00",
 				}),
 			});
 

@@ -590,7 +590,7 @@ test.describe("Batch 2 shift UX", () => {
 				prefix: testPrefix,
 				from_time: "10:00:00",
 				to_time: "10:30:00",
-				stop_reason: "Other",
+				downtime_reason: "00",
 			}
 		);
 

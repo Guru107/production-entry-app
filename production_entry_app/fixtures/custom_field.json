@@ -15,6 +15,22 @@
  },
  {
   "doctype": "Custom Field",
+  "name": "Downtime Entry-custom_pea_downtime_reason",
+  "dt": "Downtime Entry",
+  "fieldname": "custom_pea_downtime_reason",
+  "fieldtype": "Link",
+  "label": "Downtime Reason",
+  "options": "Downtime Reason",
+  "insert_after": "stop_reason",
+  "reqd": 1,
+  "in_list_view": 1,
+  "in_standard_filter": 1,
+  "search_index": 1,
+  "module": "Production Entry App",
+  "permlevel": 0
+ },
+ {
+  "doctype": "Custom Field",
   "name": "Downtime Entry-custom_pea_shift",
   "dt": "Downtime Entry",
   "fieldname": "custom_pea_shift",

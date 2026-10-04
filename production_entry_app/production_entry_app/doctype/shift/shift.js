@@ -390,7 +390,7 @@ function _render_linked_downtime_entries(frm) {
 							)}</td><td>${escape(d.from_time)}</td><td>${escape(
 								d.to_time
 							)}</td><td>${escape(d.downtime)}</td><td>${escape(
-								d.stop_reason
+								d.stop_reason || d.custom_pea_downtime_reason
 							)}</td></tr>`
 					)
 					.join("");
@@ -399,7 +399,7 @@ function _render_linked_downtime_entries(frm) {
 				)}</th><th>${__("Workstation")}</th><th>${__("From Time")}</th><th>${__(
 					"To Time"
 				)}</th><th>${__("Downtime (mins)")}</th><th>${__(
-					"Stop Reason"
+					"Downtime Reason"
 				)}</th></tr></thead><tbody>${rows}</tbody></table>`;
 			}
 			_set_shared_html_field(frm, "linked_downtime_entries", html);
