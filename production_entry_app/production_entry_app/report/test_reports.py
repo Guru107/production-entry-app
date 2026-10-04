@@ -404,6 +404,28 @@ class TestProductionReports(FrappeTestCase):
 		oee_columns = [column for column in columns if column["fieldname"].startswith("oee")]
 		self.assertEqual([column["label"] for column in oee_columns], ["OEE %"])
 
+	def test_production_oee_report_execute_hides_monthly_rollup_bases(self) -> None:
+		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
+			execute,
+		)
+
+		shift = self._create_shift_for_label("2026-06-03", "1", clear_planned_losses=True)
+		self._create_mock_submitted_entry(
+			posting_date="2026-06-03",
+			planned_start="2026-06-03 08:00:00",
+			planned_end="2026-06-03 09:00:00",
+			actual_start="2026-06-03 08:00:00",
+			actual_end="2026-06-03 09:00:00",
+			fg_qty=120,
+			rejection_qty=0,
+			shift_name=shift.name,
+		)
+		_, rows = execute({"from_date": "2026-06-03", "to_date": "2026-06-03"})
+		self.assertEqual(len(rows), 1)
+		self.assertNotIn("quality_total", rows[0])
+		self.assertNotIn("production_mins_sum", rows[0])
+		self.assertNotIn("standard_spm_weighted_sum", rows[0])
+
 	def test_monthly_production_oee_report_columns_use_month_grain(self) -> None:
 		from production_entry_app.production_entry_app.report.monthly_production_oee_report.monthly_production_oee_report import (
 			execute,

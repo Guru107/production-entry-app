@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import calendar
+from collections.abc import Callable
 
 import frappe
 from frappe import _
@@ -29,7 +30,7 @@ _SUM_FIELDS = (
 )
 
 
-def execute(filters: dict | None = None):
+def execute(filters: dict | None = None) -> tuple[list[dict], list[dict]]:
 	filters = filters or {}
 	reason_codes = daily_oee._get_selected_reason_codes(filters)
 	columns = _get_columns(filters, reason_codes)
@@ -58,10 +59,14 @@ def _get_columns(filters: dict | None = None, reason_codes: list[str] | None = N
 	return apply_system_precision(columns)
 
 
-def _get_rows(filters: dict, timeout_guard, reason_codes: list[str]) -> list[dict]:
+def _get_rows(
+	filters: dict,
+	timeout_guard: Callable[[], None],
+	reason_codes: list[str],
+) -> list[dict]:
 	month_key, daily_filters = _month_filters(filters)
 	timeout_guard()
-	_daily_columns, daily_rows = daily_oee.execute(daily_filters)
+	daily_rows = daily_oee.get_rows_with_rollup_bases(daily_filters, timeout_guard, reason_codes)
 	timeout_guard()
 	if not daily_rows:
 		return []
@@ -151,30 +156,28 @@ def _finalize_month_row(agg: dict, reason_fieldnames: list[str]) -> dict:
 	total_strokes = flt(agg["total_strokes"])
 	rejection = flt(agg["rejection"])
 	quality_total = flt(agg["quality_total"])
-	act_spm = flt(total_strokes / (running_time * 60)) if running_time > 0 else 0
-	productivity_pct = flt((act_spm / std_spm) * 100) if std_spm > 0 else 0
-	quality_pct = flt(((quality_total - rejection) / quality_total) * 100) if quality_total > 0 else 0
-	availability_pct = flt((running_time / avl_time_hrs) * 100) if avl_time_hrs > 0 else 0
-	oee_mult_pct = flt((availability_pct * quality_pct * productivity_pct) / 10000)
+	rate_fields = daily_oee.compute_oee_rate_fields(
+		running_time=running_time,
+		avl_time_hrs=avl_time_hrs,
+		total_strokes=total_strokes,
+		std_spm=std_spm,
+		quality_total=quality_total,
+		rejection=rejection,
+	)
 
 	row = {
 		"month": agg["month"],
 		"workstation": agg["workstation"],
-		"stroke_required": flt(running_time * std_spm * 60),
 		"first_shift_strokes": flt(agg["first_shift_strokes"]),
 		"second_shift_strokes": flt(agg["second_shift_strokes"]),
 		"total_strokes": total_strokes,
 		"rejection": rejection,
 		"std_spm": std_spm,
-		"act_spm": act_spm,
-		"productivity_pct": productivity_pct,
-		"quality_pct": quality_pct,
-		"availability_pct": availability_pct,
-		"oee_mult_pct": oee_mult_pct,
 		"avl_time_hrs": avl_time_hrs,
 		"machine_downtime": flt(agg["machine_downtime"]),
 		"total_loss_time": flt(agg["total_loss_time"]),
 		"running_time": running_time,
+		**rate_fields,
 	}
 	for fieldname in reason_fieldnames:
 		row[fieldname] = flt(agg[fieldname])

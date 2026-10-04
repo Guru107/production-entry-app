@@ -42,13 +42,61 @@ _SHIFT_WINDOW_FIELDS = [
 ]
 
 
-def execute(filters: dict | None = None):
+_ROLLUP_BASE_FIELDS = (
+	"quality_total",
+	"production_mins_sum",
+	"standard_spm_weighted_sum",
+)
+
+
+def execute(filters: dict | None = None) -> tuple[list[dict], list[dict]]:
 	filters = filters or {}
 	reason_codes = _get_selected_reason_codes(filters)
 	columns = _get_columns(filters, reason_codes)
 	timeout_guard = new_interactive_report_timeout_guard(_("Production OEE Report"))
-	rows = _get_rows(filters, timeout_guard, reason_codes)
+	rows = [
+		_public_row(row) for row in get_rows_with_rollup_bases(filters, timeout_guard, reason_codes)
+	]
 	return columns, rows
+
+
+def get_rows_with_rollup_bases(
+	filters: dict,
+	timeout_guard: Callable[[], None],
+	reason_codes: list[str],
+) -> list[dict]:
+	"""Return day/workstation OEE rows including bases needed for monthly rollup."""
+	return _get_rows(filters, timeout_guard, reason_codes)
+
+
+def compute_oee_rate_fields(
+	*,
+	running_time: float,
+	avl_time_hrs: float,
+	total_strokes: float,
+	std_spm: float,
+	quality_total: float,
+	rejection: float,
+) -> dict[str, float]:
+	"""Derive SPM and A/Q/P/OEE percentages from summed or daily bases."""
+	raw_running_time = flt(running_time)
+	act_spm = flt(total_strokes / (raw_running_time * 60)) if raw_running_time > 0 else 0
+	productivity_pct = flt((act_spm / std_spm) * 100) if std_spm > 0 else 0
+	quality_pct = flt(((quality_total - rejection) / quality_total) * 100) if quality_total > 0 else 0
+	availability_pct = flt((raw_running_time / avl_time_hrs) * 100) if avl_time_hrs > 0 else 0
+	oee_mult_pct = flt((availability_pct * quality_pct * productivity_pct) / 10000)
+	return {
+		"stroke_required": flt(raw_running_time * std_spm * 60),
+		"act_spm": act_spm,
+		"productivity_pct": productivity_pct,
+		"quality_pct": quality_pct,
+		"availability_pct": availability_pct,
+		"oee_mult_pct": oee_mult_pct,
+	}
+
+
+def _public_row(row: dict) -> dict:
+	return {key: value for key, value in row.items() if key not in _ROLLUP_BASE_FIELDS}
 
 
 def _get_selected_reason_codes(filters: dict) -> list[str]:
@@ -185,7 +233,11 @@ def _get_columns(filters: dict | None = None, reason_codes: list[str] | None = N
 	return apply_system_precision(columns)
 
 
-def _get_rows(filters: dict, timeout_guard, reason_codes: list[str]) -> list[dict]:
+def _get_rows(
+	filters: dict,
+	timeout_guard: Callable[[], None],
+	reason_codes: list[str],
+) -> list[dict]:
 	shift_label_cache: dict[str, str] = {}
 	groups = _get_stock_entry_groups(filters, shift_label_cache, timeout_guard)
 	windows, shift_dates = _completed_windows_for_report(groups, filters)
@@ -212,38 +264,34 @@ def _get_rows(filters: dict, timeout_guard, reason_codes: list[str]) -> list[dic
 		raw_running_time = 0.0 if group.get("downtime_only") else flt(max(avl_time_hrs - total_loss_time, 0))
 		running_time = flt(raw_running_time)
 		std_spm = flt(group["standard_spm"])
-		stroke_required = flt(raw_running_time * std_spm * 60)
 		total_strokes = flt(group["total_strokes"])
 		rejection = flt(group["quality_rejection"])
-		act_spm = flt(total_strokes / (raw_running_time * 60)) if raw_running_time > 0 else 0
-		productivity_pct = flt((act_spm / std_spm) * 100) if std_spm > 0 else 0
 		quality_total = flt(group["quality_total"])
-		quality_pct = flt(((quality_total - rejection) / quality_total) * 100) if quality_total > 0 else 0
-		availability_pct = flt((raw_running_time / avl_time_hrs) * 100) if avl_time_hrs > 0 else 0
-		oee_mult_pct = flt((availability_pct * quality_pct * productivity_pct) / 10000)
+		rate_fields = compute_oee_rate_fields(
+			running_time=raw_running_time,
+			avl_time_hrs=avl_time_hrs,
+			total_strokes=total_strokes,
+			std_spm=std_spm,
+			quality_total=quality_total,
+			rejection=rejection,
+		)
 
 		row = {
 			"day": group["day"],
 			"workstation": group["workstation"],
-			"stroke_required": stroke_required,
 			"first_shift_strokes": flt(group["first_shift_strokes"]),
 			"second_shift_strokes": flt(group["second_shift_strokes"]),
 			"total_strokes": total_strokes,
 			"rejection": rejection,
 			"std_spm": std_spm,
-			"act_spm": act_spm,
-			"productivity_pct": productivity_pct,
-			"quality_pct": quality_pct,
-			"availability_pct": availability_pct,
-			"oee_mult_pct": oee_mult_pct,
 			"avl_time_hrs": avl_time_hrs,
 			"machine_downtime": machine_downtime,
 			"total_loss_time": total_loss_time,
 			"running_time": running_time,
-			# Rollup bases for Monthly Production OEE Report (not report columns).
 			"quality_total": quality_total,
 			"production_mins_sum": flt(group.get("production_mins_sum") or 0),
 			"standard_spm_weighted_sum": flt(group.get("standard_spm_weighted_sum") or 0),
+			**rate_fields,
 		}
 
 		for code in reason_codes:
