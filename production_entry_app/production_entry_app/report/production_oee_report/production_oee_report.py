@@ -82,6 +82,7 @@ def compute_oee_rate_fields(
 	productivity_pct = flt((act_spm / std_spm) * 100) if std_spm > 0 else 0
 	quality_pct = flt(((quality_total - rejection) / quality_total) * 100) if quality_total > 0 else 0
 	availability_pct = flt((raw_running_time / avl_time_hrs) * 100) if avl_time_hrs > 0 else 0
+	oee = flt((availability_pct + quality_pct + productivity_pct) / 3)
 	oee_mult_pct = flt((availability_pct * quality_pct * productivity_pct) / 10000)
 	return {
 		"stroke_required": flt(raw_running_time * std_spm * 60),
@@ -89,6 +90,7 @@ def compute_oee_rate_fields(
 		"productivity_pct": productivity_pct,
 		"quality_pct": quality_pct,
 		"availability_pct": availability_pct,
+		"oee": oee,
 		"oee_mult_pct": oee_mult_pct,
 	}
 
@@ -182,6 +184,7 @@ def _get_columns(filters: dict | None = None, reason_codes: list[str] | None = N
 			"fieldtype": "Percent",
 			"width": 130,
 		},
+		{"label": _("Avg. OEE"), "fieldname": "oee", "fieldtype": "Percent", "width": 90},
 		{
 			"label": _("OEE %"),
 			"fieldname": "oee_mult_pct",

@@ -372,7 +372,7 @@ class TestProductionReports(FrappeTestCase):
 
 		self.assertEqual(result["result"], [])
 
-	def test_production_oee_report_columns_expose_only_multiplicative_oee(self) -> None:
+	def test_production_oee_report_columns_expose_avg_and_multiplicative_oee(self) -> None:
 		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
 			execute,
 		)
@@ -394,6 +394,7 @@ class TestProductionReports(FrappeTestCase):
 				"productivity_pct",
 				"quality_pct",
 				"availability_pct",
+				"oee",
 				"oee_mult_pct",
 				"avl_time_hrs",
 				"machine_downtime",
@@ -402,7 +403,7 @@ class TestProductionReports(FrappeTestCase):
 			],
 		)
 		oee_columns = [column for column in columns if column["fieldname"].startswith("oee")]
-		self.assertEqual([column["label"] for column in oee_columns], ["OEE %"])
+		self.assertEqual([column["label"] for column in oee_columns], ["Avg. OEE", "OEE %"])
 
 	def test_production_oee_report_execute_hides_monthly_rollup_bases(self) -> None:
 		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
@@ -448,6 +449,7 @@ class TestProductionReports(FrappeTestCase):
 				"productivity_pct",
 				"quality_pct",
 				"availability_pct",
+				"oee",
 				"oee_mult_pct",
 				"avl_time_hrs",
 				"machine_downtime",
@@ -456,6 +458,8 @@ class TestProductionReports(FrappeTestCase):
 			],
 		)
 		self.assertNotIn("day", fieldnames)
+		oee_columns = [column for column in columns if column["fieldname"].startswith("oee")]
+		self.assertEqual([column["label"] for column in oee_columns], ["Avg. OEE", "OEE %"])
 
 	def test_monthly_production_oee_report_sums_bases_then_recomputes(self) -> None:
 		from production_entry_app.production_entry_app.report.monthly_production_oee_report.monthly_production_oee_report import (
@@ -494,6 +498,7 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(float(row["quality_pct"]), 100.0)
 		self.assertEqual(float(row["productivity_pct"]), 12.5)
 		self.assertEqual(float(row["oee_mult_pct"]), 12.5)
+		self.assertAlmostEqual(float(row["oee"]), (100.0 + 100.0 + 12.5) / 3.0, places=6)
 		self.assertNotIn("day", row)
 
 	def test_monthly_production_oee_report_includes_downtime_only_days(self) -> None:
@@ -602,6 +607,7 @@ class TestProductionReports(FrappeTestCase):
 				"productivity_pct",
 				"quality_pct",
 				"availability_pct",
+				"oee",
 				"oee_mult_pct",
 				"avl_time_hrs",
 				"reason_01_1st",
@@ -705,12 +711,12 @@ class TestProductionReports(FrappeTestCase):
 
 			self._assert_column_precision(
 				get_oee_columns(),
-				("act_spm", "oee_mult_pct", "running_time"),
+				("act_spm", "oee", "oee_mult_pct", "running_time"),
 				expected_precision=4,
 			)
 			self._assert_column_precision(
 				get_monthly_oee_columns({"year": 2026, "month": 6}),
-				("act_spm", "oee_mult_pct", "running_time"),
+				("act_spm", "oee", "oee_mult_pct", "running_time"),
 				expected_precision=4,
 			)
 			self._assert_column_precision(
@@ -814,7 +820,7 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(float(rows[0]["productivity_pct"]), 12.5)
 		self.assertEqual(float(rows[0]["quality_pct"]), 100.0)
 		self.assertEqual(float(rows[0]["oee_mult_pct"]), 12.5)
-		self.assertNotIn("oee", rows[0])
+		self.assertAlmostEqual(float(rows[0]["oee"]), (100.0 + 100.0 + 12.5) / 3.0, places=6)
 		self.assertEqual(float(rows[0]["first_shift_strokes"]), 120.0)
 		self.assertEqual(float(rows[0]["second_shift_strokes"]), 0.0)
 		self.assertEqual(float(rows[0]["running_time"]), 8.0)

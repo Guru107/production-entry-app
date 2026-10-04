@@ -155,9 +155,9 @@ test.describe("Production reports", () => {
 		expect(Number(seededRow.total_loss_time || 0)).toBe(2);
 		expect(seededRow).not.toHaveProperty("reason_00_1st");
 		let labels = await reportsPage.getColumnLabels();
-		expect(labels.filter((label) => label.startsWith("OEE"))).toEqual(["OEE %"]);
+		expect(labels.filter((label) => label.includes("OEE"))).toEqual(["Avg. OEE", "OEE %"]);
 		expect(seededRow).toHaveProperty("oee_mult_pct");
-		expect(seededRow).not.toHaveProperty("oee");
+		expect(seededRow).toHaveProperty("oee");
 
 		await reportsPage.setFilterByFieldname("downtime_reason", ["00"]);
 		await reportsPage.clickRefresh();
