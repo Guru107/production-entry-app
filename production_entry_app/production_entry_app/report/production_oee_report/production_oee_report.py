@@ -54,9 +54,7 @@ def execute(filters: dict | None = None) -> tuple[list[dict], list[dict]]:
 	reason_codes = _get_selected_reason_codes(filters)
 	columns = _get_columns(filters, reason_codes)
 	timeout_guard = new_interactive_report_timeout_guard(_("Production OEE Report"))
-	rows = [
-		_public_row(row) for row in get_rows_with_rollup_bases(filters, timeout_guard, reason_codes)
-	]
+	rows = [_public_row(row) for row in get_rows_with_rollup_bases(filters, timeout_guard, reason_codes)]
 	return columns, rows
 
 

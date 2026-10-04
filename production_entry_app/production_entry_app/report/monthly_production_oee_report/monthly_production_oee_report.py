@@ -111,9 +111,7 @@ def _month_filters(filters: dict) -> tuple[str, dict]:
 	to_date = getdate(f"{year:04d}-{month:02d}-{last_day:02d}")
 	month_key = f"{year:04d}-{month:02d}"
 	daily_filters = {
-		key: value
-		for key, value in filters.items()
-		if key not in {"year", "month", "from_date", "to_date"}
+		key: value for key, value in filters.items() if key not in {"year", "month", "from_date", "to_date"}
 	}
 	daily_filters["from_date"] = from_date
 	daily_filters["to_date"] = to_date
