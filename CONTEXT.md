@@ -139,6 +139,17 @@ Entries exist, it is the Completed Shift time remaining after planned losses, Pr
 Machine Downtime.
 _Avoid_: Shift duration
 
+**OEE Standard SPM**:
+The reference strokes-per-minute rate on a Production OEE Report row. It is the production-time-weighted average of
+Production Entry standard SPM values that have both a positive SPM and positive production time; when no entry
+contributes, it is the Workstation's standard SPM.
+_Avoid_: first-entry SPM, entry SPM with zero production time, entry SPM ignored when it has production time
+
+**Strokes Required**:
+The target stroke count for OEE running time on a Production OEE Report row
+(`OEE running time × OEE Standard SPM × 60`). It is zero whenever OEE running time is zero.
+_Avoid_: shift capacity strokes, workstation-rate strokes with no running time
+
 **OEE Loss Breakdown**:
 The per-reason split of loss time in the Production OEE Report, one column pair per reason chosen in the report
 filter. With no reasons chosen, the report shows only the grand total of loss time, not a breakdown.

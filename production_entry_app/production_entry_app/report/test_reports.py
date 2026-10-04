@@ -441,12 +441,19 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		ensure_downtime_reason("04")
-		for value in ("01", "01,04", '["01", "04"]'):
+		for value, expect_04 in (
+			("01", False),
+			("01,04", True),
+			('["01", "04"]', True),
+		):
 			with self.subTest(value=value):
 				columns, _rows = execute({"downtime_reason": value})
 				fieldnames = [column.get("fieldname") for column in columns]
 				self.assertIn("reason_01_1st", fieldnames)
-				self.assertIn("reason_04_2nd", fieldnames)
+				if expect_04:
+					self.assertIn("reason_04_2nd", fieldnames)
+				else:
+					self.assertNotIn("reason_04_2nd", fieldnames)
 				self.assertNotIn("reason_21_1st", fieldnames)
 
 	def test_report_metric_columns_follow_system_precision(self) -> None:
@@ -1324,11 +1331,40 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(float(row["stroke_required"]), 0.0)
 		self.assertEqual(float(row["rejection"]), 0.0)
 		self.assertEqual(float(row["quality_pct"]), 0.0)
-		self.assertEqual(float(row["std_spm"]), 0.0)
+		self.assertEqual(float(row["std_spm"]), 2.0)
 		self.assertEqual(float(row["act_spm"]), 0.0)
 		self.assertEqual(float(row["productivity_pct"]), 0.0)
 		self.assertEqual(float(row["availability_pct"]), 0.0)
 		self.assertEqual(float(row["oee_mult_pct"]), 0.0)
+
+	def test_production_oee_report_merges_overlapping_loss_entries_within_reason(self) -> None:
+		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
+			execute,
+		)
+
+		ensure_downtime_reason("01")
+		shift = self._create_shift_for_label("2026-06-18", "1", clear_planned_losses=True)
+		self._create_mock_submitted_entry(
+			posting_date="2026-06-18",
+			planned_start="2026-06-18 08:00:00",
+			planned_end="2026-06-18 12:00:00",
+			actual_start="2026-06-18 08:00:00",
+			actual_end="2026-06-18 12:00:00",
+			fg_qty=100,
+			rejection_qty=0,
+			shift_name=shift.name,
+			unplanned_losses=[
+				{"downtime_reason": "01", "start_time": "10:00:00", "end_time": "11:00:00"},
+				{"downtime_reason": "01", "start_time": "10:30:00", "end_time": "11:30:00"},
+			],
+		)
+
+		_, rows = execute({"from_date": "2026-06-18", "to_date": "2026-06-18", "downtime_reason": ["01"]})
+		self.assertEqual(len(rows), 1)
+		row = rows[0]
+		self.assertEqual(float(row["reason_01_1st"]), 1.5)
+		self.assertEqual(float(row["total_loss_time"]), 1.5)
+		self.assertEqual(float(row["running_time"]), 6.5)
 
 	def test_production_oee_report_hides_downtime_only_rows_when_filtered_by_operation(self) -> None:
 		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
@@ -1716,13 +1752,14 @@ class TestProductionReports(FrappeTestCase):
 		_, rows = execute({"from_date": "2026-06-11", "to_date": "2026-06-11"})
 		self.assertEqual(rows, [])
 
-	def test_production_oee_report_zero_duration_still_uses_fixed_standard_spm(self) -> None:
+	def test_production_oee_report_zero_production_time_uses_workstation_standard_spm(self) -> None:
 		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
 			execute,
 		)
 
+		frappe.db.set_value("Workstation", "Report Workstation", "custom_pea_standard_spm", 2)
 		shift = self._create_shift_for_label("2026-06-04", "1", clear_planned_losses=True)
-		self._create_mock_submitted_entry(
+		entry = self._create_mock_submitted_entry(
 			posting_date="2026-06-04",
 			planned_start="2026-06-04 08:00:00",
 			planned_end="2026-06-04 08:00:00",
@@ -1730,20 +1767,29 @@ class TestProductionReports(FrappeTestCase):
 			actual_end="2026-06-04 08:00:00",
 			fg_qty=120,
 			rejection_qty=0,
+			standard_spm=2,
 			shift_name=shift.name,
+		)
+		# Entry rate differs from Workstation but has no production minutes — use Workstation SPM.
+		frappe.db.set_value("Stock Entry", entry.name, "custom_pea_standard_spm", 9, update_modified=False)
+		frappe.db.set_value(
+			"Stock Entry",
+			entry.name,
+			{"custom_pea_production_time_mins": 0, "custom_pea_actual_duration_mins": 0},
+			update_modified=False,
 		)
 		_, rows = execute({"from_date": "2026-06-04", "to_date": "2026-06-04"})
 		self.assertEqual(len(rows), 1)
 		self.assertEqual(float(rows[0]["std_spm"]), 2.0)
 		self.assertEqual(float(rows[0]["productivity_pct"]), 12.5)
 
-	def test_production_oee_report_uses_single_group_standard_spm(self) -> None:
+	def test_production_oee_report_weights_standard_spm_by_production_time(self) -> None:
 		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
 			execute,
 		)
 
 		shift = self._create_shift_for_label("2026-06-12", "1", clear_planned_losses=True)
-		self._create_mock_submitted_entry(
+		first_entry = self._create_mock_submitted_entry(
 			posting_date="2026-06-12",
 			planned_start="2026-06-12 08:00:00",
 			planned_end="2026-06-12 08:30:00",
@@ -1754,7 +1800,7 @@ class TestProductionReports(FrappeTestCase):
 			standard_spm=2,
 			shift_name=shift.name,
 		)
-		self._create_mock_submitted_entry(
+		second_entry = self._create_mock_submitted_entry(
 			posting_date="2026-06-12",
 			planned_start="2026-06-12 09:00:00",
 			planned_end="2026-06-12 09:30:00",
@@ -1762,13 +1808,21 @@ class TestProductionReports(FrappeTestCase):
 			actual_end="2026-06-12 09:30:00",
 			fg_qty=60,
 			rejection_qty=0,
-			standard_spm=9,
+			standard_spm=2,
 			shift_name=shift.name,
+		)
+		# fetch_from copies Workstation SPM on save; pin distinct historical rates for weighting.
+		frappe.db.set_value(
+			"Stock Entry", first_entry.name, "custom_pea_standard_spm", 2, update_modified=False
+		)
+		frappe.db.set_value(
+			"Stock Entry", second_entry.name, "custom_pea_standard_spm", 9, update_modified=False
 		)
 
 		_, rows = execute({"from_date": "2026-06-12", "to_date": "2026-06-12"})
 		self.assertEqual(len(rows), 1)
-		self.assertEqual(float(rows[0]["std_spm"]), 2.0)
+		# Equal 30-minute production windows: (2*30 + 9*30) / 60 = 5.5
+		self.assertEqual(float(rows[0]["std_spm"]), 5.5)
 
 	def test_production_oee_report_uses_completed_shift_extension(self) -> None:
 		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (

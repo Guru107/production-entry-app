@@ -193,6 +193,7 @@ def _get_rows(filters: dict, timeout_guard, reason_codes: list[str]) -> list[dic
 	if not groups:
 		return []
 
+	_finalize_group_metrics(groups)
 	timeout_guard()
 	availability_hours_by_group = _get_availability_hours_by_group(groups, timeout_guard)
 	machine_downtime_by_group = _get_machine_downtime_hours_by_group(
@@ -282,6 +283,60 @@ def _get_stock_entry_groups(
 		return {}
 
 	return groups
+
+
+def _finalize_group_metrics(groups: dict[tuple[str, str], dict]) -> None:
+	workstation_spm = _get_workstation_standard_spm(
+		{str(group.get("workstation") or "") for group in groups.values()}
+	)
+	for group in groups.values():
+		group["reason_hours"] = {
+			key: _merged_interval_hours(intervals)
+			for key, intervals in (group.get("reason_intervals") or {}).items()
+		}
+		production_mins = flt(group.get("production_mins_sum") or 0)
+		weighted_sum = flt(group.get("standard_spm_weighted_sum") or 0)
+		if production_mins > 0 and weighted_sum > 0:
+			group["standard_spm"] = flt(weighted_sum / production_mins)
+		else:
+			workstation = str(group.get("workstation") or "")
+			group["standard_spm"] = flt(workstation_spm.get(workstation) or 0)
+
+
+def _get_workstation_standard_spm(workstations: set[str]) -> dict[str, float]:
+	names = sorted({name for name in workstations if name and name != "Unassigned"})
+	if not names:
+		return {}
+	rows = get_report_rows(
+		"Workstation",
+		filters={"name": ["in", names]},
+		fields=["name", "custom_pea_standard_spm"],
+		limit_page_length=0,
+	)
+	return {
+		str(row.get("name")): flt(row.get("custom_pea_standard_spm") or 0) for row in rows if row.get("name")
+	}
+
+
+def _merged_interval_hours(intervals: list[tuple[float, float]]) -> float:
+	if not intervals:
+		return 0.0
+	merged = _merge_minute_intervals(intervals)
+	return flt(sum(max(end - start, 0) for start, end in merged) / 60)
+
+
+def _merge_minute_intervals(intervals: list[tuple[float, float]]) -> list[tuple[float, float]]:
+	ordered = sorted((flt(start), flt(end)) for start, end in intervals if flt(end) > flt(start))
+	if not ordered:
+		return []
+	merged: list[tuple[float, float]] = [ordered[0]]
+	for start, end in ordered[1:]:
+		last_start, last_end = merged[-1]
+		if start <= last_end:
+			merged[-1] = (last_start, max(last_end, end))
+			continue
+		merged.append((start, end))
+	return merged
 
 
 def _get_stock_entry_filters(filters: dict) -> dict:
@@ -383,8 +438,12 @@ def _add_entry_quantities_to_group(
 		group["second_shift_strokes"] += total_strokes
 
 	standard_spm = flt(entry.get("custom_pea_standard_spm") or 0)
-	if standard_spm > 0 and group["standard_spm"] <= 0:
-		group["standard_spm"] = standard_spm
+	production_mins = flt(get_entry_production_minutes(entry))
+	if standard_spm > 0 and production_mins > 0:
+		group["production_mins_sum"] = flt(group["production_mins_sum"] + production_mins)
+		group["standard_spm_weighted_sum"] = flt(
+			group["standard_spm_weighted_sum"] + (standard_spm * production_mins)
+		)
 
 
 def _get_availability_hours_by_group(
@@ -796,7 +855,10 @@ def _new_group(day: str, workstation: str) -> dict:
 		"quality_total": 0.0,
 		"quality_rejection": 0.0,
 		"standard_spm": 0.0,
+		"standard_spm_weighted_sum": 0.0,
+		"production_mins_sum": 0.0,
 		"entry_shifts": {},
+		"reason_intervals": {},
 		"reason_hours": {},
 	}
 
@@ -825,15 +887,15 @@ def _apply_loss_reason_row(
 		return
 
 	shift_label = _get_loss_shift_label(row, entry_meta, shift_label_by_name)
-	hours = _get_loss_hours(row)
-	if shift_label not in ("1", "2") or hours <= 0:
+	interval = _get_loss_minute_interval(row)
+	if shift_label not in ("1", "2") or not interval:
 		return
 
 	group = groups.get((entry_meta["day"], entry_meta["workstation"]))
 	if not group:
 		return
 	key = (reason_code, shift_label)
-	group["reason_hours"][key] = flt(group["reason_hours"].get(key, 0) + hours)
+	group.setdefault("reason_intervals", {}).setdefault(key, []).append(interval)
 
 
 def _get_loss_shift_label(
@@ -846,16 +908,17 @@ def _get_loss_shift_label(
 	)
 
 
-def _get_loss_hours(row: dict) -> float:
+def _get_loss_minute_interval(row: dict) -> tuple[float, float] | None:
 	start_time = row.get("start_time")
 	end_time = row.get("end_time")
 	if not start_time or not end_time:
-		return 0.0
+		return None
 	start = get_time(start_time)
 	end = get_time(end_time)
 	start_mins = (start.hour * 60) + start.minute + (start.second / 60)
 	end_mins = (end.hour * 60) + end.minute + (end.second / 60)
-	duration_mins = end_mins - start_mins
-	if duration_mins < 0:
-		duration_mins += 24 * 60
-	return flt(duration_mins / 60) if duration_mins > 0 else 0.0
+	if end_mins < start_mins:
+		end_mins += 24 * 60
+	if end_mins <= start_mins:
+		return None
+	return flt(start_mins), flt(end_mins)
