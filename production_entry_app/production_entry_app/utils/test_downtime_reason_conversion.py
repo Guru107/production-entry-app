@@ -72,6 +72,7 @@ class TestDowntimeReasonConversion(FrappeTestCase):
 	def test_conversion_retargets_orphaned_loss_entry_references_when_master_is_absent(self) -> None:
 		with (
 			patch(f"{_CONVERSION_MODULE}.seed_standard_downtime_reasons"),
+			patch(f"{_CONVERSION_MODULE}.assign_codes_to_uncoded_downtime_reasons"),
 			patch(f"{_CONVERSION_MODULE}.frappe.db.exists", return_value=False),
 			patch(f"{_CONVERSION_MODULE}.rename_doc") as rename_doc,
 			patch(f"{_CONVERSION_MODULE}.frappe.db.set_value") as set_value,
@@ -79,7 +80,8 @@ class TestDowntimeReasonConversion(FrappeTestCase):
 			convert_legacy_downtime_reasons()
 
 		rename_doc.assert_not_called()
-		self.assertEqual(set_value.call_count, len(LEGACY_DOWNTIME_REASON_CODES))
+		known_reason_count = len(LEGACY_DOWNTIME_REASON_CODES) + len(EXTRA_DOWNTIME_REASON_CODES)
+		self.assertEqual(set_value.call_count, known_reason_count)
 		for legacy_name, code in LEGACY_DOWNTIME_REASON_CODES.items():
 			set_value.assert_any_call(
 				"Loss Entry",
@@ -92,6 +94,7 @@ class TestDowntimeReasonConversion(FrappeTestCase):
 	def test_conversion_renames_instead_of_retargeting_when_master_exists(self) -> None:
 		with (
 			patch(f"{_CONVERSION_MODULE}.seed_standard_downtime_reasons"),
+			patch(f"{_CONVERSION_MODULE}.assign_codes_to_uncoded_downtime_reasons"),
 			patch(
 				f"{_CONVERSION_MODULE}.frappe.db.exists",
 				side_effect=lambda doctype, name=None: name == "Power Off",
@@ -104,7 +107,8 @@ class TestDowntimeReasonConversion(FrappeTestCase):
 		rename_doc.assert_called_once_with(
 			"Downtime Reason", "Power Off", "11", merge=True, force=True, show_alert=False
 		)
-		self.assertEqual(set_value.call_count, len(LEGACY_DOWNTIME_REASON_CODES) - 1)
+		known_reason_count = len(LEGACY_DOWNTIME_REASON_CODES) + len(EXTRA_DOWNTIME_REASON_CODES)
+		self.assertEqual(set_value.call_count, known_reason_count - 1)
 		self.assertFalse(
 			any(call.args[1] == {"downtime_reason": "Power Off"} for call in set_value.call_args_list)
 		)
