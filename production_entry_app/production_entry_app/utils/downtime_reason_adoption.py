@@ -23,6 +23,7 @@ from pathlib import Path
 
 import frappe
 from frappe import _
+from frappe.model.meta import Meta
 from frappe.model.rename_doc import get_link_fields
 from frappe.utils import cint
 
@@ -98,7 +99,7 @@ def classify_downtime_reason_doctype() -> str:
 	return STATE_UNEXPECTED
 
 
-def _is_host_shape(meta) -> bool:
+def _is_host_shape(meta: Meta) -> bool:
 	return (
 		bool(meta.custom)
 		and cint(meta.is_submittable) == 1
@@ -108,9 +109,10 @@ def _is_host_shape(meta) -> bool:
 	)
 
 
-def _is_adopted_shape(meta) -> bool:
+def _is_adopted_shape(meta: Meta) -> bool:
 	return (
-		meta.get_field("code") is not None
+		not meta.custom
+		and meta.get_field("code") is not None
 		and (meta.autoname or "") == APP_AUTONAME
 		and cint(meta.is_submittable) == 0
 	)
@@ -204,14 +206,19 @@ def _reshape_doctype() -> None:
 	was_in_import = frappe.flags.get("in_import")
 	frappe.flags.in_import = True
 	try:
-		doc.save(ignore_permissions=True)
+		doc.save()
 	finally:
 		frappe.flags.in_import = was_in_import
 	frappe.clear_cache(doctype=DOCTYPE)
 
 
 def _normalize_rows() -> None:
-	"""Backfill app-schema columns on the adopted rows and reset submit state."""
+	"""Backfill app-schema columns on the adopted rows and reset submit state.
+
+	Frappe refuses to delete submitted records, and every merge during conversion
+	ends in a delete, so submitted masters must drop to draft before conversion;
+	the original docstatus values are preserved in the recovery export.
+	"""
 	rows = frappe.get_all(
 		DOCTYPE, fields=["name", "description", "is_active", "docstatus"], order_by="creation asc"
 	)
@@ -293,4 +300,18 @@ def _unrewritten_link_values(export: dict, current_names: set[str]) -> list[str]
 						entry["parent"], entry["fieldname"], legacy_value, leftover
 					)
 				)
+		issues.extend(_link_count_mismatches(entry))
 	return issues
+
+
+def _link_count_mismatches(entry: dict) -> list[str]:
+	"""Adoption must rewrite link rows, never add or drop them; reconcile the counts."""
+	current_count = frappe.db.count(entry["parent"], {entry["fieldname"]: ["is", "set"]})
+	exported_count = sum(entry["counts"].values())
+	if current_count != exported_count:
+		return [
+			_("{0}.{1} row count changed: exported {2} rows, found {3}").format(
+				entry["parent"], entry["fieldname"], exported_count, current_count
+			)
+		]
+	return []

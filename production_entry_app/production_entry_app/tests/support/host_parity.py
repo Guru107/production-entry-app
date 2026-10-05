@@ -8,35 +8,38 @@ custom ``Loss Time`` child table linked from Stock Entry.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import frappe
 
-ADOPTION_MODULE = "production_entry_app.production_entry_app.utils.downtime_reason_adoption"
+from production_entry_app.production_entry_app.utils.downtime_reason_adoption import (
+	adoption_export_path,
+)
+
 HOST_MODULE = "Manufacturing"
-HOST_FIELDNAMES = ("section_break_6fwi", "amended_from", "downtime_issue")
-
-
-def export_path() -> str:
-	from production_entry_app.production_entry_app.utils.downtime_reason_adoption import (
-		adoption_export_path,
-	)
-
-	return adoption_export_path()
 
 
 def clear_adoption_export() -> None:
-	import os
-
-	path = export_path()
-	if os.path.exists(path):
-		os.remove(path)
+	path = Path(adoption_export_path())
+	if path.exists():
+		path.unlink()
 
 
-def restore_app_downtime_reason() -> None:
-	"""Bring the app-owned Downtime Reason DocType and its standard seed rows back."""
+def _delete_downtime_reason_doctype_record() -> None:
+	"""Delete the DocType record and its rows without touching app source files.
+
+	``for_reload`` keeps developer mode from rmtree-ing the app's doctype folder.
+	"""
 	if frappe.db.exists("DocType", "Downtime Reason"):
 		if frappe.db.table_exists("Downtime Reason"):
 			frappe.db.delete("Downtime Reason")
 		frappe.delete_doc("DocType", "Downtime Reason", force=True, ignore_permissions=True, for_reload=True)
+	frappe.clear_cache(doctype="Downtime Reason")
+
+
+def restore_app_downtime_reason() -> None:
+	"""Bring the app-owned Downtime Reason DocType and its standard seed rows back."""
+	_delete_downtime_reason_doctype_record()
 	frappe.reload_doc("production_entry_app", "doctype", "downtime_reason")
 	frappe.clear_cache(doctype="Downtime Reason")
 	# Leave the site as a normal migrated install: standard reasons seeded.
@@ -50,11 +53,7 @@ def restore_app_downtime_reason() -> None:
 
 def delete_downtime_reason_doctype() -> None:
 	"""Remove the Downtime Reason DocType entirely (rows first, then the table)."""
-	if frappe.db.exists("DocType", "Downtime Reason"):
-		if frappe.db.table_exists("Downtime Reason"):
-			frappe.db.delete("Downtime Reason")
-		frappe.delete_doc("DocType", "Downtime Reason", force=True, ignore_permissions=True, for_reload=True)
-	frappe.clear_cache(doctype="Downtime Reason")
+	_delete_downtime_reason_doctype_record()
 
 
 def install_host_downtime_reason_doctype(*, extra_fields: tuple[dict, ...] = ()) -> None:
@@ -109,11 +108,6 @@ def doctype_snapshot() -> dict:
 	}
 
 
-def host_fieldnames_present() -> bool:
-	meta = frappe.get_meta("Downtime Reason", cached=False)
-	return meta.get_field("downtime_issue") is not None
-
-
 def install_host_loss_time() -> None:
 	"""Create the host custom Loss Time child table and its Stock Entry custom field."""
 	if not frappe.db.exists("DocType", "Loss Time"):
@@ -163,8 +157,8 @@ def remove_host_loss_time() -> None:
 		frappe.clear_cache(doctype="Loss Time")
 
 
-def make_host_stock_entry_with_loss_times(reasons: list[str]) -> str:
-	"""Create a draft Stock Entry carrying one Loss Time row per given reason name."""
+def make_host_stock_entry_with_loss_times(reasons: list[str], *, submit: bool = False) -> str:
+	"""Create a Stock Entry carrying one Loss Time row per given reason name."""
 	from production_entry_app.production_entry_app.utils.test_bootstrap import (
 		ensure_item,
 		ensure_warehouse,
@@ -185,7 +179,19 @@ def make_host_stock_entry_with_loss_times(reasons: list[str]) -> str:
 			"custom_loss_time_details": [{"loss_type": reason, "loss_time": 10} for reason in reasons],
 		}
 	).insert(ignore_permissions=True)
+	if submit:
+		doc.submit()
 	return doc.name
+
+
+def discard_stock_entry(name: str) -> None:
+	"""Remove a test Stock Entry whatever its docstatus."""
+	if not frappe.db.exists("Stock Entry", name):
+		return
+	doc = frappe.get_doc("Stock Entry", name)
+	if doc.docstatus == 1:
+		doc.cancel()
+	frappe.delete_doc("Stock Entry", name, force=True, ignore_permissions=True)
 
 
 def loss_time_reason_values(stock_entry_name: str) -> list[str]:
