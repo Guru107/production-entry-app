@@ -239,6 +239,32 @@ class TestReworkAdditionalCosts(FrappeTestCase):
 
 		self.assertFalse(doc.additional_costs)
 
+	def test_stale_rework_cost_row_is_removed_when_entry_is_no_longer_rework(self) -> None:
+		doc = self._make_rework_entry()
+		before_validate_stock_entry(doc)
+		self.assertTrue(any(row.get("custom_pea_is_rework_cost") for row in doc.additional_costs))
+
+		doc.stock_entry_type = "Material Transfer"
+		doc.custom_pea_rework_type = None
+		doc.custom_pea_rework_workstation = None
+		doc.set("custom_pea_rework_operators", [])
+		doc.append(
+			"additional_costs",
+			{
+				"expense_account": self.expense_account,
+				"description": "Manual freight",
+				"amount": 15,
+			},
+		)
+
+		before_validate_stock_entry(doc)
+
+		self.assertEqual(
+			[(row.description, row.amount) for row in doc.additional_costs],
+			[("Manual freight", 15)],
+		)
+		self.assertFalse(any(row.get("custom_pea_is_rework_cost") for row in doc.additional_costs))
+
 	def test_submit_uses_native_valuation_and_gl_and_cancel_reverses_them(self) -> None:
 		suffix = frappe.generate_hash(length=6)
 		posting_date = "2092-09-01"

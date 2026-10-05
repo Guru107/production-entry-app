@@ -281,6 +281,18 @@ class TestStockEntryHookPureHelpers(FrappeTestCase):
 
 		self.assertEqual(doc.custom_pea_rework_qty, 2)
 
+	def test_rejection_breakup_item_must_match_a_rejected_item(self) -> None:
+		doc = frappe._dict(
+			custom_pea_rejection_qty=2,
+			custom_pea_rejection_breakup=[
+				frappe._dict(rejection_reason="Burr", item_code="ITEM-OTHER", qty=2, is_rework=1),
+			],
+			items=[frappe._dict(item_code="ITEM-A", custom_pea_is_rejection_item=1)],
+		)
+
+		with self.assertRaisesRegex(ValidationError, "must match a rejected Item"):
+			stock_entry_hooks._validate_rejection_breakup(doc)
+
 	def test_on_trash_stock_entry_deletes_loss_rows_for_parent(self) -> None:
 		doc = frappe._dict({"name": "MAT-STE-UNIT-001"})
 		with patch(

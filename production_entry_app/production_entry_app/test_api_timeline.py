@@ -328,8 +328,9 @@ class TestGetShiftTimelineData(FrappeTestCase):
 		)
 		total_finished_qty_before_rejection = 120
 		rejection_qty = 0.1235
+		# FG child qty is already post-rejection; ok_qty must not subtract rejection again.
 		expected_fg_qty = 119.8765
-		expected_ok_qty = 119.753
+		expected_ok_qty = 119.8765
 		derived_abs_tol = 1e-6
 		entry = _create_manufacture_stock_entry(
 			company=self.ctx["company"],

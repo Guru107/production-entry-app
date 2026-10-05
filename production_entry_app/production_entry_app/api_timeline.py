@@ -171,7 +171,8 @@ def get_shift_timeline_data(doctype: str, docname: str) -> dict:
 				"fg_item_label": fg_item_label_by_entry.get(entry_name),
 				"fg_qty": good_qty,
 				"rejection_qty": rejection_qty,
-				"ok_qty": good_qty if is_joint_production else good_qty - rejection_qty,
+				# good_qty already excludes rejection rows (FG qty is post-deduction for normal Manufacture).
+				"ok_qty": good_qty,
 				"entry_type": "production",
 			}
 		)

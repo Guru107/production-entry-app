@@ -235,6 +235,9 @@ def _rework_operator_labour_hours(doc: Document) -> float | None:
 
 def _apply_rework_cost(doc: Document) -> None:
 	if not is_rework_stock_entry_type(doc):
+		_clear_rework_cost_rows(doc)
+		if doc.meta.has_field("custom_pea_rework_cost"):
+			doc.set("custom_pea_rework_cost", 0)
 		return
 
 	labour_hours = _rework_operator_labour_hours(doc)
@@ -242,10 +245,7 @@ def _apply_rework_cost(doc: Document) -> None:
 		# Leave validation errors to _validate_rework_fields; do not mutate additional_costs yet.
 		return
 
-	for index in range(len(doc.get("additional_costs") or []) - 1, -1, -1):
-		if doc.additional_costs[index].get("custom_pea_is_rework_cost"):
-			doc.additional_costs.pop(index)
-
+	_clear_rework_cost_rows(doc)
 	hour_rate = flt(frappe.db.get_value("Workstation", doc.get("custom_pea_rework_workstation"), "hour_rate"))
 	rework_cost = flt(labour_hours * hour_rate, REWORK_COST_PRECISION)
 	expense_account = frappe.db.get_single_value(
@@ -269,6 +269,13 @@ def _apply_rework_cost(doc: Document) -> None:
 			"custom_pea_is_rework_cost": 1,
 		},
 	)
+
+
+def _clear_rework_cost_rows(doc: Document) -> None:
+	"""Drop owned Rework Cost rows so a type switch cannot leave stale valuation costs."""
+	for index in range(len(doc.get("additional_costs") or []) - 1, -1, -1):
+		if doc.additional_costs[index].get("custom_pea_is_rework_cost"):
+			doc.additional_costs.pop(index)
 
 
 def _default_total_strokes(doc: Document) -> None:
@@ -887,13 +894,21 @@ def _validate_rejection_breakup(doc: Document) -> None:
 
 
 def _validate_blank_rejection_breakup_item_scope(doc: Document, breakup_rows: list[Any]) -> None:
-	if not any(not row.get("item_code") for row in breakup_rows):
-		return
 	rejection_item_codes = {
 		row.get("item_code")
 		for row in doc.get("items") or []
 		if row.get("custom_pea_is_rejection_item") and row.get("item_code")
 	}
+	for row in breakup_rows:
+		item_code = row.get("item_code")
+		if item_code and rejection_item_codes and item_code not in rejection_item_codes:
+			frappe.throw(
+				_("Rejection Breakup Item {0} must match a rejected Item on this Stock Entry.").format(
+					_safe_bold(item_code)
+				)
+			)
+	if not any(not row.get("item_code") for row in breakup_rows):
+		return
 	if len(rejection_item_codes) <= 1:
 		return
 	frappe.throw(
