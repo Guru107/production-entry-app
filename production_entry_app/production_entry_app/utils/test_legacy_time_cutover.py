@@ -59,17 +59,16 @@ class TestCutoverOnCleanSite(DriftNeutralTestCase):
 	def setUp(self) -> None:
 		super().setUp()
 		self.property_setters_before = host_parity.snapshot_module_property_setters()
-		self.addCleanup(
-			host_parity.restore_module_property_setters, self.property_setters_before
-		)
+		self.addCleanup(host_parity.restore_module_property_setters, self.property_setters_before)
 		self.scripts_before = _script_state()
 
 	def test_cutover_is_noop_on_clean_site(self) -> None:
 		execute_legacy_time_cutover()
 
-		self.assertEqual(_property_setter_state(), {
-			name: row["value"] for name, row in self.property_setters_before.items()
-		})
+		self.assertEqual(
+			_property_setter_state(),
+			{name: row["value"] for name, row in self.property_setters_before.items()},
+		)
 		self.assertEqual(_script_state(), self.scripts_before)
 
 
@@ -108,15 +107,9 @@ class TestCutoverClientScripts(DriftNeutralTestCase):
 	def test_cutover_disables_scripts_before_hiding_sections(self) -> None:
 		manager = MagicMock()
 		with (
-			patch.object(
-				legacy_time_cutover, "_disable_legacy_client_scripts", manager.disable
-			),
-			patch.object(
-				legacy_time_cutover, "_hide_legacy_time_sections", manager.hide_sections
-			),
-			patch.object(
-				legacy_time_cutover, "_hide_obsolete_pea_custom_fields", manager.hide_obsolete
-			),
+			patch.object(legacy_time_cutover, "_disable_legacy_client_scripts", manager.disable),
+			patch.object(legacy_time_cutover, "_hide_legacy_time_sections", manager.hide_sections),
+			patch.object(legacy_time_cutover, "_hide_obsolete_pea_custom_fields", manager.hide_obsolete),
 		):
 			execute_legacy_time_cutover()
 
@@ -132,9 +125,7 @@ class CutoverHostParityTestCase(DriftNeutralTestCase):
 	def setUp(self) -> None:
 		super().setUp()
 		self.property_setters_before = host_parity.snapshot_module_property_setters()
-		self.addCleanup(
-			host_parity.restore_module_property_setters, self.property_setters_before
-		)
+		self.addCleanup(host_parity.restore_module_property_setters, self.property_setters_before)
 		self.addCleanup(host_parity.remove_legacy_time_fields)
 		host_parity.install_legacy_time_fields()
 		self.addCleanup(host_parity.remove_legacy_workstation)
@@ -218,7 +209,7 @@ class TestCutoverHiding(CutoverHostParityTestCase):
 		self.assertEqual(_hidden("Workstation", "custom_standard_spm"), 1)
 
 	def test_cutover_keeps_legacy_values_on_submitted_entries(self) -> None:
-		entry = host_parity.make_legacy_stock_entry(submit=True)
+		entry = host_parity.make_legacy_stock_entry()
 		self.addCleanup(host_parity.discard_stock_entry, entry)
 
 		self.run_cutover()
@@ -232,20 +223,14 @@ class TestCutoverHiding(CutoverHostParityTestCase):
 			frappe.utils.get_datetime("2026-10-01 09:00:00"),
 		)
 
-	def test_cutover_takes_over_existing_host_hidden_setter(self) -> None:
-		"""A host-owned ``hidden=0`` setter must be taken over, not duplicated."""
-		frappe.get_doc(
-			{
-				"doctype": "Property Setter",
-				"doctype_or_field": "DocField",
-				"doc_type": "Stock Entry",
-				"field_name": "custom_actual_time",
-				"property": "hidden",
-				"property_type": "Check",
-				"value": "0",
-				"module": "Manufacturing",
-			}
-		).insert(ignore_permissions=True)
+	def test_cutover_never_touches_host_owned_hidden_setters(self) -> None:
+		"""Host customizations are neither hijacked nor forced: report and skip.
+
+		A host-owned ``hidden=0`` setter on a legacy target is an unaudited host
+		shape; the cutover must not rewrite or delete it, and must not hide the
+		field behind the host's back either.
+		"""
+		host_parity.ensure_host_property_setter("Stock Entry", "custom_actual_time", value="0")
 		self.addCleanup(host_parity.remove_property_setter, "Stock Entry", "custom_actual_time")
 
 		self.run_cutover()
@@ -256,8 +241,38 @@ class TestCutoverHiding(CutoverHostParityTestCase):
 			["value", "module"],
 			as_dict=True,
 		)
-		self.assertEqual(int(setter.value), 1)
-		self.assertEqual(setter.module, "Production Entry App")
+		self.assertEqual(int(setter.value), 0)
+		self.assertEqual(setter.module, "Manufacturing")
+		self.assertEqual(_hidden("Stock Entry", "custom_actual_time"), 0)
+
+	def test_cutover_leaves_host_hidden_target_to_the_host_setter(self) -> None:
+		"""A host-owned hidden=1 setter already meets the goal; it stays host-owned."""
+		host_parity.ensure_host_property_setter("Stock Entry", "custom_loss_time", value="1")
+		self.addCleanup(host_parity.remove_property_setter, "Stock Entry", "custom_loss_time")
+
+		self.run_cutover()
+
+		self.assertEqual(
+			frappe.db.get_value("Property Setter", "Stock Entry-custom_loss_time-hidden", "module"),
+			"Manufacturing",
+		)
+		self.assertEqual(_hidden("Stock Entry", "custom_loss_time"), 1)
+
+	def test_cutover_rehides_an_app_owned_setter_that_was_flipped_visible(self) -> None:
+		"""A PEA-owned hidden setter flipped back to visible converges to hidden."""
+		self.run_cutover()
+		frappe.db.set_value(
+			"Property Setter",
+			"Stock Entry-custom_actual_time-hidden",
+			"value",
+			"0",
+			update_modified=False,
+		)
+		frappe.clear_cache(doctype="Stock Entry")
+		self.assertEqual(_hidden("Stock Entry", "custom_actual_time"), 0)
+
+		self.run_cutover()
+
 		self.assertEqual(_hidden("Stock Entry", "custom_actual_time"), 1)
 
 	def test_cutover_is_idempotent(self) -> None:
@@ -297,9 +312,7 @@ class TestUnhideLegacyTimeFields(CutoverHostParityTestCase):
 
 		for doctype, fieldname in legacy_time_cutover.LEGACY_TIME_FIELDS:
 			self.assertEqual(_hidden(doctype, fieldname), 0, f"{doctype}.{fieldname}")
-			self.assertNotIn(
-				f"{doctype}-{fieldname}-hidden", _property_setter_state()
-			)
+			self.assertNotIn(f"{doctype}-{fieldname}-hidden", _property_setter_state())
 		for name in host_parity.LEGACY_TIME_CLIENT_SCRIPTS:
 			self.assertEqual(_enabled(name), 0, name)
 
@@ -314,25 +327,12 @@ class TestUnhideLegacyTimeFields(CutoverHostParityTestCase):
 
 	def test_unhide_keeps_host_owned_hidden_setters(self) -> None:
 		"""A host-owned hidden setter is not the cutover's to delete."""
-		frappe.get_doc(
-			{
-				"doctype": "Property Setter",
-				"doctype_or_field": "DocField",
-				"doc_type": "Stock Entry",
-				"field_name": "custom_loss_time",
-				"property": "hidden",
-				"property_type": "Check",
-				"value": "1",
-				"module": "Manufacturing",
-			}
-		).insert(ignore_permissions=True)
+		host_parity.ensure_host_property_setter("Stock Entry", "custom_loss_time", value="1")
 		self.addCleanup(host_parity.remove_property_setter, "Stock Entry", "custom_loss_time")
 
 		unhide_legacy_time_fields()
 
-		self.assertTrue(
-			frappe.db.exists("Property Setter", "Stock Entry-custom_loss_time-hidden")
-		)
+		self.assertTrue(frappe.db.exists("Property Setter", "Stock Entry-custom_loss_time-hidden"))
 		self.assertEqual(_hidden("Stock Entry", "custom_loss_time"), 1)
 
 	def test_before_uninstall_customization_cleanup_unhides_legacy_sections(self) -> None:

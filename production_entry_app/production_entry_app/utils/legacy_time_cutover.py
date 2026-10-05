@@ -23,9 +23,11 @@ Entry points (also called from the install-migration post-sync step):
 - ``unhide_legacy_time_fields`` — reverses step 2 (rollback or pilot course correction).
 
 Scripts are disabled before sections are hidden, so no enabled script ever
-writes to a hidden section. Every step guards on current state, so a re-run
-after a partial failure converges instead of duplicating or throwing. Because
-the hide Property Setters carry the app module, the existing ``before_uninstall``
+writes to a hidden section. Host-owned customizations are never hijacked: if a
+host Property Setter already sits on a cutover target, the engine reports it
+and leaves it alone. Every step guards on current state, so a re-run after a
+partial failure converges instead of duplicating or throwing. Because the hide
+Property Setters carry the app module, the existing ``before_uninstall``
 customization cleanup un-hides on uninstall.
 """
 
@@ -87,9 +89,7 @@ def _disable_legacy_client_scripts() -> None:
 			)
 			continue
 		frappe.db.set_value("Client Script", name, "enabled", 0)
-		frappe.logger("production_entry_app").info(
-			"Legacy time cutover: disabled client script %s.", name
-		)
+		frappe.logger("production_entry_app").info("Legacy time cutover: disabled client script %s.", name)
 
 
 def _hide_legacy_time_sections() -> None:
@@ -127,22 +127,26 @@ def _hide_field(doctype: str, fieldname: str) -> None:
 def _ensure_hidden_property_setter(doctype: str, fieldname: str) -> None:
 	name = _hidden_property_setter_name(doctype, fieldname)
 	if frappe.db.exists("Property Setter", name):
-		# Take over an existing hidden setter (value or module) without recreating the row.
-		updates = {}
-		if cint(frappe.db.get_value("Property Setter", name, "value")) != 1:
-			updates["value"] = HIDDEN_VALUE
-		if frappe.db.get_value("Property Setter", name, "module") != APP_MODULE:
-			updates["module"] = APP_MODULE
-		if not updates:
+		value, module = frappe.db.get_value("Property Setter", name, ["value", "module"])
+		if module != APP_MODULE:
+			# Never hijack a host customization: a host-owned setter on a legacy
+			# target is an unaudited host shape, so report it and leave it alone.
+			if cint(value) != 1:
+				frappe.logger("production_entry_app").warning(
+					"Legacy time cutover: %s has a host-owned setter forcing it visible;"
+					" left untouched. Hide %s manually via Customize Form.",
+					name,
+					f"{doctype}.{fieldname}",
+				)
+			return
+		if cint(value) == 1:
 			frappe.logger("production_entry_app").info(
 				"Legacy time cutover: %s.%s already hidden; skipped.", doctype, fieldname
 			)
 			return
-		frappe.db.set_value("Property Setter", name, updates, update_modified=False)
+		frappe.db.set_value("Property Setter", name, "value", HIDDEN_VALUE, update_modified=False)
 		frappe.clear_cache(doctype=doctype)
-		frappe.logger("production_entry_app").info(
-			"Legacy time cutover: took over the hidden setter for %s.%s.", doctype, fieldname
-		)
+		frappe.logger("production_entry_app").info("Legacy time cutover: re-hid %s.%s.", doctype, fieldname)
 		return
 	frappe.get_doc(
 		{
@@ -156,9 +160,7 @@ def _ensure_hidden_property_setter(doctype: str, fieldname: str) -> None:
 			"module": APP_MODULE,
 		}
 	).insert(ignore_permissions=True)
-	frappe.logger("production_entry_app").info(
-		"Legacy time cutover: hid %s.%s.", doctype, fieldname
-	)
+	frappe.logger("production_entry_app").info("Legacy time cutover: hid %s.%s.", doctype, fieldname)
 
 
 def _delete_app_hidden_property_setter(doctype: str, fieldname: str) -> None:

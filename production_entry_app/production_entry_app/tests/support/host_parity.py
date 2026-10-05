@@ -25,6 +25,10 @@ HOST_MODULE = "Manufacturing"
 KEPT_CLIENT_SCRIPTS = ("Branch Fetching Stock Entry", "BOM", "Stock Entry Type")
 LEGACY_TIME_CLIENT_SCRIPTS = ("Actual & Loss Time Calculation", "Stock Auto Time")
 
+# These helpers commit deliberately: Custom Field inserts/deletes issue DDL (implicit
+# commits) and the shared dev site must keep its fixture state across FrappeTestCase
+# class-boundary rollbacks, so partial test state must never survive a rollback.
+
 _PROPERTY_SETTER_SNAPSHOT_FIELDS = (
 	"name",
 	"doctype_or_field",
@@ -247,16 +251,19 @@ def remove_host_custom_field(dt: str, fieldname: str) -> None:
 		frappe.db.commit()
 
 
-def ensure_obsolete_pea_custom_field(fieldname: str = "custom_pea_abandoned_metric") -> None:
+OBSOLETE_DRIFT_FIELDNAME = "custom_pea_abandoned_metric"
+
+
+def ensure_obsolete_pea_custom_field() -> None:
 	"""Create a staging-drift PEA-module custom field that current fixtures do not ship."""
-	name = f"Stock Entry-{fieldname}"
+	name = f"Stock Entry-{OBSOLETE_DRIFT_FIELDNAME}"
 	if frappe.db.exists("Custom Field", name):
 		return
 	frappe.get_doc(
 		{
 			"doctype": "Custom Field",
 			"dt": "Stock Entry",
-			"fieldname": fieldname,
+			"fieldname": OBSOLETE_DRIFT_FIELDNAME,
 			"label": "Abandoned Metric",
 			"fieldtype": "Data",
 			"insert_after": "custom_stock_entry_purpose",
@@ -267,9 +274,9 @@ def ensure_obsolete_pea_custom_field(fieldname: str = "custom_pea_abandoned_metr
 	frappe.db.commit()
 
 
-def remove_obsolete_pea_custom_field(fieldname: str = "custom_pea_abandoned_metric") -> None:
-	remove_property_setter("Stock Entry", fieldname)
-	remove_host_custom_field("Stock Entry", fieldname)
+def remove_obsolete_pea_custom_field() -> None:
+	remove_property_setter("Stock Entry", OBSOLETE_DRIFT_FIELDNAME)
+	remove_host_custom_field("Stock Entry", OBSOLETE_DRIFT_FIELDNAME)
 
 
 def neutralize_module_pea_drift() -> dict[str, str]:
@@ -357,7 +364,27 @@ def remove_legacy_time_fields() -> None:
 	remove_host_custom_field("Stock Entry", "custom_actual_start_date")
 
 
-def ensure_client_script(name: str, *, dt: str = "Stock Entry", enabled: bool = True) -> None:
+def ensure_host_property_setter(doctype: str, fieldname: str, *, value: str) -> None:
+	"""Create a host-owned (Manufacturing-module) hidden setter, if absent."""
+	name = f"{doctype}-{fieldname}-hidden"
+	if frappe.db.exists("Property Setter", name):
+		return
+	frappe.get_doc(
+		{
+			"doctype": "Property Setter",
+			"doctype_or_field": "DocField",
+			"doc_type": doctype,
+			"field_name": fieldname,
+			"property": "hidden",
+			"property_type": "Check",
+			"value": value,
+			"module": HOST_MODULE,
+		}
+	).insert(ignore_permissions=True)
+	frappe.db.commit()
+
+
+def ensure_client_script(name: str, *, enabled: bool = True) -> None:
 	"""Create (or re-enable) a host client script with the given name."""
 	if frappe.db.exists("Client Script", name):
 		frappe.db.set_value("Client Script", name, "enabled", 1 if enabled else 0, update_modified=False)
@@ -367,7 +394,7 @@ def ensure_client_script(name: str, *, dt: str = "Stock Entry", enabled: bool = 
 		{
 			"doctype": "Client Script",
 			"name": name,
-			"dt": dt,
+			"dt": "Stock Entry",
 			"enabled": 1 if enabled else 0,
 			"script": "console.warn('host parity client script');",
 		}
@@ -409,29 +436,29 @@ def restore_module_property_setters(snapshot: dict[str, dict]) -> None:
 	frappe.db.commit()
 
 
-def ensure_legacy_workstation(name: str = "Host Parity Workstation") -> str:
+def ensure_legacy_workstation() -> str:
 	"""Create (or return) a workstation carrying the legacy standard SPM value."""
-	if frappe.db.exists("Workstation", name):
-		return name
+	if frappe.db.exists("Workstation", "Host Parity Workstation"):
+		return "Host Parity Workstation"
 	frappe.get_doc(
 		{
 			"doctype": "Workstation",
-			"workstation_name": name,
+			"workstation_name": "Host Parity Workstation",
 			"custom_standard_spm": 42,
 		}
 	).insert(ignore_permissions=True)
 	frappe.db.commit()
-	return name
+	return "Host Parity Workstation"
 
 
-def remove_legacy_workstation(name: str = "Host Parity Workstation") -> None:
-	if frappe.db.exists("Workstation", name):
-		frappe.delete_doc("Workstation", name, force=True, ignore_permissions=True)
+def remove_legacy_workstation() -> None:
+	if frappe.db.exists("Workstation", "Host Parity Workstation"):
+		frappe.delete_doc("Workstation", "Host Parity Workstation", force=True, ignore_permissions=True)
 		frappe.db.commit()
 
 
-def make_legacy_stock_entry(*, submit: bool = True) -> str:
-	"""Create a Stock Entry carrying legacy time-capture values."""
+def make_legacy_stock_entry() -> str:
+	"""Create a submitted Stock Entry carrying legacy time-capture values."""
 	from production_entry_app.production_entry_app.utils.test_bootstrap import (
 		ensure_item,
 		ensure_warehouse,
@@ -454,6 +481,5 @@ def make_legacy_stock_entry(*, submit: bool = True) -> str:
 			"custom_actual_start_date": "2026-10-01 09:00:00",
 		}
 	).insert(ignore_permissions=True)
-	if submit:
-		doc.submit()
+	doc.submit()
 	return doc.name
