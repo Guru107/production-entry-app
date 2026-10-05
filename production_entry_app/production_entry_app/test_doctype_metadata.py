@@ -373,7 +373,9 @@ def test_downtime_entry_uses_downtime_reason_link() -> None:
 
 	property_setters = {
 		row.get("name"): row
-		for row in json.loads((APP_ROOT / "production_entry_app" / "fixtures" / "property_setter.json").read_text())
+		for row in json.loads(
+			(APP_ROOT / "production_entry_app" / "fixtures" / "property_setter.json").read_text()
+		)
 		if row.get("name")
 	}
 	assert property_setters["Downtime Entry-stop_reason-hidden"].get("value") == "1"
