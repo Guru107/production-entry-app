@@ -388,6 +388,13 @@ def _get_shift_summary_cache_key(shift_name: str) -> str:
 
 
 def _get_cached_shift_summary(shift_name: str) -> dict | None:
+	"""Return a shared summary payload for this Shift.
+
+	Safe only while every reader of a Shift sees the same Stock Entry / Downtime Entry
+	set through get_list. Today that holds because Shift is single-branch and linked
+	entries carry that branch. Do not reuse this cache if Stock Entry gains per-user
+	filters that would make two readers of the same Shift see different rows.
+	"""
 	return frappe.cache().get_value(_get_shift_summary_cache_key(shift_name))
 
 

@@ -75,6 +75,10 @@ def _get_cached_timeline_data(doctype: str, docname: str, shift_name: str) -> di
 
 	Cache is keyed by the shift's modified timestamp, so any change to the shift
 	automatically produces a different key, making the cache stale.
+
+	Shared across users: safe only while every reader of this Shift sees the same
+	Stock Entry / Downtime Entry rows through get_list (single-branch Shift model).
+	Do not reuse if Stock Entry gains per-user filters that diverge between readers.
 	"""
 	return frappe.cache().get_value(_get_timeline_cache_key(doctype, docname, shift_name))
 
