@@ -2,7 +2,7 @@
 
 These helpers swap the app-owned ``Downtime Reason`` DocType for the host
 (production) custom shape and back, mirroring the production site where the
-DocType is a submittable custom master named by ``downtime_issue`` with a
+DocType is a non-submittable custom master named by ``downtime_issue`` with a
 custom ``Loss Time`` child table linked from Stock Entry.
 """
 
@@ -56,8 +56,15 @@ def delete_downtime_reason_doctype() -> None:
 	_delete_downtime_reason_doctype_record()
 
 
-def install_host_downtime_reason_doctype(*, extra_fields: tuple[dict, ...] = ()) -> None:
-	"""Create the production host custom DocType: submittable, named by downtime_issue."""
+def install_host_downtime_reason_doctype(
+	*, is_submittable: bool = False, extra_fields: tuple[dict, ...] = ()
+) -> None:
+	"""Create the production host custom DocType: non-submittable, named by downtime_issue.
+
+	Production was aligned with staging (non-submittable) before install; rows
+	submitted while the doctype was still submittable keep docstatus=1 in the
+	table, so callers simulate that via ``legacy_docstatus``.
+	"""
 	frappe.get_doc(
 		{
 			"doctype": "DocType",
@@ -65,7 +72,7 @@ def install_host_downtime_reason_doctype(*, extra_fields: tuple[dict, ...] = ())
 			"name": "Downtime Reason",
 			"module": HOST_MODULE,
 			"custom": 1,
-			"is_submittable": 1,
+			"is_submittable": 1 if is_submittable else 0,
 			"autoname": "field:downtime_issue",
 			"naming_rule": "By fieldname",
 			"fields": [
@@ -84,15 +91,15 @@ def install_host_downtime_reason_doctype(*, extra_fields: tuple[dict, ...] = ())
 	frappe.clear_cache(doctype="Downtime Reason")
 
 
-def insert_host_downtime_reason(name: str, *, submit: bool = False) -> None:
+def insert_host_downtime_reason(name: str, *, legacy_docstatus: int = 0) -> None:
 	doc = frappe.get_doc(
 		{
 			"doctype": "Downtime Reason",
 			"downtime_issue": name,
 		}
 	).insert(ignore_permissions=True)
-	if submit:
-		doc.submit()
+	if legacy_docstatus:
+		frappe.db.set_value("Downtime Reason", doc.name, "docstatus", legacy_docstatus, update_modified=False)
 
 
 def doctype_snapshot() -> dict:

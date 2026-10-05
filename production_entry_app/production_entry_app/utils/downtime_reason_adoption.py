@@ -1,6 +1,6 @@
 """One-shot install migration: adopt the host custom Downtime Reason DocType in place.
 
-Production ships a submittable custom ``Downtime Reason`` DocType (module
+Production ships a custom, non-submittable ``Downtime Reason`` DocType (module
 Manufacturing, autoname ``field:downtime_issue``) whose name collides with this
 app's DocType. The adoption engine reshapes the host DocType to the app schema
 in place — same name, same table, same rows — so doctype sync proceeds without
@@ -102,7 +102,7 @@ def classify_downtime_reason_doctype() -> str:
 def _is_host_shape(meta: Meta) -> bool:
 	return (
 		bool(meta.custom)
-		and cint(meta.is_submittable) == 1
+		and cint(meta.is_submittable) == 0
 		and (meta.autoname or "") == HOST_AUTONAME
 		and meta.get_field(HOST_IDENTITY_FIELD) is not None
 		and meta.get_field("code") is None
@@ -215,9 +215,10 @@ def _reshape_doctype() -> None:
 def _normalize_rows() -> None:
 	"""Backfill app-schema columns on the adopted rows and reset submit state.
 
-	Frappe refuses to delete submitted records, and every merge during conversion
-	ends in a delete, so submitted masters must drop to draft before conversion;
-	the original docstatus values are preserved in the recovery export.
+	Rows submitted while the host DocType was still submittable keep docstatus=1
+	after it was made non-submittable; a non-submittable doctype must not carry
+	submitted rows, so they drop to draft. The original docstatus values are
+	preserved in the recovery export.
 	"""
 	rows = frappe.get_all(
 		DOCTYPE, fields=["name", "description", "is_active", "docstatus"], order_by="creation asc"

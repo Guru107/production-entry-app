@@ -71,7 +71,7 @@ class HostParityTestCase(FrappeTestCase):
 		host_parity.restore_app_downtime_reason()
 		host_parity.delete_downtime_reason_doctype()
 		host_parity.install_host_downtime_reason_doctype()
-		host_parity.insert_host_downtime_reason("Setup Time", submit=True)
+		host_parity.insert_host_downtime_reason("Setup Time", legacy_docstatus=1)
 		host_parity.insert_host_downtime_reason("Inventory")
 
 
@@ -199,15 +199,13 @@ class TestFullAdoption(HostParityWithLinksTestCase):
 
 
 class TestAdoptionFailurePaths(HostParityTestCase):
-	def setUp(self) -> None:
-		super().setUp()
+	def test_schema_adoption_throws_on_unexpected_shape(self) -> None:
+		"""A code field beside the host identity marks an unknown, unadoptable shape."""
 		host_parity.delete_downtime_reason_doctype()
 		host_parity.install_host_downtime_reason_doctype(
 			extra_fields=({"fieldname": "code", "fieldtype": "Data"},)
 		)
 		host_parity.insert_host_downtime_reason("Setup Time")
-
-	def test_schema_adoption_throws_on_unexpected_shape(self) -> None:
 		before = host_parity.doctype_snapshot()
 
 		with self.assertRaises(frappe.ValidationError):
@@ -216,6 +214,19 @@ class TestAdoptionFailurePaths(HostParityTestCase):
 		self.assertEqual(host_parity.doctype_snapshot(), before)
 		self.assertFalse(Path(adoption_export_path()).exists())
 		self.assertTrue(frappe.db.exists("Downtime Reason", "Setup Time"))
+
+	def test_schema_adoption_rejects_submittable_host_doctype(self) -> None:
+		"""The host DocType is non-submittable (staging-aligned); submittable is unexpected."""
+		host_parity.delete_downtime_reason_doctype()
+		host_parity.install_host_downtime_reason_doctype(is_submittable=True)
+		host_parity.insert_host_downtime_reason("Setup Time")
+		before = host_parity.doctype_snapshot()
+
+		with self.assertRaises(frappe.ValidationError):
+			adopt_host_downtime_reason_schema()
+
+		self.assertEqual(host_parity.doctype_snapshot(), before)
+		self.assertFalse(Path(adoption_export_path()).exists())
 
 
 class TestAdoptionRecovery(HostParityWithLinksTestCase):
