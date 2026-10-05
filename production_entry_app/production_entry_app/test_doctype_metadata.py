@@ -363,6 +363,25 @@ def test_pending_rework_workspace_link_uses_query_report_route() -> None:
 	assert pending_rework["is_query_report"] == 1
 
 
+def test_workspace_forms_include_downtime_entry_not_downtime_reason() -> None:
+	workspace = json.loads(WORKSPACE_JSON.read_text())
+	form_links: list[dict] = []
+	in_forms = False
+	for row in workspace["links"]:
+		if row.get("type") == "Card Break":
+			in_forms = row.get("label") == "Forms"
+			continue
+		if in_forms and row.get("type") == "Link":
+			form_links.append(row)
+
+	labels = [row["label"] for row in form_links]
+	assert "Downtime Entry" in labels
+	assert "Downtime Reason" not in labels
+	downtime_entry = next(row for row in form_links if row["label"] == "Downtime Entry")
+	assert downtime_entry["link_type"] == "DocType"
+	assert downtime_entry["link_to"] == "Downtime Entry"
+
+
 def test_downtime_entry_uses_downtime_reason_link() -> None:
 	fields_by_name = {field.get("name"): field for field in load_custom_field_fixture() if field.get("name")}
 	reason_field = fields_by_name["Downtime Entry-custom_pea_downtime_reason"]
@@ -421,6 +440,7 @@ def load_tests(
 			test_production_stock_entry_purpose_metadata_is_available,
 			test_workspace_has_forms_and_reports_cards,
 			test_pending_rework_workspace_link_uses_query_report_route,
+			test_workspace_forms_include_downtime_entry_not_downtime_reason,
 			test_downtime_entry_uses_downtime_reason_link,
 		)
 	)
