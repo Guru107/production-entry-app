@@ -391,7 +391,7 @@ def test_downtime_entry_uses_downtime_reason_link() -> None:
 	assert reason_field.get("reqd") == 1
 	assert reason_field.get("insert_after") == "stop_reason"
 
-	property_setters = {row.get("name"): row for row in load_property_setter_fixture() if row.get("name")}
+	property_setters = property_setters_by_name()
 	assert property_setters["Downtime Entry-stop_reason-hidden"].get("value") == "1"
 	assert property_setters["Downtime Entry-stop_reason-reqd"].get("value") == "0"
 
@@ -408,9 +408,7 @@ def test_stock_entry_use_multi_level_bom_default_setter_is_shipped() -> None:
 	reverting the default to 1 — a documented, accepted side effect (see the
 	production release plan, section 2.7).
 	"""
-	setter = {row.get("name"): row for row in load_property_setter_fixture() if row.get("name")}[
-		"Stock Entry-use_multi_level_bom-default"
-	]
+	setter = property_setters_by_name()["Stock Entry-use_multi_level_bom-default"]
 	assert setter.get("property") == "default"
 	assert setter.get("value") == "0"
 	assert setter.get("module") == "Production Entry App"
@@ -427,6 +425,10 @@ def load_custom_field_fixture() -> list[dict]:
 
 def load_property_setter_fixture() -> list[dict]:
 	return json.loads(PROPERTY_SETTER_FIXTURE.read_text())
+
+
+def property_setters_by_name() -> dict[str, dict]:
+	return {row["name"]: row for row in load_property_setter_fixture() if row.get("name")}
 
 
 def scrub_doctype(doctype: str) -> str:
