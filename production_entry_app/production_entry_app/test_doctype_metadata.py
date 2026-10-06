@@ -7,6 +7,7 @@ from pathlib import Path
 APP_ROOT = Path(__file__).resolve().parents[2]
 DOCTYPE_ROOT = Path(__file__).parent / "doctype"
 CUSTOM_FIELD_FIXTURE = APP_ROOT / "production_entry_app" / "fixtures" / "custom_field.json"
+PROPERTY_SETTER_FIXTURE = APP_ROOT / "production_entry_app" / "fixtures" / "property_setter.json"
 ROLE_FIXTURE = APP_ROOT / "production_entry_app" / "fixtures" / "role.json"
 STOCK_ENTRY_TYPE_FIXTURE = APP_ROOT / "production_entry_app" / "fixtures" / "stock_entry_type.json"
 WORKSPACE_JSON = (
@@ -390,15 +391,29 @@ def test_downtime_entry_uses_downtime_reason_link() -> None:
 	assert reason_field.get("reqd") == 1
 	assert reason_field.get("insert_after") == "stop_reason"
 
-	property_setters = {
-		row.get("name"): row
-		for row in json.loads(
-			(APP_ROOT / "production_entry_app" / "fixtures" / "property_setter.json").read_text()
-		)
-		if row.get("name")
-	}
+	property_setters = {row.get("name"): row for row in load_property_setter_fixture() if row.get("name")}
 	assert property_setters["Downtime Entry-stop_reason-hidden"].get("value") == "1"
 	assert property_setters["Downtime Entry-stop_reason-reqd"].get("value") == "0"
+
+
+def test_stock_entry_use_multi_level_bom_default_setter_is_shipped() -> None:
+	"""Pin the kept Property Setter duplicate of the host customization (#140).
+
+	ERPNext 15 and 16 meta ship a native default of 1 for
+	Stock Entry.use_multi_level_bom, so this setter is the only guarantee that
+	clean installs default to 0 — dropping it would flip every site without the
+	host's module-null twin back to 1. On hosts that already carry the same-named
+	module-null setter (production), fixture sync takes the host record over
+	(module reassigned to this app) and before_uninstall then deletes it,
+	reverting the default to 1 — a documented, accepted side effect (see the
+	production release plan, section 2.7).
+	"""
+	setter = {row.get("name"): row for row in load_property_setter_fixture() if row.get("name")}[
+		"Stock Entry-use_multi_level_bom-default"
+	]
+	assert setter.get("property") == "default"
+	assert setter.get("value") == "0"
+	assert setter.get("module") == "Production Entry App"
 
 
 def assert_doctype_json(doctype: str) -> dict:
@@ -408,6 +423,10 @@ def assert_doctype_json(doctype: str) -> dict:
 
 def load_custom_field_fixture() -> list[dict]:
 	return json.loads(CUSTOM_FIELD_FIXTURE.read_text())
+
+
+def load_property_setter_fixture() -> list[dict]:
+	return json.loads(PROPERTY_SETTER_FIXTURE.read_text())
 
 
 def scrub_doctype(doctype: str) -> str:
@@ -442,5 +461,6 @@ def load_tests(
 			test_pending_rework_workspace_link_uses_query_report_route,
 			test_workspace_forms_include_downtime_entry_not_downtime_reason,
 			test_downtime_entry_uses_downtime_reason_link,
+			test_stock_entry_use_multi_level_bom_default_setter_is_shipped,
 		)
 	)

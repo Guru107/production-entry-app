@@ -148,9 +148,21 @@ Confirm `trikaya` (and any other app) does not also override Stock Entry before 
 | Property Setter | Note |
 |-----------------|------|
 | `Downtime Entry-stop_reason-hidden/reqd` | Safe — native field exists |
-| `Stock Entry-use_multi_level_bom-default=0` | Safe |
+| `Stock Entry-use_multi_level_bom-default=0` | Kept (see below) — takes over the host record; uninstall deletes it |
 | `Stock Entry-bom_info_section-collapsible=0` | Safe if section exists |
 | `Stock Entry-section_break_7qsm-collapsible=0` | **Validate on clone** — fieldname may be site/version-specific |
+
+**`use_multi_level_bom` default duplicate — decision (#140, 2026-10-06).** ERPNext ships a
+native default of `1` for `Stock Entry.use_multi_level_bom` (verified against local meta:
+ERPNext 15.121.6 — the production version — and 16.37.0), so the fixture Property Setter is the
+only guarantee that clean installs default to `0`; it is **kept**. Production already carries the
+same-named, module-null host setter with the same value `0`, so the takeover is value-neutral at
+install time: fixture sync (`import_doc` deletes and re-inserts the existing record) reassigns the
+host record's module to `Production Entry App`. Side effect, accepted: `before_uninstall` deletes
+every module-PEA Property Setter, so uninstalling the app on Production removes that record and
+the Stock Entry default reverts to the native `1` — re-create it via Customize Form after an
+uninstall if the host default of `0` must be restored. Sync/export round-trip verified on the
+bench15 dev site (same five setters, identical semantic values).
 
 ### 2.8 Staging reference state (already converted)
 
