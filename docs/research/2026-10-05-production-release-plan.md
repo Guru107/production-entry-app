@@ -380,11 +380,19 @@ Order matters. Do not skip clone proof.
 | Failure point | Rollback |
 |---------------|----------|
 | Before app install | Restore backup; no PEA artifacts |
-| After install, before wide pilot | `bench uninstall-app production_entry_app` only if clone-tested; PEA `before_uninstall` deletes module Custom Fields/Property Setters — **does not** restore old Downtime Reason DocType |
+| After install, before wide pilot | `bench uninstall-app production_entry_app` only if clone-tested; PEA `before_uninstall` drops performance indexes and deletes module Custom Fields/Property Setters; PEA `after_uninstall` deletes app-owned Stock Entry Types (unless Stock Entries reference them), the `PEA User` / `PEA Read Only` roles (unless users still hold them) and their custom DocPerms on host DocTypes — **does not** restore old Downtime Reason DocType |
 | Downtime Reason conversion mistake | Restore from pre-conversion export/backup; conversion merges are hard to undo selectively |
 | Script conflicts | Re-enable legacy client scripts; disable PEA use (access control / stop creating Shifts) |
 
 **Implication:** Downtime Reason adoption is the least reversible step — prove it on a clone first.
+
+**Retained residue after `bench uninstall-app` (accepted, matches framework uninstall behavior):**
+
+- Physical `custom_pea_*` database columns — Frappe never drops columns on custom-field deletion, so a re-install loses no recently entered production facts.
+- Stock Entry Types still referenced by Stock Entries, and PEA roles still assigned to users — each is retained with a named warning in the uninstall log; review and remove manually once the references are gone.
+- Comment and Notification Log rows referencing dropped PEA DocTypes.
+- Patch Log history and the pre-uninstall auto-backup.
+- Bench-level artifacts (apps directory entry, apps.txt line, built assets).
 
 ---
 

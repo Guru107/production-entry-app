@@ -4,9 +4,49 @@ import unittest
 from unittest.mock import Mock, call, patch
 
 import frappe
+from frappe.query_builder import DocType
 from frappe.tests.utils import FrappeTestCase
+from frappe.utils import now, nowdate
 
 from production_entry_app.production_entry_app import lifecycle
+
+
+def _seed_flagged_stock_entry_type(flag_fieldname: str) -> str:
+	name = f"PEA Test Type {frappe.generate_hash(length=6)}"
+	frappe.get_doc({"doctype": "Stock Entry Type", "__newname": name, "purpose": "Repack"}).insert(
+		ignore_permissions=True
+	)
+	frappe.db.set_value("Stock Entry Type", name, flag_fieldname, 1)
+	return name
+
+
+def _seed_stock_entry_referencing(entry_type: str) -> str:
+	name = f"PEA Test Entry {frappe.generate_hash(length=6)}"
+	stock_entry = DocType("Stock Entry")
+	frappe.qb.into(stock_entry).columns(
+		stock_entry.name,
+		stock_entry.docstatus,
+		stock_entry.stock_entry_type,
+		stock_entry.purpose,
+		stock_entry.posting_date,
+		stock_entry.company,
+		stock_entry.owner,
+		stock_entry.modified_by,
+		stock_entry.creation,
+		stock_entry.modified,
+	).insert(
+		name,
+		0,
+		entry_type,
+		"Repack",
+		nowdate(),
+		frappe.get_all("Company", limit=1, pluck="name")[0],
+		"Administrator",
+		"Administrator",
+		now(),
+		now(),
+	).run()
+	return name
 
 
 class TestReworkDetailsLayout(unittest.TestCase):
@@ -237,3 +277,63 @@ class TestLifecycle(FrappeTestCase):
 		drop_indexes.assert_called_once_with()
 		self.assertEqual(get_all.call_count, 2)
 		delete_doc.assert_not_called()
+
+	def test_after_uninstall_deletes_unreferenced_app_owned_stock_entry_types(self) -> None:
+		joint_type = _seed_flagged_stock_entry_type("custom_pea_joint_lh_rh_production")
+		rework_type = _seed_flagged_stock_entry_type("custom_pea_rework_entry")
+
+		lifecycle.after_uninstall()
+
+		self.assertFalse(frappe.db.exists("Stock Entry Type", joint_type))
+		self.assertFalse(frappe.db.exists("Stock Entry Type", rework_type))
+
+	def test_after_uninstall_retains_referenced_stock_entry_type_with_warning(self) -> None:
+		rework_type = _seed_flagged_stock_entry_type("custom_pea_rework_entry")
+		_seed_stock_entry_referencing(rework_type)
+
+		with patch("frappe.logger") as mock_logger:
+			lifecycle.after_uninstall()
+
+		self.assertTrue(frappe.db.exists("Stock Entry Type", rework_type))
+		warnings = [str(call_args) for call_args in mock_logger.return_value.warning.call_args_list]
+		self.assertTrue(any(rework_type in warning for warning in warnings))
+
+	def test_after_uninstall_deletes_unassigned_roles_and_retains_assigned_role(self) -> None:
+		frappe.db.delete("Has Role", {"role": ["in", lifecycle.APP_ROLES]})
+		frappe.get_doc("User", "Administrator").add_roles("PEA User")
+
+		with patch("frappe.logger") as mock_logger:
+			lifecycle.after_uninstall()
+
+		self.assertFalse(frappe.db.exists("Role", "PEA Read Only"))
+		self.assertTrue(frappe.db.exists("Role", "PEA User"))
+		warnings = [str(call_args) for call_args in mock_logger.return_value.warning.call_args_list]
+		self.assertTrue(any("PEA User" in warning for warning in warnings))
+
+	def test_after_uninstall_removes_app_docperms_on_host_doctypes(self) -> None:
+		docperm = frappe.get_doc(
+			{
+				"doctype": "DocPerm",
+				"parent": "Item",
+				"parentfield": "permissions",
+				"parenttype": "DocType",
+				"role": "PEA Read Only",
+				"read": 1,
+				"permlevel": 0,
+			}
+		).insert(ignore_permissions=True)
+
+		lifecycle.after_uninstall()
+
+		self.assertFalse(frappe.db.exists("DocPerm", docperm.name))
+
+	def test_after_uninstall_is_idempotent(self) -> None:
+		frappe.db.delete("Has Role", {"role": ["in", lifecycle.APP_ROLES]})
+		joint_type = _seed_flagged_stock_entry_type("custom_pea_joint_lh_rh_production")
+
+		lifecycle.after_uninstall()
+		lifecycle.after_uninstall()
+
+		self.assertFalse(frappe.db.exists("Stock Entry Type", joint_type))
+		for role_name in lifecycle.APP_ROLES:
+			self.assertFalse(frappe.db.exists("Role", role_name))

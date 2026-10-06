@@ -102,7 +102,7 @@ after_install = ["production_entry_app.install.after_install"]
 # ------------
 
 before_uninstall = ["production_entry_app.production_entry_app.lifecycle.before_uninstall"]
-# after_uninstall = "production_entry_app.uninstall.after_uninstall"
+after_uninstall = ["production_entry_app.production_entry_app.lifecycle.after_uninstall"]
 
 # Integration Setup
 # ------------------

@@ -414,6 +414,20 @@ def test_stock_entry_use_multi_level_bom_default_setter_is_shipped() -> None:
 	assert setter.get("module") == "Production Entry App"
 
 
+def test_customization_fixtures_stamp_app_module_on_every_record() -> None:
+	"""Frappe-standard: every Custom Field / Property Setter fixture record must carry
+	the app module, otherwise module-scoped uninstall hooks and fixture sync skip it
+	(a module-less record is invisible to filters on ``module = 'Production Entry App'``).
+	"""
+	unstamped = sorted(
+		record.get("name") or "<unnamed>"
+		for fixture in (load_custom_field_fixture(), load_property_setter_fixture())
+		for record in fixture
+		if record.get("module") != "Production Entry App"
+	)
+	assert not unstamped, f"Fixture records missing module 'Production Entry App': {unstamped}"
+
+
 def assert_doctype_json(doctype: str) -> dict:
 	doctype_path = DOCTYPE_ROOT / scrub_doctype(doctype) / f"{scrub_doctype(doctype)}.json"
 	return json.loads(doctype_path.read_text())
@@ -464,5 +478,6 @@ def load_tests(
 			test_workspace_forms_include_downtime_entry_not_downtime_reason,
 			test_downtime_entry_uses_downtime_reason_link,
 			test_stock_entry_use_multi_level_bom_default_setter_is_shipped,
+			test_customization_fixtures_stamp_app_module_on_every_record,
 		)
 	)
