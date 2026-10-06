@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from unittest.mock import patch
 
@@ -12,46 +11,13 @@ from production_entry_app import install
 from production_entry_app.production_entry_app.doctype.downtime_reason.downtime_reason import (
 	CODE_FORMAT,
 )
-from production_entry_app.production_entry_app.tests.support import host_parity
+from production_entry_app.production_entry_app.tests.support import host_parity, install_parity
 from production_entry_app.production_entry_app.utils.downtime_reason_adoption import (
 	adoption_export_path,
-)
-from production_entry_app.production_entry_app.utils.downtime_reason_seed import (
-	STANDARD_DOWNTIME_REASONS,
 )
 
 BEFORE_INSTALL_HOOK = "production_entry_app.install.before_install"
 AFTER_INSTALL_HOOK = "production_entry_app.install.after_install"
-
-
-def _reason_rows() -> list[dict]:
-	return frappe.get_all(
-		"Downtime Reason", fields=["name", "code", "description", "is_active"], order_by="name"
-	)
-
-
-def _enabled(name: str) -> int:
-	return int(frappe.db.get_value("Client Script", name, "enabled") or 0)
-
-
-def _hidden(doctype: str, fieldname: str) -> int:
-	field = frappe.get_meta(doctype, cached=False).get_field(fieldname)
-	return int(getattr(field, "hidden", 0) or 0)
-
-
-def _script_state() -> dict[str, int]:
-	rows = frappe.get_all("Client Script", fields=["name", "enabled"])
-	return {row.name: int(row.enabled or 0) for row in rows}
-
-
-def _property_setter_state() -> dict[str, str]:
-	rows = frappe.get_all(
-		"Property Setter",
-		filters={"module": "Production Entry App"},
-		fields=["name", "value"],
-		order_by="name",
-	)
-	return {row.name: row.value for row in rows}
 
 
 def run_install_sequence() -> None:
@@ -81,19 +47,7 @@ class TestInstallHookWiring(FrappeTestCase):
 		)
 
 
-class CleanSiteTestCase(FrappeTestCase):
-	"""Base: a site without any host drift (the clean-install shape)."""
-
-	def setUp(self) -> None:
-		super().setUp()
-		self.neutralized_drift = host_parity.neutralize_module_pea_drift()
-		self.addCleanup(host_parity.restore_module_pea_drift, self.neutralized_drift)
-		host_parity.clear_adoption_export()
-		self.addCleanup(host_parity.clear_adoption_export)
-		self.addCleanup(host_parity.restore_app_downtime_reason)
-
-
-class TestInstallHooksOnCleanSite(CleanSiteTestCase):
+class TestInstallHooksOnCleanSite(install_parity.CleanSiteTestCase):
 	def test_before_install_is_noop_when_doctype_is_absent(self) -> None:
 		host_parity.delete_downtime_reason_doctype()
 
@@ -105,45 +59,14 @@ class TestInstallHooksOnCleanSite(CleanSiteTestCase):
 	def test_install_hooks_are_noops_on_app_owned_doctype(self) -> None:
 		"""Clean sites (no host DocType) install unchanged: no reason, meta or UI change."""
 		host_parity.restore_app_downtime_reason()
-		rows_before = _reason_rows()
-		meta_before = host_parity.doctype_snapshot()
-		setters_before = _property_setter_state()
-		scripts_before = _script_state()
+		state_before = install_parity.migration_state()
 
 		run_install_sequence()
 
-		self.assertEqual(_reason_rows(), rows_before)
-		self.assertEqual(host_parity.doctype_snapshot(), meta_before)
-		self.assertEqual(_property_setter_state(), setters_before)
-		self.assertEqual(_script_state(), scripts_before)
+		self.assertEqual(install_parity.migration_state(), state_before)
 
 
-class HostParityInstallTestCase(CleanSiteTestCase):
-	"""Base: host (production-like) state — host DocType, legacy UI, links and drift."""
-
-	def setUp(self) -> None:
-		super().setUp()
-		self.property_setters_before = host_parity.snapshot_module_property_setters()
-		self.addCleanup(host_parity.restore_module_property_setters, self.property_setters_before)
-		host_parity.restore_app_downtime_reason()
-		host_parity.delete_downtime_reason_doctype()
-		host_parity.install_host_downtime_reason_doctype()
-		host_parity.insert_host_downtime_reason("Setup Time", legacy_docstatus=1)
-		host_parity.insert_host_downtime_reason("Inventory")
-		host_parity.install_host_loss_time()
-		self.addCleanup(host_parity.remove_host_loss_time)
-		self.stock_entry = host_parity.make_host_stock_entry_with_loss_times(["Setup Time", "Inventory"])
-		self.addCleanup(host_parity.discard_stock_entry, self.stock_entry)
-		host_parity.install_legacy_time_fields()
-		self.addCleanup(host_parity.remove_legacy_time_fields)
-		host_parity.ensure_legacy_workstation()
-		self.addCleanup(host_parity.remove_legacy_workstation)
-		for name in host_parity.LEGACY_TIME_CLIENT_SCRIPTS + host_parity.KEPT_CLIENT_SCRIPTS:
-			host_parity.ensure_client_script(name)
-			self.addCleanup(host_parity.remove_client_script, name)
-
-
-class TestBeforeInstallOnHostParity(HostParityInstallTestCase):
+class TestBeforeInstallOnHostParity(install_parity.HostParityMigrationTestCase):
 	def test_before_install_reshapes_host_doctype_in_place(self) -> None:
 		install.before_install()
 
@@ -171,46 +94,25 @@ class TestBeforeInstallOnHostParity(HostParityInstallTestCase):
 		self.assertTrue(frappe.db.exists("Downtime Reason", "Setup Time"))
 
 
-class TestInstallSequenceOnHostParity(HostParityInstallTestCase):
+class TestInstallSequenceOnHostParity(install_parity.HostParityMigrationTestCase):
 	def test_install_sequence_adopts_converts_and_applies_cutover(self) -> None:
 		run_install_sequence()
 
-		names = {row["name"] for row in _reason_rows()}
-		self.assertTrue(names)
-		for name in names:
-			self.assertRegex(name, CODE_FORMAT.pattern)
-		self.assertTrue(names >= set(STANDARD_DOWNTIME_REASONS))
-		self.assertEqual(frappe.db.get_value("Downtime Reason", "01", "description"), "Setup")
-		self.assertEqual(frappe.db.get_value("Downtime Reason", "23", "description"), "Inventory")
-		self.assertEqual(sorted(host_parity.loss_time_reason_values(self.stock_entry)), ["01", "23"])
-		for name in host_parity.LEGACY_TIME_CLIENT_SCRIPTS:
-			self.assertEqual(_enabled(name), 0, name)
-		for name in host_parity.KEPT_CLIENT_SCRIPTS:
-			self.assertEqual(_enabled(name), 1, name)
-		self.assertEqual(_hidden("Stock Entry", "custom_operation_details"), 1)
-		self.assertEqual(_hidden("Stock Entry", "custom_actual_time"), 1)
-		self.assertEqual(_hidden("Stock Entry", "custom_loss_time"), 1)
-		self.assertEqual(_hidden("Workstation", "custom_standard_spm"), 1)
+		self.assert_adopted_converted_and_cut_over()
 
 	def test_reinstall_converges_without_duplicate_work(self) -> None:
 		run_install_sequence()
-		rows_after_first = _reason_rows()
-		meta_after_first = host_parity.doctype_snapshot()
-		setters_after_first = _property_setter_state()
-		scripts_after_first = _script_state()
+		state_after_first = install_parity.migration_state()
 		export_after_first = Path(adoption_export_path()).read_text()
 
 		run_install_sequence()
 
-		self.assertEqual(_reason_rows(), rows_after_first)
-		self.assertEqual(host_parity.doctype_snapshot(), meta_after_first)
-		self.assertEqual(_property_setter_state(), setters_after_first)
-		self.assertEqual(_script_state(), scripts_after_first)
+		self.assertEqual(install_parity.migration_state(), state_after_first)
 		self.assertEqual(sorted(host_parity.loss_time_reason_values(self.stock_entry)), ["01", "23"])
 		self.assertEqual(Path(adoption_export_path()).read_text(), export_after_first)
 
 
-class TestAfterInstallFailureRecovery(HostParityInstallTestCase):
+class TestAfterInstallFailureRecovery(install_parity.HostParityMigrationTestCase):
 	def test_after_install_failure_recovers_via_bench_execute_reinvocation(self) -> None:
 		install.before_install()
 
@@ -221,13 +123,13 @@ class TestAfterInstallFailureRecovery(HostParityInstallTestCase):
 			install.after_install()
 
 		# Conversion completed before the failure; the cutover did not run.
-		self.assertTrue(all(CODE_FORMAT.fullmatch(row["name"]) for row in _reason_rows()))
-		self.assertEqual(_enabled("Actual & Loss Time Calculation"), 1)
+		self.assertTrue(all(CODE_FORMAT.fullmatch(row["name"]) for row in install_parity.reason_rows()))
+		self.assertEqual(install_parity.script_enabled("Actual & Loss Time Calculation"), 1)
 
 		# Re-invoke the same entry point the way ``bench --site <site> execute`` does.
 		frappe.get_attr(AFTER_INSTALL_HOOK)()
 
 		for name in host_parity.LEGACY_TIME_CLIENT_SCRIPTS:
-			self.assertEqual(_enabled(name), 0, name)
-		self.assertEqual(_hidden("Stock Entry", "custom_loss_time"), 1)
+			self.assertEqual(install_parity.script_enabled(name), 0, name)
+		self.assertEqual(install_parity.field_hidden("Stock Entry", "custom_loss_time"), 1)
 		self.assertEqual(sorted(host_parity.loss_time_reason_values(self.stock_entry)), ["01", "23"])

@@ -501,6 +501,9 @@ Never commit human-input.md and PLAN.md and shift_losses.csv files to git
 - User only enters `fg_completed_qty` and `custom_pea_rejection_qty` in the Stock Entry document when `from_bom` is checked.
 - It is mandatory for the user to enter `fg_completed_qty` and `custom_pea_rejection_qty` if available for Manufacturing entries.
 - This is a new application under development. So migration and backfilling cases will not occour.
+  Exception: the one-shot install migration (ADR 0005) adopts the production host's legacy
+  Downtime Reason DocType and retires the legacy time-capture UI at install/migrate time; it
+  never backfills historical data into `custom_pea_*` fields.
 
 ## Agent skills
 
