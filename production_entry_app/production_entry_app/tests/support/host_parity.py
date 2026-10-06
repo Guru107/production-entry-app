@@ -80,7 +80,10 @@ def delete_downtime_reason_doctype() -> None:
 
 
 def install_host_downtime_reason_doctype(
-	*, is_submittable: bool = False, extra_fields: tuple[dict, ...] = ()
+	*,
+	is_submittable: bool = False,
+	extra_fields: tuple[dict, ...] = (),
+	autoname: str = "field:downtime_issue",
 ) -> None:
 	"""Create the production host custom DocType: non-submittable, named by downtime_issue.
 
@@ -96,7 +99,7 @@ def install_host_downtime_reason_doctype(
 			"module": HOST_MODULE,
 			"custom": 1,
 			"is_submittable": 1 if is_submittable else 0,
-			"autoname": "field:downtime_issue",
+			"autoname": autoname,
 			"naming_rule": "By fieldname",
 			"fields": [
 				{"fieldname": "section_break_6fwi", "fieldtype": "Section Break"},
@@ -114,13 +117,11 @@ def install_host_downtime_reason_doctype(
 	frappe.clear_cache(doctype="Downtime Reason")
 
 
-def insert_host_downtime_reason(name: str, *, legacy_docstatus: int = 0) -> None:
-	doc = frappe.get_doc(
-		{
-			"doctype": "Downtime Reason",
-			"downtime_issue": name,
-		}
-	).insert(ignore_permissions=True)
+def insert_host_downtime_reason(name: str, *, legacy_docstatus: int = 0, code: str | None = None) -> None:
+	values: dict[str, object] = {"downtime_issue": name}
+	if code is not None:
+		values["code"] = code
+	doc = frappe.get_doc({"doctype": "Downtime Reason", **values}).insert(ignore_permissions=True)
 	if legacy_docstatus:
 		frappe.db.set_value("Downtime Reason", doc.name, "docstatus", legacy_docstatus, update_modified=False)
 

@@ -78,6 +78,7 @@ APP_SCHEMA_FIELDS = (
 
 STATE_ABSENT = "absent"
 STATE_ADOPTED = "adopted"
+STATE_RESHAPED = "reshaped"
 STATE_HOST = "host"
 STATE_UNEXPECTED = "unexpected"
 
@@ -96,6 +97,8 @@ def classify_downtime_reason_doctype() -> str:
 		return STATE_ADOPTED
 	if _is_host_shape(meta):
 		return STATE_HOST
+	if _is_reshaped_custom_shape(meta):
+		return STATE_RESHAPED
 	return STATE_UNEXPECTED
 
 
@@ -109,10 +112,26 @@ def _is_host_shape(meta: Meta) -> bool:
 	)
 
 
+def _is_reshaped_custom_shape(meta: Meta) -> bool:
+	"""The fresh-install intermediate: app schema on a still-custom record.
+
+	``before_install`` runs before the installer has registered Module Defs, so
+	the reshape keeps the record custom there (a standard DocType must carry a
+	module whose controller imports); doctype sync standardizes the record right
+	after. The recovery export on disk is the evidence this shape is our own
+	partial reshape and not an unknown host state: the export is written before
+	any mutation, so without it the shape must fail fast instead of skipping.
+	"""
+	return bool(meta.custom) and _has_app_schema(meta) and Path(adoption_export_path()).exists()
+
+
 def _is_adopted_shape(meta: Meta) -> bool:
+	return not meta.custom and _has_app_schema(meta)
+
+
+def _has_app_schema(meta: Meta) -> bool:
 	return (
-		not meta.custom
-		and meta.get_field("code") is not None
+		meta.get_field("code") is not None
 		and (meta.autoname or "") == APP_AUTONAME
 		and cint(meta.is_submittable) == 0
 	)
@@ -121,7 +140,7 @@ def _is_adopted_shape(meta: Meta) -> bool:
 def adopt_host_downtime_reason_schema() -> None:
 	"""Pre-sync step: export the host state and reshape the DocType in place."""
 	state = classify_downtime_reason_doctype()
-	if state in (STATE_ABSENT, STATE_ADOPTED):
+	if state in (STATE_ABSENT, STATE_ADOPTED, STATE_RESHAPED):
 		return
 	if state == STATE_UNEXPECTED:
 		values = frappe.db.get_value(
@@ -193,10 +212,19 @@ def _reshape_doctype() -> None:
 	patches, tests, or imports; and developer-mode saves export the doctype back
 	to the app's JSON files. Adoption is an import-time reshape, so it runs under
 	the import flag: allowed outside developer mode and never rewrites files.
+
+	The record is standardized (module reassigned, ``custom=0``) only when the
+	app Module Def already exists: on a fresh install ``before_install`` runs
+	before the installer registers Module Defs, and a standard DocType must
+	carry a module whose controller imports. Without it the record keeps
+	``custom=1`` with the app schema, and the doctype sync right after
+	re-imports the record from the app JSON (module included), so the host
+	module never survives the install.
 	"""
 	doc = frappe.get_doc("DocType", DOCTYPE)
-	doc.module = APP_MODULE
-	doc.custom = 0
+	if frappe.db.exists("Module Def", APP_MODULE):
+		doc.module = APP_MODULE
+		doc.custom = 0
 	doc.autoname = APP_AUTONAME
 	doc.naming_rule = APP_NAMING_RULE
 	doc.is_submittable = 0

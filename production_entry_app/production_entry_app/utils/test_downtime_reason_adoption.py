@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
+from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -11,6 +14,7 @@ from production_entry_app.production_entry_app.doctype.downtime_reason.downtime_
 )
 from production_entry_app.production_entry_app.tests.support import host_parity
 from production_entry_app.production_entry_app.utils.downtime_reason_adoption import (
+	APP_MODULE,
 	adopt_host_downtime_reason,
 	adopt_host_downtime_reason_schema,
 	adoption_export_path,
@@ -18,6 +22,21 @@ from production_entry_app.production_entry_app.utils.downtime_reason_adoption im
 from production_entry_app.production_entry_app.utils.downtime_reason_seed import (
 	STANDARD_DOWNTIME_REASONS,
 )
+
+
+@contextmanager
+def missing_app_module_def() -> Iterator[None]:
+	"""Simulate the fresh-install site state: the app Module Def row does not exist."""
+	real_get_value = frappe.db.get_value
+
+	def get_value_without_app_module_def(doctype: str, *args: object, **kwargs: object) -> object:
+		filters = args[0] if args else kwargs.get("filters")
+		if doctype == "Module Def" and filters == APP_MODULE:
+			return None
+		return real_get_value(doctype, *args, **kwargs)
+
+	with patch.object(frappe.db, "get_value", side_effect=get_value_without_app_module_def):
+		yield
 
 
 def _reason_rows() -> list[dict]:
@@ -97,6 +116,41 @@ class TestSchemaAdoptionReshape(HostParityTestCase):
 		self.assertEqual(snapshot["is_submittable"], 0)
 		self.assertEqual(snapshot["fieldnames"], ("code", "description", "is_active"))
 		self.assertEqual(frappe.get_value("DocType", "Downtime Reason", "naming_rule"), "By fieldname")
+
+	def test_schema_adoption_reshapes_before_module_defs_exist(self) -> None:
+		"""Fresh-install shape: ``before_install`` runs before the installer creates Module Defs.
+
+		The record keeps ``custom=1`` with the host module (a standard DocType
+		needs its app's Module Def and controller path); the doctype sync right
+		after re-imports the record from the app JSON (module included). The
+		export and row normalization are still ours and must run.
+		"""
+		with missing_app_module_def():
+			adopt_host_downtime_reason_schema()
+
+		snapshot = host_parity.doctype_snapshot()
+		self.assertEqual(snapshot["module"], "Manufacturing")
+		self.assertEqual(snapshot["custom"], 1)
+		self.assertEqual(snapshot["autoname"], "field:code")
+		self.assertEqual(snapshot["fieldnames"], ("code", "description", "is_active"))
+		row = frappe.db.get_value(
+			"Downtime Reason", "Setup Time", ["description", "is_active", "docstatus"], as_dict=True
+		)
+		self.assertEqual(row.description, "Setup Time")
+		self.assertEqual(row.is_active, 1)
+		self.assertEqual(row.docstatus, 0)
+
+	def test_schema_adoption_retry_after_fresh_install_reshape_converges(self) -> None:
+		"""A rerun after the fresh-install reshape (pre-sync) is a guarded no-op."""
+		with missing_app_module_def():
+			adopt_host_downtime_reason_schema()
+		snapshot_after_first = host_parity.doctype_snapshot()
+		export_after_first = Path(adoption_export_path()).read_text()
+
+		adopt_host_downtime_reason_schema()
+
+		self.assertEqual(host_parity.doctype_snapshot(), snapshot_after_first)
+		self.assertEqual(Path(adoption_export_path()).read_text(), export_after_first)
 
 	def test_schema_adoption_preserves_rows_and_normalizes_them(self) -> None:
 		adopt_host_downtime_reason_schema()
@@ -214,6 +268,26 @@ class TestAdoptionFailurePaths(HostParityTestCase):
 		self.assertEqual(host_parity.doctype_snapshot(), before)
 		self.assertFalse(Path(adoption_export_path()).exists())
 		self.assertTrue(frappe.db.exists("Downtime Reason", "Setup Time"))
+
+	def test_schema_adoption_throws_on_code_named_custom_shape_without_export(self) -> None:
+		"""A code-named custom DocType we did not reshape is unexpected, not pending-sync.
+
+		Only our own partial reshape leaves the recovery export on disk; without
+		that evidence the shape is an unknown host state and must fail fast.
+		"""
+		host_parity.delete_downtime_reason_doctype()
+		host_parity.install_host_downtime_reason_doctype(
+			extra_fields=({"fieldname": "code", "fieldtype": "Data"},),
+			autoname="field:code",
+		)
+		host_parity.insert_host_downtime_reason("Setup Time", code="01")
+		before = host_parity.doctype_snapshot()
+
+		with self.assertRaises(frappe.ValidationError):
+			adopt_host_downtime_reason_schema()
+
+		self.assertEqual(host_parity.doctype_snapshot(), before)
+		self.assertFalse(Path(adoption_export_path()).exists())
 
 	def test_schema_adoption_rejects_submittable_host_doctype(self) -> None:
 		"""The host DocType is non-submittable (staging-aligned); submittable is unexpected."""
