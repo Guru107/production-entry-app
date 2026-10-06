@@ -27,6 +27,7 @@ from frappe.model.meta import Meta
 from frappe.model.rename_doc import get_link_fields
 from frappe.utils import cint
 
+from production_entry_app.production_entry_app.compat import IS_V15
 from production_entry_app.production_entry_app.doctype.downtime_reason.downtime_reason import (
 	CODE_FORMAT,
 )
@@ -176,12 +177,15 @@ def _export_adoption_state() -> dict:
 	frappe.flags.link_fields = {}  # rename_doc caches these; adoption changes metadata
 	reasons = frappe.get_all(DOCTYPE, fields=["name", "docstatus"], order_by="creation asc")
 	link_inventory = []
+	row_count_field: str | dict[str, str] = (
+		"count(name) as row_count" if IS_V15 else {"COUNT": "name", "as": "row_count"}
+	)
 	for holder in get_link_fields(DOCTYPE):
 		if holder.issingle:
 			continue
 		rows = frappe.get_all(
 			holder.parent,
-			fields=[holder.fieldname, "count(name) as row_count"],
+			fields=[holder.fieldname, row_count_field],
 			filters={holder.fieldname: ["is", "set"]},
 			group_by=holder.fieldname,
 		)
@@ -261,7 +265,7 @@ def _normalize_rows() -> None:
 			updates["docstatus"] = 0
 		if updates:
 			frappe.db.set_value(DOCTYPE, row.name, updates, update_modified=False)
-	frappe.db.commit()
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit - install-time adoption runs outside request transactions and must persist normalization durably
 
 
 def convert_host_downtime_reasons() -> None:
