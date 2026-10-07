@@ -450,6 +450,11 @@ def _get_existing_fiscal_year_for_date(posting_date: str, company: str | None = 
 	for fiscal_year in fiscal_years:
 		if not frappe.db.exists("Fiscal Year Company", {"parent": fiscal_year}):
 			return fiscal_year
+	if company:
+		# Every covering fiscal year is attached to other companies: attach this
+		# one instead of creating a colliding same-name record.
+		_attach_fiscal_year_company(fiscal_years[0], company)
+		return fiscal_years[0]
 	return None
 
 

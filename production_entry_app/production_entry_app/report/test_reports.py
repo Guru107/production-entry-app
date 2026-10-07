@@ -3804,7 +3804,7 @@ class TestProductionReports(FrappeTestCase):
 
 		self.assertEqual(rows[0]["workstation"], "translated:Unassigned")
 
-	def test_workstation_rework_reason_matrix_uses_legacy_workstation_fallback(self) -> None:
+	def test_workstation_rework_reason_matrix_ignores_legacy_workstation_values(self) -> None:
 		from production_entry_app.production_entry_app.report.workstation_rework_reason_matrix import (
 			workstation_rework_reason_matrix as report,
 		)
@@ -3835,11 +3835,36 @@ class TestProductionReports(FrappeTestCase):
 			),
 			patch.object(report, "apply_system_precision", side_effect=lambda columns: columns),
 		):
-			_columns, rows = report.execute({"custom_pea_workstation": "Legacy Workstation"})
+			_columns, legacy_filter_rows = report.execute(
+				{"custom_pea_workstation": "Legacy Workstation"}
+			)
 
-		self.assertEqual(len(rows), 1)
-		self.assertEqual(rows[0]["workstation"], "Legacy Workstation")
-		self.assertEqual(float(rows[0]["total_rework_qty"]), 4.0)
+		self.assertEqual(legacy_filter_rows, [])
+		with (
+			patch.object(
+				report,
+				"iter_stock_entries_in_chunks",
+				return_value=[
+					[
+						{
+							"name": "STE-LEGACY",
+							"custom_pea_workstation": "",
+							"custom_workstation": "Legacy Workstation",
+						},
+					]
+				],
+			),
+			patch.object(
+				report,
+				"get_parent_breakup_reason_rows",
+				return_value=[{"parent": "STE-LEGACY", "rejection_reason": "Crack", "qty": 4}],
+			),
+			patch.object(report, "apply_system_precision", side_effect=lambda columns: columns),
+			patch.object(report, "_", side_effect=lambda text: f"translated:{text}"),
+		):
+			_columns, unfiltered_rows = report.execute({})
+
+		self.assertEqual(unfiltered_rows[0]["workstation"], "translated:Unassigned")
 
 	# ── Daily Strokes SPM Monitor ─────────────────────────────────────
 

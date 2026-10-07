@@ -131,5 +131,5 @@ class TestAfterInstallFailureRecovery(install_parity.HostParityMigrationTestCase
 
 		for name in host_parity.LEGACY_TIME_CLIENT_SCRIPTS:
 			self.assertEqual(install_parity.script_enabled(name), 0, name)
-		self.assertEqual(install_parity.field_hidden("Stock Entry", "custom_loss_time"), 1)
+		self.assertIsNone(frappe.get_meta("Stock Entry", cached=False).get_field("custom_loss_time"))
 		self.assertEqual(sorted(host_parity.loss_time_reason_values(self.stock_entry)), ["01", "23"])

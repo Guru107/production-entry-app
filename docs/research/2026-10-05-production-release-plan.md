@@ -119,7 +119,7 @@ Production Stock Entry custom fields (non-PEA) already capture production time:
 | Active submitted BOMs | 1,296 |
 | Rejected warehouses (`is_rejected_warehouse=1`) | 3 |
 
-PEA will add a parallel `custom_pea_*` set. Reports already alias some keys (`custom_pea_workstation` ↔ `custom_workstation`, etc.) for read compatibility — that is not a full historical migration.
+PEA adds its own `custom_pea_*` set. This is a hard cutover: install deletes the legacy time/operator/workstation custom fields (no report aliases onto those columns; pre-release entries are out of scope for PEA reports).
 
 ### 2.6 Scripts and overrides
 
@@ -248,19 +248,19 @@ Treat current fixtures as source of truth for Production. Clean staging extras b
 - `Stock Entry.branch` / detail `branch` + property setters + Branch Fetching / SE Branch Update  
 - `BOM.custom_operation`  
 - `Stock Entry.custom_stock_entry_purpose`  
-- Legacy time fields until business signs off dual-run end; then hide via Property Setter / Client Script disable, preferably **not** hard-delete (preserves 24k+ historical rows)
+- Legacy time/operator/workstation custom fields are **not** kept: the install cutover deletes them (see §6 Phase 0). Historical values live only in the pre-install backup.
 
-### 4.4 Parallel fields (intentional duplication during dual-run)
+### 4.4 Legacy → PEA field mapping (cutover deletes the legacy side)
 
-| Legacy | PEA |
+| Legacy (removed at install) | PEA |
 |--------|-----|
 | `custom_workstation` | `custom_pea_workstation` |
 | `custom_planned_*` / `custom_actual_*` | `custom_pea_planned_*` / `custom_pea_actual_*` (+ date/time helper inputs) |
 | `custom_standard_spm` (Data) | `custom_pea_standard_spm` (Float) on SE and Workstation |
-| `custom_loss_time_details` / Loss Time | `custom_pea_unplanned_losses` / Loss Entry |
+| `custom_loss_time_details` / Loss Time child field | `custom_pea_unplanned_losses` / Loss Entry |
 | Workstation `custom_standard_spm` | Workstation `custom_pea_standard_spm` |
 
-Report aliases already cover workstation/shift/operator for some report paths; do not assume all PEA reports read legacy columns.
+PEA reports read only `custom_pea_*` columns; there is no legacy-column alias layer.
 
 ---
 
@@ -294,16 +294,16 @@ Using maps in `production_entry_app/utils/downtime_reason_conversion.py` against
 
 ### Phase 0 — Decisions (human, before any Production write)
 
-1. **Dual-run vs hard cutover** for Stock Entry time capture (recommend dual-run: PEA for Shift-based entries; legacy fields retained read-only for history).  
-2. **Historical backfill:** none / workstation+times only / full loss-row migration. Default: **none**; new entries only.  
+1. **Hard cutover** for Stock Entry time capture (**decided**): disable the two legacy time client scripts, then **delete** the legacy time/operator/workstation custom fields (not hide/read-only). Pre-release entries are out of scope for PEA reports; recover from the pre-install backup if needed.  
+2. **Historical backfill:** **none**; new Shift-based entries only.  
 3. **Downtime Reason ownership:** PEA becomes system of record; host custom DocType retired (required).  
-4. **Client script policy:** disable Actual & Loss Time Calculation + Stock Auto Time at cutover (mirror Staging).  
+4. **Client script policy:** disable Actual & Loss Time Calculation + Stock Auto Time before field deletion (shipped in cutover).  
 5. **Change window:** low Manufacture volume period; supervisors available for Shift pilot.
 
 ### Phase 1 — Repo / Staging hygiene (no Production writes)
 
 1. Align Staging Custom Fields to current fixtures (add missing Downtime Entry reason field; remove obsolete extras in §2.8).  
-2. Export/confirm fixtures: Custom Field, Property Setter, Downtime Reason, Rejection Reason, Stock Entry Type `Joint LH RH Production`, roles/perms.  
+2. Export/confirm fixtures: Custom Field, Property Setter, Downtime Reason, Rejection Reason, Stock Entry Types `Joint LH RH Production` + `Rework`, roles/perms.  
 3. Confirm `trikaya` does not override Stock Entry class.  
 4. Run full PEA test suite + Staging smoke: Shift start/end, Manufacture with Shift, Joint, Rework, OEE report, rejection warehouse.  
 5. Document Staging Downtime Reason conversion runbook as the Production procedure (ADR 0005 + `convert_legacy_downtime_reasons`).
@@ -344,12 +344,13 @@ Order matters. Do not skip clone proof.
    - Verify 00–22 present; custom 23+ for site-specific leftovers; no orphan link names.
 
 5. **Stock Entry Type / settings**  
-   - Ensure Joint LH RH Production type and Rework type flags exist.  
+   - Joint LH RH Production and Rework types ship as fixtures at install (confirm flags).  
    - Configure Production Entry Settings (rejection WH defaults per branch, rework type, access control as needed).  
    - Confirm Branch Warehouse Defaults for Nashik / Haridwar.
 
-6. **Script cutover**  
-   - Disable: `Actual & Loss Time Calculation`, `Stock Auto Time` (as on Staging).  
+6. **Script + field cutover** (install machinery; also recoverable via `bench execute`)  
+   - Disable: `Actual & Loss Time Calculation`, `Stock Auto Time`.  
+   - Delete every legacy time/operator/workstation custom field (sections and leaves); columns/values dropped.  
    - Keep: Branch Fetching, BOM query script, Stock Entry Type department script — unless smoke tests show PEA conflict.  
    - Leave `SE Branch Update` enabled unless Shift branch handoff conflicts in UAT.
 
@@ -360,12 +361,10 @@ Order matters. Do not skip clone proof.
    - Confirm OEE / utilization reports on pilot Shifts.
 
 8. **Widen**  
-   - Train supervisors; make Shift mandatory for Manufacture per policy.  
-   - Optionally hide legacy Operation Details / Loss Time sections via Property Setter once adoption is solid.
+   - Train supervisors; make Shift mandatory for Manufacture per policy.
 
-9. **Post-go-live optional migration**  
-   - Only if approved: batch-copy legacy workstation/actual times into `custom_pea_*` for reporting.  
-   - Do **not** delete legacy columns in the same release.
+9. **Post-go-live**  
+   - No legacy-column backfill in this release (hard cutover; pre-release entries out of report scope).
 
 ### Phase 4 — Stabilization (1–2 weeks)
 
@@ -398,16 +397,61 @@ Order matters. Do not skip clone proof.
 
 ## 8. Go / no-go checklist
 
-- [ ] Clone dry-run succeeded end-to-end  
-- [ ] Downtime Reason conversion verified; Loss Time links intact  
-- [ ] `Stock Entry.branch` still required and not read-only-from-PEA  
-- [ ] No Stock Entry class override clash with `trikaya`  
-- [ ] Legacy time scripts disabled; PEA Shift Manufacture works  
-- [ ] Non-Shift Stock Entries (Material Transfer, etc.) still submit  
-- [ ] Rejection warehouses and Branch Warehouse Defaults configured  
-- [ ] Joint / Rework Stock Entry Types configured if those flows are in scope for day 1  
-- [ ] Staging CF drift cleaned so golden image matches fixtures  
-- [ ] Explicit Production write approval obtained for each mutating step  
+- [x] Clone dry-run succeeded end-to-end (bench15, 2026-10-07 — see §8.1)  
+- [x] Downtime Reason conversion verified; Loss Time links intact (§8.1)  
+- [x] `Stock Entry.branch` still required and not read-only-from-PEA (§8.1 — mandatory error enforced on insert)  
+- [x] No Stock Entry class override clash with `trikaya` (`trikaya` absent on the clone; PEA override active; Material Receipt/Transfer/Issue all submitted)  
+- [x] Legacy time scripts disabled; PEA Shift Manufacture works (scripts disabled by cutover; Shift doctype creation smoke-verified; full Manufacture flow remains covered by the app test suite)  
+- [x] Non-Shift Stock Entries (Material Transfer, etc.) still submit (§8.1)  
+- [ ] Rejection warehouses and Branch Warehouse Defaults configured *(manual runbook step, not install machinery)*  
+- [x] Joint / Rework Stock Entry Types shipped as fixtures at install  
+
+- [ ] Staging CF drift cleaned so golden image matches fixtures *(staging-side manual step)*  
+- [ ] Explicit Production write approval obtained for each mutating step *(human gate)*  
+
+### 8.1 Clone dry-run results (2026-10-07, bench15)
+
+**Environment:** `bench15` / site `development.localhost`, Frappe 15.121.3 / ERPNext 15.121.6,
+host-parity clone of the staging production-restore (schema, customizations, scripts, and the
+31 production Downtime Reason names rebuilt from read-only staging GETs; tooling and logs in
+`/root/workspace/staging-clone/`). Executed the real machinery — no simulation. Pre-run site
+backup: `20261007_123604-development_localhost-*` (19.7 MiB DB).
+
+**Timings:**
+
+| Step | Wall clock | Result |
+|------|-----------:|--------|
+| `bench install-app production_entry_app` | 33.4 s | exit 0 — hooks drove adoption + conversion + cutover |
+| `bench migrate` (post-install) | 34.6 s | exit 0 — no-op for adoption; both patch-pair rows already in Patch Log, not re-run |
+| `bench build --app production_entry_app` | 3.9 s | exit 0 |
+
+**Verified (all pass):**
+
+| Check | Evidence |
+|-------|----------|
+| In-place adoption | DR DocType now module `Production Entry App`, `custom=0`, autoname `field:code`, non-submittable — same table/rows |
+| Recovery export | `private/backups/downtime_reason_adoption_export.json`: 31 reasons + `Loss Time.loss_type` inventory (6 rows) |
+| Seeding + conversion | 36 masters: codes `00`–`22` complete; 16 known names merged per ADR 0005 maps; 13 free names → `23`–`35` in sorted-name order, legacy text kept as description; no non-code names remain; the 13 legacy `docstatus=1` rows normalized to draft |
+| Loss Time links | Sample SEs `MAT-STE-01369/01370`: `Setup Time`→`01`, `Power Off`→`11`, `Inventory`→`25`; row count reconciles with the export |
+| Cutover — scripts | `Actual & Loss Time Calculation`, `Stock Auto Time` disabled; `Branch Fetching Stock Entry`, `BOM`, `Stock Entry Type` still enabled |
+| Cutover — sections | *(dry-run used hide-via-setter; current policy deletes these fields — re-verify on next clone)* |
+| Branch ownership | `Stock Entry-branch-reqd=1` setter untouched (module NULL); insert without branch fails `MandatoryError` — enforcement confirmed |
+| PEA sections render | All PEA Stock Entry custom fields carry `insert_after` anchors, so the host `field_order` Property Setter cannot orphan them |
+| Non-Shift submits | Material Receipt + Material Transfer + Material Issue all submitted (each stamped `branch=Haridwar`) |
+| Shift works | Draft Shift `SHIFT-2026-10-07.1.0001` created via the installed app (status Draft; `shift_label` validation active) |
+| Fixture takeover | `Stock Entry-use_multi_level_bom-default=0` setter module reassigned to PEA (#140 behavior) |
+
+**Notes for the live run:**
+
+- The clone's free-code outcome (`23`–`35`, 13 codes) differs from old staging (`23`–`33`, 11) because
+  the clone started from the exact 31 production names — deterministic from the starting state, as designed.
+- No manual steps were required; no adoption warnings surfaced in logs. The whole changeover is
+  `install-app` + (idempotent) `migrate` + `build`.
+- Verification records created during the dry-run (three SEs, one draft Shift) were rolled back at
+  console-session end; the site retains exactly the two pre-install sample SEs with rewritten loss links.
+- **Policy change after this dry-run:** cutover now **deletes** legacy time/operator/workstation
+  custom fields (not hide). Re-run the clone dry-run once before Production so §8.1 field evidence
+  matches the delete path.
 
 ---
 
@@ -436,9 +480,9 @@ Order matters. Do not skip clone proof.
 | `production_entry_app` | Absent | Install after Downtime Reason plan |
 | Host Downtime Reason | 31 custom records | Convert to PEA schema + codes |
 | PEA Custom Fields | Absent | Add via fixtures (68) |
-| Legacy SE time fields | Heavily used (~24.5k) | Keep; disable scripts at cutover; optional later hide |
+| Legacy SE time fields | Heavily used (~24.5k) | Delete at cutover (hard cutover; backup = recovery) |
 | `Stock Entry.branch` | Required host field | Keep unchanged |
 | `BOM.custom_operation` | Universal | Keep; needed for Joint |
 | Obsolete staging PEA fields | N/A on prod | Never create; remove on staging |
 | Client scripts (time) | Enabled | Disable at cutover (staging pattern) |
-| Historical SE → `custom_pea_*` | N/A | Optional post go-live; not required for install |
+| Historical SE → `custom_pea_*` | N/A | None — pre-release entries out of PEA report scope |

@@ -37,11 +37,11 @@ _PRODUCTION_STOCK_ENTRY_OR_FILTERS: tuple[tuple[str, str, Any], ...] = (
 	("purpose", "=", "Manufacture"),
 	("purpose", "=", "Repack"),
 )
-_STOCK_ENTRY_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
-	"custom_pea_workstation": ("custom_pea_workstation", "custom_workstation"),
-	"custom_pea_shift": ("custom_pea_shift", "custom_shift"),
-	"custom_pea_operator": ("custom_pea_operator", "custom_operator"),
-}
+# Cutover release: reports read the app's own fields only. Entries created
+# before the changeover are not considered, so the legacy parallel fields
+# (custom_workstation / custom_shift / custom_operator) are never read and the
+# helpers below are strict pass-throughs on the app fieldname.
+_STOCK_ENTRY_FIELD_ALIASES: dict[str, tuple[str, ...]] = {}
 
 
 class EntryOutputQuantities(NamedTuple):

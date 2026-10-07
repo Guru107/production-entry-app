@@ -1,34 +1,34 @@
-"""One-shot install migration: retire the legacy parallel time-capture UI.
+"""One-shot install migration: remove the legacy parallel time-capture fields.
 
 The production site captures production time through host custom fields — the
 ``custom_operation_details`` / ``custom_actual_time`` / ``custom_loss_time``
-sections on Stock Entry and ``Workstation.custom_standard_spm`` — driven by the
-``Actual & Loss Time Calculation`` and ``Stock Auto Time`` client scripts. The
-app ships its own Shift-based capture, so from go-live the legacy UI is retired
-in one ordered, idempotent step:
+sections and their leaf fields (planned/actual dates, workstation, standard
+SPM, time logs, loss rows, totals) on Stock Entry, plus
+``Workstation.custom_standard_spm`` — driven by the ``Actual & Loss Time
+Calculation`` and ``Stock Auto Time`` client scripts. The app ships its own
+Shift-based capture, and this is a hard cutover release, so the install
+removes the legacy workflow in one ordered, idempotent step:
 
 1. Disable the two legacy time client scripts by name (only when present and
    enabled; the Branch Fetching, BOM and Stock Entry Type scripts are never
    touched).
-2. Hide the legacy sections and the Workstation SPM field via Property Setters
-   (``hidden=1``, module Production Entry App). Hide only — no field or data is
-   deleted; historical values stay reachable via Show Hidden Fields, reports
-   and exports.
+2. Delete every legacy time custom field (section and leaf alike). Dropping a
+   custom field drops its column, so the legacy values on historical entries
+   are destroyed — deliberately. This is a cutover, not a bridge: entries
+   before the release are not considered by the app or its reports, and no
+   value is backfilled into the app's own fields. The pre-install site backup
+   from the release runbook is the recovery path.
 3. Hide any obsolete Production-Entry-App-module custom fields that current
    fixtures no longer ship (staging-drift pattern), same hide-only rule.
 
-Entry points (also called from the install-migration post-sync step):
+Entry point (also called from the install-migration post-sync step):
+``execute_legacy_time_cutover``, e.g. via ``bench execute``.
 
-- ``execute_legacy_time_cutover`` — the ordered engine, e.g. via ``bench execute``.
-- ``unhide_legacy_time_fields`` — reverses step 2 (rollback or pilot course correction).
-
-Scripts are disabled before sections are hidden, so no enabled script ever
-writes to a hidden section. Host-owned customizations are never hijacked: if a
-host Property Setter already sits on a cutover target, the engine reports it
-and leaves it alone. Every step guards on current state, so a re-run after a
-partial failure converges instead of duplicating or throwing. Because the hide
-Property Setters carry the app module, the existing ``before_uninstall``
-customization cleanup un-hides on uninstall.
+Scripts are disabled before fields are removed, so no enabled script ever
+writes into a disappearing field. Only genuine custom fields are deleted — a
+target that is absent, or exists as a native field, is reported and skipped.
+Every step guards on current state, so a re-run after a partial failure
+converges instead of duplicating or throwing.
 """
 
 from __future__ import annotations
@@ -42,38 +42,39 @@ from frappe.utils import cint
 APP_MODULE = "Production Entry App"
 STOCK_ENTRY = "Stock Entry"
 WORKSTATION = "Workstation"
-HIDDEN_PROPERTY = "hidden"
-HIDDEN_VALUE = "1"
 PROPERTY_TYPE_CHECK = "Check"
 
 LEGACY_TIME_CLIENT_SCRIPTS: tuple[str, ...] = (
 	"Actual & Loss Time Calculation",
 	"Stock Auto Time",
 )
-# (doctype, fieldname) legacy time-capture targets hidden by the cutover. Hiding
-# a section hides all its leaf fields; leaf fields themselves stay unhidden so
-# the host form layout stays coherent.
+# (doctype, fieldname) legacy time-capture targets removed by the cutover.
+# Sections and leaves alike are deleted along with their data; the legacy
+# workflow has no path back into use.
 LEGACY_TIME_FIELDS: tuple[tuple[str, str], ...] = (
 	(STOCK_ENTRY, "custom_operation_details"),
+	(STOCK_ENTRY, "custom_workstation"),
 	(STOCK_ENTRY, "custom_actual_time"),
+	(STOCK_ENTRY, "custom_planned_start_date"),
+	(STOCK_ENTRY, "custom_planned_end_date"),
+	(STOCK_ENTRY, "custom_actual_start_date"),
+	(STOCK_ENTRY, "custom_actual_end_date"),
+	(STOCK_ENTRY, "custom_standard_spm"),
+	(STOCK_ENTRY, "custom_time_logs"),
 	(STOCK_ENTRY, "custom_loss_time"),
+	(STOCK_ENTRY, "custom_loss_time_details"),
+	(STOCK_ENTRY, "custom_total_actual_time"),
+	(STOCK_ENTRY, "custom_total_loss_time"),
 	(WORKSTATION, "custom_standard_spm"),
 )
 
 
 def execute_legacy_time_cutover() -> None:
-	"""Run the ordered legacy cutover: disable scripts, then hide fields."""
+	"""Run the ordered legacy cutover: disable scripts, then remove fields."""
 	_disable_legacy_client_scripts()
-	_hide_legacy_time_sections()
+	_remove_legacy_time_custom_fields()
 	_hide_obsolete_pea_custom_fields()
 	frappe.logger("production_entry_app").info("Legacy time cutover: complete.")
-
-
-def unhide_legacy_time_fields() -> None:
-	"""Reverse the hiding step: drop the app-owned hide Property Setters."""
-	for doctype, fieldname in LEGACY_TIME_FIELDS:
-		_delete_app_hidden_property_setter(doctype, fieldname)
-	frappe.logger("production_entry_app").info("Legacy time cutover: fields un-hidden.")
 
 
 def _disable_legacy_client_scripts() -> None:
@@ -92,9 +93,41 @@ def _disable_legacy_client_scripts() -> None:
 		frappe.logger("production_entry_app").info("Legacy time cutover: disabled client script %s.", name)
 
 
-def _hide_legacy_time_sections() -> None:
+def _remove_legacy_time_custom_fields() -> None:
 	for doctype, fieldname in LEGACY_TIME_FIELDS:
-		_hide_field(doctype, fieldname)
+		_remove_custom_field(doctype, fieldname)
+
+
+def _remove_custom_field(doctype: str, fieldname: str) -> None:
+	name = f"{doctype}-{fieldname}"
+	meta = frappe.get_meta(doctype, cached=False)
+	if meta.get_field(fieldname) is None:
+		frappe.logger("production_entry_app").info(
+			"Legacy time cutover: %s.%s absent on this site; skipped.", doctype, fieldname
+		)
+		return
+	if not frappe.db.exists("Custom Field", name):
+		# A native field carrying a cutover name: never delete DocFields.
+		frappe.logger("production_entry_app").warning(
+			"Legacy time cutover: %s is not a custom field; left untouched.", name
+		)
+		return
+	_delete_field_property_setters(doctype, fieldname)
+	frappe.delete_doc("Custom Field", name, ignore_permissions=True, force=True)
+	frappe.clear_cache(doctype=doctype)
+	frappe.logger("production_entry_app").info(
+		"Legacy time cutover: removed custom field %s (column and values dropped).", name
+	)
+
+
+def _delete_field_property_setters(doctype: str, fieldname: str) -> None:
+	"""Drop setters orphaned by the field removal (host- or app-owned alike)."""
+	for row in frappe.get_all(
+		"Property Setter",
+		filters={"doc_type": doctype, "field_name": fieldname},
+		pluck="name",
+	):
+		frappe.delete_doc("Property Setter", row, ignore_permissions=True)
 
 
 def _hide_obsolete_pea_custom_fields() -> None:
@@ -121,15 +154,11 @@ def _hide_field(doctype: str, fieldname: str) -> None:
 			"Legacy time cutover: %s.%s absent on this site; skipped.", doctype, fieldname
 		)
 		return
-	_ensure_hidden_property_setter(doctype, fieldname)
-
-
-def _ensure_hidden_property_setter(doctype: str, fieldname: str) -> None:
-	name = _hidden_property_setter_name(doctype, fieldname)
+	name = f"{doctype}-{fieldname}-hidden"
 	if frappe.db.exists("Property Setter", name):
 		value, module = frappe.db.get_value("Property Setter", name, ["value", "module"])
 		if module != APP_MODULE:
-			# Never hijack a host customization: a host-owned setter on a legacy
+			# Never hijack a host customization: a host-owned setter on a drift
 			# target is an unaudited host shape, so report it and leave it alone.
 			if cint(value) != 1:
 				frappe.logger("production_entry_app").warning(
@@ -144,9 +173,8 @@ def _ensure_hidden_property_setter(doctype: str, fieldname: str) -> None:
 				"Legacy time cutover: %s.%s already hidden; skipped.", doctype, fieldname
 			)
 			return
-		frappe.db.set_value("Property Setter", name, "value", HIDDEN_VALUE, update_modified=False)
+		frappe.db.set_value("Property Setter", name, "value", "1", update_modified=False)
 		frappe.clear_cache(doctype=doctype)
-		frappe.logger("production_entry_app").info("Legacy time cutover: re-hid %s.%s.", doctype, fieldname)
 		return
 	frappe.get_doc(
 		{
@@ -154,26 +182,13 @@ def _ensure_hidden_property_setter(doctype: str, fieldname: str) -> None:
 			"doctype_or_field": "DocField",
 			"doc_type": doctype,
 			"field_name": fieldname,
-			"property": HIDDEN_PROPERTY,
+			"property": "hidden",
 			"property_type": PROPERTY_TYPE_CHECK,
-			"value": HIDDEN_VALUE,
+			"value": "1",
 			"module": APP_MODULE,
 		}
 	).insert(ignore_permissions=True)
 	frappe.logger("production_entry_app").info("Legacy time cutover: hid %s.%s.", doctype, fieldname)
-
-
-def _delete_app_hidden_property_setter(doctype: str, fieldname: str) -> None:
-	name = _hidden_property_setter_name(doctype, fieldname)
-	if not frappe.db.exists("Property Setter", name):
-		return
-	if frappe.db.get_value("Property Setter", name, "module") != APP_MODULE:
-		return
-	frappe.delete_doc("Property Setter", name, ignore_permissions=True)
-
-
-def _hidden_property_setter_name(doctype: str, fieldname: str) -> str:
-	return f"{doctype}-{fieldname}-{HIDDEN_PROPERTY}"
 
 
 def _fixture_custom_field_names() -> frozenset[str]:

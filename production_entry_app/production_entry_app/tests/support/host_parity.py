@@ -184,7 +184,11 @@ def remove_host_loss_time() -> None:
 		frappe.delete_doc("Custom Field", "Stock Entry-custom_loss_time_details", ignore_permissions=True)
 		frappe.clear_cache(doctype="Stock Entry")
 	if frappe.db.exists("DocType", "Loss Time"):
-		frappe.delete_doc("DocType", "Loss Time", force=True, ignore_permissions=True)
+		if frappe.db.table_exists("Loss Time"):
+			frappe.db.delete("Loss Time")
+		frappe.delete_doc(
+			"DocType", "Loss Time", force=True, ignore_permissions=True, for_reload=True
+		)
 		frappe.clear_cache(doctype="Loss Time")
 
 
@@ -216,13 +220,20 @@ def make_host_stock_entry_with_loss_times(reasons: list[str], *, submit: bool = 
 
 
 def discard_stock_entry(name: str) -> None:
-	"""Remove a test Stock Entry whatever its docstatus."""
-	if not frappe.db.exists("Stock Entry", name):
-		return
-	doc = frappe.get_doc("Stock Entry", name)
-	if doc.docstatus == 1:
-		doc.cancel()
-	frappe.delete_doc("Stock Entry", name, force=True, ignore_permissions=True)
+	"""Remove a test Stock Entry whatever its docstatus.
+
+	After the legacy-time cutover deletes the ``custom_loss_time_details`` Table
+	field, ``delete_doc`` no longer cascades to ``Loss Time`` children (they are
+	absent from meta). Purge those orphans explicitly so a reused naming-series
+	name cannot accumulate rows across tests.
+	"""
+	if frappe.db.exists("Stock Entry", name):
+		doc = frappe.get_doc("Stock Entry", name)
+		if doc.docstatus == 1:
+			doc.cancel()
+		frappe.delete_doc("Stock Entry", name, force=True, ignore_permissions=True)
+	if frappe.db.exists("DocType", "Loss Time"):
+		frappe.db.delete("Loss Time", {"parent": name, "parenttype": "Stock Entry"})
 
 
 def loss_time_reason_values(stock_entry_name: str) -> list[str]:
@@ -314,9 +325,11 @@ def restore_module_pea_drift(neutralized: dict[str, str]) -> None:
 def install_legacy_time_fields() -> None:
 	"""Create the host-owned legacy time-capture fields if absent.
 
-	Mirrors production: the three legacy Stock Entry sections (with leaf fields
-	inside) and the legacy Workstation standard-SPM field.
+	Mirrors production: the legacy Stock Entry sections with their leaf fields
+	(dates, workstation, SPM, time-log and loss tables, totals) and the legacy
+	Workstation standard-SPM field.
 	"""
+	install_host_loss_time()
 	legacy_fields = (
 		{"fieldname": "custom_operation_details", "label": "Operation Details", "fieldtype": "Section Break"},
 		{
@@ -339,10 +352,47 @@ def install_legacy_time_fields() -> None:
 			"insert_after": "custom_actual_time",
 		},
 		{
+			"fieldname": "custom_actual_end_date",
+			"label": "Actual End Date",
+			"fieldtype": "Datetime",
+			"insert_after": "custom_actual_start_date",
+		},
+		{
 			"fieldname": "custom_loss_time",
 			"label": "Loss Time",
 			"fieldtype": "Section Break",
-			"insert_after": "custom_actual_start_date",
+			"insert_after": "custom_actual_end_date",
+		},
+		{
+			"fieldname": "custom_planned_start_date",
+			"label": "Planned Start Date",
+			"fieldtype": "Datetime",
+		},
+		{
+			"fieldname": "custom_planned_end_date",
+			"label": "Planned End Date",
+			"fieldtype": "Datetime",
+		},
+		{
+			"fieldname": "custom_standard_spm",
+			"label": "Standard SPM",
+			"fieldtype": "Data",
+		},
+		{
+			"fieldname": "custom_time_logs",
+			"label": "Time Logs",
+			"fieldtype": "Table",
+			"options": "Job Card Time Log",
+		},
+		{
+			"fieldname": "custom_total_actual_time",
+			"label": "Total Actual Time",
+			"fieldtype": "Float",
+		},
+		{
+			"fieldname": "custom_total_loss_time",
+			"label": "Total Loss Time",
+			"fieldtype": "Float",
 		},
 	)
 	for field_values in legacy_fields:
@@ -353,16 +403,17 @@ def install_legacy_time_fields() -> None:
 
 
 def remove_legacy_time_fields() -> None:
-	"""Remove the legacy time-capture fields and any cutover hide property setters."""
+	"""Remove the legacy time-capture fields and any leftover property setters."""
 	from production_entry_app.production_entry_app.utils.legacy_time_cutover import (
-		unhide_legacy_time_fields,
+		LEGACY_TIME_FIELDS,
 	)
 
-	unhide_legacy_time_fields()
 	for dt, fieldname in LEGACY_TIME_FIELDS:
+		remove_property_setter(dt, fieldname, "hidden")
+		remove_property_setter(dt, fieldname, "read_only")
+		remove_property_setter(dt, fieldname, "reqd")
 		remove_host_custom_field(dt, fieldname)
-	remove_host_custom_field("Stock Entry", "custom_workstation")
-	remove_host_custom_field("Stock Entry", "custom_actual_start_date")
+	remove_host_loss_time()
 
 
 def ensure_host_property_setter(doctype: str, fieldname: str, *, value: str) -> None:
@@ -461,12 +512,28 @@ def remove_legacy_workstation() -> None:
 def make_legacy_stock_entry() -> str:
 	"""Create a submitted Stock Entry carrying legacy time-capture values."""
 	from production_entry_app.production_entry_app.utils.test_bootstrap import (
+		ensure_fiscal_year_for_date,
 		ensure_item,
 		ensure_warehouse,
 		resolve_test_company,
 	)
 
 	company = resolve_test_company()
+	# Submit inside an existing fiscal-year window: the shared/ephemeral sites
+	# carry FY rows whose names collide with a naive "today" FY insert.
+	fiscal_year = frappe.get_all(
+		"Fiscal Year",
+		fields=["year_start_date", "year_end_date"],
+		filters={"year_start_date": ("is", "set"), "year_end_date": ("is", "set")},
+		order_by="year_start_date desc",
+		limit=1,
+	)
+	posting_date = (
+		frappe.utils.add_days(fiscal_year[0].year_start_date, 1)
+		if fiscal_year
+		else frappe.utils.today()
+	)
+	ensure_fiscal_year_for_date(str(posting_date), company)
 	abbr = frappe.db.get_value("Company", company, "abbr") or "TC"
 	warehouse = ensure_warehouse(f"Host Parity WH - {abbr}", company)
 	item = ensure_item("_Host Parity Item")
@@ -478,6 +545,7 @@ def make_legacy_stock_entry() -> str:
 			"stock_entry_type": "Material Receipt",
 			"company": company,
 			"items": [{"item_code": item, "t_warehouse": warehouse, "qty": 1, "basic_rate": 1}],
+			"posting_date": str(posting_date),
 			"custom_workstation": workstation,
 			"custom_actual_start_date": "2026-10-01 09:00:00",
 		}

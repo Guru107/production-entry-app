@@ -159,31 +159,41 @@ class TestReportUtilsPerformance(FrappeTestCase):
 		self.assertEqual(from_filters["name"], ["in", ["STE-001"]])
 		self.assertEqual(to_filters["custom_pea_shift"], ["in", ["SHIFT-TO"]])
 
-	def test_stock_entry_alias_helpers_match_legacy_and_new_fields(self) -> None:
+	def test_stock_entry_alias_helpers_read_only_pea_fields(self) -> None:
+		"""Cutover release: the legacy parallel fields are never read."""
 		row = {
 			"name": "STE-001",
-			"custom_pea_workstation": "",
+			"custom_pea_workstation": "PEA WS",
 			"custom_workstation": "Legacy WS",
 			"custom_operator": "Legacy Operator",
 		}
 
 		self.assertEqual(
 			report_utils.get_stock_entry_alias_value(row, "custom_pea_workstation", "Unassigned"),
-			"Legacy WS",
+			"PEA WS",
 		)
 		self.assertTrue(
 			report_utils.row_matches_stock_entry_alias_filters(
 				row,
-				{"custom_pea_workstation": "Legacy WS", "custom_pea_operator": "Legacy Operator"},
-				("custom_pea_workstation", "custom_pea_operator"),
+				{"custom_pea_workstation": "PEA WS"},
+				("custom_pea_workstation",),
 			)
 		)
 		self.assertFalse(
 			report_utils.row_matches_stock_entry_alias_filters(
 				row,
-				{"custom_pea_workstation": "Other WS"},
+				{"custom_pea_workstation": "Legacy WS"},
 				("custom_pea_workstation",),
 			)
+		)
+		legacy_only_row = {
+			"name": "STE-LEGACY",
+			"custom_pea_workstation": "",
+			"custom_workstation": "Legacy WS",
+		}
+		self.assertEqual(
+			report_utils.get_stock_entry_alias_value(legacy_only_row, "custom_pea_workstation", "Unassigned"),
+			"Unassigned",
 		)
 
 	def test_new_interactive_report_timeout_guard_allows_within_budget(self) -> None:

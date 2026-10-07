@@ -88,10 +88,13 @@ class HostParityMigrationTestCase(CleanSiteTestCase):
 		host_parity.insert_host_downtime_reason("Inventory")
 		host_parity.install_host_loss_time()
 		self.addCleanup(host_parity.remove_host_loss_time)
-		self.stock_entry = host_parity.make_host_stock_entry_with_loss_times(["Setup Time", "Inventory"])
-		self.addCleanup(host_parity.discard_stock_entry, self.stock_entry)
+		# All schema DDL before the sample entry: custom-field creation issues
+		# implicit commits, and a commit after the insert would leak the entry
+		# (and its Loss Time rows) across the class's transaction rollbacks.
 		host_parity.install_legacy_time_fields()
 		self.addCleanup(host_parity.remove_legacy_time_fields)
+		self.stock_entry = host_parity.make_host_stock_entry_with_loss_times(["Setup Time", "Inventory"])
+		self.addCleanup(host_parity.discard_stock_entry, self.stock_entry)
 		host_parity.ensure_legacy_workstation()
 		self.addCleanup(host_parity.remove_legacy_workstation)
 		for name in host_parity.LEGACY_TIME_CLIENT_SCRIPTS + host_parity.KEPT_CLIENT_SCRIPTS:
@@ -112,7 +115,15 @@ class HostParityMigrationTestCase(CleanSiteTestCase):
 			self.assertEqual(script_enabled(name), 0, name)
 		for name in host_parity.KEPT_CLIENT_SCRIPTS:
 			self.assertEqual(script_enabled(name), 1, name)
-		self.assertEqual(field_hidden("Stock Entry", "custom_operation_details"), 1)
-		self.assertEqual(field_hidden("Stock Entry", "custom_actual_time"), 1)
-		self.assertEqual(field_hidden("Stock Entry", "custom_loss_time"), 1)
-		self.assertEqual(field_hidden("Workstation", "custom_standard_spm"), 1)
+		for doctype, fieldname in (
+			("Stock Entry", "custom_operation_details"),
+			("Stock Entry", "custom_actual_time"),
+			("Stock Entry", "custom_loss_time"),
+			("Stock Entry", "custom_workstation"),
+			("Stock Entry", "custom_actual_start_date"),
+			("Workstation", "custom_standard_spm"),
+		):
+			self.assertIsNone(
+				frappe.get_meta(doctype, cached=False).get_field(fieldname), f"{doctype}.{fieldname} removed"
+			)
+			self.assertFalse(frappe.db.exists("Custom Field", f"{doctype}-{fieldname}"))

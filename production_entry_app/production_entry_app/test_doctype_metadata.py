@@ -142,7 +142,7 @@ def test_joint_lh_rh_production_metadata_is_exported() -> None:
 	assert rejection_fields["item_code"]["options"] == "Item"
 
 
-def test_canonical_joint_lh_rh_stock_entry_type_fixture_is_exported() -> None:
+def test_canonical_stock_entry_type_fixtures_are_exported() -> None:
 	stock_entry_types = {row.get("name"): row for row in json.loads(STOCK_ENTRY_TYPE_FIXTURE.read_text())}
 	assert stock_entry_types == {
 		"Joint LH RH Production": {
@@ -151,16 +151,27 @@ def test_canonical_joint_lh_rh_stock_entry_type_fixture_is_exported() -> None:
 			"purpose": "Repack",
 			"custom_pea_joint_lh_rh_production": 1,
 			"custom_pea_rework_entry": 0,
-		}
+		},
+		"Rework": {
+			"doctype": "Stock Entry Type",
+			"name": "Rework",
+			"purpose": "Material Transfer",
+			"custom_pea_joint_lh_rh_production": 0,
+			"custom_pea_rework_entry": 1,
+		},
 	}
 
 
-def test_canonical_joint_lh_rh_stock_entry_type_fixture_is_registered_for_install() -> None:
+def test_canonical_stock_entry_type_fixtures_are_registered_for_install() -> None:
 	from production_entry_app import hooks
 
 	assert {
 		"dt": "Stock Entry Type",
 		"filters": [["name", "=", "Joint LH RH Production"]],
+	} in hooks.fixtures
+	assert {
+		"dt": "Stock Entry Type",
+		"filters": [["name", "=", "Rework"]],
 	} in hooks.fixtures
 
 
@@ -273,8 +284,8 @@ def test_metadata_load_tests_includes_rework_layout_contract() -> None:
 
 	assert test_rework_fields_have_a_dedicated_two_column_section in loaded_functions
 	assert test_production_stock_entry_purpose_metadata_is_available in loaded_functions
-	assert test_canonical_joint_lh_rh_stock_entry_type_fixture_is_exported in loaded_functions
-	assert test_canonical_joint_lh_rh_stock_entry_type_fixture_is_registered_for_install in loaded_functions
+	assert test_canonical_stock_entry_type_fixtures_are_exported in loaded_functions
+	assert test_canonical_stock_entry_type_fixtures_are_registered_for_install in loaded_functions
 	assert test_pending_rework_workspace_link_uses_query_report_route in loaded_functions
 
 
@@ -465,8 +476,8 @@ def load_tests(
 			test_no_app_custom_field_uses_nonzero_permlevel,
 			test_stock_entry_detail_rejection_flag_uses_cross_version_anchor,
 			test_joint_lh_rh_production_metadata_is_exported,
-			test_canonical_joint_lh_rh_stock_entry_type_fixture_is_exported,
-			test_canonical_joint_lh_rh_stock_entry_type_fixture_is_registered_for_install,
+			test_canonical_stock_entry_type_fixtures_are_exported,
+			test_canonical_stock_entry_type_fixtures_are_registered_for_install,
 			test_rework_stock_entry_metadata_is_exported,
 			test_rework_fields_have_a_dedicated_two_column_section,
 			test_metadata_load_tests_includes_rework_layout_contract,
