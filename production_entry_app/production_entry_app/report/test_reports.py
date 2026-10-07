@@ -3835,9 +3835,7 @@ class TestProductionReports(FrappeTestCase):
 			),
 			patch.object(report, "apply_system_precision", side_effect=lambda columns: columns),
 		):
-			_columns, legacy_filter_rows = report.execute(
-				{"custom_pea_workstation": "Legacy Workstation"}
-			)
+			_columns, legacy_filter_rows = report.execute({"custom_pea_workstation": "Legacy Workstation"})
 
 		self.assertEqual(legacy_filter_rows, [])
 		with (
