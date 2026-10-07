@@ -186,9 +186,7 @@ def remove_host_loss_time() -> None:
 	if frappe.db.exists("DocType", "Loss Time"):
 		if frappe.db.table_exists("Loss Time"):
 			frappe.db.delete("Loss Time")
-		frappe.delete_doc(
-			"DocType", "Loss Time", force=True, ignore_permissions=True, for_reload=True
-		)
+		frappe.delete_doc("DocType", "Loss Time", force=True, ignore_permissions=True, for_reload=True)
 		frappe.clear_cache(doctype="Loss Time")
 
 
@@ -326,8 +324,8 @@ def install_legacy_time_fields() -> None:
 	"""Create the host-owned legacy time-capture fields if absent.
 
 	Mirrors production: the legacy Stock Entry sections with their leaf fields
-	(dates, workstation, SPM, time-log and loss tables, totals) and the legacy
-	Workstation standard-SPM field.
+	(dates, workstation, press rate, SPM, time-log and loss tables, totals) and
+	the legacy Workstation standard-SPM / press-rate fields.
 	"""
 	install_host_loss_time()
 	legacy_fields = (
@@ -340,10 +338,16 @@ def install_legacy_time_fields() -> None:
 			"insert_after": "custom_operation_details",
 		},
 		{
+			"fieldname": "custom_press_rate",
+			"label": "Press Rate",
+			"fieldtype": "Data",
+			"insert_after": "custom_workstation",
+		},
+		{
 			"fieldname": "custom_actual_time",
 			"label": "Actual Time",
 			"fieldtype": "Section Break",
-			"insert_after": "custom_workstation",
+			"insert_after": "custom_press_rate",
 		},
 		{
 			"fieldname": "custom_actual_start_date",
@@ -400,14 +404,19 @@ def install_legacy_time_fields() -> None:
 	ensure_host_custom_field(
 		"Workstation", {"fieldname": "custom_standard_spm", "label": "Standard SPM", "fieldtype": "Float"}
 	)
+	ensure_host_custom_field(
+		"Workstation",
+		{
+			"fieldname": "custom_press_rate",
+			"label": "Press Rate",
+			"fieldtype": "Float",
+			"insert_after": "custom_standard_spm",
+		},
+	)
 
 
 def remove_legacy_time_fields() -> None:
 	"""Remove the legacy time-capture fields and any leftover property setters."""
-	from production_entry_app.production_entry_app.utils.legacy_time_cutover import (
-		LEGACY_TIME_FIELDS,
-	)
-
 	for dt, fieldname in LEGACY_TIME_FIELDS:
 		remove_property_setter(dt, fieldname, "hidden")
 		remove_property_setter(dt, fieldname, "read_only")
@@ -529,9 +538,7 @@ def make_legacy_stock_entry() -> str:
 		limit=1,
 	)
 	posting_date = (
-		frappe.utils.add_days(fiscal_year[0].year_start_date, 1)
-		if fiscal_year
-		else frappe.utils.today()
+		frappe.utils.add_days(fiscal_year[0].year_start_date, 1) if fiscal_year else frappe.utils.today()
 	)
 	ensure_fiscal_year_for_date(str(posting_date), company)
 	abbr = frappe.db.get_value("Company", company, "abbr") or "TC"

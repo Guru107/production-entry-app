@@ -93,7 +93,7 @@
    "hidden": 0,
    "is_query_report": 0,
    "label": "Reports",
-   "link_count": 20,
+   "link_count": 21,
    "onboard": 0,
    "type": "Card Break"
   },
@@ -103,6 +103,16 @@
    "label": "Production OEE Report",
    "link_count": 0,
    "link_to": "Production OEE Report",
+   "link_type": "Report",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 1,
+   "label": "Monthly Production OEE Report",
+   "link_count": 0,
+   "link_to": "Monthly Production OEE Report",
    "link_type": "Report",
    "onboard": 0,
    "type": "Link"

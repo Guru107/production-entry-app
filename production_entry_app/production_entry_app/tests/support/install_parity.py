@@ -122,6 +122,8 @@ class HostParityMigrationTestCase(CleanSiteTestCase):
 			("Stock Entry", "custom_workstation"),
 			("Stock Entry", "custom_actual_start_date"),
 			("Workstation", "custom_standard_spm"),
+			("Stock Entry", "custom_press_rate"),
+			("Workstation", "custom_press_rate"),
 		):
 			self.assertIsNone(
 				frappe.get_meta(doctype, cached=False).get_field(fieldname), f"{doctype}.{fieldname} removed"

@@ -103,7 +103,8 @@ Production Stock Entry custom fields (non-PEA) already capture production time:
 | `custom_time_logs` (Table → Job Card Time Log) | Actual time rows |
 | `custom_loss_time_details` (Table → Loss Time) | Loss rows linked to Downtime Reason |
 | `custom_total_actual_time` / `custom_total_loss_time` | Totals |
-| `custom_department`, `custom_updated_branch`, `custom_press_rate` | Other host UX |
+| `custom_department`, `custom_updated_branch` | Other host UX |
+| `custom_press_rate` (SE + Workstation) | Legacy SPM-adjacent; deleted at cutover |
 
 **Data volume (Production):**
 
@@ -229,7 +230,8 @@ Treat current fixtures as source of truth for Production. Clean staging extras b
 | Obsolete staging-only PEA fields listed in §2.8 | Do **not** create on Production; delete on Staging during cleanup |
 | Any future PEA fixture that redefines `Stock Entry.branch` | Must stay absent (already true in current fixtures) |
 | Host GST / e-Waybill / transporter Stock Entry fields | Never touch |
-| Host `custom_department`, `custom_updated_branch`, `custom_press_rate` | Keep; not PEA-owned |
+| Host `custom_department`, `custom_updated_branch` | Keep; not PEA-owned |
+| Host `custom_press_rate` (Stock Entry + Workstation) | Delete at cutover with legacy SPM/time fields |
 
 **Nothing PEA-owned exists on Production today to delete.**
 

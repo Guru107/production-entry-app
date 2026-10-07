@@ -180,7 +180,10 @@ class TestCutoverFieldRemoval(CutoverHostParityTestCase):
 		self.assertEqual(
 			frappe.get_all(
 				"Property Setter",
-				filters={"doc_type": "Stock Entry", "field_name": ("in", ["custom_workstation", "custom_actual_start_date"])},
+				filters={
+					"doc_type": "Stock Entry",
+					"field_name": ("in", ["custom_workstation", "custom_actual_start_date"]),
+				},
 			),
 			[],
 		)
@@ -233,6 +236,26 @@ class TestCutoverFieldRemoval(CutoverHostParityTestCase):
 		for fieldname in fixture_fieldnames:
 			self.assertNotIn(f"Stock Entry-{fieldname}-hidden", _property_setter_state())
 
+	def test_cutover_removes_legacy_press_rate_fields(self) -> None:
+		"""Press Rate sits next to legacy SPM/workstation capture and is retired with it."""
+		host_parity.ensure_host_custom_field(
+			"Stock Entry",
+			{"fieldname": "custom_press_rate", "label": "Press Rate", "fieldtype": "Data"},
+		)
+		self.addCleanup(host_parity.remove_host_custom_field, "Stock Entry", "custom_press_rate")
+		host_parity.ensure_host_custom_field(
+			"Workstation",
+			{"fieldname": "custom_press_rate", "label": "Press Rate", "fieldtype": "Float"},
+		)
+		self.addCleanup(host_parity.remove_host_custom_field, "Workstation", "custom_press_rate")
+
+		self.run_cutover()
+
+		self.assertFalse(_field_exists("Stock Entry", "custom_press_rate"))
+		self.assertFalse(_field_exists("Workstation", "custom_press_rate"))
+		self.assertFalse(frappe.db.exists("Custom Field", "Stock Entry-custom_press_rate"))
+		self.assertFalse(frappe.db.exists("Custom Field", "Workstation-custom_press_rate"))
+
 	def test_cutover_leaves_host_and_production_owned_metadata_untouched(self) -> None:
 		host_parity.ensure_host_custom_field(
 			"Stock Entry",
@@ -245,11 +268,6 @@ class TestCutoverFieldRemoval(CutoverHostParityTestCase):
 		)
 		self.addCleanup(host_parity.remove_host_custom_field, "Stock Entry", "custom_stock_entry_purpose")
 		host_parity.ensure_host_custom_field(
-			"Workstation",
-			{"fieldname": "custom_press_rate", "label": "Press Rate", "fieldtype": "Float"},
-		)
-		self.addCleanup(host_parity.remove_host_custom_field, "Workstation", "custom_press_rate")
-		host_parity.ensure_host_custom_field(
 			"BOM", {"fieldname": "custom_operation", "label": "Operation", "fieldtype": "Data"}
 		)
 		self.addCleanup(host_parity.remove_host_custom_field, "BOM", "custom_operation")
@@ -257,7 +275,6 @@ class TestCutoverFieldRemoval(CutoverHostParityTestCase):
 		self.run_cutover()
 
 		self.assertTrue(_field_exists("Stock Entry", "custom_stock_entry_purpose"))
-		self.assertTrue(_field_exists("Workstation", "custom_press_rate"))
 		self.assertTrue(_field_exists("BOM", "custom_operation"))
 		self.assertFalse(_field_exists("Workstation", "custom_standard_spm"))
 

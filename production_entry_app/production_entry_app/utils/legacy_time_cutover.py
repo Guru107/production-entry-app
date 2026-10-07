@@ -2,12 +2,13 @@
 
 The production site captures production time through host custom fields — the
 ``custom_operation_details`` / ``custom_actual_time`` / ``custom_loss_time``
-sections and their leaf fields (planned/actual dates, workstation, standard
-SPM, time logs, loss rows, totals) on Stock Entry, plus
-``Workstation.custom_standard_spm`` — driven by the ``Actual & Loss Time
-Calculation`` and ``Stock Auto Time`` client scripts. The app ships its own
-Shift-based capture, and this is a hard cutover release, so the install
-removes the legacy workflow in one ordered, idempotent step:
+sections and their leaf fields (planned/actual dates, workstation, press
+rate, standard SPM, time logs, loss rows, totals) on Stock Entry, plus
+``Workstation.custom_standard_spm`` / ``Workstation.custom_press_rate`` —
+driven by the ``Actual & Loss Time Calculation`` and ``Stock Auto Time``
+client scripts. The app ships its own Shift-based capture, and this is a
+hard cutover release, so the install removes the legacy workflow in one
+ordered, idempotent step:
 
 1. Disable the two legacy time client scripts by name (only when present and
    enabled; the Branch Fetching, BOM and Stock Entry Type scripts are never
@@ -54,6 +55,7 @@ LEGACY_TIME_CLIENT_SCRIPTS: tuple[str, ...] = (
 LEGACY_TIME_FIELDS: tuple[tuple[str, str], ...] = (
 	(STOCK_ENTRY, "custom_operation_details"),
 	(STOCK_ENTRY, "custom_workstation"),
+	(STOCK_ENTRY, "custom_press_rate"),
 	(STOCK_ENTRY, "custom_actual_time"),
 	(STOCK_ENTRY, "custom_planned_start_date"),
 	(STOCK_ENTRY, "custom_planned_end_date"),
@@ -66,6 +68,7 @@ LEGACY_TIME_FIELDS: tuple[tuple[str, str], ...] = (
 	(STOCK_ENTRY, "custom_total_actual_time"),
 	(STOCK_ENTRY, "custom_total_loss_time"),
 	(WORKSTATION, "custom_standard_spm"),
+	(WORKSTATION, "custom_press_rate"),
 )
 
 
