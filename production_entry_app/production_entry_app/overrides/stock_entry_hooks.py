@@ -401,6 +401,9 @@ def _apply_shift_defaults(doc: Document) -> None:
 	if stock_entry_has_branch_field() and shift.branch:
 		doc.branch = shift.branch
 
+	if frappe.get_meta("Stock Entry", cached=True).has_field("custom_department") and shift.department:
+		doc.custom_department = shift.department
+
 	# Only update planned dates for draft/new Stock Entries.
 	# Submitted entries have their planned dates locked at submission time
 	# and must not be rewritten when the Shift duration changes.

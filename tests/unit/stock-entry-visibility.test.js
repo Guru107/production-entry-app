@@ -2117,6 +2117,31 @@ test("shift selection preserves Work Order warehouses while applying its dates a
 	});
 });
 
+test("shift selection applies custom_department when the host field is present", async () => {
+	const updates = {};
+	const frm = {
+		doc: {},
+		fields_dict: {
+			branch: {},
+			custom_department: {},
+			custom_pea_planned_start_date: {},
+		},
+		async set_value(fieldname, value) {
+			updates[fieldname] = value;
+		},
+	};
+	await _apply_shift_detail_updates(frm, {
+		branch: "BRANCH-1",
+		custom_department: "DEPT-PRESS",
+		custom_pea_planned_start_date: "2026-08-30 08:00:00",
+	});
+	assert.deepEqual(updates, {
+		branch: "BRANCH-1",
+		custom_department: "DEPT-PRESS",
+		custom_pea_planned_start_date: "2026-08-30 08:00:00",
+	});
+});
+
 test("Shift selection without warehouse defaults preserves manually entered headers", async () => {
 	for (const emptyValue of [null, undefined, ""]) {
 		const frm = {

@@ -1197,6 +1197,7 @@ async function _apply_shift_detail_updates(
 	const fields = [
 		"company",
 		"branch",
+		"custom_department",
 		"custom_pea_planned_start_date",
 		"custom_pea_planned_end_date",
 		...warehouseFields,
@@ -1232,6 +1233,7 @@ function _clear_shift_derived_fields(frm, { clearWarehouses = false } = {}) {
 		frm,
 		{
 			branch: "",
+			custom_department: "",
 			custom_pea_planned_start_date: "",
 			custom_pea_planned_end_date: "",
 			from_warehouse: "",

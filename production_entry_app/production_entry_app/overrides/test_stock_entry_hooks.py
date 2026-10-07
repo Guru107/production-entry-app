@@ -2211,6 +2211,7 @@ class TestStockEntryHooks(FrappeTestCase):
 		)
 		result = get_shift_details_for_stock_entry(shift.name)
 		self.assertEqual(result.get("company"), shift.company)
+		self.assertEqual(result.get("custom_department"), shift.department)
 		self.assertIn("2026-04-21 16:00:00", result.get("custom_pea_planned_start_date") or "")
 		self.assertIn("2026-04-22 00:00:00", result.get("custom_pea_planned_end_date") or "")
 		self.assertEqual(result.get("from_warehouse"), self.wip_warehouse)
@@ -2231,6 +2232,7 @@ class TestStockEntryHooks(FrappeTestCase):
 		result = get_shift_details_for_stock_entry(shift.name)
 
 		self.assertEqual(result.get("company"), shift.company)
+		self.assertEqual(result.get("custom_department"), shift.department)
 		self.assertIn("2026-04-22 16:00:00", result.get("custom_pea_planned_start_date") or "")
 		self.assertEqual(result.get("from_warehouse"), self.wip_warehouse)
 
@@ -5310,6 +5312,26 @@ class TestStockEntryLateEntryStamp(FrappeTestCase):
 			self.assertEqual(se.branch, branch)
 		else:
 			_assert_stock_entry_branch_not_injected(self, se)
+
+	def test_stock_entry_custom_department_is_populated_from_shift(self) -> None:
+		from production_entry_app.production_entry_app.tests.support import host_parity
+
+		masters = bootstrap_manufacture_masters()
+		host_parity.ensure_host_custom_field(
+			"Stock Entry",
+			{
+				"fieldname": "custom_department",
+				"label": "Department",
+				"fieldtype": "Link",
+				"options": "Department",
+			},
+		)
+		self.addCleanup(host_parity.remove_host_custom_field, "Stock Entry", "custom_department")
+		shift = self._make_running_shift(masters)
+		department = frappe.db.get_value("Shift", shift.name, "department")
+		self.assertTrue(department)
+		se = make_direct_manufacture_entry(masters, shift=shift.name, fg_qty=100, rejection_qty=0)
+		self.assertEqual(se.get("custom_department"), department)
 
 	def _make_running_shift(self, masters: dict | None = None):
 		masters = masters or self.masters

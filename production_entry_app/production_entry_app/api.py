@@ -291,6 +291,7 @@ def get_shift_details_for_stock_entry(shift_name: str) -> dict:
 	return {
 		"company": shift.company,
 		"branch": shift.branch,
+		"custom_department": shift.department,
 		"custom_pea_planned_start_date": str(planned_start) if planned_start else None,
 		"custom_pea_planned_end_date": str(planned_end) if planned_end else None,
 		"from_warehouse": wip_warehouse,
