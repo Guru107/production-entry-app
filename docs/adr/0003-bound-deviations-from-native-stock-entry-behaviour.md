@@ -86,17 +86,15 @@ authoritative for their topics; this record covers the remaining seams.
 
 ## Production-row normalization before native validate
 
-- `before_validate` also defaults Total Press Strokes and, only when the fetched rows already exceed
-  `fg_completed_qty`, rebuilds rejection rows for non-rework, non-joint entries. ERPNext 15.122+ added
-  `validate_finished_good_qty_against_fg_completed_qty`, which runs inside the controller's `validate`
-  before any doc_event validate hook and rejects finished good rows totalling above `fg_completed_qty`.
-  Items rows come from Fetch Items; when the operator changes `fg_completed_qty` afterwards without
-  re-fetching, the stale rows would trip that guard before the app's validate hook can rebuild them,
-  and a zeroed quantity would surface ERPNext's message instead of the app's press-strokes error. The
-  rebuild re-anchors the finished good row to `fg_completed_qty` minus the rejection quantity, so
-  finished rows always total `fg_completed_qty`. When the rows are within `fg_completed_qty`, nothing
-  runs early: rows are rebuilt only at the validate hook, exactly as before, so derived rows (zero or
-  fractional quantities) never face controller checks they did not face before.
+- `before_validate` also defaults Total Press Strokes for non-rework, non-joint entries. ERPNext
+  15.122+ added `validate_finished_good_qty_against_fg_completed_qty`, which runs inside the
+  controller's `validate` before any doc_event validate hook; without the early default, its message
+  would preempt the app's press-strokes error when `fg_completed_qty` is zeroed after Fetch Items.
+- When `fg_completed_qty` is changed after Fetch Items without re-fetching, the stale rows are
+  deliberately left to that guard: the save is blocked with ERPNext's "get the items again" message
+  (the correct remediation) instead of the app mirroring the guard's condition to rebuild rows early.
+  The rejection-row rebuild therefore still runs only at the validate hook, where derived rows (zero
+  or fractional finished quantities) keep facing exactly the controller checks they always faced.
 
 ## Rework hooks and pool locking
 

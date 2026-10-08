@@ -2198,56 +2198,6 @@ class TestStockEntryHooks(FrappeTestCase):
 		rejection_rows = [r for r in se.items if r.get("custom_pea_is_rejection_item")]
 		self.assertEqual(len(rejection_rows), 0)
 
-	def test_resave_with_lower_fg_completed_qty_without_refetch_reanchors_finished_rows(self) -> None:
-		"""ERPNext 15.122+ blocks finished rows above fg_completed_qty before doc_events run.
-
-		Fetch Items builds rows for the fg_completed_qty at fetch time; lowering the quantity
-		without re-fetching must re-anchor the FG row to the scalars so the save succeeds with
-		finished rows totalling fg_completed_qty.
-		"""
-		shift = _create_test_shift(
-			shift_date="2026-04-16",
-			wip_warehouse=self.wip_warehouse,
-			rejection_warehouse=self.rejection_warehouse,
-		)
-		bom_no = _get_or_create_bom(self.fg_item, self.rm_item, self.company)
-		se = _create_bom_stock_entry(
-			company=self.company,
-			bom_no=bom_no,
-			fg_completed_qty=100,
-			custom_pea_rejection_qty=10,
-			custom_pea_shift=shift.name,
-			from_warehouse=self.rm_warehouse,
-			to_warehouse=self.fg_warehouse,
-		)
-		_set_shift_capture_defaults(se, shift)
-		_append_rejection_breakup_rows(
-			se,
-			[
-				{"rejection_reason": "Burr", "qty": 4},
-				{"rejection_reason": "Crack", "qty": 6},
-			],
-		)
-		se.save()
-
-		saved = frappe.get_doc("Stock Entry", se.name)
-		saved.fg_completed_qty = 80
-		saved.save()
-
-		reloaded = frappe.get_doc("Stock Entry", se.name)
-		reloaded_rejection_rows = [row for row in reloaded.items if row.get("custom_pea_is_rejection_item")]
-		self.assertEqual(len(reloaded_rejection_rows), 1)
-		fg_row = next(
-			row
-			for row in reloaded.items
-			if row.get("is_finished_item") and not row.get("custom_pea_is_rejection_item")
-		)
-		self.assertEqual(flt(fg_row.qty), 70.0)
-		self.assertEqual(
-			flt(fg_row.qty) + flt(reloaded_rejection_rows[0].qty),
-			flt(reloaded.fg_completed_qty),
-		)
-
 	def test_zero_fg_completed_qty_for_bom_manufacture_throws_press_strokes_message(self) -> None:
 		"""Zero finished quantity must fail with the app's press-strokes message.
 

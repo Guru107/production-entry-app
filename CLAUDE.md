@@ -470,9 +470,10 @@ department (`_validate_completed_shift_edits`, `_validate_no_overlapping_shifts`
 
 Registered in `hooks.py` for `validate`, `on_submit`, `on_cancel`. Key responsibilities:
 - Validate that the linked Shift is Running (time-window check with configurable buffers).
-- Apply rejection item rows idempotently (remove-then-rebuild; the FG row is re-anchored to
-  `fg_completed_qty` minus rejection quantity, and the rebuild also runs in `before_validate` when the
-  fetched rows already exceed `fg_completed_qty`, ahead of ERPNext 15.122+'s finished-qty guard).
+- Apply rejection item rows idempotently (remove-then-rebuild, at the validate hook only). Stale rows
+  after a `fg_completed_qty` edit without re-fetch are left to ERPNext 15.122+'s finished-qty guard.
+- Default Total Press Strokes in `before_validate` so zero `fg_completed_qty` surfaces the app's
+  press-strokes error instead of that guard's message.
 - Update die tool stroke counter atomically on submit; reverse on cancel.
 - Invalidate shift metrics cache on submit and cancel.
 
