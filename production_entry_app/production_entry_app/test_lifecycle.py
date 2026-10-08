@@ -311,6 +311,11 @@ class TestLifecycle(FrappeTestCase):
 		self.assertTrue(any("PEA User" in warning for warning in warnings))
 
 	def test_after_uninstall_removes_app_docperms_on_host_doctypes(self) -> None:
+		# An earlier test's after_uninstall may already have deleted the app roles (and the
+		# CI runner batches tests so that deletion persists). Re-seed the role leftover this
+		# DocPerm must reference — standalone DocPerm inserts validate the role link.
+		if not frappe.db.exists("Role", "PEA Read Only"):
+			frappe.get_doc({"doctype": "Role", "role_name": "PEA Read Only"}).insert(ignore_permissions=True)
 		docperm = frappe.get_doc(
 			{
 				"doctype": "DocPerm",

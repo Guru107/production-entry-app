@@ -84,6 +84,20 @@ authoritative for their topics; this record covers the remaining seams.
   use case. How that uniqueness is enforced is an implementation detail that may change without changing
   this decision.
 
+## Production-row normalization before native validate
+
+- `before_validate` also defaults Total Press Strokes and, only when the fetched rows already exceed
+  `fg_completed_qty`, rebuilds rejection rows for non-rework, non-joint entries. ERPNext 15.122+ added
+  `validate_finished_good_qty_against_fg_completed_qty`, which runs inside the controller's `validate`
+  before any doc_event validate hook and rejects finished good rows totalling above `fg_completed_qty`.
+  Items rows come from Fetch Items; when the operator changes `fg_completed_qty` afterwards without
+  re-fetching, the stale rows would trip that guard before the app's validate hook can rebuild them,
+  and a zeroed quantity would surface ERPNext's message instead of the app's press-strokes error. The
+  rebuild re-anchors the finished good row to `fg_completed_qty` minus the rejection quantity, so
+  finished rows always total `fg_completed_qty`. When the rows are within `fg_completed_qty`, nothing
+  runs early: rows are rebuilt only at the validate hook, exactly as before, so derived rows (zero or
+  fractional quantities) never face controller checks they did not face before.
+
 ## Rework hooks and pool locking
 
 - `before_validate` defaults blank rework sources from the Company/Branch rejection warehouse and rebuilds

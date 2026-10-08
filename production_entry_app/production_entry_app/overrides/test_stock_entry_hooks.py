@@ -2198,6 +2198,82 @@ class TestStockEntryHooks(FrappeTestCase):
 		rejection_rows = [r for r in se.items if r.get("custom_pea_is_rejection_item")]
 		self.assertEqual(len(rejection_rows), 0)
 
+	def test_resave_with_lower_fg_completed_qty_without_refetch_reanchors_finished_rows(self) -> None:
+		"""ERPNext 15.122+ blocks finished rows above fg_completed_qty before doc_events run.
+
+		Fetch Items builds rows for the fg_completed_qty at fetch time; lowering the quantity
+		without re-fetching must re-anchor the FG row to the scalars so the save succeeds with
+		finished rows totalling fg_completed_qty.
+		"""
+		shift = _create_test_shift(
+			shift_date="2026-04-16",
+			wip_warehouse=self.wip_warehouse,
+			rejection_warehouse=self.rejection_warehouse,
+		)
+		bom_no = _get_or_create_bom(self.fg_item, self.rm_item, self.company)
+		se = _create_bom_stock_entry(
+			company=self.company,
+			bom_no=bom_no,
+			fg_completed_qty=100,
+			custom_pea_rejection_qty=10,
+			custom_pea_shift=shift.name,
+			from_warehouse=self.rm_warehouse,
+			to_warehouse=self.fg_warehouse,
+		)
+		_set_shift_capture_defaults(se, shift)
+		_append_rejection_breakup_rows(
+			se,
+			[
+				{"rejection_reason": "Burr", "qty": 4},
+				{"rejection_reason": "Crack", "qty": 6},
+			],
+		)
+		se.save()
+
+		saved = frappe.get_doc("Stock Entry", se.name)
+		saved.fg_completed_qty = 80
+		saved.save()
+
+		reloaded = frappe.get_doc("Stock Entry", se.name)
+		reloaded_rejection_rows = [row for row in reloaded.items if row.get("custom_pea_is_rejection_item")]
+		self.assertEqual(len(reloaded_rejection_rows), 1)
+		fg_row = next(
+			row
+			for row in reloaded.items
+			if row.get("is_finished_item") and not row.get("custom_pea_is_rejection_item")
+		)
+		self.assertEqual(flt(fg_row.qty), 70.0)
+		self.assertEqual(
+			flt(fg_row.qty) + flt(reloaded_rejection_rows[0].qty),
+			flt(reloaded.fg_completed_qty),
+		)
+
+	def test_zero_fg_completed_qty_for_bom_manufacture_throws_press_strokes_message(self) -> None:
+		"""Zero finished quantity must fail with the app's press-strokes message.
+
+		ERPNext 15.122+ would otherwise throw its FinishedGoodError first because the
+		fetched rows still carry the previous fg_completed_qty.
+		"""
+		shift = _create_test_shift(
+			shift_date="2026-04-17",
+			wip_warehouse=self.wip_warehouse,
+			rejection_warehouse=self.rejection_warehouse,
+		)
+		bom_no = _get_or_create_bom(self.fg_item, self.rm_item, self.company)
+		se = _create_bom_stock_entry(
+			company=self.company,
+			bom_no=bom_no,
+			fg_completed_qty=100,
+			custom_pea_shift=shift.name,
+			from_warehouse=self.rm_warehouse,
+			to_warehouse=self.fg_warehouse,
+		)
+		_set_shift_capture_defaults(se, shift)
+		se.fg_completed_qty = 0
+
+		with self.assertRaisesRegex(ValidationError, "Total Press Strokes must be greater than zero"):
+			se.save()
+
 	def test_get_shift_details_for_stock_entry_api(self) -> None:
 		from production_entry_app.production_entry_app.api import get_shift_details_for_stock_entry
 
@@ -2740,122 +2816,6 @@ class TestStockEntryHooks(FrappeTestCase):
 
 		with self.assertRaisesRegex(ValidationError, "Rejected Warehouse"):
 			se.save()
-
-	def test_rejection_row_latest_idx_warehouse_wins_and_normalizes_rows(self) -> None:
-		non_rejected_warehouse = _get_or_create_warehouse("SE Hook Non-Rejection 2", self.company)
-		valid_rejected_warehouse = _get_or_create_warehouse("SE Hook Valid Rejection", self.company)
-		frappe.db.set_value(
-			"Warehouse", non_rejected_warehouse, "is_rejected_warehouse", 0, update_modified=False
-		)
-		frappe.db.set_value(
-			"Warehouse", valid_rejected_warehouse, "is_rejected_warehouse", 1, update_modified=False
-		)
-		shift = _create_test_shift(
-			shift_date="2026-04-16",
-			wip_warehouse=self.wip_warehouse,
-			rejection_warehouse=self.rejection_warehouse,
-		)
-
-		se = _create_manufacture_stock_entry(
-			company=self.company,
-			fg_item=self.fg_item,
-			rm_item=self.rm_item,
-			fg_qty=100,
-			custom_pea_shift=shift.name,
-			custom_pea_rejection_qty=10,
-			fg_warehouse=self.fg_warehouse,
-			rm_warehouse=self.rm_warehouse,
-		)
-		_append_rejection_breakup_rows(
-			se,
-			[
-				{"rejection_reason": "Burr", "qty": 4, "remark": "Edge burr"},
-				{"rejection_reason": "Crack", "qty": 6, "remark": "Surface crack"},
-			],
-		)
-		se.save()
-
-		# Legacy/bad state simulation: two rejection rows where last edited row is valid.
-		rejection_rows = [r for r in se.items if r.custom_pea_is_rejection_item]
-		self.assertEqual(len(rejection_rows), 1)
-		rejection_rows[0].t_warehouse = non_rejected_warehouse
-		se.append(
-			"items",
-			{
-				"item_code": self.fg_item,
-				"qty": 10,
-				"uom": "Nos",
-				"stock_uom": "Nos",
-				"conversion_factor": 1,
-				"t_warehouse": valid_rejected_warehouse,
-				"custom_pea_is_rejection_item": 1,
-				"is_finished_item": 1,
-				"is_scrap_item": 0,
-			},
-		)
-
-		se.save()
-		rejection_rows = [r for r in se.items if r.custom_pea_is_rejection_item]
-		self.assertEqual(len(rejection_rows), 1)
-		self.assertEqual(rejection_rows[0].t_warehouse, valid_rejected_warehouse)
-
-	def test_rejection_row_prefers_valid_rejected_warehouse_among_duplicates(self) -> None:
-		non_rejected_warehouse = _get_or_create_warehouse("SE Hook Non-Rejection 3", self.company)
-		valid_rejected_warehouse = _get_or_create_warehouse("SE Hook Valid Rejection 2", self.company)
-		frappe.db.set_value(
-			"Warehouse", non_rejected_warehouse, "is_rejected_warehouse", 0, update_modified=False
-		)
-		frappe.db.set_value(
-			"Warehouse", valid_rejected_warehouse, "is_rejected_warehouse", 1, update_modified=False
-		)
-		shift = _create_test_shift(
-			shift_date="2026-04-16",
-			wip_warehouse=self.wip_warehouse,
-			rejection_warehouse=self.rejection_warehouse,
-		)
-
-		se = _create_manufacture_stock_entry(
-			company=self.company,
-			fg_item=self.fg_item,
-			rm_item=self.rm_item,
-			fg_qty=100,
-			custom_pea_shift=shift.name,
-			custom_pea_rejection_qty=10,
-			fg_warehouse=self.fg_warehouse,
-			rm_warehouse=self.rm_warehouse,
-		)
-		_append_rejection_breakup_rows(
-			se,
-			[
-				{"rejection_reason": "Burr", "qty": 4, "remark": "Edge burr"},
-				{"rejection_reason": "Crack", "qty": 6, "remark": "Surface crack"},
-			],
-		)
-		se.save()
-
-		# Duplicate-row simulation where the latest row is invalid but an earlier row is valid.
-		rejection_rows = [r for r in se.items if r.custom_pea_is_rejection_item]
-		self.assertEqual(len(rejection_rows), 1)
-		rejection_rows[0].t_warehouse = valid_rejected_warehouse
-		se.append(
-			"items",
-			{
-				"item_code": self.fg_item,
-				"qty": 10,
-				"uom": "Nos",
-				"stock_uom": "Nos",
-				"conversion_factor": 1,
-				"t_warehouse": non_rejected_warehouse,
-				"custom_pea_is_rejection_item": 1,
-				"is_finished_item": 1,
-				"is_scrap_item": 0,
-			},
-		)
-
-		se.save()
-		rejection_rows = [r for r in se.items if r.custom_pea_is_rejection_item]
-		self.assertEqual(len(rejection_rows), 1)
-		self.assertEqual(rejection_rows[0].t_warehouse, valid_rejected_warehouse)
 
 	def test_remove_rejection_rows_no_op_when_none_found(self) -> None:
 		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (

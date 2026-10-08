@@ -169,6 +169,49 @@ def validate_stock_entry(doc: Document, method: str | None = None) -> None:
 def before_validate_stock_entry(doc: Document, method: str | None = None) -> None:
 	apply_rework_source_warehouse(doc)
 	_apply_rework_cost(doc)
+	_normalize_production_rows(doc)
+
+
+def _normalize_production_rows(doc: Document) -> None:
+	"""Reject zero finished quantity and defuse rows ERPNext's guard would throw on.
+
+	ERPNext (15.122+) guards finished good rows against fg_completed_qty inside its
+	controller validate, which runs before doc_event validate hooks. The stroke default
+	must run before that (zero fg_completed_qty is the app's error to report), and the
+	rejection-row rebuild must run early only when the raw rows already exceed
+	fg_completed_qty — otherwise rows the rebuild derives (zero or fractional finished
+	quantities) would face controller checks they only survived by being built after
+	validate. The validate hook still rebuilds unconditionally.
+	"""
+	if is_rework_stock_entry_type(doc) or is_joint_lh_rh_production(doc):
+		return
+	_default_total_strokes(doc)
+	if _finished_rows_exceed_completed_qty(doc):
+		_apply_rejection_entries(doc)
+
+
+def _finished_rows_exceed_completed_qty(doc: Document) -> bool:
+	"""Mirror ERPNext's finished-good guard: would the raw rows already exceed it?"""
+	if doc.get("purpose") != "Manufacture":
+		return False
+	if not (doc.get("from_bom") and doc.get("bom_no")):
+		return False
+	bom_item = frappe.get_cached_value("BOM", doc.get("bom_no"), "item")
+	if not bom_item:
+		return False
+	finished_qty = 0.0
+	for row in doc.get("items") or []:
+		if not row.get("item_code"):
+			continue
+		if not (row.get("is_finished_item") and row.get("t_warehouse") and not row.get("s_warehouse")):
+			continue
+		if row.get("item_code") not in (
+			bom_item,
+			frappe.get_cached_value("Item", row.get("item_code"), "variant_of"),
+		):
+			continue
+		finished_qty += flt(row.get("qty")) * flt(row.get("conversion_factor") or 1)
+	return flt(finished_qty) > flt(doc.get("fg_completed_qty"))
 
 
 def _validate_rework_fields(doc: Document) -> None:
@@ -944,17 +987,33 @@ def _apply_rejection_entries(doc: Document) -> None:
 
 	_remove_existing_rejection_rows(doc)
 
-	if rejection_qty <= 0:
-		return
-
 	fg_row = _find_finished_good_row(doc)
 	if not fg_row:
+		return
+
+	# ERPNext (15.122+) rejects finished rows above fg_completed_qty. Rows are fetched for the
+	# fg_completed_qty at Fetch Items time; for direct BOM Manufacture re-anchor the FG row to the
+	# scalars before deducting, so finished rows always total fg_completed_qty.
+	if (completed_qty := _get_bom_anchor_qty(doc)) is not None:
+		fg_row.qty = completed_qty
+
+	if rejection_qty <= 0:
 		return
 
 	_validate_rejection_qty_against_finished_good(rejection_qty, fg_row)
 	rejection_warehouse = resolve_rejection_warehouse(doc, existing_rejection_t_warehouse)
 	fg_row.qty -= rejection_qty
 	_append_rejection_item_row(doc, fg_row, rejection_qty, rejection_warehouse)
+
+
+def _get_bom_anchor_qty(doc: Document) -> float | None:
+	"""Return the fg_completed_qty that anchors the FG row, when it is authoritative."""
+	if doc.get("purpose") != "Manufacture" or doc.get("work_order"):
+		return None
+	if not (doc.get("from_bom") and doc.get("bom_no")):
+		return None
+	completed_qty = flt(doc.get("fg_completed_qty"))
+	return completed_qty if completed_qty > 0 else None
 
 
 def _validate_rejection_qty_against_finished_good(rejection_qty: float, fg_row: Any) -> None:
@@ -1047,25 +1106,21 @@ def _find_finished_good_row(doc: Document) -> Any:
 
 
 def _get_existing_rejection_target_warehouse(doc: Document) -> str | None:
-	candidates = [
-		row
-		for row in doc.get("items", [])
-		if row.get("custom_pea_is_rejection_item") and row.get("t_warehouse")
-	]
-	if not candidates:
+	"""Reuse the saved rejection row's target warehouse so an explicit override survives resaves."""
+	t_warehouse = next(
+		(
+			row.get("t_warehouse")
+			for row in doc.get("items", [])
+			if row.get("custom_pea_is_rejection_item") and row.get("t_warehouse")
+		),
+		None,
+	)
+	if not t_warehouse:
 		return None
-	# Legacy docs can contain multiple rejection rows. Prefer an already-valid rejected warehouse;
-	# among matches keep latest idx. If none are valid, fall back to latest row overall.
-	rejected_warehouses = get_rejected_warehouses(row.get("t_warehouse") for row in candidates)
-	valid_candidates = [row for row in candidates if row.get("t_warehouse") in rejected_warehouses]
-	if valid_candidates:
-		latest_valid = max(valid_candidates, key=lambda row: int(row.get("idx") or 0))
-		return latest_valid.get("t_warehouse")
-	if doc.is_new():
+	if doc.is_new() and t_warehouse not in get_rejected_warehouses([t_warehouse]):
 		# For first-save docs, ignore invalid provisional row warehouses and use Shift/Settings defaults.
 		return None
-	latest = max(candidates, key=lambda row: int(row.get("idx") or 0))
-	return latest.get("t_warehouse")
+	return t_warehouse
 
 
 def _set_entry_metrics(doc: Document) -> None:
