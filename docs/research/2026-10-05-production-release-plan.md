@@ -505,14 +505,17 @@ the same bench; no machinery cost.
 deletes dependent Property Setters but never drops the column. Nine `tabStock Entry`
 columns and both `tabWorkstation` columns therefore survive the cutover **with their
 legacy values** (spot-checked: `custom_workstation='Assembly Shop'`, `custom_standard_spm='30'`,
-8.0 h totals, Workstation `custom_standard_spm='5'`). The fields are unreachable from
-forms, ORM and reports, so the workflow retirement is still complete — but the previous
-"columns/values dropped" wording (cutover docstring, ADR 0005, §4.3/§6 here) was wrong
-and has been corrected. Deliberately **not** automating `ALTER TABLE ... DROP COLUMN` in
-the engine: automatic DDL rebuilding the 68k-row production table during install adds
-risk without benefit, and the residue matches the accepted post-uninstall behavior.
-Recorded as an optional post-go-live runbook step (11 columns; schedule a table-rebuild
-window).
+8.0 h totals, Workstation `custom_standard_spm='5'`); the other five cutover targets are
+three Section Breaks and two Table fields that never had a parent-table column, so only
+those 11 columns carry residue. The `Loss Time` host child DocType and its rows also
+remain (host-owned; its `loss_type` links now carry the converted codes). The fields are
+unreachable from forms, ORM and reports, so the workflow retirement is still complete —
+but the previous "columns/values dropped" wording (cutover docstring, ADR 0005, §4.3/§6
+here) was wrong and has been corrected. Deliberately **not** automating
+`ALTER TABLE ... DROP COLUMN` in the engine: automatic DDL rebuilding the 68k-row
+production table during install adds risk without benefit, and the residue matches the
+accepted post-uninstall behavior. Recorded as an optional post-go-live runbook step
+(11 columns; schedule a table-rebuild window).
 
 **Notes for the live run (deltas vs §8.1):**
 

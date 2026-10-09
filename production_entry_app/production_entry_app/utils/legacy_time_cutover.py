@@ -52,8 +52,9 @@ LEGACY_TIME_CLIENT_SCRIPTS: tuple[str, ...] = (
 	"Stock Auto Time",
 )
 # (doctype, fieldname) legacy time-capture targets removed by the cutover.
-# Sections and leaves alike are deleted along with their data; the legacy
-# workflow has no path back into use.
+# Sections and leaves alike: the field metadata is deleted so the legacy
+# workflow has no path back into use (see the module docstring for what
+# happens to the physical columns).
 LEGACY_TIME_FIELDS: tuple[tuple[str, str], ...] = (
 	(STOCK_ENTRY, "custom_operation_details"),
 	(STOCK_ENTRY, "custom_workstation"),
