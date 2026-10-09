@@ -250,7 +250,7 @@ Treat current fixtures as source of truth for Production. Clean staging extras b
 - `Stock Entry.branch` / detail `branch` + property setters + Branch Fetching / SE Branch Update  
 - `BOM.custom_operation`  
 - `Stock Entry.custom_stock_entry_purpose`  
-- Legacy time/operator/workstation custom fields are **not** kept: the install cutover deletes them (see §6 Phase 0). Historical values live only in the pre-install backup.
+- Legacy time/operator/workstation custom fields are **not** kept: the install cutover deletes the field metadata (see §6 Phase 0). Frappe never drops physical columns, so historical values survive in orphaned, unreachable columns — recoverable from the columns themselves or the pre-install backup, and removable with an optional post-go-live `ALTER TABLE ... DROP COLUMN` (§8.2).
 
 ### 4.4 Legacy → PEA field mapping (cutover deletes the legacy side)
 
@@ -352,7 +352,7 @@ Order matters. Do not skip clone proof.
 
 6. **Script + field cutover** (install machinery; also recoverable via `bench execute`)  
    - Disable: `Actual & Loss Time Calculation`, `Stock Auto Time`.  
-   - Delete every legacy time/operator/workstation custom field (sections and leaves); columns/values dropped.  
+   - Delete every legacy time/operator/workstation custom field (sections and leaves); field metadata removed — physical columns are retained by frappe with their values (§8.2 finding); optional manual DDL post go-live.  
    - Keep: Branch Fetching, BOM query script, Stock Entry Type department script — unless smoke tests show PEA conflict.  
    - Leave `SE Branch Update` enabled unless Shift branch handoff conflicts in UAT.
 
@@ -399,14 +399,15 @@ Order matters. Do not skip clone proof.
 
 ## 8. Go / no-go checklist
 
-- [x] Clone dry-run succeeded end-to-end (bench15, 2026-10-07 — see §8.1)  
-- [x] Downtime Reason conversion verified; Loss Time links intact (§8.1)  
-- [x] `Stock Entry.branch` still required and not read-only-from-PEA (§8.1 — mandatory error enforced on insert)  
+- [x] Clone dry-run succeeded end-to-end (bench15, 2026-10-07 §8.1; rerun 2026-10-09 on the shipped delete-path cutover §8.2)  
+- [x] Downtime Reason conversion verified; Loss Time links intact (§8.1, re-verified §8.2)  
+- [x] `Stock Entry.branch` still required and not read-only-from-PEA (§8.1, re-verified §8.2 — mandatory error enforced on insert)  
 - [x] No Stock Entry class override clash with `trikaya` (`trikaya` absent on the clone; PEA override active; Material Receipt/Transfer/Issue all submitted)  
 - [x] Legacy time scripts disabled; PEA Shift Manufacture works (scripts disabled by cutover; Shift doctype creation smoke-verified; full Manufacture flow remains covered by the app test suite)  
-- [x] Non-Shift Stock Entries (Material Transfer, etc.) still submit (§8.1)  
+- [x] Non-Shift Stock Entries (Material Transfer, etc.) still submit (§8.1, §8.2)  
 - [ ] Rejection warehouses and Branch Warehouse Defaults configured *(manual runbook step, not install machinery)*  
-- [x] Joint / Rework Stock Entry Types shipped as fixtures at install  
+- [x] Joint / Rework Stock Entry Types shipped as fixtures at install (§8.2)  
+- [x] Cutover delete path verified on a clone: legacy field metadata removed, values retained in orphaned columns (§8.2 finding)  
 
 - [ ] Staging CF drift cleaned so golden image matches fixtures *(staging-side manual step)*  
 - [ ] Explicit Production write approval obtained for each mutating step *(human gate)*  
@@ -452,8 +453,76 @@ backup: `20261007_123604-development_localhost-*` (19.7 MiB DB).
 - Verification records created during the dry-run (three SEs, one draft Shift) were rolled back at
   console-session end; the site retains exactly the two pre-install sample SEs with rewritten loss links.
 - **Policy change after this dry-run:** cutover now **deletes** legacy time/operator/workstation
-  custom fields (not hide). Re-run the clone dry-run once before Production so §8.1 field evidence
-  matches the delete path.
+  custom fields (not hide). The rerun with the shipped delete path is recorded in §8.2 below.
+
+### 8.2 Clone dry-run rerun — delete-path cutover (2026-10-09, bench15)
+
+**Why:** after §8.1, the cutover policy changed from hide-via-setter to hard-delete
+(`ad477f8`, `40fb290`) and Shift→Stock Entry `custom_department` defaulting shipped
+(`25f9b4a`). Re-ran the whole #143 sequence on current HEAD (`f3e2539`, app 1.0.1).
+
+**Environment:** the same clone, host-parity rebuilt with the real machinery —
+`bench uninstall-app` (drops the adopted Downtime Reason with the app) → `apply_clone.py`
+(recreates the host custom DocType, 31 names with 13 `docstatus=1`, legacy fields,
+setters, enabled scripts) → `restore_loss_link_fidelity.py` (new tooling: resets the
+sample SEs' Loss Time links to legacy names and re-stamps the legacy values the previous
+run's conversion/cutover had consumed — without it the rerun would start from code-valued
+links and empty columns). Pre-run host-parity backup `20261009_141126-development_localhost-*`
+(19.8 MiB DB); pre-uninstall safety backup `20261009_140845-*`. Logs and JSON evidence:
+`/root/workspace/staging-clone/logs/e2e_*_20261009.*`.
+
+**Timings:**
+
+| Step | Wall clock | Result |
+|------|-----------:|--------|
+| `bench uninstall-app production_entry_app` (reset) | 14.8 s | exit 0 |
+| `apply_clone.py` re-apply (host-parity rebuild) | 10.8 s | converged; same 18 CF / 7 PS / 4 CS known gaps as §8.1 setup |
+| `bench install-app production_entry_app` | 47.9 s | exit 0 — hooks drove adoption + conversion + delete-path cutover |
+| `bench migrate` | 20.5 s | exit 0 — patch pair already in Patch Log, not re-run |
+| `bench migrate` after clearing the two patch rows | 21.4 s | exit 0 — patch pair executed over the adopted state as guarded no-ops (production's first-migrate path) |
+| `bench build --app production_entry_app` | 1.6 s | exit 0 |
+
+Install is slower than §8.1's 33.4 s only because the app test suite ran concurrently on
+the same bench; no machinery cost.
+
+**Verified (all pass; `e2e_verification3_20261009.json`, `e2e_smoke_20261009.json`):**
+
+| Check | Evidence |
+|-------|----------|
+| Adoption + conversion | Identical to §8.1: DR module `Production Entry App`, `custom=0`, `field:code`, non-submittable, same table; 36 masters — codes `00`–`22` complete + free codes `23`–`35` with the same deterministic name→code mapping; no legacy names; all draft; recovery export rewritten (31 reasons, 13 submitted, Loss Time inventory 6 rows) |
+| Loss Time links | Rewritten again through the rename cascade: `Setup Time→01`, `Power Off→11`, `Inventory→25` on both sample SEs; row counts reconcile with the export |
+| Cutover — scripts | `Actual & Loss Time Calculation` + `Stock Auto Time` disabled; Branch Fetching / BOM / Stock Entry Type still enabled |
+| Cutover — delete path (new) | All 14 legacy SE custom fields + `Workstation.custom_standard_spm`/`custom_press_rate` removed as metadata: no meta fields, no Custom Field records, no dependent Property Setters; no hide-setters created |
+| Branch ownership | `Stock Entry-branch-reqd=1` setter untouched (module NULL); insert without branch fails `MandatoryError` (`[Stock Entry, MAT-STE-01371]: branch`) |
+| PEA sections render | Host `Stock Entry-main-field_order` setter present post-install; all 56 PEA SE custom fields in meta with valid `insert_after` anchors |
+| Fixture takeover | `use_multi_level_bom-default=0` reassigned to PEA; **Rework SET now ships too** (Material Transfer, rework=1) alongside Joint LH RH Production (Repack, joint=1); PEA roles + 17 DocPerms; 8 Rejection Reasons |
+| Non-Shift submits | Material Receipt + Material Transfer + Material Issue all submitted, `branch=Haridwar` stamped |
+| Shift works | Draft `SHIFT-2026-10-09.1.0001` created; linking a Draft shift rejected with the Running/Completed validation |
+| New: `custom_department` | `_apply_shift_defaults` stamps host `custom_department` from the Shift (`Accounts - TCPL`) alongside branch (`25f9b4a`) |
+| Workspace + indexes | Monthly Production OEE Report linked in the workspace (`40fb290`); all 7 `idx_pea_*` performance indexes present |
+
+**Finding — physical columns are not dropped.** Frappe v15's `Custom Field.on_trash`
+deletes dependent Property Setters but never drops the column. Nine `tabStock Entry`
+columns and both `tabWorkstation` columns therefore survive the cutover **with their
+legacy values** (spot-checked: `custom_workstation='Assembly Shop'`, `custom_standard_spm='30'`,
+8.0 h totals, Workstation `custom_standard_spm='5'`). The fields are unreachable from
+forms, ORM and reports, so the workflow retirement is still complete — but the previous
+"columns/values dropped" wording (cutover docstring, ADR 0005, §4.3/§6 here) was wrong
+and has been corrected. Deliberately **not** automating `ALTER TABLE ... DROP COLUMN` in
+the engine: automatic DDL rebuilding the 68k-row production table during install adds
+risk without benefit, and the residue matches the accepted post-uninstall behavior.
+Recorded as an optional post-go-live runbook step (11 columns; schedule a table-rebuild
+window).
+
+**Notes for the live run (deltas vs §8.1):**
+
+- Still no manual steps: the whole changeover is `install-app` + `migrate` + `build`.
+- Production's first `bench migrate` after install **will** execute the patch pair (no
+  prior Patch Log rows); the cleared-rows rerun above proves it converges as a no-op
+  over the already-converted state.
+- Optional post-go-live DDL if the orphaned legacy columns must physically go: one
+  `ALTER TABLE ... DROP COLUMN` per column on `tabStock Entry` (9) and `tabWorkstation` (2).
+- Smoke records were rolled back again; the site retains exactly the two sample SEs.
 
 ---
 

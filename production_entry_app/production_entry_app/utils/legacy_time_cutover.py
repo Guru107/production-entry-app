@@ -13,12 +13,14 @@ ordered, idempotent step:
 1. Disable the two legacy time client scripts by name (only when present and
    enabled; the Branch Fetching, BOM and Stock Entry Type scripts are never
    touched).
-2. Delete every legacy time custom field (section and leaf alike). Dropping a
-   custom field drops its column, so the legacy values on historical entries
-   are destroyed — deliberately. This is a cutover, not a bridge: entries
-   before the release are not considered by the app or its reports, and no
-   value is backfilled into the app's own fields. The pre-install site backup
-   from the release runbook is the recovery path.
+2. Delete every legacy time custom field (section and leaf alike). Deleting a
+   custom field removes its metadata, so the legacy fields leave forms and the
+   ORM and the workflow has no path back into use; frappe never drops the
+   physical column, so historical values survive in orphaned columns until an
+   optional manual DDL after go-live (release runbook). This is a cutover, not
+   a bridge: entries before the release are not considered by the app or its
+   reports, and no value is backfilled into the app's own fields. The
+   pre-install site backup from the release runbook is the recovery path.
 3. Hide any obsolete Production-Entry-App-module custom fields that current
    fixtures no longer ship (staging-drift pattern), same hide-only rule.
 
@@ -119,7 +121,7 @@ def _remove_custom_field(doctype: str, fieldname: str) -> None:
 	frappe.delete_doc("Custom Field", name, ignore_permissions=True, force=True)
 	frappe.clear_cache(doctype=doctype)
 	frappe.logger("production_entry_app").info(
-		"Legacy time cutover: removed custom field %s (column and values dropped).", name
+		"Legacy time cutover: removed custom field %s (metadata deleted; frappe retains the column).", name
 	)
 
 
