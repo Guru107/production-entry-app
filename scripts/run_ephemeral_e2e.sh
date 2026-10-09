@@ -69,7 +69,16 @@ bench new-site "$SITE_NAME" --db-root-username "$DB_ROOT_USERNAME" --db-root-pas
 bench --site "$SITE_NAME" install-app erpnext
 bench --site "$SITE_NAME" install-app production_entry_app
 bench build --app production_entry_app
+# On v16, get-app hooks build only the fetched app, so frappe's own desk bundles are never
+# built on a --skip-assets bench and the desk half-boots (forms fail with undefined
+# frappe.meta). v15 gets them via erpnext's full build hook; build frappe explicitly so
+# both versions serve a complete desk.
+bench build --app frappe
 bench --site "$SITE_NAME" execute erpnext.setup.setup_wizard.operations.install_fixtures.install --args '["India"]'
+# v16's desk redirects every route to the setup wizard until every frappe/erpnext
+# Installed Application row is flagged is_setup_complete; the fixtures install above does
+# not set it, so E2E landing assertions on /home would fail.
+bench --site "$SITE_NAME" execute frappe.db.set_value --args '["Installed Application", {"app_name": ["in", ["frappe", "erpnext"]]}, "is_setup_complete", 1]'
 bench --site "$SITE_NAME" execute production_entry_app.production_entry_app.utils.test_setup.before_tests
 bench --site "$SITE_NAME" set-config developer_mode 1
 bench --site "$SITE_NAME" set-config allow_e2e_tests 1
