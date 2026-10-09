@@ -42,25 +42,27 @@ function getRoutePrefix() {
 /**
  * Create a regex pattern for URL matching with the correct prefix.
  *
- * v16 nests list pages inside their module workspace (e.g. /desk/production-entry-app/shift
- * instead of /app/shift), so on v16 an optional single module segment is accepted. Form
- * routes stay flat on both versions (/app/shift/<name>, /desk/shift/<name>).
+ * v16 nests list, form and report pages inside their module workspace (e.g.
+ * /desk/production-entry-app/shift/<name> instead of /app/shift/<name>), so on v16 an
+ * optional module segment is accepted.
  *
  * @param {string} pathPattern - Path pattern starting with /, e.g., "/shift/"
  * @returns {RegExp} Regex that matches URLs with the current prefix
  */
+function getRoutePatternSource(pathPattern) {
+	const moduleSegment = ROUTE_PREFIX === "desk" ? "(\\/[a-z0-9-]+)*" : "";
+	return `\\/${ROUTE_PREFIX}${moduleSegment}${pathPattern}`;
+}
+
 function getRouteRegex(pathPattern) {
-	const path = escapeRegexLiteral(pathPattern);
-	if (ROUTE_PREFIX === "desk") {
-		return new RegExp(`\\/${ROUTE_PREFIX}(\\/[a-z0-9-]+)*${path}`);
-	}
-	return new RegExp(`\\/${ROUTE_PREFIX}${path}`);
+	return new RegExp(getRoutePatternSource(escapeRegexLiteral(pathPattern)));
 }
 
 module.exports = {
 	escapeRegexLiteral,
 	getRoute,
 	getRoutePrefix,
+	getRoutePatternSource,
 	getRouteRegex,
 	HOME_PATH,
 	ROUTE_PREFIX,

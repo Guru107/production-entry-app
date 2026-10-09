@@ -7,7 +7,7 @@ const {
 	triggerSaveForm,
 } = require("../fixtures/frappe");
 const { hasCurrentStockEntryBranchField } = require("../fixtures/stock-entry-meta");
-const { escapeRegexLiteral, getRoute, getRoutePrefix } = require("../utils/routing");
+const { escapeRegexLiteral, getRoute, getRoutePatternSource } = require("../utils/routing");
 
 const STOCK_ENTRY_READY_TIMEOUT_MS = 10_000;
 const FETCH_ITEMS_CALL_TIMEOUT_MS = 5_000;
@@ -157,7 +157,7 @@ class StockEntryPage {
 	async openNew() {
 		await this.page.goto(getRoute("/stock-entry/new"));
 		await expect(this.page).toHaveURL(
-			new RegExp(`/${getRoutePrefix()}/stock-entry/(?:new|new-stock-entry-)`)
+			new RegExp(getRoutePatternSource("/stock-entry/(?:new|new-stock-entry-)"))
 		);
 		await waitForStockEntryReady(this.page);
 		await expect(this.page.locator(".modal.show")).toHaveCount(0);
@@ -169,7 +169,9 @@ class StockEntryPage {
 		// v16 may append anchor fragment like #tab_overview
 		await expect(this.page).toHaveURL(
 			new RegExp(
-				`${getRoutePrefix()}/stock-entry/${escapeRegexLiteral(encodedName)}(?:\\#.*)?$`
+				`${getRoutePatternSource(
+					`/stock-entry/${escapeRegexLiteral(encodedName)}`
+				)}(?:\\#.*)?$`
 			)
 		);
 		await this.page.waitForFunction((docname) => window.cur_frm?.doc?.name === docname, name);

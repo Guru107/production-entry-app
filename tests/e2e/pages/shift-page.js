@@ -8,8 +8,8 @@ const {
 const {
 	escapeRegexLiteral,
 	getRoute,
+	getRoutePatternSource,
 	getRouteRegex,
-	getRoutePrefix,
 } = require("../utils/routing");
 
 class ShiftPage {
@@ -45,7 +45,9 @@ class ShiftPage {
 		await this.page.goto(getRoute(`/shift/${encodedName}`));
 		// v16 may append anchor fragment like #tab_overview
 		await expect(this.page).toHaveURL(
-			new RegExp(`${getRoutePrefix()}/shift/${escapeRegexLiteral(encodedName)}(?:\\#.*)?$`)
+			new RegExp(
+				`${getRoutePatternSource(`/shift/${escapeRegexLiteral(encodedName)}`)}(?:\\#.*)?$`
+			)
 		);
 		await this.page.waitForFunction((docname) => window.cur_frm?.doc?.name === docname, name);
 	}
