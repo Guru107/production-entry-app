@@ -32,5 +32,8 @@ frappe.query_reports["Item BOM Rework Hotspots"] = {
 			fieldtype: "Link",
 			options: "BOM",
 		},
+		...(window.production_entry_app?.report_filter_utils?.get_operation_filter?.()
+			? [window.production_entry_app.report_filter_utils.get_operation_filter()]
+			: []),
 	],
 };

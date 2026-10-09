@@ -15,6 +15,8 @@
  */
 
 const ROUTE_PREFIX = process.env.PLAYWRIGHT_ROUTE_PREFIX || "app";
+// v15's desk has a Home workspace at /home; v16 replaced it with Setup > Home.
+const HOME_PATH = ROUTE_PREFIX === "desk" ? "/setup/home" : "/home";
 
 function escapeRegexLiteral(value) {
 	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -26,7 +28,7 @@ function escapeRegexLiteral(value) {
  * @returns {string} Full URL path with prefix, e.g., "/app/shift/new"
  */
 function getRoute(path) {
-	return `/${ROUTE_PREFIX}${path}`;
+	return `/${ROUTE_PREFIX}${path === "/home" ? HOME_PATH : path}`;
 }
 
 /**
@@ -39,17 +41,29 @@ function getRoutePrefix() {
 
 /**
  * Create a regex pattern for URL matching with the correct prefix.
+ *
+ * v16 nests list, form and report pages inside their module workspace (e.g.
+ * /desk/production-entry-app/shift/<name> instead of /app/shift/<name>), so on v16 an
+ * optional module segment is accepted.
+ *
  * @param {string} pathPattern - Path pattern starting with /, e.g., "/shift/"
  * @returns {RegExp} Regex that matches URLs with the current prefix
  */
+function getRoutePatternSource(pathPattern) {
+	const moduleSegment = ROUTE_PREFIX === "desk" ? "(\\/[a-z0-9-]+)*" : "";
+	return `\\/${ROUTE_PREFIX}${moduleSegment}${pathPattern}`;
+}
+
 function getRouteRegex(pathPattern) {
-	return new RegExp(`\\/${ROUTE_PREFIX}${escapeRegexLiteral(pathPattern)}`);
+	return new RegExp(getRoutePatternSource(escapeRegexLiteral(pathPattern)));
 }
 
 module.exports = {
 	escapeRegexLiteral,
 	getRoute,
 	getRoutePrefix,
+	getRoutePatternSource,
 	getRouteRegex,
+	HOME_PATH,
 	ROUTE_PREFIX,
 };

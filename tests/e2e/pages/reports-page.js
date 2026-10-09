@@ -2,8 +2,8 @@ const { expect } = require("@playwright/test");
 const {
 	escapeRegexLiteral,
 	getRoute,
+	getRoutePatternSource,
 	getRouteRegex,
-	getRoutePrefix,
 } = require("../utils/routing");
 
 function isContextDestroyed(error) {
@@ -38,7 +38,7 @@ class ReportsPage {
 		const queryString = ignorePreparedReport ? "?ignore_prepared_report=1" : "";
 		await this.page.goto(getRoute(`/query-report/${encodedName}${queryString}`));
 		await expect(this.page).toHaveURL(
-			new RegExp(`${getRoutePrefix()}/query-report/${escapeRegexLiteral(encodedName)}`)
+			new RegExp(getRoutePatternSource(`/query-report/${escapeRegexLiteral(encodedName)}`))
 		);
 		await this.page.waitForFunction(
 			(name) =>

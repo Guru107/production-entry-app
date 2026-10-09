@@ -1,23 +1,32 @@
 {
  "actions": [],
  "allow_rename": 0,
- "autoname": "field:downtime_reason_name",
+ "autoname": "field:code",
  "creation": "2026-02-09 00:00:00.000000",
  "doctype": "DocType",
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
-  "downtime_reason_name",
+  "code",
+  "description",
   "is_active"
  ],
  "fields": [
   {
-   "fieldname": "downtime_reason_name",
+   "fieldname": "code",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Downtime Reason Name",
+   "label": "Code",
    "reqd": 1,
+   "search_index": 1,
    "unique": 1
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Description",
+   "reqd": 1
   },
   {
    "default": "1",
@@ -29,12 +38,11 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-02-09 00:00:00.000000",
+ "modified": "2026-09-28 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Production Entry App",
  "name": "Downtime Reason",
  "naming_rule": "By fieldname",
- "owner": "Administrator",
  "permissions": [
   {
    "create": 1,
@@ -63,8 +71,10 @@
    "role": "PEA User"
   }
  ],
+ "search_fields": "code,description",
+ "show_title_field_in_link": 1,
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": [],
- "title_field": "downtime_reason_name"
+ "title_field": "description"
 }

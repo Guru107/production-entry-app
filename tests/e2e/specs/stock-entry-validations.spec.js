@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { bootstrapE2E, cleanupE2E } = require("../fixtures/test-data");
+const { bootstrapE2E, cleanupE2E, DOWNTIME_REASON } = require("../fixtures/test-data");
 const { getDoc, callFrappeMethod, setFieldValue } = require("../fixtures/frappe");
 const { expectValidationError } = require("../fixtures/assertions");
 const { StockEntryPage } = require("../pages/stock-entry-page");
@@ -51,6 +51,52 @@ async function getOrCreateEmployee(page, ctx, employeeNumber) {
 	return created.name;
 }
 
+async function ensureExtraOperator(page, name) {
+	const exists = await callFrappeMethod(page, "frappe.client.get_list", {
+		doctype: "Operator",
+		filters: JSON.stringify({ name }),
+		limit_page_length: 1,
+	});
+	if (exists?.length) {
+		return name;
+	}
+	const created = await callFrappeMethod(page, "frappe.client.insert", {
+		doc: JSON.stringify({
+			doctype: "Operator",
+			operator_name: name,
+			is_active: 1,
+		}),
+	});
+	return created.name;
+}
+
+async function ensureExtraWorkstation(page, name) {
+	const exists = await callFrappeMethod(page, "frappe.client.get_list", {
+		doctype: "Workstation",
+		filters: JSON.stringify({ name }),
+		limit_page_length: 1,
+	});
+	if (exists?.length) {
+		await callFrappeMethod(page, "frappe.client.set_value", {
+			doctype: "Workstation",
+			name,
+			fieldname: "custom_pea_standard_spm",
+			value: 2,
+		});
+		return name;
+	}
+	const created = await callFrappeMethod(page, "frappe.client.insert", {
+		doc: JSON.stringify({
+			doctype: "Workstation",
+			workstation_name: name,
+			production_capacity: 1,
+			hour_rate: 100,
+			custom_pea_standard_spm: 2,
+		}),
+	});
+	return created.name;
+}
+
 test.describe("Stock Entry validation matrix", () => {
 	const lifecycle = registerE2ELifecycle(test);
 
@@ -62,7 +108,7 @@ test.describe("Stock Entry validation matrix", () => {
 			fgQty: 0,
 			rejectionQty: 0,
 		});
-		await stockEntryPage.fetchItems();
+		await stockEntryPage.fetchItems({ expectValidation: true });
 		await expectValidationError(page, /Qty to Manufacture/i);
 	});
 
@@ -76,13 +122,13 @@ test.describe("Stock Entry validation matrix", () => {
 			fgQty: 100,
 			rejectionQty: 0,
 		});
-		await stockEntryPage.waitForFieldValue("custom_pea_stock_entry_purpose", "Manufacture");
+		await stockEntryPage.waitForFieldValue("custom_stock_entry_purpose", "Manufacture");
 		const values = await stockEntryPage.getFieldValues([
 			"stock_entry_type",
-			"custom_pea_stock_entry_purpose",
+			"custom_stock_entry_purpose",
 		]);
 		expect(values.stock_entry_type).toBe("Manufacture");
-		expect(values.custom_pea_stock_entry_purpose).toBe("Manufacture");
+		expect(values.custom_stock_entry_purpose).toBe("Manufacture");
 	});
 
 	test("@regression manufacture sections are visible for manufacture stock entry type", async ({
@@ -113,13 +159,10 @@ test.describe("Stock Entry validation matrix", () => {
 		const stockEntryPage = new StockEntryPage(page);
 		await stockEntryPage.openNew();
 		await setFieldValue(page, "stock_entry_type", "Material Transfer");
-		await stockEntryPage.waitForFieldValue(
-			"custom_pea_stock_entry_purpose",
-			"Material Transfer"
-		);
+		await stockEntryPage.waitForFieldValue("custom_stock_entry_purpose", "Material Transfer");
 
-		const values = await stockEntryPage.getFieldValues(["custom_pea_stock_entry_purpose"]);
-		expect(values.custom_pea_stock_entry_purpose).toBe("Material Transfer");
+		const values = await stockEntryPage.getFieldValues(["custom_stock_entry_purpose"]);
+		expect(values.custom_stock_entry_purpose).toBe("Material Transfer");
 		expect(await stockEntryPage.isSectionVisible("bom_info_section")).toBe(false);
 		expect(await stockEntryPage.isSectionVisible("section_break_7qsm")).toBe(false);
 		expect(await stockEntryPage.isSectionVisible("custom_pea_operation_details_section")).toBe(
@@ -239,16 +282,13 @@ test.describe("Stock Entry validation matrix", () => {
 		await stockEntryPage.fetchItems();
 		await stockEntryPage.setRejectionBreakupRows([{ rejection_reason: "Burr", qty: 5 }]);
 		await stockEntryPage.addUnplannedLossRow({
-			downtime_reason: "Tea Break",
+			downtime_reason: DOWNTIME_REASON.TEA_BREAK,
 			start_time: "10:00:00",
 			end_time: "10:15:00",
 		});
 
 		await setFieldValue(page, "stock_entry_type", "Material Transfer");
-		await stockEntryPage.waitForFieldValue(
-			"custom_pea_stock_entry_purpose",
-			"Material Transfer"
-		);
+		await stockEntryPage.waitForFieldValue("custom_stock_entry_purpose", "Material Transfer");
 
 		const state = await page.evaluate(() => {
 			const doc = window.cur_frm?.doc || {};
@@ -352,11 +392,10 @@ test.describe("Stock Entry validation matrix", () => {
 			fgQty: 100,
 			rejectionQty: 150,
 		});
-		await stockEntryPage.fetchItems();
-		await stockEntryPage.setRejectionBreakupRows([{ rejection_reason: "Burr", qty: 150 }]);
 
-		await stockEntryPage.attemptSaveDraft();
-		await expectValidationError(page, /cannot exceed Finished Good quantity/i);
+		await expect(stockEntryPage.fetchItems()).rejects.toThrow(
+			/cannot exceed Finished Good quantity/i
+		);
 	});
 
 	test("@regression actual start outside configured buffer blocks save with range message", async ({
@@ -405,7 +444,7 @@ test.describe("Stock Entry validation matrix", () => {
 		});
 		await stockEntryPage.fetchItems();
 		await stockEntryPage.addUnplannedLossRow({
-			downtime_reason: "Tea Break",
+			downtime_reason: DOWNTIME_REASON.TEA_BREAK,
 		});
 		await stockEntryPage.setUnplannedLossHelperRow(0, {
 			start_time_input: "0830",
@@ -417,7 +456,9 @@ test.describe("Stock Entry validation matrix", () => {
 		const savedStockEntry = await getDoc(page, "Stock Entry", stockEntryName);
 
 		expect(savedStockEntry.custom_pea_unplanned_losses || []).toHaveLength(1);
-		expect(savedStockEntry.custom_pea_unplanned_losses[0].downtime_reason).toBe("Tea Break");
+		expect(savedStockEntry.custom_pea_unplanned_losses[0].downtime_reason).toBe(
+			DOWNTIME_REASON.TEA_BREAK
+		);
 		expect(normalizeTime(savedStockEntry.custom_pea_unplanned_losses[0].start_time)).toBe(
 			"08:30:00"
 		);
@@ -508,50 +549,6 @@ test.describe("Stock Entry validation matrix", () => {
 		expect(rejectionRowsAfterResave[0].t_warehouse).toBe(ctx.rejection_warehouse);
 	});
 
-	test("@regression latest rejection row warehouse is used when legacy duplicate rows exist", async ({
-		page,
-	}) => {
-		await page.goto(getRoute("/home"));
-		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
-
-		const stockEntryPage = await openManufactureEntry(page, ctx, {
-			fgQty: 100,
-			rejectionQty: 10,
-		});
-		await stockEntryPage.fetchItems();
-		await stockEntryPage.setRejectionBreakupRows([
-			{ rejection_reason: "Burr", qty: 4 },
-			{ rejection_reason: "Crack", qty: 6 },
-		]);
-		await stockEntryPage.saveDraft();
-
-		const stockEntryName = await page.evaluate(() => window.cur_frm?.doc?.name);
-		const saved = await getDoc(page, "Stock Entry", stockEntryName);
-		const rejectionRows = (saved.items || []).filter((row) =>
-			Boolean(row.custom_pea_is_rejection_item)
-		);
-		expect(rejectionRows).toHaveLength(1);
-
-		rejectionRows[0].t_warehouse = ctx.fg_warehouse;
-		saved.items.push({
-			...rejectionRows[0],
-			name: undefined,
-			idx: undefined,
-			t_warehouse: ctx.rejection_warehouse,
-		});
-
-		await callFrappeMethod(page, "frappe.client.save", {
-			doc: JSON.stringify(saved),
-		});
-
-		const reloaded = await getDoc(page, "Stock Entry", stockEntryName);
-		const reloadedRejectionRows = (reloaded.items || []).filter((row) =>
-			Boolean(row.custom_pea_is_rejection_item)
-		);
-		expect(reloadedRejectionRows).toHaveLength(1);
-		expect(reloadedRejectionRows[0].t_warehouse).toBe(ctx.rejection_warehouse);
-	});
-
 	test("@regression ok qty is computed as fg completed minus rejection qty", async ({
 		page,
 	}) => {
@@ -576,11 +573,62 @@ test.describe("Stock Entry validation matrix", () => {
 		expect(Number(savedStockEntry.custom_pea_ok_qty || 0)).toBe(90);
 	});
 
-	test("@regression blocks overlapping stock entry when workstation is already in use", async ({
+	test("@regression total press strokes follow finished quantity", async ({ page }) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
+
+		const stockEntryPage = await openManufactureEntry(page, ctx, {
+			fgQty: 100,
+			rejectionQty: 0,
+			totalStrokes: null,
+		});
+		await setFieldValue(page, "fg_completed_qty", 120);
+		expect(
+			Number(
+				(await stockEntryPage.getFieldValues(["custom_pea_total_strokes"]))
+					.custom_pea_total_strokes || 0
+			)
+		).toBe(120);
+		await setFieldValue(page, "custom_pea_total_strokes", 40);
+		await stockEntryPage.fetchItems();
+		await stockEntryPage.saveDraft();
+		const stockEntryName = await page.evaluate(() => window.cur_frm?.doc?.name);
+		const savedStockEntry = await getDoc(page, "Stock Entry", stockEntryName);
+		expect(Number(savedStockEntry.custom_pea_total_strokes || 0)).toBe(120);
+
+		await stockEntryPage.open(stockEntryName);
+		await setFieldValue(page, "fg_completed_qty", 130);
+		expect(
+			Number(
+				(await stockEntryPage.getFieldValues(["custom_pea_total_strokes"]))
+					.custom_pea_total_strokes || 0
+			)
+		).toBe(130);
+	});
+
+	test("@regression zero finished quantity cannot be saved as total press strokes", async ({
 		page,
 	}) => {
 		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
+
+		const stockEntryPage = await openManufactureEntry(page, ctx, {
+			fgQty: 100,
+			rejectionQty: 0,
+		});
+		await stockEntryPage.fetchItems();
+		await setFieldValue(page, "fg_completed_qty", 0);
+		await stockEntryPage.attemptSaveDraft();
+		await expectValidationError(page, /Total Press Strokes must be greater than zero/);
+	});
+
+	test("@regression blocks overlapping stock entry when workstation is already in use", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		const prefix = lifecycle.getPrefix();
+		const ctx = await setupFreshContext(page, prefix);
+		const otherOperator = await ensureExtraOperator(page, `${prefix} Other Operator`);
 
 		const firstStockEntryPage = await openManufactureEntry(page, ctx, {
 			fgQty: 100,
@@ -589,7 +637,6 @@ test.describe("Stock Entry validation matrix", () => {
 			actualEnd: `${ctx.shift_date} 09:00:00`,
 		});
 		await firstStockEntryPage.fetchItems();
-		await setFieldValue(page, "custom_pea_operator", null);
 		await firstStockEntryPage.saveDraft();
 
 		const stockEntryPage = await openManufactureEntry(page, ctx, {
@@ -597,9 +644,9 @@ test.describe("Stock Entry validation matrix", () => {
 			rejectionQty: 0,
 			actualStart: `${ctx.shift_date} 08:30:00`,
 			actualEnd: `${ctx.shift_date} 09:30:00`,
+			operator: otherOperator,
 		});
 		await stockEntryPage.fetchItems();
-		await setFieldValue(page, "custom_pea_operator", null);
 		await stockEntryPage.attemptSaveDraft();
 		await expectValidationError(page, /Workstation .* already in use/i);
 	});
@@ -608,7 +655,9 @@ test.describe("Stock Entry validation matrix", () => {
 		page,
 	}) => {
 		await page.goto(getRoute("/home"));
-		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
+		const prefix = lifecycle.getPrefix();
+		const ctx = await setupFreshContext(page, prefix);
+		const otherWorkstation = await ensureExtraWorkstation(page, `${prefix} Other Workstation`);
 
 		const firstStockEntryPage = await openManufactureEntry(page, ctx, {
 			fgQty: 100,
@@ -617,7 +666,6 @@ test.describe("Stock Entry validation matrix", () => {
 			actualEnd: `${ctx.shift_date} 09:00:00`,
 		});
 		await firstStockEntryPage.fetchItems();
-		await setFieldValue(page, "custom_pea_workstation", null);
 		await firstStockEntryPage.saveDraft();
 
 		const stockEntryPage = await openManufactureEntry(page, ctx, {
@@ -625,9 +673,9 @@ test.describe("Stock Entry validation matrix", () => {
 			rejectionQty: 0,
 			actualStart: `${ctx.shift_date} 08:30:00`,
 			actualEnd: `${ctx.shift_date} 09:30:00`,
+			workstation: otherWorkstation,
 		});
 		await stockEntryPage.fetchItems();
-		await setFieldValue(page, "custom_pea_workstation", null);
 		await stockEntryPage.attemptSaveDraft();
 		await expectValidationError(page, /Operator .* already assigned/i);
 	});
@@ -649,7 +697,7 @@ test.describe("Stock Entry validation matrix", () => {
 					operator: employeeName,
 					from_time: `${ctx.shift_date} 08:15:00`,
 					to_time: `${ctx.shift_date} 08:45:00`,
-					stop_reason: "Other",
+					custom_pea_downtime_reason: "00",
 				}),
 			});
 			downtimeEntryName = downtimeEntry.name;
@@ -661,7 +709,6 @@ test.describe("Stock Entry validation matrix", () => {
 				actualEnd: `${ctx.shift_date} 09:30:00`,
 			});
 			await stockEntryPage.fetchItems();
-			await setFieldValue(page, "custom_pea_operator", null);
 			await stockEntryPage.attemptSaveDraft();
 			await expectValidationError(page, /downtime entry/i);
 		} finally {

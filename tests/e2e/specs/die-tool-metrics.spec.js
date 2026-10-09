@@ -1,9 +1,10 @@
 const { test, expect } = require("@playwright/test");
-const { bootstrapE2E, cleanupE2E } = require("../fixtures/test-data");
+const { bootstrapE2E, cleanupE2E, DOWNTIME_REASON } = require("../fixtures/test-data");
 const { getDoc, callFrappeMethod, retryOnContextDestroyed } = require("../fixtures/frappe");
 const { StockEntryPage } = require("../pages/stock-entry-page");
 const { registerE2ELifecycle } = require("../fixtures/lifecycle");
 const { getRoute } = require("../utils/routing");
+const { expectValidationError } = require("../fixtures/assertions");
 
 async function setupFreshContext(page, prefix) {
 	await cleanupE2E(page, prefix);
@@ -76,7 +77,9 @@ test.describe("Die tool metrics and counter", () => {
 		expect(Number(stockEntry.custom_pea_production_time_mins || 0)).toBe(20);
 	});
 
-	test("@regression missing actual end keeps metrics empty", async ({ page }) => {
+	test("@regression missing actual end is required for Shift-based entries", async ({
+		page,
+	}) => {
 		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 
@@ -86,15 +89,8 @@ test.describe("Die tool metrics and counter", () => {
 			actualStart: `${ctx.shift_date} 08:00:00`,
 			actualEnd: null,
 		});
-		await stockEntryPage.saveDraft();
-
-		const stockEntryName = await page.evaluate(() => window.cur_frm?.doc?.name);
-		const stockEntry = await getDoc(page, "Stock Entry", stockEntryName);
-		expect(stockEntry.custom_pea_actual_duration_mins).toBeFalsy();
-		expect(stockEntry.custom_pea_production_time_mins).toBeFalsy();
-		expect(stockEntry.custom_pea_actual_spm).toBeFalsy();
-		expect(stockEntry.custom_pea_cycle_time_sec).toBeFalsy();
-		expect(stockEntry.custom_pea_operator_efficiency_pct).toBeFalsy();
+		await stockEntryPage.attemptSaveDraft();
+		await expectValidationError(page, /Actual End Date is required/i);
 	});
 
 	test("@regression zero-duration clears metrics", async ({ page }) => {
@@ -131,7 +127,7 @@ test.describe("Die tool metrics and counter", () => {
 			actualEnd: `${ctx.shift_date} 08:20:00`,
 		});
 		await stockEntryPage.addUnplannedLossRow({
-			downtime_reason: "Setup Time",
+			downtime_reason: DOWNTIME_REASON.SETUP,
 			start_time: "08:10:00",
 			end_time: "08:20:00",
 		});
@@ -205,7 +201,7 @@ test.describe("Die tool metrics and counter", () => {
 		page,
 	}) => {
 		await page.goto(getRoute("/home"));
-		const prefix = `${lifecycle.getPrefix()}-die-tool-precision`;
+		const prefix = lifecycle.getPrefix();
 		const ctx = await setupFreshContext(page, prefix);
 		await setSystemFloatPrecision(page, prefix, 4);
 

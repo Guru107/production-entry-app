@@ -1,6 +1,28 @@
 [
 	{
 		"doctype": "Property Setter",
+		"name": "Downtime Entry-stop_reason-hidden",
+		"doctype_or_field": "DocField",
+		"doc_type": "Downtime Entry",
+		"field_name": "stop_reason",
+		"property": "hidden",
+		"property_type": "Check",
+		"value": "1",
+		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Property Setter",
+		"name": "Downtime Entry-stop_reason-reqd",
+		"doctype_or_field": "DocField",
+		"doc_type": "Downtime Entry",
+		"field_name": "stop_reason",
+		"property": "reqd",
+		"property_type": "Check",
+		"value": "0",
+		"module": "Production Entry App"
+	},
+	{
+		"doctype": "Property Setter",
 		"name": "Stock Entry-section_break_7qsm-collapsible",
 		"doctype_or_field": "DocField",
 		"doc_type": "Stock Entry",

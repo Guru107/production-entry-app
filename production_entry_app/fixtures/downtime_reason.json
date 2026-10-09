@@ -1,98 +1,163 @@
 [
 	{
 		"doctype": "Downtime Reason",
-		"name": "Setup Time",
-		"downtime_reason_name": "Setup Time",
+		"name": "00",
+		"code": "00",
+		"description": "Other",
 		"is_active": 1
 	},
 	{
 		"doctype": "Downtime Reason",
-		"name": "Trial",
-		"downtime_reason_name": "Trial",
+		"name": "01",
+		"code": "01",
+		"description": "Setup",
 		"is_active": 1
 	},
 	{
 		"doctype": "Downtime Reason",
-		"name": "Mtrl Handl",
-		"downtime_reason_name": "Mtrl Handl",
+		"name": "02",
+		"code": "02",
+		"description": "Traceability Change",
 		"is_active": 1
 	},
 	{
 		"doctype": "Downtime Reason",
-		"name": "No Operator",
-		"downtime_reason_name": "No Operator",
+		"name": "03",
+		"code": "03",
+		"description": "No Operator",
 		"is_active": 1
 	},
 	{
 		"doctype": "Downtime Reason",
-		"name": "No Mtrl",
-		"downtime_reason_name": "No Mtrl",
+		"name": "04",
+		"code": "04",
+		"description": "No Material",
 		"is_active": 1
 	},
 	{
 		"doctype": "Downtime Reason",
-		"name": "Maint",
-		"downtime_reason_name": "Maint",
+		"name": "05",
+		"code": "05",
+		"description": "Maintenance",
 		"is_active": 1
 	},
 	{
 		"doctype": "Downtime Reason",
-		"name": "P. Maint",
-		"downtime_reason_name": "P. Maint",
+		"name": "06",
+		"code": "06",
+		"description": "Tool Repair",
 		"is_active": 1
 	},
 	{
 		"doctype": "Downtime Reason",
-		"name": "Tool Break",
-		"downtime_reason_name": "Tool Break",
+		"name": "07",
+		"code": "07",
+		"description": "No Crane",
 		"is_active": 1
 	},
 	{
 		"doctype": "Downtime Reason",
-		"name": "Other",
-		"downtime_reason_name": "Other",
+		"name": "08",
+		"code": "08",
+		"description": "Await Previous Oprn.",
 		"is_active": 1
 	},
 	{
 		"doctype": "Downtime Reason",
-		"name": "No Helper",
-		"downtime_reason_name": "No Helper",
+		"name": "09",
+		"code": "09",
+		"description": "No Stacker",
 		"is_active": 1
 	},
 	{
 		"doctype": "Downtime Reason",
-		"name": "Power Off",
-		"downtime_reason_name": "Power Off",
+		"name": "10",
+		"code": "10",
+		"description": "Shift Start Up",
 		"is_active": 1
 	},
 	{
 		"doctype": "Downtime Reason",
-		"name": "Tea Break",
-		"downtime_reason_name": "Tea Break",
+		"name": "11",
+		"code": "11",
+		"description": "No Power",
 		"is_active": 1
 	},
 	{
 		"doctype": "Downtime Reason",
-		"name": "Lunch Break",
-		"downtime_reason_name": "Lunch Break",
+		"name": "12",
+		"code": "12",
+		"description": "No Air",
 		"is_active": 1
 	},
 	{
 		"doctype": "Downtime Reason",
-		"name": "Shift Start Up",
-		"downtime_reason_name": "Shift Start Up",
+		"name": "13",
+		"code": "13",
+		"description": "JH Activity",
 		"is_active": 1
 	},
 	{
 		"doctype": "Downtime Reason",
-		"name": "JH Activity",
-		"downtime_reason_name": "JH Activity",
+		"name": "14",
+		"code": "14",
+		"description": "Tea Break",
 		"is_active": 1
 	},
 	{
 		"doctype": "Downtime Reason",
-		"name": "Dinner",
-		"downtime_reason_name": "Dinner",
+		"name": "15",
+		"code": "15",
+		"description": "Quality Problem",
+		"is_active": 1
+	},
+	{
+		"doctype": "Downtime Reason",
+		"name": "16",
+		"code": "16",
+		"description": "Await Prod. Aids",
+		"is_active": 1
+	},
+	{
+		"doctype": "Downtime Reason",
+		"name": "17",
+		"code": "17",
+		"description": "No Schedule",
+		"is_active": 1
+	},
+	{
+		"doctype": "Downtime Reason",
+		"name": "18",
+		"code": "18",
+		"description": "Await Decision",
+		"is_active": 1
+	},
+	{
+		"doctype": "Downtime Reason",
+		"name": "19",
+		"code": "19",
+		"description": "Lunch Break",
+		"is_active": 1
+	},
+	{
+		"doctype": "Downtime Reason",
+		"name": "20",
+		"code": "20",
+		"description": "Dinner",
+		"is_active": 1
+	},
+	{
+		"doctype": "Downtime Reason",
+		"name": "21",
+		"code": "21",
+		"description": "PM",
+		"is_active": 1
+	},
+	{
+		"doctype": "Downtime Reason",
+		"name": "22",
+		"code": "22",
+		"description": "Tool Try-Out",
 		"is_active": 1
 	}
 ]

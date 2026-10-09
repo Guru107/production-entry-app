@@ -1,0 +1,933 @@
+const { test, expect } = require("@playwright/test");
+const { expectValidationError } = require("../fixtures/assertions");
+const { callFrappeMethod, setFieldValue } = require("../fixtures/frappe");
+const { registerE2ELifecycle } = require("../fixtures/lifecycle");
+const { getJointStockEntryType } = require("../fixtures/joint-production");
+const { bootstrapE2E } = require("../fixtures/test-data");
+const { deleteUserIfExists, ensureUser } = require("../fixtures/users");
+const { StockEntryPage } = require("../pages/stock-entry-page");
+const { getRoute, getRouteRegex } = require("../utils/routing");
+
+const ADMIN_USERNAME = process.env.PLAYWRIGHT_USERNAME || "Administrator";
+const ADMIN_PASSWORD = process.env.PLAYWRIGHT_PASSWORD || "123";
+const TEST_PASSWORD = process.env.PLAYWRIGHT_TEST_USER_PASSWORD || "E2eT3st!Pass#2026";
+
+async function login(page, username, password) {
+	const response = await page.request.post("/api/method/login", {
+		form: { usr: username, pwd: password },
+	});
+	expect(response.ok()).toBeTruthy();
+	await page.goto(getRoute("/home"));
+	await expect(page).toHaveURL(getRouteRegex("/home"));
+}
+
+async function enableJointProduction(page, form, stockEntryType) {
+	await expect(page.locator('[data-fieldname="custom_pea_is_joint_lh_rh"]')).toHaveCount(0);
+	await setFieldValue(page, "stock_entry_type", stockEntryType);
+	await form.waitForFieldValue("stock_entry_type", stockEntryType);
+	await form.waitForFieldValue("custom_stock_entry_purpose", "Repack");
+	await form.waitForJointMode(stockEntryType);
+}
+
+async function openPreparedJointForm(page, ctx, stockEntryType) {
+	const form = new StockEntryPage(page);
+	await form.openNew();
+	await enableJointProduction(page, form, stockEntryType);
+	await setFieldValue(page, "company", ctx.company);
+	await setFieldValue(page, "custom_pea_shift", ctx.shift_name);
+	await setFieldValue(page, "from_warehouse", ctx.wip_warehouse);
+	await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
+	await form.fillJointProductionFields(ctx);
+	return form;
+}
+
+async function deleteDocIfExists(page, doctype, name) {
+	if (!name) return;
+	const rows = await callFrappeMethod(page, "frappe.client.get_list", {
+		doctype,
+		fields: JSON.stringify(["name"]),
+		filters: JSON.stringify({ name }),
+		limit_page_length: 1,
+	});
+	if (rows?.length) await callFrappeMethod(page, "frappe.client.delete", { doctype, name });
+}
+
+async function ensureOperation(page, operation) {
+	const rows = await callFrappeMethod(page, "frappe.client.get_list", {
+		doctype: "Operation",
+		fields: JSON.stringify(["name"]),
+		filters: JSON.stringify({ name: operation }),
+		limit_page_length: 1,
+	});
+	if (!rows?.length) {
+		await callFrappeMethod(page, "frappe.client.insert", {
+			doc: JSON.stringify({ doctype: "Operation", name: operation }),
+		});
+	}
+	return operation;
+}
+
+async function getFieldTops(page, fieldnames) {
+	const tops = await page.evaluate(
+		(names) =>
+			Object.fromEntries(
+				names.map((fieldname) => [
+					fieldname,
+					document
+						.querySelector(`[data-fieldname="${fieldname}"]`)
+						?.getBoundingClientRect().top,
+				])
+			),
+		fieldnames
+	);
+	for (const fieldname of fieldnames) {
+		expect(
+			tops[fieldname],
+			`Expected ${fieldname} to be present in the Stock Entry layout`
+		).toBeDefined();
+	}
+	return tops;
+}
+
+test.describe("Joint LH/RH production form", () => {
+	const lifecycle = registerE2ELifecycle(test);
+	const createdUsers = new Set();
+
+	test.afterEach(async ({ page }) => {
+		await login(page, ADMIN_USERNAME, ADMIN_PASSWORD);
+		for (const email of createdUsers) await deleteUserIfExists(page, email);
+		createdUsers.clear();
+	});
+
+	test("@smoke joint Repack uses the common production form", async ({ page }) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const stockEntryType = await getJointStockEntryType(page);
+		const form = new StockEntryPage(page);
+
+		await form.openNew();
+		await enableJointProduction(page, form, stockEntryType);
+		await setFieldValue(page, "company", ctx.company);
+
+		expect(
+			await form.searchJointBomLinkResults("custom_pea_lh_bom", ctx.joint_lh_item)
+		).toEqual([]);
+		await setFieldValue(page, "custom_pea_operation", ctx.joint_operation);
+		await form.waitForFieldValue("custom_pea_operation", ctx.joint_operation);
+		const lhBomResults = await form.searchJointBomLinkResults(
+			"custom_pea_lh_bom",
+			ctx.joint_lh_item
+		);
+		expect(lhBomResults.map((row) => row.value)).toContain(ctx.joint_lh_bom);
+		expect(
+			(await form.searchJointBomLinkResults("custom_pea_rh_bom", ctx.joint_rh_item)).map(
+				(row) => row.value
+			)
+		).toContain(ctx.joint_rh_bom);
+		await ensureOperation(page, "Blanking");
+		await setFieldValue(page, "custom_pea_operation", "Blanking");
+		await form.waitForFieldValue("custom_pea_operation", "Blanking");
+		expect(
+			(await form.searchJointBomLinkResults("custom_pea_lh_bom", ctx.joint_lh_item)).map(
+				(row) => row.value
+			)
+		).not.toContain(ctx.joint_lh_bom);
+		expect(
+			(await form.searchJointBomLinkResults("custom_pea_rh_bom", ctx.joint_rh_item)).map(
+				(row) => row.value
+			)
+		).not.toContain(ctx.joint_rh_bom);
+		await setFieldValue(page, "custom_pea_operation", ctx.joint_operation);
+		await form.waitForFieldValue("custom_pea_operation", ctx.joint_operation);
+		expect(await form.isFieldVisible("custom_pea_rejection_breakup")).toBe(false);
+		expect(await form.isFieldVisible("custom_pea_operation")).toBe(true);
+		expect(await form.isFieldVisible("custom_pea_lh_bom")).toBe(true);
+		expect(await form.isFieldVisible("custom_pea_rh_bom")).toBe(true);
+		expect(await form.isFieldVisible("custom_pea_total_strokes")).toBe(false);
+		expect(await form.isFieldVisible("custom_pea_joint_fetch_items")).toBe(true);
+		expect(await form.isFieldVisible("custom_pea_shift")).toBe(true);
+		expect(await form.isSectionVisible("bom_info_section")).toBe(false);
+		expect(await form.isSectionVisible("custom_pea_operation_details_section")).toBe(false);
+		expect(await form.isSectionVisible("custom_pea_joint_production_section")).toBe(true);
+		expect(await form.isSectionVisible("custom_pea_joint_resources_section")).toBe(true);
+
+		await setFieldValue(page, "custom_pea_shift", ctx.shift_name);
+		expect(await form.isFieldVisible("custom_pea_total_strokes")).toBe(true);
+		expect(await form.isSectionVisible("custom_pea_operation_details_section")).toBe(true);
+		const sectionTops = await page.evaluate(() => {
+			const top = (fieldname) =>
+				document.querySelector(`[data-fieldname="${fieldname}"]`)?.getBoundingClientRect()
+					.top;
+			return {
+				dates: top("custom_pea_operation_details_section"),
+				actualStartDate: top("custom_pea_actual_start_date_input"),
+				actualStartTime: top("custom_pea_actual_start_time_input"),
+				actualEndDate: top("custom_pea_actual_end_date_input"),
+				actualEndTime: top("custom_pea_actual_end_time_input"),
+				jointProduction: top("custom_pea_joint_production_section"),
+				jointResources: top("custom_pea_joint_resources_section"),
+				workstation: top("custom_pea_workstation_operator_section"),
+			};
+		});
+		expect(sectionTops.dates).toBeLessThan(sectionTops.jointProduction);
+		for (const fieldname of [
+			"actualStartDate",
+			"actualStartTime",
+			"actualEndDate",
+			"actualEndTime",
+		]) {
+			expect(sectionTops[fieldname]).toBeGreaterThan(sectionTops.dates);
+			expect(sectionTops[fieldname]).toBeLessThan(sectionTops.jointProduction);
+		}
+		expect(sectionTops.jointProduction).toBeLessThan(sectionTops.jointResources);
+		expect(sectionTops.jointResources).toBeLessThan(sectionTops.workstation);
+	});
+
+	test("@regression Stock Entry Type changes reset joint and normal production state", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const stockEntryType = await getJointStockEntryType(page);
+		const form = new StockEntryPage(page);
+
+		await form.openNew();
+		await enableJointProduction(page, form, stockEntryType);
+		await setFieldValue(page, "company", ctx.company);
+		await setFieldValue(page, "custom_pea_shift", ctx.shift_name);
+		await setFieldValue(page, "from_warehouse", ctx.wip_warehouse);
+		await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
+		await form.fillJointProductionFields(ctx);
+		await form.fetchItems();
+
+		await setFieldValue(page, "stock_entry_type", "Manufacture");
+		await form.waitForFieldValue("custom_stock_entry_purpose", "Manufacture");
+
+		const manufactureState = await form.getFieldValues([
+			"custom_pea_shift",
+			"custom_pea_lh_bom",
+			"custom_pea_lh_gross_qty",
+			"custom_pea_rh_bom",
+			"custom_pea_rh_gross_qty",
+			"custom_pea_total_strokes",
+			"custom_pea_die_tool_item",
+			"items",
+		]);
+		expect(manufactureState.custom_pea_shift).toBe(ctx.shift_name);
+		expect(manufactureState.custom_pea_lh_bom).toBeFalsy();
+		expect(Number(manufactureState.custom_pea_lh_gross_qty || 0)).toBe(0);
+		expect(manufactureState.custom_pea_rh_bom).toBeFalsy();
+		expect(Number(manufactureState.custom_pea_rh_gross_qty || 0)).toBe(0);
+		expect(Number(manufactureState.custom_pea_total_strokes || 0)).toBe(0);
+		expect(manufactureState.custom_pea_die_tool_item).toBeFalsy();
+		expect(manufactureState.items).toEqual([]);
+
+		await setFieldValue(page, "from_bom", 1);
+		await setFieldValue(page, "bom_no", ctx.bom);
+		await setFieldValue(page, "fg_completed_qty", 100);
+		await setFieldValue(page, "custom_pea_rejection_qty", 2);
+		await setFieldValue(page, "stock_entry_type", stockEntryType);
+		await form.waitForFieldValue("custom_stock_entry_purpose", "Repack");
+
+		const jointState = await form.getFieldValues([
+			"custom_pea_shift",
+			"from_bom",
+			"bom_no",
+			"fg_completed_qty",
+			"custom_pea_rejection_qty",
+		]);
+		expect(jointState.custom_pea_shift).toBe(ctx.shift_name);
+		expect(Number(jointState.from_bom || 0)).toBe(0);
+		expect(jointState.bom_no).toBeFalsy();
+		expect(Number(jointState.fg_completed_qty || 0)).toBe(0);
+		expect(Number(jointState.custom_pea_rejection_qty || 0)).toBe(0);
+	});
+
+	test("@smoke joint Fetch Items populates Shearing rows from both BOMs", async ({ page }) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const stockEntryType = await getJointStockEntryType(page);
+		const form = new StockEntryPage(page);
+
+		await form.openNew();
+		await enableJointProduction(page, form, stockEntryType);
+		await setFieldValue(page, "company", ctx.company);
+		await setFieldValue(page, "custom_pea_shift", ctx.shift_name);
+		await setFieldValue(page, "from_warehouse", ctx.wip_warehouse);
+		await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
+		await form.fillJointProductionFields(ctx);
+
+		await page.locator('[data-fieldname="custom_pea_joint_fetch_items"] button').click();
+		await page.waitForFunction(() => (window.cur_frm?.doc?.items || []).length === 5);
+
+		const values = await form.getFieldValues(["items"]);
+		const outgoingRows = values.items.filter((row) => row.s_warehouse);
+		const sideRows = values.items.filter((row) => row.custom_pea_joint_output_side);
+		const scrapRows = values.items.filter(
+			(row) =>
+				row.is_scrap_item ||
+				row.is_legacy_scrap_item ||
+				row.secondary_item_type === "Scrap" ||
+				row.type === "Scrap"
+		);
+		expect(outgoingRows).toHaveLength(1);
+		expect(outgoingRows[0].item_code).toBe(ctx.joint_rm_item);
+		expect(outgoingRows[0].qty).toBeCloseTo(39.79125, 6);
+		expect(sideRows.map((row) => row.custom_pea_joint_output_side).sort()).toEqual([
+			"LH",
+			"RH",
+		]);
+		expect(scrapRows).toHaveLength(2);
+		expect(scrapRows).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					item_code: ctx.joint_scrap_item,
+					qty: 1.32125,
+					stock_uom: "Kg",
+				}),
+				expect.objectContaining({
+					item_code: ctx.joint_scrap_nos_item,
+					qty: 9,
+					stock_uom: "Nos",
+				}),
+			])
+		);
+
+		await ensureOperation(page, "Blanking");
+		await setFieldValue(page, "custom_pea_operation", "Blanking");
+		await form.waitForFieldValue("custom_pea_operation", "Blanking");
+		const clearedValues = await form.getFieldValues([
+			"custom_pea_lh_bom",
+			"custom_pea_rh_bom",
+			"custom_pea_total_strokes",
+			"custom_pea_die_tool_item",
+			"items",
+		]);
+		expect(clearedValues.custom_pea_lh_bom).toBeFalsy();
+		expect(clearedValues.custom_pea_rh_bom).toBeFalsy();
+		expect(Number(clearedValues.custom_pea_total_strokes || 0)).toBe(0);
+		expect(clearedValues.custom_pea_die_tool_item).toBeFalsy();
+		expect(clearedValues.items).toEqual([]);
+	});
+
+	test("@regression joint rejection breakup stays editable and preserves rows", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const stockEntryType = await getJointStockEntryType(page);
+		const form = new StockEntryPage(page);
+
+		await form.openNew();
+		await enableJointProduction(page, form, stockEntryType);
+		await setFieldValue(page, "company", ctx.company);
+		await setFieldValue(page, "custom_pea_shift", ctx.shift_name);
+		await setFieldValue(page, "custom_pea_operation", ctx.joint_operation);
+		await setFieldValue(page, "custom_pea_lh_bom", ctx.joint_lh_bom);
+		await setFieldValue(page, "custom_pea_rh_bom", ctx.joint_rh_bom);
+		await setFieldValue(page, "custom_pea_lh_rejection_qty", 2);
+		await setFieldValue(page, "custom_pea_rh_rejection_qty", 3);
+		await page.evaluate(() => cur_frm.scroll_to_field("custom_pea_rejection_breakup"));
+
+		expect(await form.isFieldVisible("custom_pea_rejection_breakup")).toBe(true);
+		const dataEntryFlowTops = await getFieldTops(page, [
+			"custom_pea_joint_resources_section",
+			"custom_pea_joint_fetch_items",
+			"custom_pea_rejection_breakup",
+			"custom_pea_workstation_operator_section",
+		]);
+		expect(dataEntryFlowTops.custom_pea_joint_resources_section).toBeLessThan(
+			dataEntryFlowTops.custom_pea_joint_fetch_items
+		);
+		expect(dataEntryFlowTops.custom_pea_joint_fetch_items).toBeLessThan(
+			dataEntryFlowTops.custom_pea_rejection_breakup
+		);
+		expect(dataEntryFlowTops.custom_pea_rejection_breakup).toBeLessThan(
+			dataEntryFlowTops.custom_pea_workstation_operator_section
+		);
+		const jointColumnState = await page.evaluate(() => {
+			const grid = cur_frm.fields_dict.custom_pea_rejection_breakup.grid;
+			return Object.fromEntries(
+				["output_side", "item_code"].map((fieldname) => {
+					const df = grid.docfields.find((field) => field.fieldname === fieldname);
+					return [fieldname, { hidden: Boolean(df.hidden), reqd: Boolean(df.reqd) }];
+				})
+			);
+		});
+		expect(jointColumnState).toEqual({
+			output_side: { hidden: false, reqd: true },
+			item_code: { hidden: false, reqd: false },
+		});
+
+		await form.setRejectionBreakupRows([
+			{
+				output_side: "LH",
+				item_code: ctx.joint_lh_item,
+				rejection_reason: "Burr",
+				qty: 2,
+				is_rework: 0,
+			},
+			{
+				output_side: "RH",
+				item_code: ctx.joint_rh_item,
+				rejection_reason: "Crack",
+				qty: 3,
+				is_rework: 1,
+			},
+		]);
+		await setFieldValue(page, "custom_pea_lh_bom", null);
+		await page.waitForFunction(() => {
+			const rows = window.cur_frm?.doc?.custom_pea_rejection_breakup || [];
+			return rows.find((row) => row.output_side === "LH")?.item_code === "";
+		});
+		await setFieldValue(page, "custom_pea_lh_bom", ctx.joint_lh_bom);
+		await page.waitForFunction((expectedItem) => {
+			const rows = window.cur_frm?.doc?.custom_pea_rejection_breakup || [];
+			return rows.find((row) => row.output_side === "LH")?.item_code === expectedItem;
+		}, ctx.joint_lh_item);
+		const refreshedBreakup = (await form.getFieldValues(["custom_pea_rejection_breakup"]))
+			.custom_pea_rejection_breakup;
+		expect(refreshedBreakup).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					output_side: "LH",
+					item_code: ctx.joint_lh_item,
+					rejection_reason: "Burr",
+					qty: 2,
+					is_rework: 0,
+				}),
+				expect.objectContaining({
+					output_side: "RH",
+					item_code: ctx.joint_rh_item,
+					rejection_reason: "Crack",
+					qty: 3,
+					is_rework: 1,
+				}),
+			])
+		);
+		await setFieldValue(page, "from_warehouse", ctx.wip_warehouse);
+		await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
+		await setFieldValue(page, "custom_pea_lh_gross_qty", 40);
+		await setFieldValue(page, "custom_pea_rh_gross_qty", 41);
+		await setFieldValue(page, "custom_pea_total_strokes", 41);
+		await setFieldValue(page, "custom_pea_die_tool_item", ctx.joint_lh_item);
+		await page.locator('[data-fieldname="custom_pea_joint_fetch_items"] button').click();
+		await page.waitForFunction(() => (window.cur_frm?.doc?.items || []).length > 0);
+		expect(
+			(await form.getFieldValues(["custom_pea_rejection_breakup"]))
+				.custom_pea_rejection_breakup
+		).toHaveLength(2);
+		await setFieldValue(page, "custom_pea_lh_rejection_qty", 0);
+		await setFieldValue(page, "custom_pea_rh_rejection_qty", 0);
+
+		expect(await form.isFieldVisible("custom_pea_rejection_breakup")).toBe(true);
+		const values = await form.getFieldValues(["custom_pea_rejection_breakup"]);
+		expect(values.custom_pea_rejection_breakup).toHaveLength(2);
+	});
+
+	test("@smoke joint rejection breakup saves and submits through the production form", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const stockEntryType = await getJointStockEntryType(page);
+		const form = new StockEntryPage(page);
+
+		await form.openNew();
+		await enableJointProduction(page, form, stockEntryType);
+		await setFieldValue(page, "company", ctx.company);
+		await form.setPostingDate(ctx.shift_date);
+		await setFieldValue(page, "custom_pea_shift", ctx.shift_name);
+		await setFieldValue(page, "from_warehouse", ctx.wip_warehouse);
+		await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
+		await form.fillJointProductionFields(ctx, { lhRejectionQty: 2, rhRejectionQty: 3 });
+		await form.setRejectionBreakupRows([
+			{
+				output_side: "LH",
+				rejection_reason: "Burr",
+				qty: 2,
+				is_rework: 0,
+			},
+			{
+				output_side: "RH",
+				rejection_reason: "Crack",
+				qty: 3,
+				is_rework: 1,
+			},
+		]);
+		await form.fetchItems();
+		await form.saveAndSubmit();
+
+		const name = await page.evaluate(() => cur_frm.doc.name);
+		const submitted = await callFrappeMethod(page, "frappe.client.get", {
+			doctype: "Stock Entry",
+			name,
+		});
+		expect(submitted.docstatus).toBe(1);
+		expect(Number(submitted.custom_pea_rework_qty)).toBe(3);
+		expect(
+			submitted.custom_pea_rejection_breakup.map((row) => ({
+				side: row.output_side,
+				item: row.item_code,
+				qty: Number(row.qty),
+				rework: Number(row.is_rework),
+			}))
+		).toEqual([
+			{ side: "LH", item: ctx.joint_lh_item, qty: 2, rework: 0 },
+			{ side: "RH", item: ctx.joint_rh_item, qty: 3, rework: 1 },
+		]);
+
+		await page.goto("about:blank");
+		await form.open(name);
+		await form.waitForJointMode(stockEntryType);
+		const reopened = await form.getFieldValues([
+			"custom_pea_lh_bom",
+			"custom_pea_lh_gross_qty",
+			"custom_pea_rh_bom",
+			"custom_pea_rh_gross_qty",
+			"custom_pea_total_strokes",
+			"custom_pea_die_tool_item",
+			"custom_pea_rejection_breakup",
+			"items",
+		]);
+		expect(reopened.custom_pea_lh_bom).toBe(ctx.joint_lh_bom);
+		expect(Number(reopened.custom_pea_lh_gross_qty)).toBe(40);
+		expect(reopened.custom_pea_rh_bom).toBe(ctx.joint_rh_bom);
+		expect(Number(reopened.custom_pea_rh_gross_qty)).toBe(41);
+		expect(Number(reopened.custom_pea_total_strokes)).toBe(41);
+		expect(reopened.custom_pea_die_tool_item).toBe(ctx.joint_lh_item);
+		expect(reopened.custom_pea_rejection_breakup).toHaveLength(2);
+		expect(reopened.items.length).toBeGreaterThan(0);
+		expect(await page.evaluate(() => Boolean(window.cur_frm?.doc?.__unsaved))).toBe(false);
+	});
+
+	test("@smoke @regression joint Repack shows the resource-overlap validation popup", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const stockEntryType = await getJointStockEntryType(page);
+		const source = await callFrappeMethod(
+			page,
+			"production_entry_app.production_entry_app.e2e_api.create_e2e_submitted_stock_entry",
+			{
+				prefix: lifecycle.getPrefix(),
+				shift_name: ctx.shift_name,
+				actual_start_time: "10:00:00",
+				actual_end_time: "11:00:00",
+			}
+		);
+		const form = new StockEntryPage(page);
+
+		await form.openNew();
+		await enableJointProduction(page, form, stockEntryType);
+		await setFieldValue(page, "company", ctx.company);
+		await form.setPostingDate(ctx.shift_date);
+		await setFieldValue(page, "custom_pea_shift", ctx.shift_name);
+		await setFieldValue(page, "from_warehouse", ctx.wip_warehouse);
+		await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
+		await form.fillJointProductionFields(ctx);
+		await form.fetchItems();
+		await setFieldValue(page, "custom_pea_workstation", ctx.workstation);
+		await setFieldValue(page, "custom_pea_operator", ctx.operator);
+		await setFieldValue(page, "custom_pea_actual_start_date", `${ctx.shift_date} 10:30:00`);
+		await setFieldValue(page, "custom_pea_actual_end_date", `${ctx.shift_date} 11:30:00`);
+		await form.attemptSaveDraft();
+
+		await expectValidationError(page, new RegExp(`Workstation.*${source.name}`));
+	});
+
+	test("@regression joint rejection quantity requires a breakup before save", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const stockEntryType = await getJointStockEntryType(page);
+		const form = new StockEntryPage(page);
+
+		await form.openNew();
+		await enableJointProduction(page, form, stockEntryType);
+		await setFieldValue(page, "company", ctx.company);
+		await form.setPostingDate(ctx.shift_date);
+		await setFieldValue(page, "custom_pea_shift", ctx.shift_name);
+		await setFieldValue(page, "from_warehouse", ctx.wip_warehouse);
+		await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
+		await form.fillJointProductionFields(ctx, { lhRejectionQty: 1 });
+		await form.fetchItems();
+		await form.attemptSaveDraft();
+
+		await expectValidationError(page, /Rejection Breakup is required/i);
+	});
+
+	test("@regression normal Manufacture hides joint-only rejection columns", async ({ page }) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const form = new StockEntryPage(page);
+
+		await form.openNew();
+		await form.setManufactureFields(ctx, { rejectionQty: 1 });
+		await page.evaluate(() => cur_frm.scroll_to_field("custom_pea_rejection_breakup"));
+
+		expect(await form.isFieldVisible("custom_pea_rejection_breakup")).toBe(true);
+		const normalFlowTops = await getFieldTops(page, [
+			"custom_pea_fetch_items",
+			"custom_pea_rejection_breakup",
+		]);
+		expect(normalFlowTops.custom_pea_fetch_items).toBeLessThan(
+			normalFlowTops.custom_pea_rejection_breakup
+		);
+		const columnState = await page.evaluate(() => {
+			const grid = cur_frm.fields_dict.custom_pea_rejection_breakup.grid;
+			return Object.fromEntries(
+				["output_side", "item_code"].map((fieldname) => {
+					const df = grid.docfields.find((field) => field.fieldname === fieldname);
+					return [fieldname, { hidden: Boolean(df.hidden), reqd: Boolean(df.reqd) }];
+				})
+			);
+		});
+		expect(columnState).toEqual({
+			output_side: { hidden: true, reqd: false },
+			item_code: { hidden: true, reqd: false },
+		});
+	});
+
+	test("@regression joint Fetch Items shows required-header validation", async ({ page }) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const stockEntryType = await getJointStockEntryType(page);
+		const form = new StockEntryPage(page);
+
+		await form.openNew();
+		await enableJointProduction(page, form, stockEntryType);
+		await setFieldValue(page, "company", ctx.company);
+		await setFieldValue(page, "custom_pea_shift", ctx.shift_name);
+		await setFieldValue(page, "custom_pea_lh_gross_qty", 40);
+		await setFieldValue(page, "custom_pea_rh_gross_qty", 41);
+		await page.locator('[data-fieldname="custom_pea_joint_fetch_items"] button').click();
+
+		await expectValidationError(page, /Operation is required/i);
+	});
+
+	test("@regression joint Fetch Items blocks the same LH and RH BOM", async ({ page }) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const stockEntryType = await getJointStockEntryType(page);
+
+		await openPreparedJointForm(page, ctx, stockEntryType);
+		await setFieldValue(page, "custom_pea_rh_bom", ctx.joint_lh_bom);
+		await page.locator('[data-fieldname="custom_pea_joint_fetch_items"] button').click();
+
+		await expectValidationError(page, /LH and RH BOMs must be different/i);
+	});
+
+	test("@regression joint Fetch Items blocks LH and RH BOMs with the same output item", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const stockEntryType = await getJointStockEntryType(page);
+
+		await openPreparedJointForm(page, ctx, stockEntryType);
+		await setFieldValue(page, "custom_pea_rh_bom", ctx.joint_lh_bom_alt);
+		await page.locator('[data-fieldname="custom_pea_joint_fetch_items"] button').click();
+
+		await expectValidationError(page, /LH and RH BOM output items must differ/i);
+	});
+
+	test("@regression joint Fetch Items blocks BOMs from another company", async ({ page }) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const stockEntryType = await getJointStockEntryType(page);
+		const prefix = lifecycle.getPrefix();
+		const otherCompany = `${prefix} Other Co`;
+
+		await openPreparedJointForm(page, ctx, stockEntryType);
+		try {
+			for (const bomName of [ctx.joint_lh_bom, ctx.joint_rh_bom]) {
+				await callFrappeMethod(
+					page,
+					"production_entry_app.production_entry_app.e2e_api.set_e2e_bom_company",
+					{ prefix, bom_name: bomName, company: otherCompany }
+				);
+			}
+			await page.locator('[data-fieldname="custom_pea_joint_fetch_items"] button').click();
+			await expectValidationError(page, /must belong to Company/i);
+		} finally {
+			for (const bomName of [ctx.joint_lh_bom, ctx.joint_rh_bom]) {
+				await callFrappeMethod(
+					page,
+					"production_entry_app.production_entry_app.e2e_api.set_e2e_bom_company",
+					{ prefix, bom_name: bomName, company: ctx.company }
+				);
+			}
+		}
+	});
+
+	test("@smoke @regression post-Shearing Fetch Items builds independent rows from both BOMs", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const stockEntryType = await getJointStockEntryType(page);
+		const form = new StockEntryPage(page);
+
+		await form.openNew();
+		await enableJointProduction(page, form, stockEntryType);
+		await setFieldValue(page, "company", ctx.company);
+		await setFieldValue(page, "custom_pea_shift", ctx.shift_name);
+		await setFieldValue(page, "from_warehouse", ctx.wip_warehouse);
+		await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
+		await form.fillJointProductionFields(
+			{
+				...ctx,
+				joint_operation: ctx.joint_post_shearing_operation,
+				joint_lh_bom: ctx.joint_post_shearing_lh_bom,
+				joint_rh_bom: ctx.joint_post_shearing_rh_bom,
+			},
+			{ lhGrossQty: 20, lhRejectionQty: 2, rhGrossQty: 30, rhRejectionQty: 5 }
+		);
+		await form.fetchItems();
+
+		const rows = await page.evaluate(() =>
+			(cur_frm.doc.items || []).map((row) => ({
+				item_code: row.item_code,
+				bom_no: row.bom_no || "",
+				qty: row.qty,
+				s_warehouse: row.s_warehouse || "",
+				t_warehouse: row.t_warehouse || "",
+				is_rejection: row.custom_pea_is_rejection_item || 0,
+				side: row.custom_pea_joint_output_side || "",
+			}))
+		);
+		const sourceRows = rows
+			.filter((row) => row.s_warehouse)
+			.map((row) => [row.item_code, row.bom_no, Number(row.qty)]);
+		expect(sourceRows).toEqual([
+			[ctx.joint_lh_wip_a, ctx.joint_post_shearing_lh_bom, 4],
+			[ctx.joint_lh_wip_b, ctx.joint_post_shearing_lh_bom, 6],
+			[ctx.joint_shared_wip, ctx.joint_post_shearing_lh_bom, 2],
+			[ctx.joint_rh_wip_a, ctx.joint_post_shearing_rh_bom, 12],
+			[ctx.joint_rh_wip_b, ctx.joint_post_shearing_rh_bom, 3],
+			[ctx.joint_shared_wip, ctx.joint_post_shearing_rh_bom, 3],
+		]);
+		expect(
+			rows
+				.filter((row) => row.t_warehouse && !row.is_rejection && row.side)
+				.map((row) => [row.item_code, row.side, Number(row.qty), row.bom_no])
+		).toEqual([
+			[ctx.joint_lh_item, "LH", 18, ctx.joint_post_shearing_lh_bom],
+			[ctx.joint_rh_item, "RH", 25, ctx.joint_post_shearing_rh_bom],
+		]);
+	});
+
+	test("@smoke post-Shearing Joint LH/RH saves and submits through the production form", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const stockEntryType = await getJointStockEntryType(page);
+		const form = new StockEntryPage(page);
+
+		await form.openNew();
+		await enableJointProduction(page, form, stockEntryType);
+		await setFieldValue(page, "company", ctx.company);
+		await form.setPostingDate(ctx.shift_date);
+		await setFieldValue(page, "custom_pea_shift", ctx.shift_name);
+		await setFieldValue(page, "from_warehouse", ctx.wip_warehouse);
+		await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
+		await form.fillJointProductionFields(
+			{
+				...ctx,
+				joint_operation: ctx.joint_post_shearing_operation,
+				joint_lh_bom: ctx.joint_post_shearing_lh_bom,
+				joint_rh_bom: ctx.joint_post_shearing_rh_bom,
+			},
+			{ lhGrossQty: 20, lhRejectionQty: 0, rhGrossQty: 30, rhRejectionQty: 0 }
+		);
+		await form.fetchItems();
+		await form.saveAndSubmit();
+
+		const name = await page.evaluate(() => cur_frm.doc.name);
+		const submitted = await callFrappeMethod(page, "frappe.client.get", {
+			doctype: "Stock Entry",
+			name,
+		});
+		expect(submitted.docstatus).toBe(1);
+		expect(submitted.custom_pea_operation).toBe(ctx.joint_post_shearing_operation);
+		expect(submitted.custom_pea_lh_bom).toBe(ctx.joint_post_shearing_lh_bom);
+		expect(submitted.custom_pea_rh_bom).toBe(ctx.joint_post_shearing_rh_bom);
+		const sourceRows = submitted.items.filter((row) => row.s_warehouse);
+		expect(sourceRows).toHaveLength(6);
+		expect(sourceRows.every((row) => row.bom_no)).toBe(true);
+		expect(
+			submitted.items
+				.filter(
+					(row) => row.custom_pea_joint_output_side && !row.custom_pea_is_rejection_item
+				)
+				.map((row) => [row.custom_pea_joint_output_side, Number(row.qty), row.bom_no])
+		).toEqual([
+			["LH", 20, ctx.joint_post_shearing_lh_bom],
+			["RH", 30, ctx.joint_post_shearing_rh_bom],
+		]);
+	});
+
+	test("@regression post-Shearing submit rejects stale source rows until Fetch Items", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const stockEntryType = await getJointStockEntryType(page);
+		const form = new StockEntryPage(page);
+
+		await form.openNew();
+		await enableJointProduction(page, form, stockEntryType);
+		await setFieldValue(page, "company", ctx.company);
+		await setFieldValue(page, "custom_pea_shift", ctx.shift_name);
+		await setFieldValue(page, "from_warehouse", ctx.wip_warehouse);
+		await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
+		await form.fillJointProductionFields(
+			{
+				...ctx,
+				joint_operation: ctx.joint_post_shearing_operation,
+				joint_lh_bom: ctx.joint_post_shearing_lh_bom,
+				joint_rh_bom: ctx.joint_post_shearing_rh_bom,
+			},
+			{ lhGrossQty: 20, lhRejectionQty: 0, rhGrossQty: 30, rhRejectionQty: 0 }
+		);
+		await form.fetchItems();
+		await page.evaluate(async () => {
+			const row = cur_frm.doc.items.find((item) => item.s_warehouse);
+			await frappe.model.set_value(row.doctype, row.name, "qty", Number(row.qty) + 1);
+		});
+		await form.attemptSaveDraft();
+		await expectValidationError(page, /Run Fetch Items again/i);
+	});
+
+	test("@regression joint save applies BOM operating cost as Additional Cost", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const stockEntryType = await getJointStockEntryType(page);
+		const form = new StockEntryPage(page);
+		const lhGrossQty = 40;
+		const rhGrossQty = 41;
+		const expectedAmount =
+			(ctx.joint_lh_bom_operating_cost / 100) * lhGrossQty +
+			(ctx.joint_rh_bom_operating_cost / 100) * rhGrossQty;
+
+		await form.openNew();
+		await enableJointProduction(page, form, stockEntryType);
+		await setFieldValue(page, "company", ctx.company);
+		await setFieldValue(page, "custom_pea_shift", ctx.shift_name);
+		await setFieldValue(page, "from_warehouse", ctx.wip_warehouse);
+		await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
+		await form.fillJointProductionFields(ctx, { lhGrossQty, rhGrossQty, lhRejectionQty: 0 });
+		await form.fetchItems();
+		await form.saveDraft();
+
+		const additionalCosts = await page.evaluate(() =>
+			(cur_frm.doc.additional_costs || []).map((row) => ({
+				description: row.description || "",
+				amount: Number(row.amount || 0),
+				expense_account: row.expense_account || "",
+				has_operating_cost: Number(row.has_operating_cost || 0),
+			}))
+		);
+		const bomCostRows = additionalCosts.filter((row) => row.has_operating_cost === 1);
+		expect(bomCostRows).toHaveLength(1);
+		expect(bomCostRows[0].description).toBe("Operating Cost as per BOM");
+		expect(bomCostRows[0].expense_account).toBe(ctx.operating_cost_account);
+		expect(bomCostRows[0].amount).toBeCloseTo(expectedAmount, 5);
+	});
+
+	test("@regression stale joint rows require Fetch Items without clearing logistics", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const stockEntryType = await getJointStockEntryType(page);
+		const form = new StockEntryPage(page);
+
+		await form.openNew();
+		await enableJointProduction(page, form, stockEntryType);
+		await setFieldValue(page, "company", ctx.company);
+		await form.setPostingDate(ctx.shift_date);
+		await setFieldValue(page, "custom_pea_shift", ctx.shift_name);
+		await setFieldValue(page, "from_warehouse", ctx.wip_warehouse);
+		await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
+		await form.fillJointProductionFields(ctx);
+		await form.fetchItems();
+		await page.evaluate(async (warehouse) => {
+			const row = cur_frm.doc.items.find((item) => item.s_warehouse);
+			await frappe.model.set_value(row.doctype, row.name, "s_warehouse", warehouse);
+		}, ctx.rm_warehouse);
+		const before = await form.getFieldValues(["items"]);
+
+		await setFieldValue(page, "custom_pea_lh_gross_qty", 39);
+		await form.attemptSaveDraft();
+
+		await expectValidationError(page, /Run Fetch Items again/i);
+		const after = await form.getFieldValues(["items"]);
+		expect(after.items).toHaveLength(before.items.length);
+		expect(after.items.map((row) => row.name)).toEqual(before.items.map((row) => row.name));
+		expect(after.items.find((row) => row.s_warehouse)?.s_warehouse).toBe(ctx.rm_warehouse);
+	});
+
+	test("@regression users without Stock Entry access cannot call the joint-items API", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		const email = `e2e-user-joint-${lifecycle.getPrefix()}@example.com`.toLowerCase();
+		createdUsers.add(email);
+		await ensureUser(page, {
+			email,
+			firstName: "JointProductionNoAccess",
+			password: TEST_PASSWORD,
+			roles: [],
+		});
+		await login(page, email, TEST_PASSWORD);
+
+		await expect(
+			callFrappeMethod(
+				page,
+				"production_entry_app.production_entry_app.api.get_joint_production_items",
+				{ doc: JSON.stringify({ doctype: "Stock Entry", purpose: "Repack" }) }
+			)
+		).rejects.toThrow(
+			/403|PermissionError|Not permitted|Insufficient Permission|do not have permission/i
+		);
+	});
+
+	test("@regression users without Stock Entry access cannot change total press strokes", async ({
+		page,
+	}) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const form = new StockEntryPage(page);
+		await form.openNew();
+		await form.setManufactureFields(ctx, { fgQty: 100, rejectionQty: 0 });
+		await form.fetchItems();
+		await form.saveDraft();
+		const saved = await page.evaluate(() => ({
+			...cur_frm.doc,
+			custom_pea_total_strokes: 40,
+		}));
+
+		const email = `e2e-user-strokes-${lifecycle.getPrefix()}@example.com`.toLowerCase();
+		createdUsers.add(email);
+		await ensureUser(page, {
+			email,
+			firstName: "TotalStrokesNoAccess",
+			password: TEST_PASSWORD,
+			roles: [],
+		});
+		await login(page, email, TEST_PASSWORD);
+
+		await expect(
+			callFrappeMethod(page, "frappe.client.save", { doc: JSON.stringify(saved) })
+		).rejects.toThrow(
+			/403|PermissionError|No permission|Not permitted|Insufficient Permission/i
+		);
+	});
+});

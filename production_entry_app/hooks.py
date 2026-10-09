@@ -50,11 +50,13 @@ doctype_js = {
 	"Stock Entry": "public/js/stock_entry.js",
 	"Workstation": "public/js/workstation.js",
 	"Operator": "public/js/operator.js",
+	"Downtime Entry": "public/js/downtime_entry.js",
 }
 
 after_sync = ["production_entry_app.production_entry_app.lifecycle.after_sync"]
 after_migrate = ["production_entry_app.production_entry_app.lifecycle.after_migrate"]
 before_install = ["production_entry_app.install.before_install"]
+after_install = ["production_entry_app.install.after_install"]
 
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
@@ -93,15 +95,14 @@ before_install = ["production_entry_app.install.before_install"]
 
 # Installation
 # ------------
-
-# before_install = "production_entry_app.install.before_install"
-# after_install = "production_entry_app.install.after_install"
+# Hooks live in production_entry_app/install.py (before_install / after_install
+# are registered at the top of this file).
 
 # Uninstallation
 # ------------
 
 before_uninstall = ["production_entry_app.production_entry_app.lifecycle.before_uninstall"]
-# after_uninstall = "production_entry_app.uninstall.after_uninstall"
+after_uninstall = ["production_entry_app.production_entry_app.lifecycle.after_uninstall"]
 
 # Integration Setup
 # ------------------
@@ -125,18 +126,10 @@ before_uninstall = ["production_entry_app.production_entry_app.lifecycle.before_
 
 # notification_config = "production_entry_app.notifications.get_notification_config"
 
-permission_query_conditions = {
-	"Report": "production_entry_app.production_entry_app.report_access.get_report_permission_query_conditions",
-}
 #
 # has_permission = {
 # 	"Event": "frappe.desk.doctype.event.event.has_permission",
 # }
-
-override_whitelisted_methods = {
-	"frappe.desk.query_report.get_script": "production_entry_app.production_entry_app.report_access.get_script",
-	"frappe.desk.query_report.run": "production_entry_app.production_entry_app.report_access.run",
-}
 
 # DocType Class
 # ---------------
@@ -155,6 +148,9 @@ override_doctype_class = {  # nosemgrep: override-doctype-class
 # Hook on document methods and events
 
 doc_events = {
+	"Stock Entry Type": {
+		"validate": "production_entry_app.production_entry_app.joint_production.validate_stock_entry_type",
+	},
 	"Shift": {
 		"on_update": "production_entry_app.production_entry_app.doctype.shift.shift.invalidate_shift_summary_for_shift",
 		"on_trash": [
@@ -163,12 +159,15 @@ doc_events = {
 		],
 	},
 	"Stock Entry": {
+		"before_validate": "production_entry_app.production_entry_app.overrides.stock_entry_hooks.before_validate_stock_entry",
+		"before_submit": "production_entry_app.production_entry_app.overrides.stock_entry_hooks.before_submit_stock_entry",
 		"validate": "production_entry_app.production_entry_app.overrides.stock_entry_hooks.validate_stock_entry",
 		"on_submit": "production_entry_app.production_entry_app.overrides.stock_entry_hooks.on_submit_stock_entry",
 		"on_cancel": "production_entry_app.production_entry_app.overrides.stock_entry_hooks.on_cancel_stock_entry",
 		"on_trash": "production_entry_app.production_entry_app.overrides.stock_entry_hooks.on_trash_stock_entry",
 	},
 	"Downtime Entry": {
+		"validate": "production_entry_app.production_entry_app.overrides.downtime_entry_hooks.validate_downtime_entry",
 		"after_insert": "production_entry_app.production_entry_app.doctype.shift.shift.invalidate_shift_summary_for_downtime_entry",
 		"on_update": "production_entry_app.production_entry_app.doctype.shift.shift.invalidate_shift_summary_for_downtime_entry",
 		"on_trash": "production_entry_app.production_entry_app.doctype.shift.shift.invalidate_shift_summary_for_downtime_entry",
@@ -200,6 +199,8 @@ before_tests = "production_entry_app.production_entry_app.utils.test_setup.befor
 # Custom Field: filter by module so export-fixtures does not pull in unrelated fields
 fixtures = [
 	{"dt": "Custom Field", "filters": [["module", "=", "Production Entry App"]]},
+	{"dt": "Stock Entry Type", "filters": [["name", "=", "Joint LH RH Production"]]},
+	{"dt": "Stock Entry Type", "filters": [["name", "=", "Rework"]]},
 	{"dt": "Property Setter", "filters": [["module", "=", "Production Entry App"]]},
 	{"dt": "Role", "filters": [["name", "in", ["PEA User", "PEA Read Only"]]]},
 	{

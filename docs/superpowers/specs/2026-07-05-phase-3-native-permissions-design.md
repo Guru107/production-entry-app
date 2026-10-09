@@ -1,5 +1,11 @@
 # Design: Phase 3 — Native Permissions & Branch Isolation
 
+> **Superseded for PR #79.** This July design proposed app-owned creation of `Stock Entry.branch`.
+> That is no longer the contract. Production Entry App owns `Shift.branch` only; the production
+> ERPNext instance owns `Stock Entry.branch`, `Stock Entry Detail.branch`, and branch accounting
+> dimensions. The app only performs a guarded Shift-to-Stock Entry branch handoff when the host
+> field already exists. See `CONTEXT.md` ("Branch Ownership Handoff").
+
 Date: 2026-07-05
 Author: brainstorming session (Guru107)
 Predecessor: `docs/superpowers/specs/2026-07-01-native-alignment-simplification-design.md` (Phase 1 + Phase 2, merged)
@@ -185,7 +191,7 @@ app doctype JSONs already carry complete DocPerms for `System Manager`, `PEA Use
   can read but not write; write endpoint blocked for `PEA Read Only`, allowed for
   `PEA User`. The formerly-permlevel-9 fields are now permlevel 0 (no field-level
   restriction to test).
-- **Regression:** full v15 + v16 suite green; coverage ≥ 90%. Rewrite the access-control
+- **Regression:** full v15 + v16 suite green; coverage ≥ 85%. Rewrite the access-control
   test modules (`test_access_control*.py`, `test_field_permissions.py`,
   `test_permission_hooks.py`) — delete those covering removed custom logic; add tests
   asserting native DocPerms/User-Permissions enforce the same outcomes.

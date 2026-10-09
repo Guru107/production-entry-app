@@ -3,6 +3,8 @@ const assert = require("node:assert/strict");
 
 const {
 	get_standard_report_date_filters,
+	get_operation_filter,
+	get_year_month_filters,
 	validate_report_date_range,
 } = require("../../production_entry_app/public/js/report_filter_utils.js");
 
@@ -54,4 +56,45 @@ test("get_standard_report_date_filters includes required date filters", (t) => {
 	assert.equal(toDateFilter.default, "2026-06-30");
 	assert.equal(fromDateFilter.on_change, validate_report_date_range);
 	assert.equal(toDateFilter.on_change, validate_report_date_range);
+});
+
+test("get_operation_filter exposes the joint operation link filter", () => {
+	global.__ = (text) => text;
+	const operationFilter = get_operation_filter();
+	assert.equal(operationFilter.fieldname, "custom_pea_operation");
+	assert.equal(operationFilter.fieldtype, "Link");
+	assert.equal(operationFilter.options, "Operation");
+});
+
+test("get_year_month_filters defaults to the current calendar month", (t) => {
+	const originalFrappe = global.frappe;
+	const originalTranslate = global.__;
+	t.after(() => {
+		global.frappe = originalFrappe;
+		global.__ = originalTranslate;
+	});
+
+	global.frappe = {
+		datetime: {
+			get_today() {
+				return "2026-10-04";
+			},
+			str_to_obj(value) {
+				const [year, month, day] = value.split("-").map(Number);
+				return new Date(year, month - 1, day);
+			},
+		},
+	};
+	global.__ = (text) => text;
+
+	const [yearFilter, monthFilter] = get_year_month_filters();
+
+	assert.equal(yearFilter.fieldname, "year");
+	assert.equal(monthFilter.fieldname, "month");
+	assert.equal(yearFilter.fieldtype, "Int");
+	assert.equal(monthFilter.fieldtype, "Int");
+	assert.equal(yearFilter.reqd, 1);
+	assert.equal(monthFilter.reqd, 1);
+	assert.equal(yearFilter.default, 2026);
+	assert.equal(monthFilter.default, 10);
 });
