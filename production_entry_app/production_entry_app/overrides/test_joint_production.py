@@ -1654,6 +1654,36 @@ class TestJointProductionItems(FrappeTestCase):
 		with self.assertRaisesRegex(frappe.ValidationError, "Source RM quantity"):
 			doc.insert(ignore_permissions=True)
 
+	def test_source_rm_rounded_to_system_float_precision_matches_selected_boms(self) -> None:
+		previous_precision = frappe.db.get_single_value("System Settings", "float_precision")
+		previous_default = frappe.db.get_default("float_precision")
+		frappe.db.set_single_value("System Settings", "float_precision", 3)
+		frappe.db.set_default("float_precision", 3)
+		try:
+			shift = make_running_shift(self.masters)
+			lh_bom = self._make_bom(self.lh_item, bom_quantity=2000, rm_qty=1, scrap_qty=0)
+			rh_bom = self._make_bom(self.rh_item, bom_quantity=2000, rm_qty=1, scrap_qty=0)
+			doc = self._make_joint_entry(
+				shift,
+				lh_bom=lh_bom,
+				rh_bom=rh_bom,
+				lh_gross_qty=1341112,
+				rh_gross_qty=1341113,
+				lh_rejection_qty=0,
+			)
+			rm_row = next(row for row in doc.items if row.s_warehouse)
+			rounded_qty = flt(rm_row.qty, 3)
+			self.assertNotEqual(flt(rm_row.qty, 6), rounded_qty)
+			rm_row.qty = rounded_qty
+			rm_row.transfer_qty = rounded_qty
+			doc.insert(ignore_permissions=True)
+		finally:
+			frappe.db.set_single_value("System Settings", "float_precision", previous_precision)
+			frappe.db.set_default(
+				"float_precision",
+				previous_default if previous_default is not None else previous_precision,
+			)
+
 	def test_stale_output_quantity_requires_fetch_items_again(self) -> None:
 		shift = make_running_shift(self.masters)
 		doc = self._make_joint_entry(shift)

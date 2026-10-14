@@ -23,11 +23,11 @@ from production_entry_app.production_entry_app.utils.production_warehouses impor
 from production_entry_app.production_entry_app.utils.stock_entry_type_flags import (
 	is_joint_lh_rh_stock_entry_type,
 )
+from production_entry_app.production_entry_app.utils.system_precision import get_system_float_precision
 
 WHOLE_NUMBER_QUANTUM: Decimal = Decimal("1")
 VALUATION_TOLERANCE: float = 1e-9
 RM_QTY_TOLERANCE: float = 1e-6
-QTY_PRECISION: int = 6
 JOINT_LH_RH_STOCK_ENTRY_TYPE: str = "Joint LH RH Production"
 SHEARING_OPERATION: str = "Shearing"
 JOINT_BOM_OPERATING_COST_DESCRIPTION: str = "Operating Cost as per BOM"
@@ -464,7 +464,12 @@ def _apply_joint_bom_operating_costs(doc: Document, plan: JointProductionPlan) -
 	)
 
 
+def _joint_qty_precision() -> int:
+	return get_system_float_precision()
+
+
 def _validate_joint_item_rows(doc: Document, plan: JointProductionPlan) -> None:
+	precision = _joint_qty_precision()
 	actual_quantities: defaultdict[str, float] = defaultdict(float)
 	for row in doc.get("items") or []:
 		role = _get_joint_row_role(row, plan)
@@ -472,12 +477,12 @@ def _validate_joint_item_rows(doc: Document, plan: JointProductionPlan) -> None:
 
 	for role, expected_qty in plan.expected_role_quantities.items():
 		actual_qty = actual_quantities.get(role, 0)
-		if flt(actual_qty, QTY_PRECISION) != flt(expected_qty, QTY_PRECISION):
+		if flt(actual_qty, precision) != flt(expected_qty, precision):
 			_throw_stale_joint_rows(
 				_("{0} is {1}; expected {2}.").format(
 					_get_joint_role_label(role),
-					flt(actual_qty),
-					flt(expected_qty),
+					flt(actual_qty, precision),
+					flt(expected_qty, precision),
 				)
 			)
 
@@ -671,9 +676,10 @@ def is_scrap_row(row: BaseDocument) -> bool:
 
 
 def _validate_joint_rejection_breakup(doc: Document, plan: JointProductionPlan) -> None:
+	precision = _joint_qty_precision()
 	expected = {
-		"LH": flt(plan.lh_rejection_qty, QTY_PRECISION),
-		"RH": flt(plan.rh_rejection_qty, QTY_PRECISION),
+		"LH": flt(plan.lh_rejection_qty, precision),
+		"RH": flt(plan.rh_rejection_qty, precision),
 	}
 	actual = {"LH": 0.0, "RH": 0.0}
 	items = {
@@ -690,11 +696,11 @@ def _validate_joint_rejection_breakup(doc: Document, plan: JointProductionPlan) 
 			row.set("item_code", items[side])
 		elif row.get("item_code") != items[side]:
 			frappe.throw(_("Joint rejection breakup Item must match the selected {0} BOM.").format(side))
-		actual[side] += flt(row_qty, QTY_PRECISION)
+		actual[side] += flt(row_qty, precision)
 		if row.get("is_rework"):
 			rework_qty += row_qty
 	for side in ("LH", "RH"):
-		if flt(actual[side], QTY_PRECISION) != expected[side]:
+		if flt(actual[side], precision) != expected[side]:
 			frappe.throw(_("{0} rejection breakup total must equal {0} Rejection Quantity.").format(side))
 	doc.custom_pea_rework_qty = flt(rework_qty)
 
