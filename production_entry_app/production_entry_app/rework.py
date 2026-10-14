@@ -17,9 +17,8 @@ from production_entry_app.production_entry_app.utils.rejection_warehouse import 
 from production_entry_app.production_entry_app.utils.stock_entry_type_flags import (
 	is_rework_stock_entry_type,
 )
+from production_entry_app.production_entry_app.utils.system_precision import get_system_float_precision
 
-REWORK_QTY_PRECISION: int = 6
-REWORK_COST_PRECISION: int = 6
 SECONDS_PER_HOUR: int = 3600
 
 
@@ -36,11 +35,12 @@ def get_pending_rework(item_code: str | None = None) -> list[dict[str, Any]]:
 		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
 
 	item_codes = [item_code] if item_code else None
+	precision = get_system_float_precision()
 	pending_by_item = _get_pending_rework_by_item(item_codes=item_codes)
 	return [
-		{"item_code": code, "pending_qty": flt(pending_by_item[code], REWORK_QTY_PRECISION)}
+		{"item_code": code, "pending_qty": flt(pending_by_item[code], precision)}
 		for code in sorted(pending_by_item)
-		if flt(pending_by_item[code], REWORK_QTY_PRECISION) > 0
+		if flt(pending_by_item[code], precision) > 0
 	]
 
 
@@ -73,9 +73,10 @@ def validate_rework_submission(doc: Document) -> None:
 		exclude_stock_entry=doc.get("name"),
 		lock_rows=True,
 	)
+	precision = get_system_float_precision()
 	for item_code in item_codes:
-		requested_qty = flt(requested_by_item[item_code], REWORK_QTY_PRECISION)
-		available_qty = flt(pending_by_item.get(item_code), REWORK_QTY_PRECISION)
+		requested_qty = flt(requested_by_item[item_code], precision)
+		available_qty = flt(pending_by_item.get(item_code), precision)
 		if requested_qty <= available_qty:
 			continue
 		frappe.throw(

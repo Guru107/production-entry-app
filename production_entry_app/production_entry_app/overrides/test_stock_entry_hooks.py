@@ -1518,7 +1518,11 @@ class TestStockEntryHooks(FrappeTestCase):
 
 	def test_rejection_breakup_allows_difference_within_precision_tolerance(self) -> None:
 		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
-			_get_rejection_breakup_abs_tol,
+			_get_rejection_breakup_precision,
+		)
+		from production_entry_app.production_entry_app.utils.system_precision import (
+			one_unit_tolerance,
+			override_system_precision,
 		)
 
 		shift = _create_test_shift(
@@ -1529,31 +1533,36 @@ class TestStockEntryHooks(FrappeTestCase):
 			rejection_warehouse=self.rejection_warehouse,
 		)
 
-		se = _create_manufacture_stock_entry(
-			company=self.company,
-			fg_item=self.fg_item,
-			rm_item=self.rm_item,
-			fg_qty=100,
-			custom_pea_shift=shift.name,
-			custom_pea_rejection_qty=5,
-			fg_warehouse=self.fg_warehouse,
-			rm_warehouse=self.rm_warehouse,
-		)
-		abs_tol = _get_rejection_breakup_abs_tol(se, [frappe._dict(qty=5)])
-		within_delta = abs_tol * 0.9
-		_append_rejection_breakup_rows(
-			se,
-			[
-				{"rejection_reason": "Burr", "qty": 5 + within_delta, "remark": "Within precision tolerance"},
-			],
-		)
-
-		se.save()
+		with override_system_precision("float_precision", 3):
+			se = _create_manufacture_stock_entry(
+				company=self.company,
+				fg_item=self.fg_item,
+				rm_item=self.rm_item,
+				fg_qty=100,
+				custom_pea_shift=shift.name,
+				custom_pea_rejection_qty=5,
+				fg_warehouse=self.fg_warehouse,
+				rm_warehouse=self.rm_warehouse,
+			)
+			precision = _get_rejection_breakup_precision(se, [frappe._dict(qty=5)])
+			within_delta = one_unit_tolerance(precision) * 0.4
+			_append_rejection_breakup_rows(
+				se,
+				[
+					{
+						"rejection_reason": "Burr",
+						"qty": 5 + within_delta,
+						"remark": "Within precision tolerance",
+					},
+				],
+			)
+			se.save()
 
 	def test_rejection_breakup_rejects_difference_beyond_precision_tolerance(self) -> None:
 		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
-			_get_rejection_breakup_abs_tol,
+			_get_rejection_breakup_precision,
 		)
+		from production_entry_app.production_entry_app.utils.system_precision import one_unit_tolerance
 
 		shift = _create_test_shift(
 			shift_date="2026-04-20",
@@ -1573,8 +1582,8 @@ class TestStockEntryHooks(FrappeTestCase):
 			fg_warehouse=self.fg_warehouse,
 			rm_warehouse=self.rm_warehouse,
 		)
-		abs_tol = _get_rejection_breakup_abs_tol(se, [frappe._dict(qty=5)])
-		beyond_delta = abs_tol * 1.1
+		precision = _get_rejection_breakup_precision(se, [frappe._dict(qty=5)])
+		beyond_delta = one_unit_tolerance(precision) * 2
 		_append_rejection_breakup_rows(
 			se,
 			[

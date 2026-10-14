@@ -12,9 +12,11 @@ from production_entry_app.production_entry_app.report.report_utils import (
 	new_interactive_report_timeout_guard,
 )
 from production_entry_app.production_entry_app.rework import (
-	REWORK_COST_PRECISION,
-	REWORK_QTY_PRECISION,
 	SECONDS_PER_HOUR,
+)
+from production_entry_app.production_entry_app.utils.system_precision import (
+	get_system_currency_precision,
+	get_system_float_precision,
 )
 
 _ENTRY_CHUNK_SIZE = 500
@@ -149,24 +151,24 @@ def _get_rows(filters: dict) -> list[dict]:
 			labour_hours_by_parent[row.parent] += (end - start).total_seconds() / SECONDS_PER_HOUR
 
 	rows = []
+	qty_precision = get_system_float_precision()
+	cost_precision = get_system_currency_precision()
 	for entry in sorted(entries, key=lambda row: (row.posting_date, row.name), reverse=True):
 		items = items_by_parent[entry.name]
 		operators = operators_by_parent[entry.name]
-		duration_hours = flt(labour_hours_by_parent[entry.name], REWORK_QTY_PRECISION)
+		duration_hours = flt(labour_hours_by_parent[entry.name], qty_precision)
 		rows.append(
 			{
 				"date": entry.posting_date,
 				"rework_entry": entry.name,
 				"rework_type": entry.custom_pea_rework_type,
 				"workstation": entry.custom_pea_rework_workstation,
-				"items": ", ".join(
-					f"{row.item_code} ({flt(row.qty, REWORK_QTY_PRECISION):g})" for row in items
-				),
-				"total_qty": flt(sum(flt(row.qty) for row in items), REWORK_QTY_PRECISION),
+				"items": ", ".join(f"{row.item_code} ({flt(row.qty, qty_precision):g})" for row in items),
+				"total_qty": flt(sum(flt(row.qty) for row in items), qty_precision),
 				"duration_hours": duration_hours,
 				"operator_names": ", ".join(operators),
 				"operator_count": len(operators),
-				"computed_cost": flt(entry.custom_pea_rework_cost, REWORK_COST_PRECISION),
+				"computed_cost": flt(entry.custom_pea_rework_cost, cost_precision),
 			}
 		)
 	return rows

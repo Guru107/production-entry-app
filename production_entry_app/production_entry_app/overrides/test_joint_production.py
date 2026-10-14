@@ -28,6 +28,7 @@ from production_entry_app.production_entry_app.joint_production import (
 	_get_bom_scrap_item_details,
 	_get_item_details,
 	_get_joint_bom_details,
+	_net_production_value_after_scrap,
 	_set_scrap_row_classification,
 	allocate_joint_output_value,
 	calculate_joint_rm_consumption,
@@ -53,6 +54,7 @@ from production_entry_app.production_entry_app.tests.support.manufacture_builder
 )
 from production_entry_app.production_entry_app.utils.rejection_warehouse import resolve_rejection_warehouse
 from production_entry_app.production_entry_app.utils.stock_entry_branch import stock_entry_has_branch_field
+from production_entry_app.production_entry_app.utils.system_precision import override_system_precision
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	build_joint_bom_scrap_row,
 	cleanup_running_shifts,
@@ -1506,6 +1508,14 @@ class TestJointProductionItems(FrappeTestCase):
 		with self.assertRaisesRegex(frappe.ValidationError, "scrap value cannot exceed"):
 			validate_and_apply_joint_production(doc)
 
+	def test_scrap_shortfall_within_currency_precision_is_treated_as_zero(self) -> None:
+		with override_system_precision("currency_precision", 2):
+			self.assertEqual(_net_production_value_after_scrap(-0.006), 0)
+
+	def test_positive_production_value_within_currency_precision_is_kept(self) -> None:
+		with override_system_precision("currency_precision", 2):
+			self.assertEqual(_net_production_value_after_scrap(0.006), 0.006)
+
 	def test_joint_boms_reject_different_rm_quantities(self) -> None:
 		lh_bom = self._make_bom(self.lh_item, bom_quantity=77, rm_qty=39.3, scrap_qty=1.125)
 		rh_bom = self._make_bom(self.rh_item, bom_quantity=77, rm_qty=40, scrap_qty=2.125)
@@ -1513,6 +1523,14 @@ class TestJointProductionItems(FrappeTestCase):
 
 		with self.assertRaisesRegex(frappe.ValidationError, "same raw material quantity"):
 			self._make_joint_entry(shift, lh_bom=lh_bom, rh_bom=rh_bom)
+
+	def test_joint_boms_accept_rm_quantities_within_system_float_precision(self) -> None:
+		with override_system_precision("float_precision", 3):
+			lh_bom = self._make_bom(self.lh_item, bom_quantity=77, rm_qty=39.3, scrap_qty=1.125)
+			rh_bom = self._make_bom(self.rh_item, bom_quantity=77, rm_qty=39.3005, scrap_qty=2.125)
+			shift = make_running_shift(self.masters)
+			doc = self._make_joint_entry(shift, lh_bom=lh_bom, rh_bom=rh_bom, fetch_items=False)
+			materialize_joint_production_rows(doc)
 
 	def test_joint_blocks_the_same_lh_and_rh_bom(self) -> None:
 		self._assert_joint_rule_blocked(
@@ -1652,6 +1670,26 @@ class TestJointProductionItems(FrappeTestCase):
 		rm_row.transfer_qty = 49
 
 		with self.assertRaisesRegex(frappe.ValidationError, "Source RM quantity"):
+			doc.insert(ignore_permissions=True)
+
+	def test_source_rm_rounded_to_system_float_precision_matches_selected_boms(self) -> None:
+		with override_system_precision("float_precision", 3):
+			shift = make_running_shift(self.masters)
+			lh_bom = self._make_bom(self.lh_item, bom_quantity=2000, rm_qty=1, scrap_qty=0)
+			rh_bom = self._make_bom(self.rh_item, bom_quantity=2000, rm_qty=1, scrap_qty=0)
+			doc = self._make_joint_entry(
+				shift,
+				lh_bom=lh_bom,
+				rh_bom=rh_bom,
+				lh_gross_qty=1341112,
+				rh_gross_qty=1341113,
+				lh_rejection_qty=0,
+			)
+			rm_row = next(row for row in doc.items if row.s_warehouse)
+			rounded_qty = flt(rm_row.qty, 3)
+			self.assertNotEqual(flt(rm_row.qty, 6), rounded_qty)
+			rm_row.qty = rounded_qty
+			rm_row.transfer_qty = rounded_qty
 			doc.insert(ignore_permissions=True)
 
 	def test_stale_output_quantity_requires_fetch_items_again(self) -> None:
@@ -1919,6 +1957,13 @@ class TestJointProductionItems(FrappeTestCase):
 		doc.set("items", get_joint_production_items(json.dumps(doc.as_dict(), default=str)))
 		with self.assertRaisesRegex(frappe.ValidationError, "LH rejection breakup total"):
 			frappe.client.insert(doc.as_dict())
+
+	def test_joint_rejection_breakup_accepts_one_precision_unit_at_system_float_precision(self) -> None:
+		with override_system_precision("float_precision", 3):
+			shift = make_running_shift(self.masters)
+			doc = self._make_joint_entry(shift, lh_rejection_qty=1, rh_rejection_qty=0)
+			doc.custom_pea_rejection_breakup[0].qty = 1.0009
+			doc.insert(ignore_permissions=True)
 
 	def test_joint_rejection_breakup_api_derives_items_and_rework_total_per_side(self) -> None:
 		shift = make_running_shift(self.masters)

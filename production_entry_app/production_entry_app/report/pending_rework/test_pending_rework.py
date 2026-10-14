@@ -168,7 +168,13 @@ class TestPendingReworkReport(FrappeTestCase):
 		with patch.object(frappe.db, "sql", wraps=frappe.db.sql) as sql:
 			rows = pending_rework._get_rows({"item_code": self.item})
 
-		self.assertEqual(sql.call_count, 4)
+		data_queries = [
+			query
+			for query in sql.call_args_list
+			if query.args
+			and any(table in str(query.args[0]) for table in ("tabStock Entry", "tabBin", "tabRejection"))
+		]
+		self.assertEqual(len(data_queries), 4)
 		self.assertEqual(rows[0]["derived_pending_qty"], 2)
 
 	def test_blank_breakup_with_multiple_rejected_items_has_no_report_contributions(self) -> None:

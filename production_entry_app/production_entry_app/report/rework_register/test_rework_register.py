@@ -224,7 +224,13 @@ class TestReworkRegister(FrappeTestCase):
 		with patch.object(frappe.db, "sql", wraps=frappe.db.sql) as sql:
 			rows = rework_register._get_rows({"from_date": "2092-04-10", "to_date": "2092-04-10"})
 
-		self.assertEqual(sql.call_count, 4)
+		data_queries = [
+			query
+			for query in sql.call_args_list
+			if query.args
+			and any(table in str(query.args[0]) for table in ("tabStock Entry", "tabRework Operator"))
+		]
+		self.assertEqual(len(data_queries), 4)
 		self.assertEqual(len(rows), 1)
 
 	def test_stock_entry_report_filter_fields_are_indexed(self) -> None:

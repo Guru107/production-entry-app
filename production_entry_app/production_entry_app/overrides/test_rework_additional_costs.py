@@ -11,6 +11,7 @@ from production_entry_app.production_entry_app.overrides.stock_entry_hooks impor
 	before_validate_stock_entry,
 	validate_stock_entry,
 )
+from production_entry_app.production_entry_app.utils.system_precision import override_system_precision
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	ensure_branch,
 	ensure_item,
@@ -98,6 +99,25 @@ class TestReworkAdditionalCosts(FrappeTestCase):
 		# 1.0h + 0.5h = 1.5h labour x hour_rate 120
 		self.assertEqual(doc.custom_pea_rework_cost, 180)
 		self.assertEqual(doc.additional_costs[0].amount, 180)
+
+	def test_rework_cost_rounds_to_system_currency_precision(self) -> None:
+		frappe.db.set_value("Workstation", self.workstation, "hour_rate", 10.004, update_modified=False)
+		with override_system_precision("currency_precision", 2):
+			doc = self._make_rework_entry()
+			doc.set("custom_pea_rework_operators", [])
+			doc.append(
+				"custom_pea_rework_operators",
+				{
+					"operator": self.operators[0],
+					"actual_start": "2026-09-01 08:00:00",
+					"actual_end": "2026-09-01 09:00:00",
+				},
+			)
+
+			before_validate_stock_entry(doc)
+
+			self.assertEqual(doc.custom_pea_rework_cost, 10)
+			self.assertEqual(doc.additional_costs[0].amount, 10)
 
 	def test_duplicate_operator_rows_with_separate_windows_sum_independently(self) -> None:
 		doc = self._make_rework_entry()
