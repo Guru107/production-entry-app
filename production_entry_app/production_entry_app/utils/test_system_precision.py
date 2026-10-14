@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 from frappe.tests.utils import FrappeTestCase
 
+from production_entry_app.production_entry_app.utils import system_precision
 from production_entry_app.production_entry_app.utils.system_precision import (
 	get_system_currency_precision,
 	get_system_float_precision,
@@ -58,3 +59,21 @@ class TestSystemPrecision(FrappeTestCase):
 			),
 		):
 			self.assertEqual(get_system_currency_precision(), 3)
+
+	def test_currency_precision_uses_number_format_info_without_locale_helper(self) -> None:
+		with (
+			patch(
+				"production_entry_app.production_entry_app.utils.system_precision.frappe.db.get_single_value",
+				return_value=None,
+			),
+			patch.object(system_precision, "get_number_format", None),
+			patch(
+				"frappe.utils.data.get_number_format_info",
+				return_value=(".", ",", 4),
+			),
+			patch(
+				"production_entry_app.production_entry_app.utils.system_precision.frappe.db.get_default",
+				return_value="#,###.##",
+			),
+		):
+			self.assertEqual(get_system_currency_precision(), 4)

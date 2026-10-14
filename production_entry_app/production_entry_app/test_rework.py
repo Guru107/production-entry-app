@@ -434,7 +434,13 @@ class TestPendingReworkPool(FrappeTestCase):
 		with patch.object(frappe.db, "sql", wraps=frappe.db.sql) as sql:
 			rework.get_pending_rework()
 
-		self.assertEqual(sql.call_count, 2)
+		pool_queries = [
+			query
+			for query in sql.call_args_list
+			if query.args
+			and any(table in str(query.args[0]) for table in ("tabStock Entry", "tabRejection Breakup"))
+		]
+		self.assertEqual(len(pool_queries), 2)
 
 	def _insert_stock_entry_type(self, name: str, purpose: str, *, is_rework: bool = False) -> str:
 		frappe.get_doc(

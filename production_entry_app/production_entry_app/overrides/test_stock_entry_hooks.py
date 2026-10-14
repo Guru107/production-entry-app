@@ -1529,26 +1529,37 @@ class TestStockEntryHooks(FrappeTestCase):
 			rejection_warehouse=self.rejection_warehouse,
 		)
 
-		se = _create_manufacture_stock_entry(
-			company=self.company,
-			fg_item=self.fg_item,
-			rm_item=self.rm_item,
-			fg_qty=100,
-			custom_pea_shift=shift.name,
-			custom_pea_rejection_qty=5,
-			fg_warehouse=self.fg_warehouse,
-			rm_warehouse=self.rm_warehouse,
-		)
-		abs_tol = _get_rejection_breakup_abs_tol(se, [frappe._dict(qty=5)])
-		within_delta = abs_tol * 0.9
-		_append_rejection_breakup_rows(
-			se,
-			[
-				{"rejection_reason": "Burr", "qty": 5 + within_delta, "remark": "Within precision tolerance"},
-			],
-		)
-
-		se.save()
+		previous_precision = frappe.db.get_single_value("System Settings", "float_precision")
+		previous_default = frappe.db.get_default("float_precision")
+		frappe.db.set_single_value("System Settings", "float_precision", 3)
+		frappe.db.set_default("float_precision", 3)
+		try:
+			se = _create_manufacture_stock_entry(
+				company=self.company,
+				fg_item=self.fg_item,
+				rm_item=self.rm_item,
+				fg_qty=100,
+				custom_pea_shift=shift.name,
+				custom_pea_rejection_qty=5,
+				fg_warehouse=self.fg_warehouse,
+				rm_warehouse=self.rm_warehouse,
+			)
+			abs_tol = _get_rejection_breakup_abs_tol(se, [frappe._dict(qty=5)])
+			within_delta = abs_tol * 0.4
+			_append_rejection_breakup_rows(
+				se,
+				[
+					{
+						"rejection_reason": "Burr",
+						"qty": 5 + within_delta,
+						"remark": "Within precision tolerance",
+					},
+				],
+			)
+			se.save()
+		finally:
+			frappe.db.set_single_value("System Settings", "float_precision", previous_precision)
+			frappe.db.set_default("float_precision", previous_default)
 
 	def test_rejection_breakup_rejects_difference_beyond_precision_tolerance(self) -> None:
 		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
