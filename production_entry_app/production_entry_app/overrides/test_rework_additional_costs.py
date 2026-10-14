@@ -11,6 +11,7 @@ from production_entry_app.production_entry_app.overrides.stock_entry_hooks impor
 	before_validate_stock_entry,
 	validate_stock_entry,
 )
+from production_entry_app.production_entry_app.utils.system_precision import override_system_precision
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	ensure_branch,
 	ensure_item,
@@ -100,12 +101,8 @@ class TestReworkAdditionalCosts(FrappeTestCase):
 		self.assertEqual(doc.additional_costs[0].amount, 180)
 
 	def test_rework_cost_rounds_to_system_currency_precision(self) -> None:
-		previous_precision = frappe.db.get_single_value("System Settings", "currency_precision")
-		previous_default = frappe.db.get_default("currency_precision")
-		frappe.db.set_single_value("System Settings", "currency_precision", 2)
-		frappe.db.set_default("currency_precision", 2)
 		frappe.db.set_value("Workstation", self.workstation, "hour_rate", 10.004, update_modified=False)
-		try:
+		with override_system_precision("currency_precision", 2):
 			doc = self._make_rework_entry()
 			doc.set("custom_pea_rework_operators", [])
 			doc.append(
@@ -121,12 +118,6 @@ class TestReworkAdditionalCosts(FrappeTestCase):
 
 			self.assertEqual(doc.custom_pea_rework_cost, 10)
 			self.assertEqual(doc.additional_costs[0].amount, 10)
-		finally:
-			frappe.db.set_single_value("System Settings", "currency_precision", previous_precision)
-			frappe.db.set_default(
-				"currency_precision",
-				previous_default if previous_default is not None else previous_precision,
-			)
 
 	def test_duplicate_operator_rows_with_separate_windows_sum_independently(self) -> None:
 		doc = self._make_rework_entry()

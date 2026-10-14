@@ -66,6 +66,7 @@ from production_entry_app.production_entry_app.utils.stock_entry_type_flags impo
 	is_rework_stock_entry_type,
 )
 from production_entry_app.production_entry_app.utils.system_precision import (
+	exceeds_one_unit,
 	get_system_currency_precision,
 	get_system_float_precision,
 )
@@ -892,8 +893,7 @@ def _validate_rejection_breakup(doc: Document) -> None:
 	_validate_blank_rejection_breakup_item_scope(doc, breakup_rows)
 
 	precision = _get_rejection_breakup_precision(doc, breakup_rows)
-	rounded_difference = abs(flt(total_qty, precision) - flt(rejection_qty, precision))
-	if rounded_difference > (1.0 / (10**precision)):
+	if exceeds_one_unit(total_qty, rejection_qty, precision):
 		frappe.throw(
 			_("Total rejection breakup quantity ({0}) must equal Rejection Quantity ({1}).").format(
 				total_qty, rejection_qty
@@ -923,10 +923,6 @@ def _validate_blank_rejection_breakup_item_scope(doc: Document, breakup_rows: li
 	frappe.throw(
 		_("Set an Item on each Rejection Breakup row when the Stock Entry has multiple rejected Items.")
 	)
-
-
-def _get_rejection_breakup_abs_tol(doc: Document, breakup_rows: list[Any]) -> float:
-	return 1.0 / (10 ** _get_rejection_breakup_precision(doc, breakup_rows))
 
 
 def _get_rejection_breakup_precision(doc: Document, breakup_rows: list[Any]) -> int:

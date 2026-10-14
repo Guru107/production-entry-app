@@ -25,6 +25,7 @@ from production_entry_app.production_entry_app.utils.stock_entry_type_flags impo
 	is_joint_lh_rh_stock_entry_type,
 )
 from production_entry_app.production_entry_app.utils.system_precision import (
+	exceeds_one_unit,
 	get_system_currency_precision,
 	get_system_float_precision,
 )
@@ -466,12 +467,8 @@ def _apply_joint_bom_operating_costs(doc: Document, plan: JointProductionPlan) -
 	)
 
 
-def _joint_qty_precision() -> int:
-	return get_system_float_precision()
-
-
 def _validate_joint_item_rows(doc: Document, plan: JointProductionPlan) -> None:
-	precision = _joint_qty_precision()
+	precision = get_system_float_precision()
 	actual_quantities: defaultdict[str, float] = defaultdict(float)
 	for row in doc.get("items") or []:
 		role = _get_joint_row_role(row, plan)
@@ -479,7 +476,7 @@ def _validate_joint_item_rows(doc: Document, plan: JointProductionPlan) -> None:
 
 	for role, expected_qty in plan.expected_role_quantities.items():
 		actual_qty = actual_quantities.get(role, 0)
-		if flt(actual_qty, precision) != flt(expected_qty, precision):
+		if exceeds_one_unit(actual_qty, expected_qty, precision):
 			_throw_stale_joint_rows(
 				_("{0} is {1}; expected {2}.").format(
 					_get_joint_role_label(role),
@@ -587,7 +584,8 @@ def _set_joint_output_valuation(
 
 
 def _net_production_value_after_scrap(net_production_value: float) -> float:
-	net_production_value = round_off_if_near_zero(net_production_value, get_system_currency_precision())
+	if net_production_value < 0:
+		net_production_value = round_off_if_near_zero(net_production_value, get_system_currency_precision())
 	if net_production_value < 0:
 		frappe.throw(_("Joint production scrap value cannot exceed the consumed raw material value."))
 	return net_production_value
@@ -679,7 +677,7 @@ def is_scrap_row(row: BaseDocument) -> bool:
 
 
 def _validate_joint_rejection_breakup(doc: Document, plan: JointProductionPlan) -> None:
-	precision = _joint_qty_precision()
+	precision = get_system_float_precision()
 	expected = {
 		"LH": flt(plan.lh_rejection_qty, precision),
 		"RH": flt(plan.rh_rejection_qty, precision),
@@ -703,7 +701,7 @@ def _validate_joint_rejection_breakup(doc: Document, plan: JointProductionPlan) 
 		if row.get("is_rework"):
 			rework_qty += row_qty
 	for side in ("LH", "RH"):
-		if flt(actual[side], precision) != expected[side]:
+		if exceeds_one_unit(actual[side], expected[side], precision):
 			frappe.throw(_("{0} rejection breakup total must equal {0} Rejection Quantity.").format(side))
 	doc.custom_pea_rework_qty = flt(rework_qty)
 
@@ -868,8 +866,7 @@ def _validate_joint_bom_pair(
 	if (lh_bom.rm_item_code, lh_bom.rm_uom) != (rh_bom.rm_item_code, rh_bom.rm_uom):
 		frappe.throw(_("LH and RH BOMs must use the same raw material item and UOM."))
 	precision = get_system_float_precision()
-	rounded_difference = abs(flt(lh_bom.rm_qty, precision) - flt(rh_bom.rm_qty, precision))
-	if rounded_difference > (1.0 / (10**precision)):
+	if exceeds_one_unit(lh_bom.rm_qty, rh_bom.rm_qty, precision):
 		frappe.throw(_("LH and RH BOMs must use the same raw material quantity."))
 
 

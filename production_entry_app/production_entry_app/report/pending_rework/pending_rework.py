@@ -110,7 +110,7 @@ def _get_rows(filters: dict) -> list[dict]:
 		if row.get("item_code") and row.get("rejection_warehouse")
 	}
 	balances = _get_bin_balances(contribution_pairs)
-	return _build_rows(pending_by_item, balances, contributions)
+	return _build_rows(pending_by_item, balances, contributions, precision)
 
 
 def _get_contributions(
@@ -205,6 +205,7 @@ def _build_rows(
 	pending_by_item: dict[str, float],
 	balances: dict[str, float],
 	contributions: list[frappe._dict],
+	precision: int,
 ) -> list[dict]:
 	details_by_item: defaultdict[str, dict[tuple[str, str, str], float]] = defaultdict(
 		lambda: defaultdict(float)
@@ -220,7 +221,6 @@ def _build_rows(
 	rows: list[dict] = []
 	for item_code in sorted(pending_by_item):
 		details = details_by_item.get(item_code, {})
-		precision = get_system_float_precision()
 		flagged_qty = flt(sum(details.values()), precision)
 		pending_qty = flt(pending_by_item[item_code], precision)
 		warehouse_balance = flt(balances.get(item_code), precision)
