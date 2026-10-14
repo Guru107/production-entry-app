@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import datetime
-import math
 from typing import Any
 
 import frappe
@@ -28,7 +27,6 @@ from production_entry_app.production_entry_app.report.report_utils import (
 	is_good_output_row,
 )
 from production_entry_app.production_entry_app.rework import (
-	REWORK_COST_PRECISION,
 	SECONDS_PER_HOUR,
 	apply_rework_source_warehouse,
 	validate_rework_submission,
@@ -67,7 +65,10 @@ from production_entry_app.production_entry_app.utils.stock_entry_type_flags impo
 	is_joint_lh_rh_stock_entry_type,
 	is_rework_stock_entry_type,
 )
-from production_entry_app.production_entry_app.utils.system_precision import get_system_float_precision
+from production_entry_app.production_entry_app.utils.system_precision import (
+	get_system_currency_precision,
+	get_system_float_precision,
+)
 
 _DEFAULT_START_BUFFER_MINS: int = 60
 _DEFAULT_END_BUFFER_MINS: int = 60
@@ -251,7 +252,7 @@ def _apply_rework_cost(doc: Document) -> None:
 
 	_clear_rework_cost_rows(doc)
 	hour_rate = flt(frappe.db.get_value("Workstation", doc.get("custom_pea_rework_workstation"), "hour_rate"))
-	rework_cost = flt(labour_hours * hour_rate, REWORK_COST_PRECISION)
+	rework_cost = flt(labour_hours * hour_rate, get_system_currency_precision())
 	expense_account = frappe.db.get_single_value(
 		"Production Entry Settings", "rework_expense_account"
 	) or frappe.db.get_value("Company", doc.get("company"), "default_operating_cost_account")
@@ -890,8 +891,9 @@ def _validate_rejection_breakup(doc: Document) -> None:
 			rework_qty += row_qty
 	_validate_blank_rejection_breakup_item_scope(doc, breakup_rows)
 
-	derived_abs_tol = _get_rejection_breakup_abs_tol(doc, breakup_rows)
-	if not math.isclose(total_qty, rejection_qty, rel_tol=0.0, abs_tol=derived_abs_tol):
+	precision = _get_rejection_breakup_precision(doc, breakup_rows)
+	rounded_difference = abs(flt(total_qty, precision) - flt(rejection_qty, precision))
+	if rounded_difference > (1.0 / (10**precision)):
 		frappe.throw(
 			_("Total rejection breakup quantity ({0}) must equal Rejection Quantity ({1}).").format(
 				total_qty, rejection_qty
@@ -924,12 +926,15 @@ def _validate_blank_rejection_breakup_item_scope(doc: Document, breakup_rows: li
 
 
 def _get_rejection_breakup_abs_tol(doc: Document, breakup_rows: list[Any]) -> float:
+	return 1.0 / (10 ** _get_rejection_breakup_precision(doc, breakup_rows))
+
+
+def _get_rejection_breakup_precision(doc: Document, breakup_rows: list[Any]) -> int:
 	parent_precision = _get_docfield_precision("Stock Entry", "custom_pea_rejection_qty", doc)
 	child_precision = (
 		_get_docfield_precision("Rejection Breakup", "qty", breakup_rows[0]) if breakup_rows else 3
 	)
-	effective_precision = min(parent_precision, child_precision)
-	return 0.5 * (10 ** (-effective_precision))
+	return min(parent_precision, child_precision)
 
 
 def _get_docfield_precision(doctype: str, fieldname: str, row: Any) -> int:

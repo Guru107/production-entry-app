@@ -99,6 +99,35 @@ class TestReworkAdditionalCosts(FrappeTestCase):
 		self.assertEqual(doc.custom_pea_rework_cost, 180)
 		self.assertEqual(doc.additional_costs[0].amount, 180)
 
+	def test_rework_cost_rounds_to_system_currency_precision(self) -> None:
+		previous_precision = frappe.db.get_single_value("System Settings", "currency_precision")
+		previous_default = frappe.db.get_default("currency_precision")
+		frappe.db.set_single_value("System Settings", "currency_precision", 2)
+		frappe.db.set_default("currency_precision", 2)
+		frappe.db.set_value("Workstation", self.workstation, "hour_rate", 10.004, update_modified=False)
+		try:
+			doc = self._make_rework_entry()
+			doc.set("custom_pea_rework_operators", [])
+			doc.append(
+				"custom_pea_rework_operators",
+				{
+					"operator": self.operators[0],
+					"actual_start": "2026-09-01 08:00:00",
+					"actual_end": "2026-09-01 09:00:00",
+				},
+			)
+
+			before_validate_stock_entry(doc)
+
+			self.assertEqual(doc.custom_pea_rework_cost, 10)
+			self.assertEqual(doc.additional_costs[0].amount, 10)
+		finally:
+			frappe.db.set_single_value("System Settings", "currency_precision", previous_precision)
+			frappe.db.set_default(
+				"currency_precision",
+				previous_default if previous_default is not None else previous_precision,
+			)
+
 	def test_duplicate_operator_rows_with_separate_windows_sum_independently(self) -> None:
 		doc = self._make_rework_entry()
 		doc.set("custom_pea_rework_operators", [])

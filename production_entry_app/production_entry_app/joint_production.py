@@ -7,6 +7,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
 import frappe
+from erpnext.stock.valuation import round_off_if_near_zero
 from frappe import _
 from frappe.model.base_document import BaseDocument
 from frappe.model.document import Document
@@ -23,11 +24,12 @@ from production_entry_app.production_entry_app.utils.production_warehouses impor
 from production_entry_app.production_entry_app.utils.stock_entry_type_flags import (
 	is_joint_lh_rh_stock_entry_type,
 )
-from production_entry_app.production_entry_app.utils.system_precision import get_system_float_precision
+from production_entry_app.production_entry_app.utils.system_precision import (
+	get_system_currency_precision,
+	get_system_float_precision,
+)
 
 WHOLE_NUMBER_QUANTUM: Decimal = Decimal("1")
-VALUATION_TOLERANCE: float = 1e-9
-RM_QTY_TOLERANCE: float = 1e-6
 JOINT_LH_RH_STOCK_ENTRY_TYPE: str = "Joint LH RH Production"
 SHEARING_OPERATION: str = "Shearing"
 JOINT_BOM_OPERATING_COST_DESCRIPTION: str = "Operating Cost as per BOM"
@@ -585,9 +587,10 @@ def _set_joint_output_valuation(
 
 
 def _net_production_value_after_scrap(net_production_value: float) -> float:
-	if net_production_value < -VALUATION_TOLERANCE:
+	net_production_value = round_off_if_near_zero(net_production_value, get_system_currency_precision())
+	if net_production_value < 0:
 		frappe.throw(_("Joint production scrap value cannot exceed the consumed raw material value."))
-	return max(net_production_value, 0)
+	return net_production_value
 
 
 def _set_shearing_output_valuation(rows: list[Any], plan: JointProductionPlan) -> None:
@@ -864,7 +867,9 @@ def _validate_joint_bom_pair(
 		return
 	if (lh_bom.rm_item_code, lh_bom.rm_uom) != (rh_bom.rm_item_code, rh_bom.rm_uom):
 		frappe.throw(_("LH and RH BOMs must use the same raw material item and UOM."))
-	if abs(lh_bom.rm_qty - rh_bom.rm_qty) > RM_QTY_TOLERANCE:
+	precision = get_system_float_precision()
+	rounded_difference = abs(flt(lh_bom.rm_qty, precision) - flt(rh_bom.rm_qty, precision))
+	if rounded_difference > (1.0 / (10**precision)):
 		frappe.throw(_("LH and RH BOMs must use the same raw material quantity."))
 
 

@@ -1574,7 +1574,7 @@ class TestStockEntryHooks(FrappeTestCase):
 			rm_warehouse=self.rm_warehouse,
 		)
 		abs_tol = _get_rejection_breakup_abs_tol(se, [frappe._dict(qty=5)])
-		beyond_delta = abs_tol * 1.1
+		beyond_delta = abs_tol * 2
 		_append_rejection_breakup_rows(
 			se,
 			[

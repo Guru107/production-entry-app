@@ -13,10 +13,10 @@ from production_entry_app.production_entry_app.report.report_utils import (
 	new_interactive_report_timeout_guard,
 )
 from production_entry_app.production_entry_app.rework import (
-	REWORK_QTY_PRECISION,
 	_build_rework_produced_query,
 	_get_pending_rework_by_item,
 )
+from production_entry_app.production_entry_app.utils.system_precision import get_system_float_precision
 
 _CONTRIBUTION_CHUNK_SIZE = 500
 _MAX_CONTRIBUTION_ROWS = 10_000
@@ -93,10 +93,11 @@ def _get_columns() -> list[dict]:
 def _get_rows(filters: dict) -> list[dict]:
 	item_filter = filters.get("item_code")
 	item_codes = [item_filter] if item_filter else None
+	precision = get_system_float_precision()
 	pending_by_item = {
-		item_code: flt(qty, REWORK_QTY_PRECISION)
+		item_code: flt(qty, precision)
 		for item_code, qty in _get_pending_rework_by_item(item_codes=item_codes).items()
-		if flt(qty, REWORK_QTY_PRECISION) > 0
+		if flt(qty, precision) > 0
 	}
 	if not pending_by_item:
 		return []
@@ -219,9 +220,10 @@ def _build_rows(
 	rows: list[dict] = []
 	for item_code in sorted(pending_by_item):
 		details = details_by_item.get(item_code, {})
-		flagged_qty = flt(sum(details.values()), REWORK_QTY_PRECISION)
-		pending_qty = flt(pending_by_item[item_code], REWORK_QTY_PRECISION)
-		warehouse_balance = flt(balances.get(item_code), REWORK_QTY_PRECISION)
+		precision = get_system_float_precision()
+		flagged_qty = flt(sum(details.values()), precision)
+		pending_qty = flt(pending_by_item[item_code], precision)
+		warehouse_balance = flt(balances.get(item_code), precision)
 		source_entries = {source_entry for source_entry, _reason, _warehouse in details if source_entry}
 		rows.append(
 			{
@@ -229,7 +231,7 @@ def _build_rows(
 				"flagged_rework_qty": flagged_qty,
 				"derived_pending_qty": pending_qty,
 				"rejection_warehouse_balance": warehouse_balance,
-				"pool_balance_difference": flt(pending_qty - warehouse_balance, REWORK_QTY_PRECISION),
+				"pool_balance_difference": flt(pending_qty - warehouse_balance, precision),
 				"source_entry_count": len(source_entries),
 				"indent": 0,
 			}
@@ -239,7 +241,7 @@ def _build_rows(
 				{
 					"item_code": item_code,
 					"rejection_reason": reason,
-					"flagged_rework_qty": flt(qty, REWORK_QTY_PRECISION),
+					"flagged_rework_qty": flt(qty, precision),
 					"source_entry": source_entry,
 					"rejection_warehouse": warehouse,
 					"indent": 1,

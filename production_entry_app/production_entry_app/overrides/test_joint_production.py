@@ -28,6 +28,7 @@ from production_entry_app.production_entry_app.joint_production import (
 	_get_bom_scrap_item_details,
 	_get_item_details,
 	_get_joint_bom_details,
+	_net_production_value_after_scrap,
 	_set_scrap_row_classification,
 	allocate_joint_output_value,
 	calculate_joint_rm_consumption,
@@ -1506,6 +1507,14 @@ class TestJointProductionItems(FrappeTestCase):
 		with self.assertRaisesRegex(frappe.ValidationError, "scrap value cannot exceed"):
 			validate_and_apply_joint_production(doc)
 
+	def test_scrap_shortfall_within_currency_precision_is_treated_as_zero(self) -> None:
+		previous_precision = frappe.db.get_single_value("System Settings", "currency_precision")
+		frappe.db.set_single_value("System Settings", "currency_precision", 2)
+		try:
+			self.assertEqual(_net_production_value_after_scrap(-0.006), 0)
+		finally:
+			frappe.db.set_single_value("System Settings", "currency_precision", previous_precision)
+
 	def test_joint_boms_reject_different_rm_quantities(self) -> None:
 		lh_bom = self._make_bom(self.lh_item, bom_quantity=77, rm_qty=39.3, scrap_qty=1.125)
 		rh_bom = self._make_bom(self.rh_item, bom_quantity=77, rm_qty=40, scrap_qty=2.125)
@@ -1513,6 +1522,18 @@ class TestJointProductionItems(FrappeTestCase):
 
 		with self.assertRaisesRegex(frappe.ValidationError, "same raw material quantity"):
 			self._make_joint_entry(shift, lh_bom=lh_bom, rh_bom=rh_bom)
+
+	def test_joint_boms_accept_rm_quantities_within_system_float_precision(self) -> None:
+		previous_precision = frappe.db.get_single_value("System Settings", "float_precision")
+		frappe.db.set_single_value("System Settings", "float_precision", 3)
+		try:
+			lh_bom = self._make_bom(self.lh_item, bom_quantity=77, rm_qty=39.3, scrap_qty=1.125)
+			rh_bom = self._make_bom(self.rh_item, bom_quantity=77, rm_qty=39.3005, scrap_qty=2.125)
+			shift = make_running_shift(self.masters)
+			doc = self._make_joint_entry(shift, lh_bom=lh_bom, rh_bom=rh_bom, fetch_items=False)
+			materialize_joint_production_rows(doc)
+		finally:
+			frappe.db.set_single_value("System Settings", "float_precision", previous_precision)
 
 	def test_joint_blocks_the_same_lh_and_rh_bom(self) -> None:
 		self._assert_joint_rule_blocked(
