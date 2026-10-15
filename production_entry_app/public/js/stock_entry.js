@@ -1589,7 +1589,9 @@ function _sync_die_tool_item_from_boms(frm) {
 			.then((responses) => {
 				if (requestId !== _dieToolBomRequestId) return;
 				if (_production_bom_names(frm.doc).join("\0") !== bomNames.join("\0")) return;
-				const items = responses.map((response) => response?.message?.custom_pea_die_tool_item);
+				const items = responses.map(
+					(response) => response?.message?.custom_pea_die_tool_item
+				);
 				_apply_prescribed_die_tool_item(frm, _prescribed_die_tool_item(items));
 			})
 			.catch((error) => {
