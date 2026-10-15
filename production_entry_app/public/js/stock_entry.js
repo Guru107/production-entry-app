@@ -1486,10 +1486,16 @@ function _handle_custom_pea_fetch_items(frm) {
 		return;
 	}
 	if (isJoint && (!frm.doc.custom_pea_lh_gross_qty || !frm.doc.custom_pea_rh_gross_qty)) {
+		const zeroGross =
+			frm.doc.custom_pea_lh_gross_qty === 0 || frm.doc.custom_pea_rh_gross_qty === 0;
 		frappe.msgprint(
-			sameItemJoint
-				? __("Please set BOM 1 and BOM 2 Gross Quantity before fetching items.")
-				: __("Please set LH and RH Gross Quantity before fetching items."),
+			zeroGross && sameItemJoint
+				? __(
+						"Gross Quantity must be greater than zero. If only one recipe is produced, create a Manufacture Production Entry instead of Joint Production.",
+					)
+				: sameItemJoint
+					? __("Please set BOM 1 and BOM 2 Gross Quantity before fetching items.")
+					: __("Please set LH and RH Gross Quantity before fetching items."),
 		);
 		return;
 	}

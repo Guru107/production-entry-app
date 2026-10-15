@@ -308,7 +308,12 @@ def _set_scrap_row_classification(row: dict[str, Any]) -> None:
 def _build_joint_production_plan(doc: Document) -> JointProductionPlan:
 	same_finished_item = is_joint_production(doc)
 	first_side, second_side = ("BOM 1", "BOM 2") if same_finished_item else ("LH", "RH")
-	_validate_joint_header(doc, first_side=first_side, second_side=second_side)
+	_validate_joint_header(
+		doc,
+		first_side=first_side,
+		second_side=second_side,
+		same_finished_item=same_finished_item,
+	)
 	operation = _get_joint_operation(doc, same_finished_item=same_finished_item)
 	is_shearing = False if same_finished_item else is_shearing_joint_operation(operation)
 	lh_bom = _get_joint_bom_details(doc.get("custom_pea_lh_bom"))
@@ -504,20 +509,20 @@ def _validate_joint_item_rows(doc: Document, plan: JointProductionPlan) -> None:
 		if exceeds_one_unit(actual_qty, expected_qty, precision):
 			_throw_stale_joint_rows(
 				_("{0} is {1}; expected {2}.").format(
-					_get_joint_role_label(role),
+					_get_joint_role_label(role, plan),
 					flt(actual_qty, precision),
 					flt(expected_qty, precision),
 				)
 			)
 
 
-def _get_joint_role_label(role: str) -> str:
+def _get_joint_role_label(role: str, plan: JointProductionPlan) -> str:
 	labels = {
 		"rm": _("Source RM quantity"),
-		"lh_good": _("LH Good quantity"),
-		"lh_rejection": _("LH Rejection quantity"),
-		"rh_good": _("RH Good quantity"),
-		"rh_rejection": _("RH Rejection quantity"),
+		"lh_good": _("{0} Good quantity").format(plan.first_side),
+		"lh_rejection": _("{0} Rejection quantity").format(plan.first_side),
+		"rh_good": _("{0} Good quantity").format(plan.second_side),
+		"rh_rejection": _("{0} Rejection quantity").format(plan.second_side),
 	}
 	if role.startswith("scrap:"):
 		return _("Scrap quantity for {0}").format(role.removeprefix("scrap:"))
@@ -750,8 +755,13 @@ def _validate_joint_rejection_breakup(doc: Document, plan: JointProductionPlan) 
 	doc.custom_pea_rework_qty = flt(rework_qty)
 
 
-def _validate_joint_header(doc: Document, *, first_side: str, second_side: str) -> None:
-	same_finished_item = first_side == "BOM 1"
+def _validate_joint_header(
+	doc: Document,
+	*,
+	first_side: str,
+	second_side: str,
+	same_finished_item: bool,
+) -> None:
 	pairing = _("Joint Production") if same_finished_item else _("joint LH/RH production")
 	if doc.get("purpose") != "Repack":
 		frappe.throw(_("{0} must use Repack purpose.").format(pairing))
@@ -1143,7 +1153,7 @@ def _get_item_details(item_codes: Iterable[str]) -> dict[str, frappe._dict]:
 
 
 def _reject_duplicate_stock_entry_type_flag(doc: Document, *, flag_fieldname: str, message: str) -> None:
-	existing_types = frappe.get_all(
+	existing_types = frappe.get_list(
 		"Stock Entry Type",
 		filters={flag_fieldname: 1, "name": ["!=", doc.name]},
 		pluck="name",
@@ -1172,20 +1182,10 @@ def validate_stock_entry_type(doc: Document, method: str | None = None) -> None:
 	if doc.get("custom_pea_joint_lh_rh_production") and doc.get("purpose") != "Repack":
 		frappe.throw(_("Joint LH/RH Stock Entry Types must use Repack purpose."))
 	if doc.get("custom_pea_joint_lh_rh_production"):
-		existing_joint_types = frappe.get_all(
-			"Stock Entry Type",
-			filters={
-				"custom_pea_joint_lh_rh_production": 1,
-				"name": ["!=", doc.name],
-			},
-			pluck="name",
-			limit=1,
+		_reject_duplicate_stock_entry_type_flag(
+			doc,
+			flag_fieldname="custom_pea_joint_lh_rh_production",
+			message=_("Only one Stock Entry Type can be configured for Joint LH/RH Production. Use {0}."),
 		)
-		if existing_joint_types:
-			frappe.throw(
-				_("Only one Stock Entry Type can be configured for Joint LH/RH Production. Use {0}.").format(
-					frappe.bold(frappe.utils.escape_html(existing_joint_types[0]))
-				)
-			)
 	if doc.get("custom_pea_rework_entry") and doc.get("purpose") != "Material Transfer":
 		frappe.throw(_("Rework Stock Entry Types must use Material Transfer purpose."))

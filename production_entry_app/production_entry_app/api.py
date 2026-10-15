@@ -114,7 +114,7 @@ def get_joint_production_stock_entry_type(required: int = 1) -> str:
 
 def _get_single_marked_stock_entry_type(
 	*,
-	filters: dict,
+	filters: dict[str, object],
 	empty_message: str,
 	many_message: str,
 	required: int,
