@@ -175,11 +175,13 @@ class TestStockEntryHookPureHelpers(FrappeTestCase):
 			patch.object(stock_entry_hooks, "_validate_rework_fields"),
 			patch.object(stock_entry_hooks, "is_joint_lh_rh_production", return_value=False),
 			patch.object(stock_entry_hooks, "_set_entry_metrics"),
+			patch.object(stock_entry_hooks, "apply_bom_die_tool_item") as apply_die_tool,
 		):
 			stock_entry_hooks.validate_stock_entry(doc)
 
 		validate_shift.assert_not_called()
 		apply_defaults.assert_not_called()
+		apply_die_tool.assert_not_called()
 		clear_capture.assert_called_once_with(doc)
 		validate_required.assert_not_called()
 		stamp_late.assert_called_once_with(doc)
@@ -207,12 +209,14 @@ class TestStockEntryHookPureHelpers(FrappeTestCase):
 			patch.object(stock_entry_hooks, "_validate_standard_spm"),
 			patch.object(stock_entry_hooks, "is_joint_lh_rh_production", return_value=False),
 			patch.object(stock_entry_hooks, "_set_entry_metrics"),
+			patch.object(stock_entry_hooks, "apply_bom_die_tool_item") as apply_die_tool,
 		):
 			stock_entry_hooks.validate_stock_entry(doc)
 
 		validate_shift.assert_called_once_with(doc)
 		apply_defaults.assert_called_once_with(doc)
 		validate_required.assert_called_once_with(doc)
+		apply_die_tool.assert_called_once_with(doc)
 		clear_capture.assert_not_called()
 
 	def test_rework_clears_shift_link_and_shift_derived_fields(self) -> None:

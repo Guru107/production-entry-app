@@ -38,6 +38,8 @@ const {
 	ALWAYS_HIDDEN_FIELDS,
 	ALWAYS_HIDDEN_SECTIONS,
 	MANUFACTURE_CLEAR_TABLE_FIELDS,
+	_prescribed_die_tool_item,
+	_apply_prescribed_die_tool_item,
 } = require("../../production_entry_app/public/js/stock_entry.js");
 
 function makeSavedJointStockEntryForm(options = {}) {
@@ -2329,4 +2331,60 @@ test("native get_items stays hidden for manufacture documents until explicitly s
 		["set_df_property", "get_items", "hidden", 1],
 		["set_df_property", "get_items", "read_only", 1],
 	]);
+});
+
+test("a BOM die tool item is set on the production entry and cannot be reselected", () => {
+	const values = [];
+	const properties = [];
+	const frm = {
+		doc: { custom_pea_die_tool_item: "USER-DIE" },
+		set_value(fieldname, value) {
+			this.doc[fieldname] = value;
+			values.push([fieldname, value]);
+		},
+		set_df_property(fieldname, property, value) {
+			properties.push([fieldname, property, value]);
+		},
+	};
+
+	_apply_prescribed_die_tool_item(frm, _prescribed_die_tool_item(["DIE-BOM", "DIE-BOM", ""]));
+
+	assert.equal(frm.doc.custom_pea_die_tool_item, "DIE-BOM");
+	assert.deepEqual(values, [["custom_pea_die_tool_item", "DIE-BOM"]]);
+	assert.deepEqual(properties, [["custom_pea_die_tool_item", "read_only", 1]]);
+});
+
+test("disagreeing BOM die tool items leave the production entry selectable", () => {
+	assert.deepEqual(_prescribed_die_tool_item(["DIE-1", "DIE-2"]), { item: "" });
+});
+
+test("production entry keeps die tool item editable when the BOM does not set one", () => {
+	const frm = {
+		doc: { custom_pea_die_tool_item: "USER-DIE" },
+		set_value() {
+			throw new Error("user selection should stay");
+		},
+		set_df_property(fieldname, property, value) {
+			this.property = [fieldname, property, value];
+		},
+	};
+
+	_apply_prescribed_die_tool_item(frm, _prescribed_die_tool_item(["", null]));
+
+	assert.equal(frm.doc.custom_pea_die_tool_item, "USER-DIE");
+	assert.deepEqual(frm.property, ["custom_pea_die_tool_item", "read_only", 0]);
+});
+
+test("clearing a BOM releases a die tool item that the BOM had set", () => {
+	const frm = {
+		doc: { custom_pea_die_tool_item: "" },
+		set_value(fieldname, value) {
+			this.doc[fieldname] = value;
+		},
+		set_df_property() {},
+	};
+	_apply_prescribed_die_tool_item(frm, _prescribed_die_tool_item(["DIE-BOM"]));
+	_apply_prescribed_die_tool_item(frm, _prescribed_die_tool_item([""]));
+
+	assert.equal(frm.doc.custom_pea_die_tool_item, "");
 });
