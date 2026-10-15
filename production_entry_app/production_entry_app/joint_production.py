@@ -23,6 +23,7 @@ from production_entry_app.production_entry_app.utils.production_warehouses impor
 )
 from production_entry_app.production_entry_app.utils.stock_entry_type_flags import (
 	is_joint_lh_rh_stock_entry_type,
+	is_joint_production_stock_entry_type,
 )
 from production_entry_app.production_entry_app.utils.system_precision import (
 	exceeds_one_unit,
@@ -32,6 +33,7 @@ from production_entry_app.production_entry_app.utils.system_precision import (
 
 WHOLE_NUMBER_QUANTUM: Decimal = Decimal("1")
 JOINT_LH_RH_STOCK_ENTRY_TYPE: str = "Joint LH RH Production"
+JOINT_PRODUCTION_STOCK_ENTRY_TYPE: str = "Joint Production"
 SHEARING_OPERATION: str = "Shearing"
 JOINT_BOM_OPERATING_COST_DESCRIPTION: str = "Operating Cost as per BOM"
 
@@ -95,6 +97,15 @@ class JointProductionPlan:
 	total_rm_consumption: float
 	scrap_items: tuple[JointScrapItem, ...]
 	is_shearing: bool
+	same_finished_item: bool = False
+
+	@property
+	def first_side(self) -> str:
+		return "BOM 1" if self.same_finished_item else "LH"
+
+	@property
+	def second_side(self) -> str:
+		return "BOM 2" if self.same_finished_item else "RH"
 
 	@property
 	def expected_role_quantities(self) -> dict[str, float]:
@@ -245,7 +256,7 @@ def materialize_joint_production_rows(doc: Document) -> list[dict[str, Any]]:
 		]
 	rows.extend(
 		_build_side_rows(
-			side="LH",
+			side=plan.first_side,
 			bom=plan.lh_bom,
 			gross_qty=plan.lh_gross_qty,
 			rejection_qty=plan.lh_rejection_qty,
@@ -256,7 +267,7 @@ def materialize_joint_production_rows(doc: Document) -> list[dict[str, Any]]:
 	)
 	rows.extend(
 		_build_side_rows(
-			side="RH",
+			side=plan.second_side,
 			bom=plan.rh_bom,
 			gross_qty=plan.rh_gross_qty,
 			rejection_qty=plan.rh_rejection_qty,
@@ -295,27 +306,32 @@ def _set_scrap_row_classification(row: dict[str, Any]) -> None:
 
 
 def _build_joint_production_plan(doc: Document) -> JointProductionPlan:
-	_validate_joint_header(doc)
-	operation = _get_joint_operation(doc)
-	is_shearing = is_shearing_joint_operation(operation)
+	same_finished_item = is_joint_production(doc)
+	first_side, second_side = ("BOM 1", "BOM 2") if same_finished_item else ("LH", "RH")
+	_validate_joint_header(doc, first_side=first_side, second_side=second_side)
+	operation = _get_joint_operation(doc, same_finished_item=same_finished_item)
+	is_shearing = False if same_finished_item else is_shearing_joint_operation(operation)
 	lh_bom = _get_joint_bom_details(doc.get("custom_pea_lh_bom"))
 	rh_bom = _get_joint_bom_details(doc.get("custom_pea_rh_bom"))
-	_validate_joint_bom_operations(lh_bom, rh_bom, operation)
+	_validate_joint_bom_operations(lh_bom, rh_bom, operation, first_side, second_side)
 	if is_shearing:
 		_validate_shearing_bom_inputs(lh_bom)
 		_validate_shearing_bom_inputs(rh_bom)
 	else:
 		_validate_post_shearing_bom_inputs(lh_bom)
 		_validate_post_shearing_bom_inputs(rh_bom)
-	_validate_joint_bom_pair(lh_bom, rh_bom, require_common_rm=is_shearing)
-	_validate_joint_bom_company(lh_bom, rh_bom, doc.get("company"))
+	if same_finished_item:
+		_validate_same_finished_item_pair(lh_bom, rh_bom)
+	else:
+		_validate_joint_bom_pair(lh_bom, rh_bom, require_common_rm=is_shearing)
+	_validate_joint_bom_company(lh_bom, rh_bom, doc.get("company"), first_side, second_side)
 
 	lh_gross_qty = flt(doc.get("custom_pea_lh_gross_qty"))
 	lh_rejection_qty = flt(doc.get("custom_pea_lh_rejection_qty"))
 	rh_gross_qty = flt(doc.get("custom_pea_rh_gross_qty"))
 	rh_rejection_qty = flt(doc.get("custom_pea_rh_rejection_qty"))
-	_validate_side_quantities("LH", lh_gross_qty, lh_rejection_qty)
-	_validate_side_quantities("RH", rh_gross_qty, rh_rejection_qty)
+	_validate_side_quantities(first_side, lh_gross_qty, lh_rejection_qty, same_finished_item)
+	_validate_side_quantities(second_side, rh_gross_qty, rh_rejection_qty, same_finished_item)
 
 	if is_shearing:
 		total_rm_consumption = calculate_joint_rm_consumption(
@@ -349,6 +365,7 @@ def _build_joint_production_plan(doc: Document) -> JointProductionPlan:
 		total_rm_consumption=total_rm_consumption,
 		scrap_items=scrap_items,
 		is_shearing=is_shearing,
+		same_finished_item=same_finished_item,
 	)
 
 
@@ -409,8 +426,16 @@ def is_joint_lh_rh_production(doc: Document) -> bool:
 	return is_joint_lh_rh_stock_entry_type(doc)
 
 
+def is_joint_production(doc: Document) -> bool:
+	return is_joint_production_stock_entry_type(doc)
+
+
+def is_paired_production(doc: Document) -> bool:
+	return is_joint_lh_rh_production(doc) or is_joint_production(doc)
+
+
 def validate_and_apply_joint_production(doc: Document) -> None:
-	if not is_joint_lh_rh_production(doc):
+	if not is_paired_production(doc):
 		return
 	plan = _build_joint_production_plan(doc)
 	_validate_joint_item_rows(doc, plan)
@@ -531,20 +556,33 @@ def _get_joint_row_role(row: BaseDocument, plan: JointProductionPlan) -> str:
 			_throw_stale_joint_rows(_("The scrap row does not match the selected BOMs."))
 		return scrap.role
 
-	if side not in ("LH", "RH"):
-		_throw_stale_joint_rows(_("Every output row must specify LH or RH Output Side."))
-	bom = plan.lh_bom if side == "LH" else plan.rh_bom
+	slot = _canonical_output_slot(side, plan)
+	if slot is None:
+		_throw_stale_joint_rows(
+			_("Every output row must specify {0} or {1} Output Side.").format(
+				plan.first_side, plan.second_side
+			)
+		)
+	bom = plan.lh_bom if slot == "lh" else plan.rh_bom
 	if item_code != bom.item_code:
 		_throw_stale_joint_rows(_("The {0} output item does not match its BOM.").format(side))
 
 	if is_rejection:
 		if row.get("bom_no"):
 			_throw_stale_joint_rows(_("The {0} rejection row cannot carry a BOM.").format(side))
-		return f"{side.lower()}_rejection"
+		return f"{slot}_rejection"
 
 	if row.get("bom_no") != bom.name:
 		_throw_stale_joint_rows(_("The {0} good-output row must use BOM {1}.").format(side, bom.name))
-	return f"{side.lower()}_good"
+	return f"{slot}_good"
+
+
+def _canonical_output_slot(side: str | None, plan: JointProductionPlan) -> str | None:
+	if side == plan.first_side:
+		return "lh"
+	if side == plan.second_side:
+		return "rh"
+	return None
 
 
 def _get_row_stock_qty(row: BaseDocument) -> float:
@@ -612,7 +650,10 @@ def _set_shearing_output_valuation(rows: list[Any], plan: JointProductionPlan) -
 def _set_post_shearing_output_valuation(rows: list[Any], plan: JointProductionPlan) -> None:
 	"""Value each side like Manufacture: (side consumed amount - side scrap) / side qty."""
 	side_scrap_values = _post_shearing_side_scrap_values(plan)
-	for side, bom in (("LH", plan.lh_bom), ("RH", plan.rh_bom)):
+	for slot, side, bom in (
+		("LH", plan.first_side, plan.lh_bom),
+		("RH", plan.second_side, plan.rh_bom),
+	):
 		outgoing_value = sum(
 			flt(row.get("basic_amount"))
 			for row in rows
@@ -621,7 +662,7 @@ def _set_post_shearing_output_valuation(rows: list[Any], plan: JointProductionPl
 		_apply_side_output_rate(
 			rows,
 			side,
-			_net_production_value_after_scrap(outgoing_value - side_scrap_values[side]),
+			_net_production_value_after_scrap(outgoing_value - side_scrap_values[slot]),
 		)
 
 
@@ -678,21 +719,24 @@ def is_scrap_row(row: BaseDocument) -> bool:
 
 def _validate_joint_rejection_breakup(doc: Document, plan: JointProductionPlan) -> None:
 	precision = get_system_float_precision()
+	sides = (plan.first_side, plan.second_side)
 	expected = {
-		"LH": flt(plan.lh_rejection_qty, precision),
-		"RH": flt(plan.rh_rejection_qty, precision),
+		plan.first_side: flt(plan.lh_rejection_qty, precision),
+		plan.second_side: flt(plan.rh_rejection_qty, precision),
 	}
-	actual = {"LH": 0.0, "RH": 0.0}
+	actual = {plan.first_side: 0.0, plan.second_side: 0.0}
 	items = {
-		"LH": plan.lh_bom.item_code,
-		"RH": plan.rh_bom.item_code,
+		plan.first_side: plan.lh_bom.item_code,
+		plan.second_side: plan.rh_bom.item_code,
 	}
 	rework_qty = 0.0
 	for row in doc.get("custom_pea_rejection_breakup") or []:
 		row_qty = validate_rejection_breakup_row(row)
 		side = row.get("output_side")
 		if side not in actual:
-			frappe.throw(_("Every joint rejection breakup row must specify LH or RH Output Side."))
+			frappe.throw(
+				_("Every joint rejection breakup row must specify {0} or {1} Output Side.").format(*sides)
+			)
 		if not row.get("item_code"):
 			row.set("item_code", items[side])
 		elif row.get("item_code") != items[side]:
@@ -700,34 +744,37 @@ def _validate_joint_rejection_breakup(doc: Document, plan: JointProductionPlan) 
 		actual[side] += flt(row_qty, precision)
 		if row.get("is_rework"):
 			rework_qty += row_qty
-	for side in ("LH", "RH"):
+	for side in sides:
 		if exceeds_one_unit(actual[side], expected[side], precision):
 			frappe.throw(_("{0} rejection breakup total must equal {0} Rejection Quantity.").format(side))
 	doc.custom_pea_rework_qty = flt(rework_qty)
 
 
-def _validate_joint_header(doc: Document) -> None:
+def _validate_joint_header(doc: Document, *, first_side: str, second_side: str) -> None:
+	same_finished_item = first_side == "BOM 1"
+	pairing = _("Joint Production") if same_finished_item else _("joint LH/RH production")
 	if doc.get("purpose") != "Repack":
-		frappe.throw(_("Joint LH/RH production must use Repack purpose."))
+		frappe.throw(_("{0} must use Repack purpose.").format(pairing))
 	for fieldname, label in (
 		("custom_pea_operation", _("Operation")),
-		("custom_pea_lh_bom", _("LH BOM")),
-		("custom_pea_rh_bom", _("RH BOM")),
+		("custom_pea_lh_bom", _(first_side) if same_finished_item else _("LH BOM")),
+		("custom_pea_rh_bom", _(second_side) if same_finished_item else _("RH BOM")),
 	):
 		if not doc.get(fieldname):
-			frappe.throw(_("{0} is required for joint LH/RH production.").format(label))
+			frappe.throw(_("{0} is required for {1}.").format(label, pairing))
 	if doc.get("custom_pea_shift") and not doc.get("custom_pea_die_tool_item"):
-		frappe.throw(_("Die Tool Item is required for joint LH/RH production."))
+		frappe.throw(_("Die Tool Item is required for {0}.").format(pairing))
 	# Warehouses are required by Fetch Items, not by recipe validation: native Repack
 	# clears mixed-direction headers on save. ERPNext validates the actual item rows.
 	if flt(doc.get("custom_pea_total_strokes")) < 0:
 		frappe.throw(_("Total Press Strokes cannot be negative."))
 
 
-def _get_joint_operation(doc: Document) -> str:
+def _get_joint_operation(doc: Document, *, same_finished_item: bool) -> str:
 	operation = _normalize_operation(doc.get("custom_pea_operation"))
 	if not operation:
-		frappe.throw(_("Operation is required for joint LH/RH production."))
+		pairing = _("Joint Production") if same_finished_item else _("joint LH/RH production")
+		frappe.throw(_("Operation is required for {0}.").format(pairing))
 	if not frappe.get_meta("BOM", cached=True).has_field("custom_operation"):
 		frappe.throw(_("BOM custom_operation metadata is required for joint LH/RH production."))
 	return operation
@@ -781,10 +828,16 @@ def _get_joint_bom_details(bom_no: str) -> JointBomDetails:
 	)
 
 
-def _validate_joint_bom_operations(lh_bom: JointBomDetails, rh_bom: JointBomDetails, operation: str) -> None:
+def _validate_joint_bom_operations(
+	lh_bom: JointBomDetails,
+	rh_bom: JointBomDetails,
+	operation: str,
+	first_side: str,
+	second_side: str,
+) -> None:
 	mismatches = [
 		_("{0} BOM {1}").format(side, frappe.bold(frappe.utils.escape_html(bom.name)))
-		for side, bom in (("LH", lh_bom), ("RH", rh_bom))
+		for side, bom in ((first_side, lh_bom), (second_side, rh_bom))
 		if bom.operation != operation
 	]
 	if not mismatches:
@@ -922,11 +975,31 @@ def _build_post_shearing_source_rows(
 	return rows
 
 
+def _validate_same_finished_item_pair(lh_bom: JointBomDetails, rh_bom: JointBomDetails) -> None:
+	if lh_bom.name == rh_bom.name:
+		frappe.throw(_("BOM 1 and BOM 2 must be different."))
+	if lh_bom.company != rh_bom.company:
+		frappe.throw(_("BOM 1 and BOM 2 must belong to the same Company."))
+	if lh_bom.item_code != rh_bom.item_code:
+		frappe.throw(
+			_(
+				"Joint Production BOMs must produce the same finished item. "
+				"Use Joint LH/RH Production when the finished items differ."
+			)
+		)
+	if {item.item_code for item in lh_bom.input_items} == {item.item_code for item in rh_bom.input_items}:
+		frappe.throw(_("Joint Production BOMs must use different raw materials."))
+
+
 def _validate_joint_bom_company(
-	lh_bom: JointBomDetails, rh_bom: JointBomDetails, company: str | None
+	lh_bom: JointBomDetails,
+	rh_bom: JointBomDetails,
+	company: str | None,
+	first_side: str,
+	second_side: str,
 ) -> None:
 	stock_entry_company = cstr(company)
-	for side, bom in (("LH", lh_bom), ("RH", rh_bom)):
+	for side, bom in ((first_side, lh_bom), (second_side, rh_bom)):
 		if bom.company != stock_entry_company:
 			frappe.throw(
 				_("{0} BOM {1} must belong to Company {2}.").format(
@@ -937,10 +1010,20 @@ def _validate_joint_bom_company(
 			)
 
 
-def _validate_side_quantities(side: str, gross_qty: float, rejection_qty: float) -> None:
+def _validate_side_quantities(
+	side: str, gross_qty: float, rejection_qty: float, same_finished_item: bool = False
+) -> None:
 	if gross_qty < 0:
 		frappe.throw(_("{0} Gross Quantity cannot be negative.").format(side))
 	if gross_qty == 0:
+		if same_finished_item:
+			frappe.throw(
+				_(
+					"{0} Gross Quantity must be greater than zero. "
+					"If only one recipe is produced, create a Manufacture Production Entry "
+					"instead of Joint Production."
+				).format(side)
+			)
 		frappe.throw(
 			_(
 				"{0} Gross Quantity must be greater than zero. "
@@ -1059,7 +1142,31 @@ def _get_item_details(item_codes: Iterable[str]) -> dict[str, frappe._dict]:
 	return details
 
 
+def _reject_duplicate_stock_entry_type_flag(doc: Document, *, flag_fieldname: str, message: str) -> None:
+	existing_types = frappe.get_all(
+		"Stock Entry Type",
+		filters={flag_fieldname: 1, "name": ["!=", doc.name]},
+		pluck="name",
+		limit=1,
+	)
+	if not existing_types:
+		return
+	frappe.throw(message.format(frappe.bold(frappe.utils.escape_html(existing_types[0]))))
+
+
 def validate_stock_entry_type(doc: Document, method: str | None = None) -> None:
+	if doc.get("custom_pea_joint_production") and doc.get("custom_pea_joint_lh_rh_production"):
+		frappe.throw(_("A Stock Entry Type cannot be both Joint Production and Joint LH/RH Production."))
+	if doc.get("custom_pea_joint_production") and doc.get("custom_pea_rework_entry"):
+		frappe.throw(_("A Stock Entry Type cannot be both Joint Production and Rework."))
+	if doc.get("custom_pea_joint_production") and doc.get("purpose") != "Repack":
+		frappe.throw(_("Joint Production Stock Entry Types must use Repack purpose."))
+	if doc.get("custom_pea_joint_production"):
+		_reject_duplicate_stock_entry_type_flag(
+			doc,
+			flag_fieldname="custom_pea_joint_production",
+			message=_("Only one Stock Entry Type can be configured for Joint Production. Use {0}."),
+		)
 	if doc.get("custom_pea_joint_lh_rh_production") and doc.get("custom_pea_rework_entry"):
 		frappe.throw(_("A Stock Entry Type cannot be both Joint LH/RH Production and Rework."))
 	if doc.get("custom_pea_joint_lh_rh_production") and doc.get("purpose") != "Repack":

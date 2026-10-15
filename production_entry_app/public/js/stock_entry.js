@@ -404,6 +404,7 @@ function _apply_manufacture_visibility(frm) {
 	const isJoint = _is_joint_doc(frm.doc);
 	const hasShift = Boolean(frm.doc?.custom_pea_shift);
 	_apply_native_manufacture_visibility(frm);
+	_apply_joint_slot_labels(frm);
 	frm.toggle_display(PEA_ALWAYS_VISIBLE_PRODUCTION_FIELDS, isProduction);
 	frm.toggle_display(PEA_SHIFT_GATED_FIELDS, isProduction && hasShift);
 	frm.toggle_display(PEA_SHIFT_GATED_SECTIONS, isProduction && hasShift);
@@ -486,7 +487,7 @@ function _clear_manufacture_data(frm) {
 	const tableChanged = _clear_table_fields(
 		frm,
 		MANUFACTURE_CLEAR_TABLE_FIELDS,
-		refreshFieldnames
+		refreshFieldnames,
 	);
 	const changed = scalarChanged || tableChanged;
 
@@ -544,7 +545,7 @@ function _sync_rework_mode_from_stock_entry_type(frm, { previousStockEntryType =
 	};
 	const hasCachedReworkType = Object.prototype.hasOwnProperty.call(
 		frm.doc,
-		"__pea_rework_stock_entry_type"
+		"__pea_rework_stock_entry_type",
 	);
 	const checkedStockEntryType = frm.doc.__pea_rework_stock_entry_type_checked;
 	if (
@@ -625,7 +626,7 @@ function _sync_rework_source_warehouse(
 		requestId = ++_reworkSourceWarehouseRequestId,
 		company = frm.doc.company,
 		branch = frm.doc.branch,
-	} = {}
+	} = {},
 ) {
 	if (!_is_rework_doc(frm.doc) || !company || !branch) {
 		return;
@@ -655,7 +656,7 @@ function _sync_rework_source_warehouse(
 			for (const row of frm.doc.items || []) {
 				if (!row.s_warehouse || row.s_warehouse === previousDefault) {
 					updates.push(
-						_default_rework_item_source(frm, row, sourceWarehouse, previousDefault)
+						_default_rework_item_source(frm, row, sourceWarehouse, previousDefault),
 					);
 				}
 			}
@@ -665,7 +666,7 @@ function _sync_rework_source_warehouse(
 			if (requestId !== _reworkSourceWarehouseRequestId) return;
 			_notify_call_error(
 				__("Failed to load the configured Rework source warehouse."),
-				error
+				error,
 			);
 		},
 	});
@@ -686,7 +687,7 @@ function _default_rework_item_source(
 	frm,
 	row,
 	sourceWarehouse = frm.doc.from_warehouse,
-	previousDefault = ""
+	previousDefault = "",
 ) {
 	if (
 		!_is_rework_doc(frm.doc) ||
@@ -721,7 +722,7 @@ function _clear_rework_data(frm) {
 function _is_rework_doc(doc) {
 	return Boolean(
 		doc?.__pea_rework_stock_entry_type &&
-			doc.stock_entry_type === doc.__pea_rework_stock_entry_type
+		doc.stock_entry_type === doc.__pea_rework_stock_entry_type,
 	);
 }
 
@@ -753,7 +754,7 @@ function _schedule_rework_workstation_default(frm) {
 				}
 				frm.set_value(
 					"custom_pea_rework_workstation",
-					response?.message?.default_workstation || ""
+					response?.message?.default_workstation || "",
 				);
 			})
 			.catch((error) => {
@@ -763,9 +764,19 @@ function _schedule_rework_workstation_default(frm) {
 	}, REWORK_TYPE_DEBOUNCE_MS);
 }
 
+function _joint_pairing(stockEntryType, lhRhType, sameItemType) {
+	if (lhRhType && stockEntryType === lhRhType) {
+		return "lh_rh";
+	}
+	if (sameItemType && stockEntryType === sameItemType) {
+		return "same_item";
+	}
+	return "other";
+}
+
 function _sync_joint_mode_from_stock_entry_type(frm, requestId, previousStockEntryType) {
 	const selectedStockEntryType = frm.doc.stock_entry_type || "";
-	const applySelectedType = (jointStockEntryType) => {
+	const applyPairings = (lhRhType, sameItemType) => {
 		if (
 			requestId !== _jointStockEntryTypeRequestId ||
 			frm.doc.stock_entry_type !== selectedStockEntryType
@@ -775,25 +786,22 @@ function _sync_joint_mode_from_stock_entry_type(frm, requestId, previousStockEnt
 		if (frm.__peaJointStockEntryTypeLookup?.requestId === requestId) {
 			delete frm.__peaJointStockEntryTypeLookup;
 		}
-		const cachedJointStockEntryType = frm.__peaJointStockEntryType || "";
-		const currentWasJoint = _is_joint_doc(frm.doc);
-		frm.__peaJointStockEntryType = jointStockEntryType || "";
-		frm.doc.__pea_joint_stock_entry_type = jointStockEntryType || "";
-		const shouldBeJoint =
-			Boolean(jointStockEntryType) && selectedStockEntryType === jointStockEntryType;
-		const isKnownJointSelection =
-			shouldBeJoint &&
-			(!previousStockEntryType || cachedJointStockEntryType === jointStockEntryType);
-		const wasJoint = previousStockEntryType
-			? Boolean(jointStockEntryType) && previousStockEntryType === jointStockEntryType
-			: currentWasJoint || isKnownJointSelection;
+		const nextPairing = _joint_pairing(selectedStockEntryType, lhRhType, sameItemType);
+		const previousPairing = previousStockEntryType
+			? _joint_pairing(previousStockEntryType, lhRhType, sameItemType)
+			: nextPairing;
+		frm.__peaJointStockEntryType = lhRhType || "";
+		frm.__peaSameItemJointStockEntryType = sameItemType || "";
+		frm.doc.__pea_same_item_joint_stock_entry_type = sameItemType || "";
+		frm.doc.__pea_joint_stock_entry_type =
+			nextPairing === "same_item" ? sameItemType || "" : lhRhType || "";
 		if (frm.__peaDeferredManufactureCleanup) {
 			delete frm.__peaDeferredManufactureCleanup;
-			if (!shouldBeJoint) {
+			if (nextPairing === "other") {
 				_clear_manufacture_data(frm);
 			}
 		}
-		if (shouldBeJoint === wasJoint) {
+		if (nextPairing === previousPairing) {
 			_apply_manufacture_visibility(frm);
 			return;
 		}
@@ -804,7 +812,13 @@ function _sync_joint_mode_from_stock_entry_type(frm, requestId, previousStockEnt
 	};
 
 	if (Object.prototype.hasOwnProperty.call(frm, "__peaJointStockEntryType")) {
-		applySelectedType(frm.__peaJointStockEntryType);
+		const sameItemType = Object.prototype.hasOwnProperty.call(
+			frm,
+			"__peaSameItemJointStockEntryType",
+		)
+			? frm.__peaSameItemJointStockEntryType
+			: "";
+		applyPairings(frm.__peaJointStockEntryType, sameItemType);
 		return;
 	}
 
@@ -817,7 +831,26 @@ function _sync_joint_mode_from_stock_entry_type(frm, requestId, previousStockEnt
 		// Passive discovery on every form: an unconfigured site answers "" instead of an error.
 		args: { required: 0 },
 		callback(r) {
-			applySelectedType(r.message);
+			const lhRhType = r.message || "";
+			if (Object.prototype.hasOwnProperty.call(frm, "__peaSameItemJointStockEntryType")) {
+				applyPairings(lhRhType, frm.__peaSameItemJointStockEntryType || "");
+				return;
+			}
+			frappe.call({
+				method: "production_entry_app.production_entry_app.api.get_joint_production_stock_entry_type",
+				args: { required: 0 },
+				callback(response) {
+					applyPairings(lhRhType, response.message || "");
+				},
+				error(sameItemError) {
+					if (requestId !== _jointStockEntryTypeRequestId) return;
+					delete frm.__peaJointStockEntryTypeLookup;
+					_notify_call_error(
+						__("Failed to identify the Joint Production Stock Entry Type."),
+						sameItemError,
+					);
+				},
+			});
 		},
 		error(error) {
 			if (requestId !== _jointStockEntryTypeRequestId) return;
@@ -840,12 +873,12 @@ function _clear_production_mode_data(frm) {
 		frm,
 		PRODUCTION_MODE_SCALAR_FIELDS,
 		refreshFieldnames,
-		{ onlyExisting: true }
+		{ onlyExisting: true },
 	);
 	const tableChanged = _clear_table_fields(
 		frm,
 		PRODUCTION_MODE_CLEAR_TABLE_FIELDS,
-		refreshFieldnames
+		refreshFieldnames,
 	);
 	const changed = scalarChanged || tableChanged;
 	if (refreshFieldnames.size > 0) {
@@ -867,12 +900,12 @@ function _clear_joint_operation_dependents(frm) {
 		frm,
 		JOINT_OPERATION_DEPENDENT_FIELDS,
 		refreshFieldnames,
-		{ onlyExisting: true }
+		{ onlyExisting: true },
 	);
 	const tableChanged = _clear_table_fields(
 		frm,
 		PRODUCTION_MODE_CLEAR_TABLE_FIELDS,
-		refreshFieldnames
+		refreshFieldnames,
 	);
 	if (refreshFieldnames.size > 0) {
 		frm.refresh_fields?.(Array.from(refreshFieldnames));
@@ -939,7 +972,7 @@ function _clear_table_fields(frm, fieldnames, refreshFieldnames) {
 function _expand_sections(frm, sectionFieldnames) {
 	sectionFieldnames.forEach((sectionFieldname) => {
 		const section = (frm.layout?.sections || []).find(
-			(entry) => (entry?.df?.fieldname || "") === sectionFieldname
+			(entry) => (entry?.df?.fieldname || "") === sectionFieldname,
 		);
 		if (!section) return;
 		if (typeof section.collapse === "function") {
@@ -954,9 +987,16 @@ function _is_manufacture_doc(doc) {
 	return _normalize_purpose(doc?.custom_stock_entry_purpose) === "Manufacture";
 }
 
+function _is_same_item_joint_doc(doc) {
+	const sameItemType = doc?.__pea_same_item_joint_stock_entry_type || "";
+	return Boolean(sameItemType) && doc?.stock_entry_type === sameItemType;
+}
+
 function _is_joint_doc(doc) {
 	const jointStockEntryType = doc?.__pea_joint_stock_entry_type || "";
-	return Boolean(jointStockEntryType) && doc?.stock_entry_type === jointStockEntryType;
+	const markedJoint =
+		Boolean(jointStockEntryType) && doc?.stock_entry_type === jointStockEntryType;
+	return markedJoint || _is_same_item_joint_doc(doc);
 }
 
 function _is_production_doc(doc) {
@@ -990,7 +1030,7 @@ function _sync_stock_entry_helper_fields(frm) {
 		return;
 	}
 	const plannedStartDate = timeEntry.format_datetime_display(
-		frm.doc?.custom_pea_planned_start_date || ""
+		frm.doc?.custom_pea_planned_start_date || "",
 	).date;
 	_sync_actual_datetime_helper_fields(frm, {
 		date_fieldname: "custom_pea_actual_start_date_input",
@@ -1009,7 +1049,7 @@ function _sync_stock_entry_helper_fields(frm) {
 
 function _sync_actual_datetime_helper_fields(
 	frm,
-	{ date_fieldname, time_fieldname, canonical_fieldname, default_date }
+	{ date_fieldname, time_fieldname, canonical_fieldname, default_date },
 ) {
 	const timeEntry = _get_time_entry_api();
 	if (!timeEntry) {
@@ -1020,7 +1060,7 @@ function _sync_actual_datetime_helper_fields(
 			frm,
 			date_fieldname,
 			time_fieldname,
-			canonical_fieldname
+			canonical_fieldname,
 		);
 		return;
 	}
@@ -1046,14 +1086,14 @@ function _setup_stock_entry_quick_entry(frm) {
 		"custom_pea_actual_start_date_input",
 		"custom_pea_actual_start_time_input",
 		"custom_pea_actual_start_date",
-		{ get_shift_ctx: () => _get_shift_ctx(frm), enabled: isProduction }
+		{ get_shift_ctx: () => _get_shift_ctx(frm), enabled: isProduction },
 	);
 	timeEntry.attach_datetime_split_chips(
 		frm,
 		"custom_pea_actual_end_date_input",
 		"custom_pea_actual_end_time_input",
 		"custom_pea_actual_end_date",
-		{ get_shift_ctx: () => _get_shift_ctx(frm), enabled: isProduction }
+		{ get_shift_ctx: () => _get_shift_ctx(frm), enabled: isProduction },
 	);
 	if (!isProduction) {
 		return;
@@ -1063,14 +1103,14 @@ function _setup_stock_entry_quick_entry(frm) {
 			date_fieldname: "custom_pea_actual_start_date_input",
 			time_fieldname: "custom_pea_actual_start_time_input",
 			canonical_fieldname: "custom_pea_actual_start_date",
-		})
+		}),
 	);
 	timeEntry.bind_committed_time_input(frm, "custom_pea_actual_end_time_input", () =>
 		_combine_actual_datetime(frm, {
 			date_fieldname: "custom_pea_actual_end_date_input",
 			time_fieldname: "custom_pea_actual_end_time_input",
 			canonical_fieldname: "custom_pea_actual_end_date",
-		})
+		}),
 	);
 }
 
@@ -1152,7 +1192,7 @@ function _clear_shift_gated_capture_fields(frm) {
 		"custom_pea_metrics_col_break",
 	]);
 	const scalarFields = PEA_SHIFT_GATED_FIELDS.filter(
-		(fieldname) => !tableFields.includes(fieldname) && !layoutFields.has(fieldname)
+		(fieldname) => !tableFields.includes(fieldname) && !layoutFields.has(fieldname),
 	);
 	const refreshFieldnames = new Set();
 	const scalarChanged = _clear_scalar_fields(frm, scalarFields, refreshFieldnames, {
@@ -1191,7 +1231,7 @@ function _apply_shift_details_response(frm, selectedShift, reqId, data) {
 async function _apply_shift_detail_updates(
 	frm,
 	data,
-	{ isCurrentRequest = () => true, clearWarehouses = false } = {}
+	{ isCurrentRequest = () => true, clearWarehouses = false } = {},
 ) {
 	const warehouseFields = ["from_warehouse", "to_warehouse"];
 	const fields = [
@@ -1239,7 +1279,7 @@ function _clear_shift_derived_fields(frm, { clearWarehouses = false } = {}) {
 			from_warehouse: "",
 			to_warehouse: "",
 		},
-		{ clearWarehouses }
+		{ clearWarehouses },
 	);
 }
 
@@ -1252,19 +1292,19 @@ async function _set_form_value_if_present(frm, fieldname, value) {
 function _extract_error_detail(error) {
 	const responseJSON = error?.responseJSON || _parse_json(error?.responseText);
 	const responseMessage = String(
-		error?._error_message || responseJSON?._error_message || ""
+		error?._error_message || responseJSON?._error_message || "",
 	).trim();
 	if (responseMessage) {
 		return responseMessage;
 	}
 	const serverMessage = _extract_server_message(
-		error?._server_messages || responseJSON?._server_messages
+		error?._server_messages || responseJSON?._server_messages,
 	);
 	if (serverMessage) {
 		return serverMessage;
 	}
 	const exception = String(
-		error?.exception || error?.exc || responseJSON?.exception || responseJSON?.exc || ""
+		error?.exception || error?.exc || responseJSON?.exception || responseJSON?.exc || "",
 	).trim();
 	if (exception) {
 		return exception;
@@ -1361,13 +1401,49 @@ function _get_rejection_qty_for_visibility(doc) {
 	return typeof flt === "function" ? flt(doc.custom_pea_rejection_qty) : 0;
 }
 
+function _form_label(text) {
+	return typeof __ === "function" ? __(text) : text;
+}
+
+function _apply_joint_slot_labels(frm) {
+	const sameItem = _is_same_item_joint_doc(frm.doc);
+	const labels = sameItem
+		? {
+				custom_pea_joint_production_section: _form_label("Joint Production"),
+				custom_pea_lh_bom: _form_label("BOM 1"),
+				custom_pea_rh_bom: _form_label("BOM 2"),
+				custom_pea_lh_gross_qty: _form_label("BOM 1 Gross Quantity"),
+				custom_pea_rh_gross_qty: _form_label("BOM 2 Gross Quantity"),
+				custom_pea_lh_rejection_qty: _form_label("BOM 1 Rejection Quantity"),
+				custom_pea_rh_rejection_qty: _form_label("BOM 2 Rejection Quantity"),
+			}
+		: {
+				custom_pea_joint_production_section: _form_label("Joint LH/RH Production"),
+				custom_pea_lh_bom: _form_label("LH BOM"),
+				custom_pea_rh_bom: _form_label("RH BOM"),
+				custom_pea_lh_gross_qty: _form_label("LH Gross Quantity"),
+				custom_pea_rh_gross_qty: _form_label("RH Gross Quantity"),
+				custom_pea_lh_rejection_qty: _form_label("LH Rejection Quantity"),
+				custom_pea_rh_rejection_qty: _form_label("RH Rejection Quantity"),
+			};
+	Object.entries(labels).forEach(([fieldname, label]) => {
+		frm.set_df_property?.(fieldname, "label", label);
+	});
+}
+
 function _configure_rejection_breakup_grid(frm) {
 	const grid = frm.fields_dict?.custom_pea_rejection_breakup?.grid;
 	if (!grid) return;
 	const isJoint = _is_joint_doc(frm.doc);
+	const sameItem = _is_same_item_joint_doc(frm.doc);
 	grid.update_docfield_property("output_side", "hidden", isJoint ? 0 : 1);
 	grid.update_docfield_property("output_side", "reqd", isJoint ? 1 : 0);
 	grid.update_docfield_property("item_code", "hidden", isJoint ? 0 : 1);
+	grid.update_docfield_property(
+		"output_side",
+		"options",
+		sameItem ? "\nBOM 1\nBOM 2" : "\nLH\nRH",
+	);
 }
 
 function _handle_custom_pea_fetch_items(frm) {
@@ -1376,24 +1452,45 @@ function _handle_custom_pea_fetch_items(frm) {
 		frappe.msgprint(__("Please set Qty to Manufacture before fetching items."));
 		return;
 	}
+	const sameItemJoint = _is_same_item_joint_doc(frm.doc);
 	if (isJoint && !String(frm.doc.custom_pea_operation || "").trim()) {
-		frappe.msgprint(__("Operation is required for joint LH/RH production."));
+		frappe.msgprint(
+			sameItemJoint
+				? __("Operation is required for Joint Production.")
+				: __("Operation is required for joint LH/RH production."),
+		);
 		return;
 	}
 	if (isJoint && !frm.doc.custom_pea_lh_bom) {
-		frappe.msgprint(__("LH BOM is required for joint LH/RH production."));
+		frappe.msgprint(
+			sameItemJoint
+				? __("BOM 1 is required for Joint Production.")
+				: __("LH BOM is required for joint LH/RH production."),
+		);
 		return;
 	}
 	if (isJoint && !frm.doc.custom_pea_rh_bom) {
-		frappe.msgprint(__("RH BOM is required for joint LH/RH production."));
+		frappe.msgprint(
+			sameItemJoint
+				? __("BOM 2 is required for Joint Production.")
+				: __("RH BOM is required for joint LH/RH production."),
+		);
 		return;
 	}
 	if (isJoint && frm.doc.custom_pea_shift && !frm.doc.custom_pea_die_tool_item) {
-		frappe.msgprint(__("Die Tool Item is required for joint LH/RH production."));
+		frappe.msgprint(
+			sameItemJoint
+				? __("Die Tool Item is required for Joint Production.")
+				: __("Die Tool Item is required for joint LH/RH production."),
+		);
 		return;
 	}
 	if (isJoint && (!frm.doc.custom_pea_lh_gross_qty || !frm.doc.custom_pea_rh_gross_qty)) {
-		frappe.msgprint(__("Please set LH and RH Gross Quantity before fetching items."));
+		frappe.msgprint(
+			sameItemJoint
+				? __("Please set BOM 1 and BOM 2 Gross Quantity before fetching items.")
+				: __("Please set LH and RH Gross Quantity before fetching items."),
+		);
 		return;
 	}
 	return frappe.call({
@@ -1441,7 +1538,7 @@ function _update_die_tool_metrics(frm) {
 			if (due && frm.dashboard && frm.dashboard.set_headline_alert) {
 				const message = __(
 					"Die tool {0} has reached {1}% utilization and needs maintenance.",
-					[item_code, _formatFloatFragment(utilization)]
+					[item_code, _formatFloatFragment(utilization)],
 				);
 				if (frm.__peaDieToolAlertMessage !== message) {
 					frm.dashboard.set_headline_alert(message, "orange");
@@ -1478,7 +1575,7 @@ function _formatFloatFragment(value) {
 		return frappe.format(
 			numericValue,
 			{ fieldtype: "Float", precision },
-			{ only_value: true }
+			{ only_value: true },
 		);
 	}
 	return String(numericValue);

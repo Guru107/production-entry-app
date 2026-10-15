@@ -14,6 +14,7 @@ from frappe.utils import add_to_date, cint, cstr, flt, get_datetime
 from production_entry_app.production_entry_app.api import (
 	get_items_with_rejection,
 	get_joint_production_items,
+	get_joint_production_stock_entry_type,
 	get_joint_stock_entry_type,
 	search_joint_boms_for_operation,
 )
@@ -25,6 +26,7 @@ from production_entry_app.production_entry_app.doctype.shift.shift import (
 from production_entry_app.production_entry_app.joint_production import (
 	JOINT_BOM_OPERATING_COST_DESCRIPTION,
 	JOINT_LH_RH_STOCK_ENTRY_TYPE,
+	JOINT_PRODUCTION_STOCK_ENTRY_TYPE,
 	_get_bom_scrap_item_details,
 	_get_item_details,
 	_get_joint_bom_details,
@@ -400,6 +402,63 @@ class TestJointProductionStockEntryType(FrappeTestCase):
 		)
 
 		with self.assertRaisesRegex(frappe.ValidationError, "Only one Stock Entry Type"):
+			doc.insert(ignore_permissions=True)
+
+	def test_configured_joint_production_type_is_available_to_the_stock_entry_form(self) -> None:
+		stock_entry_type = get_joint_production_stock_entry_type()
+
+		self.assertEqual(stock_entry_type, JOINT_PRODUCTION_STOCK_ENTRY_TYPE)
+		self.assertEqual(frappe.db.get_value("Stock Entry Type", stock_entry_type, "purpose"), "Repack")
+		self.assertEqual(
+			frappe.db.get_value("Stock Entry Type", stock_entry_type, "custom_pea_joint_production"),
+			1,
+		)
+		self.assertEqual(
+			frappe.db.get_value("Stock Entry Type", stock_entry_type, "custom_pea_joint_lh_rh_production"),
+			0,
+		)
+
+	def test_joint_production_stock_entry_type_rejects_second_marked_type(self) -> None:
+		self.assertTrue(frappe.db.exists("Stock Entry Type", JOINT_PRODUCTION_STOCK_ENTRY_TYPE))
+		doc = frappe.get_doc(
+			{
+				"doctype": "Stock Entry Type",
+				"name": f"Extra Joint Production {frappe.generate_hash(length=6)}",
+				"purpose": "Repack",
+				"custom_pea_joint_production": 1,
+			}
+		)
+
+		with self.assertRaisesRegex(frappe.ValidationError, "Only one Stock Entry Type"):
+			doc.insert(ignore_permissions=True)
+
+	def test_stock_entry_type_cannot_be_both_joint_pairings(self) -> None:
+		doc = frappe.get_doc(
+			{
+				"doctype": "Stock Entry Type",
+				"name": f"Both Joint Flags {frappe.generate_hash(length=6)}",
+				"purpose": "Repack",
+				"custom_pea_joint_lh_rh_production": 1,
+				"custom_pea_joint_production": 1,
+			}
+		)
+
+		with self.assertRaisesRegex(frappe.ValidationError, "cannot be both Joint Production"):
+			doc.insert(ignore_permissions=True)
+
+	def test_joint_production_stock_entry_type_requires_repack_purpose(self) -> None:
+		doc = frappe.get_doc(
+			{
+				"doctype": "Stock Entry Type",
+				"name": f"Joint Production Manufacture {frappe.generate_hash(length=6)}",
+				"purpose": "Manufacture",
+				"custom_pea_joint_production": 1,
+			}
+		)
+
+		with self.assertRaisesRegex(
+			frappe.ValidationError, "Joint Production Stock Entry Types must use Repack"
+		):
 			doc.insert(ignore_permissions=True)
 
 
@@ -2425,6 +2484,356 @@ class TestJointProductionItems(FrappeTestCase):
 			fetch_items=fetch_items,
 		)
 
+	def _same_item_entry_args(self, finished_item: str) -> dict[str, str]:
+		return {
+			"stock_entry_type": JOINT_PRODUCTION_STOCK_ENTRY_TYPE,
+			"first_output_side": "BOM 1",
+			"second_output_side": "BOM 2",
+			"finished_item": finished_item,
+		}
+
+	def test_joint_production_shearing_consumes_each_recipe_and_keeps_strokes(self) -> None:
+		suffix = frappe.generate_hash(length=6)
+		finished = ensure_item(f"_Same_FG_{suffix}")
+		sheet = ensure_item(f"_Same_Sheet_{suffix}", stock_uom="Kg")
+		end_piece = ensure_item(f"_Same_End_{suffix}", stock_uom="Kg")
+		for item_code in (sheet, end_piece):
+			ensure_stock(
+				item_code,
+				self.masters["wip_warehouse"],
+				self.masters["company"],
+				target_qty=100,
+			)
+		sheet_bom = self._make_bom(finished, rm_item=sheet, rm_qty=10, bom_quantity=100, scrap_qty=1)
+		end_bom = self._make_bom(finished, rm_item=end_piece, rm_qty=5, bom_quantity=100, scrap_qty=1)
+		shift = make_running_shift(self.masters)
+		doc = self._make_joint_entry(
+			shift,
+			lh_bom=sheet_bom,
+			rh_bom=end_bom,
+			lh_gross_qty=40,
+			lh_rejection_qty=2,
+			rh_gross_qty=20,
+			rh_rejection_qty=0,
+			**self._same_item_entry_args(finished),
+		)
+		doc.custom_pea_total_strokes = 77
+
+		doc.insert(ignore_permissions=True)
+
+		self.assertEqual(
+			[(row.item_code, row.bom_no, flt(row.qty)) for row in doc.items if row.s_warehouse],
+			[(sheet, sheet_bom, 4.0), (end_piece, end_bom, 1.0)],
+		)
+		self.assertEqual(
+			[
+				(row.item_code, row.custom_pea_joint_output_side, flt(row.qty), row.bom_no)
+				for row in doc.items
+				if row.t_warehouse and not row.custom_pea_is_rejection_item and not _is_scrap_row(row)
+			],
+			[(finished, "BOM 1", 38.0, sheet_bom), (finished, "BOM 2", 20.0, end_bom)],
+		)
+		self.assertEqual(doc.custom_pea_total_strokes, 77)
+
+	def test_joint_production_accepts_either_recipe_in_either_slot(self) -> None:
+		suffix = frappe.generate_hash(length=6)
+		finished = ensure_item(f"_Same_Slot_FG_{suffix}")
+		sheet = ensure_item(f"_Same_Slot_Sheet_{suffix}", stock_uom="Kg")
+		end_piece = ensure_item(f"_Same_Slot_End_{suffix}", stock_uom="Kg")
+		sheet_bom = self._make_bom(finished, rm_item=sheet, rm_qty=10, bom_quantity=100, scrap_qty=1)
+		end_bom = self._make_bom(finished, rm_item=end_piece, rm_qty=5, bom_quantity=100, scrap_qty=1)
+		shift = make_running_shift(self.masters)
+
+		doc = self._make_joint_entry(
+			shift,
+			lh_bom=end_bom,
+			rh_bom=sheet_bom,
+			lh_gross_qty=20,
+			lh_rejection_qty=0,
+			rh_gross_qty=40,
+			rh_rejection_qty=0,
+			**self._same_item_entry_args(finished),
+		)
+
+		self.assertEqual(
+			[(row.item_code, row.bom_no, flt(row.qty)) for row in doc.items if row.s_warehouse],
+			[(end_piece, end_bom, 1.0), (sheet, sheet_bom, 4.0)],
+		)
+		self.assertEqual(
+			[
+				row.custom_pea_joint_output_side
+				for row in doc.items
+				if row.t_warehouse and not _is_scrap_row(row)
+			],
+			["BOM 1", "BOM 2"],
+		)
+
+	def test_joint_production_draw_consumes_each_bom_including_a_shared_input(self) -> None:
+		operation = ensure_operation("Draw")
+		suffix = frappe.generate_hash(length=6)
+		finished = ensure_item(f"_Same_Draw_FG_{suffix}")
+		first_input = ensure_item(f"_Same_Draw_A_{suffix}")
+		second_input = ensure_item(f"_Same_Draw_B_{suffix}")
+		shared = ensure_item(f"_Same_Draw_Shared_{suffix}")
+		first_bom = self._make_bom(
+			finished,
+			bom_quantity=10,
+			rm_items=[(first_input, 2), (shared, 1)],
+			scrap_qty=0.5,
+			operation=operation,
+		)
+		second_bom = self._make_bom(
+			finished,
+			bom_quantity=10,
+			rm_items=[(second_input, 3), (shared, 1)],
+			scrap_qty=0.5,
+			operation=operation,
+		)
+		shift = make_running_shift(self.masters)
+
+		doc = self._make_joint_entry(
+			shift,
+			lh_bom=first_bom,
+			rh_bom=second_bom,
+			operation=operation,
+			lh_gross_qty=10,
+			lh_rejection_qty=0,
+			rh_gross_qty=10,
+			rh_rejection_qty=0,
+			**self._same_item_entry_args(finished),
+		)
+
+		self.assertEqual(
+			[(row.item_code, row.bom_no, flt(row.qty)) for row in doc.items if row.s_warehouse],
+			[
+				(first_input, first_bom, 2.0),
+				(shared, first_bom, 1.0),
+				(second_input, second_bom, 3.0),
+				(shared, second_bom, 1.0),
+			],
+		)
+
+	def test_joint_production_values_each_recipe_from_its_own_materials(self) -> None:
+		suffix = frappe.generate_hash(length=6)
+		finished = ensure_item(f"_Same_Value_FG_{suffix}")
+		sheet = ensure_item(f"_Same_Value_Sheet_{suffix}", stock_uom="Kg")
+		end_piece = ensure_item(f"_Same_Value_End_{suffix}", stock_uom="Kg")
+		sheet_bom = self._make_bom(finished, rm_item=sheet, rm_qty=10, bom_quantity=100, scrap_qty=1)
+		end_bom = self._make_bom(finished, rm_item=end_piece, rm_qty=5, bom_quantity=100, scrap_qty=1)
+		shift = make_running_shift(self.masters)
+		doc = self._make_joint_entry(
+			shift,
+			lh_bom=sheet_bom,
+			rh_bom=end_bom,
+			lh_gross_qty=40,
+			lh_rejection_qty=0,
+			rh_gross_qty=20,
+			rh_rejection_qty=0,
+			**self._same_item_entry_args(finished),
+		)
+		for row in doc.items:
+			if not row.s_warehouse:
+				continue
+			rate = 10 if row.bom_no == sheet_bom else 40
+			row.basic_rate = rate
+			row.basic_amount = flt(row.qty) * rate
+
+		validate_and_apply_joint_production(doc)
+
+		def _output_value(side: str) -> float:
+			return sum(
+				flt(row.basic_amount)
+				for row in doc.items
+				if row.custom_pea_joint_output_side == side and not _is_scrap_row(row)
+			)
+
+		sheet_consumed = sum(
+			flt(row.basic_amount) for row in doc.items if row.s_warehouse and row.bom_no == sheet_bom
+		)
+		end_consumed = sum(
+			flt(row.basic_amount) for row in doc.items if row.s_warehouse and row.bom_no == end_bom
+		)
+		# Scrap rate 10; generated qty is gross / bom qty * scrap qty, then aggregated.
+		sheet_scrap = (40 / 100) * 1 * 10
+		end_scrap = (20 / 100) * 1 * 10
+
+		self.assertAlmostEqual(_output_value("BOM 1"), sheet_consumed - sheet_scrap, places=5)
+		self.assertAlmostEqual(_output_value("BOM 2"), end_consumed - end_scrap, places=5)
+
+	def test_joint_production_posts_scrap_and_input_of_the_same_item_separately(self) -> None:
+		suffix = frappe.generate_hash(length=6)
+		finished = ensure_item(f"_Same_Move_FG_{suffix}")
+		sheet = ensure_item(f"_Same_Move_Sheet_{suffix}", stock_uom="Kg")
+		end_piece = ensure_item(f"_Same_Move_End_{suffix}", stock_uom="Kg")
+		other = ensure_item(f"_Same_Move_Other_{suffix}")
+		sheet_bom = self._make_bom(
+			finished,
+			rm_item=sheet,
+			rm_qty=10,
+			bom_quantity=100,
+			scrap_items=[(end_piece, 2, 10)],
+		)
+		end_bom = self._make_bom(
+			finished,
+			bom_quantity=10,
+			rm_items=[(end_piece, 1), (other, 1)],
+			scrap_qty=0.5,
+		)
+		shift = make_running_shift(self.masters)
+		doc = self._make_joint_entry(
+			shift,
+			lh_bom=sheet_bom,
+			rh_bom=end_bom,
+			lh_gross_qty=50,
+			lh_rejection_qty=0,
+			rh_gross_qty=10,
+			rh_rejection_qty=0,
+			**self._same_item_entry_args(finished),
+		)
+
+		end_rows = [row for row in doc.items if row.item_code == end_piece]
+		self.assertEqual(
+			sorted((bool(row.s_warehouse), row.t_warehouse or "") for row in end_rows),
+			[(False, self.masters["scrap_warehouse"]), (True, "")],
+		)
+
+	def test_joint_production_rounds_aggregated_whole_number_scrap(self) -> None:
+		suffix = frappe.generate_hash(length=6)
+		finished = ensure_item(f"_Same_Scrap_FG_{suffix}")
+		sheet = ensure_item(f"_Same_Scrap_Sheet_{suffix}", stock_uom="Kg")
+		end_piece = ensure_item(f"_Same_Scrap_End_{suffix}", stock_uom="Kg")
+		sheet_bom = self._make_bom(
+			finished,
+			rm_item=sheet,
+			rm_qty=10,
+			scrap_items=[(self.scrap_nos_item, 1, 4)],
+		)
+		end_bom = self._make_bom(
+			finished,
+			rm_item=end_piece,
+			rm_qty=5,
+			scrap_items=[(self.scrap_nos_item, 1, 4)],
+		)
+		shift = make_running_shift(self.masters)
+		doc = self._make_joint_entry(
+			shift,
+			lh_bom=sheet_bom,
+			rh_bom=end_bom,
+			lh_gross_qty=40,
+			lh_rejection_qty=0,
+			rh_gross_qty=40,
+			rh_rejection_qty=0,
+			**self._same_item_entry_args(finished),
+		)
+
+		scrap_row = next(row for row in doc.items if row.item_code == self.scrap_nos_item)
+		self.assertEqual(scrap_row.qty, 1)
+
+	def test_joint_production_refuses_different_finished_items(self) -> None:
+		shift = make_running_shift(self.masters)
+
+		with self.assertRaisesRegex(frappe.ValidationError, "Joint LH/RH Production"):
+			self._make_joint_entry(
+				shift,
+				stock_entry_type=JOINT_PRODUCTION_STOCK_ENTRY_TYPE,
+				first_output_side="BOM 1",
+				second_output_side="BOM 2",
+			)
+
+	def test_joint_production_refuses_identical_input_item_sets(self) -> None:
+		suffix = frappe.generate_hash(length=6)
+		finished = ensure_item(f"_Same_Inputs_FG_{suffix}")
+		first_input = ensure_item(f"_Same_Inputs_A_{suffix}", stock_uom="Kg")
+		second_input = ensure_item(f"_Same_Inputs_B_{suffix}", stock_uom="Kg")
+		first_bom = self._make_bom(
+			finished,
+			rm_items=[(first_input, 1), (second_input, 2)],
+			scrap_qty=1,
+		)
+		second_bom = self._make_bom(
+			finished,
+			rm_items=[(first_input, 4), (second_input, 1)],
+			scrap_qty=1,
+		)
+		shift = make_running_shift(self.masters)
+
+		with self.assertRaisesRegex(frappe.ValidationError, "different raw materials"):
+			self._make_joint_entry(
+				shift,
+				lh_bom=first_bom,
+				rh_bom=second_bom,
+				lh_rejection_qty=0,
+				rh_rejection_qty=0,
+				**self._same_item_entry_args(finished),
+			)
+
+	def test_joint_production_refuses_zero_gross_quantity(self) -> None:
+		suffix = frappe.generate_hash(length=6)
+		finished = ensure_item(f"_Same_Zero_FG_{suffix}")
+		sheet = ensure_item(f"_Same_Zero_Sheet_{suffix}", stock_uom="Kg")
+		end_piece = ensure_item(f"_Same_Zero_End_{suffix}", stock_uom="Kg")
+		sheet_bom = self._make_bom(finished, rm_item=sheet, rm_qty=10, scrap_qty=1)
+		end_bom = self._make_bom(finished, rm_item=end_piece, rm_qty=5, scrap_qty=1)
+		shift = make_running_shift(self.masters)
+		doc = self._make_joint_entry(
+			shift,
+			lh_bom=sheet_bom,
+			rh_bom=end_bom,
+			fetch_items=False,
+			lh_rejection_qty=0,
+			**self._same_item_entry_args(finished),
+		)
+		doc.custom_pea_lh_gross_qty = 0
+
+		with self.assertRaisesRegex(frappe.ValidationError, "Manufacture Production Entry"):
+			get_joint_production_items(json.dumps(doc.as_dict(), default=str))
+
+	def test_joint_production_refuses_an_operation_the_boms_do_not_use(self) -> None:
+		suffix = frappe.generate_hash(length=6)
+		finished = ensure_item(f"_Same_Op_FG_{suffix}")
+		sheet = ensure_item(f"_Same_Op_Sheet_{suffix}", stock_uom="Kg")
+		end_piece = ensure_item(f"_Same_Op_End_{suffix}", stock_uom="Kg")
+		sheet_bom = self._make_bom(finished, rm_item=sheet, rm_qty=10, scrap_qty=1)
+		end_bom = self._make_bom(finished, rm_item=end_piece, rm_qty=5, scrap_qty=1)
+		shift = make_running_shift(self.masters)
+
+		with self.assertRaisesRegex(frappe.ValidationError, "must match Operation"):
+			self._make_joint_entry(
+				shift,
+				lh_bom=sheet_bom,
+				rh_bom=end_bom,
+				operation=ensure_operation("Blanking"),
+				lh_rejection_qty=0,
+				rh_rejection_qty=0,
+				**self._same_item_entry_args(finished),
+			)
+
+	def test_joint_production_rejection_breakup_uses_bom_slot_labels(self) -> None:
+		suffix = frappe.generate_hash(length=6)
+		finished = ensure_item(f"_Same_Breakup_FG_{suffix}")
+		sheet = ensure_item(f"_Same_Breakup_Sheet_{suffix}", stock_uom="Kg")
+		end_piece = ensure_item(f"_Same_Breakup_End_{suffix}", stock_uom="Kg")
+		sheet_bom = self._make_bom(finished, rm_item=sheet, rm_qty=10, scrap_qty=1)
+		end_bom = self._make_bom(finished, rm_item=end_piece, rm_qty=5, scrap_qty=1)
+		shift = make_running_shift(self.masters)
+		doc = self._make_joint_entry(
+			shift,
+			lh_bom=sheet_bom,
+			rh_bom=end_bom,
+			lh_gross_qty=40,
+			lh_rejection_qty=2,
+			rh_gross_qty=20,
+			rh_rejection_qty=1,
+			**self._same_item_entry_args(finished),
+		)
+
+		self.assertEqual(
+			[(row.output_side, flt(row.qty)) for row in doc.custom_pea_rejection_breakup],
+			[("BOM 1", 2.0), ("BOM 2", 1.0)],
+		)
+		doc.insert(ignore_permissions=True)
+		self.assertEqual(doc.docstatus, 0)
+
 	def _make_joint_entry(
 		self,
 		shift: object,
@@ -2437,6 +2846,10 @@ class TestJointProductionItems(FrappeTestCase):
 		lh_rejection_qty: float = 1,
 		rh_gross_qty: float = 41,
 		rh_rejection_qty: float = 0,
+		stock_entry_type: str | None = None,
+		first_output_side: str = "LH",
+		second_output_side: str = "RH",
+		finished_item: str | None = None,
 	) -> object:
 		ensure_stock(
 			self.rm_item,
@@ -2454,7 +2867,7 @@ class TestJointProductionItems(FrappeTestCase):
 			{
 				"doctype": "Stock Entry",
 				"purpose": "Repack",
-				"stock_entry_type": self.stock_entry_type,
+				"stock_entry_type": stock_entry_type or self.stock_entry_type,
 				"company": self.masters["company"],
 				"from_warehouse": self.masters["wip_warehouse"],
 				"to_warehouse": self.masters["fg_warehouse"],
@@ -2478,8 +2891,8 @@ class TestJointProductionItems(FrappeTestCase):
 						{
 							"rejection_reason": "Burr",
 							"qty": lh_rejection_qty,
-							"output_side": "LH",
-							"item_code": self.lh_item,
+							"output_side": first_output_side,
+							"item_code": finished_item or self.lh_item,
 						}
 					]
 					if lh_rejection_qty > 0
@@ -2493,8 +2906,8 @@ class TestJointProductionItems(FrappeTestCase):
 				{
 					"rejection_reason": "Burr",
 					"qty": rh_rejection_qty,
-					"output_side": "RH",
-					"item_code": self.rh_item,
+					"output_side": second_output_side,
+					"item_code": finished_item or self.rh_item,
 				},
 			)
 		if fetch_items:

@@ -401,7 +401,7 @@ test("configured rejection warehouse defaults blank rework header and item sourc
 		_sync_rework_source_warehouse(frm);
 		assert.equal(
 			request.method,
-			"production_entry_app.production_entry_app.api.get_rework_source_warehouse"
+			"production_entry_app.production_entry_app.api.get_rework_source_warehouse",
 		);
 		assert.deepEqual(request.args, { company: "Test Company", branch: "Test Branch" });
 		request.callback({ message: "Rejection Warehouse" });
@@ -1409,14 +1409,14 @@ test("manufacture decision uses production-owned custom_stock_entry_purpose only
 	assert.equal(_is_manufacture_doc({ custom_stock_entry_purpose: "Manufacture" }), true);
 	assert.equal(
 		_is_manufacture_doc({ custom_stock_entry_purpose: "", purpose: "Manufacture" }),
-		false
+		false,
 	);
 	assert.equal(
 		_is_manufacture_doc({
 			custom_stock_entry_purpose: "Material Transfer",
 			purpose: "Manufacture",
 		}),
-		false
+		false,
 	);
 });
 
@@ -1446,7 +1446,7 @@ test("joint BOM query uses the server operation matcher with trimmed selected op
 				company: "Test Company",
 				operation: "Shearing",
 			},
-		}
+		},
 	);
 	assert.deepEqual(
 		_get_joint_bom_query({
@@ -1461,7 +1461,7 @@ test("joint BOM query uses the server operation matcher with trimmed selected op
 				company: "Test Company",
 				operation: "",
 			},
-		}
+		},
 	);
 });
 
@@ -1514,8 +1514,8 @@ test("shift-gated fields stay hidden until Shift is selected", () => {
 				kind === "display" &&
 				Array.isArray(fieldnames) &&
 				fieldnames.includes("custom_pea_workstation") &&
-				visible === false
-		)
+				visible === false,
+		),
 	);
 	assert.ok(
 		calls.some(
@@ -1523,8 +1523,8 @@ test("shift-gated fields stay hidden until Shift is selected", () => {
 				kind === "display" &&
 				Array.isArray(fieldnames) &&
 				fieldnames.includes("custom_pea_shift") &&
-				visible === true
-		)
+				visible === true,
+		),
 	);
 });
 
@@ -1554,15 +1554,15 @@ test("selecting Shift shows gated fields and marks capture fields required", () 
 				kind === "display" &&
 				Array.isArray(fieldnames) &&
 				fieldnames.includes("custom_pea_workstation") &&
-				visible === true
-		)
+				visible === true,
+		),
 	);
 	for (const fieldname of SHIFT_BASED_REQUIRED_FIELDS) {
 		assert.ok(
 			calls.some(
 				([kind, requiredField, required]) =>
-					kind === "reqd" && requiredField === fieldname && required === true
-			)
+					kind === "reqd" && requiredField === fieldname && required === true,
+			),
 		);
 	}
 });
@@ -1578,7 +1578,7 @@ test("rejection visibility quantity sums joint sides and uses normal rejection o
 				custom_pea_lh_rejection_qty: 2,
 				custom_pea_rh_rejection_qty: 3,
 			}),
-			5
+			5,
 		);
 		assert.equal(_get_rejection_qty_for_visibility({ custom_pea_rejection_qty: "4" }), 4);
 	} finally {
@@ -1735,14 +1735,14 @@ test("joint visibility shows and requires the operation selector only in joint m
 				kind === "display" &&
 				Array.isArray(fieldnames) &&
 				fieldnames.includes("custom_pea_operation") &&
-				visible === true
-		)
+				visible === true,
+		),
 	);
 	assert.ok(
 		calls.some(
 			([kind, fieldname, required]) =>
-				kind === "reqd" && fieldname === "custom_pea_operation" && required === true
-		)
+				kind === "reqd" && fieldname === "custom_pea_operation" && required === true,
+		),
 	);
 
 	calls.length = 0;
@@ -1755,14 +1755,14 @@ test("joint visibility shows and requires the operation selector only in joint m
 				kind === "display" &&
 				Array.isArray(fieldnames) &&
 				fieldnames.includes("custom_pea_operation") &&
-				visible === false
-		)
+				visible === false,
+		),
 	);
 	assert.ok(
 		calls.some(
 			([kind, fieldname, required]) =>
-				kind === "reqd" && fieldname === "custom_pea_operation" && required === false
-		)
+				kind === "reqd" && fieldname === "custom_pea_operation" && required === false,
+		),
 	);
 });
 
@@ -1772,7 +1772,7 @@ test("refreshing a saved joint Stock Entry keeps joint fields when only the cach
 		call(options) {
 			assert.equal(
 				options.method,
-				"production_entry_app.production_entry_app.api.get_die_tool_counter"
+				"production_entry_app.production_entry_app.api.get_die_tool_counter",
 			);
 			options.callback({ message: null });
 		},
@@ -1796,7 +1796,7 @@ test("cached joint Stock Entry Type reapplies joint visibility", () => {
 		call(options) {
 			assert.equal(
 				options.method,
-				"production_entry_app.production_entry_app.api.get_die_tool_counter"
+				"production_entry_app.production_entry_app.api.get_die_tool_counter",
 			);
 			options.callback({ message: null });
 		},
@@ -1815,8 +1815,9 @@ test("cached joint Stock Entry Type reapplies joint visibility", () => {
 		assertSavedJointStockEntryFormPreserved(frm);
 		assert.ok(
 			visibility.some(
-				([fieldnames, visible]) => fieldnames === JOINT_ONLY_PEA_FIELDS && visible === true
-			)
+				([fieldnames, visible]) =>
+					fieldnames === JOINT_ONLY_PEA_FIELDS && visible === true,
+			),
 		);
 	} finally {
 		global.frappe = originalFrappe;
@@ -1837,9 +1838,18 @@ test("refreshing a saved joint Stock Entry from a fresh page keeps joint fields 
 				options.callback({ message: "Joint LH RH Production" });
 				return;
 			}
+			if (
+				options.method ===
+				"production_entry_app.production_entry_app.api.get_joint_production_stock_entry_type"
+			) {
+				lookupCount += 1;
+				assert.deepEqual(options.args, { required: 0 });
+				options.callback({ message: "Joint Production" });
+				return;
+			}
 			assert.equal(
 				options.method,
-				"production_entry_app.production_entry_app.api.get_die_tool_counter"
+				"production_entry_app.production_entry_app.api.get_die_tool_counter",
 			);
 			options.callback({ message: null });
 		},
@@ -1849,7 +1859,7 @@ test("refreshing a saved joint Stock Entry from a fresh page keeps joint fields 
 	try {
 		_sync_joint_stock_entry_type(frm);
 
-		assert.equal(lookupCount, 1);
+		assert.equal(lookupCount, 2);
 		assertSavedJointStockEntryFormPreserved(frm);
 	} finally {
 		global.frappe = originalFrappe;
@@ -1859,11 +1869,11 @@ test("refreshing a saved joint Stock Entry from a fresh page keeps joint fields 
 test("joint type lookup defers manufacture cleanup so common Shift context survives", () => {
 	const originalFrappe = global.frappe;
 	const originalTranslate = global.__;
-	let jointTypeResponse;
+	const jointTypeResponses = [];
 	global.__ = (text) => text;
 	global.frappe = {
 		call(options) {
-			jointTypeResponse = options.callback;
+			jointTypeResponses.push(options.callback);
 		},
 	};
 	const frm = {
@@ -1901,7 +1911,8 @@ test("joint type lookup defers manufacture cleanup so common Shift context survi
 		assert.equal(frm.doc.bom_no, "BOM-NORMAL");
 		assert.equal(frm.__peaDeferredManufactureCleanup, true);
 
-		jointTypeResponse({ message: "Joint LH RH Production" });
+		jointTypeResponses[0]({ message: "Joint LH RH Production" });
+		jointTypeResponses[1]({ message: "Joint Production" });
 
 		assert.equal(frm.doc.__pea_joint_stock_entry_type, "Joint LH RH Production");
 		assert.equal(frm.doc.custom_pea_shift, "SHIFT-001");
@@ -1919,11 +1930,11 @@ test("passive joint type discovery asks quietly and stays non-joint when nothing
 	const originalFrappe = global.frappe;
 	const originalTranslate = global.__;
 	const messages = [];
-	let lookup;
+	const lookups = [];
 	global.__ = (text) => text;
 	global.frappe = {
 		call(options) {
-			lookup = options;
+			lookups.push(options);
 		},
 		msgprint(message) {
 			messages.push(message);
@@ -1953,10 +1964,20 @@ test("passive joint type discovery asks quietly and stays non-joint when nothing
 	try {
 		_sync_joint_stock_entry_type(frm);
 
-		assert.deepEqual(lookup.args, { required: 0 });
-		lookup.callback({ message: "" });
+		assert.deepEqual(lookups[0].args, { required: 0 });
+		assert.equal(
+			lookups[0].method,
+			"production_entry_app.production_entry_app.api.get_joint_stock_entry_type",
+		);
+		lookups[0].callback({ message: "" });
+		assert.equal(
+			lookups[1].method,
+			"production_entry_app.production_entry_app.api.get_joint_production_stock_entry_type",
+		);
+		lookups[1].callback({ message: "" });
 
 		assert.equal(frm.__peaJointStockEntryType, "");
+		assert.equal(frm.__peaSameItemJointStockEntryType, "");
 		assert.equal(frm.doc.__pea_joint_stock_entry_type, "");
 		assert.deepEqual(messages, []);
 	} finally {
@@ -1996,7 +2017,7 @@ test("native manufacture fields hide for non-manufacture without app access", ()
 test("stock entry PEA sections are metadata-gated to manufacture or joint production", () => {
 	const customFields = require("../../production_entry_app/fixtures/custom_field.json");
 	const byFieldname = Object.fromEntries(
-		customFields.filter((row) => row.dt === "Stock Entry").map((row) => [row.fieldname, row])
+		customFields.filter((row) => row.dt === "Stock Entry").map((row) => [row.fieldname, row]),
 	);
 	const sectionFieldnames = [
 		"custom_pea_operation_details_section",
@@ -2079,7 +2100,7 @@ test("shift detail updates clear present empty values instead of leaving stale f
 			custom_pea_planned_end_date: "2026-02-22 16:00:00",
 			from_warehouse: undefined,
 		},
-		{ clearWarehouses: true }
+		{ clearWarehouses: true },
 	);
 
 	assert.deepEqual(updates, [
@@ -2215,7 +2236,7 @@ test("shift detail updates stop when the request becomes stale", async () => {
 			branch: "Old Branch",
 			custom_pea_planned_start_date: "2026-02-22 08:00:00",
 		},
-		{ isCurrentRequest: () => current }
+		{ isCurrentRequest: () => current },
 	);
 
 	assert.equal(applied, false);
@@ -2279,7 +2300,7 @@ test("fetch items response refreshes form so ERPNext can add alternate item butt
 			[
 				["RM001", 1],
 				["FG001", 0],
-			]
+			],
 		);
 		assert.deepEqual(apiCalls, [
 			"production_entry_app.production_entry_app.api.get_die_tool_counter",
@@ -2329,4 +2350,86 @@ test("native get_items stays hidden for manufacture documents until explicitly s
 		["set_df_property", "get_items", "hidden", 1],
 		["set_df_property", "get_items", "read_only", 1],
 	]);
+});
+
+function makeLabeledJointForm(stockEntryType) {
+	const labels = {};
+	const gridProps = [];
+	const frm = makeSavedJointStockEntryForm({
+		cachedJointStockEntryType: "Joint LH RH Production",
+	});
+	frm.__peaSameItemJointStockEntryType = "Joint Production";
+	frm.doc.stock_entry_type = stockEntryType;
+	frm.doc.__pea_same_item_joint_stock_entry_type = "Joint Production";
+	frm.set_df_property = (fieldname, property, value) => {
+		if (property === "label") {
+			labels[fieldname] = value;
+		}
+	};
+	frm.fields_dict.custom_pea_rejection_breakup = {
+		grid: {
+			update_docfield_property(fieldname, property, value) {
+				gridProps.push([fieldname, property, value]);
+			},
+		},
+	};
+	return { frm, labels, gridProps };
+}
+
+test("Joint Production labels the two slots BOM 1 and BOM 2", () => {
+	const originalFrappe = global.frappe;
+	global.frappe = { call() {} };
+	const { frm, labels, gridProps } = makeLabeledJointForm("Joint Production");
+
+	try {
+		_sync_joint_stock_entry_type(frm);
+
+		assert.equal(labels.custom_pea_joint_production_section, "Joint Production");
+		assert.equal(labels.custom_pea_lh_bom, "BOM 1");
+		assert.equal(labels.custom_pea_rh_bom, "BOM 2");
+		assert.equal(labels.custom_pea_lh_gross_qty, "BOM 1 Gross Quantity");
+		assert.equal(frm.doc.__pea_joint_stock_entry_type, "Joint Production");
+		assert.ok(
+			gridProps.some(
+				([fieldname, property, value]) =>
+					fieldname === "output_side" &&
+					property === "options" &&
+					value === "\nBOM 1\nBOM 2",
+			),
+		);
+	} finally {
+		global.frappe = originalFrappe;
+	}
+});
+
+test("Joint LH/RH Production keeps LH and RH slot labels", () => {
+	const originalFrappe = global.frappe;
+	global.frappe = { call() {} };
+	const { frm, labels, gridProps } = makeLabeledJointForm("Joint LH RH Production");
+
+	try {
+		_sync_joint_stock_entry_type(frm);
+
+		assert.equal(labels.custom_pea_lh_bom, "LH BOM");
+		assert.equal(labels.custom_pea_rh_bom, "RH BOM");
+		assert.equal(frm.doc.__pea_joint_stock_entry_type, "Joint LH RH Production");
+		assert.ok(
+			gridProps.some(
+				([fieldname, property, value]) =>
+					fieldname === "output_side" && property === "options" && value === "\nLH\nRH",
+			),
+		);
+	} finally {
+		global.frappe = originalFrappe;
+	}
+});
+
+test("switching from Joint LH/RH Production to Joint Production clears fetched rows", () => {
+	const { frm } = makeLabeledJointForm("Joint Production");
+
+	_sync_joint_stock_entry_type(frm, { previousStockEntryType: "Joint LH RH Production" });
+
+	assert.equal(frm.doc.custom_pea_lh_bom, "");
+	assert.equal(frm.doc.custom_pea_rh_bom, "");
+	assert.deepEqual(frm.doc.items, []);
 });

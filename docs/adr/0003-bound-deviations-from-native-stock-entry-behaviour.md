@@ -67,22 +67,28 @@ authoritative for their topics; this record covers the remaining seams.
   joint entry.
 - Scrap rows carry the native marker of the installed version (`is_scrap_item` on 15,
   `secondary_item_type` on 16), and native classification is preserved (ADR 0001).
+- Joint Production, the same-finished-item pairing, consumes each BOM's inputs independently for every
+  Operation and values each recipe from its own inputs and scrap. Its slots are BOM 1 and BOM 2. An item
+  that is scrap on one BOM and an input on the other stays two stock movements. Total Press Strokes stay
+  the number the operator entered.
 
-## Stock Entry Type flags and the shipped joint type
+## Stock Entry Type flags and the shipped joint types
 
-- Two app Check fields on Stock Entry Type mark the joint (Repack) and rework (Material Transfer) types.
-  A `validate` hook on Stock Entry Type enforces the purpose per flag, forbids both flags on one type and
-  allows only one joint-flagged type per site, so operational validation and reports classify entries
-  from the type alone (CONTEXT.md "Joint Production").
-- Operation-aware Joint Production reads production-owned `BOM.custom_operation` and purpose-dependent
-  UI reads production-owned `Stock Entry.custom_stock_entry_purpose`. The app does not ship those
-  fields; benches and tests copy them as setup (CONTEXT.md "Production-Owned Joint Metadata").
-- The app ships the canonical type "Joint LH RH Production" as a fixture. Frappe fixture import deletes
-  and re-inserts the record with validation on during every migrate, so edits to the shipped record are
-  reset by migrate and flagging a second type makes migrate fail. Exactly one joint type per site, under
-  the app-chosen name, is the design intent: operators must never choose between equivalent types for one
-  use case. How that uniqueness is enforced is an implementation detail that may change without changing
-  this decision.
+- App Check fields on Stock Entry Type mark Joint LH/RH Production (Repack), Joint Production (Repack),
+  and Rework (Material Transfer). A `validate` hook on Stock Entry Type enforces the purpose per flag,
+  forbids more than one of those flags on one type, and allows only one type per flag, so operational
+  validation and reports classify entries from the type alone (CONTEXT.md "Joint LH/RH Production" and
+  "Joint Production").
+- Operation-aware Joint LH/RH Production and Joint Production read production-owned `BOM.custom_operation`
+  and purpose-dependent UI reads production-owned `Stock Entry.custom_stock_entry_purpose`. The app does
+  not ship those fields; benches and tests copy them as setup (CONTEXT.md "Production-Owned Joint Metadata").
+- The app ships two joint types, "Joint LH RH Production" and "Joint Production". They are different
+  pairings, not two names for one use case: Joint LH/RH Production pairs different finished items, and
+  Joint Production pairs two BOMs of one finished item whose inputs differ. Frappe fixture import deletes
+  and re-inserts each shipped record with validation on during every migrate, so edits to a shipped record
+  are reset by migrate and flagging a second type for the same pairing makes migrate fail. Exactly one
+  type per pairing is the design intent. How that uniqueness is enforced is an implementation detail that
+  may change without changing this decision.
 
 ## Production-row normalization before native validate
 
@@ -143,8 +149,9 @@ authoritative for their topics; this record covers the remaining seams.
   `before_submit`. On ERPNext 16 the controller stamps app scrap rows `valuation_type = "Valuation Rate"`
   and clears `set_basic_rate_manually` before the app hook restores the manual BOM rate. Declaring
   `valuation_type = "Manual"` on those rows is the native channel that makes the controller keep the rate.
-- Only one joint-flagged Stock Entry Type may exist. Administrators flag that record rather than create a
-  second one, and a site that wants another name changes the fixture, not the record.
+- One Stock Entry Type may be flagged for each pairing, Joint LH/RH Production and Joint Production.
+  A second type with the same flag is rejected. A site that wants another name changes the fixture, not
+  the record.
 - Rework submits contend on Item rows and on the flagged Stock Entry Type row; high rework volume across
   many items still serialises.
 - The BOM section is unavailable for non-Manufacture purposes by design; the native toolbar Bill of

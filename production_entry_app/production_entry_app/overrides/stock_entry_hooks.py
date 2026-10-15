@@ -20,6 +20,7 @@ from production_entry_app.production_entry_app.doctype.rejection_breakup.rejecti
 from production_entry_app.production_entry_app.doctype.shift.shift import invalidate_shift_summary_cache
 from production_entry_app.production_entry_app.joint_production import (
 	is_joint_lh_rh_production,
+	is_paired_production,
 	validate_and_apply_joint_production,
 )
 from production_entry_app.production_entry_app.report.report_utils import (
@@ -157,7 +158,7 @@ def validate_stock_entry(doc: Document, method: str | None = None) -> None:
 	_validate_workstation_downtime_overlap(doc)
 	_validate_standard_spm(doc)
 	_default_total_strokes(doc)
-	if is_joint_lh_rh_production(doc):
+	if is_paired_production(doc):
 		validate_and_apply_joint_production(doc)
 	else:
 		_validate_rejection_breakup(doc)
@@ -173,7 +174,7 @@ def before_validate_stock_entry(doc: Document, method: str | None = None) -> Non
 	_apply_rework_cost(doc)
 	# Default strokes before ERPNext's own validate: on 15.122+ its finished-qty guard would
 	# otherwise preempt the app's message when fg_completed_qty is zeroed after Fetch Items.
-	if not is_rework_stock_entry_type(doc) and not is_joint_lh_rh_production(doc):
+	if not is_rework_stock_entry_type(doc) and not is_paired_production(doc):
 		_default_total_strokes(doc)
 
 
@@ -291,7 +292,7 @@ def _default_total_strokes(doc: Document) -> None:
 	stroke count and only reject a negative value. Stock-only Manufacture leaves the field
 	untouched. Joint Production keeps one entered stroke count for the shared press.
 	"""
-	if doc.get("purpose") != "Manufacture" or is_joint_lh_rh_production(doc):
+	if doc.get("purpose") != "Manufacture" or is_paired_production(doc):
 		return
 	if not is_shift_based_production_entry(doc):
 		return
