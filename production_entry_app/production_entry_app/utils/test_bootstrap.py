@@ -162,7 +162,8 @@ def ensure_production_owned_joint_metadata() -> None:
 		dt="BOM",
 		fieldname="custom_operation",
 		label="Operation",
-		fieldtype="Data",
+		fieldtype="Link",
+		options="Operation",
 		insert_after="item",
 	)
 	_ensure_custom_field(

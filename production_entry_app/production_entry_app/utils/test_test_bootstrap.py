@@ -228,7 +228,8 @@ class TestTestBootstrap(FrappeTestCase):
 					"dt": "BOM",
 					"fieldname": "custom_operation",
 					"label": "Operation",
-					"fieldtype": "Data",
+					"fieldtype": "Link",
+					"options": "Operation",
 					"insert_after": "item",
 				},
 				{
