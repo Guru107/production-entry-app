@@ -800,14 +800,12 @@ function _sync_joint_mode_from_stock_entry_type(frm, requestId, previousStockEnt
 				_clear_manufacture_data(frm);
 			}
 		}
-		if (shouldBeJoint === wasJoint) {
-			_apply_manufacture_visibility(frm);
-			return;
+		if (shouldBeJoint !== wasJoint) {
+			_clear_production_mode_data(frm);
+			frm.dirty?.();
 		}
-
-		_clear_production_mode_data(frm);
-		frm.dirty?.();
 		_apply_manufacture_visibility(frm);
+		_sync_die_tool_item_from_boms(frm);
 	};
 
 	if (Object.prototype.hasOwnProperty.call(frm, "__peaJointStockEntryType")) {
@@ -1561,6 +1559,15 @@ function _production_bom_names(doc) {
 	return [];
 }
 
+function _die_tool_item_field_ready() {
+	const hasField = frappe.meta?.has_field;
+	return (
+		typeof hasField === "function" &&
+		hasField("BOM", "custom_pea_die_tool_item") &&
+		hasField("Stock Entry", "custom_pea_die_tool_item")
+	);
+}
+
 function _sync_die_tool_item_from_boms(frm) {
 	if (!_is_production_doc(frm.doc) || !frm.doc.custom_pea_shift) {
 		frm.set_df_property?.("custom_pea_die_tool_item", "read_only", 0);
@@ -1572,19 +1579,29 @@ function _sync_die_tool_item_from_boms(frm) {
 		return;
 	}
 	const requestId = ++_dieToolBomRequestId;
-	Promise.all(
-		bomNames.map((name) => frappe.db.get_value("BOM", name, "custom_pea_die_tool_item"))
-	)
-		.then((responses) => {
-			if (requestId !== _dieToolBomRequestId) return;
-			if (_production_bom_names(frm.doc).join("\0") !== bomNames.join("\0")) return;
-			const items = responses.map((response) => response?.message?.custom_pea_die_tool_item);
-			_apply_prescribed_die_tool_item(frm, _prescribed_die_tool_item(items));
-		})
-		.catch((error) => {
-			if (requestId !== _dieToolBomRequestId) return;
-			_notify_call_error(__("Failed to load the BOM Die Tool Item."), error);
-		});
+	const loadPrescribedDieToolItem = () => {
+		if (requestId !== _dieToolBomRequestId) return;
+		if (!_die_tool_item_field_ready()) return;
+		if (_production_bom_names(frm.doc).join("\0") !== bomNames.join("\0")) return;
+		Promise.all(
+			bomNames.map((name) => frappe.db.get_value("BOM", name, "custom_pea_die_tool_item"))
+		)
+			.then((responses) => {
+				if (requestId !== _dieToolBomRequestId) return;
+				if (_production_bom_names(frm.doc).join("\0") !== bomNames.join("\0")) return;
+				const items = responses.map((response) => response?.message?.custom_pea_die_tool_item);
+				_apply_prescribed_die_tool_item(frm, _prescribed_die_tool_item(items));
+			})
+			.catch((error) => {
+				if (requestId !== _dieToolBomRequestId) return;
+				_notify_call_error(__("Failed to load the BOM Die Tool Item."), error);
+			});
+	};
+	if (typeof frappe.model?.with_doctype === "function") {
+		frappe.model.with_doctype("BOM", loadPrescribedDieToolItem);
+		return;
+	}
+	loadPrescribedDieToolItem();
 }
 
 function _get_die_tool_item_code(frm) {
