@@ -948,6 +948,8 @@ class TestJointProductionItems(FrappeTestCase):
 		lowercase_rh_bom = self._make_bom(
 			self.rh_item, scrap_qty=2.125, operation=ensure_operation("shearing")
 		)
+		# Link save rewrites this to the Operation name, so store the mismatched case directly.
+		frappe.db.set_value("BOM", lowercase_rh_bom, "custom_operation", "shearing", update_modified=False)
 		shift = make_running_shift(self.masters)
 
 		padded_doc = self._make_joint_entry(shift, lh_bom=padded_lh_bom, fetch_items=False)
@@ -1011,6 +1013,8 @@ class TestJointProductionItems(FrappeTestCase):
 		lowercase_bom = self._make_bom(
 			lowercase_item, scrap_qty=1.125, operation=ensure_operation("shearing")
 		)
+		# Link save rewrites this to the Operation name, so store the mismatched case directly.
+		frappe.db.set_value("BOM", lowercase_bom, "custom_operation", "shearing", update_modified=False)
 		punctuated_bom = self._make_bom(
 			punctuated_item, scrap_qty=1.125, operation=ensure_operation("Shearing.")
 		)
