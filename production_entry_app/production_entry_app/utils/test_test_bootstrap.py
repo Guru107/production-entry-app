@@ -151,6 +151,50 @@ class TestTestBootstrap(FrappeTestCase):
 			pluck="name",
 		)
 
+	def test_ensure_default_bom_sets_required_custom_operation(self) -> None:
+		captured: dict = {}
+
+		class _Bom:
+			name = "BOM-NEW"
+
+			def insert(self, ignore_permissions: bool = True) -> "_Bom":
+				return self
+
+			def submit(self) -> None:
+				return None
+
+		def fake_get_doc(values: dict) -> _Bom:
+			captured.update(values)
+			return _Bom()
+
+		operation_field = frappe._dict(reqd=1)
+		meta = frappe._dict(
+			get_field=lambda fieldname: operation_field if fieldname == "custom_operation" else None
+		)
+		with (
+			patch(
+				"production_entry_app.production_entry_app.utils.test_bootstrap.frappe.db.get_value",
+				return_value=None,
+			),
+			patch(
+				"production_entry_app.production_entry_app.utils.test_bootstrap.frappe.get_meta",
+				return_value=meta,
+			),
+			patch(
+				"production_entry_app.production_entry_app.utils.test_bootstrap.ensure_operation",
+				return_value="Shearing",
+			) as ensure_operation_mock,
+			patch(
+				"production_entry_app.production_entry_app.utils.test_bootstrap.frappe.get_doc",
+				side_effect=fake_get_doc,
+			),
+		):
+			name = ensure_default_bom(fg_item="_Test FG", rm_item="_Test RM", company="Target Company")
+
+		self.assertEqual(name, "BOM-NEW")
+		self.assertEqual(captured.get("custom_operation"), "Shearing")
+		ensure_operation_mock.assert_called_once_with("Shearing")
+
 	def test_ensure_default_bom_filters_existing_by_company(self) -> None:
 		with patch(
 			"production_entry_app.production_entry_app.utils.test_bootstrap.frappe.db.get_value",

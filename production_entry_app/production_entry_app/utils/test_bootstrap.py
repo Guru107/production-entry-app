@@ -264,17 +264,19 @@ def ensure_default_bom(fg_item: str, rm_item: str, company: str) -> str:
 	if existing:
 		return existing
 
-	bom = frappe.get_doc(
-		{
-			"doctype": "BOM",
-			"item": fg_item,
-			"company": company,
-			"quantity": 1,
-			"is_default": 1,
-			"is_active": 1,
-			"items": [{"item_code": rm_item, "qty": 1, "rate": 50}],
-		}
-	).insert(ignore_permissions=True)
+	values: dict[str, Any] = {
+		"doctype": "BOM",
+		"item": fg_item,
+		"company": company,
+		"quantity": 1,
+		"is_default": 1,
+		"is_active": 1,
+		"items": [{"item_code": rm_item, "qty": 1, "rate": 50}],
+	}
+	operation_field = frappe.get_meta("BOM").get_field("custom_operation")
+	if operation_field and int(operation_field.reqd or 0):
+		values["custom_operation"] = ensure_operation("Shearing")
+	bom = frappe.get_doc(values).insert(ignore_permissions=True)
 	bom.submit()
 	return bom.name
 

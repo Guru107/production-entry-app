@@ -883,8 +883,6 @@ function _clear_joint_operation_dependents(frm) {
 		frm.refresh_fields?.(Array.from(refreshFieldnames));
 	}
 	_clear_die_tool_alert(frm);
-	frm.__peaDieToolFromBom = "";
-	frm.set_df_property?.("custom_pea_die_tool_item", "read_only", 0);
 	if (scalarChanged || tableChanged) {
 		frm.dirty?.();
 	}
@@ -1534,19 +1532,10 @@ function _prescribed_die_tool_item(items) {
 
 function _apply_prescribed_die_tool_item(frm, resolution) {
 	const fieldname = "custom_pea_die_tool_item";
-	if (resolution?.item) {
-		frm.__peaDieToolFromBom = resolution.item;
-		if (frm.doc[fieldname] !== resolution.item) {
-			frm.set_value(fieldname, resolution.item);
-		}
-		frm.set_df_property?.(fieldname, "read_only", 1);
+	if (!resolution?.item || frm.doc[fieldname] === resolution.item) {
 		return;
 	}
-	frm.set_df_property?.(fieldname, "read_only", 0);
-	if (frm.__peaDieToolFromBom && frm.doc[fieldname] === frm.__peaDieToolFromBom) {
-		frm.set_value(fieldname, "");
-	}
-	frm.__peaDieToolFromBom = "";
+	frm.set_value(fieldname, resolution.item);
 }
 
 function _production_bom_names(doc) {
@@ -1570,12 +1559,10 @@ function _die_tool_item_field_ready() {
 
 function _sync_die_tool_item_from_boms(frm) {
 	if (!_is_production_doc(frm.doc) || !frm.doc.custom_pea_shift) {
-		frm.set_df_property?.("custom_pea_die_tool_item", "read_only", 0);
 		return;
 	}
 	const bomNames = _production_bom_names(frm.doc);
 	if (!bomNames.length) {
-		_apply_prescribed_die_tool_item(frm, { item: "" });
 		return;
 	}
 	const requestId = ++_dieToolBomRequestId;

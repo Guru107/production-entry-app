@@ -13,11 +13,7 @@ DIE_TOOL_ITEM_FIELD = "custom_pea_die_tool_item"
 
 
 def prescribed_die_tool_item(die_tool_items: Iterable[str | None]) -> str:
-	"""Return the one Die Tool Item shared by the selected BOMs.
-
-	An empty result means the BOMs do not share one die, so the production entry
-	may keep an item the user selected.
-	"""
+	"""Return the one Die Tool Item shared by the selected BOMs, or blank."""
 	prescribed: list[str] = []
 	for item_code in die_tool_items:
 		code = cstr(item_code).strip()
@@ -29,7 +25,10 @@ def prescribed_die_tool_item(die_tool_items: Iterable[str | None]) -> str:
 
 
 def apply_bom_die_tool_item(doc: Document | Any) -> None:
-	"""Copy a BOM Die Tool Item onto a shift-based production entry."""
+	"""Set the production entry Die Tool Item when the BOMs name one.
+
+	A blank result leaves the field unchanged so the user can keep or enter a value.
+	"""
 	if not doc.get("custom_pea_shift"):
 		return
 	if not frappe.get_meta("Stock Entry", cached=True).has_field(DIE_TOOL_ITEM_FIELD):

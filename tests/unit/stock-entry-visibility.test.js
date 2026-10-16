@@ -2333,7 +2333,7 @@ test("native get_items stays hidden for manufacture documents until explicitly s
 	]);
 });
 
-test("a BOM die tool item is set on the production entry and cannot be reselected", () => {
+test("a BOM die tool item is set on the production entry", () => {
 	const values = [];
 	const properties = [];
 	const frm = {
@@ -2351,42 +2351,43 @@ test("a BOM die tool item is set on the production entry and cannot be reselecte
 
 	assert.equal(frm.doc.custom_pea_die_tool_item, "DIE-BOM");
 	assert.deepEqual(values, [["custom_pea_die_tool_item", "DIE-BOM"]]);
-	assert.deepEqual(properties, [["custom_pea_die_tool_item", "read_only", 1]]);
+	assert.deepEqual(properties, []);
 });
 
 test("disagreeing BOM die tool items leave the production entry selectable", () => {
 	assert.deepEqual(_prescribed_die_tool_item(["DIE-1", "DIE-2"]), { item: "" });
 });
 
-test("production entry keeps die tool item editable when the BOM does not set one", () => {
+test("an empty BOM die tool item leaves the production entry unchanged", () => {
 	const frm = {
 		doc: { custom_pea_die_tool_item: "USER-DIE" },
 		set_value() {
 			throw new Error("user selection should stay");
 		},
-		set_df_property(fieldname, property, value) {
-			this.property = [fieldname, property, value];
+		set_df_property() {
+			throw new Error("die tool item stays editable");
 		},
 	};
 
 	_apply_prescribed_die_tool_item(frm, _prescribed_die_tool_item(["", null]));
 
 	assert.equal(frm.doc.custom_pea_die_tool_item, "USER-DIE");
-	assert.deepEqual(frm.property, ["custom_pea_die_tool_item", "read_only", 0]);
 });
 
-test("clearing a BOM releases a die tool item that the BOM had set", () => {
+test("removing the BOM die tool item leaves the previously set value", () => {
 	const frm = {
 		doc: { custom_pea_die_tool_item: "" },
 		set_value(fieldname, value) {
 			this.doc[fieldname] = value;
 		},
-		set_df_property() {},
+		set_df_property() {
+			throw new Error("die tool item stays editable");
+		},
 	};
 	_apply_prescribed_die_tool_item(frm, _prescribed_die_tool_item(["DIE-BOM"]));
 	_apply_prescribed_die_tool_item(frm, _prescribed_die_tool_item([""]));
 
-	assert.equal(frm.doc.custom_pea_die_tool_item, "");
+	assert.equal(frm.doc.custom_pea_die_tool_item, "DIE-BOM");
 });
 
 function installDieToolBomLookup({ dieToolFieldReady, dieToolItem = "DIE-001" }) {
@@ -2436,7 +2437,7 @@ function installDieToolBomLookup({ dieToolFieldReady, dieToolItem = "DIE-001" })
 	return { fetched, messages };
 }
 
-test("saved joint Stock Entry locks the Die Tool Item after the type lookup", async () => {
+test("saved joint Stock Entry sets the Die Tool Item after the type lookup", async () => {
 	const originalFrappe = global.frappe;
 	const { fetched, messages } = installDieToolBomLookup({ dieToolFieldReady: true });
 	const properties = [];
@@ -2454,7 +2455,7 @@ test("saved joint Stock Entry locks the Die Tool Item after the type lookup", as
 			["BOM", "BOM-LH", "custom_pea_die_tool_item"],
 			["BOM", "BOM-RH", "custom_pea_die_tool_item"],
 		]);
-		assert.deepEqual(properties, [["custom_pea_die_tool_item", "read_only", 1]]);
+		assert.deepEqual(properties, []);
 		assert.equal(frm.doc.custom_pea_die_tool_item, "DIE-001");
 		assert.deepEqual(messages, []);
 		assertSavedJointStockEntryFormPreserved(frm);
