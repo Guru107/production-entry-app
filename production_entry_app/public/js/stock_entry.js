@@ -115,6 +115,7 @@ const REWORK_LAYOUT_FIELDS = [
 	...REWORK_HIDDEN_FIELDS,
 ];
 let _dieToolRequestId = 0;
+let _dieToolBomRequestId = 0;
 let _shiftDetailsRequestId = 0;
 let _jointStockEntryTypeRequestId = 0;
 let _reworkStockEntryTypeRequestId = 0;
@@ -189,6 +190,7 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 
 			_ensure_use_multi_level_bom_unchecked(frm);
 			_apply_manufacture_visibility(frm);
+			_sync_die_tool_item_from_boms(frm);
 			_sync_stock_entry_helper_fields(frm);
 			_setup_stock_entry_quick_entry(frm);
 		},
@@ -226,9 +228,11 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 		},
 		custom_pea_lh_bom(frm) {
 			_refresh_joint_rejection_items(frm, "LH");
+			_sync_die_tool_item_from_boms(frm);
 		},
 		custom_pea_rh_bom(frm) {
 			_refresh_joint_rejection_items(frm, "RH");
+			_sync_die_tool_item_from_boms(frm);
 		},
 		custom_pea_operation(frm) {
 			_clear_joint_operation_dependents(frm);
@@ -240,11 +244,13 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 			_ensure_use_multi_level_bom_unchecked(frm);
 			_apply_manufacture_visibility(frm);
 			_default_total_strokes_from_fg(frm);
+			_sync_die_tool_item_from_boms(frm);
 		},
 		bom_no(frm) {
 			_hide_native_get_items(frm);
 			_apply_native_manufacture_visibility(frm);
 			_apply_manufacture_visibility(frm);
+			_sync_die_tool_item_from_boms(frm);
 		},
 		custom_pea_actual_start_date_input(frm) {
 			_combine_actual_datetime(frm, {
@@ -286,6 +292,7 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 			_apply_manufacture_visibility(frm);
 			_handle_shift_change(frm);
 			_default_total_strokes_from_fg(frm);
+			_sync_die_tool_item_from_boms(frm);
 		},
 	});
 
@@ -801,14 +808,12 @@ function _sync_joint_mode_from_stock_entry_type(frm, requestId, previousStockEnt
 				_clear_manufacture_data(frm);
 			}
 		}
-		if (nextPairing === previousPairing) {
-			_apply_manufacture_visibility(frm);
-			return;
+		if (nextPairing !== previousPairing) {
+			_clear_production_mode_data(frm);
+			frm.dirty?.();
 		}
-
-		_clear_production_mode_data(frm);
-		frm.dirty?.();
 		_apply_manufacture_visibility(frm);
+		_sync_die_tool_item_from_boms(frm);
 	};
 
 	if (Object.prototype.hasOwnProperty.call(frm, "__peaJointStockEntryType")) {
@@ -1614,6 +1619,83 @@ function _ensure_use_multi_level_bom_unchecked(frm) {
 	}
 }
 
+function _prescribed_die_tool_item(items) {
+	const prescribed = [];
+	for (const item of items || []) {
+		const code = String(item || "").trim();
+		if (code && !prescribed.includes(code)) {
+			prescribed.push(code);
+		}
+	}
+	if (prescribed.length !== 1) {
+		return { item: "" };
+	}
+	return { item: prescribed[0] };
+}
+
+function _apply_prescribed_die_tool_item(frm, resolution) {
+	const fieldname = "custom_pea_die_tool_item";
+	if (!resolution?.item || frm.doc[fieldname] === resolution.item) {
+		return;
+	}
+	frm.set_value(fieldname, resolution.item);
+}
+
+function _production_bom_names(doc) {
+	if (_is_joint_doc(doc)) {
+		return [doc.custom_pea_lh_bom, doc.custom_pea_rh_bom].filter(Boolean);
+	}
+	if (_is_manufacture_doc(doc) && doc.from_bom && doc.bom_no) {
+		return [doc.bom_no];
+	}
+	return [];
+}
+
+function _die_tool_item_field_ready() {
+	const hasField = frappe.meta?.has_field;
+	return (
+		typeof hasField === "function" &&
+		hasField("BOM", "custom_pea_die_tool_item") &&
+		hasField("Stock Entry", "custom_pea_die_tool_item")
+	);
+}
+
+function _sync_die_tool_item_from_boms(frm) {
+	if (!_is_production_doc(frm.doc) || !frm.doc.custom_pea_shift) {
+		return;
+	}
+	const bomNames = _production_bom_names(frm.doc);
+	if (!bomNames.length) {
+		return;
+	}
+	const requestId = ++_dieToolBomRequestId;
+	const loadPrescribedDieToolItem = () => {
+		if (requestId !== _dieToolBomRequestId) return;
+		if (!_die_tool_item_field_ready()) return;
+		if (_production_bom_names(frm.doc).join("\0") !== bomNames.join("\0")) return;
+		Promise.all(
+			bomNames.map((name) => frappe.db.get_value("BOM", name, "custom_pea_die_tool_item"))
+		)
+			.then((responses) => {
+				if (requestId !== _dieToolBomRequestId) return;
+				if (_production_bom_names(frm.doc).join("\0") !== bomNames.join("\0")) return;
+				const items = responses.map(
+					(response) => response?.message?.custom_pea_die_tool_item
+				);
+				_apply_prescribed_die_tool_item(frm, _prescribed_die_tool_item(items));
+			})
+			.catch((error) => {
+				if (requestId !== _dieToolBomRequestId) return;
+				_notify_call_error(__("Failed to load the BOM Die Tool Item."), error);
+			});
+	};
+	if (typeof frappe.model?.with_doctype === "function") {
+		frappe.model.with_doctype("BOM", loadPrescribedDieToolItem);
+		return;
+	}
+	loadPrescribedDieToolItem();
+}
+
 function _get_die_tool_item_code(frm) {
 	if (_is_joint_doc(frm.doc) && frm.doc.custom_pea_die_tool_item) {
 		return frm.doc.custom_pea_die_tool_item;
@@ -1666,5 +1748,7 @@ if (typeof module !== "undefined" && module.exports) {
 		_get_rejection_qty_for_visibility,
 		_get_joint_bom_query,
 		_hide_native_get_items,
+		_prescribed_die_tool_item,
+		_apply_prescribed_die_tool_item,
 	};
 }
