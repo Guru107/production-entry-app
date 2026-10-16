@@ -1362,6 +1362,72 @@ test("stock-only joint fetch skips die tool requirement", () => {
 	}
 });
 
+function captureJointFetchMessages(doc) {
+	const originalFrappe = global.frappe;
+	const originalTranslate = global.__;
+	const messages = [];
+	let called = false;
+	global.__ = (text) => text;
+	global.frappe = {
+		call() {
+			called = true;
+		},
+		msgprint(message) {
+			messages.push(message);
+		},
+	};
+	try {
+		_handle_custom_pea_fetch_items({ doc });
+	} finally {
+		global.frappe = originalFrappe;
+		global.__ = originalTranslate;
+	}
+	return { messages, called };
+}
+
+function sameItemJointFetchDoc(grossOverrides) {
+	return {
+		custom_stock_entry_purpose: "Repack",
+		stock_entry_type: "Joint Production",
+		__pea_joint_stock_entry_type: "Joint Production",
+		__pea_same_item_joint_stock_entry_type: "Joint Production",
+		custom_pea_operation: "Shearing",
+		custom_pea_lh_bom: "BOM-1",
+		custom_pea_rh_bom: "BOM-2",
+		custom_pea_lh_gross_qty: 10,
+		custom_pea_rh_gross_qty: 12,
+		...grossOverrides,
+	};
+}
+
+test("blank joint slot asks for both gross quantities when the other slot is zero", () => {
+	const { messages, called } = captureJointFetchMessages(
+		sameItemJointFetchDoc({
+			custom_pea_lh_gross_qty: 0,
+			custom_pea_rh_gross_qty: undefined,
+		})
+	);
+
+	assert.equal(called, false);
+	assert.deepEqual(messages, [
+		"Please set BOM 1 and BOM 2 Gross Quantity before fetching items.",
+	]);
+});
+
+test("string zero gross quantity uses the single-recipe message when both slots are filled", () => {
+	const { messages, called } = captureJointFetchMessages(
+		sameItemJointFetchDoc({
+			custom_pea_lh_gross_qty: "0",
+			custom_pea_rh_gross_qty: 12,
+		})
+	);
+
+	assert.equal(called, false);
+	assert.deepEqual(messages, [
+		"Gross Quantity must be greater than zero. If only one recipe is produced, create a Manufacture Production Entry instead of Joint Production.",
+	]);
+});
+
 test("shift-based joint fetch requires die tool item", () => {
 	const originalFrappe = global.frappe;
 	const originalTranslate = global.__;
@@ -1839,6 +1905,15 @@ test("refreshing a saved joint Stock Entry from a fresh page keeps joint fields 
 				options.callback({ message: "Joint LH RH Production" });
 				return;
 			}
+			if (
+				options.method ===
+				"production_entry_app.production_entry_app.api.get_joint_production_stock_entry_type"
+			) {
+				lookupCount += 1;
+				assert.deepEqual(options.args, { required: 0 });
+				options.callback({ message: "Joint Production" });
+				return;
+			}
 			assert.equal(
 				options.method,
 				"production_entry_app.production_entry_app.api.get_die_tool_counter"
@@ -1851,7 +1926,7 @@ test("refreshing a saved joint Stock Entry from a fresh page keeps joint fields 
 	try {
 		_sync_joint_stock_entry_type(frm);
 
-		assert.equal(lookupCount, 1);
+		assert.equal(lookupCount, 2);
 		assertSavedJointStockEntryFormPreserved(frm);
 	} finally {
 		global.frappe = originalFrappe;
@@ -1861,11 +1936,11 @@ test("refreshing a saved joint Stock Entry from a fresh page keeps joint fields 
 test("joint type lookup defers manufacture cleanup so common Shift context survives", () => {
 	const originalFrappe = global.frappe;
 	const originalTranslate = global.__;
-	let jointTypeResponse;
+	const jointTypeResponses = [];
 	global.__ = (text) => text;
 	global.frappe = {
 		call(options) {
-			jointTypeResponse = options.callback;
+			jointTypeResponses.push(options.callback);
 		},
 	};
 	const frm = {
@@ -1903,7 +1978,8 @@ test("joint type lookup defers manufacture cleanup so common Shift context survi
 		assert.equal(frm.doc.bom_no, "BOM-NORMAL");
 		assert.equal(frm.__peaDeferredManufactureCleanup, true);
 
-		jointTypeResponse({ message: "Joint LH RH Production" });
+		jointTypeResponses[0]({ message: "Joint LH RH Production" });
+		jointTypeResponses[1]({ message: "Joint Production" });
 
 		assert.equal(frm.doc.__pea_joint_stock_entry_type, "Joint LH RH Production");
 		assert.equal(frm.doc.custom_pea_shift, "SHIFT-001");
@@ -1921,11 +1997,11 @@ test("passive joint type discovery asks quietly and stays non-joint when nothing
 	const originalFrappe = global.frappe;
 	const originalTranslate = global.__;
 	const messages = [];
-	let lookup;
+	const lookups = [];
 	global.__ = (text) => text;
 	global.frappe = {
 		call(options) {
-			lookup = options;
+			lookups.push(options);
 		},
 		msgprint(message) {
 			messages.push(message);
@@ -1955,10 +2031,21 @@ test("passive joint type discovery asks quietly and stays non-joint when nothing
 	try {
 		_sync_joint_stock_entry_type(frm);
 
-		assert.deepEqual(lookup.args, { required: 0 });
-		lookup.callback({ message: "" });
+		assert.equal(lookups.length, 2);
+		assert.deepEqual(lookups.map((lookup) => lookup.method).sort(), [
+			"production_entry_app.production_entry_app.api.get_joint_production_stock_entry_type",
+			"production_entry_app.production_entry_app.api.get_joint_stock_entry_type",
+		]);
+		for (const lookup of lookups) {
+			assert.deepEqual(lookup.args, { required: 0 });
+		}
+		assert.equal(frm.__peaJointStockEntryType, undefined);
+		lookups[0].callback({ message: "" });
+		assert.equal(frm.__peaJointStockEntryType, undefined);
+		lookups[1].callback({ message: "" });
 
 		assert.equal(frm.__peaJointStockEntryType, "");
+		assert.equal(frm.__peaSameItemJointStockEntryType, "");
 		assert.equal(frm.doc.__pea_joint_stock_entry_type, "");
 		assert.deepEqual(messages, []);
 	} finally {
@@ -2402,6 +2489,13 @@ function installDieToolBomLookup({ dieToolFieldReady, dieToolItem = "DIE-001" })
 				options.callback({ message: "Joint LH RH Production" });
 				return;
 			}
+			if (
+				options.method ===
+				"production_entry_app.production_entry_app.api.get_joint_production_stock_entry_type"
+			) {
+				options.callback({ message: "Joint Production" });
+				return;
+			}
 			assert.equal(
 				options.method,
 				"production_entry_app.production_entry_app.api.get_die_tool_counter"
@@ -2455,13 +2549,118 @@ test("saved joint Stock Entry sets the Die Tool Item after the type lookup", asy
 			["BOM", "BOM-LH", "custom_pea_die_tool_item"],
 			["BOM", "BOM-RH", "custom_pea_die_tool_item"],
 		]);
-		assert.deepEqual(properties, []);
+		assert.deepEqual(
+			properties.filter(([fieldname]) => fieldname === "custom_pea_die_tool_item"),
+			[]
+		);
 		assert.equal(frm.doc.custom_pea_die_tool_item, "DIE-001");
 		assert.deepEqual(messages, []);
 		assertSavedJointStockEntryFormPreserved(frm);
 	} finally {
 		global.frappe = originalFrappe;
 	}
+});
+
+function makeLabeledJointForm(stockEntryType) {
+	const labels = {};
+	const gridProps = [];
+	const frm = makeSavedJointStockEntryForm({
+		cachedJointStockEntryType: "Joint LH RH Production",
+	});
+	frm.__peaSameItemJointStockEntryType = "Joint Production";
+	frm.doc.stock_entry_type = stockEntryType;
+	frm.doc.__pea_same_item_joint_stock_entry_type = "Joint Production";
+	frm.set_df_property = (fieldname, property, value) => {
+		if (property === "label") {
+			labels[fieldname] = value;
+		}
+	};
+	frm.fields_dict.custom_pea_rejection_breakup = {
+		grid: {
+			update_docfield_property(fieldname, property, value) {
+				gridProps.push([fieldname, property, value]);
+			},
+		},
+	};
+	return { frm, labels, gridProps };
+}
+
+test("Joint Production labels the two slots BOM 1 and BOM 2", () => {
+	const originalFrappe = global.frappe;
+	global.frappe = { call() {} };
+	const { frm, labels, gridProps } = makeLabeledJointForm("Joint Production");
+
+	try {
+		_sync_joint_stock_entry_type(frm);
+
+		assert.equal(labels.custom_pea_joint_production_section, "Joint Production");
+		assert.equal(labels.custom_pea_lh_bom, "BOM 1");
+		assert.equal(labels.custom_pea_rh_bom, "BOM 2");
+		assert.equal(labels.custom_pea_lh_gross_qty, "BOM 1 Gross Quantity");
+		assert.equal(frm.doc.__pea_joint_stock_entry_type, "Joint Production");
+		assert.ok(
+			gridProps.some(
+				([fieldname, property, value]) =>
+					fieldname === "output_side" &&
+					property === "options" &&
+					value === "\nBOM 1\nBOM 2"
+			)
+		);
+	} finally {
+		global.frappe = originalFrappe;
+	}
+});
+
+test("unchanged joint pairing does not rewrite slot labels", () => {
+	const originalFrappe = global.frappe;
+	global.frappe = { call() {} };
+	const { frm, labels } = makeLabeledJointForm("Joint Production");
+
+	try {
+		_sync_joint_stock_entry_type(frm);
+		assert.equal(labels.custom_pea_lh_bom, "BOM 1");
+		for (const fieldname of Object.keys(labels)) {
+			delete labels[fieldname];
+		}
+
+		_apply_manufacture_visibility(frm);
+
+		assert.deepEqual(labels, {});
+	} finally {
+		global.frappe = originalFrappe;
+	}
+});
+
+test("Joint LH/RH Production keeps LH and RH slot labels", () => {
+	const originalFrappe = global.frappe;
+	global.frappe = { call() {} };
+	const { frm, labels, gridProps } = makeLabeledJointForm("Joint LH RH Production");
+
+	try {
+		_sync_joint_stock_entry_type(frm);
+
+		assert.equal(labels.custom_pea_lh_bom, "LH BOM");
+		assert.equal(labels.custom_pea_rh_bom, "RH BOM");
+		assert.equal(frm.doc.__pea_joint_stock_entry_type, "Joint LH RH Production");
+		assert.ok(
+			gridProps.some(
+				([fieldname, property, value]) =>
+					fieldname === "output_side" && property === "options" && value === "\nLH\nRH"
+			)
+		);
+	} finally {
+		global.frappe = originalFrappe;
+	}
+});
+
+test("switching from Joint LH/RH Production to Joint Production clears fetched rows", () => {
+	const { frm } = makeLabeledJointForm("Joint Production");
+
+	_sync_joint_stock_entry_type(frm, { previousStockEntryType: "Joint LH RH Production" });
+
+	assert.equal(frm.doc.custom_pea_lh_bom, "");
+	assert.equal(frm.doc.custom_pea_rh_bom, "");
+	assert.deepEqual(frm.doc.items, []);
 });
 
 test("BOM Die Tool Item lookup stays quiet when the field is not migrated", async () => {

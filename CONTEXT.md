@@ -10,51 +10,66 @@ A record of one physical production operation and its material, output, quality,
 _Avoid_: Manufacturing entry, operation entry
 
 **Shift-based Production Entry**:
-A Manufacture or Joint Production Entry with `custom_pea_shift` set. Captures time,
+A Manufacture, Joint LH/RH Production, or Joint Production entry with `custom_pea_shift` set. Captures time,
 resources, losses, rejection, strokes, and metrics in addition to stock.
 _Avoid_: Full production entry, supervised entry
 
 **Stock-only Production Entry**:
-A Manufacture or Joint Production Entry with no Shift. Records inventory from BOM(s)
+A Manufacture, Joint LH/RH Production, or Joint Production entry with no Shift. Records inventory from BOM(s)
 and fetch-items only. Excluded from Shift summaries and Production Date Range.
 _Avoid_: Non-shift manufacturing entry, simple stock manufacture
 
-**Joint Production**:
+**Joint LH/RH Production**:
 One physical stamping operation that produces paired LH and RH outputs while tracking each side's
 gross quantity and rejection quantity separately. It is always two selected BOMs — one LH and one RH —
 under one shared production event (one Repack Stock Entry) that records time, loss, utilization, and
 total press strokes once. For Shearing, both sides consume a common raw material sheet. For any other
 Operation (post-Shearing), each side consumes its own BOM-derived inputs independently; input item codes
-may differ and are not merged across sides. Operational validation classifies Joint Production from
+may differ and are not merged across sides. Operational validation classifies Joint LH/RH Production from
 selected Stock Entry Type `custom_pea_joint_lh_rh_production`; submitted-entry reports join or
 batch-enrich the Stock Entry Type flag before classifying Repack entries.
-_Avoid_: Combined production, dual production
+_Avoid_: Joint Production, combined production, dual production
+
+**Joint Production**:
+One run of a single finished item from two BOMs whose input items differ, on one shared time. The BOMs
+share one Operation, such as Shearing, Draw, or Blanking. Each BOM keeps its own gross quantity and
+rejection quantity and consumes its own inputs. Either BOM may occupy either slot. A run that uses only
+one BOM is a Manufacture Production Entry. The Stock Entry Type is Joint Production.
+_Avoid_: Joint LH/RH Production, standard-sheet slot, end-piece slot
+
+**End Piece**:
+A raw-material item produced as scrap by a shearing BOM. It may come from that part's own standard-sheet
+BOM or from another part's shearing BOMs, including an LH and RH pair such as `BOM-0101EW506320NSHR-003`
+and `BOM-0101EW506310NSHR-003` producing `0101EW506180NEP`. A later production run consumes it from WIP.
+The entry that consumes it does not manufacture it.
+_Avoid_: Second finished output, remnant consumed inside the entry that creates it
 
 **Total Press Strokes**:
 The number of physical strokes recorded on a Production Entry. A Shift-based normal Manufacture entry that
 uses a BOM sets this from `fg_completed_qty`, and the value must be greater than zero. Manufacture without a
-BOM keeps an entered stroke count because ERPNext clears `fg_completed_qty`. Joint Production enters one
-stroke count for the shared press operation; that count may differ from either side's quantity because one
-stroke may produce multiple parts. Stock-only Production Entries do not keep the field.
+BOM keeps an entered stroke count because ERPNext clears `fg_completed_qty`. Joint LH/RH Production and
+Joint Production each enter one stroke count for the shared operation; that count may differ from either
+BOM's quantity because one stroke may produce multiple parts. The operator enters the count. Stock-only
+Production Entries do not keep the field.
 _Avoid_: Optional stroke count on BOM Manufacture, zero strokes on shift-based BOM Manufacture
 
 **BOM Sheet Capacity**:
 The BOM quantity is the maximum total number of parts that can be produced from the raw-material quantity recorded
-in that BOM. In Shearing Joint Production, each side consumes its proportional share of the common raw material,
+in that BOM. In Shearing Joint LH/RH Production, each side consumes its proportional share of the common raw material,
 and the LH and RH shares are added: `side gross quantity x BOM raw-material quantity / BOM quantity`.
-Post-Shearing Joint Production scales each side's BOM inputs from that side's gross quantity alone; common
-raw material is not a post-Shearing rule.
+Post-Shearing Joint LH/RH Production, and Joint Production for every Operation, scale each BOM's inputs from
+that BOM's gross quantity alone.
 _Avoid_: Per-side sheet count, shared maximum consumption
 
 **Production-Owned Joint Metadata**:
 `BOM.custom_operation` and `Stock Entry.custom_stock_entry_purpose` are owned by the production ERPNext
 instance. This app does not ship those Custom Fields; bench and test environments copy them as one-time
-setup so operation-aware Joint Production and purpose-dependent UI can run. Production-parity sites already
+setup so operation-aware Joint LH/RH Production, Joint Production, and purpose-dependent UI can run. Production-parity sites already
 have the fields.
 _Avoid_: App-shipped BOM operation field, duplicate PEA purpose field
 
 **Whole-number Scrap Boundary**:
-Joint Production aggregates scrap by item before rounding whole-number UOMs with half-up rounding. A positive
+Joint LH/RH Production and Joint Production aggregate scrap by item before rounding whole-number UOMs with half-up rounding. A positive
 aggregate below `0.5` rounds to zero and is omitted because native Stock Entry rows cannot represent zero quantity;
 its calculated value remains allocated to the joint outputs. For a positive rounded quantity, the rate is
 recalculated so the pre-round aggregate scrap value is preserved.
@@ -110,7 +125,7 @@ _Avoid_: App-created Stock Entry Branch field, app-owned detail branch sync, leg
 
 **Right-First-Time Quality**:
 The OEE Quality convention in which rework-flagged quantity counts as a quality loss at production time, in both
-normal Manufacture and Joint Production, because the part was not good on its first pass. Rework Operations
+normal Manufacture, Joint LH/RH Production, and Joint Production, because the part was not good on its first pass. Rework Operations
 themselves are excluded from OEE and utilization.
 _Avoid_: Scrap-only quality, mode-specific rework treatment
 
@@ -186,6 +201,6 @@ settings lookups are resolved per request, avoiding stale cached defaults and hi
 The app runs on the native Stock Entry lifecycle and deviates from Frappe and ERPNext behaviour only at the
 seams recorded in ADR 0003: the client form (Fetch Items replaces Get Items, BOM fields only for Manufacture,
 mode switches clear rows), app-materialised joint rows with operation-aware Shearing versus post-Shearing
-material plans and BOM-weighted manual valuation, Stock Entry Type flags with one shipped joint type, rework
+material plans and BOM-weighted manual valuation, Stock Entry Type flags with one shipped type for Joint LH/RH Production and one for Joint Production, rework
 hooks with Item-row locking, and Company/Branch warehouse defaults for direct Manufacture and joint Fetch
 Items.

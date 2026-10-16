@@ -411,6 +411,7 @@ function _apply_manufacture_visibility(frm) {
 	const isJoint = _is_joint_doc(frm.doc);
 	const hasShift = Boolean(frm.doc?.custom_pea_shift);
 	_apply_native_manufacture_visibility(frm);
+	_apply_joint_slot_labels(frm);
 	frm.toggle_display(PEA_ALWAYS_VISIBLE_PRODUCTION_FIELDS, isProduction);
 	frm.toggle_display(PEA_SHIFT_GATED_FIELDS, isProduction && hasShift);
 	frm.toggle_display(PEA_SHIFT_GATED_SECTIONS, isProduction && hasShift);
@@ -770,9 +771,19 @@ function _schedule_rework_workstation_default(frm) {
 	}, REWORK_TYPE_DEBOUNCE_MS);
 }
 
+function _joint_pairing(stockEntryType, lhRhType, sameItemType) {
+	if (lhRhType && stockEntryType === lhRhType) {
+		return "lh_rh";
+	}
+	if (sameItemType && stockEntryType === sameItemType) {
+		return "same_item";
+	}
+	return "other";
+}
+
 function _sync_joint_mode_from_stock_entry_type(frm, requestId, previousStockEntryType) {
 	const selectedStockEntryType = frm.doc.stock_entry_type || "";
-	const applySelectedType = (jointStockEntryType) => {
+	const applyPairings = (lhRhType, sameItemType) => {
 		if (
 			requestId !== _jointStockEntryTypeRequestId ||
 			frm.doc.stock_entry_type !== selectedStockEntryType
@@ -782,25 +793,22 @@ function _sync_joint_mode_from_stock_entry_type(frm, requestId, previousStockEnt
 		if (frm.__peaJointStockEntryTypeLookup?.requestId === requestId) {
 			delete frm.__peaJointStockEntryTypeLookup;
 		}
-		const cachedJointStockEntryType = frm.__peaJointStockEntryType || "";
-		const currentWasJoint = _is_joint_doc(frm.doc);
-		frm.__peaJointStockEntryType = jointStockEntryType || "";
-		frm.doc.__pea_joint_stock_entry_type = jointStockEntryType || "";
-		const shouldBeJoint =
-			Boolean(jointStockEntryType) && selectedStockEntryType === jointStockEntryType;
-		const isKnownJointSelection =
-			shouldBeJoint &&
-			(!previousStockEntryType || cachedJointStockEntryType === jointStockEntryType);
-		const wasJoint = previousStockEntryType
-			? Boolean(jointStockEntryType) && previousStockEntryType === jointStockEntryType
-			: currentWasJoint || isKnownJointSelection;
+		const nextPairing = _joint_pairing(selectedStockEntryType, lhRhType, sameItemType);
+		const previousPairing = previousStockEntryType
+			? _joint_pairing(previousStockEntryType, lhRhType, sameItemType)
+			: nextPairing;
+		frm.__peaJointStockEntryType = lhRhType || "";
+		frm.__peaSameItemJointStockEntryType = sameItemType || "";
+		frm.doc.__pea_same_item_joint_stock_entry_type = sameItemType || "";
+		frm.doc.__pea_joint_stock_entry_type =
+			nextPairing === "same_item" ? sameItemType || "" : lhRhType || "";
 		if (frm.__peaDeferredManufactureCleanup) {
 			delete frm.__peaDeferredManufactureCleanup;
-			if (!shouldBeJoint) {
+			if (nextPairing === "other") {
 				_clear_manufacture_data(frm);
 			}
 		}
-		if (shouldBeJoint !== wasJoint) {
+		if (nextPairing !== previousPairing) {
 			_clear_production_mode_data(frm);
 			frm.dirty?.();
 		}
@@ -809,7 +817,13 @@ function _sync_joint_mode_from_stock_entry_type(frm, requestId, previousStockEnt
 	};
 
 	if (Object.prototype.hasOwnProperty.call(frm, "__peaJointStockEntryType")) {
-		applySelectedType(frm.__peaJointStockEntryType);
+		const sameItemType = Object.prototype.hasOwnProperty.call(
+			frm,
+			"__peaSameItemJointStockEntryType"
+		)
+			? frm.__peaSameItemJointStockEntryType
+			: "";
+		applyPairings(frm.__peaJointStockEntryType, sameItemType);
 		return;
 	}
 
@@ -817,21 +831,58 @@ function _sync_joint_mode_from_stock_entry_type(frm, requestId, previousStockEnt
 		requestId,
 		stockEntryType: selectedStockEntryType,
 	};
+	const pendingTypes = { lhRhType: undefined, sameItemType: undefined, failed: false };
+	const finishJointTypeLookup = () => {
+		if (
+			pendingTypes.failed ||
+			pendingTypes.lhRhType === undefined ||
+			pendingTypes.sameItemType === undefined
+		) {
+			return;
+		}
+		applyPairings(pendingTypes.lhRhType, pendingTypes.sameItemType);
+	};
+	// Passive discovery on every form: an unconfigured site answers "" instead of an error.
 	frappe.call({
 		method: "production_entry_app.production_entry_app.api.get_joint_stock_entry_type",
-		// Passive discovery on every form: an unconfigured site answers "" instead of an error.
 		args: { required: 0 },
 		callback(r) {
-			applySelectedType(r.message);
+			if (requestId !== _jointStockEntryTypeRequestId || pendingTypes.failed) return;
+			pendingTypes.lhRhType = r.message || "";
+			finishJointTypeLookup();
 		},
 		error(error) {
 			if (requestId !== _jointStockEntryTypeRequestId) return;
+			pendingTypes.failed = true;
 			delete frm.__peaJointStockEntryTypeLookup;
 			if (frm.__peaDeferredManufactureCleanup) {
 				delete frm.__peaDeferredManufactureCleanup;
 				_clear_manufacture_data(frm);
 			}
 			_notify_call_error(__("Failed to identify the Joint LH/RH Stock Entry Type."), error);
+		},
+	});
+	if (Object.prototype.hasOwnProperty.call(frm, "__peaSameItemJointStockEntryType")) {
+		pendingTypes.sameItemType = frm.__peaSameItemJointStockEntryType || "";
+		finishJointTypeLookup();
+		return;
+	}
+	frappe.call({
+		method: "production_entry_app.production_entry_app.api.get_joint_production_stock_entry_type",
+		args: { required: 0 },
+		callback(response) {
+			if (requestId !== _jointStockEntryTypeRequestId || pendingTypes.failed) return;
+			pendingTypes.sameItemType = response.message || "";
+			finishJointTypeLookup();
+		},
+		error(sameItemError) {
+			if (requestId !== _jointStockEntryTypeRequestId) return;
+			pendingTypes.failed = true;
+			delete frm.__peaJointStockEntryTypeLookup;
+			_notify_call_error(
+				__("Failed to identify the Joint Production Stock Entry Type."),
+				sameItemError
+			);
 		},
 	});
 }
@@ -959,9 +1010,16 @@ function _is_manufacture_doc(doc) {
 	return _normalize_purpose(doc?.custom_stock_entry_purpose) === "Manufacture";
 }
 
+function _is_same_item_joint_doc(doc) {
+	const sameItemType = doc?.__pea_same_item_joint_stock_entry_type || "";
+	return Boolean(sameItemType) && doc?.stock_entry_type === sameItemType;
+}
+
 function _is_joint_doc(doc) {
 	const jointStockEntryType = doc?.__pea_joint_stock_entry_type || "";
-	return Boolean(jointStockEntryType) && doc?.stock_entry_type === jointStockEntryType;
+	const markedJoint =
+		Boolean(jointStockEntryType) && doc?.stock_entry_type === jointStockEntryType;
+	return markedJoint || _is_same_item_joint_doc(doc);
 }
 
 function _is_production_doc(doc) {
@@ -1366,13 +1424,63 @@ function _get_rejection_qty_for_visibility(doc) {
 	return typeof flt === "function" ? flt(doc.custom_pea_rejection_qty) : 0;
 }
 
+function _form_label(text) {
+	return typeof __ === "function" ? __(text) : text;
+}
+
+function _apply_joint_slot_labels(frm) {
+	const sameItem = _is_same_item_joint_doc(frm.doc);
+	const pairing = sameItem ? "same_item" : "lh_rh";
+	if (frm.__peaLastSlotPairing === pairing) {
+		return;
+	}
+	frm.__peaLastSlotPairing = pairing;
+	const labels = sameItem
+		? {
+				custom_pea_joint_production_section: _form_label("Joint Production"),
+				custom_pea_lh_bom: _form_label("BOM 1"),
+				custom_pea_rh_bom: _form_label("BOM 2"),
+				custom_pea_lh_gross_qty: _form_label("BOM 1 Gross Quantity"),
+				custom_pea_rh_gross_qty: _form_label("BOM 2 Gross Quantity"),
+				custom_pea_lh_rejection_qty: _form_label("BOM 1 Rejection Quantity"),
+				custom_pea_rh_rejection_qty: _form_label("BOM 2 Rejection Quantity"),
+		  }
+		: {
+				custom_pea_joint_production_section: _form_label("Joint LH/RH Production"),
+				custom_pea_lh_bom: _form_label("LH BOM"),
+				custom_pea_rh_bom: _form_label("RH BOM"),
+				custom_pea_lh_gross_qty: _form_label("LH Gross Quantity"),
+				custom_pea_rh_gross_qty: _form_label("RH Gross Quantity"),
+				custom_pea_lh_rejection_qty: _form_label("LH Rejection Quantity"),
+				custom_pea_rh_rejection_qty: _form_label("RH Rejection Quantity"),
+		  };
+	Object.entries(labels).forEach(([fieldname, label]) => {
+		frm.set_df_property?.(fieldname, "label", label);
+	});
+}
+
 function _configure_rejection_breakup_grid(frm) {
 	const grid = frm.fields_dict?.custom_pea_rejection_breakup?.grid;
 	if (!grid) return;
 	const isJoint = _is_joint_doc(frm.doc);
+	const sameItem = _is_same_item_joint_doc(frm.doc);
 	grid.update_docfield_property("output_side", "hidden", isJoint ? 0 : 1);
 	grid.update_docfield_property("output_side", "reqd", isJoint ? 1 : 0);
 	grid.update_docfield_property("item_code", "hidden", isJoint ? 0 : 1);
+	grid.update_docfield_property(
+		"output_side",
+		"options",
+		sameItem ? "\nBOM 1\nBOM 2" : "\nLH\nRH"
+	);
+}
+
+function _gross_qty_is_blank(value) {
+	return value == null || String(value).trim() === "";
+}
+
+function _gross_qty_is_zero(value) {
+	const numeric = typeof value === "string" ? value.trim() : value;
+	return numeric === 0 || numeric === "0";
 }
 
 function _handle_custom_pea_fetch_items(frm) {
@@ -1381,24 +1489,61 @@ function _handle_custom_pea_fetch_items(frm) {
 		frappe.msgprint(__("Please set Qty to Manufacture before fetching items."));
 		return;
 	}
+	const sameItemJoint = _is_same_item_joint_doc(frm.doc);
 	if (isJoint && !String(frm.doc.custom_pea_operation || "").trim()) {
-		frappe.msgprint(__("Operation is required for joint LH/RH production."));
+		frappe.msgprint(
+			sameItemJoint
+				? __("Operation is required for Joint Production.")
+				: __("Operation is required for joint LH/RH production.")
+		);
 		return;
 	}
 	if (isJoint && !frm.doc.custom_pea_lh_bom) {
-		frappe.msgprint(__("LH BOM is required for joint LH/RH production."));
+		frappe.msgprint(
+			sameItemJoint
+				? __("BOM 1 is required for Joint Production.")
+				: __("LH BOM is required for joint LH/RH production.")
+		);
 		return;
 	}
 	if (isJoint && !frm.doc.custom_pea_rh_bom) {
-		frappe.msgprint(__("RH BOM is required for joint LH/RH production."));
+		frappe.msgprint(
+			sameItemJoint
+				? __("BOM 2 is required for Joint Production.")
+				: __("RH BOM is required for joint LH/RH production.")
+		);
 		return;
 	}
 	if (isJoint && frm.doc.custom_pea_shift && !frm.doc.custom_pea_die_tool_item) {
-		frappe.msgprint(__("Die Tool Item is required for joint LH/RH production."));
+		frappe.msgprint(
+			sameItemJoint
+				? __("Die Tool Item is required for Joint Production.")
+				: __("Die Tool Item is required for joint LH/RH production.")
+		);
 		return;
 	}
-	if (isJoint && (!frm.doc.custom_pea_lh_gross_qty || !frm.doc.custom_pea_rh_gross_qty)) {
-		frappe.msgprint(__("Please set LH and RH Gross Quantity before fetching items."));
+	const lhGrossQty = frm.doc.custom_pea_lh_gross_qty;
+	const rhGrossQty = frm.doc.custom_pea_rh_gross_qty;
+	if (
+		isJoint &&
+		(_gross_qty_is_blank(lhGrossQty) ||
+			_gross_qty_is_blank(rhGrossQty) ||
+			_gross_qty_is_zero(lhGrossQty) ||
+			_gross_qty_is_zero(rhGrossQty))
+	) {
+		const bothSlotsFilled =
+			!_gross_qty_is_blank(lhGrossQty) && !_gross_qty_is_blank(rhGrossQty);
+		const explicitZero =
+			bothSlotsFilled && (_gross_qty_is_zero(lhGrossQty) || _gross_qty_is_zero(rhGrossQty));
+		frappe.msgprint(
+			explicitZero && sameItemJoint
+				? __(
+						"Gross Quantity must be greater than zero. If only one recipe is produced, create a Manufacture Production Entry instead of Joint Production."
+				  )
+				: sameItemJoint
+				? __("Please set BOM 1 and BOM 2 Gross Quantity before fetching items.")
+				: __("Please set LH and RH Gross Quantity before fetching items.")
+		);
 		return;
 	}
 	return frappe.call({

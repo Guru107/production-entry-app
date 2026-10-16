@@ -9,7 +9,7 @@ from production_entry_app.production_entry_app.report.report_utils import (
 	add_stock_entry_type_flags,
 	get_entry_qty_maps,
 	get_finished_item_maps,
-	is_joint_lh_rh_entry,
+	is_paired_production_entry,
 )
 from production_entry_app.production_entry_app.utils.loss_time import build_interval_overlap_filters
 from production_entry_app.production_entry_app.utils.shift_time import combine_date_time
@@ -149,7 +149,7 @@ def get_shift_timeline_data(doctype: str, docname: str) -> dict:
 		limit_page_length=0,
 	)
 	add_stock_entry_type_flags(rows)
-	rows = [row for row in rows if row.get("purpose") == "Manufacture" or is_joint_lh_rh_entry(row)]
+	rows = [row for row in rows if row.get("purpose") == "Manufacture" or is_paired_production_entry(row)]
 
 	names = [row.get("name") for row in rows if row.get("name")]
 	good_qty_by_entry, joint_rejection_qty_by_entry = get_entry_qty_maps(names)
@@ -159,7 +159,7 @@ def get_shift_timeline_data(doctype: str, docname: str) -> dict:
 	for row in rows:
 		entry_name = row.get("name")
 		good_qty = flt(good_qty_by_entry.get(entry_name) or row.get("fg_qty") or 0)
-		is_joint_production = is_joint_lh_rh_entry(row)
+		is_joint_production = is_paired_production_entry(row)
 		rejection_qty = flt(
 			joint_rejection_qty_by_entry.get(entry_name, 0)
 			if is_joint_production

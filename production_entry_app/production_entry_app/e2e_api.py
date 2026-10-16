@@ -14,6 +14,7 @@ from production_entry_app.production_entry_app.api import (
 	_cleanup_orphan_stock_entry_loss_links,
 	reset_die_tool_counter,
 )
+from production_entry_app.production_entry_app.report.report_utils import paired_repack_type_criterion
 from production_entry_app.production_entry_app.utils.downtime_reason_seed import (
 	ensure_downtime_reason,
 	seed_standard_downtime_reasons,
@@ -421,7 +422,7 @@ def _get_candidate_e2e_stock_entries(
 		.select(stock_entry.name, stock_entry.docstatus)
 		.where(
 			(stock_entry.purpose == "Manufacture")
-			| ((stock_entry.purpose == "Repack") & (stock_entry_type.custom_pea_joint_lh_rh_production == 1))
+			| ((stock_entry.purpose == "Repack") & paired_repack_type_criterion(stock_entry_type))
 			| (stock_entry.purpose == "Material Receipt")
 		)
 		.where(match_criteria)

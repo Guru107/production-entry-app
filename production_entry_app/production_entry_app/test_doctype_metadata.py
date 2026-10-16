@@ -29,6 +29,7 @@ REQUIRED_SEARCH_INDEXES: dict[str, set[str]] = {
 
 REQUIRED_CUSTOM_FIELD_SEARCH_INDEXES: set[str] = {
 	"Stock Entry Type-custom_pea_joint_lh_rh_production",
+	"Stock Entry Type-custom_pea_joint_production",
 	"Stock Entry Type-custom_pea_rework_entry",
 	"Stock Entry-custom_pea_shift",
 	"Stock Entry-custom_pea_workstation",
@@ -149,7 +150,7 @@ def test_joint_lh_rh_production_metadata_is_exported() -> None:
 	}
 	missing_rejection_fields = sorted({"output_side", "item_code"}.difference(rejection_fields))
 	assert not missing_rejection_fields, f"Missing Rejection Breakup fields: {missing_rejection_fields}"
-	assert rejection_fields["output_side"]["options"] == "\nLH\nRH"
+	assert rejection_fields["output_side"]["options"] == "\nLH\nRH\nBOM 1\nBOM 2"
 	assert rejection_fields["item_code"]["options"] == "Item"
 
 
@@ -161,6 +162,15 @@ def test_canonical_stock_entry_type_fixtures_are_exported() -> None:
 			"name": "Joint LH RH Production",
 			"purpose": "Repack",
 			"custom_pea_joint_lh_rh_production": 1,
+			"custom_pea_joint_production": 0,
+			"custom_pea_rework_entry": 0,
+		},
+		"Joint Production": {
+			"doctype": "Stock Entry Type",
+			"name": "Joint Production",
+			"purpose": "Repack",
+			"custom_pea_joint_lh_rh_production": 0,
+			"custom_pea_joint_production": 1,
 			"custom_pea_rework_entry": 0,
 		},
 		"Rework": {
@@ -168,6 +178,7 @@ def test_canonical_stock_entry_type_fixtures_are_exported() -> None:
 			"name": "Rework",
 			"purpose": "Material Transfer",
 			"custom_pea_joint_lh_rh_production": 0,
+			"custom_pea_joint_production": 0,
 			"custom_pea_rework_entry": 1,
 		},
 	}
@@ -179,6 +190,10 @@ def test_canonical_stock_entry_type_fixtures_are_registered_for_install() -> Non
 	assert {
 		"dt": "Stock Entry Type",
 		"filters": [["name", "=", "Joint LH RH Production"]],
+	} in hooks.fixtures
+	assert {
+		"dt": "Stock Entry Type",
+		"filters": [["name", "=", "Joint Production"]],
 	} in hooks.fixtures
 	assert {
 		"dt": "Stock Entry Type",

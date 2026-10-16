@@ -11,12 +11,12 @@ from frappe.query_builder.functions import CustomFunction
 from frappe.utils import cint, get_datetime, now_datetime
 
 from production_entry_app.production_entry_app.joint_production import (
-	is_joint_lh_rh_production,
+	is_paired_production,
 )
 
 
 def update_counter_for_stock_entry(doc: Document, direction: int = 1) -> None:
-	if is_joint_lh_rh_production(doc):
+	if is_paired_production(doc):
 		item_code = doc.get("custom_pea_die_tool_item")
 	elif doc.get("purpose") == "Manufacture":
 		item_code = _get_fg_item_code(doc)

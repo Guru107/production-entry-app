@@ -13,6 +13,15 @@ def is_joint_lh_rh_stock_entry_type(doc: Document | frappe._dict) -> bool:
 	)
 
 
+def is_joint_production_stock_entry_type(doc: Document | frappe._dict) -> bool:
+	"""Return whether the selected Stock Entry Type is marked for Joint Production."""
+	return _get_cached_stock_entry_type_flag(
+		doc,
+		flag_fieldname="custom_pea_joint_production",
+		cache_fieldname="pea_same_item_joint_stock_entry_type",
+	)
+
+
 def is_rework_stock_entry_type(doc: Document | frappe._dict) -> bool:
 	"""Return whether the selected Stock Entry Type is marked for Rework."""
 	return _get_cached_stock_entry_type_flag(

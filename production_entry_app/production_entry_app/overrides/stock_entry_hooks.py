@@ -19,12 +19,13 @@ from production_entry_app.production_entry_app.doctype.rejection_breakup.rejecti
 )
 from production_entry_app.production_entry_app.doctype.shift.shift import invalidate_shift_summary_cache
 from production_entry_app.production_entry_app.joint_production import (
-	is_joint_lh_rh_production,
+	is_paired_production,
 	validate_and_apply_joint_production,
 )
 from production_entry_app.production_entry_app.report.report_utils import (
 	get_entry_output_quantities,
 	is_good_output_row,
+	paired_repack_type_criterion,
 )
 from production_entry_app.production_entry_app.rework import (
 	SECONDS_PER_HOUR,
@@ -63,7 +64,6 @@ from production_entry_app.production_entry_app.utils.shift_time import (
 )
 from production_entry_app.production_entry_app.utils.stock_entry_branch import stock_entry_has_branch_field
 from production_entry_app.production_entry_app.utils.stock_entry_type_flags import (
-	is_joint_lh_rh_stock_entry_type,
 	is_rework_stock_entry_type,
 )
 from production_entry_app.production_entry_app.utils.system_precision import (
@@ -159,7 +159,7 @@ def validate_stock_entry(doc: Document, method: str | None = None) -> None:
 	_validate_workstation_downtime_overlap(doc)
 	_validate_standard_spm(doc)
 	_default_total_strokes(doc)
-	if is_joint_lh_rh_production(doc):
+	if is_paired_production(doc):
 		validate_and_apply_joint_production(doc)
 	else:
 		_validate_rejection_breakup(doc)
@@ -175,7 +175,7 @@ def before_validate_stock_entry(doc: Document, method: str | None = None) -> Non
 	_apply_rework_cost(doc)
 	# Default strokes before ERPNext's own validate: on 15.122+ its finished-qty guard would
 	# otherwise preempt the app's message when fg_completed_qty is zeroed after Fetch Items.
-	if not is_rework_stock_entry_type(doc) and not is_joint_lh_rh_production(doc):
+	if not is_rework_stock_entry_type(doc) and not is_paired_production(doc):
 		_default_total_strokes(doc)
 
 
@@ -293,7 +293,7 @@ def _default_total_strokes(doc: Document) -> None:
 	stroke count and only reject a negative value. Stock-only Manufacture leaves the field
 	untouched. Joint Production keeps one entered stroke count for the shared press.
 	"""
-	if doc.get("purpose") != "Manufacture" or is_joint_lh_rh_production(doc):
+	if doc.get("purpose") != "Manufacture" or is_paired_production(doc):
 		return
 	if not is_shift_based_production_entry(doc):
 		return
@@ -597,8 +597,7 @@ def _should_check_overlap(doc: Document) -> bool:
 
 def is_production_overlap_entry(doc: Document) -> bool:
 	return bool(
-		doc.get("purpose") == "Manufacture"
-		or (doc.get("purpose") == "Repack" and is_joint_lh_rh_stock_entry_type(doc))
+		doc.get("purpose") == "Manufacture" or (doc.get("purpose") == "Repack" and is_paired_production(doc))
 	)
 
 
@@ -757,7 +756,7 @@ def _find_overlapping_stock_entry(doc: Document, fieldname: str, fieldvalue: str
 def get_production_overlap_entry_criterion(stock_entry: Table, stock_entry_type: Table) -> Criterion:
 	"""Return the Stock Entry scope that consumes workstation/operator capacity."""
 	return (stock_entry.purpose == "Manufacture") | (
-		(stock_entry.purpose == "Repack") & (stock_entry_type.custom_pea_joint_lh_rh_production == 1)
+		(stock_entry.purpose == "Repack") & paired_repack_type_criterion(stock_entry_type)
 	)
 
 
@@ -1234,7 +1233,7 @@ def _get_shift_planned_losses_for_metrics(
 
 def _get_ok_units_for_metrics(doc: Document) -> float:
 	normal_metrics = None
-	if not is_joint_lh_rh_production(doc):
+	if not is_paired_production(doc):
 		good_qty = sum(
 			flt(row.get("qty")) * flt(row.get("conversion_factor") or 1)
 			for row in doc.get("items") or []
@@ -1281,7 +1280,7 @@ def _set_die_tool_health_metrics(doc: Document, meta: Any) -> None:
 
 
 def _get_fg_item_code_for_metrics(doc: Document) -> str | None:
-	if is_joint_lh_rh_production(doc):
+	if is_paired_production(doc):
 		return doc.get("custom_pea_die_tool_item")
 	if doc.get("fg_item"):
 		return doc.get("fg_item")

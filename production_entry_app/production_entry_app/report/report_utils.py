@@ -21,6 +21,7 @@ from production_entry_app.production_entry_app.utils.loss_time import (
 )
 from production_entry_app.production_entry_app.utils.stock_entry_type_flags import (
 	is_joint_lh_rh_stock_entry_type,
+	is_joint_production_stock_entry_type,
 )
 from production_entry_app.production_entry_app.utils.system_precision import (
 	get_system_float_precision,
@@ -36,6 +37,30 @@ _SUPPORTED_STOCK_ENTRY_ORDER_BY: frozenset[str] = frozenset({"name asc", "postin
 _PRODUCTION_STOCK_ENTRY_OR_FILTERS: tuple[tuple[str, str, Any], ...] = (
 	("purpose", "=", "Manufacture"),
 	("purpose", "=", "Repack"),
+)
+
+
+class OutputSlot(NamedTuple):
+	side: str
+	bom_field: str
+	gross_field: str
+	rejection_field: str
+
+
+_PAIRED_SLOT_FIELDS: tuple[tuple[str, str, str], ...] = (
+	("custom_pea_lh_bom", "custom_pea_lh_gross_qty", "custom_pea_lh_rejection_qty"),
+	("custom_pea_rh_bom", "custom_pea_rh_gross_qty", "custom_pea_rh_rejection_qty"),
+)
+
+
+def _output_slots(sides: tuple[str, str]) -> tuple[OutputSlot, ...]:
+	return tuple(OutputSlot(side, *fields) for side, fields in zip(sides, _PAIRED_SLOT_FIELDS, strict=True))
+
+
+_LH_RH_OUTPUT_SLOTS: tuple[OutputSlot, ...] = _output_slots(("LH", "RH"))
+_SAME_ITEM_OUTPUT_SLOTS: tuple[OutputSlot, ...] = _output_slots(("BOM 1", "BOM 2"))
+_JOINT_OUTPUT_SIDES: tuple[str, ...] = tuple(
+	slot.side for slot in (*_LH_RH_OUTPUT_SLOTS, *_SAME_ITEM_OUTPUT_SLOTS)
 )
 # Cutover release: reports read the app's own fields only. Entries created
 # before the changeover are not considered, so the legacy parallel fields
@@ -122,9 +147,13 @@ def get_shift_production_dates(shift_names: list[str] | set[str]) -> dict[str, A
 
 
 def is_production_stock_entry(entry: dict) -> bool:
-	if entry.get("purpose") is None and entry.get("custom_pea_joint_lh_rh_production") is None:
+	if (
+		entry.get("purpose") is None
+		and entry.get("custom_pea_joint_lh_rh_production") is None
+		and entry.get("custom_pea_joint_production") is None
+	):
 		return True
-	return entry.get("purpose") == "Manufacture" or is_joint_lh_rh_entry(entry)
+	return entry.get("purpose") == "Manufacture" or is_paired_production_entry(entry)
 
 
 def is_joint_lh_rh_entry(entry: dict) -> bool:
@@ -136,6 +165,33 @@ def is_joint_lh_rh_entry(entry: dict) -> bool:
 	return False
 
 
+def is_joint_production_entry(entry: dict | BaseDocument) -> bool:
+	joint_flag = entry.get("custom_pea_joint_production")
+	if joint_flag is not None:
+		return bool(joint_flag)
+	if isinstance(entry, BaseDocument):
+		return is_joint_production_stock_entry_type(entry)
+	return False
+
+
+def is_paired_production_entry(entry: dict | BaseDocument) -> bool:
+	return is_joint_lh_rh_entry(entry) or is_joint_production_entry(entry)
+
+
+def paired_output_slots(entry: dict | BaseDocument) -> tuple[OutputSlot, ...] | None:
+	if is_joint_production_entry(entry):
+		return _SAME_ITEM_OUTPUT_SLOTS
+	if is_joint_lh_rh_entry(entry):
+		return _LH_RH_OUTPUT_SLOTS
+	return None
+
+
+def paired_repack_type_criterion(stock_entry_type: Table) -> Criterion:
+	return (stock_entry_type.custom_pea_joint_lh_rh_production == 1) | (
+		stock_entry_type.custom_pea_joint_production == 1
+	)
+
+
 def add_stock_entry_type_flags(entries: list[dict]) -> list[dict]:
 	stock_entry_types = sorted(
 		{entry.get("stock_entry_type") for entry in entries if entry.get("stock_entry_type")}
@@ -145,12 +201,15 @@ def add_stock_entry_type_flags(entries: list[dict]) -> list[dict]:
 	rows = frappe.get_all(
 		"Stock Entry Type",
 		filters={"name": ["in", stock_entry_types]},
-		fields=["name", "custom_pea_joint_lh_rh_production"],
+		fields=["name", "custom_pea_joint_lh_rh_production", "custom_pea_joint_production"],
 		limit_page_length=0,
 	)
-	joint_flags = {row.get("name"): bool(row.get("custom_pea_joint_lh_rh_production")) for row in rows}
+	lh_rh_flags = {row.get("name"): bool(row.get("custom_pea_joint_lh_rh_production")) for row in rows}
+	same_item_flags = {row.get("name"): bool(row.get("custom_pea_joint_production")) for row in rows}
 	for entry in entries:
-		entry["custom_pea_joint_lh_rh_production"] = int(bool(joint_flags.get(entry.get("stock_entry_type"))))
+		stock_entry_type = entry.get("stock_entry_type")
+		entry["custom_pea_joint_lh_rh_production"] = int(bool(lh_rh_flags.get(stock_entry_type)))
+		entry["custom_pea_joint_production"] = int(bool(same_item_flags.get(stock_entry_type)))
 	return entries
 
 
@@ -164,11 +223,10 @@ def get_entry_output_quantities(
 	Reports should pass their batched child-row metrics for normal Manufacture
 	entries. Document hooks can use the header fields directly.
 	"""
-	if is_joint_lh_rh_entry(entry):
-		total_qty = flt(entry.get("custom_pea_lh_gross_qty")) + flt(entry.get("custom_pea_rh_gross_qty"))
-		rejection_qty = flt(entry.get("custom_pea_lh_rejection_qty")) + flt(
-			entry.get("custom_pea_rh_rejection_qty")
-		)
+	slots = paired_output_slots(entry)
+	if slots:
+		total_qty = sum(flt(entry.get(slot.gross_field)) for slot in slots)
+		rejection_qty = sum(flt(entry.get(slot.rejection_field)) for slot in slots)
 	elif normal_metrics is not None and (
 		flt(normal_metrics.get("good_qty") or 0) > 0
 		or flt(normal_metrics.get("total_rejected_qty") or 0) > 0
@@ -267,10 +325,7 @@ def get_stock_entries_for_fg_item(item_code: str) -> list[str]:
 			& (stock_entry.docstatus == 1)
 			& (
 				(stock_entry.purpose == "Manufacture")
-				| (
-					(stock_entry.purpose == "Repack")
-					& (stock_entry_type.custom_pea_joint_lh_rh_production == 1)
-				)
+				| ((stock_entry.purpose == "Repack") & paired_repack_type_criterion(stock_entry_type))
 			)
 		)
 		.limit(_MAX_FG_ITEM_PARENT_MATCHES + 1)
@@ -666,14 +721,18 @@ def get_item_bom_quality_facts(entries: list[dict], *, is_rework: bool) -> list[
 	quality_by_output: dict[tuple[str, str], float] = defaultdict(float)
 	reasons_by_output: dict[tuple[str, str], dict[str, float]] = defaultdict(dict)
 	breakup_items: dict[tuple[str, str], str] = {}
-	joint_entry_names = {entry.get("name") for entry in entries if is_joint_lh_rh_entry(entry)}
+	allowed_sides = {
+		entry.get("name"): {slot.side for slot in slots}
+		for entry in entries
+		if entry.get("name") and (slots := paired_output_slots(entry))
+	}
 
 	for breakup in breakup_rows:
 		parent = breakup.get("parent")
 		if not parent:
 			continue
-		side = breakup.get("output_side") if parent in joint_entry_names else ""
-		if parent in joint_entry_names and side not in ("LH", "RH"):
+		side = breakup.get("output_side") if parent in allowed_sides else ""
+		if parent in allowed_sides and side not in allowed_sides[parent]:
 			continue
 		key = (parent, side or "")
 		qty = flt(breakup.get("qty") or 0)
@@ -690,15 +749,16 @@ def get_item_bom_quality_facts(entries: list[dict], *, is_rework: bool) -> list[
 		parent = entry.get("name")
 		if not parent:
 			continue
-		if is_joint_lh_rh_entry(entry):
-			for side in ("LH", "RH"):
-				key = (parent, side)
+		slots = paired_output_slots(entry)
+		if slots:
+			for slot in slots:
+				key = (parent, slot.side)
 				facts.append(
 					{
 						"parent": parent,
 						"item_code": joint_items.get(key) or breakup_items.get(key),
-						"bom_no": entry.get(f"custom_pea_{side.lower()}_bom"),
-						"total_qty": flt(entry.get(f"custom_pea_{side.lower()}_gross_qty") or 0),
+						"bom_no": entry.get(slot.bom_field),
+						"total_qty": flt(entry.get(slot.gross_field) or 0),
 						"quality_qty": flt(quality_by_output.get(key) or 0),
 						"reason_totals": reasons_by_output.get(key) or {},
 					}
@@ -813,7 +873,7 @@ def _get_joint_output_item_map(stock_entry_names: list[str]) -> dict[tuple[str, 
 			stock_entry_detail.item_code,
 		)
 		.where(stock_entry_detail.parent.isin(stock_entry_names))
-		.where(stock_entry_detail.custom_pea_joint_output_side.isin(("LH", "RH")))
+		.where(stock_entry_detail.custom_pea_joint_output_side.isin(_JOINT_OUTPUT_SIDES))
 		.where(_get_non_scrap_item_criterion(stock_entry_detail))
 	).run(as_dict=True)
 	return {

@@ -7,7 +7,7 @@ import frappe
 from frappe.model.document import Document
 from frappe.utils import cstr
 
-from production_entry_app.production_entry_app.joint_production import is_joint_lh_rh_production
+from production_entry_app.production_entry_app.joint_production import is_paired_production
 
 DIE_TOOL_ITEM_FIELD = "custom_pea_die_tool_item"
 
@@ -51,7 +51,7 @@ def apply_bom_die_tool_item(doc: Document | Any) -> None:
 
 
 def _production_bom_names(doc: Document | Any) -> list[str]:
-	if is_joint_lh_rh_production(doc):
+	if is_paired_production(doc):
 		return [name for name in (doc.get("custom_pea_lh_bom"), doc.get("custom_pea_rh_bom")) if name]
 	if doc.get("purpose") == "Manufacture" and doc.get("from_bom") and doc.get("bom_no"):
 		return [doc.get("bom_no")]

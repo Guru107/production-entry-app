@@ -91,12 +91,37 @@ def get_joint_stock_entry_type(required: int = 1) -> str:
 	"""Resolve the Joint LH/RH Repack type; passive callers (``required=0``) get "" when none exists."""
 	if not frappe.has_permission("Stock Entry", "create"):
 		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
+	return _get_single_marked_stock_entry_type(
+		filters={"purpose": "Repack", "custom_pea_joint_lh_rh_production": 1},
+		empty_message=_("Configure a Repack Stock Entry Type for Joint LH/RH Production first."),
+		many_message=_("Only one Stock Entry Type can be configured for Joint LH/RH Production."),
+		required=required,
+	)
+
+
+@frappe.whitelist()
+def get_joint_production_stock_entry_type(required: int = 1) -> str:
+	"""Resolve the same-item Joint Production Repack type."""
+	if not frappe.has_permission("Stock Entry", "create"):
+		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
+	return _get_single_marked_stock_entry_type(
+		filters={"purpose": "Repack", "custom_pea_joint_production": 1},
+		empty_message=_("Configure a Repack Stock Entry Type for Joint Production first."),
+		many_message=_("Only one Stock Entry Type can be configured for Joint Production."),
+		required=required,
+	)
+
+
+def _get_single_marked_stock_entry_type(
+	*,
+	filters: dict[str, object],
+	empty_message: str,
+	many_message: str,
+	required: int,
+) -> str:
 	stock_entry_types = frappe.get_list(
 		"Stock Entry Type",
-		filters={
-			"purpose": "Repack",
-			"custom_pea_joint_lh_rh_production": 1,
-		},
+		filters=filters,
 		order_by="modified desc, name asc",
 		pluck="name",
 		limit=2,
@@ -104,11 +129,11 @@ def get_joint_stock_entry_type(required: int = 1) -> str:
 	if not stock_entry_types:
 		if not cint(required):
 			return ""
-		frappe.throw(_("Configure a Repack Stock Entry Type for Joint LH/RH Production first."))
+		frappe.throw(empty_message)
 	if len(stock_entry_types) > 1:
 		if not cint(required):
 			return ""
-		frappe.throw(_("Only one Stock Entry Type can be configured for Joint LH/RH Production."))
+		frappe.throw(many_message)
 	return stock_entry_types[0]
 
 
