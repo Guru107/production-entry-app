@@ -7,6 +7,7 @@
   "fieldtype": "Link",
   "label": "Die Tool Item",
   "options": "Item",
+  "allow_on_submit": 1,
   "insert_after": "custom_operation",
   "module": "Production Entry App",
   "permlevel": 0

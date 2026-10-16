@@ -93,6 +93,7 @@ def test_bom_die_tool_item_is_a_link_after_operation() -> None:
 	assert field["options"] == "Item"
 	assert field["label"] == "Die Tool Item"
 	assert field["insert_after"] == "custom_operation"
+	assert field["allow_on_submit"] == 1
 
 
 def test_stock_entry_detail_rejection_flag_uses_cross_version_anchor() -> None:
