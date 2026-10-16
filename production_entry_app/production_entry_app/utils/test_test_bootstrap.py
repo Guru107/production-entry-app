@@ -157,7 +157,7 @@ class TestTestBootstrap(FrappeTestCase):
 		class _Bom:
 			name = "BOM-NEW"
 
-			def insert(self, ignore_permissions: bool = True) -> "_Bom":
+			def insert(self, ignore_permissions: bool = True) -> _Bom:
 				return self
 
 			def submit(self) -> None:
