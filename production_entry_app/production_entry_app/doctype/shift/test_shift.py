@@ -3600,6 +3600,56 @@ class TestShiftAggregateProductionEntries(FrappeTestCase):
 		derived_abs_tol = 1e-6
 		self.assertAlmostEqual(float(rows[0]["avg_spm"]), expected_avg_spm, delta=derived_abs_tol)
 
+	def test_same_bom_in_manufacture_and_joint_production_stays_distinct(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import (
+			get_shift_aggregate_production_entries,
+		)
+		from production_entry_app.production_entry_app.joint_production import (
+			JOINT_PRODUCTION_STOCK_ENTRY_TYPE,
+		)
+
+		shift = self._create_shift("2026-10-03", shift_label="2")
+		self._create_submitted_like_entry(
+			shift.name,
+			good_qty=100,
+			rejection_qty=5,
+			duration_mins=60,
+			total_strokes=60,
+			bom_no=self.bom,
+		)
+		other_bom = "OTHER-JOINT-BOM"
+		joint_entry = frappe.get_doc(
+			{
+				"doctype": "Stock Entry",
+				"stock_entry_type": JOINT_PRODUCTION_STOCK_ENTRY_TYPE,
+				"purpose": "Repack",
+				"company": self.ctx["company"],
+				"posting_date": "2026-10-03",
+				"posting_time": "10:00:00",
+				"custom_pea_shift": shift.name,
+				"custom_pea_lh_bom": self.bom,
+				"custom_pea_rh_bom": other_bom,
+				"custom_pea_lh_gross_qty": 10,
+				"custom_pea_rh_gross_qty": 4,
+				"custom_pea_lh_rejection_qty": 1,
+				"custom_pea_rh_rejection_qty": 0,
+				"custom_pea_actual_duration_mins": 10,
+				"custom_pea_production_time_mins": 10,
+				"custom_pea_total_strokes": 8,
+				"docstatus": 1,
+			}
+		)
+		joint_entry.db_insert()
+
+		rows = {row["bom_used"]: row for row in get_shift_aggregate_production_entries(shift.name)}
+		self.assertEqual(
+			set(rows),
+			{self.bom, f"{self.bom} (Joint Production)", other_bom},
+		)
+		self.assertEqual(float(rows[self.bom]["total_qty"]), 100.0)
+		self.assertEqual(float(rows[f"{self.bom} (Joint Production)"]["total_qty"]), 10.0)
+		self.assertEqual(float(rows[other_bom]["total_qty"]), 4.0)
+
 	def test_avg_spm_is_zero_when_total_duration_is_zero(self) -> None:
 		from production_entry_app.production_entry_app.doctype.shift.shift import (
 			get_shift_aggregate_production_entries,

@@ -39,6 +39,7 @@ from production_entry_app.production_entry_app.joint_production import (
 	is_joint_lh_rh_production,
 	materialize_joint_production_rows,
 	validate_and_apply_joint_production,
+	validate_stock_entry_type,
 )
 from production_entry_app.production_entry_app.report.report_utils import (
 	get_entry_output_quantities,
@@ -451,6 +452,30 @@ class TestJointProductionStockEntryType(FrappeTestCase):
 
 		with self.assertRaisesRegex(frappe.ValidationError, "Only one Stock Entry Type"):
 			doc.insert(ignore_permissions=True)
+
+	def test_hidden_joint_production_type_still_blocks_a_second_flag(self) -> None:
+		self.assertTrue(frappe.db.exists("Stock Entry Type", JOINT_PRODUCTION_STOCK_ENTRY_TYPE))
+		candidate = frappe.get_doc(
+			{
+				"doctype": "Stock Entry Type",
+				"name": f"Hidden Extra Joint {frappe.generate_hash(length=6)}",
+				"purpose": "Repack",
+				"custom_pea_joint_production": 1,
+			}
+		)
+
+		try:
+			frappe.set_user("Guest")
+			with self.assertRaises(frappe.PermissionError):
+				frappe.get_list(
+					"Stock Entry Type",
+					filters={"custom_pea_joint_production": 1},
+					pluck="name",
+				)
+			with self.assertRaisesRegex(frappe.ValidationError, "Only one Stock Entry Type"):
+				validate_stock_entry_type(candidate)
+		finally:
+			frappe.set_user("Administrator")
 
 	def test_stock_entry_type_cannot_be_both_joint_pairings(self) -> None:
 		doc = frappe.get_doc(

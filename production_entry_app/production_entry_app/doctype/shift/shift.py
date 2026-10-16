@@ -1236,10 +1236,11 @@ def get_shift_aggregate_production_entries(shift_name: str | None = None) -> lis
 				float_precision=float_precision,
 			)
 		)
+	manufacture_boms = {str(row.get("bom_used") or "") for row in result}
 	for bom_no, aggregate in sorted(same_item_aggregates.items()):
 		result.append(
 			_paired_aggregate_row(
-				bom_used=bom_no,
+				bom_used=_same_item_aggregate_bom_label(bom_no, manufacture_boms),
 				item_code=str(aggregate.get("item_code") or ""),
 				aggregate=aggregate,
 				float_precision=float_precision,
@@ -1247,6 +1248,12 @@ def get_shift_aggregate_production_entries(shift_name: str | None = None) -> lis
 		)
 
 	return result
+
+
+def _same_item_aggregate_bom_label(bom_no: str, manufacture_boms: set[str]) -> str:
+	if bom_no in manufacture_boms:
+		return _("{0} (Joint Production)").format(bom_no)
+	return bom_no
 
 
 def _paired_aggregate_row(

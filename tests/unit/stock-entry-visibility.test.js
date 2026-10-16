@@ -1362,6 +1362,72 @@ test("stock-only joint fetch skips die tool requirement", () => {
 	}
 });
 
+function captureJointFetchMessages(doc) {
+	const originalFrappe = global.frappe;
+	const originalTranslate = global.__;
+	const messages = [];
+	let called = false;
+	global.__ = (text) => text;
+	global.frappe = {
+		call() {
+			called = true;
+		},
+		msgprint(message) {
+			messages.push(message);
+		},
+	};
+	try {
+		_handle_custom_pea_fetch_items({ doc });
+	} finally {
+		global.frappe = originalFrappe;
+		global.__ = originalTranslate;
+	}
+	return { messages, called };
+}
+
+function sameItemJointFetchDoc(grossOverrides) {
+	return {
+		custom_stock_entry_purpose: "Repack",
+		stock_entry_type: "Joint Production",
+		__pea_joint_stock_entry_type: "Joint Production",
+		__pea_same_item_joint_stock_entry_type: "Joint Production",
+		custom_pea_operation: "Shearing",
+		custom_pea_lh_bom: "BOM-1",
+		custom_pea_rh_bom: "BOM-2",
+		custom_pea_lh_gross_qty: 10,
+		custom_pea_rh_gross_qty: 12,
+		...grossOverrides,
+	};
+}
+
+test("blank joint slot asks for both gross quantities when the other slot is zero", () => {
+	const { messages, called } = captureJointFetchMessages(
+		sameItemJointFetchDoc({
+			custom_pea_lh_gross_qty: 0,
+			custom_pea_rh_gross_qty: undefined,
+		})
+	);
+
+	assert.equal(called, false);
+	assert.deepEqual(messages, [
+		"Please set BOM 1 and BOM 2 Gross Quantity before fetching items.",
+	]);
+});
+
+test("string zero gross quantity uses the single-recipe message when both slots are filled", () => {
+	const { messages, called } = captureJointFetchMessages(
+		sameItemJointFetchDoc({
+			custom_pea_lh_gross_qty: "0",
+			custom_pea_rh_gross_qty: 12,
+		})
+	);
+
+	assert.equal(called, false);
+	assert.deepEqual(messages, [
+		"Gross Quantity must be greater than zero. If only one recipe is produced, create a Manufacture Production Entry instead of Joint Production.",
+	]);
+});
+
 test("shift-based joint fetch requires die tool item", () => {
 	const originalFrappe = global.frappe;
 	const originalTranslate = global.__;
@@ -1965,16 +2031,17 @@ test("passive joint type discovery asks quietly and stays non-joint when nothing
 	try {
 		_sync_joint_stock_entry_type(frm);
 
-		assert.deepEqual(lookups[0].args, { required: 0 });
-		assert.equal(
-			lookups[0].method,
-			"production_entry_app.production_entry_app.api.get_joint_stock_entry_type"
-		);
+		assert.equal(lookups.length, 2);
+		assert.deepEqual(lookups.map((lookup) => lookup.method).sort(), [
+			"production_entry_app.production_entry_app.api.get_joint_production_stock_entry_type",
+			"production_entry_app.production_entry_app.api.get_joint_stock_entry_type",
+		]);
+		for (const lookup of lookups) {
+			assert.deepEqual(lookup.args, { required: 0 });
+		}
+		assert.equal(frm.__peaJointStockEntryType, undefined);
 		lookups[0].callback({ message: "" });
-		assert.equal(
-			lookups[1].method,
-			"production_entry_app.production_entry_app.api.get_joint_production_stock_entry_type"
-		);
+		assert.equal(frm.__peaJointStockEntryType, undefined);
 		lookups[1].callback({ message: "" });
 
 		assert.equal(frm.__peaJointStockEntryType, "");
@@ -2539,6 +2606,26 @@ test("Joint Production labels the two slots BOM 1 and BOM 2", () => {
 					value === "\nBOM 1\nBOM 2"
 			)
 		);
+	} finally {
+		global.frappe = originalFrappe;
+	}
+});
+
+test("unchanged joint pairing does not rewrite slot labels", () => {
+	const originalFrappe = global.frappe;
+	global.frappe = { call() {} };
+	const { frm, labels } = makeLabeledJointForm("Joint Production");
+
+	try {
+		_sync_joint_stock_entry_type(frm);
+		assert.equal(labels.custom_pea_lh_bom, "BOM 1");
+		for (const fieldname of Object.keys(labels)) {
+			delete labels[fieldname];
+		}
+
+		_apply_manufacture_visibility(frm);
+
+		assert.deepEqual(labels, {});
 	} finally {
 		global.frappe = originalFrappe;
 	}

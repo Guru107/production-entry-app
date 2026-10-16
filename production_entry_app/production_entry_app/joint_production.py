@@ -1153,7 +1153,8 @@ def _get_item_details(item_codes: Iterable[str]) -> dict[str, frappe._dict]:
 
 
 def _reject_duplicate_stock_entry_type_flag(doc: Document, *, flag_fieldname: str, message: str) -> None:
-	existing_types = frappe.get_list(
+	# Site-wide invariant: a caller who cannot see the existing flagged type must still be blocked.
+	existing_types = frappe.get_all(
 		"Stock Entry Type",
 		filters={flag_fieldname: 1, "name": ["!=", doc.name]},
 		pluck="name",

@@ -831,40 +831,58 @@ function _sync_joint_mode_from_stock_entry_type(frm, requestId, previousStockEnt
 		requestId,
 		stockEntryType: selectedStockEntryType,
 	};
+	const pendingTypes = { lhRhType: undefined, sameItemType: undefined, failed: false };
+	const finishJointTypeLookup = () => {
+		if (
+			pendingTypes.failed ||
+			pendingTypes.lhRhType === undefined ||
+			pendingTypes.sameItemType === undefined
+		) {
+			return;
+		}
+		applyPairings(pendingTypes.lhRhType, pendingTypes.sameItemType);
+	};
+	// Passive discovery on every form: an unconfigured site answers "" instead of an error.
 	frappe.call({
 		method: "production_entry_app.production_entry_app.api.get_joint_stock_entry_type",
-		// Passive discovery on every form: an unconfigured site answers "" instead of an error.
 		args: { required: 0 },
 		callback(r) {
-			const lhRhType = r.message || "";
-			if (Object.prototype.hasOwnProperty.call(frm, "__peaSameItemJointStockEntryType")) {
-				applyPairings(lhRhType, frm.__peaSameItemJointStockEntryType || "");
-				return;
-			}
-			frappe.call({
-				method: "production_entry_app.production_entry_app.api.get_joint_production_stock_entry_type",
-				args: { required: 0 },
-				callback(response) {
-					applyPairings(lhRhType, response.message || "");
-				},
-				error(sameItemError) {
-					if (requestId !== _jointStockEntryTypeRequestId) return;
-					delete frm.__peaJointStockEntryTypeLookup;
-					_notify_call_error(
-						__("Failed to identify the Joint Production Stock Entry Type."),
-						sameItemError
-					);
-				},
-			});
+			if (requestId !== _jointStockEntryTypeRequestId || pendingTypes.failed) return;
+			pendingTypes.lhRhType = r.message || "";
+			finishJointTypeLookup();
 		},
 		error(error) {
 			if (requestId !== _jointStockEntryTypeRequestId) return;
+			pendingTypes.failed = true;
 			delete frm.__peaJointStockEntryTypeLookup;
 			if (frm.__peaDeferredManufactureCleanup) {
 				delete frm.__peaDeferredManufactureCleanup;
 				_clear_manufacture_data(frm);
 			}
 			_notify_call_error(__("Failed to identify the Joint LH/RH Stock Entry Type."), error);
+		},
+	});
+	if (Object.prototype.hasOwnProperty.call(frm, "__peaSameItemJointStockEntryType")) {
+		pendingTypes.sameItemType = frm.__peaSameItemJointStockEntryType || "";
+		finishJointTypeLookup();
+		return;
+	}
+	frappe.call({
+		method: "production_entry_app.production_entry_app.api.get_joint_production_stock_entry_type",
+		args: { required: 0 },
+		callback(response) {
+			if (requestId !== _jointStockEntryTypeRequestId || pendingTypes.failed) return;
+			pendingTypes.sameItemType = response.message || "";
+			finishJointTypeLookup();
+		},
+		error(sameItemError) {
+			if (requestId !== _jointStockEntryTypeRequestId) return;
+			pendingTypes.failed = true;
+			delete frm.__peaJointStockEntryTypeLookup;
+			_notify_call_error(
+				__("Failed to identify the Joint Production Stock Entry Type."),
+				sameItemError
+			);
 		},
 	});
 }
@@ -1412,6 +1430,11 @@ function _form_label(text) {
 
 function _apply_joint_slot_labels(frm) {
 	const sameItem = _is_same_item_joint_doc(frm.doc);
+	const pairing = sameItem ? "same_item" : "lh_rh";
+	if (frm.__peaLastSlotPairing === pairing) {
+		return;
+	}
+	frm.__peaLastSlotPairing = pairing;
 	const labels = sameItem
 		? {
 				custom_pea_joint_production_section: _form_label("Joint Production"),
@@ -1449,6 +1472,15 @@ function _configure_rejection_breakup_grid(frm) {
 		"options",
 		sameItem ? "\nBOM 1\nBOM 2" : "\nLH\nRH"
 	);
+}
+
+function _gross_qty_is_blank(value) {
+	return value == null || String(value).trim() === "";
+}
+
+function _gross_qty_is_zero(value) {
+	const numeric = typeof value === "string" ? value.trim() : value;
+	return numeric === 0 || numeric === "0";
 }
 
 function _handle_custom_pea_fetch_items(frm) {
@@ -1490,11 +1522,21 @@ function _handle_custom_pea_fetch_items(frm) {
 		);
 		return;
 	}
-	if (isJoint && (!frm.doc.custom_pea_lh_gross_qty || !frm.doc.custom_pea_rh_gross_qty)) {
-		const zeroGross =
-			frm.doc.custom_pea_lh_gross_qty === 0 || frm.doc.custom_pea_rh_gross_qty === 0;
+	const lhGrossQty = frm.doc.custom_pea_lh_gross_qty;
+	const rhGrossQty = frm.doc.custom_pea_rh_gross_qty;
+	if (
+		isJoint &&
+		(_gross_qty_is_blank(lhGrossQty) ||
+			_gross_qty_is_blank(rhGrossQty) ||
+			_gross_qty_is_zero(lhGrossQty) ||
+			_gross_qty_is_zero(rhGrossQty))
+	) {
+		const bothSlotsFilled =
+			!_gross_qty_is_blank(lhGrossQty) && !_gross_qty_is_blank(rhGrossQty);
+		const explicitZero =
+			bothSlotsFilled && (_gross_qty_is_zero(lhGrossQty) || _gross_qty_is_zero(rhGrossQty));
 		frappe.msgprint(
-			zeroGross && sameItemJoint
+			explicitZero && sameItemJoint
 				? __(
 						"Gross Quantity must be greater than zero. If only one recipe is produced, create a Manufacture Production Entry instead of Joint Production."
 				  )
