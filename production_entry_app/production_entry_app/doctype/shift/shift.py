@@ -600,13 +600,13 @@ def _build_item_bom_rows(
 	for entry in entries:
 		if is_joint_production_entry(entry):
 			item_code = entry.get("item_code") or _("Unknown Item")
-			for _side, bom_field, gross_field, rejection_field in paired_output_slots(entry) or ():
-				gross_qty = flt(entry.get(gross_field) or 0)
-				rejection_qty = flt(entry.get(rejection_field) or 0)
+			for slot in paired_output_slots(entry) or ():
+				gross_qty = flt(entry.get(slot.gross_field) or 0)
+				rejection_qty = flt(entry.get(slot.rejection_field) or 0)
 				_add_item_bom_quantity(
 					aggregates,
 					item_code=item_code,
-					bom_no=entry.get(bom_field) or "",
+					bom_no=entry.get(slot.bom_field) or "",
 					total_qty=gross_qty,
 					ok_qty=max(gross_qty - rejection_qty, 0),
 					rejection_qty=rejection_qty,
@@ -1209,7 +1209,7 @@ def get_shift_aggregate_production_entries(shift_name: str | None = None) -> lis
 				}
 			)
 
-	joint_aggregates: dict[tuple[str, str], dict[str, float]] = {}
+	joint_aggregates: dict[tuple[str, ...], dict[str, float]] = {}
 	same_item_aggregates: dict[str, dict[str, float | str]] = {}
 	for entry in permitted_entries:
 		if is_joint_production_entry(entry):
@@ -1217,55 +1217,57 @@ def get_shift_aggregate_production_entries(shift_name: str | None = None) -> lis
 			continue
 		if not is_joint_lh_rh_entry(entry):
 			continue
-		lh_bom = entry.get("custom_pea_lh_bom") or ""
-		rh_bom = entry.get("custom_pea_rh_bom") or ""
-		key = (lh_bom, rh_bom)
+		slots = paired_output_slots(entry) or ()
+		boms = [entry.get(slot.bom_field) or "" for slot in slots]
 		aggregate = joint_aggregates.setdefault(
-			key,
+			tuple(boms),
 			{"total_qty": 0.0, "total_reject_qty": 0.0, "total_strokes": 0.0, "mins": 0.0},
 		)
-		aggregate["total_qty"] += flt(entry.get("custom_pea_lh_gross_qty")) + flt(
-			entry.get("custom_pea_rh_gross_qty")
-		)
-		aggregate["total_reject_qty"] += flt(entry.get("custom_pea_lh_rejection_qty")) + flt(
-			entry.get("custom_pea_rh_rejection_qty")
-		)
+		aggregate["total_qty"] += sum(flt(entry.get(slot.gross_field)) for slot in slots)
+		aggregate["total_reject_qty"] += sum(flt(entry.get(slot.rejection_field)) for slot in slots)
 		aggregate["total_strokes"] += flt(entry.get("custom_pea_total_strokes"))
 		aggregate["mins"] += _get_entry_production_minutes(entry)
-	for (lh_bom, rh_bom), aggregate in sorted(joint_aggregates.items()):
-		total_qty = flt(aggregate["total_qty"])
-		total_reject_qty = flt(aggregate["total_reject_qty"])
-		mins = flt(aggregate["mins"])
+	for boms, aggregate in sorted(joint_aggregates.items()):
 		result.append(
-			{
-				"bom_used": " + ".join(value for value in (lh_bom, rh_bom) if value),
-				"item_code": " + ".join(
-					value for value in (item_by_bom.get(lh_bom), item_by_bom.get(rh_bom)) if value
-				),
-				"total_qty": total_qty,
-				"total_ok_qty": max(total_qty - total_reject_qty, 0),
-				"total_reject_qty": total_reject_qty,
-				"avg_spm": flt(aggregate["total_strokes"] / mins) if mins > 0 else 0,
-				"float_precision": float_precision,
-			}
+			_paired_aggregate_row(
+				bom_used=" + ".join(bom for bom in boms if bom),
+				item_code=" + ".join(item for item in (item_by_bom.get(bom) for bom in boms) if item),
+				aggregate=aggregate,
+				float_precision=float_precision,
+			)
 		)
 	for bom_no, aggregate in sorted(same_item_aggregates.items()):
-		total_qty = flt(aggregate["total_qty"])
-		total_reject_qty = flt(aggregate["total_reject_qty"])
-		mins = flt(aggregate["mins"])
 		result.append(
-			{
-				"bom_used": bom_no,
-				"item_code": aggregate.get("item_code") or "",
-				"total_qty": total_qty,
-				"total_ok_qty": max(total_qty - total_reject_qty, 0),
-				"total_reject_qty": total_reject_qty,
-				"avg_spm": flt(aggregate["total_strokes"] / mins) if mins > 0 else 0,
-				"float_precision": float_precision,
-			}
+			_paired_aggregate_row(
+				bom_used=bom_no,
+				item_code=str(aggregate.get("item_code") or ""),
+				aggregate=aggregate,
+				float_precision=float_precision,
+			)
 		)
 
 	return result
+
+
+def _paired_aggregate_row(
+	*,
+	bom_used: str,
+	item_code: str,
+	aggregate: dict,
+	float_precision: int,
+) -> dict:
+	total_qty = flt(aggregate["total_qty"])
+	total_reject_qty = flt(aggregate["total_reject_qty"])
+	mins = flt(aggregate["mins"])
+	return {
+		"bom_used": bom_used,
+		"item_code": item_code,
+		"total_qty": total_qty,
+		"total_ok_qty": max(total_qty - total_reject_qty, 0),
+		"total_reject_qty": total_reject_qty,
+		"avg_spm": flt(aggregate["total_strokes"] / mins) if mins > 0 else 0,
+		"float_precision": float_precision,
+	}
 
 
 def _add_same_item_joint_aggregate(
@@ -1275,8 +1277,8 @@ def _add_same_item_joint_aggregate(
 ) -> None:
 	strokes = flt(entry.get("custom_pea_total_strokes"))
 	mins = _get_entry_production_minutes(entry)
-	for _side, bom_field, gross_field, rejection_field in paired_output_slots(entry) or ():
-		bom_no = entry.get(bom_field) or ""
+	for slot in paired_output_slots(entry) or ():
+		bom_no = entry.get(slot.bom_field) or ""
 		if not bom_no:
 			continue
 		aggregate = aggregates.setdefault(
@@ -1289,8 +1291,10 @@ def _add_same_item_joint_aggregate(
 				"mins": 0.0,
 			},
 		)
-		aggregate["total_qty"] = flt(aggregate["total_qty"]) + flt(entry.get(gross_field))
-		aggregate["total_reject_qty"] = flt(aggregate["total_reject_qty"]) + flt(entry.get(rejection_field))
+		aggregate["total_qty"] = flt(aggregate["total_qty"]) + flt(entry.get(slot.gross_field))
+		aggregate["total_reject_qty"] = flt(aggregate["total_reject_qty"]) + flt(
+			entry.get(slot.rejection_field)
+		)
 		aggregate["total_strokes"] = flt(aggregate["total_strokes"]) + strokes
 		aggregate["mins"] = flt(aggregate["mins"]) + mins
 

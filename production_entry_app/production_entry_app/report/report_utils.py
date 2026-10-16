@@ -38,17 +38,29 @@ _PRODUCTION_STOCK_ENTRY_OR_FILTERS: tuple[tuple[str, str, Any], ...] = (
 	("purpose", "=", "Manufacture"),
 	("purpose", "=", "Repack"),
 )
-_LH_RH_OUTPUT_SLOTS: tuple[tuple[str, str, str, str], ...] = (
-	("LH", "custom_pea_lh_bom", "custom_pea_lh_gross_qty", "custom_pea_lh_rejection_qty"),
-	("RH", "custom_pea_rh_bom", "custom_pea_rh_gross_qty", "custom_pea_rh_rejection_qty"),
+
+
+class OutputSlot(NamedTuple):
+	side: str
+	bom_field: str
+	gross_field: str
+	rejection_field: str
+
+
+_PAIRED_SLOT_FIELDS: tuple[tuple[str, str, str], ...] = (
+	("custom_pea_lh_bom", "custom_pea_lh_gross_qty", "custom_pea_lh_rejection_qty"),
+	("custom_pea_rh_bom", "custom_pea_rh_gross_qty", "custom_pea_rh_rejection_qty"),
 )
-_SAME_ITEM_OUTPUT_SLOTS: tuple[tuple[str, str, str, str], ...] = (
-	("BOM 1", "custom_pea_lh_bom", "custom_pea_lh_gross_qty", "custom_pea_lh_rejection_qty"),
-	("BOM 2", "custom_pea_rh_bom", "custom_pea_rh_gross_qty", "custom_pea_rh_rejection_qty"),
-)
+
+
+def _output_slots(sides: tuple[str, str]) -> tuple[OutputSlot, ...]:
+	return tuple(OutputSlot(side, *fields) for side, fields in zip(sides, _PAIRED_SLOT_FIELDS, strict=True))
+
+
+_LH_RH_OUTPUT_SLOTS: tuple[OutputSlot, ...] = _output_slots(("LH", "RH"))
+_SAME_ITEM_OUTPUT_SLOTS: tuple[OutputSlot, ...] = _output_slots(("BOM 1", "BOM 2"))
 _JOINT_OUTPUT_SIDES: tuple[str, ...] = tuple(
-	side
-	for side, _bom_field, _gross_field, _rejection_field in (*_LH_RH_OUTPUT_SLOTS, *_SAME_ITEM_OUTPUT_SLOTS)
+	slot.side for slot in (*_LH_RH_OUTPUT_SLOTS, *_SAME_ITEM_OUTPUT_SLOTS)
 )
 # Cutover release: reports read the app's own fields only. Entries created
 # before the changeover are not considered, so the legacy parallel fields
@@ -166,7 +178,7 @@ def is_paired_production_entry(entry: dict | BaseDocument) -> bool:
 	return is_joint_lh_rh_entry(entry) or is_joint_production_entry(entry)
 
 
-def paired_output_slots(entry: dict | BaseDocument) -> tuple[tuple[str, str, str, str], ...] | None:
+def paired_output_slots(entry: dict | BaseDocument) -> tuple[OutputSlot, ...] | None:
 	if is_joint_production_entry(entry):
 		return _SAME_ITEM_OUTPUT_SLOTS
 	if is_joint_lh_rh_entry(entry):
@@ -213,12 +225,8 @@ def get_entry_output_quantities(
 	"""
 	slots = paired_output_slots(entry)
 	if slots:
-		total_qty = sum(
-			flt(entry.get(gross_field)) for _side, _bom_field, gross_field, _rejection_field in slots
-		)
-		rejection_qty = sum(
-			flt(entry.get(rejection_field)) for _side, _bom_field, _gross_field, rejection_field in slots
-		)
+		total_qty = sum(flt(entry.get(slot.gross_field)) for slot in slots)
+		rejection_qty = sum(flt(entry.get(slot.rejection_field)) for slot in slots)
 	elif normal_metrics is not None and (
 		flt(normal_metrics.get("good_qty") or 0) > 0
 		or flt(normal_metrics.get("total_rejected_qty") or 0) > 0
@@ -714,7 +722,7 @@ def get_item_bom_quality_facts(entries: list[dict], *, is_rework: bool) -> list[
 	reasons_by_output: dict[tuple[str, str], dict[str, float]] = defaultdict(dict)
 	breakup_items: dict[tuple[str, str], str] = {}
 	allowed_sides = {
-		entry.get("name"): {side for side, _bom_field, _gross_field, _rejection_field in slots}
+		entry.get("name"): {slot.side for slot in slots}
 		for entry in entries
 		if entry.get("name") and (slots := paired_output_slots(entry))
 	}
@@ -743,14 +751,14 @@ def get_item_bom_quality_facts(entries: list[dict], *, is_rework: bool) -> list[
 			continue
 		slots = paired_output_slots(entry)
 		if slots:
-			for side, bom_field, gross_field, _rejection_field in slots:
-				key = (parent, side)
+			for slot in slots:
+				key = (parent, slot.side)
 				facts.append(
 					{
 						"parent": parent,
 						"item_code": joint_items.get(key) or breakup_items.get(key),
-						"bom_no": entry.get(bom_field),
-						"total_qty": flt(entry.get(gross_field) or 0),
+						"bom_no": entry.get(slot.bom_field),
+						"total_qty": flt(entry.get(slot.gross_field) or 0),
 						"quality_qty": flt(quality_by_output.get(key) or 0),
 						"reason_totals": reasons_by_output.get(key) or {},
 					}

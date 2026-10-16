@@ -8,6 +8,7 @@ import erpnext
 import frappe
 import frappe.client
 import frappe.handler
+from frappe.model.document import Document
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_to_date, cint, cstr, flt, get_datetime
 
@@ -2508,62 +2509,21 @@ class TestJointProductionItems(FrappeTestCase):
 		)
 
 	def test_shift_based_joint_production_keeps_one_die_and_entered_strokes(self) -> None:
-		finished, sheet_bom, end_bom = self._same_item_boms()
-		workstation = f"Joint Count {frappe.generate_hash(length=6)}"
-		ensure_workstation(workstation, standard_spm=2)
-		die = ensure_item(f"_Same_Die_{frappe.generate_hash(length=6)}")
-		frappe.db.set_value(
-			"Item",
-			die,
-			{"custom_pea_has_die_tool": 1, "custom_pea_stroke_capacity": 10000},
-			update_modified=False,
-		)
-		shift = make_completed_shift(self.masters)
-		doc = self._make_joint_entry(
-			shift,
-			lh_bom=sheet_bom,
-			rh_bom=end_bom,
-			lh_gross_qty=1000,
-			lh_rejection_qty=0,
-			rh_gross_qty=500,
-			rh_rejection_qty=4,
-			**self._same_item_entry_args(finished),
-		)
-		doc.custom_pea_workstation = workstation
-		doc.custom_pea_total_strokes = 77
-		doc.custom_pea_die_tool_item = die
-		doc.custom_pea_standard_spm = 0
-		doc.custom_pea_rejection_breakup = []
-		doc.append(
-			"custom_pea_rejection_breakup",
-			{
-				"rejection_reason": "Burr",
-				"qty": 4,
-				"output_side": "BOM 2",
-				"item_code": finished,
-				"is_rework": 1,
-			},
-		)
-		doc.append(
-			"custom_pea_unplanned_losses",
-			{"downtime_reason": "14", "start_time": "08:20:00", "end_time": "08:30:00"},
-		)
-		ensure_downtime_reason("14")
-
-		doc.insert(ignore_permissions=True)
-		doc.submit()
-
-		self.assertEqual(doc.custom_pea_die_tool_item, die)
+		counted = self._submit_counted_same_item_joint()
+		doc = counted.doc
+		self.assertEqual(doc.custom_pea_die_tool_item, counted.die)
 		self.assertEqual(doc.custom_pea_total_strokes, 77)
 		self.assertEqual(doc.custom_pea_standard_spm, 2)
 		self.assertEqual(doc.custom_pea_is_late_entry, 1)
-		self.assertEqual(doc.custom_pea_unplanned_losses[0].shift, shift.name)
+		self.assertEqual(doc.custom_pea_unplanned_losses[0].shift, counted.shift.name)
 		self.assertEqual(
-			frappe.db.get_value("Die Tool Counter", {"die_tool_item": die}, "current_stroke_count"),
+			frappe.db.get_value("Die Tool Counter", {"die_tool_item": counted.die}, "current_stroke_count"),
 			77,
 		)
 
-		summary = get_shift_summary(shift.name)
+	def test_shift_summary_counts_joint_production_once_per_bom(self) -> None:
+		counted = self._submit_counted_same_item_joint()
+		summary = get_shift_summary(counted.shift.name)
 		recorded_mins = flt(summary["snapshot"]["recorded_production_mins"])
 		self.assertEqual(summary["snapshot"]["entry_count"], 1)
 		self.assertEqual(summary["snapshot"]["late_entry_count"], 1)
@@ -2572,13 +2532,28 @@ class TestJointProductionItems(FrappeTestCase):
 		self.assertGreater(recorded_mins, 0)
 		self.assertAlmostEqual(flt(summary["snapshot"]["overall_throughput_spm"]), 77 / recorded_mins)
 		item_rows = {row["bom_no"]: row for row in summary["exceptions"]["item_boms"]}
-		self.assertEqual(flt(item_rows[sheet_bom]["total_qty"]), 1000)
-		self.assertEqual(flt(item_rows[end_bom]["total_qty"]), 500)
-		self.assertEqual(flt(item_rows[end_bom]["rejection_qty"]), 4)
+		self.assertEqual(flt(item_rows[counted.sheet_bom]["total_qty"]), 1000)
+		self.assertEqual(flt(item_rows[counted.end_bom]["total_qty"]), 500)
+		self.assertEqual(flt(item_rows[counted.end_bom]["rejection_qty"]), 4)
 
+	def test_shift_aggregate_uses_one_run_rate_for_each_joint_bom(self) -> None:
 		from production_entry_app.production_entry_app.doctype.shift.shift import (
 			get_shift_aggregate_production_entries,
 		)
+
+		counted = self._submit_counted_same_item_joint()
+		aggregates = {
+			row["bom_used"]: row for row in get_shift_aggregate_production_entries(counted.shift.name)
+		}
+		self.assertEqual(set(aggregates), {counted.sheet_bom, counted.end_bom})
+		self.assertEqual(flt(aggregates[counted.sheet_bom]["total_qty"]), 1000)
+		self.assertEqual(flt(aggregates[counted.end_bom]["total_qty"]), 500)
+		self.assertAlmostEqual(
+			flt(aggregates[counted.sheet_bom]["avg_spm"]),
+			flt(aggregates[counted.end_bom]["avg_spm"]),
+		)
+
+	def test_oee_and_rework_count_joint_production_once_per_slot(self) -> None:
 		from production_entry_app.production_entry_app.report.item_bom_rework_hotspots.item_bom_rework_hotspots import (
 			execute as rework_execute,
 		)
@@ -2586,40 +2561,29 @@ class TestJointProductionItems(FrappeTestCase):
 			execute as oee_execute,
 		)
 
-		aggregates = {row["bom_used"]: row for row in get_shift_aggregate_production_entries(shift.name)}
-		self.assertEqual(set(aggregates), {sheet_bom, end_bom})
-		self.assertEqual(flt(aggregates[sheet_bom]["total_qty"]), 1000)
-		self.assertEqual(flt(aggregates[end_bom]["total_qty"]), 500)
-		self.assertAlmostEqual(flt(aggregates[sheet_bom]["avg_spm"]), flt(aggregates[end_bom]["avg_spm"]))
-
+		counted = self._submit_counted_same_item_joint()
 		_, oee_rows = oee_execute(
 			{
-				"from_date": str(shift.shift_date),
-				"to_date": str(shift.shift_date),
-				"custom_pea_workstation": workstation,
+				"from_date": str(counted.shift.shift_date),
+				"to_date": str(counted.shift.shift_date),
+				"custom_pea_workstation": counted.workstation,
 			}
 		)
 		self.assertEqual(len(oee_rows), 1)
 		self.assertEqual(flt(oee_rows[0]["total_strokes"]), 77)
 		self.assertEqual(flt(oee_rows[0]["rejection"]), 4)
 
-		_, rework_rows = rework_execute({"custom_pea_shift": shift.name})
+		_, rework_rows = rework_execute({"custom_pea_shift": counted.shift.name})
 		rework_by_bom = {row["bom_no"]: row for row in rework_rows}
-		self.assertEqual(flt(rework_by_bom[end_bom]["rework_qty"]), 4)
-		self.assertEqual(flt(rework_by_bom[sheet_bom]["rework_qty"]), 0)
+		self.assertEqual(flt(rework_by_bom[counted.end_bom]["rework_qty"]), 4)
+		self.assertEqual(flt(rework_by_bom[counted.sheet_bom]["rework_qty"]), 0)
 
 	def test_joint_production_refuses_workstation_overlap_and_downtime(self) -> None:
-		finished, sheet_bom, end_bom = self._same_item_boms()
 		shift = make_running_shift(self.masters)
-		doc = self._make_joint_entry(
+		_finished, _sheet_bom, _end_bom, doc = self._draft_same_item_joint(
 			shift,
-			lh_bom=sheet_bom,
-			rh_bom=end_bom,
 			lh_gross_qty=10,
-			lh_rejection_qty=0,
 			rh_gross_qty=10,
-			rh_rejection_qty=0,
-			**self._same_item_entry_args(finished),
 		)
 		blocker = frappe.get_doc(
 			{
@@ -2654,17 +2618,10 @@ class TestJointProductionItems(FrappeTestCase):
 			doc.insert(ignore_permissions=True)
 
 	def test_joint_production_refuses_a_loss_outside_the_actual_window(self) -> None:
-		finished, sheet_bom, end_bom = self._same_item_boms()
-		shift = make_running_shift(self.masters)
-		doc = self._make_joint_entry(
-			shift,
-			lh_bom=sheet_bom,
-			rh_bom=end_bom,
+		_finished, _sheet_bom, _end_bom, doc = self._draft_same_item_joint(
+			make_running_shift(self.masters),
 			lh_gross_qty=10,
-			lh_rejection_qty=0,
 			rh_gross_qty=10,
-			rh_rejection_qty=0,
-			**self._same_item_entry_args(finished),
 		)
 		ensure_downtime_reason("14")
 		doc.append(
@@ -2675,17 +2632,10 @@ class TestJointProductionItems(FrappeTestCase):
 			doc.insert(ignore_permissions=True)
 
 	def test_joint_production_without_a_shift_drops_shift_metrics(self) -> None:
-		finished, sheet_bom, end_bom = self._same_item_boms()
-		shift = make_running_shift(self.masters)
-		doc = self._make_joint_entry(
-			shift,
-			lh_bom=sheet_bom,
-			rh_bom=end_bom,
+		_finished, _sheet_bom, _end_bom, doc = self._draft_same_item_joint(
+			make_running_shift(self.masters),
 			lh_gross_qty=10,
-			lh_rejection_qty=0,
 			rh_gross_qty=10,
-			rh_rejection_qty=0,
-			**self._same_item_entry_args(finished),
 		)
 		doc.custom_pea_shift = None
 		if stock_entry_has_branch_field():
@@ -2708,22 +2658,85 @@ class TestJointProductionItems(FrappeTestCase):
 		self.assertFalse(doc.custom_pea_production_time_mins)
 
 	def test_shift_based_joint_production_requires_a_workstation(self) -> None:
-		finished, sheet_bom, end_bom = self._same_item_boms()
-		shift = make_running_shift(self.masters)
-		doc = self._make_joint_entry(
-			shift,
-			lh_bom=sheet_bom,
-			rh_bom=end_bom,
+		_finished, _sheet_bom, _end_bom, doc = self._draft_same_item_joint(
+			make_running_shift(self.masters),
 			lh_gross_qty=10,
-			lh_rejection_qty=0,
 			rh_gross_qty=10,
-			rh_rejection_qty=0,
-			**self._same_item_entry_args(finished),
 		)
 		doc.custom_pea_workstation = ""
 
 		with self.assertRaisesRegex(frappe.ValidationError, "Workstation is required"):
 			doc.insert(ignore_permissions=True)
+
+	def _draft_same_item_joint(
+		self,
+		shift: Document,
+		*,
+		lh_gross_qty: float,
+		rh_gross_qty: float,
+		lh_rejection_qty: float = 0,
+		rh_rejection_qty: float = 0,
+	) -> tuple[str, str, str, Document]:
+		finished, sheet_bom, end_bom = self._same_item_boms()
+		doc = self._make_joint_entry(
+			shift,
+			lh_bom=sheet_bom,
+			rh_bom=end_bom,
+			lh_gross_qty=lh_gross_qty,
+			lh_rejection_qty=lh_rejection_qty,
+			rh_gross_qty=rh_gross_qty,
+			rh_rejection_qty=rh_rejection_qty,
+			**self._same_item_entry_args(finished),
+		)
+		return finished, sheet_bom, end_bom, doc
+
+	def _submit_counted_same_item_joint(self) -> frappe._dict:
+		workstation = f"Joint Count {frappe.generate_hash(length=6)}"
+		ensure_workstation(workstation, standard_spm=2)
+		die = ensure_item(f"_Same_Die_{frappe.generate_hash(length=6)}")
+		frappe.db.set_value(
+			"Item",
+			die,
+			{"custom_pea_has_die_tool": 1, "custom_pea_stroke_capacity": 10000},
+			update_modified=False,
+		)
+		shift = make_completed_shift(self.masters)
+		finished, sheet_bom, end_bom, doc = self._draft_same_item_joint(
+			shift,
+			lh_gross_qty=1000,
+			rh_gross_qty=500,
+			rh_rejection_qty=4,
+		)
+		doc.custom_pea_workstation = workstation
+		doc.custom_pea_total_strokes = 77
+		doc.custom_pea_die_tool_item = die
+		doc.custom_pea_standard_spm = 0
+		doc.custom_pea_rejection_breakup = []
+		doc.append(
+			"custom_pea_rejection_breakup",
+			{
+				"rejection_reason": "Burr",
+				"qty": 4,
+				"output_side": "BOM 2",
+				"item_code": finished,
+				"is_rework": 1,
+			},
+		)
+		doc.append(
+			"custom_pea_unplanned_losses",
+			{"downtime_reason": "14", "start_time": "08:20:00", "end_time": "08:30:00"},
+		)
+		ensure_downtime_reason("14")
+		doc.insert(ignore_permissions=True)
+		doc.submit()
+		return frappe._dict(
+			sheet_bom=sheet_bom,
+			end_bom=end_bom,
+			workstation=workstation,
+			die=die,
+			shift=shift,
+			doc=doc,
+		)
 
 	def _same_item_boms(self) -> tuple[str, str, str]:
 		suffix = frappe.generate_hash(length=6)

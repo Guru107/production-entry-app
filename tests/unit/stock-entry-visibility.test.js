@@ -403,7 +403,7 @@ test("configured rejection warehouse defaults blank rework header and item sourc
 		_sync_rework_source_warehouse(frm);
 		assert.equal(
 			request.method,
-			"production_entry_app.production_entry_app.api.get_rework_source_warehouse",
+			"production_entry_app.production_entry_app.api.get_rework_source_warehouse"
 		);
 		assert.deepEqual(request.args, { company: "Test Company", branch: "Test Branch" });
 		request.callback({ message: "Rejection Warehouse" });
@@ -1411,14 +1411,14 @@ test("manufacture decision uses production-owned custom_stock_entry_purpose only
 	assert.equal(_is_manufacture_doc({ custom_stock_entry_purpose: "Manufacture" }), true);
 	assert.equal(
 		_is_manufacture_doc({ custom_stock_entry_purpose: "", purpose: "Manufacture" }),
-		false,
+		false
 	);
 	assert.equal(
 		_is_manufacture_doc({
 			custom_stock_entry_purpose: "Material Transfer",
 			purpose: "Manufacture",
 		}),
-		false,
+		false
 	);
 });
 
@@ -1448,7 +1448,7 @@ test("joint BOM query uses the server operation matcher with trimmed selected op
 				company: "Test Company",
 				operation: "Shearing",
 			},
-		},
+		}
 	);
 	assert.deepEqual(
 		_get_joint_bom_query({
@@ -1463,7 +1463,7 @@ test("joint BOM query uses the server operation matcher with trimmed selected op
 				company: "Test Company",
 				operation: "",
 			},
-		},
+		}
 	);
 });
 
@@ -1516,8 +1516,8 @@ test("shift-gated fields stay hidden until Shift is selected", () => {
 				kind === "display" &&
 				Array.isArray(fieldnames) &&
 				fieldnames.includes("custom_pea_workstation") &&
-				visible === false,
-		),
+				visible === false
+		)
 	);
 	assert.ok(
 		calls.some(
@@ -1525,8 +1525,8 @@ test("shift-gated fields stay hidden until Shift is selected", () => {
 				kind === "display" &&
 				Array.isArray(fieldnames) &&
 				fieldnames.includes("custom_pea_shift") &&
-				visible === true,
-		),
+				visible === true
+		)
 	);
 });
 
@@ -1556,15 +1556,15 @@ test("selecting Shift shows gated fields and marks capture fields required", () 
 				kind === "display" &&
 				Array.isArray(fieldnames) &&
 				fieldnames.includes("custom_pea_workstation") &&
-				visible === true,
-		),
+				visible === true
+		)
 	);
 	for (const fieldname of SHIFT_BASED_REQUIRED_FIELDS) {
 		assert.ok(
 			calls.some(
 				([kind, requiredField, required]) =>
-					kind === "reqd" && requiredField === fieldname && required === true,
-			),
+					kind === "reqd" && requiredField === fieldname && required === true
+			)
 		);
 	}
 });
@@ -1580,7 +1580,7 @@ test("rejection visibility quantity sums joint sides and uses normal rejection o
 				custom_pea_lh_rejection_qty: 2,
 				custom_pea_rh_rejection_qty: 3,
 			}),
-			5,
+			5
 		);
 		assert.equal(_get_rejection_qty_for_visibility({ custom_pea_rejection_qty: "4" }), 4);
 	} finally {
@@ -1737,14 +1737,14 @@ test("joint visibility shows and requires the operation selector only in joint m
 				kind === "display" &&
 				Array.isArray(fieldnames) &&
 				fieldnames.includes("custom_pea_operation") &&
-				visible === true,
-		),
+				visible === true
+		)
 	);
 	assert.ok(
 		calls.some(
 			([kind, fieldname, required]) =>
-				kind === "reqd" && fieldname === "custom_pea_operation" && required === true,
-		),
+				kind === "reqd" && fieldname === "custom_pea_operation" && required === true
+		)
 	);
 
 	calls.length = 0;
@@ -1757,14 +1757,14 @@ test("joint visibility shows and requires the operation selector only in joint m
 				kind === "display" &&
 				Array.isArray(fieldnames) &&
 				fieldnames.includes("custom_pea_operation") &&
-				visible === false,
-		),
+				visible === false
+		)
 	);
 	assert.ok(
 		calls.some(
 			([kind, fieldname, required]) =>
-				kind === "reqd" && fieldname === "custom_pea_operation" && required === false,
-		),
+				kind === "reqd" && fieldname === "custom_pea_operation" && required === false
+		)
 	);
 });
 
@@ -1774,7 +1774,7 @@ test("refreshing a saved joint Stock Entry keeps joint fields when only the cach
 		call(options) {
 			assert.equal(
 				options.method,
-				"production_entry_app.production_entry_app.api.get_die_tool_counter",
+				"production_entry_app.production_entry_app.api.get_die_tool_counter"
 			);
 			options.callback({ message: null });
 		},
@@ -1798,7 +1798,7 @@ test("cached joint Stock Entry Type reapplies joint visibility", () => {
 		call(options) {
 			assert.equal(
 				options.method,
-				"production_entry_app.production_entry_app.api.get_die_tool_counter",
+				"production_entry_app.production_entry_app.api.get_die_tool_counter"
 			);
 			options.callback({ message: null });
 		},
@@ -1817,9 +1817,8 @@ test("cached joint Stock Entry Type reapplies joint visibility", () => {
 		assertSavedJointStockEntryFormPreserved(frm);
 		assert.ok(
 			visibility.some(
-				([fieldnames, visible]) =>
-					fieldnames === JOINT_ONLY_PEA_FIELDS && visible === true,
-			),
+				([fieldnames, visible]) => fieldnames === JOINT_ONLY_PEA_FIELDS && visible === true
+			)
 		);
 	} finally {
 		global.frappe = originalFrappe;
@@ -1851,7 +1850,7 @@ test("refreshing a saved joint Stock Entry from a fresh page keeps joint fields 
 			}
 			assert.equal(
 				options.method,
-				"production_entry_app.production_entry_app.api.get_die_tool_counter",
+				"production_entry_app.production_entry_app.api.get_die_tool_counter"
 			);
 			options.callback({ message: null });
 		},
@@ -1969,12 +1968,12 @@ test("passive joint type discovery asks quietly and stays non-joint when nothing
 		assert.deepEqual(lookups[0].args, { required: 0 });
 		assert.equal(
 			lookups[0].method,
-			"production_entry_app.production_entry_app.api.get_joint_stock_entry_type",
+			"production_entry_app.production_entry_app.api.get_joint_stock_entry_type"
 		);
 		lookups[0].callback({ message: "" });
 		assert.equal(
 			lookups[1].method,
-			"production_entry_app.production_entry_app.api.get_joint_production_stock_entry_type",
+			"production_entry_app.production_entry_app.api.get_joint_production_stock_entry_type"
 		);
 		lookups[1].callback({ message: "" });
 
@@ -2019,7 +2018,7 @@ test("native manufacture fields hide for non-manufacture without app access", ()
 test("stock entry PEA sections are metadata-gated to manufacture or joint production", () => {
 	const customFields = require("../../production_entry_app/fixtures/custom_field.json");
 	const byFieldname = Object.fromEntries(
-		customFields.filter((row) => row.dt === "Stock Entry").map((row) => [row.fieldname, row]),
+		customFields.filter((row) => row.dt === "Stock Entry").map((row) => [row.fieldname, row])
 	);
 	const sectionFieldnames = [
 		"custom_pea_operation_details_section",
@@ -2102,7 +2101,7 @@ test("shift detail updates clear present empty values instead of leaving stale f
 			custom_pea_planned_end_date: "2026-02-22 16:00:00",
 			from_warehouse: undefined,
 		},
-		{ clearWarehouses: true },
+		{ clearWarehouses: true }
 	);
 
 	assert.deepEqual(updates, [
@@ -2238,7 +2237,7 @@ test("shift detail updates stop when the request becomes stale", async () => {
 			branch: "Old Branch",
 			custom_pea_planned_start_date: "2026-02-22 08:00:00",
 		},
-		{ isCurrentRequest: () => current },
+		{ isCurrentRequest: () => current }
 	);
 
 	assert.equal(applied, false);
@@ -2302,7 +2301,7 @@ test("fetch items response refreshes form so ERPNext can add alternate item butt
 			[
 				["RM001", 1],
 				["FG001", 0],
-			],
+			]
 		);
 		assert.deepEqual(apiCalls, [
 			"production_entry_app.production_entry_app.api.get_die_tool_counter",
@@ -2485,7 +2484,7 @@ test("saved joint Stock Entry sets the Die Tool Item after the type lookup", asy
 		]);
 		assert.deepEqual(
 			properties.filter(([fieldname]) => fieldname === "custom_pea_die_tool_item"),
-			[],
+			[]
 		);
 		assert.equal(frm.doc.custom_pea_die_tool_item, "DIE-001");
 		assert.deepEqual(messages, []);
@@ -2537,8 +2536,8 @@ test("Joint Production labels the two slots BOM 1 and BOM 2", () => {
 				([fieldname, property, value]) =>
 					fieldname === "output_side" &&
 					property === "options" &&
-					value === "\nBOM 1\nBOM 2",
-			),
+					value === "\nBOM 1\nBOM 2"
+			)
 		);
 	} finally {
 		global.frappe = originalFrappe;
@@ -2559,8 +2558,8 @@ test("Joint LH/RH Production keeps LH and RH slot labels", () => {
 		assert.ok(
 			gridProps.some(
 				([fieldname, property, value]) =>
-					fieldname === "output_side" && property === "options" && value === "\nLH\nRH",
-			),
+					fieldname === "output_side" && property === "options" && value === "\nLH\nRH"
+			)
 		);
 	} finally {
 		global.frappe = originalFrappe;
