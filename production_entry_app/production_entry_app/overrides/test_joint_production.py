@@ -51,9 +51,11 @@ from production_entry_app.production_entry_app.report.report_utils import (
 from production_entry_app.production_entry_app.tests.support.manufacture_builders import (
 	_build_shift_doc,
 	bootstrap_manufacture_masters,
+	make_completed_shift,
 	make_direct_manufacture_entry,
 	make_running_shift,
 )
+from production_entry_app.production_entry_app.utils.downtime_reason_seed import ensure_downtime_reason
 from production_entry_app.production_entry_app.utils.rejection_warehouse import resolve_rejection_warehouse
 from production_entry_app.production_entry_app.utils.stock_entry_branch import stock_entry_has_branch_field
 from production_entry_app.production_entry_app.utils.system_precision import override_system_precision
@@ -331,6 +333,23 @@ class TestJointProductionCalculations(FrappeTestCase):
 			is_production_stock_entry({"purpose": "Repack", "custom_pea_joint_lh_rh_production": 1})
 		)
 		self.assertFalse(is_production_stock_entry({"purpose": "Repack"}))
+
+	def test_reports_count_same_item_joint_production_quantities_once(self) -> None:
+		entry = frappe._dict(
+			purpose="Repack",
+			custom_pea_joint_production=1,
+			custom_pea_joint_lh_rh_production=0,
+			custom_pea_lh_gross_qty=1000,
+			custom_pea_lh_rejection_qty=10,
+			custom_pea_rh_gross_qty=500,
+			custom_pea_rh_rejection_qty=5,
+			custom_pea_total_strokes=77,
+		)
+
+		self.assertTrue(is_production_stock_entry(entry))
+		self.assertFalse(is_joint_lh_rh_entry(entry))
+		self.assertEqual(tuple(get_entry_output_quantities(entry)), (1500, 1485, 15))
+		self.assertEqual(_get_entry_summary_quantities(entry), (1500, 1485, 15, 77))
 
 	def test_report_joint_classification_requires_preloaded_stock_entry_type_flag(self) -> None:
 		entry = frappe._dict(purpose="Repack", stock_entry_type=JOINT_LH_RH_STOCK_ENTRY_TYPE)
@@ -2487,6 +2506,240 @@ class TestJointProductionItems(FrappeTestCase):
 			rh_rejection_qty=rh_rejection_qty,
 			fetch_items=fetch_items,
 		)
+
+	def test_shift_based_joint_production_keeps_one_die_and_entered_strokes(self) -> None:
+		finished, sheet_bom, end_bom = self._same_item_boms()
+		workstation = f"Joint Count {frappe.generate_hash(length=6)}"
+		ensure_workstation(workstation, standard_spm=2)
+		die = ensure_item(f"_Same_Die_{frappe.generate_hash(length=6)}")
+		frappe.db.set_value(
+			"Item",
+			die,
+			{"custom_pea_has_die_tool": 1, "custom_pea_stroke_capacity": 10000},
+			update_modified=False,
+		)
+		shift = make_completed_shift(self.masters)
+		doc = self._make_joint_entry(
+			shift,
+			lh_bom=sheet_bom,
+			rh_bom=end_bom,
+			lh_gross_qty=1000,
+			lh_rejection_qty=0,
+			rh_gross_qty=500,
+			rh_rejection_qty=4,
+			**self._same_item_entry_args(finished),
+		)
+		doc.custom_pea_workstation = workstation
+		doc.custom_pea_total_strokes = 77
+		doc.custom_pea_die_tool_item = die
+		doc.custom_pea_standard_spm = 0
+		doc.custom_pea_rejection_breakup = []
+		doc.append(
+			"custom_pea_rejection_breakup",
+			{
+				"rejection_reason": "Burr",
+				"qty": 4,
+				"output_side": "BOM 2",
+				"item_code": finished,
+				"is_rework": 1,
+			},
+		)
+		doc.append(
+			"custom_pea_unplanned_losses",
+			{"downtime_reason": "14", "start_time": "08:20:00", "end_time": "08:30:00"},
+		)
+		ensure_downtime_reason("14")
+
+		doc.insert(ignore_permissions=True)
+		doc.submit()
+
+		self.assertEqual(doc.custom_pea_die_tool_item, die)
+		self.assertEqual(doc.custom_pea_total_strokes, 77)
+		self.assertEqual(doc.custom_pea_standard_spm, 2)
+		self.assertEqual(doc.custom_pea_is_late_entry, 1)
+		self.assertEqual(doc.custom_pea_unplanned_losses[0].shift, shift.name)
+		self.assertEqual(
+			frappe.db.get_value("Die Tool Counter", {"die_tool_item": die}, "current_stroke_count"),
+			77,
+		)
+
+		summary = get_shift_summary(shift.name)
+		recorded_mins = flt(summary["snapshot"]["recorded_production_mins"])
+		self.assertEqual(summary["snapshot"]["entry_count"], 1)
+		self.assertEqual(summary["snapshot"]["late_entry_count"], 1)
+		self.assertEqual(flt(summary["snapshot"]["total_qty"]), 1500)
+		self.assertEqual(flt(summary["snapshot"]["rejection_qty"]), 4)
+		self.assertGreater(recorded_mins, 0)
+		self.assertAlmostEqual(flt(summary["snapshot"]["overall_throughput_spm"]), 77 / recorded_mins)
+		item_rows = {row["bom_no"]: row for row in summary["exceptions"]["item_boms"]}
+		self.assertEqual(flt(item_rows[sheet_bom]["total_qty"]), 1000)
+		self.assertEqual(flt(item_rows[end_bom]["total_qty"]), 500)
+		self.assertEqual(flt(item_rows[end_bom]["rejection_qty"]), 4)
+
+		from production_entry_app.production_entry_app.doctype.shift.shift import (
+			get_shift_aggregate_production_entries,
+		)
+		from production_entry_app.production_entry_app.report.item_bom_rework_hotspots.item_bom_rework_hotspots import (
+			execute as rework_execute,
+		)
+		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
+			execute as oee_execute,
+		)
+
+		aggregates = {row["bom_used"]: row for row in get_shift_aggregate_production_entries(shift.name)}
+		self.assertEqual(set(aggregates), {sheet_bom, end_bom})
+		self.assertEqual(flt(aggregates[sheet_bom]["total_qty"]), 1000)
+		self.assertEqual(flt(aggregates[end_bom]["total_qty"]), 500)
+		self.assertAlmostEqual(flt(aggregates[sheet_bom]["avg_spm"]), flt(aggregates[end_bom]["avg_spm"]))
+
+		_, oee_rows = oee_execute(
+			{
+				"from_date": str(shift.shift_date),
+				"to_date": str(shift.shift_date),
+				"custom_pea_workstation": workstation,
+			}
+		)
+		self.assertEqual(len(oee_rows), 1)
+		self.assertEqual(flt(oee_rows[0]["total_strokes"]), 77)
+		self.assertEqual(flt(oee_rows[0]["rejection"]), 4)
+
+		_, rework_rows = rework_execute({"custom_pea_shift": shift.name})
+		rework_by_bom = {row["bom_no"]: row for row in rework_rows}
+		self.assertEqual(flt(rework_by_bom[end_bom]["rework_qty"]), 4)
+		self.assertEqual(flt(rework_by_bom[sheet_bom]["rework_qty"]), 0)
+
+	def test_joint_production_refuses_workstation_overlap_and_downtime(self) -> None:
+		finished, sheet_bom, end_bom = self._same_item_boms()
+		shift = make_running_shift(self.masters)
+		doc = self._make_joint_entry(
+			shift,
+			lh_bom=sheet_bom,
+			rh_bom=end_bom,
+			lh_gross_qty=10,
+			lh_rejection_qty=0,
+			rh_gross_qty=10,
+			rh_rejection_qty=0,
+			**self._same_item_entry_args(finished),
+		)
+		blocker = frappe.get_doc(
+			{
+				"doctype": "Stock Entry",
+				"purpose": "Manufacture",
+				"stock_entry_type": "Manufacture",
+				"company": self.masters["company"],
+				"custom_pea_shift": shift.name,
+				"custom_pea_workstation": self.workstation,
+				"custom_pea_actual_start_date": doc.custom_pea_actual_start_date,
+				"custom_pea_actual_end_date": doc.custom_pea_actual_end_date,
+				"posting_date": shift.shift_date,
+			}
+		)
+		blocker.db_insert()
+		with self.assertRaisesRegex(frappe.ValidationError, "Workstation"):
+			doc.insert(ignore_permissions=True)
+
+		frappe.delete_doc("Stock Entry", blocker.name, force=True)
+		ensure_downtime_reason("00")
+		frappe.get_doc(
+			{
+				"doctype": "Downtime Entry",
+				"workstation": self.workstation,
+				"operator": self.operator,
+				"from_time": doc.custom_pea_actual_start_date,
+				"to_time": doc.custom_pea_actual_end_date,
+				"custom_pea_downtime_reason": "00",
+			}
+		).insert(ignore_permissions=True, ignore_links=True)
+		with self.assertRaisesRegex(frappe.ValidationError, "downtime"):
+			doc.insert(ignore_permissions=True)
+
+	def test_joint_production_refuses_a_loss_outside_the_actual_window(self) -> None:
+		finished, sheet_bom, end_bom = self._same_item_boms()
+		shift = make_running_shift(self.masters)
+		doc = self._make_joint_entry(
+			shift,
+			lh_bom=sheet_bom,
+			rh_bom=end_bom,
+			lh_gross_qty=10,
+			lh_rejection_qty=0,
+			rh_gross_qty=10,
+			rh_rejection_qty=0,
+			**self._same_item_entry_args(finished),
+		)
+		ensure_downtime_reason("14")
+		doc.append(
+			"custom_pea_unplanned_losses",
+			{"downtime_reason": "14", "start_time": "12:00:00", "end_time": "12:10:00"},
+		)
+		with self.assertRaisesRegex(frappe.ValidationError, "Unplanned loss"):
+			doc.insert(ignore_permissions=True)
+
+	def test_joint_production_without_a_shift_drops_shift_metrics(self) -> None:
+		finished, sheet_bom, end_bom = self._same_item_boms()
+		shift = make_running_shift(self.masters)
+		doc = self._make_joint_entry(
+			shift,
+			lh_bom=sheet_bom,
+			rh_bom=end_bom,
+			lh_gross_qty=10,
+			lh_rejection_qty=0,
+			rh_gross_qty=10,
+			rh_rejection_qty=0,
+			**self._same_item_entry_args(finished),
+		)
+		doc.custom_pea_shift = None
+		if stock_entry_has_branch_field():
+			doc.branch = self.masters["branch"]
+		doc.custom_pea_total_strokes = 77
+		ensure_downtime_reason("14")
+		doc.append(
+			"custom_pea_unplanned_losses",
+			{"downtime_reason": "14", "start_time": "08:20:00", "end_time": "08:30:00"},
+		)
+
+		doc.insert(ignore_permissions=True)
+
+		self.assertFalse(doc.custom_pea_shift)
+		self.assertFalse(doc.custom_pea_workstation)
+		self.assertFalse(doc.custom_pea_operator)
+		self.assertFalse(doc.custom_pea_actual_start_date)
+		self.assertFalse(doc.custom_pea_total_strokes)
+		self.assertFalse(doc.custom_pea_unplanned_losses)
+		self.assertFalse(doc.custom_pea_production_time_mins)
+
+	def test_shift_based_joint_production_requires_a_workstation(self) -> None:
+		finished, sheet_bom, end_bom = self._same_item_boms()
+		shift = make_running_shift(self.masters)
+		doc = self._make_joint_entry(
+			shift,
+			lh_bom=sheet_bom,
+			rh_bom=end_bom,
+			lh_gross_qty=10,
+			lh_rejection_qty=0,
+			rh_gross_qty=10,
+			rh_rejection_qty=0,
+			**self._same_item_entry_args(finished),
+		)
+		doc.custom_pea_workstation = ""
+
+		with self.assertRaisesRegex(frappe.ValidationError, "Workstation is required"):
+			doc.insert(ignore_permissions=True)
+
+	def _same_item_boms(self) -> tuple[str, str, str]:
+		suffix = frappe.generate_hash(length=6)
+		finished = ensure_item(f"_Same_Count_FG_{suffix}")
+		sheet = ensure_item(f"_Same_Count_Sheet_{suffix}", stock_uom="Kg")
+		end_piece = ensure_item(f"_Same_Count_End_{suffix}", stock_uom="Kg")
+		for item_code in (sheet, end_piece):
+			ensure_stock(
+				item_code,
+				self.masters["wip_warehouse"],
+				self.masters["company"],
+				target_qty=1000,
+			)
+		sheet_bom = self._make_bom(finished, rm_item=sheet, rm_qty=10, bom_quantity=100, scrap_qty=1)
+		end_bom = self._make_bom(finished, rm_item=end_piece, rm_qty=5, bom_quantity=100, scrap_qty=1)
+		return finished, sheet_bom, end_bom
 
 	def _same_item_entry_args(self, finished_item: str) -> dict[str, str]:
 		return {

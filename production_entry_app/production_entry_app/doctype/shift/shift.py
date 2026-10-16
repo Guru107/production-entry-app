@@ -17,7 +17,9 @@ from production_entry_app.production_entry_app.report.report_utils import (
 	get_finished_item_maps,
 	get_parent_quantity_metrics,
 	is_joint_lh_rh_entry,
+	is_joint_production_entry,
 	is_production_stock_entry,
+	paired_output_slots,
 )
 from production_entry_app.production_entry_app.utils.loss_time import (
 	build_interval_overlap_criterion,
@@ -596,27 +598,33 @@ def _build_item_bom_rows(
 ) -> list[dict]:
 	aggregates: dict[str, dict] = {}
 	for entry in entries:
+		if is_joint_production_entry(entry):
+			item_code = entry.get("item_code") or _("Unknown Item")
+			for _side, bom_field, gross_field, rejection_field in paired_output_slots(entry) or ():
+				gross_qty = flt(entry.get(gross_field) or 0)
+				rejection_qty = flt(entry.get(rejection_field) or 0)
+				_add_item_bom_quantity(
+					aggregates,
+					item_code=item_code,
+					bom_no=entry.get(bom_field) or "",
+					total_qty=gross_qty,
+					ok_qty=max(gross_qty - rejection_qty, 0),
+					rejection_qty=rejection_qty,
+				)
+			continue
 		item_code = entry.get("item_code") or entry.get("fg_item") or _("Unknown Item")
-		bom_no = entry.get("bom_no") or ""
-		label = f"{item_code} / {bom_no}" if bom_no else f"{item_code} / {_('No BOM')}"
-		aggregate = aggregates.setdefault(
-			label,
-			{
-				"label": label,
-				"item_code": item_code,
-				"bom_no": bom_no,
-				"total_qty": 0.0,
-				"ok_qty": 0.0,
-				"rejection_qty": 0.0,
-			},
-		)
 		total_qty, ok_qty, rejection_qty, _total_strokes = _get_entry_summary_quantities(
 			entry,
 			(parent_quantity_metrics or {}).get(entry.get("name")),
 		)
-		aggregate["total_qty"] += total_qty
-		aggregate["ok_qty"] += ok_qty
-		aggregate["rejection_qty"] += rejection_qty
+		_add_item_bom_quantity(
+			aggregates,
+			item_code=item_code,
+			bom_no=entry.get("bom_no") or "",
+			total_qty=total_qty,
+			ok_qty=ok_qty,
+			rejection_qty=rejection_qty,
+		)
 	rows: list[dict] = []
 	for aggregate in aggregates.values():
 		total_qty = flt(aggregate["total_qty"])
@@ -640,6 +648,32 @@ def _build_item_bom_rows(
 			row["label"],
 		),
 	)[:3]
+
+
+def _add_item_bom_quantity(
+	aggregates: dict[str, dict],
+	*,
+	item_code: str,
+	bom_no: str,
+	total_qty: float,
+	ok_qty: float,
+	rejection_qty: float,
+) -> None:
+	label = f"{item_code} / {bom_no}" if bom_no else f"{item_code} / {_('No BOM')}"
+	aggregate = aggregates.setdefault(
+		label,
+		{
+			"label": label,
+			"item_code": item_code,
+			"bom_no": bom_no,
+			"total_qty": 0.0,
+			"ok_qty": 0.0,
+			"rejection_qty": 0.0,
+		},
+	)
+	aggregate["total_qty"] += total_qty
+	aggregate["ok_qty"] += ok_qty
+	aggregate["rejection_qty"] += rejection_qty
 
 
 def _build_completeness_state(
@@ -881,6 +915,13 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 		else {}
 	)
 	for row in entry_rows:
+		if is_joint_production_entry(row):
+			row["item_code"] = (
+				item_by_bom.get(row.get("custom_pea_lh_bom"))
+				or item_by_bom.get(row.get("custom_pea_rh_bom"))
+				or ""
+			)
+			continue
 		if is_joint_lh_rh_entry(row):
 			lh_bom = row.get("custom_pea_lh_bom") or ""
 			rh_bom = row.get("custom_pea_rh_bom") or ""
@@ -1169,7 +1210,11 @@ def get_shift_aggregate_production_entries(shift_name: str | None = None) -> lis
 			)
 
 	joint_aggregates: dict[tuple[str, str], dict[str, float]] = {}
+	same_item_aggregates: dict[str, dict[str, float | str]] = {}
 	for entry in permitted_entries:
+		if is_joint_production_entry(entry):
+			_add_same_item_joint_aggregate(same_item_aggregates, entry, item_by_bom)
+			continue
 		if not is_joint_lh_rh_entry(entry):
 			continue
 		lh_bom = entry.get("custom_pea_lh_bom") or ""
@@ -1186,11 +1231,7 @@ def get_shift_aggregate_production_entries(shift_name: str | None = None) -> lis
 			entry.get("custom_pea_rh_rejection_qty")
 		)
 		aggregate["total_strokes"] += flt(entry.get("custom_pea_total_strokes"))
-		aggregate["mins"] += flt(
-			entry.get("custom_pea_production_time_mins")
-			if entry.get("custom_pea_production_time_mins") is not None
-			else entry.get("custom_pea_actual_duration_mins")
-		)
+		aggregate["mins"] += _get_entry_production_minutes(entry)
 	for (lh_bom, rh_bom), aggregate in sorted(joint_aggregates.items()):
 		total_qty = flt(aggregate["total_qty"])
 		total_reject_qty = flt(aggregate["total_reject_qty"])
@@ -1208,8 +1249,50 @@ def get_shift_aggregate_production_entries(shift_name: str | None = None) -> lis
 				"float_precision": float_precision,
 			}
 		)
+	for bom_no, aggregate in sorted(same_item_aggregates.items()):
+		total_qty = flt(aggregate["total_qty"])
+		total_reject_qty = flt(aggregate["total_reject_qty"])
+		mins = flt(aggregate["mins"])
+		result.append(
+			{
+				"bom_used": bom_no,
+				"item_code": aggregate.get("item_code") or "",
+				"total_qty": total_qty,
+				"total_ok_qty": max(total_qty - total_reject_qty, 0),
+				"total_reject_qty": total_reject_qty,
+				"avg_spm": flt(aggregate["total_strokes"] / mins) if mins > 0 else 0,
+				"float_precision": float_precision,
+			}
+		)
 
 	return result
+
+
+def _add_same_item_joint_aggregate(
+	aggregates: dict[str, dict[str, float | str]],
+	entry: dict,
+	item_by_bom: dict,
+) -> None:
+	strokes = flt(entry.get("custom_pea_total_strokes"))
+	mins = _get_entry_production_minutes(entry)
+	for _side, bom_field, gross_field, rejection_field in paired_output_slots(entry) or ():
+		bom_no = entry.get(bom_field) or ""
+		if not bom_no:
+			continue
+		aggregate = aggregates.setdefault(
+			bom_no,
+			{
+				"item_code": item_by_bom.get(bom_no) or "",
+				"total_qty": 0.0,
+				"total_reject_qty": 0.0,
+				"total_strokes": 0.0,
+				"mins": 0.0,
+			},
+		)
+		aggregate["total_qty"] = flt(aggregate["total_qty"]) + flt(entry.get(gross_field))
+		aggregate["total_reject_qty"] = flt(aggregate["total_reject_qty"]) + flt(entry.get(rejection_field))
+		aggregate["total_strokes"] = flt(aggregate["total_strokes"]) + strokes
+		aggregate["mins"] = flt(aggregate["mins"]) + mins
 
 
 def _sanitize_department_for_name(department_name: str) -> str:

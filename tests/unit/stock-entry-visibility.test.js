@@ -2483,7 +2483,10 @@ test("saved joint Stock Entry sets the Die Tool Item after the type lookup", asy
 			["BOM", "BOM-LH", "custom_pea_die_tool_item"],
 			["BOM", "BOM-RH", "custom_pea_die_tool_item"],
 		]);
-		assert.deepEqual(properties, []);
+		assert.deepEqual(
+			properties.filter(([fieldname]) => fieldname === "custom_pea_die_tool_item"),
+			[],
+		);
 		assert.equal(frm.doc.custom_pea_die_tool_item, "DIE-001");
 		assert.deepEqual(messages, []);
 		assertSavedJointStockEntryFormPreserved(frm);

@@ -173,7 +173,7 @@ class TestStockEntryHookPureHelpers(FrappeTestCase):
 			patch.object(stock_entry_hooks, "_stamp_late_entry_flag") as stamp_late,
 			patch.object(stock_entry_hooks, "_sync_unplanned_loss_shift_links") as sync_losses,
 			patch.object(stock_entry_hooks, "_validate_rework_fields"),
-			patch.object(stock_entry_hooks, "is_joint_lh_rh_production", return_value=False),
+			patch.object(stock_entry_hooks, "is_paired_production", return_value=False),
 			patch.object(stock_entry_hooks, "_set_entry_metrics"),
 			patch.object(stock_entry_hooks, "apply_bom_die_tool_item") as apply_die_tool,
 		):
@@ -207,7 +207,7 @@ class TestStockEntryHookPureHelpers(FrappeTestCase):
 			patch.object(stock_entry_hooks, "_sync_unplanned_loss_shift_links"),
 			patch.object(stock_entry_hooks, "_validate_rework_fields"),
 			patch.object(stock_entry_hooks, "_validate_standard_spm"),
-			patch.object(stock_entry_hooks, "is_joint_lh_rh_production", return_value=False),
+			patch.object(stock_entry_hooks, "is_paired_production", return_value=False),
 			patch.object(stock_entry_hooks, "_set_entry_metrics"),
 			patch.object(stock_entry_hooks, "apply_bom_die_tool_item") as apply_die_tool,
 		):
@@ -236,7 +236,7 @@ class TestStockEntryHookPureHelpers(FrappeTestCase):
 			patch.object(stock_entry_hooks, "_stamp_late_entry_flag") as stamp_late,
 			patch.object(stock_entry_hooks, "_sync_unplanned_loss_shift_links") as sync_losses,
 			patch.object(stock_entry_hooks, "_validate_rework_fields"),
-			patch.object(stock_entry_hooks, "is_joint_lh_rh_production", return_value=False),
+			patch.object(stock_entry_hooks, "is_paired_production", return_value=False),
 			patch.object(stock_entry_hooks, "_set_entry_metrics"),
 		):
 			stock_entry_hooks.validate_stock_entry(doc)
@@ -556,7 +556,7 @@ class TestStockEntryHookPureHelpers(FrappeTestCase):
 			}
 		)
 		doc.set = lambda fieldname, value: doc.update({fieldname: value})
-		with patch.object(stock_entry_hooks, "is_joint_lh_rh_production", return_value=False):
+		with patch.object(stock_entry_hooks, "is_paired_production", return_value=False):
 			stock_entry_hooks._default_total_strokes(doc)
 		self.assertEqual(flt(doc.custom_pea_total_strokes), 0)
 
@@ -571,7 +571,7 @@ class TestStockEntryHookPureHelpers(FrappeTestCase):
 			}
 		)
 		doc.set = lambda fieldname, value: doc.update({fieldname: value})
-		with patch.object(stock_entry_hooks, "is_joint_lh_rh_production", return_value=False):
+		with patch.object(stock_entry_hooks, "is_paired_production", return_value=False):
 			stock_entry_hooks._default_total_strokes(doc)
 		self.assertEqual(flt(doc.custom_pea_total_strokes), 100)
 
@@ -586,7 +586,7 @@ class TestStockEntryHookPureHelpers(FrappeTestCase):
 			}
 		)
 		doc.set = lambda fieldname, value: doc.update({fieldname: value})
-		with patch.object(stock_entry_hooks, "is_joint_lh_rh_production", return_value=False):
+		with patch.object(stock_entry_hooks, "is_paired_production", return_value=False):
 			stock_entry_hooks._default_total_strokes(doc)
 		self.assertEqual(flt(doc.custom_pea_total_strokes), 40)
 
@@ -602,7 +602,7 @@ class TestStockEntryHookPureHelpers(FrappeTestCase):
 		)
 		doc.set = lambda fieldname, value: doc.update({fieldname: value})
 		with (
-			patch.object(stock_entry_hooks, "is_joint_lh_rh_production", return_value=False),
+			patch.object(stock_entry_hooks, "is_paired_production", return_value=False),
 			self.assertRaisesRegex(frappe.ValidationError, "Total Press Strokes must be greater than zero"),
 		):
 			stock_entry_hooks._default_total_strokes(doc)
@@ -664,7 +664,7 @@ class TestStockEntryHookPureHelpers(FrappeTestCase):
 		self.assertIsNone(doc.get("custom_pea_total_strokes"))
 
 		doc.custom_pea_total_strokes = 0
-		with patch.object(stock_entry_hooks, "is_joint_lh_rh_production", return_value=False):
+		with patch.object(stock_entry_hooks, "is_paired_production", return_value=False):
 			stock_entry_hooks._default_total_strokes(doc)
 		self.assertEqual(flt(doc.custom_pea_total_strokes), 0)
 
