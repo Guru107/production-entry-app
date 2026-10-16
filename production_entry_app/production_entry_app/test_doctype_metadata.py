@@ -83,6 +83,17 @@ def test_no_app_custom_field_uses_nonzero_permlevel() -> None:
 	assert offenders == [], f"custom fields still at a nonzero permlevel: {offenders}"
 
 
+def test_bom_die_tool_item_is_a_link_after_operation() -> None:
+	fields_by_name = {field.get("name"): field for field in load_custom_field_fixture() if field.get("name")}
+	field = fields_by_name["BOM-custom_pea_die_tool_item"]
+	assert field["dt"] == "BOM"
+	assert field["fieldname"] == "custom_pea_die_tool_item"
+	assert field["fieldtype"] == "Link"
+	assert field["options"] == "Item"
+	assert field["label"] == "Die Tool Item"
+	assert field["insert_after"] == "custom_operation"
+
+
 def test_stock_entry_detail_rejection_flag_uses_cross_version_anchor() -> None:
 	fields_by_name = {field.get("name"): field for field in load_custom_field_fixture() if field.get("name")}
 	assert (
@@ -475,6 +486,7 @@ def load_tests(
 			test_filtered_doctype_fields_are_search_indexed,
 			test_filtered_custom_fields_are_search_indexed,
 			test_no_app_custom_field_uses_nonzero_permlevel,
+			test_bom_die_tool_item_is_a_link_after_operation,
 			test_stock_entry_detail_rejection_flag_uses_cross_version_anchor,
 			test_joint_lh_rh_production_metadata_is_exported,
 			test_canonical_stock_entry_type_fixtures_are_exported,

@@ -38,6 +38,8 @@ const {
 	ALWAYS_HIDDEN_FIELDS,
 	ALWAYS_HIDDEN_SECTIONS,
 	MANUFACTURE_CLEAR_TABLE_FIELDS,
+	_prescribed_die_tool_item,
+	_apply_prescribed_die_tool_item,
 } = require("../../production_entry_app/public/js/stock_entry.js");
 
 function makeSavedJointStockEntryForm(options = {}) {
@@ -2329,4 +2331,157 @@ test("native get_items stays hidden for manufacture documents until explicitly s
 		["set_df_property", "get_items", "hidden", 1],
 		["set_df_property", "get_items", "read_only", 1],
 	]);
+});
+
+test("a BOM die tool item is set on the production entry", () => {
+	const values = [];
+	const properties = [];
+	const frm = {
+		doc: { custom_pea_die_tool_item: "USER-DIE" },
+		set_value(fieldname, value) {
+			this.doc[fieldname] = value;
+			values.push([fieldname, value]);
+		},
+		set_df_property(fieldname, property, value) {
+			properties.push([fieldname, property, value]);
+		},
+	};
+
+	_apply_prescribed_die_tool_item(frm, _prescribed_die_tool_item(["DIE-BOM", "DIE-BOM", ""]));
+
+	assert.equal(frm.doc.custom_pea_die_tool_item, "DIE-BOM");
+	assert.deepEqual(values, [["custom_pea_die_tool_item", "DIE-BOM"]]);
+	assert.deepEqual(properties, []);
+});
+
+test("disagreeing BOM die tool items leave the production entry selectable", () => {
+	assert.deepEqual(_prescribed_die_tool_item(["DIE-1", "DIE-2"]), { item: "" });
+});
+
+test("an empty BOM die tool item leaves the production entry unchanged", () => {
+	const frm = {
+		doc: { custom_pea_die_tool_item: "USER-DIE" },
+		set_value() {
+			throw new Error("user selection should stay");
+		},
+		set_df_property() {
+			throw new Error("die tool item stays editable");
+		},
+	};
+
+	_apply_prescribed_die_tool_item(frm, _prescribed_die_tool_item(["", null]));
+
+	assert.equal(frm.doc.custom_pea_die_tool_item, "USER-DIE");
+});
+
+test("removing the BOM die tool item leaves the previously set value", () => {
+	const frm = {
+		doc: { custom_pea_die_tool_item: "" },
+		set_value(fieldname, value) {
+			this.doc[fieldname] = value;
+		},
+		set_df_property() {
+			throw new Error("die tool item stays editable");
+		},
+	};
+	_apply_prescribed_die_tool_item(frm, _prescribed_die_tool_item(["DIE-BOM"]));
+	_apply_prescribed_die_tool_item(frm, _prescribed_die_tool_item([""]));
+
+	assert.equal(frm.doc.custom_pea_die_tool_item, "DIE-BOM");
+});
+
+function installDieToolBomLookup({ dieToolFieldReady, dieToolItem = "DIE-001" }) {
+	const fetched = [];
+	const messages = [];
+	global.frappe = {
+		call(options) {
+			if (
+				options.method ===
+				"production_entry_app.production_entry_app.api.get_joint_stock_entry_type"
+			) {
+				options.callback({ message: "Joint LH RH Production" });
+				return;
+			}
+			assert.equal(
+				options.method,
+				"production_entry_app.production_entry_app.api.get_die_tool_counter"
+			);
+			options.callback({ message: null });
+		},
+		meta: {
+			has_field(doctype, fieldname) {
+				return (
+					dieToolFieldReady &&
+					(doctype === "BOM" || doctype === "Stock Entry") &&
+					fieldname === "custom_pea_die_tool_item"
+				);
+			},
+		},
+		model: {
+			with_doctype(_doctype, callback) {
+				callback();
+			},
+		},
+		db: {
+			get_value(doctype, name, fieldname) {
+				fetched.push([doctype, name, fieldname]);
+				return Promise.resolve({
+					message: { custom_pea_die_tool_item: dieToolItem },
+				});
+			},
+		},
+		msgprint(message) {
+			messages.push(message);
+		},
+	};
+	return { fetched, messages };
+}
+
+test("saved joint Stock Entry sets the Die Tool Item after the type lookup", async () => {
+	const originalFrappe = global.frappe;
+	const { fetched, messages } = installDieToolBomLookup({ dieToolFieldReady: true });
+	const properties = [];
+	const frm = makeSavedJointStockEntryForm();
+	frm.doc.custom_pea_shift = "SHIFT-001";
+	frm.set_df_property = (fieldname, property, value) => {
+		properties.push([fieldname, property, value]);
+	};
+
+	try {
+		_sync_joint_stock_entry_type(frm);
+		await new Promise((resolve) => setImmediate(resolve));
+
+		assert.deepEqual(fetched, [
+			["BOM", "BOM-LH", "custom_pea_die_tool_item"],
+			["BOM", "BOM-RH", "custom_pea_die_tool_item"],
+		]);
+		assert.deepEqual(properties, []);
+		assert.equal(frm.doc.custom_pea_die_tool_item, "DIE-001");
+		assert.deepEqual(messages, []);
+		assertSavedJointStockEntryFormPreserved(frm);
+	} finally {
+		global.frappe = originalFrappe;
+	}
+});
+
+test("BOM Die Tool Item lookup stays quiet when the field is not migrated", async () => {
+	const originalFrappe = global.frappe;
+	const originalTranslate = global.__;
+	global.__ = (text) => text;
+	const { fetched, messages } = installDieToolBomLookup({ dieToolFieldReady: false });
+	const frm = makeSavedJointStockEntryForm();
+	frm.doc.custom_pea_shift = "SHIFT-001";
+	frm.set_df_property = () => {};
+
+	try {
+		_sync_joint_stock_entry_type(frm);
+		await new Promise((resolve) => setImmediate(resolve));
+
+		assert.deepEqual(fetched, []);
+		assert.deepEqual(messages, []);
+		assert.equal(frm.doc.custom_pea_die_tool_item, "DIE-001");
+	} finally {
+		global.frappe = originalFrappe;
+		global.__ = originalTranslate;
+	}
 });

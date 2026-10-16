@@ -1,6 +1,18 @@
 [
  {
   "doctype": "Custom Field",
+  "name": "BOM-custom_pea_die_tool_item",
+  "dt": "BOM",
+  "fieldname": "custom_pea_die_tool_item",
+  "fieldtype": "Link",
+  "label": "Die Tool Item",
+  "options": "Item",
+  "insert_after": "custom_operation",
+  "module": "Production Entry App",
+  "permlevel": 0
+ },
+ {
+  "doctype": "Custom Field",
   "name": "Landed Cost Taxes and Charges-custom_pea_is_rework_cost",
   "dt": "Landed Cost Taxes and Charges",
   "fieldname": "custom_pea_is_rework_cost",
