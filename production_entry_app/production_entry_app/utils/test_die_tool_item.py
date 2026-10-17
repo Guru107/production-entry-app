@@ -81,6 +81,14 @@ class TestApplyBomDieToolItem(FrappeTestCase):
 
 		self.assertEqual(doc.custom_pea_die_tool_item, "")
 
+	def test_submitted_bom_accepts_a_die_tool_item_change(self) -> None:
+		field = frappe.get_meta("BOM", cached=False).get_field("custom_pea_die_tool_item")
+		self.assertEqual(int(field.allow_on_submit or 0), 1)
+		bom = frappe.get_doc("BOM", self.bom)
+		bom.custom_pea_die_tool_item = self.die_item
+		bom.save(ignore_permissions=True)
+		self.assertEqual(frappe.db.get_value("BOM", self.bom, "custom_pea_die_tool_item"), self.die_item)
+
 
 def _ensure_bom_die_tool_item_field() -> None:
 	if frappe.get_meta("BOM", cached=False).has_field("custom_pea_die_tool_item"):
@@ -93,6 +101,7 @@ def _ensure_bom_die_tool_item_field() -> None:
 			"label": "Die Tool Item",
 			"fieldtype": "Link",
 			"options": "Item",
+			"allow_on_submit": 1,
 			"insert_after": "custom_operation",
 			"module": "Production Entry App",
 		}
