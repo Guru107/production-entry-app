@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-10-18
+
+### Added
+
+-   Production entry Die Tool Item is set from the BOM when the BOM already names one; a submitted BOM can still record its Die Tool Item (#147, #152)
+-   How-to guide for making production entries
+
+### Fixed
+
+-   Joint LH/RH item and rejection-breakup checks compare quantities at the System Settings float precision (#145)
+-   Rework quantities, hours, and pending balances use the system float precision; Rework cost and Rework Register cost use the system currency precision (#145)
+-   Quantity and currency tolerance follows ERPNext: both sides are rounded with `flt`, and a difference is rejected only when it exceeds one full unit at that precision (#145)
+
+### Changed
+
+-   A shift-based Joint Production run is counted once while each slot's quantity is attributed to its BOM (#151)
+-   Domain glossary distinguishes Joint Production from Joint LH/RH Production
+
 ## [1.1.0] - 2026-10-09
 
 ### Added
