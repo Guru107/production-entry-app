@@ -84,7 +84,10 @@ authoritative for their topics; this record covers the remaining seams.
   not ship those fields; benches and tests copy them as setup (CONTEXT.md "Production-Owned Joint Metadata").
 - The app ships two joint types, "Joint LH RH Production" and "Joint Production". They are different
   pairings, not two names for one use case: Joint LH/RH Production pairs different finished items, and
-  Joint Production pairs two BOMs of one finished item whose inputs differ. Frappe fixture import deletes
+  Joint Production pairs two BOMs of one finished item whose inputs differ. (The Joint Production
+  pairing description here was superseded by ADR 0008, which generalizes Joint Production to N BOM
+  lines with unconstrained output composition; Joint LH/RH Production is unchanged.) Frappe fixture
+  import deletes
   and re-inserts each shipped record with validation on during every migrate, so edits to a shipped record
   are reset by migrate and flagging a second type for the same pairing makes migrate fail. Exactly one
   type per pairing is the design intent. How that uniqueness is enforced is an implementation detail that

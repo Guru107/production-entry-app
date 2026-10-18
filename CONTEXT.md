@@ -31,11 +31,19 @@ batch-enrich the Stock Entry Type flag before classifying Repack entries.
 _Avoid_: Joint Production, combined production, dual production
 
 **Joint Production**:
-One run of a single finished item from two BOMs whose input items differ, on one shared time. The BOMs
-share one Operation, such as Shearing, Draw, or Blanking. Each BOM keeps its own gross quantity and
-rejection quantity and consumes its own inputs. Either BOM may occupy either slot. A run that uses only
-one BOM is a Manufacture Production Entry. The Stock Entry Type is Joint Production.
-_Avoid_: Joint LH/RH Production, standard-sheet slot, end-piece slot
+One run of two or more BOM recipes on one shared Operation and time. Each line keeps its own gross
+quantity and rejection quantity and consumes its own BOM's inputs independently for every Operation;
+input rows are never merged across lines. Lines may produce the same finished item or distinct finished
+items; the output composition is not constrained. A line that repeats another line's finished item and
+input items is one line, not two. A run that uses only one BOM is a Manufacture Production Entry. The
+Stock Entry Type is Joint Production.
+_Avoid_: Joint LH/RH Production, BOM 1/BOM 2 slots, standard-sheet slot, end-piece slot
+
+**Joint Production Line**:
+A child row of a Joint Production entry naming one BOM, its gross quantity, and its rejection quantity.
+Two or more lines share the entry's Operation, Die Tool Item, time, and Total Press Strokes; the strokes
+count once for the run, not per line.
+_Avoid_: Side, slot, LH/RH header pair
 
 **End Piece**:
 A raw-material item produced as scrap by a shearing BOM. It may come from that part's own standard-sheet
