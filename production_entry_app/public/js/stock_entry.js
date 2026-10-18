@@ -65,6 +65,16 @@ const SHIFT_BASED_REQUIRED_FIELDS = [
 
 const NORMAL_ONLY_PEA_FIELDS = ["custom_pea_rejection_qty", "custom_pea_rework_qty"];
 const JOINT_ONLY_PEA_FIELDS = ["custom_pea_operation", "custom_pea_joint_fetch_items"];
+const JOINT_PRODUCTION_LINES_FIELD = "custom_pea_joint_production_lines";
+const JOINT_LH_RH_HEADER_FIELDS = [
+	"custom_pea_lh_bom",
+	"custom_pea_lh_gross_qty",
+	"custom_pea_lh_rejection_qty",
+	"custom_pea_rh_bom",
+	"custom_pea_rh_gross_qty",
+	"custom_pea_rh_rejection_qty",
+];
+const JOINT_SHARED_RESOURCE_FIELDS = ["custom_pea_total_strokes", "custom_pea_die_tool_item"];
 
 const MANUFACTURE_FIELDS = [...NATIVE_MANUFACTURE_FIELDS, ...PEA_MANUFACTURE_FIELDS];
 
@@ -82,14 +92,8 @@ const MANUFACTURE_CLEAR_TABLE_FIELDS = [
 	"items",
 ];
 const JOINT_PRODUCTION_SCALAR_FIELDS = [
-	"custom_pea_lh_bom",
-	"custom_pea_lh_gross_qty",
-	"custom_pea_lh_rejection_qty",
-	"custom_pea_rh_bom",
-	"custom_pea_rh_gross_qty",
-	"custom_pea_rh_rejection_qty",
-	"custom_pea_total_strokes",
-	"custom_pea_die_tool_item",
+	...JOINT_LH_RH_HEADER_FIELDS,
+	...JOINT_SHARED_RESOURCE_FIELDS,
 ];
 const PRODUCTION_MODE_SCALAR_FIELDS = [
 	"from_bom",
@@ -102,8 +106,16 @@ const PRODUCTION_MODE_SCALAR_FIELDS = [
 	"custom_pea_operation",
 	...JOINT_PRODUCTION_SCALAR_FIELDS,
 ];
-const JOINT_OPERATION_DEPENDENT_FIELDS = JOINT_PRODUCTION_SCALAR_FIELDS;
-const PRODUCTION_MODE_CLEAR_TABLE_FIELDS = ["custom_pea_rejection_breakup", "items"];
+const JOINT_OPERATION_DEPENDENT_FIELDS = [
+	...JOINT_LH_RH_HEADER_FIELDS,
+	...JOINT_SHARED_RESOURCE_FIELDS,
+	JOINT_PRODUCTION_LINES_FIELD,
+];
+const PRODUCTION_MODE_CLEAR_TABLE_FIELDS = [
+	"custom_pea_rejection_breakup",
+	"items",
+	JOINT_PRODUCTION_LINES_FIELD,
+];
 const REWORK_VISIBLE_SCALAR_FIELDS = ["custom_pea_rework_type", "custom_pea_rework_workstation"];
 const REWORK_HIDDEN_FIELDS = ["custom_pea_rework_cost"];
 const REWORK_SCALAR_FIELDS = [...REWORK_VISIBLE_SCALAR_FIELDS, ...REWORK_HIDDEN_FIELDS];
@@ -187,6 +199,9 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 					return _get_joint_bom_query(frm);
 				});
 			}
+			frm.set_query("bom_no", JOINT_PRODUCTION_LINES_FIELD, function () {
+				return _get_joint_bom_query(frm);
+			});
 
 			_ensure_use_multi_level_bom_unchecked(frm);
 			_apply_manufacture_visibility(frm);
@@ -233,6 +248,11 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 		custom_pea_rh_bom(frm) {
 			_refresh_joint_rejection_items(frm, "RH");
 			_sync_die_tool_item_from_boms(frm);
+		},
+		[JOINT_PRODUCTION_LINES_FIELD](frm) {
+			_refresh_joint_production_line_rejection_items(frm);
+			_sync_die_tool_item_from_boms(frm);
+			_configure_rejection_breakup_grid(frm);
 		},
 		custom_pea_operation(frm) {
 			_clear_joint_operation_dependents(frm);
@@ -340,6 +360,52 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 		items_add(frm, cdt, cdn) {
 			return _default_rework_item_source(frm, locals[cdt][cdn]);
 		},
+	});
+}
+
+function _joint_production_line_sides(doc) {
+	const lineCount = (doc?.[JOINT_PRODUCTION_LINES_FIELD] || []).length;
+	if (lineCount < 2) {
+		return ["BOM 1", "BOM 2"];
+	}
+	return Array.from({ length: lineCount }, (_, index) => `BOM ${index + 1}`);
+}
+
+function _refresh_joint_production_line_rejection_items(frm) {
+	if (!_is_same_item_joint_doc(frm.doc)) {
+		return;
+	}
+	const sides = _joint_production_line_sides(frm.doc);
+	const sideItems = {};
+	const pending = sides.map(
+		(side, index) =>
+			new Promise((resolve) => {
+				const row = (frm.doc[JOINT_PRODUCTION_LINES_FIELD] || [])[index];
+				const bomNo = row?.bom_no;
+				if (!bomNo) {
+					sideItems[side] = "";
+					resolve();
+					return;
+				}
+				frappe.db
+					.get_value("BOM", bomNo, "item")
+					.then((response) => {
+						sideItems[side] = response?.message?.item || "";
+						resolve();
+					})
+					.catch((error) => {
+						_notify_call_error(__("Failed to refresh the joint rejection item."), error);
+						resolve();
+					});
+			})
+	);
+	Promise.all(pending).then(() => {
+		for (const row of frm.doc.custom_pea_rejection_breakup || []) {
+			if (row.output_side && sideItems[row.output_side] !== undefined) {
+				row.item_code = sideItems[row.output_side];
+			}
+		}
+		frm.refresh_field("custom_pea_rejection_breakup");
 	});
 }
 
@@ -919,12 +985,12 @@ function _clear_joint_operation_dependents(frm) {
 	}
 	_dieToolRequestId++;
 	const refreshFieldnames = new Set();
-	const scalarChanged = _clear_scalar_fields(
-		frm,
-		JOINT_OPERATION_DEPENDENT_FIELDS,
-		refreshFieldnames,
-		{ onlyExisting: true }
-	);
+	const fieldsToClear = _is_same_item_joint_doc(frm.doc)
+		? [...JOINT_SHARED_RESOURCE_FIELDS, JOINT_PRODUCTION_LINES_FIELD]
+		: JOINT_OPERATION_DEPENDENT_FIELDS;
+	const scalarChanged = _clear_scalar_fields(frm, fieldsToClear, refreshFieldnames, {
+		onlyExisting: true,
+	});
 	const tableChanged = _clear_table_fields(
 		frm,
 		PRODUCTION_MODE_CLEAR_TABLE_FIELDS,
@@ -1416,6 +1482,12 @@ function _toggle_rejection_breakup(frm) {
 
 function _get_rejection_qty_for_visibility(doc) {
 	if (_is_joint_doc(doc)) {
+		if (_is_same_item_joint_doc(doc)) {
+			return (doc[JOINT_PRODUCTION_LINES_FIELD] || []).reduce(
+				(total, row) => total + Number(row?.rejection_qty || 0),
+				0
+			);
+		}
 		return (
 			Number(doc.custom_pea_lh_rejection_qty || 0) +
 			Number(doc.custom_pea_rh_rejection_qty || 0)
@@ -1438,12 +1510,6 @@ function _apply_joint_slot_labels(frm) {
 	const labels = sameItem
 		? {
 				custom_pea_joint_production_section: _form_label("Joint Production"),
-				custom_pea_lh_bom: _form_label("BOM 1"),
-				custom_pea_rh_bom: _form_label("BOM 2"),
-				custom_pea_lh_gross_qty: _form_label("BOM 1 Gross Quantity"),
-				custom_pea_rh_gross_qty: _form_label("BOM 2 Gross Quantity"),
-				custom_pea_lh_rejection_qty: _form_label("BOM 1 Rejection Quantity"),
-				custom_pea_rh_rejection_qty: _form_label("BOM 2 Rejection Quantity"),
 		  }
 		: {
 				custom_pea_joint_production_section: _form_label("Joint LH/RH Production"),
@@ -1467,11 +1533,10 @@ function _configure_rejection_breakup_grid(frm) {
 	grid.update_docfield_property("output_side", "hidden", isJoint ? 0 : 1);
 	grid.update_docfield_property("output_side", "reqd", isJoint ? 1 : 0);
 	grid.update_docfield_property("item_code", "hidden", isJoint ? 0 : 1);
-	grid.update_docfield_property(
-		"output_side",
-		"options",
-		sameItem ? "\nBOM 1\nBOM 2" : "\nLH\nRH"
-	);
+	const sideOptions = sameItem
+		? `\n${_joint_production_line_sides(frm.doc).join("\n")}`
+		: "\nLH\nRH";
+	grid.update_docfield_property("output_side", "options", sideOptions);
 }
 
 function _gross_qty_is_blank(value) {
@@ -1498,51 +1563,69 @@ function _handle_custom_pea_fetch_items(frm) {
 		);
 		return;
 	}
-	if (isJoint && !frm.doc.custom_pea_lh_bom) {
-		frappe.msgprint(
-			sameItemJoint
-				? __("BOM 1 is required for Joint Production.")
-				: __("LH BOM is required for joint LH/RH production.")
-		);
-		return;
-	}
-	if (isJoint && !frm.doc.custom_pea_rh_bom) {
-		frappe.msgprint(
-			sameItemJoint
-				? __("BOM 2 is required for Joint Production.")
-				: __("RH BOM is required for joint LH/RH production.")
-		);
-		return;
+	if (sameItemJoint) {
+		const lines = frm.doc[JOINT_PRODUCTION_LINES_FIELD] || [];
+		if (lines.length < 2) {
+			frappe.msgprint(
+				__(
+					"Add at least two Joint Production Lines. If only one recipe is produced, create a Manufacture Production Entry instead of Joint Production."
+				)
+			);
+			return;
+		}
+		if (lines.some((row) => !row?.bom_no)) {
+			frappe.msgprint(__("Every Joint Production Line needs a BOM before fetching items."));
+			return;
+		}
+		const grossValues = lines.map((row) => row?.gross_qty);
+		if (grossValues.some((value) => _gross_qty_is_blank(value))) {
+			frappe.msgprint(__("Please set Gross Quantity on every Joint Production Line before fetching items."));
+			return;
+		}
+		if (grossValues.some((value) => _gross_qty_is_zero(value))) {
+			frappe.msgprint(
+				__(
+					"Gross Quantity must be greater than zero. If only one recipe is produced, create a Manufacture Production Entry instead of Joint Production."
+				)
+			);
+			return;
+		}
+	} else if (isJoint) {
+		if (!frm.doc.custom_pea_lh_bom) {
+			frappe.msgprint(__("LH BOM is required for joint LH/RH production."));
+			return;
+		}
+		if (!frm.doc.custom_pea_rh_bom) {
+			frappe.msgprint(__("RH BOM is required for joint LH/RH production."));
+			return;
+		}
+		const lhGrossQty = frm.doc.custom_pea_lh_gross_qty;
+		const rhGrossQty = frm.doc.custom_pea_rh_gross_qty;
+		if (
+			_gross_qty_is_blank(lhGrossQty) ||
+			_gross_qty_is_blank(rhGrossQty) ||
+			_gross_qty_is_zero(lhGrossQty) ||
+			_gross_qty_is_zero(rhGrossQty)
+		) {
+			const bothSlotsFilled =
+				!_gross_qty_is_blank(lhGrossQty) && !_gross_qty_is_blank(rhGrossQty);
+			const explicitZero =
+				bothSlotsFilled && (_gross_qty_is_zero(lhGrossQty) || _gross_qty_is_zero(rhGrossQty));
+			frappe.msgprint(
+				explicitZero
+					? __(
+							"Gross Quantity must be greater than zero. If only one side is produced, create a normal independent Manufacture Production Entry instead of Joint LH/RH."
+					  )
+					: __("Please set LH and RH Gross Quantity before fetching items.")
+			);
+			return;
+		}
 	}
 	if (isJoint && frm.doc.custom_pea_shift && !frm.doc.custom_pea_die_tool_item) {
 		frappe.msgprint(
 			sameItemJoint
 				? __("Die Tool Item is required for Joint Production.")
 				: __("Die Tool Item is required for joint LH/RH production.")
-		);
-		return;
-	}
-	const lhGrossQty = frm.doc.custom_pea_lh_gross_qty;
-	const rhGrossQty = frm.doc.custom_pea_rh_gross_qty;
-	if (
-		isJoint &&
-		(_gross_qty_is_blank(lhGrossQty) ||
-			_gross_qty_is_blank(rhGrossQty) ||
-			_gross_qty_is_zero(lhGrossQty) ||
-			_gross_qty_is_zero(rhGrossQty))
-	) {
-		const bothSlotsFilled =
-			!_gross_qty_is_blank(lhGrossQty) && !_gross_qty_is_blank(rhGrossQty);
-		const explicitZero =
-			bothSlotsFilled && (_gross_qty_is_zero(lhGrossQty) || _gross_qty_is_zero(rhGrossQty));
-		frappe.msgprint(
-			explicitZero && sameItemJoint
-				? __(
-						"Gross Quantity must be greater than zero. If only one recipe is produced, create a Manufacture Production Entry instead of Joint Production."
-				  )
-				: sameItemJoint
-				? __("Please set BOM 1 and BOM 2 Gross Quantity before fetching items.")
-				: __("Please set LH and RH Gross Quantity before fetching items.")
 		);
 		return;
 	}
@@ -1685,6 +1768,11 @@ function _apply_prescribed_die_tool_item(frm, resolution) {
 
 function _production_bom_names(doc) {
 	if (_is_joint_doc(doc)) {
+		if (_is_same_item_joint_doc(doc)) {
+			return (doc[JOINT_PRODUCTION_LINES_FIELD] || [])
+				.map((row) => row?.bom_no)
+				.filter(Boolean);
+		}
 		return [doc.custom_pea_lh_bom, doc.custom_pea_rh_bom].filter(Boolean);
 	}
 	if (_is_manufacture_doc(doc) && doc.from_bom && doc.bom_no) {

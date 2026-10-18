@@ -11,8 +11,10 @@ from frappe.query_builder import DocType
 from frappe.query_builder.functions import CustomFunction, Sum
 from frappe.utils import add_to_date, cint, flt, get_datetime
 
+from production_entry_app.production_entry_app.joint_production import JOINT_PRODUCTION_LINES_FIELD
 from production_entry_app.production_entry_app.report.report_utils import (
 	add_stock_entry_type_flags,
+	attach_joint_production_lines_to_entries,
 	get_entry_output_quantities,
 	get_finished_item_maps,
 	get_parent_quantity_metrics,
@@ -344,6 +346,23 @@ def check_running_shift_conflict(shift_name: str) -> dict:
 		"has_conflict": len(running) > 0,
 		"conflicting_shifts": running,
 	}
+
+
+def _production_entry_bom_names(entry: dict) -> tuple[str, ...]:
+	if is_joint_production_entry(entry):
+		return tuple(
+			line.get("bom_no")
+			for line in entry.get(JOINT_PRODUCTION_LINES_FIELD) or []
+			if line.get("bom_no")
+		)
+	if is_joint_lh_rh_entry(entry):
+		return tuple(
+			bom_no
+			for bom_no in (entry.get("custom_pea_lh_bom"), entry.get("custom_pea_rh_bom"))
+			if bom_no
+		)
+	bom_no = entry.get("bom_no")
+	return (bom_no,) if bom_no else ()
 
 
 def _empty_shift_summary() -> dict:
@@ -889,6 +908,7 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 		limit_page_length=0,
 	)
 	add_stock_entry_type_flags(entry_rows)
+	attach_joint_production_lines_to_entries(entry_rows)
 	entry_rows = [row for row in entry_rows if is_production_stock_entry(row)]
 	entry_names = [row.get("name") for row in entry_rows if row.get("name")]
 	parent_quantity_metrics = get_parent_quantity_metrics(entry_names)
@@ -897,7 +917,7 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 		{
 			bom_no
 			for row in entry_rows
-			for bom_no in (row.get("bom_no"), row.get("custom_pea_lh_bom"), row.get("custom_pea_rh_bom"))
+			for bom_no in _production_entry_bom_names(row)
 			if bom_no
 		}
 	)
@@ -916,11 +936,12 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 	)
 	for row in entry_rows:
 		if is_joint_production_entry(row):
-			row["item_code"] = (
-				item_by_bom.get(row.get("custom_pea_lh_bom"))
-				or item_by_bom.get(row.get("custom_pea_rh_bom"))
-				or ""
-			)
+			line_items = [
+				item_by_bom.get(bom_no)
+				for bom_no in _production_entry_bom_names(row)
+				if item_by_bom.get(bom_no)
+			]
+			row["item_code"] = " + ".join(dict.fromkeys(line_items))
 			continue
 		if is_joint_lh_rh_entry(row):
 			lh_bom = row.get("custom_pea_lh_bom") or ""
@@ -1121,6 +1142,7 @@ def get_shift_aggregate_production_entries(shift_name: str | None = None) -> lis
 		limit_page_length=0,
 	)
 	add_stock_entry_type_flags(permitted_entries)
+	attach_joint_production_lines_to_entries(permitted_entries)
 	permitted_entries = [row for row in permitted_entries if is_production_stock_entry(row)]
 	permitted_entry_names = [row.get("name") for row in permitted_entries if row.get("name")]
 	if not permitted_entry_names:
@@ -1129,7 +1151,7 @@ def get_shift_aggregate_production_entries(shift_name: str | None = None) -> lis
 		{
 			bom_no
 			for row in permitted_entries
-			for bom_no in (row.get("bom_no"), row.get("custom_pea_lh_bom"), row.get("custom_pea_rh_bom"))
+			for bom_no in _production_entry_bom_names(row)
 			if bom_no
 		}
 	)

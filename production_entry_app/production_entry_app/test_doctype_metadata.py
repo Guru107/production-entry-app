@@ -118,6 +118,7 @@ def test_joint_lh_rh_production_metadata_is_exported() -> None:
 		"Stock Entry-custom_pea_total_strokes",
 		"Stock Entry-custom_pea_die_tool_item",
 		"Stock Entry-custom_pea_joint_fetch_items",
+		"Stock Entry-custom_pea_joint_production_lines",
 		"Stock Entry Detail-custom_pea_joint_output_side",
 	}
 	missing_fields = sorted(required_fields.difference(fields_by_name))
@@ -135,6 +136,11 @@ def test_joint_lh_rh_production_metadata_is_exported() -> None:
 	assert "Stock Entry-custom_pea_joint_scrap_qty" not in fields_by_name
 	fetch_items_field = fields_by_name["Stock Entry-custom_pea_joint_fetch_items"]
 	assert fetch_items_field.get("insert_after") == "custom_pea_joint_resources_col_break"
+	joint_lines_field = fields_by_name["Stock Entry-custom_pea_joint_production_lines"]
+	assert joint_lines_field.get("options") == "Joint Production Line"
+	assert joint_lines_field.get("insert_after") == "custom_pea_joint_production_section"
+	joint_resources_section = fields_by_name["Stock Entry-custom_pea_joint_resources_section"]
+	assert joint_resources_section.get("insert_after") == "custom_pea_joint_production_lines"
 	for fieldname in (
 		"Stock Entry-custom_pea_lh_gross_qty",
 		"Stock Entry-custom_pea_lh_rejection_qty",

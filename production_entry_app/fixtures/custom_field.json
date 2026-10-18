@@ -688,6 +688,20 @@
  },
  {
   "doctype": "Custom Field",
+  "name": "Stock Entry-custom_pea_joint_production_lines",
+  "dt": "Stock Entry",
+  "fieldname": "custom_pea_joint_production_lines",
+  "fieldtype": "Table",
+  "label": "Joint Production Lines",
+  "options": "Joint Production Line",
+  "insert_after": "custom_pea_joint_production_section",
+  "depends_on": "eval:(doc.__pea_same_item_joint_stock_entry_type && doc.stock_entry_type==doc.__pea_same_item_joint_stock_entry_type)",
+  "mandatory_depends_on": "eval:(doc.__pea_same_item_joint_stock_entry_type && doc.stock_entry_type==doc.__pea_same_item_joint_stock_entry_type)",
+  "module": "Production Entry App",
+  "permlevel": 0
+ },
+ {
+  "doctype": "Custom Field",
   "name": "Stock Entry-custom_pea_lh_bom",
   "dt": "Stock Entry",
   "fieldname": "custom_pea_lh_bom",
@@ -695,9 +709,9 @@
   "label": "LH BOM",
   "options": "BOM",
   "search_index": 1,
-  "insert_after": "custom_pea_joint_production_section",
-  "depends_on": "eval:(doc.__pea_joint_stock_entry_type && doc.stock_entry_type==doc.__pea_joint_stock_entry_type)",
-  "mandatory_depends_on": "eval:(doc.__pea_joint_stock_entry_type && doc.stock_entry_type==doc.__pea_joint_stock_entry_type)",
+  "insert_after": "custom_pea_joint_production_lines",
+  "depends_on": "eval:(doc.__pea_joint_stock_entry_type && doc.stock_entry_type==doc.__pea_joint_stock_entry_type && doc.stock_entry_type!=doc.__pea_same_item_joint_stock_entry_type)",
+  "mandatory_depends_on": "eval:(doc.__pea_joint_stock_entry_type && doc.stock_entry_type==doc.__pea_joint_stock_entry_type && doc.stock_entry_type!=doc.__pea_same_item_joint_stock_entry_type)",
   "module": "Production Entry App",
   "permlevel": 0
  },
@@ -710,8 +724,8 @@
   "label": "LH Gross Quantity",
   "non_negative": 1,
   "insert_after": "custom_pea_lh_bom",
-  "depends_on": "eval:(doc.__pea_joint_stock_entry_type && doc.stock_entry_type==doc.__pea_joint_stock_entry_type)",
-  "mandatory_depends_on": "eval:(doc.__pea_joint_stock_entry_type && doc.stock_entry_type==doc.__pea_joint_stock_entry_type)",
+  "depends_on": "eval:(doc.__pea_joint_stock_entry_type && doc.stock_entry_type==doc.__pea_joint_stock_entry_type && doc.stock_entry_type!=doc.__pea_same_item_joint_stock_entry_type)",
+  "mandatory_depends_on": "eval:(doc.__pea_joint_stock_entry_type && doc.stock_entry_type==doc.__pea_joint_stock_entry_type && doc.stock_entry_type!=doc.__pea_same_item_joint_stock_entry_type)",
   "module": "Production Entry App",
   "permlevel": 0
  },
@@ -725,7 +739,7 @@
   "default": "0",
   "non_negative": 1,
   "insert_after": "custom_pea_lh_gross_qty",
-  "depends_on": "eval:(doc.__pea_joint_stock_entry_type && doc.stock_entry_type==doc.__pea_joint_stock_entry_type)",
+  "depends_on": "eval:(doc.__pea_joint_stock_entry_type && doc.stock_entry_type==doc.__pea_joint_stock_entry_type && doc.stock_entry_type!=doc.__pea_same_item_joint_stock_entry_type)",
   "module": "Production Entry App",
   "permlevel": 0
  },
@@ -736,7 +750,7 @@
   "fieldname": "custom_pea_joint_production_col_break",
   "fieldtype": "Column Break",
   "insert_after": "custom_pea_lh_rejection_qty",
-  "depends_on": "eval:(doc.__pea_joint_stock_entry_type && doc.stock_entry_type==doc.__pea_joint_stock_entry_type)",
+  "depends_on": "eval:(doc.__pea_joint_stock_entry_type && doc.stock_entry_type==doc.__pea_joint_stock_entry_type && doc.stock_entry_type!=doc.__pea_same_item_joint_stock_entry_type)",
   "module": "Production Entry App",
   "permlevel": 0
  },
@@ -750,8 +764,8 @@
   "options": "BOM",
   "search_index": 1,
   "insert_after": "custom_pea_joint_production_col_break",
-  "depends_on": "eval:(doc.__pea_joint_stock_entry_type && doc.stock_entry_type==doc.__pea_joint_stock_entry_type)",
-  "mandatory_depends_on": "eval:(doc.__pea_joint_stock_entry_type && doc.stock_entry_type==doc.__pea_joint_stock_entry_type)",
+  "depends_on": "eval:(doc.__pea_joint_stock_entry_type && doc.stock_entry_type==doc.__pea_joint_stock_entry_type && doc.stock_entry_type!=doc.__pea_same_item_joint_stock_entry_type)",
+  "mandatory_depends_on": "eval:(doc.__pea_joint_stock_entry_type && doc.stock_entry_type==doc.__pea_joint_stock_entry_type && doc.stock_entry_type!=doc.__pea_same_item_joint_stock_entry_type)",
   "module": "Production Entry App",
   "permlevel": 0
  },
@@ -764,8 +778,8 @@
   "label": "RH Gross Quantity",
   "non_negative": 1,
   "insert_after": "custom_pea_rh_bom",
-  "depends_on": "eval:(doc.__pea_joint_stock_entry_type && doc.stock_entry_type==doc.__pea_joint_stock_entry_type)",
-  "mandatory_depends_on": "eval:(doc.__pea_joint_stock_entry_type && doc.stock_entry_type==doc.__pea_joint_stock_entry_type)",
+  "depends_on": "eval:(doc.__pea_joint_stock_entry_type && doc.stock_entry_type==doc.__pea_joint_stock_entry_type && doc.stock_entry_type!=doc.__pea_same_item_joint_stock_entry_type)",
+  "mandatory_depends_on": "eval:(doc.__pea_joint_stock_entry_type && doc.stock_entry_type==doc.__pea_joint_stock_entry_type && doc.stock_entry_type!=doc.__pea_same_item_joint_stock_entry_type)",
   "module": "Production Entry App",
   "permlevel": 0
  },
@@ -779,7 +793,7 @@
   "default": "0",
   "non_negative": 1,
   "insert_after": "custom_pea_rh_gross_qty",
-  "depends_on": "eval:(doc.__pea_joint_stock_entry_type && doc.stock_entry_type==doc.__pea_joint_stock_entry_type)",
+  "depends_on": "eval:(doc.__pea_joint_stock_entry_type && doc.stock_entry_type==doc.__pea_joint_stock_entry_type && doc.stock_entry_type!=doc.__pea_same_item_joint_stock_entry_type)",
   "module": "Production Entry App",
   "permlevel": 0
  },
@@ -790,7 +804,7 @@
   "fieldname": "custom_pea_joint_resources_section",
   "fieldtype": "Section Break",
   "label": "Joint Production Resources",
-  "insert_after": "custom_pea_rh_rejection_qty",
+  "insert_after": "custom_pea_joint_production_lines",
   "depends_on": "eval:(doc.__pea_joint_stock_entry_type && doc.stock_entry_type==doc.__pea_joint_stock_entry_type)",
   "module": "Production Entry App",
   "permlevel": 0

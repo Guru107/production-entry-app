@@ -19,6 +19,10 @@ from production_entry_app.production_entry_app.utils.loss_time import (
 	SETUP_TIME_REASON,
 	get_loss_duration_minutes,
 )
+from production_entry_app.production_entry_app.joint_production import (
+	JOINT_PRODUCTION_LINES_FIELD,
+	joint_production_line_side,
+)
 from production_entry_app.production_entry_app.utils.stock_entry_type_flags import (
 	is_joint_lh_rh_stock_entry_type,
 	is_joint_production_stock_entry_type,
@@ -178,8 +182,68 @@ def is_paired_production_entry(entry: dict | BaseDocument) -> bool:
 	return is_joint_lh_rh_entry(entry) or is_joint_production_entry(entry)
 
 
+def _joint_production_line_slot_field(index: int, suffix: str) -> str:
+	return f"__pea_jpl_{index}_{suffix}"
+
+
+def _materialize_joint_production_line_slot_fields(entry: dict) -> None:
+	lines = entry.get(JOINT_PRODUCTION_LINES_FIELD) or []
+	if not lines:
+		return
+	for index, line in enumerate(lines):
+		entry[_joint_production_line_slot_field(index, "bom")] = line.get("bom_no")
+		entry[_joint_production_line_slot_field(index, "gross")] = line.get("gross_qty")
+		entry[_joint_production_line_slot_field(index, "rejection")] = line.get("rejection_qty")
+
+
+def _joint_production_line_output_slots(entry: dict) -> tuple[OutputSlot, ...] | None:
+	lines = entry.get(JOINT_PRODUCTION_LINES_FIELD) or []
+	if not lines:
+		return None
+	return tuple(
+		OutputSlot(
+			joint_production_line_side(index),
+			_joint_production_line_slot_field(index, "bom"),
+			_joint_production_line_slot_field(index, "gross"),
+			_joint_production_line_slot_field(index, "rejection"),
+		)
+		for index in range(len(lines))
+	)
+
+
+def attach_joint_production_lines_to_entries(entries: list[dict]) -> None:
+	joint_names = [
+		entry.get("name")
+		for entry in entries
+		if entry.get("name") and is_joint_production_entry(entry)
+	]
+	if not joint_names:
+		return
+	child = DocType("Joint Production Line")
+	rows = (
+		frappe.qb.from_(child)
+		.select(child.parent, child.bom_no, child.gross_qty, child.rejection_qty, child.idx)
+		.where(child.parent.isin(joint_names))
+		.orderby(child.parent, child.idx)
+	).run(as_dict=True)
+	lines_by_parent: dict[str, list[dict]] = defaultdict(list)
+	for row in rows:
+		parent = row.get("parent")
+		if parent:
+			lines_by_parent[parent].append(row)
+	for entry in entries:
+		parent = entry.get("name")
+		if not parent or parent not in lines_by_parent:
+			continue
+		entry[JOINT_PRODUCTION_LINES_FIELD] = lines_by_parent[parent]
+		_materialize_joint_production_line_slot_fields(entry)
+
+
 def paired_output_slots(entry: dict | BaseDocument) -> tuple[OutputSlot, ...] | None:
 	if is_joint_production_entry(entry):
+		line_slots = _joint_production_line_output_slots(entry if isinstance(entry, dict) else entry.as_dict())
+		if line_slots:
+			return line_slots
 		return _SAME_ITEM_OUTPUT_SLOTS
 	if is_joint_lh_rh_entry(entry):
 		return _LH_RH_OUTPUT_SLOTS
@@ -354,6 +418,18 @@ def get_stock_entries_for_bom(bom_no: str, *, filters: dict | None = None) -> li
 		limit_page_length=_MAX_BOM_PARENT_MATCHES + 1,
 	)
 	matched_names = {row.get("name") for row in header_rows if row.get("name")}
+	joint_line = DocType("Joint Production Line")
+	line_rows = (
+		frappe.qb.from_(joint_line)
+		.select(joint_line.parent)
+		.distinct()
+		.where(joint_line.bom_no == bom_no)
+		.limit(_MAX_BOM_PARENT_MATCHES + 1)
+	).run(as_dict=True)
+	for row in line_rows:
+		parent = row.get("parent")
+		if parent:
+			matched_names.add(parent)
 	if len(matched_names) <= _MAX_BOM_PARENT_MATCHES:
 		stock_entry_detail = DocType("Stock Entry Detail")
 		stock_entry = DocType("Stock Entry")
@@ -440,6 +516,7 @@ def iter_stock_entries_in_chunks(
 				).format(max_rows)
 			)
 		add_stock_entry_type_flags(raw_rows)
+		attach_joint_production_lines_to_entries(raw_rows)
 		rows = [row for row in raw_rows if is_production_stock_entry(row)]
 		production_dates = get_shift_production_dates(
 			{row.get("custom_pea_shift") for row in rows if row.get("custom_pea_shift")}
@@ -873,7 +950,7 @@ def _get_joint_output_item_map(stock_entry_names: list[str]) -> dict[tuple[str, 
 			stock_entry_detail.item_code,
 		)
 		.where(stock_entry_detail.parent.isin(stock_entry_names))
-		.where(stock_entry_detail.custom_pea_joint_output_side.isin(_JOINT_OUTPUT_SIDES))
+		.where(stock_entry_detail.custom_pea_joint_output_side != "")
 		.where(_get_non_scrap_item_criterion(stock_entry_detail))
 	).run(as_dict=True)
 	return {

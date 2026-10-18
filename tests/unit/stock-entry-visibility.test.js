@@ -1392,10 +1392,10 @@ function sameItemJointFetchDoc(grossOverrides) {
 		__pea_joint_stock_entry_type: "Joint Production",
 		__pea_same_item_joint_stock_entry_type: "Joint Production",
 		custom_pea_operation: "Shearing",
-		custom_pea_lh_bom: "BOM-1",
-		custom_pea_rh_bom: "BOM-2",
-		custom_pea_lh_gross_qty: 10,
-		custom_pea_rh_gross_qty: 12,
+		custom_pea_joint_production_lines: [
+			{ bom_no: "BOM-1", gross_qty: 10, rejection_qty: 0 },
+			{ bom_no: "BOM-2", gross_qty: 12, rejection_qty: 0 },
+		],
 		...grossOverrides,
 	};
 }
@@ -1403,22 +1403,26 @@ function sameItemJointFetchDoc(grossOverrides) {
 test("blank joint slot asks for both gross quantities when the other slot is zero", () => {
 	const { messages, called } = captureJointFetchMessages(
 		sameItemJointFetchDoc({
-			custom_pea_lh_gross_qty: 0,
-			custom_pea_rh_gross_qty: undefined,
+			custom_pea_joint_production_lines: [
+				{ bom_no: "BOM-1", gross_qty: 0, rejection_qty: 0 },
+				{ bom_no: "BOM-2", gross_qty: undefined, rejection_qty: 0 },
+			],
 		})
 	);
 
 	assert.equal(called, false);
 	assert.deepEqual(messages, [
-		"Please set BOM 1 and BOM 2 Gross Quantity before fetching items.",
+		"Please set Gross Quantity on every Joint Production Line before fetching items.",
 	]);
 });
 
 test("string zero gross quantity uses the single-recipe message when both slots are filled", () => {
 	const { messages, called } = captureJointFetchMessages(
 		sameItemJointFetchDoc({
-			custom_pea_lh_gross_qty: "0",
-			custom_pea_rh_gross_qty: 12,
+			custom_pea_joint_production_lines: [
+				{ bom_no: "BOM-1", gross_qty: "0", rejection_qty: 0 },
+				{ bom_no: "BOM-2", gross_qty: 12, rejection_qty: 0 },
+			],
 		})
 	);
 
@@ -2585,7 +2589,7 @@ function makeLabeledJointForm(stockEntryType) {
 	return { frm, labels, gridProps };
 }
 
-test("Joint Production labels the two slots BOM 1 and BOM 2", () => {
+test("Joint Production labels the section and default line output sides", () => {
 	const originalFrappe = global.frappe;
 	global.frappe = { call() {} };
 	const { frm, labels, gridProps } = makeLabeledJointForm("Joint Production");
@@ -2594,9 +2598,6 @@ test("Joint Production labels the two slots BOM 1 and BOM 2", () => {
 		_sync_joint_stock_entry_type(frm);
 
 		assert.equal(labels.custom_pea_joint_production_section, "Joint Production");
-		assert.equal(labels.custom_pea_lh_bom, "BOM 1");
-		assert.equal(labels.custom_pea_rh_bom, "BOM 2");
-		assert.equal(labels.custom_pea_lh_gross_qty, "BOM 1 Gross Quantity");
 		assert.equal(frm.doc.__pea_joint_stock_entry_type, "Joint Production");
 		assert.ok(
 			gridProps.some(
@@ -2618,7 +2619,7 @@ test("unchanged joint pairing does not rewrite slot labels", () => {
 
 	try {
 		_sync_joint_stock_entry_type(frm);
-		assert.equal(labels.custom_pea_lh_bom, "BOM 1");
+		assert.equal(labels.custom_pea_joint_production_section, "Joint Production");
 		for (const fieldname of Object.keys(labels)) {
 			delete labels[fieldname];
 		}
@@ -2654,13 +2655,22 @@ test("Joint LH/RH Production keeps LH and RH slot labels", () => {
 });
 
 test("switching from Joint LH/RH Production to Joint Production clears fetched rows", () => {
-	const { frm } = makeLabeledJointForm("Joint Production");
+	const { frm } = makeLabeledJointForm("Joint LH RH Production");
+	frm.__peaJointStockEntryType = "Joint LH RH Production";
+	frm.__peaSameItemJointStockEntryType = "Joint Production";
+	frm.doc.__pea_joint_stock_entry_type = "Joint LH RH Production";
+	frm.doc.__pea_same_item_joint_stock_entry_type = "Joint Production";
+	frm.doc.custom_pea_lh_bom = "BOM-LH";
+	frm.doc.custom_pea_rh_bom = "BOM-RH";
+	frm.doc.items = [{ item_code: "FG-1" }];
+	frm.doc.stock_entry_type = "Joint Production";
 
 	_sync_joint_stock_entry_type(frm, { previousStockEntryType: "Joint LH RH Production" });
 
 	assert.equal(frm.doc.custom_pea_lh_bom, "");
 	assert.equal(frm.doc.custom_pea_rh_bom, "");
-	assert.deepEqual(frm.doc.items, []);
+	assert.deepEqual(frm.doc.custom_pea_joint_production_lines || [], []);
+	assert.deepEqual(frm.doc.items || [], []);
 });
 
 test("BOM Die Tool Item lookup stays quiet when the field is not migrated", async () => {

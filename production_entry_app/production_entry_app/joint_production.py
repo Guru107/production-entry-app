@@ -34,6 +34,8 @@ from production_entry_app.production_entry_app.utils.system_precision import (
 WHOLE_NUMBER_QUANTUM: Decimal = Decimal("1")
 JOINT_LH_RH_STOCK_ENTRY_TYPE: str = "Joint LH RH Production"
 JOINT_PRODUCTION_STOCK_ENTRY_TYPE: str = "Joint Production"
+JOINT_PRODUCTION_LINES_FIELD: str = "custom_pea_joint_production_lines"
+MIN_JOINT_PRODUCTION_LINES: int = 2
 SHEARING_OPERATION: str = "Shearing"
 JOINT_BOM_OPERATING_COST_DESCRIPTION: str = "Operating Cost as per BOM"
 
@@ -315,9 +317,15 @@ def _set_scrap_row_classification(row: dict[str, Any]) -> None:
 		row["type"] = "Scrap"
 
 
+def joint_production_line_side(index: int) -> str:
+	return f"BOM {index + 1}"
+
+
 def _build_joint_production_plan(doc: Document) -> JointProductionPlan:
-	same_finished_item = is_joint_production(doc)
-	first_side, second_side = ("BOM 1", "BOM 2") if same_finished_item else ("LH", "RH")
+	if is_joint_production(doc):
+		return _build_joint_production_plan_from_lines(doc)
+	same_finished_item = False
+	first_side, second_side = ("LH", "RH")
 	_validate_joint_header(
 		doc,
 		first_side=first_side,
@@ -344,10 +352,7 @@ def _build_joint_production_plan(doc: Document) -> JointProductionPlan:
 	input_validator = _validate_shearing_bom_inputs if is_shearing else _validate_post_shearing_bom_inputs
 	for line in lines:
 		input_validator(line.bom)
-	if same_finished_item:
-		_validate_same_finished_item_pair(lines[0].bom, lines[1].bom)
-	else:
-		_validate_joint_bom_pair(lines[0].bom, lines[1].bom, require_common_rm=is_shearing)
+	_validate_joint_bom_pair(lines[0].bom, lines[1].bom, require_common_rm=is_shearing)
 	_validate_joint_bom_company(lines, doc.get("company"))
 	for line in lines:
 		_validate_side_quantities(line.side, line.gross_qty, line.rejection_qty, same_finished_item)
@@ -364,6 +369,78 @@ def _build_joint_production_plan(doc: Document) -> JointProductionPlan:
 		is_shearing=is_shearing,
 		same_finished_item=same_finished_item,
 	)
+
+
+def _build_joint_production_plan_from_lines(doc: Document) -> JointProductionPlan:
+	_validate_joint_production_lines_header(doc)
+	table_rows = list(doc.get(JOINT_PRODUCTION_LINES_FIELD) or [])
+	if len(table_rows) < MIN_JOINT_PRODUCTION_LINES:
+		frappe.throw(
+			_(
+				"Add at least two Joint Production Lines. "
+				"If only one recipe is produced, create a Manufacture Production Entry instead of Joint Production."
+			)
+		)
+	operation = _get_joint_operation(doc, same_finished_item=True)
+	lines = tuple(
+		JointProductionLine(
+			bom=_get_joint_bom_details(cstr(row.get("bom_no"))),
+			gross_qty=flt(row.get("gross_qty")),
+			rejection_qty=flt(row.get("rejection_qty")),
+			side=joint_production_line_side(index),
+		)
+		for index, row in enumerate(table_rows)
+	)
+	_validate_joint_bom_operations(lines, operation)
+	for line in lines:
+		_validate_post_shearing_bom_inputs(line.bom)
+	_validate_joint_production_duplicate_recipes(lines)
+	_validate_joint_bom_company(lines, doc.get("company"))
+	for line in lines:
+		_validate_side_quantities(line.side, line.gross_qty, line.rejection_qty, same_finished_item=True)
+	total_rm_consumption = _calculate_post_shearing_source_consumption(lines)
+	scrap_items = _build_planned_scrap_items(lines)
+	return JointProductionPlan(
+		lines=lines,
+		total_rm_consumption=total_rm_consumption,
+		scrap_items=scrap_items,
+		is_shearing=False,
+		same_finished_item=True,
+	)
+
+
+def _validate_joint_production_lines_header(doc: Document) -> None:
+	pairing = _("Joint Production")
+	if doc.get("purpose") != "Repack":
+		frappe.throw(_("{0} must use Repack purpose.").format(pairing))
+	if not doc.get("custom_pea_operation"):
+		frappe.throw(_("Operation is required for {0}.").format(pairing))
+	if doc.get("custom_pea_shift") and not doc.get("custom_pea_die_tool_item"):
+		frappe.throw(_("Die Tool Item is required for {0}.").format(pairing))
+	if flt(doc.get("custom_pea_total_strokes")) < 0:
+		frappe.throw(_("Total Press Strokes cannot be negative."))
+
+
+def _joint_production_recipe_signature(bom: JointBomDetails) -> tuple[str, frozenset[str]]:
+	return bom.item_code, frozenset(item.item_code for item in bom.input_items)
+
+
+def _validate_joint_production_duplicate_recipes(lines: tuple[JointProductionLine, ...]) -> None:
+	bom_names = [line.bom.name for line in lines]
+	if len(bom_names) != len(set(bom_names)):
+		frappe.throw(_("Each Joint Production Line must use a different BOM."))
+	seen: dict[tuple[str, frozenset[str]], str] = {}
+	for line in lines:
+		signature = _joint_production_recipe_signature(line.bom)
+		previous_side = seen.get(signature)
+		if previous_side:
+			frappe.throw(
+				_(
+					"Lines {0} and {1} repeat the same finished item and input items. "
+					"Merge them into one Joint Production Line."
+				).format(previous_side, line.side)
+			)
+		seen[signature] = line.side
 
 
 def _calculate_shearing_rm_consumption(lines: tuple[JointProductionLine, ...]) -> float:
@@ -560,10 +637,9 @@ def _get_joint_row_role(row: BaseDocument, plan: JointProductionPlan) -> str:
 
 	line = plan.line_for_side(side)
 	if line is None:
+		expected_sides = _format_joint_output_sides(plan.output_sides)
 		_throw_stale_joint_rows(
-			_("Every output row must specify {0} or {1} Output Side.").format(
-				plan.first_side, plan.second_side
-			)
+			_("Every output row must specify one of these Output Sides: {0}.").format(expected_sides)
 		)
 	if item_code != line.bom.item_code:
 		_throw_stale_joint_rows(_("The {0} output item does not match its BOM.").format(side))
@@ -708,6 +784,10 @@ def is_scrap_row(row: BaseDocument) -> bool:
 	)
 
 
+def _format_joint_output_sides(sides: tuple[str, ...]) -> str:
+	return ", ".join(sides)
+
+
 def _validate_joint_rejection_breakup(doc: Document, plan: JointProductionPlan) -> None:
 	precision = get_system_float_precision()
 	sides = plan.output_sides
@@ -720,7 +800,9 @@ def _validate_joint_rejection_breakup(doc: Document, plan: JointProductionPlan) 
 		side = row.get("output_side")
 		if side not in actual:
 			frappe.throw(
-				_("Every joint rejection breakup row must specify {0} or {1} Output Side.").format(*sides)
+				_("Every joint rejection breakup row must specify one of these Output Sides: {0}.").format(
+					_format_joint_output_sides(sides)
+				)
 			)
 		if not row.get("item_code"):
 			row.set("item_code", items[side])
