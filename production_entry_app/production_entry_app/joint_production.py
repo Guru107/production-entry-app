@@ -36,6 +36,7 @@ JOINT_LH_RH_STOCK_ENTRY_TYPE: str = "Joint LH RH Production"
 JOINT_PRODUCTION_STOCK_ENTRY_TYPE: str = "Joint Production"
 JOINT_PRODUCTION_LINES_FIELD: str = "custom_pea_joint_production_lines"
 MIN_JOINT_PRODUCTION_LINES: int = 2
+MAX_JOINT_PRODUCTION_BOM_SIDES: int = 10
 SHEARING_OPERATION: str = "Shearing"
 JOINT_BOM_OPERATING_COST_DESCRIPTION: str = "Operating Cost as per BOM"
 
@@ -319,6 +320,18 @@ def _set_scrap_row_classification(row: dict[str, Any]) -> None:
 
 def joint_production_line_side(index: int) -> str:
 	return f"BOM {index + 1}"
+
+
+def joint_production_output_side_select_options() -> str:
+	"""Select options for joint output_side fields (LH/RH plus BOM 1…BOM N)."""
+	return "\n".join(
+		[
+			"",
+			"LH",
+			"RH",
+			*[joint_production_line_side(index) for index in range(MAX_JOINT_PRODUCTION_BOM_SIDES)],
+		]
+	)
 
 
 def _build_joint_production_plan(doc: Document) -> JointProductionPlan:

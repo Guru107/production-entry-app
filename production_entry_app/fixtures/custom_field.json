@@ -880,7 +880,7 @@
   "fieldname": "custom_pea_joint_output_side",
   "fieldtype": "Select",
   "label": "Joint Output Side",
-  "options": "\nLH\nRH\nBOM 1\nBOM 2",
+  "options": "\nLH\nRH\nBOM 1\nBOM 2\nBOM 3\nBOM 4\nBOM 5\nBOM 6\nBOM 7\nBOM 8\nBOM 9\nBOM 10",
   "read_only": 1,
   "search_index": 1,
   "insert_after": "custom_pea_is_rejection_item",

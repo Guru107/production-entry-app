@@ -2612,6 +2612,31 @@ test("Joint Production labels the section and default line output sides", () => 
 	}
 });
 
+test("Joint Production expands rejection breakup sides for three lines", () => {
+	const originalFrappe = global.frappe;
+	global.frappe = { call() {} };
+	const { frm, gridProps } = makeLabeledJointForm("Joint Production");
+	frm.doc.custom_pea_joint_production_lines = [
+		{ bom_no: "BOM-1" },
+		{ bom_no: "BOM-2" },
+		{ bom_no: "BOM-3" },
+	];
+
+	try {
+		_sync_joint_stock_entry_type(frm);
+		assert.ok(
+			gridProps.some(
+				([fieldname, property, value]) =>
+					fieldname === "output_side" &&
+					property === "options" &&
+					value === "\nBOM 1\nBOM 2\nBOM 3"
+			)
+		);
+	} finally {
+		global.frappe = originalFrappe;
+	}
+});
+
 test("unchanged joint pairing does not rewrite slot labels", () => {
 	const originalFrappe = global.frappe;
 	global.frappe = { call() {} };
