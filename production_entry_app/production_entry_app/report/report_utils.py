@@ -63,9 +63,6 @@ def _output_slots(sides: tuple[str, str]) -> tuple[OutputSlot, ...]:
 
 _LH_RH_OUTPUT_SLOTS: tuple[OutputSlot, ...] = _output_slots(("LH", "RH"))
 _SAME_ITEM_OUTPUT_SLOTS: tuple[OutputSlot, ...] = _output_slots(("BOM 1", "BOM 2"))
-_JOINT_OUTPUT_SIDES: tuple[str, ...] = tuple(
-	slot.side for slot in (*_LH_RH_OUTPUT_SLOTS, *_SAME_ITEM_OUTPUT_SLOTS)
-)
 # Cutover release: reports read the app's own fields only. Entries created
 # before the changeover are not considered, so the legacy parallel fields
 # (custom_workstation / custom_shift / custom_operator) are never read and the

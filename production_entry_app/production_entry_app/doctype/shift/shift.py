@@ -607,21 +607,40 @@ def _build_workstation_summary_rows(
 	return worst_rows, best_row
 
 
+def _item_by_bom_for_entries(entries: list[dict]) -> dict[str, str]:
+	bom_names = sorted(
+		{bom_no for entry in entries for bom_no in _production_entry_bom_names(entry) if bom_no}
+	)
+	if not bom_names:
+		return {}
+	return {
+		row.get("name"): row.get("item")
+		for row in frappe.get_list(
+			"BOM",
+			filters={"name": ["in", bom_names]},
+			fields=["name", "item"],
+			limit_page_length=0,
+		)
+	}
+
+
 def _build_item_bom_rows(
 	entries: list[dict],
 	parent_quantity_metrics: dict[str, dict[str, float]] | None = None,
 ) -> list[dict]:
 	aggregates: dict[str, dict] = {}
+	item_by_bom = _item_by_bom_for_entries(entries)
 	for entry in entries:
 		if is_joint_production_entry(entry):
-			item_code = entry.get("item_code") or _("Unknown Item")
 			for slot in paired_output_slots(entry) or ():
+				bom_no = entry.get(slot.bom_field) or ""
+				item_code = item_by_bom.get(bom_no) or entry.get("item_code") or _("Unknown Item")
 				gross_qty = flt(entry.get(slot.gross_field) or 0)
 				rejection_qty = flt(entry.get(slot.rejection_field) or 0)
 				_add_item_bom_quantity(
 					aggregates,
 					item_code=item_code,
-					bom_no=entry.get(slot.bom_field) or "",
+					bom_no=bom_no,
 					total_qty=gross_qty,
 					ok_qty=max(gross_qty - rejection_qty, 0),
 					rejection_qty=rejection_qty,
