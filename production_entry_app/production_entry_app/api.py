@@ -213,10 +213,14 @@ def get_joint_production_items(doc: str) -> list[dict]:
 	elif not frappe.has_permission("Stock Entry", "create"):
 		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
 
+	lines_payload = doc_dict.get(JOINT_PRODUCTION_LINES_FIELD) or []
+	if lines_payload and not isinstance(lines_payload, list):
+		frappe.throw(_("Stock Entry payload must be a valid JSON object."))
+
 	linked_boms = [
 		doc_dict.get("custom_pea_lh_bom"),
 		doc_dict.get("custom_pea_rh_bom"),
-		*(row.get("bom_no") for row in doc_dict.get(JOINT_PRODUCTION_LINES_FIELD) or []),
+		*(row.get("bom_no") for row in lines_payload if isinstance(row, dict)),
 	]
 	for bom_no in dict.fromkeys(bom for bom in linked_boms if bom):
 		if not frappe.has_permission("BOM", "read", bom_no):
@@ -256,7 +260,7 @@ def get_joint_production_items(doc: str) -> list[dict]:
 					"custom_pea_die_tool_item",
 				)
 			},
-			JOINT_PRODUCTION_LINES_FIELD: doc_dict.get(JOINT_PRODUCTION_LINES_FIELD) or [],
+			JOINT_PRODUCTION_LINES_FIELD: lines_payload if isinstance(lines_payload, list) else [],
 		}
 	)
 	if is_joint_production_stock_entry_type(stock_entry) and not stock_entry.get(

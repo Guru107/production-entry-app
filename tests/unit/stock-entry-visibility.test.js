@@ -1367,7 +1367,16 @@ function captureJointFetchMessages(doc) {
 	const originalTranslate = global.__;
 	const messages = [];
 	let called = false;
-	global.__ = (text) => text;
+	global.__ = (text, replace) => {
+		if (!replace) {
+			return text;
+		}
+		const values = Array.isArray(replace) ? replace : [replace];
+		return values.reduce(
+			(message, value, index) => message.replace(`{${index}}`, value),
+			text
+		);
+	};
 	global.frappe = {
 		call() {
 			called = true;
@@ -1399,6 +1408,20 @@ function sameItemJointFetchDoc(grossOverrides) {
 		...grossOverrides,
 	};
 }
+
+test("joint fetch refuses more than ten production lines", () => {
+	const lines = Array.from({ length: 11 }, (_, index) => ({
+		bom_no: `BOM-${index}`,
+		gross_qty: 1,
+		rejection_qty: 0,
+	}));
+	const { messages, called } = captureJointFetchMessages(
+		sameItemJointFetchDoc({ custom_pea_joint_production_lines: lines })
+	);
+
+	assert.equal(called, false);
+	assert.match(messages[0], /at most 10 lines/);
+});
 
 test("blank joint slot asks for both gross quantities when the other slot is zero", () => {
 	const { messages, called } = captureJointFetchMessages(
@@ -2593,6 +2616,10 @@ test("Joint Production labels the section and default line output sides", () => 
 	const originalFrappe = global.frappe;
 	global.frappe = { call() {} };
 	const { frm, labels, gridProps } = makeLabeledJointForm("Joint Production");
+	frm.doc.custom_pea_joint_production_lines = [
+		{ bom_no: "BOM-1", gross_qty: 10, rejection_qty: 0 },
+		{ bom_no: "BOM-2", gross_qty: 10, rejection_qty: 0 },
+	];
 
 	try {
 		_sync_joint_stock_entry_type(frm);

@@ -394,6 +394,8 @@ def _build_joint_production_plan_from_lines(doc: Document) -> JointProductionPla
 				"If only one recipe is produced, create a Manufacture Production Entry instead of Joint Production."
 			)
 		)
+	if len(table_rows) > MAX_JOINT_PRODUCTION_BOM_SIDES:
+		frappe.throw(_("Joint Production supports at most {0} lines.").format(MAX_JOINT_PRODUCTION_BOM_SIDES))
 	operation = _get_joint_operation(doc, same_finished_item=True)
 	lines = tuple(
 		JointProductionLine(
@@ -927,11 +929,18 @@ def _validate_joint_bom_operations(
 	bold_operation = frappe.bold(frappe.utils.escape_html(operation))
 	if len(mismatches) == 1:
 		frappe.throw(_("{0} must match Operation {1}.").format(mismatches[0], bold_operation))
+	if len(mismatches) == 2:
+		frappe.throw(
+			_("{0} and {1} must match Operation {2}.").format(
+				mismatches[0],
+				mismatches[1],
+				bold_operation,
+			)
+		)
 	frappe.throw(
-		_("{0} and {1} must match Operation {2}.").format(
-			mismatches[0],
-			mismatches[1],
+		_("The following BOMs must match Operation {0}: {1}").format(
 			bold_operation,
+			", ".join(mismatches),
 		)
 	)
 

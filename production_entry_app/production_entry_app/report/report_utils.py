@@ -416,11 +416,15 @@ def get_stock_entries_for_bom(bom_no: str, *, filters: dict | None = None) -> li
 	)
 	matched_names = {row.get("name") for row in header_rows if row.get("name")}
 	joint_line = DocType("Joint Production Line")
+	stock_entry = DocType("Stock Entry")
 	line_rows = (
 		frappe.qb.from_(joint_line)
+		.inner_join(stock_entry)
+		.on(stock_entry.name == joint_line.parent)
 		.select(joint_line.parent)
 		.distinct()
 		.where(joint_line.bom_no == bom_no)
+		.where(stock_entry.docstatus == 1)
 		.limit(_MAX_BOM_PARENT_MATCHES + 1)
 	).run(as_dict=True)
 	for row in line_rows:
@@ -429,7 +433,6 @@ def get_stock_entries_for_bom(bom_no: str, *, filters: dict | None = None) -> li
 			matched_names.add(parent)
 	if len(matched_names) <= _MAX_BOM_PARENT_MATCHES:
 		stock_entry_detail = DocType("Stock Entry Detail")
-		stock_entry = DocType("Stock Entry")
 		detail_rows = (
 			frappe.qb.from_(stock_entry_detail)
 			.inner_join(stock_entry)

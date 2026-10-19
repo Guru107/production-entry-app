@@ -29,6 +29,7 @@ from production_entry_app.production_entry_app.joint_production import (
 	JOINT_LH_RH_STOCK_ENTRY_TYPE,
 	JOINT_PRODUCTION_LINES_FIELD,
 	JOINT_PRODUCTION_STOCK_ENTRY_TYPE,
+	MAX_JOINT_PRODUCTION_BOM_SIDES,
 	_get_bom_scrap_item_details,
 	_get_item_details,
 	_get_joint_bom_details,
@@ -3105,6 +3106,44 @@ class TestJointProductionItems(FrappeTestCase):
 
 		with self.assertRaisesRegex(frappe.ValidationError, "Manufacture Production Entry"):
 			get_joint_production_items(json.dumps(doc.as_dict(), default=str))
+
+	def test_joint_production_refuses_more_than_max_lines(self) -> None:
+		shift = make_running_shift(self.masters)
+		finished, sheet_bom, end_bom = self._same_item_boms()
+		doc = self._make_joint_entry(
+			shift,
+			lh_bom=sheet_bom,
+			rh_bom=end_bom,
+			fetch_items=False,
+			**self._same_item_entry_args(finished),
+		)
+		extra_lines = [
+			(self._make_bom(ensure_item(f"_JP_Max_{frappe.generate_hash(length=4)}_{index}")), 1, 0)
+			for index in range(MAX_JOINT_PRODUCTION_BOM_SIDES - 1)
+		]
+		self._set_joint_production_lines(
+			doc,
+			[
+				(sheet_bom, 10, 0),
+				(end_bom, 10, 0),
+				*extra_lines,
+			],
+		)
+
+		with self.assertRaisesRegex(
+			frappe.ValidationError,
+			f"at most {MAX_JOINT_PRODUCTION_BOM_SIDES} lines",
+		):
+			get_joint_production_items(json.dumps(doc.as_dict(), default=str))
+
+	def test_get_joint_production_items_rejects_non_list_lines_payload(self) -> None:
+		shift = make_running_shift(self.masters)
+		doc = self._make_joint_entry(shift, fetch_items=False)
+		payload = doc.as_dict()
+		payload[JOINT_PRODUCTION_LINES_FIELD] = "not-a-list"
+
+		with self.assertRaisesRegex(frappe.ValidationError, "valid JSON object"):
+			get_joint_production_items(json.dumps(payload, default=str))
 
 	def test_joint_production_stock_only_two_line_run_submits(self) -> None:
 		_finished, sheet_bom, end_bom = self._same_item_boms()

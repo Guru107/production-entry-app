@@ -66,6 +66,7 @@ const SHIFT_BASED_REQUIRED_FIELDS = [
 const NORMAL_ONLY_PEA_FIELDS = ["custom_pea_rejection_qty", "custom_pea_rework_qty"];
 const JOINT_ONLY_PEA_FIELDS = ["custom_pea_operation", "custom_pea_joint_fetch_items"];
 const JOINT_PRODUCTION_LINES_FIELD = "custom_pea_joint_production_lines";
+const MAX_JOINT_PRODUCTION_BOM_SIDES = 10;
 const JOINT_LH_RH_HEADER_FIELDS = [
 	"custom_pea_lh_bom",
 	"custom_pea_lh_gross_qty",
@@ -128,6 +129,7 @@ const REWORK_LAYOUT_FIELDS = [
 ];
 let _dieToolRequestId = 0;
 let _dieToolBomRequestId = 0;
+let _jointLineRejectionRequestId = 0;
 let _shiftDetailsRequestId = 0;
 let _jointStockEntryTypeRequestId = 0;
 let _reworkStockEntryTypeRequestId = 0;
@@ -254,6 +256,9 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 			_sync_die_tool_item_from_boms(frm);
 			_configure_rejection_breakup_grid(frm);
 		},
+		[`${JOINT_PRODUCTION_LINES_FIELD}_add`](frm, cdt, cdn) {
+			_enforce_joint_production_line_cap(frm, cdt, cdn);
+		},
 		custom_pea_operation(frm) {
 			_clear_joint_operation_dependents(frm);
 			_apply_manufacture_visibility(frm);
@@ -363,11 +368,27 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 	});
 }
 
+function _enforce_joint_production_line_cap(frm, cdt, cdn) {
+	if (!_is_same_item_joint_doc(frm.doc)) {
+		return;
+	}
+	const lines = frm.doc[JOINT_PRODUCTION_LINES_FIELD] || [];
+	if (lines.length <= MAX_JOINT_PRODUCTION_BOM_SIDES) {
+		return;
+	}
+	frappe.msgprint(
+		__("Joint Production supports at most {0} lines.", [MAX_JOINT_PRODUCTION_BOM_SIDES])
+	);
+	frappe.model.clear_doc(cdt, cdn);
+	frm.refresh_field(JOINT_PRODUCTION_LINES_FIELD);
+}
+
+function _joint_production_line_snapshot(doc) {
+	return (doc?.[JOINT_PRODUCTION_LINES_FIELD] || []).map((row) => row?.bom_no || "").join("\0");
+}
+
 function _joint_production_line_sides(doc) {
 	const lineCount = (doc?.[JOINT_PRODUCTION_LINES_FIELD] || []).length;
-	if (lineCount < 2) {
-		return ["BOM 1", "BOM 2"];
-	}
 	return Array.from({ length: lineCount }, (_, index) => `BOM ${index + 1}`);
 }
 
@@ -375,6 +396,8 @@ function _refresh_joint_production_line_rejection_items(frm) {
 	if (!_is_same_item_joint_doc(frm.doc)) {
 		return;
 	}
+	const requestId = ++_jointLineRejectionRequestId;
+	const lineSnapshot = _joint_production_line_snapshot(frm.doc);
 	const sides = _joint_production_line_sides(frm.doc);
 	const sideItems = {};
 	const pending = sides.map(
@@ -403,6 +426,12 @@ function _refresh_joint_production_line_rejection_items(frm) {
 			})
 	);
 	Promise.all(pending).then(() => {
+		if (requestId !== _jointLineRejectionRequestId) {
+			return;
+		}
+		if (_joint_production_line_snapshot(frm.doc) !== lineSnapshot) {
+			return;
+		}
 		for (const row of frm.doc.custom_pea_rejection_breakup || []) {
 			if (row.output_side && sideItems[row.output_side] !== undefined) {
 				row.item_code = sideItems[row.output_side];
@@ -1573,6 +1602,14 @@ function _handle_custom_pea_fetch_items(frm) {
 				__(
 					"Add at least two Joint Production Lines. If only one recipe is produced, create a Manufacture Production Entry instead of Joint Production."
 				)
+			);
+			return;
+		}
+		if (lines.length > MAX_JOINT_PRODUCTION_BOM_SIDES) {
+			frappe.msgprint(
+				__("Joint Production supports at most {0} lines.", [
+					MAX_JOINT_PRODUCTION_BOM_SIDES,
+				])
 			);
 			return;
 		}
