@@ -259,7 +259,9 @@ def get_joint_production_items(doc: str) -> list[dict]:
 			JOINT_PRODUCTION_LINES_FIELD: doc_dict.get(JOINT_PRODUCTION_LINES_FIELD) or [],
 		}
 	)
-	if is_joint_production_stock_entry_type(stock_entry) and not stock_entry.get(JOINT_PRODUCTION_LINES_FIELD):
+	if is_joint_production_stock_entry_type(stock_entry) and not stock_entry.get(
+		JOINT_PRODUCTION_LINES_FIELD
+	):
 		frappe.throw(
 			_(
 				"Add at least two Joint Production Lines. "

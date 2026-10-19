@@ -351,15 +351,11 @@ def check_running_shift_conflict(shift_name: str) -> dict:
 def _production_entry_bom_names(entry: dict) -> tuple[str, ...]:
 	if is_joint_production_entry(entry):
 		return tuple(
-			line.get("bom_no")
-			for line in entry.get(JOINT_PRODUCTION_LINES_FIELD) or []
-			if line.get("bom_no")
+			line.get("bom_no") for line in entry.get(JOINT_PRODUCTION_LINES_FIELD) or [] if line.get("bom_no")
 		)
 	if is_joint_lh_rh_entry(entry):
 		return tuple(
-			bom_no
-			for bom_no in (entry.get("custom_pea_lh_bom"), entry.get("custom_pea_rh_bom"))
-			if bom_no
+			bom_no for bom_no in (entry.get("custom_pea_lh_bom"), entry.get("custom_pea_rh_bom")) if bom_no
 		)
 	bom_no = entry.get("bom_no")
 	return (bom_no,) if bom_no else ()
@@ -914,12 +910,7 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 	parent_quantity_metrics = get_parent_quantity_metrics(entry_names)
 	item_by_entry, _item_labels = get_finished_item_maps(entry_names)
 	bom_names = sorted(
-		{
-			bom_no
-			for row in entry_rows
-			for bom_no in _production_entry_bom_names(row)
-			if bom_no
-		}
+		{bom_no for row in entry_rows for bom_no in _production_entry_bom_names(row) if bom_no}
 	)
 	item_by_bom = (
 		{
@@ -1148,12 +1139,7 @@ def get_shift_aggregate_production_entries(shift_name: str | None = None) -> lis
 	if not permitted_entry_names:
 		return []
 	requested_bom_names = sorted(
-		{
-			bom_no
-			for row in permitted_entries
-			for bom_no in _production_entry_bom_names(row)
-			if bom_no
-		}
+		{bom_no for row in permitted_entries for bom_no in _production_entry_bom_names(row) if bom_no}
 	)
 	permitted_bom_rows = frappe.get_list(
 		"BOM",

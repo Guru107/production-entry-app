@@ -15,13 +15,13 @@ from frappe.utils import cint, flt, get_datetime
 from pypika import Table
 from pypika.terms import Criterion
 
-from production_entry_app.production_entry_app.utils.loss_time import (
-	SETUP_TIME_REASON,
-	get_loss_duration_minutes,
-)
 from production_entry_app.production_entry_app.joint_production import (
 	JOINT_PRODUCTION_LINES_FIELD,
 	joint_production_line_side,
+)
+from production_entry_app.production_entry_app.utils.loss_time import (
+	SETUP_TIME_REASON,
+	get_loss_duration_minutes,
 )
 from production_entry_app.production_entry_app.utils.stock_entry_type_flags import (
 	is_joint_lh_rh_stock_entry_type,
@@ -213,9 +213,7 @@ def _joint_production_line_output_slots(entry: dict) -> tuple[OutputSlot, ...] |
 
 def attach_joint_production_lines_to_entries(entries: list[dict]) -> None:
 	joint_names = [
-		entry.get("name")
-		for entry in entries
-		if entry.get("name") and is_joint_production_entry(entry)
+		entry.get("name") for entry in entries if entry.get("name") and is_joint_production_entry(entry)
 	]
 	if not joint_names:
 		return
@@ -241,7 +239,9 @@ def attach_joint_production_lines_to_entries(entries: list[dict]) -> None:
 
 def paired_output_slots(entry: dict | BaseDocument) -> tuple[OutputSlot, ...] | None:
 	if is_joint_production_entry(entry):
-		line_slots = _joint_production_line_output_slots(entry if isinstance(entry, dict) else entry.as_dict())
+		line_slots = _joint_production_line_output_slots(
+			entry if isinstance(entry, dict) else entry.as_dict()
+		)
 		if line_slots:
 			return line_slots
 		return _SAME_ITEM_OUTPUT_SLOTS

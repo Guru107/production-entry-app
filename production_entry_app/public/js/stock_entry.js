@@ -394,7 +394,10 @@ function _refresh_joint_production_line_rejection_items(frm) {
 						resolve();
 					})
 					.catch((error) => {
-						_notify_call_error(__("Failed to refresh the joint rejection item."), error);
+						_notify_call_error(
+							__("Failed to refresh the joint rejection item."),
+							error
+						);
 						resolve();
 					});
 			})
@@ -1579,7 +1582,11 @@ function _handle_custom_pea_fetch_items(frm) {
 		}
 		const grossValues = lines.map((row) => row?.gross_qty);
 		if (grossValues.some((value) => _gross_qty_is_blank(value))) {
-			frappe.msgprint(__("Please set Gross Quantity on every Joint Production Line before fetching items."));
+			frappe.msgprint(
+				__(
+					"Please set Gross Quantity on every Joint Production Line before fetching items."
+				)
+			);
 			return;
 		}
 		if (grossValues.some((value) => _gross_qty_is_zero(value))) {
@@ -1610,7 +1617,8 @@ function _handle_custom_pea_fetch_items(frm) {
 			const bothSlotsFilled =
 				!_gross_qty_is_blank(lhGrossQty) && !_gross_qty_is_blank(rhGrossQty);
 			const explicitZero =
-				bothSlotsFilled && (_gross_qty_is_zero(lhGrossQty) || _gross_qty_is_zero(rhGrossQty));
+				bothSlotsFilled &&
+				(_gross_qty_is_zero(lhGrossQty) || _gross_qty_is_zero(rhGrossQty));
 			frappe.msgprint(
 				explicitZero
 					? __(
