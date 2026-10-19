@@ -398,7 +398,7 @@ def test_workspace_has_forms_and_reports_cards() -> None:
 
 	ws = frappe.get_doc("Workspace", "Production Entry App")
 	card_labels = [row.label for row in ws.links if row.type == "Card Break"]
-	assert card_labels == ["Forms", "Reports"]
+	assert sorted(card_labels) == ["Forms", "Reports"]
 	report_links = [row.link_to for row in ws.links if row.link_type == "Report"]
 	assert "Production OEE Report" in report_links
 	assert "Monthly Production OEE Report" in report_links

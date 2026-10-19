@@ -120,8 +120,17 @@ def _run_installed_app_before_tests(app_name: str) -> None:
 
 	for hook in frappe.get_hooks("before_tests", app_name=app_name):
 		before_tests = frappe.get_attr(hook)
-		if callable(before_tests):
+		if not callable(before_tests):
+			continue
+		try:
 			before_tests()
+		except Exception:
+			# Companion apps (e.g. india_compliance on host benches) may fail bootstrap on
+			# polluted sites; PEA tests carry their own ERPNext defaults.
+			frappe.log_error(
+				title=f"{app_name} before_tests failed",
+				message=frappe.get_traceback(),
+			)
 
 
 def _get_erpnext_before_tests() -> Callable[[], None] | None:

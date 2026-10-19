@@ -343,6 +343,29 @@ class TestTestSetup(FrappeTestCase):
 		get_attr.assert_called_once_with("india_compliance.tests.before_tests")
 		hook.assert_called_once_with()
 
+	def test_run_installed_app_before_tests_logs_and_continues_when_hook_raises(self) -> None:
+		hook = Mock(side_effect=frappe.ValidationError("bootstrap failed"))
+
+		with (
+			patch(
+				"production_entry_app.production_entry_app.utils.test_setup.frappe.get_installed_apps",
+				return_value=["frappe", "erpnext", "india_compliance"],
+			),
+			patch(
+				"production_entry_app.production_entry_app.utils.test_setup.frappe.get_hooks",
+				return_value=["india_compliance.tests.before_tests"],
+			),
+			patch(
+				"production_entry_app.production_entry_app.utils.test_setup.frappe.get_attr",
+				return_value=hook,
+			),
+			patch("production_entry_app.production_entry_app.utils.test_setup.frappe.log_error") as log_error,
+		):
+			test_setup._run_installed_app_before_tests("india_compliance")
+
+		hook.assert_called_once_with()
+		log_error.assert_called_once()
+
 	def test_scope_global_fiscal_years_adds_company_to_unscoped_non_test_years(self) -> None:
 		meta = Mock()
 		meta.has_field.return_value = True
