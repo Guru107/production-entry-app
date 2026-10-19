@@ -3145,6 +3145,15 @@ class TestJointProductionItems(FrappeTestCase):
 		with self.assertRaisesRegex(frappe.ValidationError, "valid JSON object"):
 			get_joint_production_items(json.dumps(payload, default=str))
 
+	def test_get_joint_production_items_rejects_non_dict_line_rows(self) -> None:
+		shift = make_running_shift(self.masters)
+		doc = self._make_joint_entry(shift, fetch_items=False)
+		payload = doc.as_dict()
+		payload[JOINT_PRODUCTION_LINES_FIELD] = ["junk"]
+
+		with self.assertRaisesRegex(frappe.ValidationError, "valid JSON object"):
+			get_joint_production_items(json.dumps(payload, default=str))
+
 	def test_joint_production_stock_only_two_line_run_submits(self) -> None:
 		_finished, sheet_bom, end_bom = self._same_item_boms()
 		doc = frappe.get_doc(

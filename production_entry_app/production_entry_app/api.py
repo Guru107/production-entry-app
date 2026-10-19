@@ -216,11 +216,13 @@ def get_joint_production_items(doc: str) -> list[dict]:
 	lines_payload = doc_dict.get(JOINT_PRODUCTION_LINES_FIELD) or []
 	if lines_payload and not isinstance(lines_payload, list):
 		frappe.throw(_("Stock Entry payload must be a valid JSON object."))
+	if isinstance(lines_payload, list) and any(not isinstance(row, dict) for row in lines_payload):
+		frappe.throw(_("Stock Entry payload must be a valid JSON object."))
 
 	linked_boms = [
 		doc_dict.get("custom_pea_lh_bom"),
 		doc_dict.get("custom_pea_rh_bom"),
-		*(row.get("bom_no") for row in lines_payload if isinstance(row, dict)),
+		*(row.get("bom_no") for row in lines_payload),
 	]
 	for bom_no in dict.fromkeys(bom for bom in linked_boms if bom):
 		if not frappe.has_permission("BOM", "read", bom_no):
@@ -260,7 +262,7 @@ def get_joint_production_items(doc: str) -> list[dict]:
 					"custom_pea_die_tool_item",
 				)
 			},
-			JOINT_PRODUCTION_LINES_FIELD: lines_payload if isinstance(lines_payload, list) else [],
+			JOINT_PRODUCTION_LINES_FIELD: lines_payload,
 		}
 	)
 	if is_joint_production_stock_entry_type(stock_entry) and not stock_entry.get(
