@@ -1993,6 +1993,8 @@ class TestE2EApi(FrappeTestCase):
 						"_E2E-DIE_Joint_RM_Item",
 						"_E2E-DIE_Joint_Scrap_Item",
 						"_E2E-DIE_Joint_Scrap_Nos_Item",
+						"_E2E-DIE_Joint_Multipart_FG",
+						"_E2E-DIE_Joint_Multipart_RM",
 						"_E2E-DIE_Joint_LH_WIP_A",
 						"_E2E-DIE_Joint_LH_WIP_B",
 						"_E2E-DIE_Joint_RH_WIP_A",
@@ -2040,6 +2042,7 @@ class TestE2EApi(FrappeTestCase):
 						"BOM-JOINT-LH",
 						"BOM-JOINT-LH-ALT",
 						"BOM-JOINT-RH",
+						"BOM-JOINT-MULTIPART",
 						"BOM-JOINT-POST-LH",
 						"BOM-JOINT-POST-RH",
 					],
@@ -2132,6 +2135,8 @@ class TestE2EApi(FrappeTestCase):
 						"_E2E_Joint_RM_Item",
 						"_E2E_Joint_Scrap_Item",
 						"_E2E_Joint_Scrap_Nos_Item",
+						"_E2E_Joint_Multipart_FG",
+						"_E2E_Joint_Multipart_RM",
 						"_E2E_Joint_LH_WIP_A",
 						"_E2E_Joint_LH_WIP_B",
 						"_E2E_Joint_RH_WIP_A",
@@ -2179,6 +2184,7 @@ class TestE2EApi(FrappeTestCase):
 						"BOM-JOINT-LH",
 						"BOM-JOINT-LH-ALT",
 						"BOM-JOINT-RH",
+						"BOM-JOINT-MULTIPART",
 						"BOM-JOINT-POST-LH",
 						"BOM-JOINT-POST-RH",
 					],
@@ -2232,7 +2238,14 @@ class TestE2EApi(FrappeTestCase):
 			target_qty=1000,
 			posting_date="2099-01-20",
 		)
-		self.assertEqual(ensure_stock.call_count, 7)
+		ensure_stock.assert_any_call(
+			"_E2E_Joint_Multipart_RM",
+			"WIP",
+			"_Test Company",
+			target_qty=1000,
+			posting_date="2099-01-20",
+		)
+		self.assertEqual(ensure_stock.call_count, 8)
 		get_or_create.assert_called_once_with(
 			base_date="2099-01-20",
 			department="E2E Department - TC",

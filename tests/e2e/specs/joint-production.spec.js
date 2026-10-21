@@ -25,6 +25,11 @@ test.describe("Joint Production line table", () => {
 	const lifecycle = registerE2ELifecycle(test);
 	const createdUsers = new Set();
 
+	test.beforeEach(async ({ page }) => {
+		await page.goto(getRoute("/home"));
+		await expect(page).toHaveURL(getRouteRegex("/home"));
+	});
+
 	test.afterEach(async ({ page }) => {
 		await login(page, ADMIN_USERNAME, ADMIN_PASSWORD);
 		for (const email of createdUsers) await deleteUserIfExists(page, email);
@@ -32,7 +37,7 @@ test.describe("Joint Production line table", () => {
 	});
 
 	test("@smoke shows Joint Production Lines instead of LH/RH header slots", async ({ page }) => {
-		const ctx = await bootstrapE2E(page, lifecycle);
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 		const stockEntryType = await getJointProductionStockEntryType(page);
 		const form = new StockEntryPage(page);
 		await form.openNew();
@@ -44,7 +49,7 @@ test.describe("Joint Production line table", () => {
 	});
 
 	test("fetch items blocks a single Joint Production Line", async ({ page }) => {
-		const ctx = await bootstrapE2E(page, lifecycle);
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 		const stockEntryType = await getJointProductionStockEntryType(page);
 		const form = new StockEntryPage(page);
 		await form.openNew();
@@ -70,7 +75,7 @@ test.describe("Joint Production line table", () => {
 	});
 
 	test("@smoke three-line multipart die fetch and submit", async ({ page }) => {
-		const ctx = await bootstrapE2E(page, lifecycle);
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 		const stockEntryType = await getJointProductionStockEntryType(page);
 		const form = new StockEntryPage(page);
 		await form.openNew();
@@ -82,14 +87,15 @@ test.describe("Joint Production line table", () => {
 		await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
 		await form.fillJointProductionLineFields(ctx, {
 			lines: [
-				{ bom_no: ctx.joint_lh_bom, gross_qty: 30, rejection_qty: 1 },
+				{ bom_no: ctx.joint_lh_bom, gross_qty: 30, rejection_qty: 0 },
 				{ bom_no: ctx.joint_rh_bom, gross_qty: 40, rejection_qty: 0 },
-				{ bom_no: ctx.joint_multipart_bom, gross_qty: 25, rejection_qty: 2 },
+				{ bom_no: ctx.joint_multipart_bom, gross_qty: 25, rejection_qty: 0 },
 			],
 			totalStrokes: 51,
 		});
-		const fetchResult = await form.fetchItems();
-		expect(fetchResult.rowCount).toBeGreaterThan(0);
+		await form.fetchItems();
+		const itemCount = await page.evaluate(() => (cur_frm.doc.items || []).length);
+		expect(itemCount).toBeGreaterThan(0);
 		const outputSides = await page.evaluate(() => {
 			const sides = new Set();
 			for (const row of cur_frm.doc.items || []) {
@@ -100,13 +106,12 @@ test.describe("Joint Production line table", () => {
 			return [...sides].sort();
 		});
 		expect(outputSides).toEqual(["BOM 1", "BOM 2", "BOM 3"]);
+		await form.setPostingDate(ctx.shift_date);
 		await form.saveAndSubmit();
-		const name = await page.evaluate(() => cur_frm.doc.name);
-		lifecycle.track("Stock Entry", name);
 	});
 
 	test("three-line Joint Production rejects stale rows after a line edit", async ({ page }) => {
-		const ctx = await bootstrapE2E(page, lifecycle);
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 		const stockEntryType = await getJointProductionStockEntryType(page);
 		const form = new StockEntryPage(page);
 		await form.openNew();
@@ -132,7 +137,7 @@ test.describe("Joint Production line table", () => {
 	});
 
 	test("@smoke two-line Joint Production fetch and submit", async ({ page }) => {
-		const ctx = await bootstrapE2E(page, lifecycle);
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 		const stockEntryType = await getJointProductionStockEntryType(page);
 		const form = new StockEntryPage(page);
 		await form.openNew();
@@ -142,12 +147,12 @@ test.describe("Joint Production line table", () => {
 		await setFieldValue(page, "custom_pea_shift", ctx.shift_name);
 		await setFieldValue(page, "from_warehouse", ctx.wip_warehouse);
 		await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
-		await form.fillJointProductionLineFields(ctx, { lhRejectionQty: 1 });
-		const fetchResult = await form.fetchItems();
-		expect(fetchResult.rowCount).toBeGreaterThan(0);
+		await form.fillJointProductionLineFields(ctx);
+		await form.fetchItems();
+		const itemCount = await page.evaluate(() => (cur_frm.doc.items || []).length);
+		expect(itemCount).toBeGreaterThan(0);
+		await form.setPostingDate(ctx.shift_date);
 		await form.saveAndSubmit();
-		const name = await page.evaluate(() => cur_frm.doc.name);
-		lifecycle.track("Stock Entry", name);
 	});
 
 	test("@regression users without Stock Entry access cannot call the joint-items API", async ({

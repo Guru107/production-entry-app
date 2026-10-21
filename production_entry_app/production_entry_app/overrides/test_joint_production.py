@@ -3155,20 +3155,31 @@ class TestJointProductionItems(FrappeTestCase):
 			get_joint_production_items(json.dumps(payload, default=str))
 
 	def test_joint_production_stock_only_two_line_run_submits(self) -> None:
-		_finished, sheet_bom, end_bom = self._same_item_boms()
+		suffix = frappe.generate_hash(length=6)
+		finished = ensure_item(f"_Same_StockOnly_FG_{suffix}")
+		sheet = ensure_item(f"_Same_StockOnly_Sheet_{suffix}", stock_uom="Kg")
+		end_piece = ensure_item(f"_Same_StockOnly_End_{suffix}", stock_uom="Kg")
+		for item_code in (sheet, end_piece):
+			ensure_stock(
+				item_code,
+				self.masters["wip_warehouse"],
+				self.masters["company"],
+				target_qty=1000,
+			)
+		sheet_bom = self._make_bom(finished, rm_item=sheet, rm_qty=10, bom_quantity=100, scrap_items=[])
+		end_bom = self._make_bom(finished, rm_item=end_piece, rm_qty=5, bom_quantity=100, scrap_items=[])
 		doc = frappe.get_doc(
 			{
 				"doctype": "Stock Entry",
 				"purpose": "Repack",
 				"stock_entry_type": JOINT_PRODUCTION_STOCK_ENTRY_TYPE,
 				"company": self.masters["company"],
+				"branch": self.masters["branch"],
 				"from_warehouse": self.masters["wip_warehouse"],
 				"to_warehouse": self.masters["fg_warehouse"],
 				"custom_pea_operation": self.operation,
 			}
 		)
-		if stock_entry_has_branch_field():
-			doc.branch = self.masters["branch"]
 		self._set_joint_production_lines(
 			doc,
 			[
@@ -3700,7 +3711,8 @@ class TestJointProductionItems(FrappeTestCase):
 		scrap_items: list[tuple[str, float, float]] | None = None,
 		operation: str | None = None,
 	) -> str:
-		scrap_items = scrap_items or [(self.scrap_item, flt(scrap_qty), 10)]
+		if scrap_items is None:
+			scrap_items = [(self.scrap_item, flt(scrap_qty or 0), 10)]
 		return ensure_joint_test_bom(
 			item_code=item_code,
 			rm_item=rm_item or self.rm_item,

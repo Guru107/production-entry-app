@@ -1,6 +1,7 @@
 const { expect } = require("@playwright/test");
 
 const MESSAGE_SELECTORS = [
+	".msgprint",
 	".modal.show .msgprint",
 	".modal.show .modal-body",
 	'.frappe-control[data-fieldname="_error_message"]',
