@@ -44,6 +44,7 @@ from production_entry_app.production_entry_app.utils.alternative_items import (
 from production_entry_app.production_entry_app.utils.die_tool_counter import (
 	get_counter_health,
 	is_die_tool_enabled,
+	resolve_die_tool_item_code,
 	update_counter_for_stock_entry,
 )
 from production_entry_app.production_entry_app.utils.die_tool_item import (
@@ -1257,7 +1258,7 @@ def _set_if_field(doc: Document, meta: Any, fieldname: str, value: Any) -> None:
 
 
 def _set_die_tool_health_metrics(doc: Document, meta: Any) -> None:
-	item_code = _get_fg_item_code_for_metrics(doc)
+	item_code = resolve_die_tool_item_code(doc)
 	if not item_code or not is_die_tool_enabled(item_code):
 		_set_if_field(doc, meta, "custom_pea_die_tool_utilization_pct", 0)
 		_set_if_field(doc, meta, "custom_pea_die_tool_maintenance_due", 0)
@@ -1281,14 +1282,3 @@ def _set_die_tool_health_metrics(doc: Document, meta: Any) -> None:
 
 	_set_if_field(doc, meta, "custom_pea_die_tool_utilization_pct", utilization_pct)
 	_set_if_field(doc, meta, "custom_pea_die_tool_maintenance_due", maintenance_due)
-
-
-def _get_fg_item_code_for_metrics(doc: Document) -> str | None:
-	if is_paired_production(doc):
-		return doc.get("custom_pea_die_tool_item")
-	if doc.get("fg_item"):
-		return doc.get("fg_item")
-	for row in doc.get("items", []):
-		if row.get("is_finished_item"):
-			return row.get("item_code")
-	return None

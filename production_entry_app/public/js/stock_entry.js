@@ -1916,8 +1916,11 @@ function _sync_die_tool_item_from_boms(frm) {
 }
 
 function _get_die_tool_item_code(frm) {
-	if (_is_joint_doc(frm.doc) && frm.doc.custom_pea_die_tool_item) {
+	if (frm.doc.custom_pea_die_tool_item) {
 		return frm.doc.custom_pea_die_tool_item;
+	}
+	if (_is_joint_doc(frm.doc)) {
+		return null;
 	}
 	if (frm.doc.fg_item) return frm.doc.fg_item;
 	const items = frm.doc.items || [];

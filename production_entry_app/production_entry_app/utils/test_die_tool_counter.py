@@ -5,12 +5,17 @@ from unittest.mock import MagicMock, patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from production_entry_app.production_entry_app.joint_production import JOINT_PRODUCTION_STOCK_ENTRY_TYPE
 from production_entry_app.production_entry_app.utils.die_tool_counter import (
 	_ensure_counter_exists,
 	_get_or_create_counter,
 	get_counter_health,
 	get_counter_snapshot,
 	is_die_tool_enabled,
+	resolve_die_tool_item_code,
+)
+from production_entry_app.production_entry_app.utils.test_bootstrap import (
+	ensure_production_owned_joint_metadata,
 )
 
 
@@ -175,3 +180,29 @@ class TestDieToolCounterUtils(FrappeTestCase):
 
 		self.assertAlmostEqual(utilization_pct, 33.3333333333, places=6)
 		self.assertEqual(is_maintenance_due, 1)
+
+
+class TestResolveDieToolItemCode(FrappeTestCase):
+	def setUp(self) -> None:
+		ensure_production_owned_joint_metadata()
+
+	def test_joint_production_prefers_stock_entry_die_tool_item(self) -> None:
+		doc = frappe._dict(
+			purpose="Repack",
+			stock_entry_type=JOINT_PRODUCTION_STOCK_ENTRY_TYPE,
+			custom_pea_die_tool_item="DIE-JOINT",
+			custom_pea_joint_production_lines=[{"bom_no": "BOM-1"}],
+		)
+		self.assertEqual(resolve_die_tool_item_code(doc), "DIE-JOINT")
+
+	def test_manufacture_prefers_stock_entry_die_tool_item_over_fg(self) -> None:
+		doc = frappe._dict(
+			purpose="Manufacture",
+			fg_item="FG-1",
+			custom_pea_die_tool_item="DIE-MFG",
+		)
+		self.assertEqual(resolve_die_tool_item_code(doc), "DIE-MFG")
+
+	def test_manufacture_falls_back_to_finished_item(self) -> None:
+		doc = frappe._dict(purpose="Manufacture", fg_item="FG-1")
+		self.assertEqual(resolve_die_tool_item_code(doc), "FG-1")
