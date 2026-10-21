@@ -16,9 +16,11 @@ from production_entry_app.production_entry_app.joint_production import (
 from production_entry_app.production_entry_app.utils.die_tool_item import DIE_TOOL_ITEM_FIELD
 
 
-def resolve_die_tool_item_code(doc: Document) -> str | None:
+def resolve_die_tool_item_code(doc: Document, *, persisted_only: bool = False) -> str | None:
 	"""Return the Item whose Die Tool Counter should receive this entry's strokes."""
 	prescribed = cstr(doc.get(DIE_TOOL_ITEM_FIELD)).strip()
+	if persisted_only and doc.name:
+		prescribed = cstr(frappe.db.get_value(doc.doctype, doc.name, DIE_TOOL_ITEM_FIELD)).strip()
 	if prescribed:
 		return prescribed
 	if is_paired_production(doc):
@@ -29,7 +31,7 @@ def resolve_die_tool_item_code(doc: Document) -> str | None:
 
 
 def update_counter_for_stock_entry(doc: Document, direction: int = 1) -> None:
-	item_code = resolve_die_tool_item_code(doc)
+	item_code = resolve_die_tool_item_code(doc, persisted_only=direction < 0)
 	if not item_code:
 		return
 	if not is_die_tool_enabled(item_code):

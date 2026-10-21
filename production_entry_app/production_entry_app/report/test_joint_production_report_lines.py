@@ -12,12 +12,14 @@ from production_entry_app.production_entry_app.joint_production import (
 )
 from production_entry_app.production_entry_app.report.report_utils import (
 	_LH_RH_OUTPUT_SLOTS,
+	_LEGACY_SAME_ITEM_JOINT_OUTPUT_SLOTS,
 	_materialize_joint_production_line_slot_fields,
 	attach_joint_production_lines_to_entries,
 	get_entry_output_quantities,
 	get_entry_total_strokes,
 	get_item_bom_quality_facts,
 	get_stock_entries_for_bom,
+	joint_production_output_slots,
 	paired_output_slots,
 )
 
@@ -166,14 +168,78 @@ class TestJointProductionReportLines(FrappeTestCase):
 		)
 		self.assertEqual(paired_output_slots(entry), _LH_RH_OUTPUT_SLOTS)
 
-	def test_paired_output_slots_returns_none_for_joint_without_lines(self) -> None:
+	def test_paired_output_slots_match_legacy_bom_slots_for_lineless_joint(self) -> None:
 		entry = frappe._dict(
 			purpose="Repack",
 			stock_entry_type="Joint Production",
 			custom_pea_joint_production=1,
 			custom_pea_joint_lh_rh_production=0,
+			custom_pea_lh_bom="BOM-LEG-1",
+			custom_pea_lh_gross_qty=10,
+			custom_pea_lh_rejection_qty=1,
+			custom_pea_rh_bom="BOM-LEG-2",
+			custom_pea_rh_gross_qty=20,
+			custom_pea_rh_rejection_qty=2,
 		)
-		self.assertIsNone(paired_output_slots(entry))
+		self.assertEqual(paired_output_slots(entry), _LEGACY_SAME_ITEM_JOINT_OUTPUT_SLOTS)
+		self.assertEqual(joint_production_output_slots(entry), _LEGACY_SAME_ITEM_JOINT_OUTPUT_SLOTS)
+
+	def test_item_bom_quality_facts_keeps_legacy_joint_breakup_attribution(self) -> None:
+		entry = frappe._dict(
+			name="STE-JOINT-LEGACY",
+			purpose="Repack",
+			custom_pea_joint_production=1,
+			custom_pea_joint_lh_rh_production=0,
+			custom_pea_lh_bom="BOM-LEG-1",
+			custom_pea_lh_gross_qty=10,
+			custom_pea_lh_rejection_qty=1,
+			custom_pea_rh_bom="BOM-LEG-2",
+			custom_pea_rh_gross_qty=20,
+			custom_pea_rh_rejection_qty=2,
+		)
+		with (
+			patch(
+				"production_entry_app.production_entry_app.report.report_utils.get_parent_quantity_metrics",
+				return_value={},
+			),
+			patch(
+				"production_entry_app.production_entry_app.report.report_utils.get_finished_item_maps",
+				return_value=({}, {}),
+			),
+			patch(
+				"production_entry_app.production_entry_app.report.report_utils.get_parent_breakup_reason_rows",
+				return_value=[
+					{
+						"parent": "STE-JOINT-LEGACY",
+						"output_side": joint_production_line_side(0),
+						"item_code": "FG-A",
+						"qty": 1,
+						"rejection_reason": "Crack",
+					},
+					{
+						"parent": "STE-JOINT-LEGACY",
+						"output_side": joint_production_line_side(1),
+						"item_code": "FG-B",
+						"qty": 2,
+						"rejection_reason": "Dent",
+					},
+				],
+			),
+			patch(
+				"production_entry_app.production_entry_app.report.report_utils._get_joint_output_item_map",
+				return_value={
+					("STE-JOINT-LEGACY", joint_production_line_side(0)): "FG-A",
+					("STE-JOINT-LEGACY", joint_production_line_side(1)): "FG-B",
+				},
+			),
+		):
+			facts = get_item_bom_quality_facts([entry], is_rework=False)
+
+		self.assertEqual(len(facts), 2)
+		self.assertEqual(
+			[(fact["bom_no"], fact["item_code"], fact["quality_qty"]) for fact in facts],
+			[("BOM-LEG-1", "FG-A", 1.0), ("BOM-LEG-2", "FG-B", 2.0)],
+		)
 
 	def test_entry_output_quantities_reads_joint_lines_without_materialized_slots(self) -> None:
 		entry = frappe._dict(

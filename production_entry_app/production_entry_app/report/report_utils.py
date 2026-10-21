@@ -63,6 +63,9 @@ def _output_slots(sides: tuple[str, str]) -> tuple[OutputSlot, ...]:
 
 
 _LH_RH_OUTPUT_SLOTS: tuple[OutputSlot, ...] = _output_slots(("LH", "RH"))
+_LEGACY_SAME_ITEM_JOINT_OUTPUT_SLOTS: tuple[OutputSlot, ...] = _output_slots(
+	(joint_production_line_side(0), joint_production_line_side(1))
+)
 _JOINT_OUTPUT_SIDES: frozenset[str] = frozenset(
 	{
 		"LH",
@@ -249,12 +252,12 @@ def joint_production_output_slots(entry: dict | BaseDocument) -> tuple[OutputSlo
 	line_slots = _joint_production_line_output_slots(entry_dict)
 	if line_slots:
 		return line_slots
-	return _LH_RH_OUTPUT_SLOTS
+	return _LEGACY_SAME_ITEM_JOINT_OUTPUT_SLOTS
 
 
 def paired_output_slots(entry: dict | BaseDocument) -> tuple[OutputSlot, ...] | None:
 	if is_joint_production_entry(entry):
-		return _joint_production_line_output_slots(entry if isinstance(entry, dict) else entry.as_dict())
+		return joint_production_output_slots(entry)
 	if is_joint_lh_rh_entry(entry):
 		return _LH_RH_OUTPUT_SLOTS
 	return None
@@ -431,6 +434,8 @@ def _stock_entry_qb_criteria(stock_entry: Table, filters: dict) -> list[Criterio
 				criteria.append(column.between(operand[0], operand[1]))
 			elif operator == "=":
 				criteria.append(column == operand)
+			else:
+				frappe.throw(_("Unsupported Stock Entry filter operator: {0}").format(operator))
 			continue
 		criteria.append(column == value)
 	return criteria

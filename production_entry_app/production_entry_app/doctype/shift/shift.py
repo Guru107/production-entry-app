@@ -634,9 +634,11 @@ def _item_by_bom_for_entries(entries: list[dict]) -> dict[str, str]:
 def _build_item_bom_rows(
 	entries: list[dict],
 	parent_quantity_metrics: dict[str, dict[str, float]] | None = None,
+	*,
+	item_by_bom: dict[str, str] | None = None,
 ) -> list[dict]:
 	aggregates: dict[str, dict] = {}
-	item_by_bom = _item_by_bom_for_entries(entries)
+	item_by_bom = item_by_bom if item_by_bom is not None else _item_by_bom_for_entries(entries)
 	for entry in entries:
 		if is_joint_production_entry(entry):
 			if entry.get(JOINT_PRODUCTION_LINES_FIELD):
@@ -1099,7 +1101,9 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 		},
 		"exceptions": {
 			"workstations": workstation_rows,
-			"item_boms": _build_item_bom_rows(entry_rows, parent_quantity_metrics),
+			"item_boms": _build_item_bom_rows(
+				entry_rows, parent_quantity_metrics, item_by_bom=item_by_bom
+			),
 			"unplanned_loss_reasons": _top_reason_rows(unplanned_loss_reason_totals),
 		},
 		"logged_downtime": {

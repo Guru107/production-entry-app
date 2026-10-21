@@ -206,3 +206,17 @@ class TestResolveDieToolItemCode(FrappeTestCase):
 	def test_manufacture_falls_back_to_finished_item(self) -> None:
 		doc = frappe._dict(purpose="Manufacture", fg_item="FG-1")
 		self.assertEqual(resolve_die_tool_item_code(doc), "FG-1")
+
+	def test_cancel_uses_persisted_die_tool_item_not_validate_default(self) -> None:
+		doc = frappe._dict(
+			name="STE-OLD",
+			doctype="Stock Entry",
+			purpose="Manufacture",
+			fg_item="FG-1",
+			custom_pea_die_tool_item="DIE-NEW",
+		)
+		with patch(
+			"production_entry_app.production_entry_app.utils.die_tool_counter.frappe.db.get_value",
+			return_value="",
+		):
+			self.assertEqual(resolve_die_tool_item_code(doc, persisted_only=True), "FG-1")

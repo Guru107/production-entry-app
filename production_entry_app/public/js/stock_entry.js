@@ -262,6 +262,9 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 		[`${JOINT_PRODUCTION_LINES_FIELD}_add`](frm, cdt, cdn) {
 			_enforce_joint_production_line_cap(frm, cdt, cdn);
 		},
+		[`${JOINT_PRODUCTION_LINES_FIELD}_delete`](frm) {
+			_on_joint_production_lines_grid_change(frm);
+		},
 		custom_pea_operation(frm) {
 			_clear_joint_operation_dependents(frm);
 			_apply_manufacture_visibility(frm);
@@ -418,54 +421,78 @@ function _joint_bom_for_output_side(doc, side) {
 	return side === "LH" ? doc.custom_pea_lh_bom : doc.custom_pea_rh_bom;
 }
 
+function _on_joint_production_lines_grid_change(frm) {
+	_refresh_joint_production_line_rejection_items(frm);
+	_configure_rejection_breakup_grid(frm);
+	_toggle_rejection_breakup(frm);
+}
+
 function _refresh_joint_production_line_rejection_items(frm) {
 	if (!_is_same_item_joint_doc(frm.doc)) {
 		return;
 	}
 	const requestId = ++_jointLineRejectionRequestId;
 	const lineSnapshot = _joint_production_line_snapshot(frm.doc);
-	const sides = _joint_production_line_sides(frm.doc);
-	const sideItems = {};
-	const pending = sides.map(
-		(side, index) =>
-			new Promise((resolve) => {
-				const row = (frm.doc[JOINT_PRODUCTION_LINES_FIELD] || [])[index];
-				const bomNo = row?.bom_no;
-				if (!bomNo) {
-					sideItems[side] = "";
-					resolve();
-					return;
-				}
-				frappe.db
-					.get_value("BOM", bomNo, "item")
-					.then((response) => {
-						sideItems[side] = response?.message?.item || "";
-						resolve();
-					})
-					.catch((error) => {
-						_notify_call_error(
-							__("Failed to refresh the joint rejection item."),
-							error
-						);
-						resolve();
-					});
-			})
-	);
-	Promise.all(pending).then(() => {
-		if (requestId !== _jointLineRejectionRequestId) {
-			return;
-		}
-		if (_joint_production_line_snapshot(frm.doc) !== lineSnapshot) {
-			return;
-		}
-		for (const row of frm.doc.custom_pea_rejection_breakup || []) {
-			if (row.output_side && sideItems[row.output_side] !== undefined) {
-				row.item_code = sideItems[row.output_side];
-			}
-		}
+	const sides = new Set(_joint_production_line_sides(frm.doc));
+	const lines = frm.doc[JOINT_PRODUCTION_LINES_FIELD] || [];
+	const bomNos = [...new Set(lines.map((row) => row?.bom_no).filter(Boolean))];
+	if (!bomNos.length) {
+		_prune_joint_production_breakup_rows(frm, sides, {});
 		frm.refresh_field("custom_pea_rejection_breakup");
 		_toggle_rejection_breakup(frm);
-	});
+		return;
+	}
+	frappe.db
+		.get_list("BOM", {
+			filters: { name: ["in", bomNos] },
+			fields: ["name", "item"],
+			limit_page_length: bomNos.length,
+		})
+		.then((bomRows) => {
+			if (requestId !== _jointLineRejectionRequestId) {
+				return;
+			}
+			if (_joint_production_line_snapshot(frm.doc) !== lineSnapshot) {
+				return;
+			}
+			const itemByBom = {};
+			for (const row of bomRows || []) {
+				itemByBom[row.name] = row.item || "";
+			}
+			const sideItems = {};
+			for (const side of sides) {
+				const bomNo = _joint_bom_for_output_side(frm.doc, side);
+				sideItems[side] = bomNo ? itemByBom[bomNo] || "" : "";
+			}
+			_prune_joint_production_breakup_rows(frm, sides, sideItems);
+			frm.refresh_field("custom_pea_rejection_breakup");
+			_toggle_rejection_breakup(frm);
+		})
+		.catch((error) => {
+			_notify_call_error(__("Failed to refresh the joint rejection item."), error);
+		});
+}
+
+function _prune_joint_production_breakup_rows(frm, sides, sideItems) {
+	const breakup = frm.doc.custom_pea_rejection_breakup || [];
+	for (let index = breakup.length - 1; index >= 0; index -= 1) {
+		const row = breakup[index];
+		if (!row.output_side) {
+			continue;
+		}
+		if (!sides.has(row.output_side)) {
+			breakup.splice(index, 1);
+			continue;
+		}
+		const expectedItem = sideItems[row.output_side];
+		if (row.item_code && expectedItem && row.item_code !== expectedItem) {
+			breakup.splice(index, 1);
+			continue;
+		}
+		if (expectedItem !== undefined) {
+			row.item_code = expectedItem;
+		}
+	}
 }
 
 function _refresh_joint_rejection_items(frm, side) {
@@ -1045,7 +1072,7 @@ function _clear_joint_operation_dependents(frm) {
 	_dieToolRequestId++;
 	const refreshFieldnames = new Set();
 	const fieldsToClear = _is_same_item_joint_doc(frm.doc)
-		? [...JOINT_SHARED_RESOURCE_FIELDS, JOINT_PRODUCTION_LINES_FIELD]
+		? JOINT_SHARED_RESOURCE_FIELDS
 		: JOINT_OPERATION_DEPENDENT_FIELDS;
 	const scalarChanged = _clear_scalar_fields(frm, fieldsToClear, refreshFieldnames, {
 		onlyExisting: true,
