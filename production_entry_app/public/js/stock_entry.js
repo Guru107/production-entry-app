@@ -323,6 +323,11 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 	});
 
 	frappe.ui.form.on("Joint Production Line", {
+		bom_no(frm) {
+			_sync_die_tool_item_from_boms(frm);
+			_refresh_joint_production_line_rejection_items(frm);
+			_configure_rejection_breakup_grid(frm);
+		},
 		rejection_qty(frm) {
 			_toggle_rejection_breakup(frm);
 			_refresh_joint_production_line_rejection_items(frm);

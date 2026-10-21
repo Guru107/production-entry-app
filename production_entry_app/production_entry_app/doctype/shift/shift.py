@@ -13,6 +13,7 @@ from frappe.utils import add_to_date, cint, flt, get_datetime
 
 from production_entry_app.production_entry_app.joint_production import JOINT_PRODUCTION_LINES_FIELD
 from production_entry_app.production_entry_app.report.report_utils import (
+	_materialize_joint_production_line_slot_fields,
 	add_stock_entry_type_flags,
 	attach_joint_production_lines_to_entries,
 	get_entry_output_quantities,
@@ -21,6 +22,7 @@ from production_entry_app.production_entry_app.report.report_utils import (
 	is_joint_lh_rh_entry,
 	is_joint_production_entry,
 	is_production_stock_entry,
+	joint_production_output_slots,
 	paired_output_slots,
 )
 from production_entry_app.production_entry_app.utils.loss_time import (
@@ -350,8 +352,13 @@ def check_running_shift_conflict(shift_name: str) -> dict:
 
 def _production_entry_bom_names(entry: dict) -> tuple[str, ...]:
 	if is_joint_production_entry(entry):
-		return tuple(
+		line_boms = tuple(
 			line.get("bom_no") for line in entry.get(JOINT_PRODUCTION_LINES_FIELD) or [] if line.get("bom_no")
+		)
+		if line_boms:
+			return line_boms
+		return tuple(
+			bom_no for bom_no in (entry.get("custom_pea_lh_bom"), entry.get("custom_pea_rh_bom")) if bom_no
 		)
 	if is_joint_lh_rh_entry(entry):
 		return tuple(
@@ -632,7 +639,9 @@ def _build_item_bom_rows(
 	item_by_bom = _item_by_bom_for_entries(entries)
 	for entry in entries:
 		if is_joint_production_entry(entry):
-			for slot in paired_output_slots(entry) or ():
+			if entry.get(JOINT_PRODUCTION_LINES_FIELD):
+				_materialize_joint_production_line_slot_fields(entry)
+			for slot in joint_production_output_slots(entry) or ():
 				bom_no = entry.get(slot.bom_field) or ""
 				item_code = item_by_bom.get(bom_no) or entry.get("item_code") or _("Unknown Item")
 				gross_qty = flt(entry.get(slot.gross_field) or 0)
@@ -1311,8 +1320,11 @@ def _add_same_item_joint_aggregate(
 ) -> None:
 	strokes = flt(entry.get("custom_pea_total_strokes"))
 	mins = _get_entry_production_minutes(entry)
-	for slot in paired_output_slots(entry) or ():
-		bom_no = entry.get(slot.bom_field) or ""
+	entry_dict = entry if isinstance(entry, dict) else entry.as_dict()
+	if entry_dict.get(JOINT_PRODUCTION_LINES_FIELD):
+		_materialize_joint_production_line_slot_fields(entry_dict)
+	for slot in joint_production_output_slots(entry_dict) or ():
+		bom_no = entry_dict.get(slot.bom_field) or ""
 		if not bom_no:
 			continue
 		aggregate = aggregates.setdefault(
@@ -1325,9 +1337,9 @@ def _add_same_item_joint_aggregate(
 				"mins": 0.0,
 			},
 		)
-		aggregate["total_qty"] = flt(aggregate["total_qty"]) + flt(entry.get(slot.gross_field))
+		aggregate["total_qty"] = flt(aggregate["total_qty"]) + flt(entry_dict.get(slot.gross_field))
 		aggregate["total_reject_qty"] = flt(aggregate["total_reject_qty"]) + flt(
-			entry.get(slot.rejection_field)
+			entry_dict.get(slot.rejection_field)
 		)
 		aggregate["total_strokes"] = flt(aggregate["total_strokes"]) + strokes
 		aggregate["mins"] = flt(aggregate["mins"]) + mins

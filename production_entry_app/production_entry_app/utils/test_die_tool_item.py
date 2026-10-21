@@ -3,6 +3,7 @@ from __future__ import annotations
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from production_entry_app.production_entry_app.joint_production import JOINT_PRODUCTION_STOCK_ENTRY_TYPE
 from production_entry_app.production_entry_app.utils.die_tool_item import (
 	apply_bom_die_tool_item,
 	prescribed_die_tool_item,
@@ -59,6 +60,21 @@ class TestApplyBomDieToolItem(FrappeTestCase):
 			from_bom=1,
 			bom_no=self.bom,
 			custom_pea_die_tool_item=self.die_item,
+		)
+		doc.set = lambda fieldname, value: doc.update({fieldname: value})
+
+		apply_bom_die_tool_item(doc)
+
+		self.assertEqual(doc.custom_pea_die_tool_item, self.die_item)
+
+	def test_joint_production_lines_supply_bom_names_for_die_tool_item(self) -> None:
+		frappe.db.set_value("BOM", self.bom, "custom_pea_die_tool_item", self.die_item, update_modified=False)
+		doc = frappe._dict(
+			custom_pea_shift="SHIFT-1",
+			purpose="Repack",
+			stock_entry_type=JOINT_PRODUCTION_STOCK_ENTRY_TYPE,
+			custom_pea_joint_production_lines=[{"bom_no": self.bom, "gross_qty": 10, "rejection_qty": 0}],
+			custom_pea_die_tool_item="",
 		)
 		doc.set = lambda fieldname, value: doc.update({fieldname: value})
 

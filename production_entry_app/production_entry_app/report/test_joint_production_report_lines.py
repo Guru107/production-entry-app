@@ -166,6 +166,31 @@ class TestJointProductionReportLines(FrappeTestCase):
 		)
 		self.assertEqual(paired_output_slots(entry), _LH_RH_OUTPUT_SLOTS)
 
+	def test_paired_output_slots_returns_none_for_joint_without_lines(self) -> None:
+		entry = frappe._dict(
+			purpose="Repack",
+			stock_entry_type="Joint Production",
+			custom_pea_joint_production=1,
+			custom_pea_joint_lh_rh_production=0,
+		)
+		self.assertIsNone(paired_output_slots(entry))
+
+	def test_entry_output_quantities_reads_joint_lines_without_materialized_slots(self) -> None:
+		entry = frappe._dict(
+			purpose="Repack",
+			stock_entry_type="Joint Production",
+			custom_pea_joint_production=1,
+			custom_pea_joint_lh_rh_production=0,
+			custom_pea_joint_production_lines=[
+				{"bom_no": "BOM-1", "gross_qty": 10, "rejection_qty": 1},
+				{"bom_no": "BOM-2", "gross_qty": 20, "rejection_qty": 2},
+			],
+		)
+		quantities = get_entry_output_quantities(entry)
+		self.assertEqual(quantities.total_qty, 30)
+		self.assertEqual(quantities.rejection_qty, 3)
+		self.assertEqual(quantities.ok_qty, 27)
+
 	def test_get_stock_entries_for_bom_includes_joint_production_line_bom(self) -> None:
 		run_results = [[{"parent": "STE-LINE"}], []]
 

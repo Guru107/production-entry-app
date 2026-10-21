@@ -11,6 +11,7 @@ from pypika import Order
 
 from production_entry_app.production_entry_app.joint_production import (
 	JOINT_PRODUCTION_LINES_FIELD,
+	MAX_JOINT_PRODUCTION_BOM_SIDES,
 	_normalize_operation,
 	is_joint_production_stock_entry_type,
 	is_scrap_row,
@@ -218,6 +219,8 @@ def get_joint_production_items(doc: str) -> list[dict]:
 		frappe.throw(_("Stock Entry payload must be a valid JSON object."))
 	if isinstance(lines_payload, list) and any(not isinstance(row, dict) for row in lines_payload):
 		frappe.throw(_("Stock Entry payload must be a valid JSON object."))
+	if len(lines_payload) > MAX_JOINT_PRODUCTION_BOM_SIDES:
+		frappe.throw(_("Joint Production supports at most {0} lines.").format(MAX_JOINT_PRODUCTION_BOM_SIDES))
 
 	linked_boms = [
 		doc_dict.get("custom_pea_lh_bom"),
