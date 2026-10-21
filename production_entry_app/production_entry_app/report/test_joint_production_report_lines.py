@@ -11,8 +11,8 @@ from production_entry_app.production_entry_app.joint_production import (
 	joint_production_line_side,
 )
 from production_entry_app.production_entry_app.report.report_utils import (
-	_LH_RH_OUTPUT_SLOTS,
 	_LEGACY_SAME_ITEM_JOINT_OUTPUT_SLOTS,
+	_LH_RH_OUTPUT_SLOTS,
 	_materialize_joint_production_line_slot_fields,
 	attach_joint_production_lines_to_entries,
 	get_entry_output_quantities,

@@ -434,6 +434,16 @@ def _stock_entry_qb_criteria(stock_entry: Table, filters: dict) -> list[Criterio
 				criteria.append(column.between(operand[0], operand[1]))
 			elif operator == "=":
 				criteria.append(column == operand)
+			elif operator == ">=":
+				criteria.append(column >= operand)
+			elif operator == "<=":
+				criteria.append(column <= operand)
+			elif operator == ">":
+				criteria.append(column > operand)
+			elif operator == "<":
+				criteria.append(column < operand)
+			elif operator == "!=":
+				criteria.append(column != operand)
 			else:
 				frappe.throw(_("Unsupported Stock Entry filter operator: {0}").format(operator))
 			continue

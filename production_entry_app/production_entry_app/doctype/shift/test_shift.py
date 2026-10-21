@@ -836,11 +836,8 @@ class TestShift(FrappeTestCase):
 			frappe.delete_doc("Shift", sn, force=True, ignore_permissions=True)
 
 	def _ensure_workstation_and_employee(self) -> tuple[str, str]:
-		workstation = frappe.get_all("Workstation", limit=1, pluck="name")
-		if workstation:
-			workstation_name = workstation[0]
-		else:
-			workstation_name = "Shift Test Workstation"
+		workstation_name = "Shift Test Workstation"
+		if not frappe.db.exists("Workstation", workstation_name):
 			frappe.get_doc(
 				{
 					"doctype": "Workstation",

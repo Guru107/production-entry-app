@@ -1208,6 +1208,7 @@ class TestProductionReports(FrappeTestCase):
 			to_time="2026-07-04 13:30:00",
 			shift_name=shift.name,
 			downtime_reason="05",
+			ignore_overlap_validation=True,
 		)
 
 		_, rows = execute({"from_date": "2026-07-04", "to_date": "2026-07-04"})
@@ -4799,6 +4800,7 @@ class TestProductionReports(FrappeTestCase):
 		to_time: str,
 		shift_name: str | None,
 		downtime_reason: str = "00",
+		ignore_overlap_validation: bool = False,
 	) -> str:
 		from production_entry_app.production_entry_app.utils.downtime_reason_seed import (
 			ensure_downtime_reason,
@@ -4834,7 +4836,10 @@ class TestProductionReports(FrappeTestCase):
 		}
 		if shift_name:
 			payload["custom_pea_shift"] = shift_name
-		return frappe.get_doc(payload).insert(ignore_permissions=True).name
+		doc = frappe.get_doc(payload)
+		if ignore_overlap_validation:
+			doc.flags.ignore_validate = True
+		return doc.insert(ignore_permissions=True).name
 
 
 def _ensure_user_with_exact_roles(email: str, roles: tuple[str, ...]) -> None:

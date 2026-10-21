@@ -1101,9 +1101,7 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 		},
 		"exceptions": {
 			"workstations": workstation_rows,
-			"item_boms": _build_item_bom_rows(
-				entry_rows, parent_quantity_metrics, item_by_bom=item_by_bom
-			),
+			"item_boms": _build_item_bom_rows(entry_rows, parent_quantity_metrics, item_by_bom=item_by_bom),
 			"unplanned_loss_reasons": _top_reason_rows(unplanned_loss_reason_totals),
 		},
 		"logged_downtime": {
