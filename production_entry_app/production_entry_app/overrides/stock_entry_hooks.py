@@ -46,7 +46,10 @@ from production_entry_app.production_entry_app.utils.die_tool_counter import (
 	is_die_tool_enabled,
 	update_counter_for_stock_entry,
 )
-from production_entry_app.production_entry_app.utils.die_tool_item import apply_bom_die_tool_item
+from production_entry_app.production_entry_app.utils.die_tool_item import (
+	apply_bom_die_tool_item,
+	validate_production_bom_die_tool_consistency,
+)
 from production_entry_app.production_entry_app.utils.loss_time import (
 	build_interval_overlap_criterion,
 	get_interval_minutes,
@@ -146,6 +149,7 @@ def validate_stock_entry(doc: Document, method: str | None = None) -> None:
 			_apply_shift_defaults(doc)
 			_validate_shift_based_required_fields(doc)
 			apply_bom_die_tool_item(doc)
+			validate_production_bom_die_tool_consistency(doc)
 		else:
 			_clear_shift_gated_capture_fields(doc)
 		_stamp_late_entry_flag(doc)

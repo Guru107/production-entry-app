@@ -1830,6 +1830,9 @@ function _prescribed_die_tool_item(items) {
 			prescribed.push(code);
 		}
 	}
+	if (prescribed.length > 1) {
+		return { item: "", conflict: true };
+	}
 	if (prescribed.length !== 1) {
 		return { item: "" };
 	}
@@ -1838,6 +1841,14 @@ function _prescribed_die_tool_item(items) {
 
 function _apply_prescribed_die_tool_item(frm, resolution) {
 	const fieldname = "custom_pea_die_tool_item";
+	if (resolution?.conflict) {
+		frappe.msgprint(
+			__(
+				"All BOMs on this production entry must use the same Die Tool Item. Update the BOM master records or change the selected BOMs."
+			)
+		);
+		return;
+	}
 	if (!resolution?.item || frm.doc[fieldname] === resolution.item) {
 		return;
 	}
