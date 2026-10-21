@@ -19,9 +19,12 @@ const {
 	_apply_fetch_items_response,
 	_handle_custom_pea_fetch_items,
 	_apply_manufacture_visibility,
+	_apply_joint_slot_labels,
 	_sync_joint_stock_entry_type,
 	_default_total_strokes_from_fg,
 	_get_rejection_qty_for_visibility,
+	_joint_production_lines_rejection_total,
+	_toggle_rejection_breakup,
 	_get_joint_bom_query,
 	_sync_rework_mode_from_stock_entry_type,
 	_schedule_rework_workstation_default,
@@ -1367,7 +1370,16 @@ function captureJointFetchMessages(doc) {
 	const originalTranslate = global.__;
 	const messages = [];
 	let called = false;
-	global.__ = (text) => text;
+	global.__ = (text, replace) => {
+		if (!replace) {
+			return text;
+		}
+		const values = Array.isArray(replace) ? replace : [replace];
+		return values.reduce(
+			(message, value, index) => message.replace(`{${index}}`, value),
+			text
+		);
+	};
 	global.frappe = {
 		call() {
 			called = true;
@@ -1392,33 +1404,51 @@ function sameItemJointFetchDoc(grossOverrides) {
 		__pea_joint_stock_entry_type: "Joint Production",
 		__pea_same_item_joint_stock_entry_type: "Joint Production",
 		custom_pea_operation: "Shearing",
-		custom_pea_lh_bom: "BOM-1",
-		custom_pea_rh_bom: "BOM-2",
-		custom_pea_lh_gross_qty: 10,
-		custom_pea_rh_gross_qty: 12,
+		custom_pea_joint_production_lines: [
+			{ bom_no: "BOM-1", gross_qty: 10, rejection_qty: 0 },
+			{ bom_no: "BOM-2", gross_qty: 12, rejection_qty: 0 },
+		],
 		...grossOverrides,
 	};
 }
 
+test("joint fetch refuses more than ten production lines", () => {
+	const lines = Array.from({ length: 11 }, (_, index) => ({
+		bom_no: `BOM-${index}`,
+		gross_qty: 1,
+		rejection_qty: 0,
+	}));
+	const { messages, called } = captureJointFetchMessages(
+		sameItemJointFetchDoc({ custom_pea_joint_production_lines: lines })
+	);
+
+	assert.equal(called, false);
+	assert.match(messages[0], /at most 10 lines/);
+});
+
 test("blank joint slot asks for both gross quantities when the other slot is zero", () => {
 	const { messages, called } = captureJointFetchMessages(
 		sameItemJointFetchDoc({
-			custom_pea_lh_gross_qty: 0,
-			custom_pea_rh_gross_qty: undefined,
+			custom_pea_joint_production_lines: [
+				{ bom_no: "BOM-1", gross_qty: 0, rejection_qty: 0 },
+				{ bom_no: "BOM-2", gross_qty: undefined, rejection_qty: 0 },
+			],
 		})
 	);
 
 	assert.equal(called, false);
 	assert.deepEqual(messages, [
-		"Please set BOM 1 and BOM 2 Gross Quantity before fetching items.",
+		"Please set Gross Quantity on every Joint Production Line before fetching items.",
 	]);
 });
 
 test("string zero gross quantity uses the single-recipe message when both slots are filled", () => {
 	const { messages, called } = captureJointFetchMessages(
 		sameItemJointFetchDoc({
-			custom_pea_lh_gross_qty: "0",
-			custom_pea_rh_gross_qty: 12,
+			custom_pea_joint_production_lines: [
+				{ bom_no: "BOM-1", gross_qty: "0", rejection_qty: 0 },
+				{ bom_no: "BOM-2", gross_qty: 12, rejection_qty: 0 },
+			],
 		})
 	);
 
@@ -1649,9 +1679,65 @@ test("rejection visibility quantity sums joint sides and uses normal rejection o
 			5
 		);
 		assert.equal(_get_rejection_qty_for_visibility({ custom_pea_rejection_qty: "4" }), 4);
+		assert.equal(
+			_get_rejection_qty_for_visibility({
+				stock_entry_type: "Joint Production",
+				__pea_same_item_joint_stock_entry_type: "Joint Production",
+				custom_pea_joint_production_lines: [{ rejection_qty: 1 }, { rejection_qty: 2 }],
+			}),
+			3
+		);
+		assert.equal(
+			_joint_production_lines_rejection_total({
+				custom_pea_joint_production_lines: [
+					{ rejection_qty: "2.5" },
+					{ rejection_qty: 0 },
+				],
+			}),
+			2.5
+		);
 	} finally {
 		global.flt = originalFlt;
 	}
+});
+
+test("Joint Production line rejections show the rejection breakup table when a shift is set", () => {
+	const calls = [];
+	const frm = {
+		doc: {
+			stock_entry_type: "Joint Production",
+			__pea_same_item_joint_stock_entry_type: "Joint Production",
+			custom_pea_shift: "SHIFT-1",
+			custom_pea_joint_production_lines: [{ rejection_qty: 2 }],
+			custom_pea_rejection_breakup: [],
+		},
+		fields_dict: {
+			custom_pea_rejection_breakup: {
+				grid: { update_docfield_property() {} },
+			},
+		},
+		toggle_display(fieldname, visible) {
+			calls.push(["display", fieldname, visible]);
+		},
+		toggle_reqd(fieldname, required) {
+			calls.push(["reqd", fieldname, required]);
+		},
+	};
+	_toggle_rejection_breakup(frm);
+	assert.ok(
+		calls.some(
+			([kind, fieldname, value]) =>
+				kind === "display" &&
+				fieldname === "custom_pea_rejection_breakup" &&
+				value === true
+		)
+	);
+	assert.ok(
+		calls.some(
+			([kind, fieldname, value]) =>
+				kind === "reqd" && fieldname === "custom_pea_rejection_breakup" && value === true
+		)
+	);
 });
 
 test("manually selecting a non-joint Stock Entry Type exits joint production and clears joint data", () => {
@@ -2441,8 +2527,11 @@ test("a BOM die tool item is set on the production entry", () => {
 	assert.deepEqual(properties, []);
 });
 
-test("disagreeing BOM die tool items leave the production entry selectable", () => {
-	assert.deepEqual(_prescribed_die_tool_item(["DIE-1", "DIE-2"]), { item: "" });
+test("disagreeing BOM die tool items flag a conflict", () => {
+	assert.deepEqual(_prescribed_die_tool_item(["DIE-1", "DIE-2"]), {
+		item: "",
+		conflict: true,
+	});
 });
 
 test("an empty BOM die tool item leaves the production entry unchanged", () => {
@@ -2585,18 +2674,43 @@ function makeLabeledJointForm(stockEntryType) {
 	return { frm, labels, gridProps };
 }
 
-test("Joint Production labels the two slots BOM 1 and BOM 2", () => {
+test("saved N-line joint labels the section before stock entry type lookup", () => {
+	const labels = {};
+	const frm = makeSavedJointStockEntryForm();
+	frm.doc.stock_entry_type = "Joint Production";
+	frm.doc.custom_pea_lh_bom = "";
+	frm.doc.custom_pea_rh_bom = "";
+	frm.doc.custom_pea_lh_gross_qty = 0;
+	frm.doc.custom_pea_rh_gross_qty = 0;
+	frm.doc.custom_pea_joint_production_lines = [
+		{ bom_no: "BOM-1", gross_qty: 10, rejection_qty: 0 },
+		{ bom_no: "BOM-2", gross_qty: 10, rejection_qty: 0 },
+	];
+	delete frm.doc.__pea_same_item_joint_stock_entry_type;
+	frm.set_df_property = (fieldname, property, value) => {
+		if (property === "label") {
+			labels[fieldname] = value;
+		}
+	};
+
+	_apply_joint_slot_labels(frm);
+
+	assert.equal(labels.custom_pea_joint_production_section, "Joint Production");
+});
+
+test("Joint Production labels the section and default line output sides", () => {
 	const originalFrappe = global.frappe;
 	global.frappe = { call() {} };
 	const { frm, labels, gridProps } = makeLabeledJointForm("Joint Production");
+	frm.doc.custom_pea_joint_production_lines = [
+		{ bom_no: "BOM-1", gross_qty: 10, rejection_qty: 0 },
+		{ bom_no: "BOM-2", gross_qty: 10, rejection_qty: 0 },
+	];
 
 	try {
 		_sync_joint_stock_entry_type(frm);
 
 		assert.equal(labels.custom_pea_joint_production_section, "Joint Production");
-		assert.equal(labels.custom_pea_lh_bom, "BOM 1");
-		assert.equal(labels.custom_pea_rh_bom, "BOM 2");
-		assert.equal(labels.custom_pea_lh_gross_qty, "BOM 1 Gross Quantity");
 		assert.equal(frm.doc.__pea_joint_stock_entry_type, "Joint Production");
 		assert.ok(
 			gridProps.some(
@@ -2611,6 +2725,31 @@ test("Joint Production labels the two slots BOM 1 and BOM 2", () => {
 	}
 });
 
+test("Joint Production expands rejection breakup sides for three lines", () => {
+	const originalFrappe = global.frappe;
+	global.frappe = { call() {} };
+	const { frm, gridProps } = makeLabeledJointForm("Joint Production");
+	frm.doc.custom_pea_joint_production_lines = [
+		{ bom_no: "BOM-1" },
+		{ bom_no: "BOM-2" },
+		{ bom_no: "BOM-3" },
+	];
+
+	try {
+		_sync_joint_stock_entry_type(frm);
+		assert.ok(
+			gridProps.some(
+				([fieldname, property, value]) =>
+					fieldname === "output_side" &&
+					property === "options" &&
+					value === "\nBOM 1\nBOM 2\nBOM 3"
+			)
+		);
+	} finally {
+		global.frappe = originalFrappe;
+	}
+});
+
 test("unchanged joint pairing does not rewrite slot labels", () => {
 	const originalFrappe = global.frappe;
 	global.frappe = { call() {} };
@@ -2618,7 +2757,7 @@ test("unchanged joint pairing does not rewrite slot labels", () => {
 
 	try {
 		_sync_joint_stock_entry_type(frm);
-		assert.equal(labels.custom_pea_lh_bom, "BOM 1");
+		assert.equal(labels.custom_pea_joint_production_section, "Joint Production");
 		for (const fieldname of Object.keys(labels)) {
 			delete labels[fieldname];
 		}
@@ -2654,13 +2793,22 @@ test("Joint LH/RH Production keeps LH and RH slot labels", () => {
 });
 
 test("switching from Joint LH/RH Production to Joint Production clears fetched rows", () => {
-	const { frm } = makeLabeledJointForm("Joint Production");
+	const { frm } = makeLabeledJointForm("Joint LH RH Production");
+	frm.__peaJointStockEntryType = "Joint LH RH Production";
+	frm.__peaSameItemJointStockEntryType = "Joint Production";
+	frm.doc.__pea_joint_stock_entry_type = "Joint LH RH Production";
+	frm.doc.__pea_same_item_joint_stock_entry_type = "Joint Production";
+	frm.doc.custom_pea_lh_bom = "BOM-LH";
+	frm.doc.custom_pea_rh_bom = "BOM-RH";
+	frm.doc.items = [{ item_code: "FG-1" }];
+	frm.doc.stock_entry_type = "Joint Production";
 
 	_sync_joint_stock_entry_type(frm, { previousStockEntryType: "Joint LH RH Production" });
 
 	assert.equal(frm.doc.custom_pea_lh_bom, "");
 	assert.equal(frm.doc.custom_pea_rh_bom, "");
-	assert.deepEqual(frm.doc.items, []);
+	assert.deepEqual(frm.doc.custom_pea_joint_production_lines || [], []);
+	assert.deepEqual(frm.doc.items || [], []);
 });
 
 test("BOM Die Tool Item lookup stays quiet when the field is not migrated", async () => {

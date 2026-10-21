@@ -11,14 +11,18 @@ from frappe.query_builder import DocType
 from frappe.query_builder.functions import CustomFunction, Sum
 from frappe.utils import add_to_date, cint, flt, get_datetime
 
+from production_entry_app.production_entry_app.joint_production import JOINT_PRODUCTION_LINES_FIELD
 from production_entry_app.production_entry_app.report.report_utils import (
+	_materialize_joint_production_line_slot_fields,
 	add_stock_entry_type_flags,
+	attach_joint_production_lines_to_entries,
 	get_entry_output_quantities,
 	get_finished_item_maps,
 	get_parent_quantity_metrics,
 	is_joint_lh_rh_entry,
 	is_joint_production_entry,
 	is_production_stock_entry,
+	joint_production_output_slots,
 	paired_output_slots,
 )
 from production_entry_app.production_entry_app.utils.loss_time import (
@@ -346,6 +350,24 @@ def check_running_shift_conflict(shift_name: str) -> dict:
 	}
 
 
+def _production_entry_bom_names(entry: dict) -> tuple[str, ...]:
+	if is_joint_production_entry(entry):
+		line_boms = tuple(
+			line.get("bom_no") for line in entry.get(JOINT_PRODUCTION_LINES_FIELD) or [] if line.get("bom_no")
+		)
+		if line_boms:
+			return line_boms
+		return tuple(
+			bom_no for bom_no in (entry.get("custom_pea_lh_bom"), entry.get("custom_pea_rh_bom")) if bom_no
+		)
+	if is_joint_lh_rh_entry(entry):
+		return tuple(
+			bom_no for bom_no in (entry.get("custom_pea_lh_bom"), entry.get("custom_pea_rh_bom")) if bom_no
+		)
+	bom_no = entry.get("bom_no")
+	return (bom_no,) if bom_no else ()
+
+
 def _empty_shift_summary() -> dict:
 	return {
 		"float_precision": get_system_float_precision(),
@@ -592,21 +614,44 @@ def _build_workstation_summary_rows(
 	return worst_rows, best_row
 
 
+def _item_by_bom_for_entries(entries: list[dict]) -> dict[str, str]:
+	bom_names = sorted(
+		{bom_no for entry in entries for bom_no in _production_entry_bom_names(entry) if bom_no}
+	)
+	if not bom_names:
+		return {}
+	return {
+		row.get("name"): row.get("item")
+		for row in frappe.get_list(
+			"BOM",
+			filters={"name": ["in", bom_names]},
+			fields=["name", "item"],
+			limit_page_length=0,
+		)
+	}
+
+
 def _build_item_bom_rows(
 	entries: list[dict],
 	parent_quantity_metrics: dict[str, dict[str, float]] | None = None,
+	*,
+	item_by_bom: dict[str, str] | None = None,
 ) -> list[dict]:
 	aggregates: dict[str, dict] = {}
+	item_by_bom = item_by_bom if item_by_bom is not None else _item_by_bom_for_entries(entries)
 	for entry in entries:
 		if is_joint_production_entry(entry):
-			item_code = entry.get("item_code") or _("Unknown Item")
-			for slot in paired_output_slots(entry) or ():
+			if entry.get(JOINT_PRODUCTION_LINES_FIELD):
+				_materialize_joint_production_line_slot_fields(entry)
+			for slot in joint_production_output_slots(entry) or ():
+				bom_no = entry.get(slot.bom_field) or ""
+				item_code = item_by_bom.get(bom_no) or entry.get("item_code") or _("Unknown Item")
 				gross_qty = flt(entry.get(slot.gross_field) or 0)
 				rejection_qty = flt(entry.get(slot.rejection_field) or 0)
 				_add_item_bom_quantity(
 					aggregates,
 					item_code=item_code,
-					bom_no=entry.get(slot.bom_field) or "",
+					bom_no=bom_no,
 					total_qty=gross_qty,
 					ok_qty=max(gross_qty - rejection_qty, 0),
 					rejection_qty=rejection_qty,
@@ -889,17 +934,13 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 		limit_page_length=0,
 	)
 	add_stock_entry_type_flags(entry_rows)
+	attach_joint_production_lines_to_entries(entry_rows)
 	entry_rows = [row for row in entry_rows if is_production_stock_entry(row)]
 	entry_names = [row.get("name") for row in entry_rows if row.get("name")]
 	parent_quantity_metrics = get_parent_quantity_metrics(entry_names)
 	item_by_entry, _item_labels = get_finished_item_maps(entry_names)
 	bom_names = sorted(
-		{
-			bom_no
-			for row in entry_rows
-			for bom_no in (row.get("bom_no"), row.get("custom_pea_lh_bom"), row.get("custom_pea_rh_bom"))
-			if bom_no
-		}
+		{bom_no for row in entry_rows for bom_no in _production_entry_bom_names(row) if bom_no}
 	)
 	item_by_bom = (
 		{
@@ -916,11 +957,12 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 	)
 	for row in entry_rows:
 		if is_joint_production_entry(row):
-			row["item_code"] = (
-				item_by_bom.get(row.get("custom_pea_lh_bom"))
-				or item_by_bom.get(row.get("custom_pea_rh_bom"))
-				or ""
-			)
+			line_items = [
+				item_by_bom.get(bom_no)
+				for bom_no in _production_entry_bom_names(row)
+				if item_by_bom.get(bom_no)
+			]
+			row["item_code"] = " + ".join(dict.fromkeys(line_items))
 			continue
 		if is_joint_lh_rh_entry(row):
 			lh_bom = row.get("custom_pea_lh_bom") or ""
@@ -1059,7 +1101,7 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 		},
 		"exceptions": {
 			"workstations": workstation_rows,
-			"item_boms": _build_item_bom_rows(entry_rows, parent_quantity_metrics),
+			"item_boms": _build_item_bom_rows(entry_rows, parent_quantity_metrics, item_by_bom=item_by_bom),
 			"unplanned_loss_reasons": _top_reason_rows(unplanned_loss_reason_totals),
 		},
 		"logged_downtime": {
@@ -1121,17 +1163,13 @@ def get_shift_aggregate_production_entries(shift_name: str | None = None) -> lis
 		limit_page_length=0,
 	)
 	add_stock_entry_type_flags(permitted_entries)
+	attach_joint_production_lines_to_entries(permitted_entries)
 	permitted_entries = [row for row in permitted_entries if is_production_stock_entry(row)]
 	permitted_entry_names = [row.get("name") for row in permitted_entries if row.get("name")]
 	if not permitted_entry_names:
 		return []
 	requested_bom_names = sorted(
-		{
-			bom_no
-			for row in permitted_entries
-			for bom_no in (row.get("bom_no"), row.get("custom_pea_lh_bom"), row.get("custom_pea_rh_bom"))
-			if bom_no
-		}
+		{bom_no for row in permitted_entries for bom_no in _production_entry_bom_names(row) if bom_no}
 	)
 	permitted_bom_rows = frappe.get_list(
 		"BOM",
@@ -1284,8 +1322,11 @@ def _add_same_item_joint_aggregate(
 ) -> None:
 	strokes = flt(entry.get("custom_pea_total_strokes"))
 	mins = _get_entry_production_minutes(entry)
-	for slot in paired_output_slots(entry) or ():
-		bom_no = entry.get(slot.bom_field) or ""
+	entry_dict = entry if isinstance(entry, dict) else entry.as_dict()
+	if entry_dict.get(JOINT_PRODUCTION_LINES_FIELD):
+		_materialize_joint_production_line_slot_fields(entry_dict)
+	for slot in joint_production_output_slots(entry_dict) or ():
+		bom_no = entry_dict.get(slot.bom_field) or ""
 		if not bom_no:
 			continue
 		aggregate = aggregates.setdefault(
@@ -1298,9 +1339,9 @@ def _add_same_item_joint_aggregate(
 				"mins": 0.0,
 			},
 		)
-		aggregate["total_qty"] = flt(aggregate["total_qty"]) + flt(entry.get(slot.gross_field))
+		aggregate["total_qty"] = flt(aggregate["total_qty"]) + flt(entry_dict.get(slot.gross_field))
 		aggregate["total_reject_qty"] = flt(aggregate["total_reject_qty"]) + flt(
-			entry.get(slot.rejection_field)
+			entry_dict.get(slot.rejection_field)
 		)
 		aggregate["total_strokes"] = flt(aggregate["total_strokes"]) + strokes
 		aggregate["mins"] = flt(aggregate["mins"]) + mins

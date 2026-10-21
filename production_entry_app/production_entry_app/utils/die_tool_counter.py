@@ -8,21 +8,30 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.query_builder import DocType as QBDocType
 from frappe.query_builder.functions import CustomFunction
-from frappe.utils import cint, get_datetime, now_datetime
+from frappe.utils import cint, cstr, get_datetime, now_datetime
 
 from production_entry_app.production_entry_app.joint_production import (
 	is_paired_production,
 )
+from production_entry_app.production_entry_app.utils.die_tool_item import DIE_TOOL_ITEM_FIELD
+
+
+def resolve_die_tool_item_code(doc: Document, *, persisted_only: bool = False) -> str | None:
+	"""Return the Item whose Die Tool Counter should receive this entry's strokes."""
+	prescribed = cstr(doc.get(DIE_TOOL_ITEM_FIELD)).strip()
+	if persisted_only and doc.name:
+		prescribed = cstr(frappe.db.get_value(doc.doctype, doc.name, DIE_TOOL_ITEM_FIELD)).strip()
+	if prescribed:
+		return prescribed
+	if is_paired_production(doc):
+		return None
+	if doc.get("purpose") == "Manufacture":
+		return _get_fg_item_code(doc)
+	return None
 
 
 def update_counter_for_stock_entry(doc: Document, direction: int = 1) -> None:
-	if is_paired_production(doc):
-		item_code = doc.get("custom_pea_die_tool_item")
-	elif doc.get("purpose") == "Manufacture":
-		item_code = _get_fg_item_code(doc)
-	else:
-		return
-
+	item_code = resolve_die_tool_item_code(doc, persisted_only=direction < 0)
 	if not item_code:
 		return
 	if not is_die_tool_enabled(item_code):

@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+-   Joint Production **Joint Production Line** child table: two or more BOM lines per entry, each with its own gross quantity, rejection quantity, and per-line rejection breakup (#153)
+-   Joint Production Fetch Items materializes source, good, rejection, and aggregated scrap rows for every line from one action (#153)
+-   Report and Shift pipelines read N line-derived slots for Joint Production entries; BOM and finished-item filters match through line BOMs (#153, #157)
+
+### Changed
+
+-   Joint Production is redefined for unused-on-site semantics: output composition is unconstrained (same or distinct finished items per line), with a duplicate-recipe guard instead of fixed two-BOM same-item pairing (#153)
+-   Joint output side labels generalize to BOM 1…BOM N on good, rejection, and breakup rows (#153)
+-   Shift per-BOM stroke and production-minute attribution applies the entry totals to each line's BOM; Shift item summary lists each line's finished item (#153)
+-   Stale Joint Production drafts saved before the line table must re-fetch items before submit (#153)
+-   Manufacture and Joint Production stroke counters credit **Die Tool Item** from the Stock Entry when set (previously Manufacture credited the finished-good item) (#153)
+-   Multi-BOM production entries require a single Die Tool Item across all selected BOMs on save (#153)
+
 ## [1.1.1] - 2026-10-18
 
 ### Added

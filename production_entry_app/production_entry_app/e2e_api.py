@@ -742,7 +742,17 @@ def bootstrap_e2e_context(prefix: str = "E2E", cleanup_running: int = 1) -> dict
 		company=company,
 		is_default=True,
 	)
+	joint_multipart_fg_item = ensure_item(f"_{prefix}_Joint_Multipart_FG")
+	joint_multipart_rm_item = ensure_item(f"_{prefix}_Joint_Multipart_RM", stock_uom="Kg")
+	joint_multipart_bom = ensure_joint_test_bom(
+		item_code=joint_multipart_fg_item,
+		rm_item=joint_multipart_rm_item,
+		scrap_items=[(joint_scrap_item, 1.5, 10), (joint_scrap_nos_item, 3, 4)],
+		company=company,
+		is_default=True,
+	)
 	ensure_stock(joint_rm_item, wip_warehouse, company, target_qty=1000, posting_date=base_date)
+	ensure_stock(joint_multipart_rm_item, wip_warehouse, company, target_qty=1000, posting_date=base_date)
 	joint_post_shearing_operation = ensure_operation("Blanking")
 	joint_lh_wip_a = ensure_item(f"_{prefix}_Joint_LH_WIP_A")
 	joint_lh_wip_b = ensure_item(f"_{prefix}_Joint_LH_WIP_B")
@@ -785,6 +795,7 @@ def bootstrap_e2e_context(prefix: str = "E2E", cleanup_running: int = 1) -> dict
 		(joint_rh_bom, joint_rh_bom_operating_cost),
 		(joint_post_shearing_lh_bom, joint_lh_bom_operating_cost),
 		(joint_post_shearing_rh_bom, joint_rh_bom_operating_cost),
+		(joint_multipart_bom, joint_lh_bom_operating_cost),
 	):
 		frappe.db.set_value("BOM", bom_no, "operating_cost", operating_cost, update_modified=False)
 		frappe.clear_document_cache("BOM", bom_no)
@@ -825,6 +836,9 @@ def bootstrap_e2e_context(prefix: str = "E2E", cleanup_running: int = 1) -> dict
 		"joint_lh_bom": joint_lh_bom,
 		"joint_lh_bom_alt": joint_lh_bom_alt,
 		"joint_rh_bom": joint_rh_bom,
+		"joint_multipart_fg_item": joint_multipart_fg_item,
+		"joint_multipart_rm_item": joint_multipart_rm_item,
+		"joint_multipart_bom": joint_multipart_bom,
 		"joint_post_shearing_operation": joint_post_shearing_operation,
 		"joint_post_shearing_lh_bom": joint_post_shearing_lh_bom,
 		"joint_post_shearing_rh_bom": joint_post_shearing_rh_bom,
@@ -1017,10 +1031,14 @@ def _cleanup_e2e_master_data(prefix: str) -> None:
 	joint_lh_item, joint_rh_item, joint_rm_item, joint_scrap_item, joint_scrap_nos_item = (
 		_get_e2e_joint_item_codes(prefix)
 	)
+	joint_multipart_fg_item = f"_{prefix}_Joint_Multipart_FG"
+	joint_multipart_rm_item = f"_{prefix}_Joint_Multipart_RM"
 	for item in (
 		target_fg_item,
 		joint_lh_item,
 		joint_rh_item,
+		joint_multipart_fg_item,
+		joint_multipart_rm_item,
 		joint_scrap_item,
 		joint_scrap_nos_item,
 		joint_rm_item,

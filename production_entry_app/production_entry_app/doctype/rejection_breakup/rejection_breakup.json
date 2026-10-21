@@ -18,7 +18,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Output Side",
-   "options": "\nLH\nRH\nBOM 1\nBOM 2"
+   "options": "\nLH\nRH\nBOM 1\nBOM 2\nBOM 3\nBOM 4\nBOM 5\nBOM 6\nBOM 7\nBOM 8\nBOM 9\nBOM 10"
   },
   {
    "fieldname": "item_code",

@@ -15,6 +15,11 @@ from frappe.utils import cint, flt, get_datetime
 from pypika import Table
 from pypika.terms import Criterion
 
+from production_entry_app.production_entry_app.joint_production import (
+	JOINT_PRODUCTION_LINES_FIELD,
+	MAX_JOINT_PRODUCTION_BOM_SIDES,
+	joint_production_line_side,
+)
 from production_entry_app.production_entry_app.utils.loss_time import (
 	SETUP_TIME_REASON,
 	get_loss_duration_minutes,
@@ -58,9 +63,15 @@ def _output_slots(sides: tuple[str, str]) -> tuple[OutputSlot, ...]:
 
 
 _LH_RH_OUTPUT_SLOTS: tuple[OutputSlot, ...] = _output_slots(("LH", "RH"))
-_SAME_ITEM_OUTPUT_SLOTS: tuple[OutputSlot, ...] = _output_slots(("BOM 1", "BOM 2"))
-_JOINT_OUTPUT_SIDES: tuple[str, ...] = tuple(
-	slot.side for slot in (*_LH_RH_OUTPUT_SLOTS, *_SAME_ITEM_OUTPUT_SLOTS)
+_LEGACY_SAME_ITEM_JOINT_OUTPUT_SLOTS: tuple[OutputSlot, ...] = _output_slots(
+	(joint_production_line_side(0), joint_production_line_side(1))
+)
+_JOINT_OUTPUT_SIDES: frozenset[str] = frozenset(
+	{
+		"LH",
+		"RH",
+		*(joint_production_line_side(index) for index in range(MAX_JOINT_PRODUCTION_BOM_SIDES)),
+	}
 )
 # Cutover release: reports read the app's own fields only. Entries created
 # before the changeover are not considered, so the legacy parallel fields
@@ -178,9 +189,75 @@ def is_paired_production_entry(entry: dict | BaseDocument) -> bool:
 	return is_joint_lh_rh_entry(entry) or is_joint_production_entry(entry)
 
 
+def _joint_production_line_slot_field(index: int, suffix: str) -> str:
+	return f"__pea_jpl_{index}_{suffix}"
+
+
+def _materialize_joint_production_line_slot_fields(entry: dict) -> None:
+	lines = entry.get(JOINT_PRODUCTION_LINES_FIELD) or []
+	if not lines:
+		return
+	for index, line in enumerate(lines):
+		entry[_joint_production_line_slot_field(index, "bom")] = line.get("bom_no")
+		entry[_joint_production_line_slot_field(index, "gross")] = line.get("gross_qty")
+		entry[_joint_production_line_slot_field(index, "rejection")] = line.get("rejection_qty")
+
+
+def _joint_production_line_output_slots(entry: dict) -> tuple[OutputSlot, ...] | None:
+	lines = entry.get(JOINT_PRODUCTION_LINES_FIELD) or []
+	if not lines:
+		return None
+	return tuple(
+		OutputSlot(
+			joint_production_line_side(index),
+			_joint_production_line_slot_field(index, "bom"),
+			_joint_production_line_slot_field(index, "gross"),
+			_joint_production_line_slot_field(index, "rejection"),
+		)
+		for index in range(len(lines))
+	)
+
+
+def attach_joint_production_lines_to_entries(entries: list[dict]) -> None:
+	joint_names = [
+		entry.get("name") for entry in entries if entry.get("name") and is_joint_production_entry(entry)
+	]
+	if not joint_names:
+		return
+	child = DocType("Joint Production Line")
+	rows = (
+		frappe.qb.from_(child)
+		.select(child.parent, child.bom_no, child.gross_qty, child.rejection_qty, child.idx)
+		.where(child.parent.isin(joint_names))
+		.orderby(child.parent, child.idx)
+	).run(as_dict=True)
+	lines_by_parent: dict[str, list[dict]] = defaultdict(list)
+	for row in rows:
+		parent = row.get("parent")
+		if parent:
+			lines_by_parent[parent].append(row)
+	for entry in entries:
+		parent = entry.get("name")
+		if not parent or parent not in lines_by_parent:
+			continue
+		entry[JOINT_PRODUCTION_LINES_FIELD] = lines_by_parent[parent]
+		_materialize_joint_production_line_slot_fields(entry)
+
+
+def joint_production_output_slots(entry: dict | BaseDocument) -> tuple[OutputSlot, ...] | None:
+	"""Return quantity slots for Joint Production (child lines or legacy LH/RH header)."""
+	if not is_joint_production_entry(entry):
+		return None
+	entry_dict = entry if isinstance(entry, dict) else entry.as_dict()
+	line_slots = _joint_production_line_output_slots(entry_dict)
+	if line_slots:
+		return line_slots
+	return _LEGACY_SAME_ITEM_JOINT_OUTPUT_SLOTS
+
+
 def paired_output_slots(entry: dict | BaseDocument) -> tuple[OutputSlot, ...] | None:
 	if is_joint_production_entry(entry):
-		return _SAME_ITEM_OUTPUT_SLOTS
+		return joint_production_output_slots(entry)
 	if is_joint_lh_rh_entry(entry):
 		return _LH_RH_OUTPUT_SLOTS
 	return None
@@ -223,10 +300,16 @@ def get_entry_output_quantities(
 	Reports should pass their batched child-row metrics for normal Manufacture
 	entries. Document hooks can use the header fields directly.
 	"""
-	slots = paired_output_slots(entry)
-	if slots:
-		total_qty = sum(flt(entry.get(slot.gross_field)) for slot in slots)
-		rejection_qty = sum(flt(entry.get(slot.rejection_field)) for slot in slots)
+	entry_dict = entry if isinstance(entry, dict) else entry.as_dict()
+	joint_slots = joint_production_output_slots(entry_dict)
+	if joint_slots:
+		if entry_dict.get(JOINT_PRODUCTION_LINES_FIELD):
+			_materialize_joint_production_line_slot_fields(entry_dict)
+		total_qty = sum(flt(entry_dict.get(slot.gross_field)) for slot in joint_slots)
+		rejection_qty = sum(flt(entry_dict.get(slot.rejection_field)) for slot in joint_slots)
+	elif slots := paired_output_slots(entry):
+		total_qty = sum(flt(entry_dict.get(slot.gross_field)) for slot in slots)
+		rejection_qty = sum(flt(entry_dict.get(slot.rejection_field)) for slot in slots)
 	elif normal_metrics is not None and (
 		flt(normal_metrics.get("good_qty") or 0) > 0
 		or flt(normal_metrics.get("total_rejected_qty") or 0) > 0
@@ -339,6 +422,35 @@ def get_stock_entries_for_fg_item(item_code: str) -> list[str]:
 	return [row.get("parent") for row in rows if row.get("parent")]
 
 
+def _stock_entry_qb_criteria(stock_entry: Table, filters: dict) -> list[Criterion]:
+	criteria: list[Criterion] = []
+	for fieldname, value in filters.items():
+		column = stock_entry[fieldname]
+		if isinstance(value, list | tuple) and len(value) == 2:
+			operator, operand = value[0], value[1]
+			if operator == "in":
+				criteria.append(column.isin(list(operand)))
+			elif operator == "between" and isinstance(operand, list | tuple) and len(operand) == 2:
+				criteria.append(column.between(operand[0], operand[1]))
+			elif operator == "=":
+				criteria.append(column == operand)
+			elif operator == ">=":
+				criteria.append(column >= operand)
+			elif operator == "<=":
+				criteria.append(column <= operand)
+			elif operator == ">":
+				criteria.append(column > operand)
+			elif operator == "<":
+				criteria.append(column < operand)
+			elif operator == "!=":
+				criteria.append(column != operand)
+			else:
+				frappe.throw(_("Unsupported Stock Entry filter operator: {0}").format(operator))
+			continue
+		criteria.append(column == value)
+	return criteria
+
+
 def get_stock_entries_for_bom(bom_no: str, *, filters: dict | None = None) -> list[str]:
 	"""Return permitted normal or joint Stock Entries linked to a BOM."""
 	base_filters = dict(filters or {"docstatus": 1})
@@ -354,19 +466,38 @@ def get_stock_entries_for_bom(bom_no: str, *, filters: dict | None = None) -> li
 		limit_page_length=_MAX_BOM_PARENT_MATCHES + 1,
 	)
 	matched_names = {row.get("name") for row in header_rows if row.get("name")}
+	joint_line = DocType("Joint Production Line")
+	stock_entry = DocType("Stock Entry")
+	line_query = (
+		frappe.qb.from_(joint_line)
+		.inner_join(stock_entry)
+		.on(stock_entry.name == joint_line.parent)
+		.select(joint_line.parent)
+		.distinct()
+		.where(joint_line.bom_no == bom_no)
+		.where(joint_line.parenttype == "Stock Entry")
+	)
+	for criterion in _stock_entry_qb_criteria(stock_entry, base_filters):
+		line_query = line_query.where(criterion)
+	line_rows = line_query.limit(_MAX_BOM_PARENT_MATCHES + 1).run(as_dict=True)
+	for row in line_rows:
+		parent = row.get("parent")
+		if parent:
+			matched_names.add(parent)
 	if len(matched_names) <= _MAX_BOM_PARENT_MATCHES:
 		stock_entry_detail = DocType("Stock Entry Detail")
-		stock_entry = DocType("Stock Entry")
-		detail_rows = (
+		detail_query = (
 			frappe.qb.from_(stock_entry_detail)
 			.inner_join(stock_entry)
 			.on(stock_entry.name == stock_entry_detail.parent)
 			.select(stock_entry_detail.parent)
 			.distinct()
 			.where(stock_entry_detail.bom_no == bom_no)
-			.where(stock_entry.docstatus == 1)
-			.limit(_MAX_BOM_PARENT_MATCHES + 1)
-		).run(as_dict=True)
+			.where(stock_entry_detail.parenttype == "Stock Entry")
+		)
+		for criterion in _stock_entry_qb_criteria(stock_entry, base_filters):
+			detail_query = detail_query.where(criterion)
+		detail_rows = detail_query.limit(_MAX_BOM_PARENT_MATCHES + 1).run(as_dict=True)
 		for row in detail_rows:
 			parent = row.get("parent")
 			if parent:
@@ -440,6 +571,7 @@ def iter_stock_entries_in_chunks(
 				).format(max_rows)
 			)
 		add_stock_entry_type_flags(raw_rows)
+		attach_joint_production_lines_to_entries(raw_rows)
 		rows = [row for row in raw_rows if is_production_stock_entry(row)]
 		production_dates = get_shift_production_dates(
 			{row.get("custom_pea_shift") for row in rows if row.get("custom_pea_shift")}
@@ -724,7 +856,14 @@ def get_item_bom_quality_facts(entries: list[dict], *, is_rework: bool) -> list[
 	allowed_sides = {
 		entry.get("name"): {slot.side for slot in slots}
 		for entry in entries
-		if entry.get("name") and (slots := paired_output_slots(entry))
+		if entry.get("name")
+		and (
+			slots := (
+				joint_production_output_slots(entry)
+				if is_joint_production_entry(entry)
+				else paired_output_slots(entry)
+			)
+		)
 	}
 
 	for breakup in breakup_rows:
@@ -749,16 +888,23 @@ def get_item_bom_quality_facts(entries: list[dict], *, is_rework: bool) -> list[
 		parent = entry.get("name")
 		if not parent:
 			continue
-		slots = paired_output_slots(entry)
+		if is_joint_production_entry(entry):
+			entry_dict = entry if isinstance(entry, dict) else entry.as_dict()
+			if entry_dict.get(JOINT_PRODUCTION_LINES_FIELD):
+				_materialize_joint_production_line_slot_fields(entry_dict)
+			slots = joint_production_output_slots(entry_dict)
+		else:
+			slots = paired_output_slots(entry)
 		if slots:
 			for slot in slots:
+				entry_dict = entry if isinstance(entry, dict) else entry.as_dict()
 				key = (parent, slot.side)
 				facts.append(
 					{
 						"parent": parent,
 						"item_code": joint_items.get(key) or breakup_items.get(key),
-						"bom_no": entry.get(slot.bom_field),
-						"total_qty": flt(entry.get(slot.gross_field) or 0),
+						"bom_no": entry_dict.get(slot.bom_field),
+						"total_qty": flt(entry_dict.get(slot.gross_field) or 0),
 						"quality_qty": flt(quality_by_output.get(key) or 0),
 						"reason_totals": reasons_by_output.get(key) or {},
 					}
@@ -873,7 +1019,7 @@ def _get_joint_output_item_map(stock_entry_names: list[str]) -> dict[tuple[str, 
 			stock_entry_detail.item_code,
 		)
 		.where(stock_entry_detail.parent.isin(stock_entry_names))
-		.where(stock_entry_detail.custom_pea_joint_output_side.isin(_JOINT_OUTPUT_SIDES))
+		.where(stock_entry_detail.custom_pea_joint_output_side.isin(tuple(_JOINT_OUTPUT_SIDES)))
 		.where(_get_non_scrap_item_criterion(stock_entry_detail))
 	).run(as_dict=True)
 	return {

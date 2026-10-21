@@ -10,7 +10,10 @@ from frappe.utils import cint, get_datetime, get_time, now_datetime
 from pypika import Order
 
 from production_entry_app.production_entry_app.joint_production import (
+	JOINT_PRODUCTION_LINES_FIELD,
+	MAX_JOINT_PRODUCTION_BOM_SIDES,
 	_normalize_operation,
+	is_joint_production_stock_entry_type,
 	is_scrap_row,
 	materialize_joint_production_rows,
 )
@@ -211,9 +214,23 @@ def get_joint_production_items(doc: str) -> list[dict]:
 	elif not frappe.has_permission("Stock Entry", "create"):
 		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
 
+	lines_payload = doc_dict.get(JOINT_PRODUCTION_LINES_FIELD) or []
+	if lines_payload and not isinstance(lines_payload, list):
+		frappe.throw(_("Stock Entry payload must be a valid JSON object."))
+	if isinstance(lines_payload, list) and any(not isinstance(row, dict) for row in lines_payload):
+		frappe.throw(_("Stock Entry payload must be a valid JSON object."))
+	if len(lines_payload) > MAX_JOINT_PRODUCTION_BOM_SIDES:
+		frappe.throw(_("Joint Production supports at most {0} lines.").format(MAX_JOINT_PRODUCTION_BOM_SIDES))
+
+	linked_boms = [
+		doc_dict.get("custom_pea_lh_bom"),
+		doc_dict.get("custom_pea_rh_bom"),
+		*(row.get("bom_no") for row in lines_payload),
+	]
+	for bom_no in dict.fromkeys(bom for bom in linked_boms if bom):
+		if not frappe.has_permission("BOM", "read", bom_no):
+			frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
 	for doctype, fieldname in (
-		("BOM", "custom_pea_lh_bom"),
-		("BOM", "custom_pea_rh_bom"),
 		("Item", "custom_pea_die_tool_item"),
 		("Shift", "custom_pea_shift"),
 		("Operation", "custom_pea_operation"),
@@ -224,26 +241,42 @@ def get_joint_production_items(doc: str) -> list[dict]:
 		if name and not frappe.has_permission(doctype, "read", name):
 			frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
 
-	stock_entry = frappe.new_doc("Stock Entry")
-	for fieldname in (
-		"purpose",
-		"stock_entry_type",
-		"company",
-		"branch",
-		"from_warehouse",
-		"to_warehouse",
-		"custom_pea_shift",
-		"custom_pea_operation",
-		"custom_pea_lh_bom",
-		"custom_pea_lh_gross_qty",
-		"custom_pea_lh_rejection_qty",
-		"custom_pea_rh_bom",
-		"custom_pea_rh_gross_qty",
-		"custom_pea_rh_rejection_qty",
-		"custom_pea_total_strokes",
-		"custom_pea_die_tool_item",
+	stock_entry = frappe.get_doc(
+		{
+			"doctype": "Stock Entry",
+			**{
+				fieldname: doc_dict.get(fieldname)
+				for fieldname in (
+					"purpose",
+					"stock_entry_type",
+					"company",
+					"branch",
+					"from_warehouse",
+					"to_warehouse",
+					"custom_pea_shift",
+					"custom_pea_operation",
+					"custom_pea_lh_bom",
+					"custom_pea_lh_gross_qty",
+					"custom_pea_lh_rejection_qty",
+					"custom_pea_rh_bom",
+					"custom_pea_rh_gross_qty",
+					"custom_pea_rh_rejection_qty",
+					"custom_pea_total_strokes",
+					"custom_pea_die_tool_item",
+				)
+			},
+			JOINT_PRODUCTION_LINES_FIELD: lines_payload,
+		}
+	)
+	if is_joint_production_stock_entry_type(stock_entry) and not stock_entry.get(
+		JOINT_PRODUCTION_LINES_FIELD
 	):
-		stock_entry.set(fieldname, doc_dict.get(fieldname))
+		frappe.throw(
+			_(
+				"Add at least two Joint Production Lines. "
+				"If only one recipe is produced, create a Manufacture Production Entry instead of Joint Production."
+			)
+		)
 	return materialize_joint_production_rows(stock_entry)
 
 

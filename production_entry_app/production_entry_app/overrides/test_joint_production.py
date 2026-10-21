@@ -27,7 +27,9 @@ from production_entry_app.production_entry_app.doctype.shift.shift import (
 from production_entry_app.production_entry_app.joint_production import (
 	JOINT_BOM_OPERATING_COST_DESCRIPTION,
 	JOINT_LH_RH_STOCK_ENTRY_TYPE,
+	JOINT_PRODUCTION_LINES_FIELD,
 	JOINT_PRODUCTION_STOCK_ENTRY_TYPE,
+	MAX_JOINT_PRODUCTION_BOM_SIDES,
 	_get_bom_scrap_item_details,
 	_get_item_details,
 	_get_joint_bom_details,
@@ -37,6 +39,7 @@ from production_entry_app.production_entry_app.joint_production import (
 	calculate_joint_rm_consumption,
 	calculate_joint_rm_consumption_from_boms,
 	is_joint_lh_rh_production,
+	joint_production_line_side,
 	materialize_joint_production_rows,
 	validate_and_apply_joint_production,
 	validate_stock_entry_type,
@@ -1008,7 +1011,18 @@ class TestJointProductionItems(FrappeTestCase):
 
 		def fake_get_meta(doctype: str, *args: Any, **kwargs: Any) -> object:
 			if doctype == "BOM":
-				return frappe._dict(has_field=lambda fieldname: fieldname != "custom_operation")
+				real_meta = original_get_meta(doctype, *args, **kwargs)
+
+				class _BomMetaWithoutOperation:
+					def __getattr__(self, name: str) -> Any:
+						return getattr(real_meta, name)
+
+					def has_field(self, fieldname: str) -> bool:
+						if fieldname == "custom_operation":
+							return False
+						return real_meta.has_field(fieldname)
+
+				return _BomMetaWithoutOperation()
 			return original_get_meta(doctype, *args, **kwargs)
 
 		with patch(
@@ -2051,7 +2065,7 @@ class TestJointProductionItems(FrappeTestCase):
 					frappe.client.insert(doc.as_dict())
 
 		for fieldname, value, message in (
-			("output_side", "INVALID", "must specify LH or RH"),
+			("output_side", "INVALID", "must specify one of these Output Sides"),
 			("item_code", self.rh_item, "must match the selected LH BOM"),
 		):
 			with self.subTest(fieldname=fieldname):
@@ -3024,16 +3038,43 @@ class TestJointProductionItems(FrappeTestCase):
 		scrap_row = next(row for row in doc.items if row.item_code == self.scrap_nos_item)
 		self.assertEqual(scrap_row.qty, 1)
 
-	def test_joint_production_refuses_different_finished_items(self) -> None:
+	def test_joint_production_allows_different_finished_items(self) -> None:
 		shift = make_running_shift(self.masters)
-
-		with self.assertRaisesRegex(frappe.ValidationError, "Joint LH/RH Production"):
-			self._make_joint_entry(
-				shift,
-				stock_entry_type=JOINT_PRODUCTION_STOCK_ENTRY_TYPE,
-				first_output_side="BOM 1",
-				second_output_side="BOM 2",
+		suffix = frappe.generate_hash(length=6)
+		first_fg = ensure_item(f"_Joint_Multi_FG_A_{suffix}")
+		second_fg = ensure_item(f"_Joint_Multi_FG_B_{suffix}")
+		first_rm = ensure_item(f"_Joint_Multi_RM_A_{suffix}")
+		second_rm = ensure_item(f"_Joint_Multi_RM_B_{suffix}")
+		first_bom = self._make_bom(first_fg, rm_item=first_rm, rm_qty=2, bom_quantity=10, scrap_qty=0)
+		second_bom = self._make_bom(second_fg, rm_item=second_rm, rm_qty=3, bom_quantity=10, scrap_qty=0)
+		for item_code in (first_rm, second_rm):
+			ensure_stock(
+				item_code,
+				self.masters["wip_warehouse"],
+				self.masters["company"],
+				target_qty=100,
 			)
+
+		doc = self._make_joint_entry(
+			shift,
+			lh_bom=first_bom,
+			rh_bom=second_bom,
+			lh_gross_qty=10,
+			rh_gross_qty=10,
+			lh_rejection_qty=0,
+			rh_rejection_qty=0,
+			stock_entry_type=JOINT_PRODUCTION_STOCK_ENTRY_TYPE,
+			first_output_side="BOM 1",
+			second_output_side="BOM 2",
+		)
+
+		doc.insert(ignore_permissions=True)
+		output_items = {
+			row.item_code
+			for row in doc.items
+			if row.t_warehouse and not row.custom_pea_is_rejection_item and not _is_scrap_row(row)
+		}
+		self.assertEqual(output_items, {first_fg, second_fg})
 
 	def test_joint_production_refuses_identical_input_item_sets(self) -> None:
 		suffix = frappe.generate_hash(length=6)
@@ -3052,7 +3093,7 @@ class TestJointProductionItems(FrappeTestCase):
 		)
 		shift = make_running_shift(self.masters)
 
-		with self.assertRaisesRegex(frappe.ValidationError, "different raw materials"):
+		with self.assertRaisesRegex(frappe.ValidationError, "Merge them into one Joint Production Line"):
 			self._make_joint_entry(
 				shift,
 				lh_bom=first_bom,
@@ -3061,6 +3102,112 @@ class TestJointProductionItems(FrappeTestCase):
 				rh_rejection_qty=0,
 				**self._same_item_entry_args(finished),
 			)
+
+	def test_joint_production_refuses_a_single_line(self) -> None:
+		shift = make_running_shift(self.masters)
+		finished, sheet_bom, end_bom = self._same_item_boms()
+		doc = self._make_joint_entry(
+			shift,
+			lh_bom=sheet_bom,
+			rh_bom=end_bom,
+			fetch_items=False,
+			**self._same_item_entry_args(finished),
+		)
+		self._set_joint_production_lines(doc, [(sheet_bom, 10, 0)])
+
+		with self.assertRaisesRegex(frappe.ValidationError, "Manufacture Production Entry"):
+			get_joint_production_items(json.dumps(doc.as_dict(), default=str))
+
+	def test_joint_production_refuses_more_than_max_lines(self) -> None:
+		shift = make_running_shift(self.masters)
+		finished, sheet_bom, end_bom = self._same_item_boms()
+		doc = self._make_joint_entry(
+			shift,
+			lh_bom=sheet_bom,
+			rh_bom=end_bom,
+			fetch_items=False,
+			**self._same_item_entry_args(finished),
+		)
+		extra_lines = [
+			(self._make_bom(ensure_item(f"_JP_Max_{frappe.generate_hash(length=4)}_{index}")), 1, 0)
+			for index in range(MAX_JOINT_PRODUCTION_BOM_SIDES - 1)
+		]
+		self._set_joint_production_lines(
+			doc,
+			[
+				(sheet_bom, 10, 0),
+				(end_bom, 10, 0),
+				*extra_lines,
+			],
+		)
+
+		with self.assertRaisesRegex(
+			frappe.ValidationError,
+			f"at most {MAX_JOINT_PRODUCTION_BOM_SIDES} lines",
+		):
+			get_joint_production_items(json.dumps(doc.as_dict(), default=str))
+
+	def test_get_joint_production_items_rejects_non_list_lines_payload(self) -> None:
+		shift = make_running_shift(self.masters)
+		doc = self._make_joint_entry(shift, fetch_items=False)
+		payload = doc.as_dict()
+		payload[JOINT_PRODUCTION_LINES_FIELD] = "not-a-list"
+
+		with self.assertRaisesRegex(frappe.ValidationError, "valid JSON object"):
+			get_joint_production_items(json.dumps(payload, default=str))
+
+	def test_get_joint_production_items_rejects_non_dict_line_rows(self) -> None:
+		shift = make_running_shift(self.masters)
+		doc = self._make_joint_entry(shift, fetch_items=False)
+		payload = doc.as_dict()
+		payload[JOINT_PRODUCTION_LINES_FIELD] = ["junk"]
+
+		with self.assertRaisesRegex(frappe.ValidationError, "valid JSON object"):
+			get_joint_production_items(json.dumps(payload, default=str))
+
+	def test_joint_production_stock_only_two_line_run_submits(self) -> None:
+		suffix = frappe.generate_hash(length=6)
+		finished = ensure_item(f"_Same_StockOnly_FG_{suffix}")
+		sheet = ensure_item(f"_Same_StockOnly_Sheet_{suffix}", stock_uom="Kg")
+		end_piece = ensure_item(f"_Same_StockOnly_End_{suffix}", stock_uom="Kg")
+		for item_code in (sheet, end_piece):
+			ensure_stock(
+				item_code,
+				self.masters["wip_warehouse"],
+				self.masters["company"],
+				target_qty=1000,
+			)
+		sheet_bom = self._make_bom(finished, rm_item=sheet, rm_qty=10, bom_quantity=100, scrap_items=[])
+		end_bom = self._make_bom(finished, rm_item=end_piece, rm_qty=5, bom_quantity=100, scrap_items=[])
+		doc = frappe.get_doc(
+			{
+				"doctype": "Stock Entry",
+				"purpose": "Repack",
+				"stock_entry_type": JOINT_PRODUCTION_STOCK_ENTRY_TYPE,
+				"company": self.masters["company"],
+				"branch": self.masters["branch"],
+				"from_warehouse": self.masters["wip_warehouse"],
+				"to_warehouse": self.masters["fg_warehouse"],
+				"custom_pea_operation": self.operation,
+			}
+		)
+		self._set_joint_production_lines(
+			doc,
+			[
+				(sheet_bom, 10, 0),
+				(end_bom, 10, 0),
+			],
+		)
+		doc.set(
+			"items",
+			get_joint_production_items(json.dumps(doc.as_dict(), default=str)),
+		)
+		for rm_row in (row for row in doc.items if row.s_warehouse):
+			rm_row.basic_rate = 50
+			rm_row.basic_amount = rm_row.qty * rm_row.conversion_factor * rm_row.basic_rate
+		doc.insert(ignore_permissions=True)
+		doc.submit()
+		self.assertEqual(doc.docstatus, 1)
 
 	def test_joint_production_refuses_zero_gross_quantity(self) -> None:
 		suffix = frappe.generate_hash(length=6)
@@ -3078,7 +3225,13 @@ class TestJointProductionItems(FrappeTestCase):
 			lh_rejection_qty=0,
 			**self._same_item_entry_args(finished),
 		)
-		doc.custom_pea_lh_gross_qty = 0
+		self._set_joint_production_lines(
+			doc,
+			[
+				(sheet_bom, 0, 0),
+				(end_bom, 10, 0),
+			],
+		)
 
 		with self.assertRaisesRegex(frappe.ValidationError, "Manufacture Production Entry"):
 			get_joint_production_items(json.dumps(doc.as_dict(), default=str))
@@ -3129,6 +3282,285 @@ class TestJointProductionItems(FrappeTestCase):
 		doc.insert(ignore_permissions=True)
 		self.assertEqual(doc.docstatus, 0)
 
+	def test_joint_production_three_line_multipart_die_submits_with_bom_sides(self) -> None:
+		shift = make_running_shift(self.masters)
+		suffix = frappe.generate_hash(length=6)
+		fg_items = [ensure_item(f"_Joint_3_FG_{suffix}_{label}") for label in ("A", "B", "C")]
+		rm_items = [ensure_item(f"_Joint_3_RM_{suffix}_{label}", stock_uom="Kg") for label in ("A", "B", "C")]
+		boms = [
+			self._make_bom(
+				fg_items[index], rm_item=rm_items[index], rm_qty=2 + index, bom_quantity=10, scrap_qty=0
+			)
+			for index in range(3)
+		]
+		for rm_item in rm_items:
+			ensure_stock(
+				rm_item,
+				self.masters["wip_warehouse"],
+				self.masters["company"],
+				target_qty=200,
+			)
+		strokes = 33
+		before_strokes = flt(
+			frappe.db.get_value("Die Tool Counter", self.lh_item, "current_stroke_count") or 0
+		)
+		doc = self._make_joint_entry(
+			shift,
+			fetch_items=False,
+			lh_rejection_qty=0,
+			rh_rejection_qty=0,
+			stock_entry_type=JOINT_PRODUCTION_STOCK_ENTRY_TYPE,
+			first_output_side="BOM 1",
+			second_output_side="BOM 2",
+			production_lines=[
+				(boms[0], 10, 0),
+				(boms[1], 15, 0),
+				(boms[2], 20, 0),
+			],
+		)
+		doc.custom_pea_total_strokes = strokes
+		doc.set(
+			"items",
+			get_joint_production_items(json.dumps(doc.as_dict(), default=str)),
+		)
+		for rm_row in (row for row in doc.items if row.s_warehouse):
+			rm_row.basic_rate = 50
+			rm_row.basic_amount = rm_row.qty * rm_row.conversion_factor * rm_row.basic_rate
+
+		output_sides = {
+			row.custom_pea_joint_output_side
+			for row in doc.items
+			if row.custom_pea_joint_output_side
+			and not row.custom_pea_is_rejection_item
+			and not _is_scrap_row(row)
+		}
+		self.assertEqual(output_sides, {joint_production_line_side(index) for index in range(3)})
+		good_items = {
+			row.item_code
+			for row in doc.items
+			if row.t_warehouse and not row.custom_pea_is_rejection_item and not _is_scrap_row(row)
+		}
+		self.assertEqual(good_items, set(fg_items))
+
+		doc.insert(ignore_permissions=True)
+		doc.submit()
+		after_strokes = flt(frappe.db.get_value("Die Tool Counter", self.lh_item, "current_stroke_count"))
+		self.assertEqual(after_strokes - before_strokes, strokes)
+
+	def test_joint_production_three_line_rejection_breakup_validates_each_side(self) -> None:
+		shift = make_running_shift(self.masters)
+		suffix = frappe.generate_hash(length=6)
+		fg_items = [ensure_item(f"_Joint_3_BR_FG_{suffix}_{label}") for label in ("A", "B", "C")]
+		rm_items = [
+			ensure_item(f"_Joint_3_BR_RM_{suffix}_{label}", stock_uom="Kg") for label in ("A", "B", "C")
+		]
+		boms = [
+			self._make_bom(fg_items[index], rm_item=rm_items[index], rm_qty=2, bom_quantity=10, scrap_qty=0)
+			for index in range(3)
+		]
+		for rm_item in rm_items:
+			ensure_stock(
+				rm_item,
+				self.masters["wip_warehouse"],
+				self.masters["company"],
+				target_qty=200,
+			)
+		doc = self._make_joint_entry(
+			shift,
+			fetch_items=False,
+			stock_entry_type=JOINT_PRODUCTION_STOCK_ENTRY_TYPE,
+			production_lines=[
+				(boms[0], 10, 1),
+				(boms[1], 12, 2),
+				(boms[2], 8, 1),
+			],
+		)
+		doc.set("custom_pea_rejection_breakup", [])
+		for side, fg_item, qty, is_rework in (
+			(joint_production_line_side(0), fg_items[0], 1, 1),
+			(joint_production_line_side(1), fg_items[1], 2, 0),
+			(joint_production_line_side(2), fg_items[2], 1, 1),
+		):
+			doc.append(
+				"custom_pea_rejection_breakup",
+				{
+					"rejection_reason": "Burr",
+					"qty": qty,
+					"output_side": side,
+					"item_code": fg_item,
+					"is_rework": is_rework,
+				},
+			)
+		doc.set(
+			"items",
+			get_joint_production_items(json.dumps(doc.as_dict(), default=str)),
+		)
+		for rm_row in (row for row in doc.items if row.s_warehouse):
+			rm_row.basic_rate = 50
+			rm_row.basic_amount = rm_row.qty * rm_row.conversion_factor * rm_row.basic_rate
+
+		doc.custom_pea_rejection_breakup[2].item_code = fg_items[0]
+		with self.assertRaisesRegex(frappe.ValidationError, joint_production_line_side(2)):
+			doc.insert(ignore_permissions=True)
+
+		doc.custom_pea_rejection_breakup[2].item_code = fg_items[2]
+		doc.insert(ignore_permissions=True)
+		self.assertEqual(doc.custom_pea_rework_qty, 2.0)
+
+	def test_joint_production_three_line_scrap_aggregates_with_half_up(self) -> None:
+		shift = make_running_shift(self.masters)
+		suffix = frappe.generate_hash(length=6)
+		finished = ensure_item(f"_Joint_3_Scrap_FG_{suffix}")
+		rm_items = [
+			ensure_item(f"_Joint_3_Scrap_RM_{suffix}_{label}", stock_uom="Kg") for label in ("A", "B", "C")
+		]
+		boms = [
+			self._make_bom(
+				finished,
+				rm_item=rm_items[index],
+				rm_qty=10,
+				scrap_items=[(self.scrap_nos_item, 1, 4)],
+			)
+			for index in range(3)
+		]
+		for rm_item in rm_items:
+			ensure_stock(
+				rm_item,
+				self.masters["wip_warehouse"],
+				self.masters["company"],
+				target_qty=200,
+			)
+		doc = self._make_joint_entry(
+			shift,
+			fetch_items=False,
+			lh_rejection_qty=0,
+			rh_rejection_qty=0,
+			production_lines=[(boms[0], 50, 0), (boms[1], 50, 0), (boms[2], 50, 0)],
+			**self._same_item_entry_args(finished),
+		)
+		doc.set(
+			"items",
+			get_joint_production_items(json.dumps(doc.as_dict(), default=str)),
+		)
+		scrap_row = next(row for row in doc.items if row.item_code == self.scrap_nos_item)
+		self.assertEqual(scrap_row.qty, 2)
+
+	def test_joint_production_three_line_valuation_is_per_line(self) -> None:
+		shift = make_running_shift(self.masters)
+		suffix = frappe.generate_hash(length=6)
+		finished = ensure_item(f"_Joint_3_Value_FG_{suffix}")
+		rm_items = [
+			ensure_item(f"_Joint_3_Value_RM_{suffix}_{label}", stock_uom="Kg") for label in ("A", "B", "C")
+		]
+		boms = [
+			self._make_bom(
+				finished,
+				rm_item=rm_items[index],
+				rm_qty=10,
+				bom_quantity=100,
+				scrap_qty=1,
+			)
+			for index in range(3)
+		]
+		for rm_item in rm_items:
+			ensure_stock(
+				rm_item,
+				self.masters["wip_warehouse"],
+				self.masters["company"],
+				target_qty=200,
+			)
+		gross_qtys = (40, 20, 10)
+		doc = self._make_joint_entry(
+			shift,
+			fetch_items=False,
+			lh_rejection_qty=0,
+			rh_rejection_qty=0,
+			production_lines=[
+				(boms[0], gross_qtys[0], 0),
+				(boms[1], gross_qtys[1], 0),
+				(boms[2], gross_qtys[2], 0),
+			],
+			**self._same_item_entry_args(finished),
+		)
+		doc.set(
+			"items",
+			get_joint_production_items(json.dumps(doc.as_dict(), default=str)),
+		)
+		rates = {boms[0]: 10, boms[1]: 40, boms[2]: 25}
+		for row in doc.items:
+			if not row.s_warehouse:
+				continue
+			row.basic_rate = rates[row.bom_no]
+			row.basic_amount = flt(row.qty) * row.basic_rate
+
+		validate_and_apply_joint_production(doc)
+
+		def _output_value(side: str) -> float:
+			return sum(
+				flt(row.basic_amount)
+				for row in doc.items
+				if row.custom_pea_joint_output_side == side and not _is_scrap_row(row)
+			)
+
+		for index, bom_no in enumerate(boms):
+			side = joint_production_line_side(index)
+			consumed = sum(
+				flt(row.basic_amount) for row in doc.items if row.s_warehouse and row.bom_no == bom_no
+			)
+			scrap = (gross_qtys[index] / 100) * 1 * 10
+			self.assertAlmostEqual(_output_value(side), consumed - scrap, places=5)
+
+	def test_joint_production_three_line_stale_rows_require_fetch_after_line_edit(self) -> None:
+		shift = make_running_shift(self.masters)
+		finished, sheet_bom, end_bom = self._same_item_boms()
+		third_rm = ensure_item(f"_Joint_3_Stale_RM_{frappe.generate_hash(length=6)}", stock_uom="Kg")
+		third_bom = self._make_bom(finished, rm_item=third_rm, rm_qty=4, scrap_qty=1)
+		ensure_stock(
+			third_rm,
+			self.masters["wip_warehouse"],
+			self.masters["company"],
+			target_qty=200,
+		)
+		doc = self._make_joint_entry(
+			shift,
+			fetch_items=False,
+			lh_rejection_qty=0,
+			rh_rejection_qty=0,
+			production_lines=[
+				(sheet_bom, 40, 0),
+				(end_bom, 20, 0),
+				(third_bom, 10, 0),
+			],
+			**self._same_item_entry_args(finished),
+		)
+		doc.set(
+			"items",
+			get_joint_production_items(json.dumps(doc.as_dict(), default=str)),
+		)
+		for rm_row in (row for row in doc.items if row.s_warehouse):
+			rm_row.basic_rate = 50
+			rm_row.basic_amount = rm_row.qty * rm_row.conversion_factor * rm_row.basic_rate
+		doc.custom_pea_joint_production_lines[2].gross_qty = 99
+
+		with self.assertRaisesRegex(frappe.ValidationError, "Run Fetch Items again"):
+			doc.insert(ignore_permissions=True)
+
+	def _set_joint_production_lines(
+		self,
+		doc: object,
+		lines: list[tuple[str, float, float]],
+	) -> None:
+		doc.set(JOINT_PRODUCTION_LINES_FIELD, [])
+		for bom_no, gross_qty, rejection_qty in lines:
+			doc.append(
+				JOINT_PRODUCTION_LINES_FIELD,
+				{
+					"bom_no": bom_no,
+					"gross_qty": gross_qty,
+					"rejection_qty": rejection_qty,
+				},
+			)
+
 	def _make_joint_entry(
 		self,
 		shift: object,
@@ -3145,6 +3577,7 @@ class TestJointProductionItems(FrappeTestCase):
 		first_output_side: str = "LH",
 		second_output_side: str = "RH",
 		finished_item: str | None = None,
+		production_lines: list[tuple[str, float, float]] | None = None,
 	) -> object:
 		ensure_stock(
 			self.rm_item,
@@ -3158,43 +3591,59 @@ class TestJointProductionItems(FrappeTestCase):
 		)
 		end = add_to_date(start, minutes=45)
 		selected_operation = operation or self.operation
-		doc = frappe.get_doc(
-			{
-				"doctype": "Stock Entry",
-				"purpose": "Repack",
-				"stock_entry_type": stock_entry_type or self.stock_entry_type,
-				"company": self.masters["company"],
-				"from_warehouse": self.masters["wip_warehouse"],
-				"to_warehouse": self.masters["fg_warehouse"],
-				"custom_pea_shift": shift.name,
-				"custom_pea_actual_start_date": start,
-				"custom_pea_actual_end_date": end,
-				"custom_pea_operation": selected_operation,
-				"custom_pea_lh_bom": lh_bom or self.lh_bom,
-				"custom_pea_lh_gross_qty": lh_gross_qty,
-				"custom_pea_lh_rejection_qty": lh_rejection_qty,
-				"custom_pea_rh_bom": rh_bom or self.rh_bom,
-				"custom_pea_rh_gross_qty": rh_gross_qty,
-				"custom_pea_rh_rejection_qty": rh_rejection_qty,
-				"custom_pea_total_strokes": 41,
-				"custom_pea_standard_spm": 2,
-				"custom_pea_die_tool_item": self.lh_item,
-				"custom_pea_workstation": self.workstation,
-				"custom_pea_operator": self.operator,
-				"custom_pea_rejection_breakup": (
-					[
-						{
-							"rejection_reason": "Burr",
-							"qty": lh_rejection_qty,
-							"output_side": first_output_side,
-							"item_code": finished_item or self.lh_item,
-						}
-					]
-					if lh_rejection_qty > 0
-					else []
-				),
-			}
-		)
+		resolved_stock_entry_type = stock_entry_type or self.stock_entry_type
+		is_joint_production_type = resolved_stock_entry_type == JOINT_PRODUCTION_STOCK_ENTRY_TYPE
+		entry_data: dict[str, Any] = {
+			"doctype": "Stock Entry",
+			"purpose": "Repack",
+			"stock_entry_type": resolved_stock_entry_type,
+			"company": self.masters["company"],
+			"from_warehouse": self.masters["wip_warehouse"],
+			"to_warehouse": self.masters["fg_warehouse"],
+			"custom_pea_shift": shift.name,
+			"custom_pea_actual_start_date": start,
+			"custom_pea_actual_end_date": end,
+			"custom_pea_operation": selected_operation,
+			"custom_pea_total_strokes": 41,
+			"custom_pea_standard_spm": 2,
+			"custom_pea_die_tool_item": self.lh_item,
+			"custom_pea_workstation": self.workstation,
+			"custom_pea_operator": self.operator,
+			"custom_pea_rejection_breakup": (
+				[
+					{
+						"rejection_reason": "Burr",
+						"qty": lh_rejection_qty,
+						"output_side": first_output_side,
+						"item_code": finished_item or self.lh_item,
+					}
+				]
+				if lh_rejection_qty > 0
+				else []
+			),
+		}
+		if not is_joint_production_type:
+			entry_data.update(
+				{
+					"custom_pea_lh_bom": lh_bom or self.lh_bom,
+					"custom_pea_lh_gross_qty": lh_gross_qty,
+					"custom_pea_lh_rejection_qty": lh_rejection_qty,
+					"custom_pea_rh_bom": rh_bom or self.rh_bom,
+					"custom_pea_rh_gross_qty": rh_gross_qty,
+					"custom_pea_rh_rejection_qty": rh_rejection_qty,
+				}
+			)
+		doc = frappe.get_doc(entry_data)
+		if is_joint_production_type:
+			self._set_joint_production_lines(
+				doc,
+				production_lines
+				if production_lines is not None
+				else [
+					(lh_bom or self.lh_bom, lh_gross_qty, lh_rejection_qty),
+					(rh_bom or self.rh_bom, rh_gross_qty, rh_rejection_qty),
+				],
+			)
 		if rh_rejection_qty > 0:
 			doc.append(
 				"custom_pea_rejection_breakup",
@@ -3273,7 +3722,8 @@ class TestJointProductionItems(FrappeTestCase):
 		scrap_items: list[tuple[str, float, float]] | None = None,
 		operation: str | None = None,
 	) -> str:
-		scrap_items = scrap_items or [(self.scrap_item, flt(scrap_qty), 10)]
+		if scrap_items is None:
+			scrap_items = [(self.scrap_item, flt(scrap_qty or 0), 10)]
 		return ensure_joint_test_bom(
 			item_code=item_code,
 			rm_item=rm_item or self.rm_item,

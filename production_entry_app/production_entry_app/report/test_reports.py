@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 import json
 import time
 from contextlib import ExitStack
@@ -1179,7 +1180,36 @@ class TestProductionReports(FrappeTestCase):
 		self.assertAlmostEqual(float(row["total_loss_time"]), 20 / 60, places=4)
 		self.assertAlmostEqual(float(row["running_time"]), 7.5 - (20 / 60), places=4)
 
-	def test_production_oee_report_overlapping_downtime_entries_count_once(self) -> None:
+	def test_sum_machine_downtime_hours_merges_overlapping_downtime_windows_once(self) -> None:
+		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
+			_sum_machine_downtime_hours,
+		)
+
+		shift_name = "SHIFT-OEE-MERGE"
+		day = "2026-07-04"
+		window_start = datetime.datetime(2026, 7, 4, 8, 0, 0)
+		window_end = datetime.datetime(2026, 7, 4, 16, 0, 0)
+		windows = {shift_name: (window_start, window_end)}
+		shift_dates = {shift_name: day}
+		group = {"workstation": "Report Workstation", "day": day}
+		downtime_rows = [
+			{
+				"workstation": "Report Workstation",
+				"from_time": "2026-07-04 12:00:00",
+				"to_time": "2026-07-04 13:00:00",
+				"custom_pea_shift": shift_name,
+			},
+			{
+				"workstation": "Report Workstation",
+				"from_time": "2026-07-04 12:30:00",
+				"to_time": "2026-07-04 13:30:00",
+				"custom_pea_shift": shift_name,
+			},
+		]
+		hours = _sum_machine_downtime_hours(group, windows, shift_dates, downtime_rows, [], {})
+		self.assertEqual(hours, 1.5)
+
+	def test_production_oee_report_sums_non_overlapping_downtime_entries(self) -> None:
 		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
 			execute,
 		)
@@ -1204,16 +1234,16 @@ class TestProductionReports(FrappeTestCase):
 		)
 		self._create_downtime_entry(
 			workstation="Report Workstation",
-			from_time="2026-07-04 12:30:00",
-			to_time="2026-07-04 13:30:00",
+			from_time="2026-07-04 13:00:00",
+			to_time="2026-07-04 14:00:00",
 			shift_name=shift.name,
 			downtime_reason="05",
 		)
 
 		_, rows = execute({"from_date": "2026-07-04", "to_date": "2026-07-04"})
 		self.assertEqual(len(rows), 1)
-		self.assertEqual(float(rows[0]["machine_downtime"]), 1.5)
-		self.assertEqual(float(rows[0]["running_time"]), 6.5)
+		self.assertEqual(float(rows[0]["machine_downtime"]), 2.0)
+		self.assertEqual(float(rows[0]["running_time"]), 6.0)
 
 	def test_production_oee_report_clips_downtime_to_the_completed_shift(self) -> None:
 		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (

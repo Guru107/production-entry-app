@@ -1,0 +1,63 @@
+{
+ "actions": [],
+ "creation": "2026-10-18 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "bom_no",
+  "gross_qty",
+  "rejection_qty"
+ ],
+ "fields": [
+  {
+   "fieldname": "bom_no",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "BOM",
+   "options": "BOM",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "gross_qty",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Gross Quantity",
+   "non_negative": 1,
+   "reqd": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "rejection_qty",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Rejection Quantity",
+   "non_negative": 1
+  }
+ ],
+ "istable": 1,
+ "modified": "2026-10-18 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Production Entry App",
+ "name": "Joint Production Line",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "read": 1,
+   "role": "System Manager",
+   "write": 1
+  },
+  {
+   "create": 1,
+   "read": 1,
+   "select": 1,
+   "write": 1,
+   "role": "PEA User"
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

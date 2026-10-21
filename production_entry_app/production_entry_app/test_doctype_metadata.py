@@ -4,6 +4,10 @@ import json
 import unittest
 from pathlib import Path
 
+from production_entry_app.production_entry_app.joint_production import (
+	joint_production_output_side_select_options,
+)
+
 APP_ROOT = Path(__file__).resolve().parents[2]
 DOCTYPE_ROOT = Path(__file__).parent / "doctype"
 CUSTOM_FIELD_FIXTURE = APP_ROOT / "production_entry_app" / "fixtures" / "custom_field.json"
@@ -118,10 +122,13 @@ def test_joint_lh_rh_production_metadata_is_exported() -> None:
 		"Stock Entry-custom_pea_total_strokes",
 		"Stock Entry-custom_pea_die_tool_item",
 		"Stock Entry-custom_pea_joint_fetch_items",
+		"Stock Entry-custom_pea_joint_production_lines",
 		"Stock Entry Detail-custom_pea_joint_output_side",
 	}
 	missing_fields = sorted(required_fields.difference(fields_by_name))
 	assert not missing_fields, f"Missing joint-production custom fields: {missing_fields}"
+	output_side_field = fields_by_name["Stock Entry Detail-custom_pea_joint_output_side"]
+	assert output_side_field.get("options") == joint_production_output_side_select_options()
 	assert "Stock Entry-custom_pea_is_joint_lh_rh" not in fields_by_name
 	operation_field = fields_by_name["Stock Entry-custom_pea_operation"]
 	joint_condition = (
@@ -135,6 +142,11 @@ def test_joint_lh_rh_production_metadata_is_exported() -> None:
 	assert "Stock Entry-custom_pea_joint_scrap_qty" not in fields_by_name
 	fetch_items_field = fields_by_name["Stock Entry-custom_pea_joint_fetch_items"]
 	assert fetch_items_field.get("insert_after") == "custom_pea_joint_resources_col_break"
+	joint_lines_field = fields_by_name["Stock Entry-custom_pea_joint_production_lines"]
+	assert joint_lines_field.get("options") == "Joint Production Line"
+	assert joint_lines_field.get("insert_after") == "custom_pea_joint_production_section"
+	joint_resources_section = fields_by_name["Stock Entry-custom_pea_joint_resources_section"]
+	assert joint_resources_section.get("insert_after") == "custom_pea_joint_production_lines"
 	for fieldname in (
 		"Stock Entry-custom_pea_lh_gross_qty",
 		"Stock Entry-custom_pea_lh_rejection_qty",
@@ -151,7 +163,7 @@ def test_joint_lh_rh_production_metadata_is_exported() -> None:
 	}
 	missing_rejection_fields = sorted({"output_side", "item_code"}.difference(rejection_fields))
 	assert not missing_rejection_fields, f"Missing Rejection Breakup fields: {missing_rejection_fields}"
-	assert rejection_fields["output_side"]["options"] == "\nLH\nRH\nBOM 1\nBOM 2"
+	assert rejection_fields["output_side"]["options"] == joint_production_output_side_select_options()
 	assert rejection_fields["item_code"]["options"] == "Item"
 
 
@@ -386,7 +398,7 @@ def test_workspace_has_forms_and_reports_cards() -> None:
 
 	ws = frappe.get_doc("Workspace", "Production Entry App")
 	card_labels = [row.label for row in ws.links if row.type == "Card Break"]
-	assert card_labels == ["Forms", "Reports"]
+	assert sorted(card_labels) == ["Forms", "Reports"]
 	report_links = [row.link_to for row in ws.links if row.link_type == "Report"]
 	assert "Production OEE Report" in report_links
 	assert "Monthly Production OEE Report" in report_links

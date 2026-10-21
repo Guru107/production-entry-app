@@ -34,6 +34,9 @@ from production_entry_app.production_entry_app.utils.system_precision import (
 WHOLE_NUMBER_QUANTUM: Decimal = Decimal("1")
 JOINT_LH_RH_STOCK_ENTRY_TYPE: str = "Joint LH RH Production"
 JOINT_PRODUCTION_STOCK_ENTRY_TYPE: str = "Joint Production"
+JOINT_PRODUCTION_LINES_FIELD: str = "custom_pea_joint_production_lines"
+MIN_JOINT_PRODUCTION_LINES: int = 2
+MAX_JOINT_PRODUCTION_BOM_SIDES: int = 10
 SHEARING_OPERATION: str = "Shearing"
 JOINT_BOM_OPERATING_COST_DESCRIPTION: str = "Operating Cost as per BOM"
 
@@ -87,34 +90,62 @@ class JointBomDetails:
 
 
 @dataclass(frozen=True)
+class JointProductionLine:
+	bom: JointBomDetails
+	gross_qty: float
+	rejection_qty: float
+	side: str
+
+	@property
+	def good_qty(self) -> float:
+		return self.gross_qty - self.rejection_qty
+
+	@property
+	def good_role(self) -> str:
+		return f"good:{self.side}"
+
+	@property
+	def rejection_role(self) -> str:
+		return f"rejection:{self.side}"
+
+
+@dataclass(frozen=True)
 class JointProductionPlan:
-	lh_bom: JointBomDetails
-	rh_bom: JointBomDetails
-	lh_gross_qty: float
-	lh_rejection_qty: float
-	rh_gross_qty: float
-	rh_rejection_qty: float
+	lines: tuple[JointProductionLine, ...]
 	total_rm_consumption: float
 	scrap_items: tuple[JointScrapItem, ...]
 	is_shearing: bool
 	same_finished_item: bool = False
 
 	@property
+	def first_line(self) -> JointProductionLine:
+		return self.lines[0]
+
+	@property
+	def second_line(self) -> JointProductionLine:
+		return self.lines[1]
+
+	@property
 	def first_side(self) -> str:
-		return "BOM 1" if self.same_finished_item else "LH"
+		return self.lines[0].side
 
 	@property
 	def second_side(self) -> str:
-		return "BOM 2" if self.same_finished_item else "RH"
+		return self.lines[1].side
+
+	@property
+	def output_sides(self) -> tuple[str, ...]:
+		return tuple(line.side for line in self.lines)
+
+	def line_for_side(self, side: str | None) -> JointProductionLine | None:
+		return next((line for line in self.lines if line.side == side), None)
 
 	@property
 	def expected_role_quantities(self) -> dict[str, float]:
-		quantities = {
-			"lh_good": self.lh_gross_qty - self.lh_rejection_qty,
-			"lh_rejection": self.lh_rejection_qty,
-			"rh_good": self.rh_gross_qty - self.rh_rejection_qty,
-			"rh_rejection": self.rh_rejection_qty,
-		}
+		quantities: dict[str, float] = {}
+		for line in self.lines:
+			quantities[line.good_role] = line.good_qty
+			quantities[line.rejection_role] = line.rejection_qty
 		if self.is_shearing:
 			quantities["rm"] = self.total_rm_consumption
 		else:
@@ -124,12 +155,9 @@ class JointProductionPlan:
 
 	def _expected_post_shearing_source_quantities(self) -> dict[str, float]:
 		quantities: dict[str, float] = {}
-		for bom, gross_qty in (
-			(self.lh_bom, self.lh_gross_qty),
-			(self.rh_bom, self.rh_gross_qty),
-		):
-			for item_code, qty in _merged_post_shearing_input_quantities(bom, gross_qty).items():
-				quantities[_post_shearing_source_role(bom.name, item_code)] = qty
+		for line in self.lines:
+			for item_code, qty in _merged_post_shearing_input_quantities(line.bom, line.gross_qty).items():
+				quantities[_post_shearing_source_role(line.bom.name, item_code)] = qty
 		return quantities
 
 
@@ -212,28 +240,27 @@ def materialize_joint_production_rows(doc: Document) -> list[dict[str, Any]]:
 	plan = _build_joint_production_plan(doc)
 	_validate_joint_operating_cost_account(doc, plan)
 	source_item_codes = (
-		[plan.lh_bom.rm_item_code]
+		[plan.first_line.bom.rm_item_code]
 		if plan.is_shearing
-		else [item.item_code for bom in (plan.lh_bom, plan.rh_bom) for item in bom.input_items]
+		else [item.item_code for line in plan.lines for item in line.bom.input_items]
 	)
 	item_details = _get_item_details(
 		[
 			*source_item_codes,
-			plan.lh_bom.item_code,
-			plan.rh_bom.item_code,
+			*(line.bom.item_code for line in plan.lines),
 			*(scrap.item_code for scrap in plan.scrap_items),
 		]
 	)
 	rejection_warehouse = (
 		require_warehouse(warehouses, "rejection_warehouse")
-		if plan.lh_rejection_qty > 0 or plan.rh_rejection_qty > 0
+		if any(line.rejection_qty > 0 for line in plan.lines)
 		else ""
 	)
 
 	if plan.is_shearing:
 		rows = [
 			_item_row(
-				item_code=plan.lh_bom.rm_item_code,
+				item_code=plan.first_line.bom.rm_item_code,
 				qty=plan.total_rm_consumption,
 				s_warehouse=doc.get("from_warehouse"),
 				item_details=item_details,
@@ -241,41 +268,27 @@ def materialize_joint_production_rows(doc: Document) -> list[dict[str, Any]]:
 		]
 	else:
 		rows = [
-			*_build_post_shearing_source_rows(
-				bom=plan.lh_bom,
-				gross_qty=plan.lh_gross_qty,
+			row
+			for line in plan.lines
+			for row in _build_post_shearing_source_rows(
+				bom=line.bom,
+				gross_qty=line.gross_qty,
 				s_warehouse=doc.get("from_warehouse"),
 				item_details=item_details,
-			),
-			*_build_post_shearing_source_rows(
-				bom=plan.rh_bom,
-				gross_qty=plan.rh_gross_qty,
-				s_warehouse=doc.get("from_warehouse"),
-				item_details=item_details,
-			),
+			)
 		]
-	rows.extend(
-		_build_side_rows(
-			side=plan.first_side,
-			bom=plan.lh_bom,
-			gross_qty=plan.lh_gross_qty,
-			rejection_qty=plan.lh_rejection_qty,
-			fg_warehouse=doc.get("to_warehouse"),
-			rejection_warehouse=rejection_warehouse,
-			item_details=item_details,
+	for line in plan.lines:
+		rows.extend(
+			_build_side_rows(
+				side=line.side,
+				bom=line.bom,
+				gross_qty=line.gross_qty,
+				rejection_qty=line.rejection_qty,
+				fg_warehouse=doc.get("to_warehouse"),
+				rejection_warehouse=rejection_warehouse,
+				item_details=item_details,
+			)
 		)
-	)
-	rows.extend(
-		_build_side_rows(
-			side=plan.second_side,
-			bom=plan.rh_bom,
-			gross_qty=plan.rh_gross_qty,
-			rejection_qty=plan.rh_rejection_qty,
-			fg_warehouse=doc.get("to_warehouse"),
-			rejection_warehouse=rejection_warehouse,
-			item_details=item_details,
-		)
-	)
 	for scrap in plan.scrap_items:
 		scrap_row = _item_row(
 			item_code=scrap.item_code,
@@ -305,9 +318,27 @@ def _set_scrap_row_classification(row: dict[str, Any]) -> None:
 		row["type"] = "Scrap"
 
 
+def joint_production_line_side(index: int) -> str:
+	return f"BOM {index + 1}"
+
+
+def joint_production_output_side_select_options() -> str:
+	"""Select options for joint output_side fields (LH/RH plus BOM 1…BOM N)."""
+	return "\n".join(
+		[
+			"",
+			"LH",
+			"RH",
+			*[joint_production_line_side(index) for index in range(MAX_JOINT_PRODUCTION_BOM_SIDES)],
+		]
+	)
+
+
 def _build_joint_production_plan(doc: Document) -> JointProductionPlan:
-	same_finished_item = is_joint_production(doc)
-	first_side, second_side = ("BOM 1", "BOM 2") if same_finished_item else ("LH", "RH")
+	if is_joint_production(doc):
+		return _build_joint_production_plan_from_lines(doc)
+	same_finished_item = False
+	first_side, second_side = ("LH", "RH")
 	_validate_joint_header(
 		doc,
 		first_side=first_side,
@@ -316,57 +347,36 @@ def _build_joint_production_plan(doc: Document) -> JointProductionPlan:
 	)
 	operation = _get_joint_operation(doc, same_finished_item=same_finished_item)
 	is_shearing = False if same_finished_item else is_shearing_joint_operation(operation)
-	lh_bom = _get_joint_bom_details(doc.get("custom_pea_lh_bom"))
-	rh_bom = _get_joint_bom_details(doc.get("custom_pea_rh_bom"))
-	_validate_joint_bom_operations(lh_bom, rh_bom, operation, first_side, second_side)
-	if is_shearing:
-		_validate_shearing_bom_inputs(lh_bom)
-		_validate_shearing_bom_inputs(rh_bom)
-	else:
-		_validate_post_shearing_bom_inputs(lh_bom)
-		_validate_post_shearing_bom_inputs(rh_bom)
-	if same_finished_item:
-		_validate_same_finished_item_pair(lh_bom, rh_bom)
-	else:
-		_validate_joint_bom_pair(lh_bom, rh_bom, require_common_rm=is_shearing)
-	_validate_joint_bom_company(lh_bom, rh_bom, doc.get("company"), first_side, second_side)
-
-	lh_gross_qty = flt(doc.get("custom_pea_lh_gross_qty"))
-	lh_rejection_qty = flt(doc.get("custom_pea_lh_rejection_qty"))
-	rh_gross_qty = flt(doc.get("custom_pea_rh_gross_qty"))
-	rh_rejection_qty = flt(doc.get("custom_pea_rh_rejection_qty"))
-	_validate_side_quantities(first_side, lh_gross_qty, lh_rejection_qty, same_finished_item)
-	_validate_side_quantities(second_side, rh_gross_qty, rh_rejection_qty, same_finished_item)
-
-	if is_shearing:
-		total_rm_consumption = calculate_joint_rm_consumption(
-			lh_gross_qty=lh_gross_qty,
-			lh_bom_quantity=lh_bom.quantity,
-			lh_rm_qty=lh_bom.rm_qty,
-			rh_gross_qty=rh_gross_qty,
-			rh_bom_quantity=rh_bom.quantity,
-			rh_rm_qty=rh_bom.rm_qty,
-		)
-	else:
-		total_rm_consumption = _calculate_post_shearing_source_consumption(
-			lh_bom=lh_bom,
-			lh_gross_qty=lh_gross_qty,
-			rh_bom=rh_bom,
-			rh_gross_qty=rh_gross_qty,
-		)
-	scrap_items = _build_planned_scrap_items(
-		lh_bom=lh_bom,
-		lh_gross_qty=lh_gross_qty,
-		rh_bom=rh_bom,
-		rh_gross_qty=rh_gross_qty,
+	lines = (
+		JointProductionLine(
+			bom=_get_joint_bom_details(doc.get("custom_pea_lh_bom")),
+			gross_qty=flt(doc.get("custom_pea_lh_gross_qty")),
+			rejection_qty=flt(doc.get("custom_pea_lh_rejection_qty")),
+			side=first_side,
+		),
+		JointProductionLine(
+			bom=_get_joint_bom_details(doc.get("custom_pea_rh_bom")),
+			gross_qty=flt(doc.get("custom_pea_rh_gross_qty")),
+			rejection_qty=flt(doc.get("custom_pea_rh_rejection_qty")),
+			side=second_side,
+		),
 	)
+	_validate_joint_bom_operations(lines, operation)
+	input_validator = _validate_shearing_bom_inputs if is_shearing else _validate_post_shearing_bom_inputs
+	for line in lines:
+		input_validator(line.bom)
+	_validate_joint_bom_pair(lines[0].bom, lines[1].bom, require_common_rm=is_shearing)
+	_validate_joint_bom_company(lines, doc.get("company"))
+	for line in lines:
+		_validate_side_quantities(line.side, line.gross_qty, line.rejection_qty, same_finished_item)
+
+	if is_shearing:
+		total_rm_consumption = _calculate_shearing_rm_consumption(lines)
+	else:
+		total_rm_consumption = _calculate_post_shearing_source_consumption(lines)
+	scrap_items = _build_planned_scrap_items(lines)
 	return JointProductionPlan(
-		lh_bom=lh_bom,
-		rh_bom=rh_bom,
-		lh_gross_qty=lh_gross_qty,
-		lh_rejection_qty=lh_rejection_qty,
-		rh_gross_qty=rh_gross_qty,
-		rh_rejection_qty=rh_rejection_qty,
+		lines=lines,
 		total_rm_consumption=total_rm_consumption,
 		scrap_items=scrap_items,
 		is_shearing=is_shearing,
@@ -374,19 +384,111 @@ def _build_joint_production_plan(doc: Document) -> JointProductionPlan:
 	)
 
 
+def _build_joint_production_plan_from_lines(doc: Document) -> JointProductionPlan:
+	_validate_joint_production_lines_header(doc)
+	table_rows = list(doc.get(JOINT_PRODUCTION_LINES_FIELD) or [])
+	if len(table_rows) < MIN_JOINT_PRODUCTION_LINES:
+		frappe.throw(
+			_(
+				"Add at least two Joint Production Lines. "
+				"If only one recipe is produced, create a Manufacture Production Entry instead of Joint Production."
+			)
+		)
+	if len(table_rows) > MAX_JOINT_PRODUCTION_BOM_SIDES:
+		frappe.throw(_("Joint Production supports at most {0} lines.").format(MAX_JOINT_PRODUCTION_BOM_SIDES))
+	operation = _get_joint_operation(doc, same_finished_item=True)
+	lines = tuple(
+		JointProductionLine(
+			bom=_get_joint_bom_details(cstr(row.get("bom_no"))),
+			gross_qty=flt(row.get("gross_qty")),
+			rejection_qty=flt(row.get("rejection_qty")),
+			side=joint_production_line_side(index),
+		)
+		for index, row in enumerate(table_rows)
+	)
+	_validate_joint_bom_operations(lines, operation)
+	for line in lines:
+		_validate_post_shearing_bom_inputs(line.bom)
+	_validate_joint_production_duplicate_recipes(lines)
+	_validate_joint_bom_company(lines, doc.get("company"))
+	for line in lines:
+		_validate_side_quantities(line.side, line.gross_qty, line.rejection_qty, same_finished_item=True)
+	total_rm_consumption = _calculate_post_shearing_source_consumption(lines)
+	scrap_items = _build_planned_scrap_items(lines)
+	return JointProductionPlan(
+		lines=lines,
+		total_rm_consumption=total_rm_consumption,
+		scrap_items=scrap_items,
+		is_shearing=False,
+		same_finished_item=True,
+	)
+
+
+def _validate_joint_production_lines_header(doc: Document) -> None:
+	pairing = _("Joint Production")
+	if doc.get("purpose") != "Repack":
+		frappe.throw(_("{0} must use Repack purpose.").format(pairing))
+	if not doc.get("custom_pea_operation"):
+		frappe.throw(_("Operation is required for {0}.").format(pairing))
+	if doc.get("custom_pea_shift"):
+		_validate_production_bom_die_tool_consistency(doc)
+	if doc.get("custom_pea_shift") and not doc.get("custom_pea_die_tool_item"):
+		frappe.throw(_("Die Tool Item is required for {0}.").format(pairing))
+	if flt(doc.get("custom_pea_total_strokes")) < 0:
+		frappe.throw(_("Total Press Strokes cannot be negative."))
+
+
+def _validate_production_bom_die_tool_consistency(doc: Document) -> None:
+	from production_entry_app.production_entry_app.utils.die_tool_item import (
+		validate_production_bom_die_tool_consistency,
+	)
+
+	validate_production_bom_die_tool_consistency(doc)
+
+
+def _joint_production_recipe_signature(bom: JointBomDetails) -> tuple[str, frozenset[str]]:
+	return bom.item_code, frozenset(item.item_code for item in bom.input_items)
+
+
+def _validate_joint_production_duplicate_recipes(lines: tuple[JointProductionLine, ...]) -> None:
+	bom_names = [line.bom.name for line in lines]
+	if len(bom_names) != len(set(bom_names)):
+		frappe.throw(_("Each Joint Production Line must use a different BOM."))
+	seen: dict[tuple[str, frozenset[str]], str] = {}
+	for line in lines:
+		signature = _joint_production_recipe_signature(line.bom)
+		previous_side = seen.get(signature)
+		if previous_side:
+			frappe.throw(
+				_(
+					"Lines {0} and {1} repeat the same finished item and input items. "
+					"Merge them into one Joint Production Line."
+				).format(previous_side, line.side)
+			)
+		seen[signature] = line.side
+
+
+def _calculate_shearing_rm_consumption(lines: tuple[JointProductionLine, ...]) -> float:
+	first, second = lines[0], lines[1]
+	return calculate_joint_rm_consumption(
+		lh_gross_qty=first.gross_qty,
+		lh_bom_quantity=first.bom.quantity,
+		lh_rm_qty=first.bom.rm_qty,
+		rh_gross_qty=second.gross_qty,
+		rh_bom_quantity=second.bom.quantity,
+		rh_rm_qty=second.bom.rm_qty,
+	)
+
+
 def _build_planned_scrap_items(
-	*,
-	lh_bom: JointBomDetails,
-	lh_gross_qty: float,
-	rh_bom: JointBomDetails,
-	rh_gross_qty: float,
+	lines: tuple[JointProductionLine, ...],
 ) -> tuple[JointScrapItem, ...]:
 	quantities: defaultdict[str, float] = defaultdict(float)
 	values: defaultdict[str, float] = defaultdict(float)
 	uoms: dict[str, str] = {}
-	for bom, gross_qty in ((lh_bom, lh_gross_qty), (rh_bom, rh_gross_qty)):
-		production_factor = flt(gross_qty) / bom.quantity
-		for scrap in bom.scrap_items:
+	for line in lines:
+		production_factor = flt(line.gross_qty) / line.bom.quantity
+		for scrap in line.bom.scrap_items:
 			generated_qty = production_factor * scrap.qty
 			if generated_qty <= 0:
 				continue
@@ -454,9 +556,7 @@ def _joint_scaled_operating_cost(bom: JointBomDetails, gross_qty: float) -> floa
 
 
 def _joint_bom_operating_cost_amount(plan: JointProductionPlan) -> float:
-	return _joint_scaled_operating_cost(plan.lh_bom, plan.lh_gross_qty) + _joint_scaled_operating_cost(
-		plan.rh_bom, plan.rh_gross_qty
-	)
+	return sum(_joint_scaled_operating_cost(line.bom, line.gross_qty) for line in plan.lines)
 
 
 def _validate_joint_operating_cost_account(doc: Document, plan: JointProductionPlan) -> str | None:
@@ -509,27 +609,26 @@ def _validate_joint_item_rows(doc: Document, plan: JointProductionPlan) -> None:
 		if exceeds_one_unit(actual_qty, expected_qty, precision):
 			_throw_stale_joint_rows(
 				_("{0} is {1}; expected {2}.").format(
-					_get_joint_role_label(role, plan),
+					_get_joint_role_label(role),
 					flt(actual_qty, precision),
 					flt(expected_qty, precision),
 				)
 			)
 
 
-def _get_joint_role_label(role: str, plan: JointProductionPlan) -> str:
-	labels = {
-		"rm": _("Source RM quantity"),
-		"lh_good": _("{0} Good quantity").format(plan.first_side),
-		"lh_rejection": _("{0} Rejection quantity").format(plan.first_side),
-		"rh_good": _("{0} Good quantity").format(plan.second_side),
-		"rh_rejection": _("{0} Rejection quantity").format(plan.second_side),
-	}
+def _get_joint_role_label(role: str) -> str:
+	if role == "rm":
+		return _("Source RM quantity")
+	if role.startswith("good:"):
+		return _("{0} Good quantity").format(role.removeprefix("good:"))
+	if role.startswith("rejection:"):
+		return _("{0} Rejection quantity").format(role.removeprefix("rejection:"))
 	if role.startswith("scrap:"):
 		return _("Scrap quantity for {0}").format(role.removeprefix("scrap:"))
 	if role.startswith("source:"):
 		_prefix, bom_no, item_code = role.split(":", 2)
 		return _("Source quantity for {0} from BOM {1}").format(item_code, bom_no)
-	return labels[role]
+	raise KeyError(role)
 
 
 def _get_joint_row_role(row: BaseDocument, plan: JointProductionPlan) -> str:
@@ -547,7 +646,7 @@ def _get_joint_row_role(row: BaseDocument, plan: JointProductionPlan) -> str:
 		if side or is_rejection or is_scrap:
 			_throw_stale_joint_rows(_("The source row must be source-only BOM input."))
 		if plan.is_shearing:
-			if item_code != plan.lh_bom.rm_item_code:
+			if item_code != plan.first_line.bom.rm_item_code:
 				_throw_stale_joint_rows(_("The source row must be the common BOM raw material."))
 			return "rm"
 		role = _post_shearing_source_role(cstr(row.get("bom_no")), cstr(item_code))
@@ -561,33 +660,23 @@ def _get_joint_row_role(row: BaseDocument, plan: JointProductionPlan) -> str:
 			_throw_stale_joint_rows(_("The scrap row does not match the selected BOMs."))
 		return scrap.role
 
-	slot = _canonical_output_slot(side, plan)
-	if slot is None:
+	line = plan.line_for_side(side)
+	if line is None:
+		expected_sides = _format_joint_output_sides(plan.output_sides)
 		_throw_stale_joint_rows(
-			_("Every output row must specify {0} or {1} Output Side.").format(
-				plan.first_side, plan.second_side
-			)
+			_("Every output row must specify one of these Output Sides: {0}.").format(expected_sides)
 		)
-	bom = plan.lh_bom if slot == "lh" else plan.rh_bom
-	if item_code != bom.item_code:
+	if item_code != line.bom.item_code:
 		_throw_stale_joint_rows(_("The {0} output item does not match its BOM.").format(side))
 
 	if is_rejection:
 		if row.get("bom_no"):
 			_throw_stale_joint_rows(_("The {0} rejection row cannot carry a BOM.").format(side))
-		return f"{slot}_rejection"
+		return line.rejection_role
 
-	if row.get("bom_no") != bom.name:
-		_throw_stale_joint_rows(_("The {0} good-output row must use BOM {1}.").format(side, bom.name))
-	return f"{slot}_good"
-
-
-def _canonical_output_slot(side: str | None, plan: JointProductionPlan) -> str | None:
-	if side == plan.first_side:
-		return "lh"
-	if side == plan.second_side:
-		return "rh"
-	return None
+	if row.get("bom_no") != line.bom.name:
+		_throw_stale_joint_rows(_("The {0} good-output row must use BOM {1}.").format(side, line.bom.name))
+	return line.good_role
 
 
 def _get_row_stock_qty(row: BaseDocument) -> float:
@@ -641,49 +730,47 @@ def _set_shearing_output_valuation(rows: list[Any], plan: JointProductionPlan) -
 	scrap_value = sum(
 		_get_row_stock_qty(row) * flt(row.get("basic_rate")) for row in rows if is_scrap_row(row)
 	)
+	first, second = plan.first_line, plan.second_line
 	allocation = allocate_joint_output_value(
 		net_production_value=_net_production_value_after_scrap(outgoing_value - scrap_value),
-		lh_gross_qty=plan.lh_gross_qty,
-		lh_bom_unit_cost=plan.lh_bom.unit_cost,
-		rh_gross_qty=plan.rh_gross_qty,
-		rh_bom_unit_cost=plan.rh_bom.unit_cost,
+		lh_gross_qty=first.gross_qty,
+		lh_bom_unit_cost=first.bom.unit_cost,
+		rh_gross_qty=second.gross_qty,
+		rh_bom_unit_cost=second.bom.unit_cost,
 	)
-	for side in ("LH", "RH"):
+	for side in (first.side, second.side):
 		_apply_side_output_rate(rows, side, allocation[side])
 
 
 def _set_post_shearing_output_valuation(rows: list[Any], plan: JointProductionPlan) -> None:
-	"""Value each side like Manufacture: (side consumed amount - side scrap) / side qty."""
+	"""Value each line like Manufacture: (line consumed amount - line scrap) / line qty."""
 	side_scrap_values = _post_shearing_side_scrap_values(plan)
-	for slot, side, bom in (
-		("LH", plan.first_side, plan.lh_bom),
-		("RH", plan.second_side, plan.rh_bom),
-	):
+	for line in plan.lines:
 		outgoing_value = sum(
 			flt(row.get("basic_amount"))
 			for row in rows
-			if row.get("s_warehouse") and not row.get("t_warehouse") and row.get("bom_no") == bom.name
+			if row.get("s_warehouse") and not row.get("t_warehouse") and row.get("bom_no") == line.bom.name
 		)
 		_apply_side_output_rate(
 			rows,
-			side,
-			_net_production_value_after_scrap(outgoing_value - side_scrap_values[slot]),
+			line.side,
+			_net_production_value_after_scrap(outgoing_value - side_scrap_values[line.side]),
 		)
 
 
 def _post_shearing_side_scrap_values(plan: JointProductionPlan) -> dict[str, float]:
-	side_values = {"LH": 0.0, "RH": 0.0}
+	side_values = {line.side: 0.0 for line in plan.lines}
 	for scrap in plan.scrap_items:
 		posted_value = flt(scrap.qty) * flt(scrap.rate)
 		contributions = {
-			"LH": _side_scrap_contribution(plan.lh_bom, plan.lh_gross_qty, scrap.item_code),
-			"RH": _side_scrap_contribution(plan.rh_bom, plan.rh_gross_qty, scrap.item_code),
+			line.side: _side_scrap_contribution(line.bom, line.gross_qty, scrap.item_code)
+			for line in plan.lines
 		}
-		total = contributions["LH"] + contributions["RH"]
+		total = sum(contributions.values())
 		if total <= 0:
 			continue
-		side_values["LH"] += posted_value * contributions["LH"] / total
-		side_values["RH"] += posted_value * contributions["RH"] / total
+		for side, contribution in contributions.items():
+			side_values[side] += posted_value * contribution / total
 	return side_values
 
 
@@ -722,25 +809,25 @@ def is_scrap_row(row: BaseDocument) -> bool:
 	)
 
 
+def _format_joint_output_sides(sides: tuple[str, ...]) -> str:
+	return ", ".join(sides)
+
+
 def _validate_joint_rejection_breakup(doc: Document, plan: JointProductionPlan) -> None:
 	precision = get_system_float_precision()
-	sides = (plan.first_side, plan.second_side)
-	expected = {
-		plan.first_side: flt(plan.lh_rejection_qty, precision),
-		plan.second_side: flt(plan.rh_rejection_qty, precision),
-	}
-	actual = {plan.first_side: 0.0, plan.second_side: 0.0}
-	items = {
-		plan.first_side: plan.lh_bom.item_code,
-		plan.second_side: plan.rh_bom.item_code,
-	}
+	sides = plan.output_sides
+	expected = {line.side: flt(line.rejection_qty, precision) for line in plan.lines}
+	actual = {line.side: 0.0 for line in plan.lines}
+	items = {line.side: line.bom.item_code for line in plan.lines}
 	rework_qty = 0.0
 	for row in doc.get("custom_pea_rejection_breakup") or []:
 		row_qty = validate_rejection_breakup_row(row)
 		side = row.get("output_side")
 		if side not in actual:
 			frappe.throw(
-				_("Every joint rejection breakup row must specify {0} or {1} Output Side.").format(*sides)
+				_("Every joint rejection breakup row must specify one of these Output Sides: {0}.").format(
+					_format_joint_output_sides(sides)
+				)
 			)
 		if not row.get("item_code"):
 			row.set("item_code", items[side])
@@ -772,6 +859,8 @@ def _validate_joint_header(
 	):
 		if not doc.get(fieldname):
 			frappe.throw(_("{0} is required for {1}.").format(label, pairing))
+	if doc.get("custom_pea_shift"):
+		_validate_production_bom_die_tool_consistency(doc)
 	if doc.get("custom_pea_shift") and not doc.get("custom_pea_die_tool_item"):
 		frappe.throw(_("Die Tool Item is required for {0}.").format(pairing))
 	# Warehouses are required by Fetch Items, not by recipe validation: native Repack
@@ -839,27 +928,31 @@ def _get_joint_bom_details(bom_no: str) -> JointBomDetails:
 
 
 def _validate_joint_bom_operations(
-	lh_bom: JointBomDetails,
-	rh_bom: JointBomDetails,
+	lines: tuple[JointProductionLine, ...],
 	operation: str,
-	first_side: str,
-	second_side: str,
 ) -> None:
 	mismatches = [
-		_("{0} BOM {1}").format(side, frappe.bold(frappe.utils.escape_html(bom.name)))
-		for side, bom in ((first_side, lh_bom), (second_side, rh_bom))
-		if bom.operation != operation
+		_("{0} BOM {1}").format(line.side, frappe.bold(frappe.utils.escape_html(line.bom.name)))
+		for line in lines
+		if line.bom.operation != operation
 	]
 	if not mismatches:
 		return
 	bold_operation = frappe.bold(frappe.utils.escape_html(operation))
 	if len(mismatches) == 1:
 		frappe.throw(_("{0} must match Operation {1}.").format(mismatches[0], bold_operation))
+	if len(mismatches) == 2:
+		frappe.throw(
+			_("{0} and {1} must match Operation {2}.").format(
+				mismatches[0],
+				mismatches[1],
+				bold_operation,
+			)
+		)
 	frappe.throw(
-		_("{0} and {1} must match Operation {2}.").format(
-			mismatches[0],
-			mismatches[1],
+		_("The following BOMs must match Operation {0}: {1}").format(
 			bold_operation,
+			", ".join(mismatches),
 		)
 	)
 
@@ -934,20 +1027,13 @@ def _validate_joint_bom_pair(
 
 
 def _calculate_post_shearing_source_consumption(
-	*,
-	lh_bom: JointBomDetails,
-	lh_gross_qty: float,
-	rh_bom: JointBomDetails,
-	rh_gross_qty: float,
+	lines: tuple[JointProductionLine, ...],
 ) -> float:
 	return flt(
 		sum(
-			_scale_bom_input_qty(item.qty, bom.quantity, gross_qty)
-			for bom, gross_qty in (
-				(lh_bom, lh_gross_qty),
-				(rh_bom, rh_gross_qty),
-			)
-			for item in bom.input_items
+			_scale_bom_input_qty(item.qty, line.bom.quantity, line.gross_qty)
+			for line in lines
+			for item in line.bom.input_items
 		)
 	)
 
@@ -1002,19 +1088,16 @@ def _validate_same_finished_item_pair(lh_bom: JointBomDetails, rh_bom: JointBomD
 
 
 def _validate_joint_bom_company(
-	lh_bom: JointBomDetails,
-	rh_bom: JointBomDetails,
+	lines: tuple[JointProductionLine, ...],
 	company: str | None,
-	first_side: str,
-	second_side: str,
 ) -> None:
 	stock_entry_company = cstr(company)
-	for side, bom in ((first_side, lh_bom), (second_side, rh_bom)):
-		if bom.company != stock_entry_company:
+	for line in lines:
+		if line.bom.company != stock_entry_company:
 			frappe.throw(
 				_("{0} BOM {1} must belong to Company {2}.").format(
-					side,
-					frappe.bold(frappe.utils.escape_html(bom.name)),
+					line.side,
+					frappe.bold(frappe.utils.escape_html(line.bom.name)),
 					frappe.bold(frappe.utils.escape_html(stock_entry_company)),
 				)
 			)
