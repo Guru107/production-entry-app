@@ -19,6 +19,7 @@ const {
 	_apply_fetch_items_response,
 	_handle_custom_pea_fetch_items,
 	_apply_manufacture_visibility,
+	_apply_joint_slot_labels,
 	_sync_joint_stock_entry_type,
 	_default_total_strokes_from_fg,
 	_get_rejection_qty_for_visibility,
@@ -2672,6 +2673,30 @@ function makeLabeledJointForm(stockEntryType) {
 	};
 	return { frm, labels, gridProps };
 }
+
+test("saved N-line joint labels the section before stock entry type lookup", () => {
+	const labels = {};
+	const frm = makeSavedJointStockEntryForm();
+	frm.doc.stock_entry_type = "Joint Production";
+	frm.doc.custom_pea_lh_bom = "";
+	frm.doc.custom_pea_rh_bom = "";
+	frm.doc.custom_pea_lh_gross_qty = 0;
+	frm.doc.custom_pea_rh_gross_qty = 0;
+	frm.doc.custom_pea_joint_production_lines = [
+		{ bom_no: "BOM-1", gross_qty: 10, rejection_qty: 0 },
+		{ bom_no: "BOM-2", gross_qty: 10, rejection_qty: 0 },
+	];
+	delete frm.doc.__pea_same_item_joint_stock_entry_type;
+	frm.set_df_property = (fieldname, property, value) => {
+		if (property === "label") {
+			labels[fieldname] = value;
+		}
+	};
+
+	_apply_joint_slot_labels(frm);
+
+	assert.equal(labels.custom_pea_joint_production_section, "Joint Production");
+});
 
 test("Joint Production labels the section and default line output sides", () => {
 	const originalFrappe = global.frappe;

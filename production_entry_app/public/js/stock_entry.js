@@ -178,6 +178,8 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 		onload(frm) {
 			_set_prev_purpose(frm);
 			_set_prev_stock_entry_type(frm);
+			_sync_joint_stock_entry_type(frm);
+			_sync_rework_mode_from_stock_entry_type(frm);
 			_hide_native_get_items(frm);
 			_apply_native_manufacture_visibility(frm);
 			_apply_manufacture_visibility(frm);
@@ -1135,7 +1137,20 @@ function _is_manufacture_doc(doc) {
 
 function _is_same_item_joint_doc(doc) {
 	const sameItemType = doc?.__pea_same_item_joint_stock_entry_type || "";
-	return Boolean(sameItemType) && doc?.stock_entry_type === sameItemType;
+	if (sameItemType && doc?.stock_entry_type === sameItemType) {
+		return true;
+	}
+	const lines = doc?.[JOINT_PRODUCTION_LINES_FIELD] || [];
+	if (
+		lines.length > 0 &&
+		!doc?.custom_pea_lh_bom &&
+		!doc?.custom_pea_rh_bom &&
+		!doc?.custom_pea_lh_gross_qty &&
+		!doc?.custom_pea_rh_gross_qty
+	) {
+		return true;
+	}
+	return false;
 }
 
 function _is_joint_doc(doc) {
@@ -1960,6 +1975,7 @@ if (typeof module !== "undefined" && module.exports) {
 		_apply_fetch_items_response,
 		_handle_custom_pea_fetch_items,
 		_apply_manufacture_visibility,
+		_apply_joint_slot_labels,
 		_sync_joint_stock_entry_type,
 		_sync_rework_mode_from_stock_entry_type,
 		_schedule_rework_workstation_default,
