@@ -1011,7 +1011,18 @@ class TestJointProductionItems(FrappeTestCase):
 
 		def fake_get_meta(doctype: str, *args: Any, **kwargs: Any) -> object:
 			if doctype == "BOM":
-				return frappe._dict(has_field=lambda fieldname: fieldname != "custom_operation")
+				real_meta = original_get_meta(doctype, *args, **kwargs)
+
+				class _BomMetaWithoutOperation:
+					def __getattr__(self, name: str) -> Any:
+						return getattr(real_meta, name)
+
+					def has_field(self, fieldname: str) -> bool:
+						if fieldname == "custom_operation":
+							return False
+						return real_meta.has_field(fieldname)
+
+				return _BomMetaWithoutOperation()
 			return original_get_meta(doctype, *args, **kwargs)
 
 		with patch(
