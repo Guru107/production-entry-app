@@ -835,6 +835,10 @@ class TestShift(FrappeTestCase):
 		for sn in frappe.get_all("Shift", filters={"shift_date": shift_date}, pluck="name"):
 			frappe.delete_doc("Shift", sn, force=True, ignore_permissions=True)
 
+	def _delete_downtime_entries_for_workstation(self, workstation: str) -> None:
+		for name in frappe.get_all("Downtime Entry", filters={"workstation": workstation}, pluck="name"):
+			frappe.delete_doc("Downtime Entry", name, force=True)
+
 	def _ensure_workstation_and_employee(self) -> tuple[str, str]:
 		workstation_name = "Shift Test Workstation"
 		if not frappe.db.exists("Workstation", workstation_name):
@@ -1959,6 +1963,7 @@ class TestShift(FrappeTestCase):
 		)
 
 		workstation, employee = self._ensure_workstation_and_employee()
+		self._delete_downtime_entries_for_workstation(workstation)
 
 		name = self._expected_name(self._test_department, "2026-03-10", "1")
 		self._delete_shift_if_exists(name)
