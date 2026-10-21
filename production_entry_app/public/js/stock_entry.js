@@ -255,6 +255,7 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 			_refresh_joint_production_line_rejection_items(frm);
 			_sync_die_tool_item_from_boms(frm);
 			_configure_rejection_breakup_grid(frm);
+			_toggle_rejection_breakup(frm);
 		},
 		[`${JOINT_PRODUCTION_LINES_FIELD}_add`](frm, cdt, cdn) {
 			_enforce_joint_production_line_cap(frm, cdt, cdn);
@@ -321,6 +322,13 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 		},
 	});
 
+	frappe.ui.form.on("Joint Production Line", {
+		rejection_qty(frm) {
+			_toggle_rejection_breakup(frm);
+			_refresh_joint_production_line_rejection_items(frm);
+		},
+	});
+
 	frappe.ui.form.on("Rejection Breakup", {
 		output_side(frm, cdt, cdn) {
 			if (!_is_joint_doc(frm.doc)) return;
@@ -328,8 +336,7 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 			const selectedSide = row.output_side;
 			const requestId = (_rejectionSideRequestIds.get(cdn) || 0) + 1;
 			_rejectionSideRequestIds.set(cdn, requestId);
-			const bom =
-				selectedSide === "LH" ? frm.doc.custom_pea_lh_bom : frm.doc.custom_pea_rh_bom;
+			const bom = _joint_bom_for_output_side(frm.doc, selectedSide);
 			if (!bom) {
 				_rejectionSideRequestIds.delete(cdn);
 				frappe.model.set_value(cdt, cdn, "item_code", "");
@@ -392,6 +399,18 @@ function _joint_production_line_sides(doc) {
 	return Array.from({ length: lineCount }, (_, index) => `BOM ${index + 1}`);
 }
 
+function _joint_bom_for_output_side(doc, side) {
+	if (_is_same_item_joint_doc(doc)) {
+		const sides = _joint_production_line_sides(doc);
+		const index = sides.indexOf(side);
+		if (index < 0) {
+			return "";
+		}
+		return (doc[JOINT_PRODUCTION_LINES_FIELD] || [])[index]?.bom_no || "";
+	}
+	return side === "LH" ? doc.custom_pea_lh_bom : doc.custom_pea_rh_bom;
+}
+
 function _refresh_joint_production_line_rejection_items(frm) {
 	if (!_is_same_item_joint_doc(frm.doc)) {
 		return;
@@ -438,6 +457,7 @@ function _refresh_joint_production_line_rejection_items(frm) {
 			}
 		}
 		frm.refresh_field("custom_pea_rejection_breakup");
+		_toggle_rejection_breakup(frm);
 	});
 }
 
@@ -1512,13 +1532,21 @@ function _toggle_rejection_breakup(frm) {
 	_configure_rejection_breakup_grid(frm);
 }
 
+function _joint_production_lines_rejection_total(doc) {
+	return (doc?.[JOINT_PRODUCTION_LINES_FIELD] || []).reduce(
+		(total, row) =>
+			total +
+			(typeof flt === "function"
+				? flt(row?.rejection_qty)
+				: Number(row?.rejection_qty || 0)),
+		0
+	);
+}
+
 function _get_rejection_qty_for_visibility(doc) {
 	if (_is_joint_doc(doc)) {
 		if (_is_same_item_joint_doc(doc)) {
-			return (doc[JOINT_PRODUCTION_LINES_FIELD] || []).reduce(
-				(total, row) => total + Number(row?.rejection_qty || 0),
-				0
-			);
+			return _joint_production_lines_rejection_total(doc);
 		}
 		return (
 			Number(doc.custom_pea_lh_rejection_qty || 0) +
@@ -1921,6 +1949,8 @@ if (typeof module !== "undefined" && module.exports) {
 		_extract_error_detail,
 		_default_total_strokes_from_fg,
 		_get_rejection_qty_for_visibility,
+		_joint_production_lines_rejection_total,
+		_toggle_rejection_breakup,
 		_get_joint_bom_query,
 		_hide_native_get_items,
 		_prescribed_die_tool_item,

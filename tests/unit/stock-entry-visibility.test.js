@@ -22,6 +22,8 @@ const {
 	_sync_joint_stock_entry_type,
 	_default_total_strokes_from_fg,
 	_get_rejection_qty_for_visibility,
+	_joint_production_lines_rejection_total,
+	_toggle_rejection_breakup,
 	_get_joint_bom_query,
 	_sync_rework_mode_from_stock_entry_type,
 	_schedule_rework_workstation_default,
@@ -1676,9 +1678,65 @@ test("rejection visibility quantity sums joint sides and uses normal rejection o
 			5
 		);
 		assert.equal(_get_rejection_qty_for_visibility({ custom_pea_rejection_qty: "4" }), 4);
+		assert.equal(
+			_get_rejection_qty_for_visibility({
+				stock_entry_type: "Joint Production",
+				__pea_same_item_joint_stock_entry_type: "Joint Production",
+				custom_pea_joint_production_lines: [{ rejection_qty: 1 }, { rejection_qty: 2 }],
+			}),
+			3
+		);
+		assert.equal(
+			_joint_production_lines_rejection_total({
+				custom_pea_joint_production_lines: [
+					{ rejection_qty: "2.5" },
+					{ rejection_qty: 0 },
+				],
+			}),
+			2.5
+		);
 	} finally {
 		global.flt = originalFlt;
 	}
+});
+
+test("Joint Production line rejections show the rejection breakup table when a shift is set", () => {
+	const calls = [];
+	const frm = {
+		doc: {
+			stock_entry_type: "Joint Production",
+			__pea_same_item_joint_stock_entry_type: "Joint Production",
+			custom_pea_shift: "SHIFT-1",
+			custom_pea_joint_production_lines: [{ rejection_qty: 2 }],
+			custom_pea_rejection_breakup: [],
+		},
+		fields_dict: {
+			custom_pea_rejection_breakup: {
+				grid: { update_docfield_property() {} },
+			},
+		},
+		toggle_display(fieldname, visible) {
+			calls.push(["display", fieldname, visible]);
+		},
+		toggle_reqd(fieldname, required) {
+			calls.push(["reqd", fieldname, required]);
+		},
+	};
+	_toggle_rejection_breakup(frm);
+	assert.ok(
+		calls.some(
+			([kind, fieldname, value]) =>
+				kind === "display" &&
+				fieldname === "custom_pea_rejection_breakup" &&
+				value === true
+		)
+	);
+	assert.ok(
+		calls.some(
+			([kind, fieldname, value]) =>
+				kind === "reqd" && fieldname === "custom_pea_rejection_breakup" && value === true
+		)
+	);
 });
 
 test("manually selecting a non-joint Stock Entry Type exits joint production and clears joint data", () => {
