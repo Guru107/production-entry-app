@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-22
+
 ### Added
 
 -   Joint Production **Joint Production Line** child table: two or more BOM lines per entry, each with its own gross quantity, rejection quantity, and per-line rejection breakup (#153)
@@ -21,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 -   Stale Joint Production drafts saved before the line table must re-fetch items before submit (#153)
 -   Manufacture and Joint Production stroke counters credit **Die Tool Item** from the Stock Entry when set (previously Manufacture credited the finished-good item) (#153)
 -   Multi-BOM production entries require a single Die Tool Item across all selected BOMs on save (#153)
+
+### Fixed
+
+-   Stock Entry Shift link search lists Running and Completed shifts newest-first so the current Running shift appears in the first page (#160)
 
 ## [1.1.1] - 2026-10-18
 
