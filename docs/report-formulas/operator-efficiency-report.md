@@ -2,6 +2,9 @@
 
 Source: `operator_efficiency_report/operator_efficiency_report.py`
 
+Optional **Operation** filter: includes only entries whose resolved operation matches (Manufacture:
+`stock_entry_type`; Joint: `custom_pea_operation`). See `report_formula_conventions.md`.
+
 - `operator`: group key (`custom_pea_operator`, fallback `"Unassigned"`).
 - `entries`: count of Stock Entries in group.
 - `good_qty`: finished-item quantity excluding rejection and scrap rows, aggregated per group.

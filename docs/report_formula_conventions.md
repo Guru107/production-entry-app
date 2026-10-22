@@ -12,7 +12,23 @@ This document defines shared rules used across script reports under `production_
 - Generic Repack entries are excluded.
 - Operational validation classifies Joint LH/RH entries from selected Stock Entry Type
   `custom_pea_joint_lh_rh_production`; reports use the same Stock Entry Type flag for submitted rows.
-- Additional report filters (date, shift, workstation, operator, BOM, FG item) restrict row inclusion.
+- Additional report filters (date, shift, workstation, operator, operation, BOM, FG item) restrict row
+  inclusion.
+
+## Operation Column and Filter
+
+Reports that show or filter by **Operation** resolve it per Stock Entry via
+`get_entry_report_operation()` in `report_utils.py`:
+
+- **Joint LH/RH Production** and **Joint Production** entries use `custom_pea_operation` (the Operation
+  link on the Stock Entry).
+- **Manufacture** entries use `stock_entry_type` (for example `Shearing`, `Blanking`). The link field is
+  not used for grouping or filtering on Manufacture rows.
+- The optional **Operation** report filter matches this resolved value, not the raw
+  `custom_pea_operation` database field alone.
+
+Reports with an Operation column: Operator Daily SPM Report, Daily Strokes SPM Monitor. Other reports may
+expose the Operation filter without an Operation column (efficiency, OEE, item/BOM hotspots).
 - From/To Date filters select entries through linked Completed Shifts and `Shift.shift_date`; Stock Entry
   `posting_date` does not determine date-range membership.
 - Rework Register is the exception to this Production Entry scope: it selects submitted Rework Operations and

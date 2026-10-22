@@ -2,6 +2,9 @@
 
 Source: `workstation_efficiency_report/workstation_efficiency_report.py`
 
+Optional **Operation** filter uses the same resolved-operation rules as Operator Efficiency Report (see
+`report_formula_conventions.md`).
+
 Same formulas as Operator Efficiency Report, grouped by `custom_pea_workstation`:
 
 - `workstation`
