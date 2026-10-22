@@ -1863,18 +1863,21 @@ function _ensure_use_multi_level_bom_unchecked(frm) {
 	}
 }
 
-function _prescribed_die_tool_item(items) {
-	const prescribed = [];
-	let firstNonBlank = "";
+function _first_bom_die_tool_item(items) {
 	for (const item of items || []) {
 		const code = String(item || "").trim();
-		if (!code) {
-			continue;
+		if (code) {
+			return code;
 		}
-		if (!firstNonBlank) {
-			firstNonBlank = code;
-		}
-		if (!prescribed.includes(code)) {
+	}
+	return "";
+}
+
+function _prescribed_die_tool_item(items) {
+	const prescribed = [];
+	for (const item of items || []) {
+		const code = String(item || "").trim();
+		if (code && !prescribed.includes(code)) {
 			prescribed.push(code);
 		}
 	}
@@ -1882,17 +1885,21 @@ function _prescribed_die_tool_item(items) {
 		return { item: prescribed[0] };
 	}
 	if (prescribed.length > 1) {
-		return { item: firstNonBlank };
+		return { item: "", fallback: _first_bom_die_tool_item(items) };
 	}
 	return { item: "" };
 }
 
 function _apply_prescribed_die_tool_item(frm, resolution) {
 	const fieldname = "custom_pea_die_tool_item";
-	if (!resolution?.item || frm.doc[fieldname] === resolution.item) {
+	let item = resolution?.item;
+	if (!item && !frm.doc[fieldname] && resolution?.fallback) {
+		item = resolution.fallback;
+	}
+	if (!item || frm.doc[fieldname] === item) {
 		return;
 	}
-	frm.set_value(fieldname, resolution.item);
+	frm.set_value(fieldname, item);
 }
 
 function _production_bom_names(doc) {

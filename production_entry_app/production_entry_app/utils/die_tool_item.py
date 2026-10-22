@@ -27,22 +27,19 @@ def _distinct_nonblank_die_tool_items(die_tool_items: Iterable[str | None]) -> l
 
 
 def prescribed_die_tool_item(die_tool_items: Iterable[str | None]) -> str:
-	"""Pick Die Tool Item from BOMs: shared value, else first BOM value, else blank."""
-	items = list(die_tool_items)
-	distinct = _distinct_nonblank_die_tool_items(items)
+	"""Return the Die Tool Item when every BOM names the same one, else blank."""
+	distinct = _distinct_nonblank_die_tool_items(die_tool_items)
 	if len(distinct) == 1:
 		return distinct[0]
-	if len(distinct) > 1:
-		for item_code in items:
-			code = cstr(item_code).strip()
-			if code:
-				return code
 	return ""
 
 
-def validate_production_bom_die_tool_consistency(doc: Document | Any) -> None:
-	"""Multi-BOM production entries may use any Die Tool Item on the Stock Entry."""
-	return
+def _first_bom_die_tool_item(die_tool_items: Iterable[str | None]) -> str:
+	for item_code in die_tool_items:
+		code = cstr(item_code).strip()
+		if code:
+			return code
+	return ""
 
 
 def _is_single_bom_manufacture(doc: Document | Any) -> bool:
@@ -72,9 +69,15 @@ def apply_bom_die_tool_item(doc: Document | Any) -> None:
 		fields=["name", DIE_TOOL_ITEM_FIELD],
 	)
 	by_name = {row.name: row.get(DIE_TOOL_ITEM_FIELD) for row in rows}
-	prescribed = prescribed_die_tool_item(by_name.get(name) for name in bom_names)
+	die_tools = [by_name.get(name) for name in bom_names]
+	entry_die = cstr(doc.get(DIE_TOOL_ITEM_FIELD)).strip()
+	prescribed = prescribed_die_tool_item(die_tools)
 	if prescribed:
 		doc.set(DIE_TOOL_ITEM_FIELD, prescribed)
+	elif not entry_die:
+		fallback = _first_bom_die_tool_item(die_tools)
+		if fallback:
+			doc.set(DIE_TOOL_ITEM_FIELD, fallback)
 	if _is_single_bom_manufacture(doc) and not cstr(doc.get(DIE_TOOL_ITEM_FIELD)).strip():
 		frappe.throw(
 			_("Die Tool Item is required for Manufacture entries. Set it on the BOM or select it here.")
