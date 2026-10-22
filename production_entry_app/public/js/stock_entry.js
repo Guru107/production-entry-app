@@ -1957,8 +1957,8 @@ function _sync_die_tool_item_from_boms(frm) {
 
 function _get_shift_link_query() {
 	return {
+		query: "production_entry_app.production_entry_app.api.stock_entry_shift_query",
 		filters: [["Shift", "status", "in", ["Running", "Completed"]]],
-		order_by: "shift_date desc, name desc",
 	};
 }
 

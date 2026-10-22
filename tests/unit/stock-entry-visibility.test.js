@@ -2834,8 +2834,11 @@ test("BOM Die Tool Item lookup stays quiet when the field is not migrated", asyn
 	}
 });
 
-test("shift link query orders by shift_date desc so recent shifts appear first", () => {
+test("shift link query uses server search so Frappe returns newest shift_date first", () => {
 	const query = _get_shift_link_query();
 	assert.deepEqual(query.filters, [["Shift", "status", "in", ["Running", "Completed"]]]);
-	assert.equal(query.order_by, "shift_date desc, name desc");
+	assert.equal(
+		query.query,
+		"production_entry_app.production_entry_app.api.stock_entry_shift_query"
+	);
 });
