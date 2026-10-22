@@ -2528,11 +2528,27 @@ test("a BOM die tool item is set on the production entry", () => {
 	assert.deepEqual(properties, []);
 });
 
-test("disagreeing BOM die tool items flag a conflict", () => {
+test("disagreeing BOM die tool items expose a fallback without overwriting the field", () => {
 	assert.deepEqual(_prescribed_die_tool_item(["DIE-1", "DIE-2"]), {
 		item: "",
-		conflict: true,
+		fallback: "DIE-1",
 	});
+});
+
+test("disagreeing BOM die tool items keep the operator selection on apply", () => {
+	const values = [];
+	const frm = {
+		doc: { custom_pea_die_tool_item: "DIE-2" },
+		set_value(fieldname, value) {
+			this.doc[fieldname] = value;
+			values.push([fieldname, value]);
+		},
+	};
+
+	_apply_prescribed_die_tool_item(frm, _prescribed_die_tool_item(["DIE-1", "DIE-2"]));
+
+	assert.equal(frm.doc.custom_pea_die_tool_item, "DIE-2");
+	assert.deepEqual(values, []);
 });
 
 test("an empty BOM die tool item leaves the production entry unchanged", () => {

@@ -61,6 +61,7 @@ const SHIFT_BASED_REQUIRED_FIELDS = [
 	"custom_pea_actual_start_date",
 	"custom_pea_actual_end_date",
 	"custom_pea_standard_spm",
+	"custom_pea_die_tool_item",
 ];
 
 const NORMAL_ONLY_PEA_FIELDS = ["custom_pea_rejection_qty", "custom_pea_rework_qty"];
@@ -575,17 +576,42 @@ function _apply_manufacture_visibility(frm) {
 		_expand_sections(frm, PEA_SHIFT_GATED_SECTIONS);
 	}
 
+	_position_joint_fetch_items(frm);
 	_position_rejection_breakup_section(frm);
 	_toggle_rejection_breakup(frm);
 	_configure_rejection_breakup_grid(frm);
 	_update_die_tool_metrics(frm);
 }
 
+function _position_joint_fetch_items(frm) {
+	if (!_is_joint_doc(frm.doc)) {
+		return;
+	}
+	const fetchField = frm.fields_dict?.custom_pea_joint_fetch_items;
+	if (!fetchField?.wrapper) {
+		return;
+	}
+	const anchorField = _is_same_item_joint_doc(frm.doc)
+		? frm.fields_dict?.custom_pea_joint_production_lines
+		: frm.fields_dict?.custom_pea_rh_rejection_qty;
+	const fetchWrapper = fetchField.$wrapper || fetchField.wrapper;
+	const anchorWrapper = anchorField?.$wrapper || anchorField?.wrapper;
+	if (!fetchWrapper || !anchorWrapper || fetchWrapper === anchorWrapper) {
+		return;
+	}
+	const $fetch = fetchWrapper.jquery ? fetchWrapper : $(fetchWrapper);
+	const $anchor = anchorWrapper.jquery ? anchorWrapper : $(anchorWrapper);
+	if (!$fetch.length || !$anchor.length || $fetch[0] === $anchor[0]) {
+		return;
+	}
+	$fetch.insertAfter($anchor);
+}
+
 function _position_rejection_breakup_section(frm) {
 	const rejectionSection = frm.fields_dict?.custom_pea_rejection_section;
 	const normalFetchSection = frm.fields_dict?.custom_pea_fetch_items?.section;
-	const jointResourcesSection = frm.fields_dict?.custom_pea_joint_resources_section;
-	const anchorSection = _is_joint_doc(frm.doc) ? jointResourcesSection : normalFetchSection;
+	const jointProductionSection = frm.fields_dict?.custom_pea_joint_production_section;
+	const anchorSection = _is_joint_doc(frm.doc) ? jointProductionSection : normalFetchSection;
 	if (
 		!rejectionSection?.wrapper ||
 		!anchorSection?.wrapper ||
@@ -1157,7 +1183,11 @@ function _expand_sections(frm, sectionFieldnames) {
 }
 
 function _is_manufacture_doc(doc) {
-	return _normalize_purpose(doc?.custom_stock_entry_purpose) === "Manufacture";
+	const purpose = _normalize_purpose(doc?.custom_stock_entry_purpose);
+	if (purpose === "Manufacture") {
+		return true;
+	}
+	return _normalize_purpose(doc?.purpose) === "Manufacture";
 }
 
 function _is_same_item_joint_doc(doc) {
@@ -1862,6 +1892,16 @@ function _ensure_use_multi_level_bom_unchecked(frm) {
 	}
 }
 
+function _first_bom_die_tool_item(items) {
+	for (const item of items || []) {
+		const code = String(item || "").trim();
+		if (code) {
+			return code;
+		}
+	}
+	return "";
+}
+
 function _prescribed_die_tool_item(items) {
 	const prescribed = [];
 	for (const item of items || []) {
@@ -1870,29 +1910,25 @@ function _prescribed_die_tool_item(items) {
 			prescribed.push(code);
 		}
 	}
+	if (prescribed.length === 1) {
+		return { item: prescribed[0] };
+	}
 	if (prescribed.length > 1) {
-		return { item: "", conflict: true };
+		return { item: "", fallback: _first_bom_die_tool_item(items) };
 	}
-	if (prescribed.length !== 1) {
-		return { item: "" };
-	}
-	return { item: prescribed[0] };
+	return { item: "" };
 }
 
 function _apply_prescribed_die_tool_item(frm, resolution) {
 	const fieldname = "custom_pea_die_tool_item";
-	if (resolution?.conflict) {
-		frappe.msgprint(
-			__(
-				"All BOMs on this production entry must use the same Die Tool Item. Update the BOM master records or change the selected BOMs."
-			)
-		);
+	let item = resolution?.item;
+	if (!item && !frm.doc[fieldname] && resolution?.fallback) {
+		item = resolution.fallback;
+	}
+	if (!item || frm.doc[fieldname] === item) {
 		return;
 	}
-	if (!resolution?.item || frm.doc[fieldname] === resolution.item) {
-		return;
-	}
-	frm.set_value(fieldname, resolution.item);
+	frm.set_value(fieldname, item);
 }
 
 function _production_bom_names(doc) {

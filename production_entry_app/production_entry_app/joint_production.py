@@ -430,20 +430,10 @@ def _validate_joint_production_lines_header(doc: Document) -> None:
 		frappe.throw(_("{0} must use Repack purpose.").format(pairing))
 	if not doc.get("custom_pea_operation"):
 		frappe.throw(_("Operation is required for {0}.").format(pairing))
-	if doc.get("custom_pea_shift"):
-		_validate_production_bom_die_tool_consistency(doc)
 	if doc.get("custom_pea_shift") and not doc.get("custom_pea_die_tool_item"):
 		frappe.throw(_("Die Tool Item is required for {0}.").format(pairing))
 	if flt(doc.get("custom_pea_total_strokes")) < 0:
 		frappe.throw(_("Total Press Strokes cannot be negative."))
-
-
-def _validate_production_bom_die_tool_consistency(doc: Document) -> None:
-	from production_entry_app.production_entry_app.utils.die_tool_item import (
-		validate_production_bom_die_tool_consistency,
-	)
-
-	validate_production_bom_die_tool_consistency(doc)
 
 
 def _joint_production_recipe_signature(bom: JointBomDetails) -> tuple[str, frozenset[str]]:
@@ -859,8 +849,6 @@ def _validate_joint_header(
 	):
 		if not doc.get(fieldname):
 			frappe.throw(_("{0} is required for {1}.").format(label, pairing))
-	if doc.get("custom_pea_shift"):
-		_validate_production_bom_die_tool_consistency(doc)
 	if doc.get("custom_pea_shift") and not doc.get("custom_pea_die_tool_item"):
 		frappe.throw(_("Die Tool Item is required for {0}.").format(pairing))
 	# Warehouses are required by Fetch Items, not by recipe validation: native Repack
