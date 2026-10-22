@@ -8,6 +8,7 @@ from production_entry_app.production_entry_app.report.report_utils import (
 	build_stock_entry_filters,
 	get_entry_production_minutes,
 	get_entry_raw_duration_minutes,
+	get_entry_report_operation,
 	get_entry_total_strokes,
 	get_parent_loss_metrics,
 	get_parent_quantity_metrics,
@@ -105,7 +106,7 @@ def _get_rows(filters: dict) -> list[dict]:
 			if not production_date:
 				continue
 			operator = entry.get("custom_pea_operator") or "Unassigned"
-			operation = entry.get("custom_pea_operation") or ""
+			operation = get_entry_report_operation(entry)
 			group_key = (
 				(production_date, operator, operation) if group_by_operator else (production_date, operation)
 			)

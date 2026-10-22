@@ -7,6 +7,7 @@ from production_entry_app.production_entry_app.report.report_utils import (
 	apply_system_precision,
 	build_stock_entry_filters,
 	get_entry_production_minutes,
+	get_entry_report_operation,
 	get_entry_total_strokes,
 	get_parent_loss_metrics,
 	get_report_rows,
@@ -119,7 +120,7 @@ def _get_rows(filters: dict) -> list[dict]:
 			production_date = str(entry.get("production_date") or "")
 			operator = entry.get("custom_pea_operator") or "Unassigned"
 			workstation = entry.get("custom_pea_workstation") or "Unassigned"
-			operation = entry.get("custom_pea_operation") or ""
+			operation = get_entry_report_operation(entry)
 			group_key = (production_date, operator, workstation, operation)
 			agg = aggregates.setdefault(
 				group_key,
