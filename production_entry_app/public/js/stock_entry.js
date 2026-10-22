@@ -594,10 +594,17 @@ function _position_joint_fetch_items(frm) {
 	const anchorField = _is_same_item_joint_doc(frm.doc)
 		? frm.fields_dict?.custom_pea_joint_production_lines
 		: frm.fields_dict?.custom_pea_rh_rejection_qty;
-	if (!anchorField?.wrapper || fetchField.wrapper === anchorField.wrapper) {
+	const fetchWrapper = fetchField.$wrapper || fetchField.wrapper;
+	const anchorWrapper = anchorField?.$wrapper || anchorField?.wrapper;
+	if (!fetchWrapper || !anchorWrapper || fetchWrapper === anchorWrapper) {
 		return;
 	}
-	fetchField.wrapper.insertAfter(anchorField.wrapper);
+	const $fetch = fetchWrapper.jquery ? fetchWrapper : $(fetchWrapper);
+	const $anchor = anchorWrapper.jquery ? anchorWrapper : $(anchorWrapper);
+	if (!$fetch.length || !$anchor.length || $fetch[0] === $anchor[0]) {
+		return;
+	}
+	$fetch.insertAfter($anchor);
 }
 
 function _position_rejection_breakup_section(frm) {
