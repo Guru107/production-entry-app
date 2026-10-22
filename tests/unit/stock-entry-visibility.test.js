@@ -26,6 +26,7 @@ const {
 	_joint_production_lines_rejection_total,
 	_toggle_rejection_breakup,
 	_get_joint_bom_query,
+	_get_shift_link_query,
 	_sync_rework_mode_from_stock_entry_type,
 	_schedule_rework_workstation_default,
 	_extract_error_detail,
@@ -2831,4 +2832,10 @@ test("BOM Die Tool Item lookup stays quiet when the field is not migrated", asyn
 		global.frappe = originalFrappe;
 		global.__ = originalTranslate;
 	}
+});
+
+test("shift link query orders by shift_date desc so recent shifts appear first", () => {
+	const query = _get_shift_link_query();
+	assert.deepEqual(query.filters, [["Shift", "status", "in", ["Running", "Completed"]]]);
+	assert.equal(query.order_by, "shift_date desc, name desc");
 });

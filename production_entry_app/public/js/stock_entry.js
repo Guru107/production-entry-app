@@ -194,9 +194,7 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 			_apply_native_manufacture_visibility(frm);
 			// Set filter to show shifts that can accept post-facto entries.
 			frm.set_query("custom_pea_shift", function () {
-				return {
-					filters: [["Shift", "status", "in", ["Running", "Completed"]]],
-				};
+				return _get_shift_link_query();
 			});
 			for (const fieldname of ["custom_pea_lh_bom", "custom_pea_rh_bom"]) {
 				frm.set_query(fieldname, function () {
@@ -1957,6 +1955,13 @@ function _sync_die_tool_item_from_boms(frm) {
 	loadPrescribedDieToolItem();
 }
 
+function _get_shift_link_query() {
+	return {
+		filters: [["Shift", "status", "in", ["Running", "Completed"]]],
+		order_by: "shift_date desc, name desc",
+	};
+}
+
 function _get_die_tool_item_code(frm) {
 	if (frm.doc.custom_pea_die_tool_item) {
 		return frm.doc.custom_pea_die_tool_item;
@@ -2014,6 +2019,7 @@ if (typeof module !== "undefined" && module.exports) {
 		_joint_production_lines_rejection_total,
 		_toggle_rejection_breakup,
 		_get_joint_bom_query,
+		_get_shift_link_query,
 		_hide_native_get_items,
 		_prescribed_die_tool_item,
 		_apply_prescribed_die_tool_item,
