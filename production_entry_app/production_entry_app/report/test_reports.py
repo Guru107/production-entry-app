@@ -1497,8 +1497,9 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		operation = ensure_operation("Shearing")
+		self._ensure_manufacture_operation_stock_entry_type(operation)
 		shift = self._create_shift_for_label("2026-07-10", "1", clear_planned_losses=True)
-		entry = self._create_mock_submitted_entry(
+		self._create_mock_submitted_entry(
 			posting_date="2026-07-10",
 			planned_start="2026-07-10 08:00:00",
 			planned_end="2026-07-10 09:00:00",
@@ -1507,9 +1508,7 @@ class TestProductionReports(FrappeTestCase):
 			fg_qty=120,
 			rejection_qty=0,
 			shift_name=shift.name,
-		)
-		frappe.db.set_value(
-			"Stock Entry", entry.name, "custom_pea_operation", operation, update_modified=False
+			stock_entry_type=operation,
 		)
 		self._create_downtime_entry(
 			workstation="Report Workstation",
