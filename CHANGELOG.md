@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 -   Stock Entry Shift link search lists Running and Completed shifts newest-first so the current Running shift appears in the first page (#160)
+-   **Operator Daily SPM Report** and **Daily Strokes SPM Monitor** populate Operation from **Stock Entry Type** on Manufacture entries (sites that use operation-named types without `custom_pea_operation`); Joint Production entries continue to use the Operation link field
 
 ## [1.1.1] - 2026-10-18
 
