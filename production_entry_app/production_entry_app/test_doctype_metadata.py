@@ -141,9 +141,10 @@ def test_joint_lh_rh_production_metadata_is_exported() -> None:
 	assert operation_field.get("mandatory_depends_on") == joint_condition
 	assert "Stock Entry-custom_pea_joint_scrap_qty" not in fields_by_name
 	fetch_items_field = fields_by_name["Stock Entry-custom_pea_joint_fetch_items"]
-	# Declarative joint layout: the button is last in the Joint Production section
-	# (hidden LH/RH fields collapse in N-line mode), so no client-side repositioning.
-	assert fetch_items_field.get("insert_after") == "custom_pea_rh_rejection_qty"
+	# Declarative joint layout: the button ends the section's first column
+	# (no depends_on on that column — visible in every joint mode on v15 and v16),
+	# so no client-side repositioning.
+	assert fetch_items_field.get("insert_after") == "custom_pea_lh_rejection_qty"
 	assert (
 		fields_by_name["Stock Entry-custom_pea_rejection_section"].get("insert_after")
 		== "custom_pea_joint_fetch_items"

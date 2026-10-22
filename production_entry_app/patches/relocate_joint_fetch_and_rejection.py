@@ -1,10 +1,12 @@
 """Declare the joint form layout: Fetch Items at the section end, rejection section after it.
 
 Replaces the client-side repositioning (_position_joint_fetch_items /
-_position_rejection_breakup_section): the joint Fetch Items button sits after
-custom_pea_rh_rejection_qty (hidden LH/RH fields collapse in N-line mode, so it
-renders right after the lines table there), and the rejection breakup section
-slots between the joint section and Workstation & Operator.
+_position_rejection_breakup_section): the joint Fetch Items button sits at the
+end of the section's first column (after custom_pea_lh_rejection_qty) — the
+first column carries no depends_on, so Frappe v15 and v16 both keep it visible
+in every joint mode (hidden LH/RH fields collapse in N-line mode, so the button
+renders right after the lines table there). The rejection breakup section slots
+between the joint section and Workstation & Operator.
 """
 
 from __future__ import annotations
@@ -14,7 +16,7 @@ import json
 import frappe
 
 _FETCH_FIELD = "custom_pea_joint_fetch_items"
-_ANCHOR_FIELD = "custom_pea_rh_rejection_qty"
+_ANCHOR_FIELD = "custom_pea_lh_rejection_qty"
 # Section breaks travel with their fields: field_order is a flat list, so each
 # block must move as a unit or the children render in the previous section.
 _REJECTION_BLOCK: tuple[str, ...] = (
