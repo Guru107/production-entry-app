@@ -38,6 +38,7 @@ _DEFAULT_REPORT_CHUNK_SIZE: int = 1000
 _DEFAULT_MAX_STOCK_ENTRY_ROWS: int = 100000
 _DEFAULT_INTERACTIVE_REPORT_TIMEOUT_SEC: float = 5.0
 _NO_MATCHING_SHIFT: str = "__no_matching_completed_shift__"
+_OPERATION_REPORT_FILTER_KEY: str = "__pea_report_operation_filter"
 _SUPPORTED_STOCK_ENTRY_ORDER_BY: frozenset[str] = frozenset({"name asc", "posting_date asc, name asc"})
 _PRODUCTION_STOCK_ENTRY_OR_FILTERS: tuple[tuple[str, str, Any], ...] = (
 	("purpose", "=", "Manufacture"),
@@ -105,6 +106,9 @@ def build_stock_entry_filters(filters: dict, filter_keys: tuple[str, ...]) -> di
 	db_filters: dict = {"docstatus": 1, "purpose": ["in", ["Manufacture", "Repack"]]}
 
 	for key in filter_keys:
+		if key == "custom_pea_operation" and filters.get(key):
+			db_filters[_OPERATION_REPORT_FILTER_KEY] = filters.get(key)
+			continue
 		if key != "bom_no" and filters.get(key):
 			db_filters[key] = filters.get(key)
 
@@ -187,6 +191,15 @@ def is_joint_production_entry(entry: dict | BaseDocument) -> bool:
 
 def is_paired_production_entry(entry: dict | BaseDocument) -> bool:
 	return is_joint_lh_rh_entry(entry) or is_joint_production_entry(entry)
+
+
+def get_entry_report_operation(entry: dict | BaseDocument) -> str:
+	"""Operation for reports: joint production uses the link; Manufacture uses Stock Entry Type."""
+	if is_paired_production_entry(entry):
+		return (entry.get("custom_pea_operation") or "").strip()
+	if entry.get("purpose") == "Manufacture":
+		return (entry.get("stock_entry_type") or "").strip()
+	return ""
 
 
 def _joint_production_line_slot_field(index: int, suffix: str) -> str:
@@ -535,6 +548,7 @@ def iter_stock_entries_in_chunks(
 	max_rows: int = _DEFAULT_MAX_STOCK_ENTRY_ROWS,
 ) -> Iterator[list[dict]]:
 	"""Yield Stock Entry rows in deterministic chunks to avoid blanket reads."""
+	operation_report_filter = filters.pop(_OPERATION_REPORT_FILTER_KEY, None)
 	normalized_order_by = _normalize_stock_entry_order_by(order_by)
 	_validate_stock_entry_chunk_fields(fields, normalized_order_by)
 	query_fields = list(fields)
@@ -580,6 +594,12 @@ def iter_stock_entries_in_chunks(
 			production_date = production_dates.get(row.get("custom_pea_shift"))
 			if production_date:
 				row["production_date"] = production_date
+		if operation_report_filter:
+			rows = [
+				row
+				for row in rows
+				if get_entry_report_operation(row) == operation_report_filter
+			]
 		if rows:
 			yield rows
 		if len(raw_rows) < effective_chunk_size:
@@ -674,6 +694,8 @@ def _fetch_stock_entry_chunk(
 def _as_list_filters(filters: dict) -> list[list]:
 	result = []
 	for fieldname, value in filters.items():
+		if fieldname == _OPERATION_REPORT_FILTER_KEY:
+			continue
 		if isinstance(value, list | tuple) and len(value) == 2:
 			result.append([fieldname, value[0], value[1]])
 		else:
