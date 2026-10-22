@@ -23,8 +23,11 @@ class TestPrescribedDieToolItem(FrappeTestCase):
 	def test_blank_bom_die_tool_items_leave_the_entry_unset(self) -> None:
 		self.assertEqual(prescribed_die_tool_item(["", None]), "")
 
-	def test_different_bom_die_tool_items_leave_the_entry_selectable(self) -> None:
-		self.assertEqual(prescribed_die_tool_item(["DIE-1", "DIE-2"]), "")
+	def test_different_bom_die_tool_items_use_first_bom_die_tool(self) -> None:
+		self.assertEqual(prescribed_die_tool_item(["DIE-1", "DIE-2"]), "DIE-1")
+
+	def test_different_bom_die_tool_items_skip_blanks_before_first_set(self) -> None:
+		self.assertEqual(prescribed_die_tool_item(["", None, "DIE-2", "DIE-3"]), "DIE-2")
 
 
 class TestValidateProductionBomDieToolConsistency(FrappeTestCase):
@@ -44,7 +47,7 @@ class TestValidateProductionBomDieToolConsistency(FrappeTestCase):
 			self.company,
 		)
 
-	def test_joint_production_lines_reject_conflicting_bom_die_tools(self) -> None:
+	def test_joint_production_lines_allow_conflicting_bom_die_tools(self) -> None:
 		frappe.db.set_value(
 			"BOM", self.bom_one, "custom_pea_die_tool_item", self.die_a, update_modified=False
 		)
@@ -59,10 +62,10 @@ class TestValidateProductionBomDieToolConsistency(FrappeTestCase):
 				{"bom_no": self.bom_one, "gross_qty": 10, "rejection_qty": 0},
 				{"bom_no": self.bom_two, "gross_qty": 10, "rejection_qty": 0},
 			],
+			custom_pea_die_tool_item=self.die_b,
 		)
 
-		with self.assertRaisesRegex(frappe.ValidationError, "same Die Tool Item"):
-			validate_production_bom_die_tool_consistency(doc)
+		validate_production_bom_die_tool_consistency(doc)
 
 	def test_joint_production_lines_accept_matching_bom_die_tools(self) -> None:
 		frappe.db.set_value(
@@ -83,6 +86,29 @@ class TestValidateProductionBomDieToolConsistency(FrappeTestCase):
 		)
 
 		validate_production_bom_die_tool_consistency(doc)
+
+	def test_joint_production_lines_apply_first_bom_die_tool_when_boms_disagree(self) -> None:
+		frappe.db.set_value(
+			"BOM", self.bom_one, "custom_pea_die_tool_item", self.die_a, update_modified=False
+		)
+		frappe.db.set_value(
+			"BOM", self.bom_two, "custom_pea_die_tool_item", self.die_b, update_modified=False
+		)
+		doc = frappe._dict(
+			custom_pea_shift="SHIFT-1",
+			purpose="Repack",
+			stock_entry_type=JOINT_PRODUCTION_STOCK_ENTRY_TYPE,
+			custom_pea_joint_production_lines=[
+				{"bom_no": self.bom_one, "gross_qty": 10, "rejection_qty": 0},
+				{"bom_no": self.bom_two, "gross_qty": 10, "rejection_qty": 0},
+			],
+			custom_pea_die_tool_item="",
+		)
+		doc.set = lambda fieldname, value: doc.update({fieldname: value})
+
+		apply_bom_die_tool_item(doc)
+
+		self.assertEqual(doc.custom_pea_die_tool_item, self.die_a)
 
 
 class TestApplyBomDieToolItem(FrappeTestCase):

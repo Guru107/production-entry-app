@@ -4,7 +4,6 @@ from collections.abc import Iterable
 from typing import Any
 
 import frappe
-from frappe import _
 from frappe.model.document import Document
 from frappe.utils import cstr
 
@@ -27,36 +26,22 @@ def _distinct_nonblank_die_tool_items(die_tool_items: Iterable[str | None]) -> l
 
 
 def prescribed_die_tool_item(die_tool_items: Iterable[str | None]) -> str:
-	"""Return the one Die Tool Item shared by the selected BOMs, or blank."""
-	distinct = _distinct_nonblank_die_tool_items(die_tool_items)
-	if len(distinct) != 1:
-		return ""
-	return distinct[0]
+	"""Pick Die Tool Item from BOMs: shared value, else first BOM value, else blank."""
+	items = list(die_tool_items)
+	distinct = _distinct_nonblank_die_tool_items(items)
+	if len(distinct) == 1:
+		return distinct[0]
+	if len(distinct) > 1:
+		for item_code in items:
+			code = cstr(item_code).strip()
+			if code:
+				return code
+	return ""
 
 
 def validate_production_bom_die_tool_consistency(doc: Document | Any) -> None:
-	"""Require one Die Tool Item across all BOMs on multi-BOM production entries."""
-	if not doc.get("custom_pea_shift"):
-		return
-	bom_names = _production_bom_names(doc)
-	if len(bom_names) < 2:
-		return
-	if not frappe.get_meta("BOM", cached=True).has_field(DIE_TOOL_ITEM_FIELD):
-		return
-
-	rows = frappe.get_all(
-		"BOM",
-		filters={"name": ["in", bom_names]},
-		fields=["name", DIE_TOOL_ITEM_FIELD],
-	)
-	by_name = {row.name: row.get(DIE_TOOL_ITEM_FIELD) for row in rows}
-	die_tools = [by_name.get(name) for name in bom_names]
-	if len(_distinct_nonblank_die_tool_items(die_tools)) > 1:
-		frappe.throw(_("All BOMs on this production entry must use the same Die Tool Item."))
-	prescribed = prescribed_die_tool_item(die_tools)
-	entry_die = cstr(doc.get(DIE_TOOL_ITEM_FIELD)).strip()
-	if prescribed and entry_die and entry_die != prescribed:
-		frappe.throw(_("Die Tool Item must match the Die Tool Item on all selected BOMs."))
+	"""Multi-BOM production entries may use any Die Tool Item on the Stock Entry."""
+	return
 
 
 def apply_bom_die_tool_item(doc: Document | Any) -> None:

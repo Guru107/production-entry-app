@@ -2528,10 +2528,9 @@ test("a BOM die tool item is set on the production entry", () => {
 	assert.deepEqual(properties, []);
 });
 
-test("disagreeing BOM die tool items flag a conflict", () => {
+test("disagreeing BOM die tool items use the first BOM value", () => {
 	assert.deepEqual(_prescribed_die_tool_item(["DIE-1", "DIE-2"]), {
-		item: "",
-		conflict: true,
+		item: "DIE-1",
 	});
 });
 

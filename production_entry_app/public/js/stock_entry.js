@@ -1864,31 +1864,30 @@ function _ensure_use_multi_level_bom_unchecked(frm) {
 
 function _prescribed_die_tool_item(items) {
 	const prescribed = [];
+	let firstNonBlank = "";
 	for (const item of items || []) {
 		const code = String(item || "").trim();
-		if (code && !prescribed.includes(code)) {
+		if (!code) {
+			continue;
+		}
+		if (!firstNonBlank) {
+			firstNonBlank = code;
+		}
+		if (!prescribed.includes(code)) {
 			prescribed.push(code);
 		}
 	}
+	if (prescribed.length === 1) {
+		return { item: prescribed[0] };
+	}
 	if (prescribed.length > 1) {
-		return { item: "", conflict: true };
+		return { item: firstNonBlank };
 	}
-	if (prescribed.length !== 1) {
-		return { item: "" };
-	}
-	return { item: prescribed[0] };
+	return { item: "" };
 }
 
 function _apply_prescribed_die_tool_item(frm, resolution) {
 	const fieldname = "custom_pea_die_tool_item";
-	if (resolution?.conflict) {
-		frappe.msgprint(
-			__(
-				"All BOMs on this production entry must use the same Die Tool Item. Update the BOM master records or change the selected BOMs."
-			)
-		);
-		return;
-	}
 	if (!resolution?.item || frm.doc[fieldname] === resolution.item) {
 		return;
 	}
