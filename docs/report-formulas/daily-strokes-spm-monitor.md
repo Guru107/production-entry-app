@@ -2,10 +2,12 @@
 
 Source: `daily_strokes_spm_monitor/daily_strokes_spm_monitor.py`
 
-Grouped by date and (optionally) operator.
+Grouped by date, operation, and (optionally) operator.
 
 - `date`: group date.
 - `operator`: present only when operator filter is not fixed.
+- `operation`: resolved per entry — Manufacture uses `stock_entry_type`; Joint Production uses
+  `custom_pea_operation` (see `report_formula_conventions.md`). The totals row leaves `operation` blank.
 - `setup_time_hrs`: `Σ setup_mins / 60`.
 - `loss_time_hrs`: `Σ non_setup_loss_mins / 60`.
 - `prod_time_hrs`: `Σ production_mins / 60`.

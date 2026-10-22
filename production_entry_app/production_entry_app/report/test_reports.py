@@ -2153,6 +2153,52 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(float(rows[0]["total_units"]), 240.0)
 		self.assertEqual(float(rows[0]["operator_efficiency_pct"]), 100.0)
 
+	def test_operator_efficiency_report_filters_by_operation_stock_entry_type(self) -> None:
+		from production_entry_app.production_entry_app.report.operator_efficiency_report.operator_efficiency_report import (
+			execute,
+		)
+
+		shearing = ensure_operation("Shearing")
+		blanking = ensure_operation("Blanking")
+		self._ensure_manufacture_operation_stock_entry_type(shearing)
+		self._ensure_manufacture_operation_stock_entry_type(blanking)
+		shift = self._create_shift_for_label("2090-10-01", "1", clear_planned_losses=True)
+		self._create_mock_submitted_entry(
+			posting_date="2090-10-01",
+			planned_start="2090-10-01 08:00:00",
+			planned_end="2090-10-01 09:00:00",
+			actual_start="2090-10-01 08:00:00",
+			actual_end="2090-10-01 09:00:00",
+			fg_qty=40,
+			rejection_qty=0,
+			total_strokes=41,
+			shift_name=shift.name,
+			stock_entry_type=shearing,
+		)
+		self._create_mock_submitted_entry(
+			posting_date="2090-10-01",
+			planned_start="2090-10-01 10:00:00",
+			planned_end="2090-10-01 11:00:00",
+			actual_start="2090-10-01 10:00:00",
+			actual_end="2090-10-01 11:00:00",
+			fg_qty=55,
+			rejection_qty=0,
+			total_strokes=56,
+			shift_name=shift.name,
+			stock_entry_type=blanking,
+		)
+
+		_, rows = execute(
+			{
+				"from_date": "2090-10-01",
+				"to_date": "2090-10-01",
+				"custom_pea_operation": blanking,
+			}
+		)
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(int(rows[0]["entries"]), 1)
+		self.assertEqual(float(rows[0]["total_units"]), 55.0)
+
 	def test_efficiency_reports_use_strokes_for_speed_and_parts_for_quality_quantities(self) -> None:
 		from production_entry_app.production_entry_app.report.operator_efficiency_report.operator_efficiency_report import (
 			execute as operator_execute,
@@ -4431,8 +4477,11 @@ class TestProductionReports(FrappeTestCase):
 				{
 					"name": "MAT-STE-NO-PROD-DATE",
 					"posting_date": "2092-05-01",
+					"purpose": "Manufacture",
+					"stock_entry_type": "Press",
 					"custom_pea_operator": "Report Operator",
-					"custom_pea_operation": "Press",
+					"custom_pea_joint_production": 0,
+					"custom_pea_joint_lh_rh_production": 0,
 					"fg_completed_qty": 50,
 					"custom_pea_rejection_qty": 0,
 					"custom_pea_rework_qty": 0,
@@ -4443,8 +4492,11 @@ class TestProductionReports(FrappeTestCase):
 					"name": "MAT-STE-WITH-PROD-DATE",
 					"posting_date": "2092-05-02",
 					"production_date": "2092-05-01",
+					"purpose": "Manufacture",
+					"stock_entry_type": "Press",
 					"custom_pea_operator": "Report Operator",
-					"custom_pea_operation": "Press",
+					"custom_pea_joint_production": 0,
+					"custom_pea_joint_lh_rh_production": 0,
 					"fg_completed_qty": 40,
 					"custom_pea_rejection_qty": 0,
 					"custom_pea_rework_qty": 0,
@@ -4469,7 +4521,9 @@ class TestProductionReports(FrappeTestCase):
 		):
 			rows = _get_rows({"from_date": "2092-05-01", "to_date": "2092-05-01"})
 
-		self.assertEqual([row["date"] for row in rows if row["date"] != "Total"], ["2092-05-01"])
+		data_rows = [row for row in rows if row["date"] != "Total"]
+		self.assertEqual([row["date"] for row in data_rows], ["2092-05-01"])
+		self.assertEqual(data_rows[0]["operation"], "Press")
 		self.assertNotIn("", [row["date"] for row in rows])
 
 	def test_daily_strokes_spm_monitor_supports_january_date_range(self) -> None:
