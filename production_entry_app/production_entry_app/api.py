@@ -42,6 +42,42 @@ _ALLOWED_STOCK_ENTRY_SHIFT_STATUSES: tuple[str, ...] = ("Running", "Completed")
 
 @frappe.whitelist()
 @frappe.validate_and_sanitize_search_inputs
+def stock_entry_shift_query(
+	doctype: str,
+	txt: str,
+	searchfield: str,
+	start: int,
+	page_len: int,
+	filters: dict | None,
+) -> list[list[str]]:
+	"""Link-field search for Stock Entry Shift: newest shift_date first (Frappe ignores client order_by)."""
+	if doctype != "Shift":
+		return []
+	if not frappe.has_permission("Shift", "read"):
+		return []
+	Shift = DocType("Shift")
+	page_len = page_len or 10
+	start = start or 0
+	search_column = Shift[searchfield] if searchfield in ("name", "shift_date") else Shift.name
+	query = (
+		frappe.qb.from_(Shift)
+		.select(Shift.name, Shift.shift_date, Shift.status)
+		.where(Shift.status.isin(list(_ALLOWED_STOCK_ENTRY_SHIFT_STATUSES)))
+	)
+	if txt:
+		query = query.where(search_column.like(f"%{txt}%"))
+	rows = (
+		query.orderby(Shift.shift_date, order=Order.desc)
+		.orderby(Shift.name, order=Order.desc)
+		.limit(page_len)
+		.offset(start)
+		.run(as_dict=True)
+	)
+	return [[row.name, f"{row.shift_date} · {row.status}"] for row in rows]
+
+
+@frappe.whitelist()
+@frappe.validate_and_sanitize_search_inputs
 def search_joint_boms_for_operation(
 	doctype: str,
 	txt: str,
