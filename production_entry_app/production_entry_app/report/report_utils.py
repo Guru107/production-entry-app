@@ -595,11 +595,7 @@ def iter_stock_entries_in_chunks(
 			if production_date:
 				row["production_date"] = production_date
 		if operation_report_filter:
-			rows = [
-				row
-				for row in rows
-				if get_entry_report_operation(row) == operation_report_filter
-			]
+			rows = [row for row in rows if get_entry_report_operation(row) == operation_report_filter]
 		if rows:
 			yield rows
 		if len(raw_rows) < effective_chunk_size:
