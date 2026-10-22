@@ -141,7 +141,7 @@ def test_joint_lh_rh_production_metadata_is_exported() -> None:
 	assert operation_field.get("mandatory_depends_on") == joint_condition
 	assert "Stock Entry-custom_pea_joint_scrap_qty" not in fields_by_name
 	fetch_items_field = fields_by_name["Stock Entry-custom_pea_joint_fetch_items"]
-	assert fetch_items_field.get("insert_after") == "custom_pea_rh_rejection_qty"
+	assert fetch_items_field.get("insert_after") == "custom_pea_joint_production_lines"
 	assert "Stock Entry-custom_pea_joint_resources_section" not in fields_by_name
 	assert "Stock Entry-custom_pea_joint_resources_col_break" not in fields_by_name
 	joint_lines_field = fields_by_name["Stock Entry-custom_pea_joint_production_lines"]

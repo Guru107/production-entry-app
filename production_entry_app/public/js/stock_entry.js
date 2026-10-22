@@ -576,10 +576,28 @@ function _apply_manufacture_visibility(frm) {
 		_expand_sections(frm, PEA_SHIFT_GATED_SECTIONS);
 	}
 
+	_position_joint_fetch_items(frm);
 	_position_rejection_breakup_section(frm);
 	_toggle_rejection_breakup(frm);
 	_configure_rejection_breakup_grid(frm);
 	_update_die_tool_metrics(frm);
+}
+
+function _position_joint_fetch_items(frm) {
+	if (!_is_joint_doc(frm.doc)) {
+		return;
+	}
+	const fetchField = frm.fields_dict?.custom_pea_joint_fetch_items;
+	if (!fetchField?.wrapper) {
+		return;
+	}
+	const anchorField = _is_same_item_joint_doc(frm.doc)
+		? frm.fields_dict?.custom_pea_joint_production_lines
+		: frm.fields_dict?.custom_pea_rh_rejection_qty;
+	if (!anchorField?.wrapper || fetchField.wrapper === anchorField.wrapper) {
+		return;
+	}
+	fetchField.wrapper.insertAfter(anchorField.wrapper);
 }
 
 function _position_rejection_breakup_section(frm) {

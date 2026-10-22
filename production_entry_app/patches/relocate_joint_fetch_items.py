@@ -11,7 +11,7 @@ _REMOVED_FIELDS: tuple[str, ...] = (
 	"custom_pea_joint_resources_col_break",
 )
 _FETCH_FIELD = "custom_pea_joint_fetch_items"
-_FETCH_INSERT_AFTER = "custom_pea_rh_rejection_qty"
+_FETCH_INSERT_AFTER = "custom_pea_joint_production_lines"
 
 
 def execute() -> None:

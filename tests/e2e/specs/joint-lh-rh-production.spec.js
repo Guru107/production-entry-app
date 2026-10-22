@@ -149,7 +149,6 @@ test.describe("Joint LH/RH production form", () => {
 		expect(await form.isSectionVisible("bom_info_section")).toBe(false);
 		expect(await form.isSectionVisible("custom_pea_operation_details_section")).toBe(false);
 		expect(await form.isSectionVisible("custom_pea_joint_production_section")).toBe(true);
-		expect(await form.isSectionVisible("custom_pea_joint_resources_section")).toBe(false);
 
 		await setFieldValue(page, "custom_pea_shift", ctx.shift_name);
 		expect(await form.isFieldVisible("custom_pea_total_strokes")).toBe(true);
