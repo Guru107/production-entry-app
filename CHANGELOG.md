@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+-   **Operation** report filter uses resolved operation per Stock Entry (`get_entry_report_operation`): Manufacture matches **Stock Entry Type**; Joint Production matches **custom_pea_operation**. Affects Operator/Workstation Efficiency, Production OEE, item/BOM hotspot reports, and SPM reports (#161)
+-   Report formula documentation describes Operation column grouping and filter resolution (`report_formula_conventions.md`, per-report formula files) (#161)
 -   Joint Production is redefined for unused-on-site semantics: output composition is unconstrained (same or distinct finished items per line), with a duplicate-recipe guard instead of fixed two-BOM same-item pairing (#153)
 -   Joint output side labels generalize to BOM 1…BOM N on good, rejection, and breakup rows (#153)
 -   Shift per-BOM stroke and production-minute attribution applies the entry totals to each line's BOM; Shift item summary lists each line's finished item (#153)
