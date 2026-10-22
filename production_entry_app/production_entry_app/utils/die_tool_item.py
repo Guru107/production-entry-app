@@ -82,7 +82,7 @@ def apply_bom_die_tool_item(doc: Document | Any) -> None:
 		bom_no = cstr(doc.get("bom_no")).strip()
 		frappe.throw(
 			_("Set Die Tool Item on BOM {0} before submitting this Manufacture entry.").format(
-				frappe.bold(bom_no) if bom_no else _("(BOM)")
+				frappe.bold(frappe.utils.escape_html(bom_no)) if bom_no else _("(BOM)")
 			)
 		)
 
