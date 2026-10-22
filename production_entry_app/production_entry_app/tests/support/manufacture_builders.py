@@ -54,6 +54,9 @@ def bootstrap_manufacture_masters() -> dict[str, Any]:
 		frappe.db.set_value("Item", fg_item, "custom_pea_has_die_tool", 1, update_modified=False)
 
 	bom = ensure_default_bom(fg_item=fg_item, rm_item=rm_item, company=company)
+	# Manufacture entries made against this BOM must carry a Die Tool Item; use the FG item
+	# so stroke counters keep the same attribution as the old FG-item fallback.
+	frappe.db.set_value("BOM", bom, "custom_pea_die_tool_item", fg_item, update_modified=False)
 	ensure_stock(rm_item, wip_warehouse, company, target_qty=1000)
 	ensure_workstation(_WORKSTATION, standard_spm=2)
 	ensure_operator(_OPERATOR)

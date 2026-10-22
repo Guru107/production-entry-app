@@ -152,6 +152,35 @@ class TestApplyBomDieToolItem(FrappeTestCase):
 
 		self.assertEqual(doc.custom_pea_die_tool_item, self.die_item)
 
+	def test_shift_manufacture_fills_die_tool_item_from_bom_when_entry_blank(self) -> None:
+		frappe.db.set_value("BOM", self.bom, "custom_pea_die_tool_item", self.die_item, update_modified=False)
+		doc = frappe._dict(
+			custom_pea_shift="SHIFT-1",
+			purpose="Manufacture",
+			from_bom=1,
+			bom_no=self.bom,
+			custom_pea_die_tool_item="",
+		)
+		doc.set = lambda fieldname, value: doc.update({fieldname: value})
+
+		apply_bom_die_tool_item(doc)
+
+		self.assertEqual(doc.custom_pea_die_tool_item, self.die_item)
+
+	def test_shift_manufacture_without_die_tool_item_anywhere_is_rejected(self) -> None:
+		frappe.db.set_value("BOM", self.bom, "custom_pea_die_tool_item", None, update_modified=False)
+		doc = frappe._dict(
+			custom_pea_shift="SHIFT-1",
+			purpose="Manufacture",
+			from_bom=1,
+			bom_no=self.bom,
+			custom_pea_die_tool_item="",
+		)
+		doc.set = lambda fieldname, value: doc.update({fieldname: value})
+
+		with self.assertRaisesRegex(frappe.ValidationError, "Die Tool Item is required"):
+			apply_bom_die_tool_item(doc)
+
 	def test_joint_production_lines_supply_bom_names_for_die_tool_item(self) -> None:
 		frappe.db.set_value("BOM", self.bom, "custom_pea_die_tool_item", self.die_item, update_modified=False)
 		doc = frappe._dict(

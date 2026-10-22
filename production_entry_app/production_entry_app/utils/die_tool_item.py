@@ -4,6 +4,7 @@ from collections.abc import Iterable
 from typing import Any
 
 import frappe
+from frappe import _
 from frappe.model.document import Document
 from frappe.utils import cstr
 
@@ -44,10 +45,16 @@ def validate_production_bom_die_tool_consistency(doc: Document | Any) -> None:
 	return
 
 
+def _is_single_bom_manufacture(doc: Document | Any) -> bool:
+	return bool(doc.get("purpose") == "Manufacture" and doc.get("from_bom") and doc.get("bom_no"))
+
+
 def apply_bom_die_tool_item(doc: Document | Any) -> None:
 	"""Set the production entry Die Tool Item when the BOMs name one.
 
 	A blank result leaves the field unchanged so the user can keep or enter a value.
+	Single-BOM Manufacture entries must always end up with a Die Tool Item: the BOM
+	value when present, else one the user selects.
 	"""
 	if not doc.get("custom_pea_shift"):
 		return
@@ -68,6 +75,10 @@ def apply_bom_die_tool_item(doc: Document | Any) -> None:
 	prescribed = prescribed_die_tool_item(by_name.get(name) for name in bom_names)
 	if prescribed:
 		doc.set(DIE_TOOL_ITEM_FIELD, prescribed)
+	if _is_single_bom_manufacture(doc) and not cstr(doc.get(DIE_TOOL_ITEM_FIELD)).strip():
+		frappe.throw(
+			_("Die Tool Item is required for Manufacture entries. Set it on the BOM or select it here.")
+		)
 
 
 def _production_bom_names(doc: Document | Any) -> list[str]:
@@ -79,6 +90,6 @@ def _production_bom_names(doc: Document | Any) -> list[str]:
 		]
 	if is_joint_lh_rh_stock_entry_type(doc):
 		return [name for name in (doc.get("custom_pea_lh_bom"), doc.get("custom_pea_rh_bom")) if name]
-	if doc.get("purpose") == "Manufacture" and doc.get("from_bom") and doc.get("bom_no"):
+	if _is_single_bom_manufacture(doc):
 		return [doc.get("bom_no")]
 	return []

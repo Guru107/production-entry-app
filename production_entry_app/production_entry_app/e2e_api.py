@@ -709,6 +709,9 @@ def bootstrap_e2e_context(prefix: str = "E2E", cleanup_running: int = 1) -> dict
 	frappe.clear_document_cache("Production Entry Settings")
 
 	bom = ensure_default_bom(fg_item=fg_item, rm_item=rm_item, company=company)
+	# Manufacture entries made against this BOM must carry a Die Tool Item; use the FG item
+	# so stroke counters keep the same attribution as the old FG-item fallback.
+	frappe.db.set_value("BOM", bom, "custom_pea_die_tool_item", fg_item, update_modified=False)
 	ensure_stock(rm_item, wip_warehouse, company, target_qty=1000, posting_date=base_date)
 	joint_lh_item, joint_rh_item, joint_rm_item, joint_scrap_item, joint_scrap_nos_item = (
 		_get_e2e_joint_item_codes(prefix)

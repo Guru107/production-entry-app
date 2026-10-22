@@ -61,6 +61,7 @@ const SHIFT_BASED_REQUIRED_FIELDS = [
 	"custom_pea_actual_start_date",
 	"custom_pea_actual_end_date",
 	"custom_pea_standard_spm",
+	"custom_pea_die_tool_item",
 ];
 
 const NORMAL_ONLY_PEA_FIELDS = ["custom_pea_rejection_qty", "custom_pea_rework_qty"];
