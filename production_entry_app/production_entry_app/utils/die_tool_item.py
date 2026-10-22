@@ -79,8 +79,11 @@ def apply_bom_die_tool_item(doc: Document | Any) -> None:
 		if fallback:
 			doc.set(DIE_TOOL_ITEM_FIELD, fallback)
 	if _is_single_bom_manufacture(doc) and not cstr(doc.get(DIE_TOOL_ITEM_FIELD)).strip():
+		bom_no = cstr(doc.get("bom_no")).strip()
 		frappe.throw(
-			_("Die Tool Item is required for Manufacture entries. Set it on the BOM or select it here.")
+			_("Set Die Tool Item on BOM {0} before submitting this Manufacture entry.").format(
+				frappe.bold(bom_no) if bom_no else _("(BOM)")
+			)
 		)
 
 

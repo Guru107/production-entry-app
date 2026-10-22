@@ -585,8 +585,8 @@ function _apply_manufacture_visibility(frm) {
 function _position_rejection_breakup_section(frm) {
 	const rejectionSection = frm.fields_dict?.custom_pea_rejection_section;
 	const normalFetchSection = frm.fields_dict?.custom_pea_fetch_items?.section;
-	const jointResourcesSection = frm.fields_dict?.custom_pea_joint_resources_section;
-	const anchorSection = _is_joint_doc(frm.doc) ? jointResourcesSection : normalFetchSection;
+	const jointProductionSection = frm.fields_dict?.custom_pea_joint_production_section;
+	const anchorSection = _is_joint_doc(frm.doc) ? jointProductionSection : normalFetchSection;
 	if (
 		!rejectionSection?.wrapper ||
 		!anchorSection?.wrapper ||
@@ -1158,7 +1158,11 @@ function _expand_sections(frm, sectionFieldnames) {
 }
 
 function _is_manufacture_doc(doc) {
-	return _normalize_purpose(doc?.custom_stock_entry_purpose) === "Manufacture";
+	const purpose = _normalize_purpose(doc?.custom_stock_entry_purpose);
+	if (purpose === "Manufacture") {
+		return true;
+	}
+	return _normalize_purpose(doc?.purpose) === "Manufacture";
 }
 
 function _is_same_item_joint_doc(doc) {

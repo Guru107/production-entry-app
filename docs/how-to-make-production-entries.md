@@ -97,11 +97,10 @@ For stamping operations that produce Left-Hand and Right-Hand parts together:
 1. New Stock Entry → **Stock Entry Type = Joint LH RH Production** (a Repack type). The form switches to joint mode: **Operation** becomes mandatory and the single-mode rejection fields are hidden.
 2. Select the **Shift** (company, branch, dates, warehouses auto-fill as usual).
 3. **Operation**: pick the operation (e.g. Shearing). For **Shearing**, both sides consume proportional shares of one common raw-material sheet; for any other operation each side consumes its own BOM inputs independently.
-4. **Joint LH/RH Production** section: pick the **LH BOM** and **RH BOM**, enter each side's **Gross Quantity** and **Rejection Quantity**.
-5. **Joint Production Resources**: **Total Press Strokes** (one count for the shared press operation — it may differ from either side's quantity) and the **Die Tool Item** (required when a Shift is set; drives utilization tracking).
-6. Fill the shared **Operation Details** (actual times, Workstation, Operator) and click **Fetch Items**. The app materializes both sides' consumption, outputs and rejection rows (each row tagged **Joint Output Side** LH/RH).
-7. **Rejection Breakup** rows in joint mode require **Output Side**; the Item Code auto-fills from that side's BOM finished item.
-8. Save and Submit.
+4. **Joint LH/RH Production** section: pick the **LH BOM** and **RH BOM**, enter each side's **Gross Quantity** and **Rejection Quantity**, then click **Fetch Items**. The app materializes both sides' consumption, outputs and rejection rows (each row tagged **Joint Output Side** LH/RH).
+5. **Operation Details**: actual times, **Workstation**, **Operator**, then **Total Press Strokes** (one count for the shared press operation — it may differ from either side's quantity) and **Die Tool Item** (required when a Shift is set; drives utilization tracking).
+6. **Rejection Breakup** rows in joint mode require **Output Side**; the Item Code auto-fills from that side's BOM finished item.
+7. Save and Submit.
 
 ---
 

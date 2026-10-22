@@ -99,7 +99,7 @@ class TestApplyBomDieToolItem(FrappeTestCase):
 		)
 		doc.set = lambda fieldname, value: doc.update({fieldname: value})
 
-		with self.assertRaisesRegex(frappe.ValidationError, "Die Tool Item is required"):
+		with self.assertRaisesRegex(frappe.ValidationError, "Set Die Tool Item on BOM"):
 			apply_bom_die_tool_item(doc)
 
 	def test_joint_production_lines_supply_bom_names_for_die_tool_item(self) -> None:

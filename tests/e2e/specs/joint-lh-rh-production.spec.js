@@ -149,7 +149,7 @@ test.describe("Joint LH/RH production form", () => {
 		expect(await form.isSectionVisible("bom_info_section")).toBe(false);
 		expect(await form.isSectionVisible("custom_pea_operation_details_section")).toBe(false);
 		expect(await form.isSectionVisible("custom_pea_joint_production_section")).toBe(true);
-		expect(await form.isSectionVisible("custom_pea_joint_resources_section")).toBe(true);
+		expect(await form.isSectionVisible("custom_pea_joint_resources_section")).toBe(false);
 
 		await setFieldValue(page, "custom_pea_shift", ctx.shift_name);
 		expect(await form.isFieldVisible("custom_pea_total_strokes")).toBe(true);
@@ -165,7 +165,7 @@ test.describe("Joint LH/RH production form", () => {
 				actualEndDate: top("custom_pea_actual_end_date_input"),
 				actualEndTime: top("custom_pea_actual_end_time_input"),
 				jointProduction: top("custom_pea_joint_production_section"),
-				jointResources: top("custom_pea_joint_resources_section"),
+				jointFetch: top("custom_pea_joint_fetch_items"),
 				workstation: top("custom_pea_workstation_operator_section"),
 			};
 		});
@@ -179,8 +179,8 @@ test.describe("Joint LH/RH production form", () => {
 			expect(sectionTops[fieldname]).toBeGreaterThan(sectionTops.dates);
 			expect(sectionTops[fieldname]).toBeLessThan(sectionTops.jointProduction);
 		}
-		expect(sectionTops.jointProduction).toBeLessThan(sectionTops.jointResources);
-		expect(sectionTops.jointResources).toBeLessThan(sectionTops.workstation);
+		expect(sectionTops.jointProduction).toBeLessThan(sectionTops.jointFetch);
+		expect(sectionTops.jointFetch).toBeLessThan(sectionTops.workstation);
 	});
 
 	test("@regression Stock Entry Type changes reset joint and normal production state", async ({
@@ -331,12 +331,12 @@ test.describe("Joint LH/RH production form", () => {
 
 		expect(await form.isFieldVisible("custom_pea_rejection_breakup")).toBe(true);
 		const dataEntryFlowTops = await getFieldTops(page, [
-			"custom_pea_joint_resources_section",
+			"custom_pea_rh_rejection_qty",
 			"custom_pea_joint_fetch_items",
 			"custom_pea_rejection_breakup",
 			"custom_pea_workstation_operator_section",
 		]);
-		expect(dataEntryFlowTops.custom_pea_joint_resources_section).toBeLessThan(
+		expect(dataEntryFlowTops.custom_pea_rh_rejection_qty).toBeLessThan(
 			dataEntryFlowTops.custom_pea_joint_fetch_items
 		);
 		expect(dataEntryFlowTops.custom_pea_joint_fetch_items).toBeLessThan(
