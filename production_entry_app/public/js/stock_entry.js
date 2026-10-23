@@ -1879,6 +1879,11 @@ function _prescribed_die_tool_item(items) {
 }
 
 function _apply_prescribed_die_tool_item(frm, resolution) {
+	// Submitted/cancelled entries cannot save the auto-fill; setting it only
+	// flags a read-only form dirty on every open.
+	if (frm.doc.docstatus !== 0) {
+		return;
+	}
 	const fieldname = "custom_pea_die_tool_item";
 	let item = resolution?.item;
 	if (!item && !frm.doc[fieldname] && resolution?.fallback) {

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+-   Opening a submitted Manufacture entry without a Die Tool Item no longer marks the form dirty: the BOM die-tool auto-fill now skips submitted/cancelled documents instead of setting an unsavable value on every load
+
 ## [1.3.0] - 2026-10-23
 
 ### Added

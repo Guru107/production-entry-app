@@ -2583,6 +2583,22 @@ test("removing the BOM die tool item leaves the previously set value", () => {
 	assert.equal(frm.doc.custom_pea_die_tool_item, "DIE-BOM");
 });
 
+test("a submitted entry is never auto-filled with the BOM die tool item", () => {
+	const frm = {
+		doc: { docstatus: 1, custom_pea_die_tool_item: null },
+		set_value() {
+			throw new Error("submitted docs must stay clean");
+		},
+		set_df_property() {
+			throw new Error("no field tweaks on submitted docs");
+		},
+	};
+
+	_apply_prescribed_die_tool_item(frm, _prescribed_die_tool_item(["DIE-BOM"]));
+
+	assert.equal(frm.doc.custom_pea_die_tool_item, null);
+});
+
 function installDieToolBomLookup({ dieToolFieldReady, dieToolItem = "DIE-001" }) {
 	const fetched = [];
 	const messages = [];
