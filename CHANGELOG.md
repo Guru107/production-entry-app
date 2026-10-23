@@ -7,9 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-10-23
+
 ### Fixed
 
--   Opening a submitted Manufacture entry without a Die Tool Item no longer marks the form dirty: the BOM die-tool auto-fill now skips submitted/cancelled documents instead of setting an unsavable value on every load
+-   Opening a submitted Manufacture entry without a Die Tool Item no longer marks the form dirty: the BOM die-tool auto-fill now skips submitted/cancelled documents instead of setting an unsavable value on every load (e2e regression spec included)
+-   Test host-parity helpers only clean up custom fields they created, so suite runs no longer delete production-replicated fields (e.g. `Stock Entry.custom_department`) from host benches
+-   The clean-site cutover test no longer re-installs legacy time-capture fields that the app's installation removed, keeping post-cutover hosts clean
+-   Test BOM helpers set the production-required `BOM.custom_operation` link, so suites pass on host-parity benches where that field is mandatory
 
 ## [1.3.0] - 2026-10-23
 
