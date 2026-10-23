@@ -272,9 +272,7 @@ class TestCutoverFieldRemoval(CutoverHostParityTestCase):
 				"read_only": 1,
 			},
 		):
-			self.addCleanup(
-				host_parity.remove_host_custom_field, "Stock Entry", "custom_stock_entry_purpose"
-			)
+			self.addCleanup(host_parity.remove_host_custom_field, "Stock Entry", "custom_stock_entry_purpose")
 		if host_parity.ensure_host_custom_field(
 			"BOM", {"fieldname": "custom_operation", "label": "Operation", "fieldtype": "Data"}
 		):
