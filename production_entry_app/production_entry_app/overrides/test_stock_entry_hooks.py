@@ -4841,6 +4841,40 @@ class TestDieToolCounter(FrappeTestCase):
 		counter = frappe.get_doc("Die Tool Counter", self.fg_item)
 		self.assertEqual(counter.current_stroke_count, 0)
 
+	def test_capacity_sync_folds_into_counter_update_without_extra_write(self) -> None:
+		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
+			on_cancel_stock_entry,
+			on_submit_stock_entry,
+		)
+
+		_set_item_die_tool_fields(self.fg_item, stroke_capacity=2000)
+		se = _create_manufacture_stock_entry(
+			company=self.company,
+			fg_item=self.fg_item,
+			rm_item=self.rm_item,
+			fg_qty=5,
+			rm_qty=5,
+			fg_warehouse=self.fg_warehouse,
+			rm_warehouse=self.rm_warehouse,
+		)
+		se.custom_pea_total_strokes = 6
+
+		capacity_writes = []
+		real_set_value = frappe.db.set_value
+
+		def spy(dt, dn, field, *args, **kwargs):
+			if dt == "Die Tool Counter" and field == "stroke_capacity":
+				capacity_writes.append(dn)
+			return real_set_value(dt, dn, field, *args, **kwargs)
+
+		with patch.object(frappe.db, "set_value", side_effect=spy):
+			on_submit_stock_entry(se, "on_submit")
+			on_cancel_stock_entry(se, "on_cancel")
+
+		self.assertEqual(capacity_writes, [])
+		counter = frappe.get_doc("Die Tool Counter", self.fg_item)
+		self.assertEqual(counter.stroke_capacity, 2000)
+
 	def test_cache_invalidated_on_stock_entry_submit(self) -> None:
 		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
 			on_submit_stock_entry,

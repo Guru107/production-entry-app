@@ -48,8 +48,13 @@ def _update_counter(item_code: str, stroke_delta: float) -> None:
 	counter_name = _ensure_counter_exists(item_code)
 	die_tool_counter = QBDocType("Die Tool Counter")
 
+	# stroke_capacity rides on this UPDATE: the row is being written anyway, so a separate
+	# set_value would be a wasted round-trip on every submit/cancel.
 	frappe.qb.update(die_tool_counter).set(
 		die_tool_counter.current_stroke_count, die_tool_counter.current_stroke_count + stroke_delta
+	).set(
+		die_tool_counter.stroke_capacity,
+		float(frappe.db.get_value("Item", item_code, "custom_pea_stroke_capacity") or 0),
 	).where(die_tool_counter.name == counter_name).run()
 
 	if stroke_delta < 0:
@@ -58,14 +63,6 @@ def _update_counter(item_code: str, stroke_delta: float) -> None:
 			die_tool_counter.current_stroke_count,
 			greatest(die_tool_counter.current_stroke_count, 0),
 		).where(die_tool_counter.name == counter_name).run()
-
-	frappe.db.set_value(
-		"Die Tool Counter",
-		counter_name,
-		"stroke_capacity",
-		float(frappe.db.get_value("Item", item_code, "custom_pea_stroke_capacity") or 0),
-		update_modified=False,
-	)
 
 
 def reset_counter_from_maintenance_log(item_code: str, maintenance_date: str | datetime.datetime) -> None:
