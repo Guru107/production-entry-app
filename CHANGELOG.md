@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-23
+
+### Added
+
+-   Manufacture entries with a single BOM require a **Die Tool Item**: auto-filled from the BOM when it names one, otherwise the user picks it and an empty field is rejected at validate; the field is marked required for all shift-based production entries (#163)
+
+### Changed
+
+-   Joint (multi-BOM) Stock Entries no longer require every BOM to share one Die Tool Item; entries submit with a user-chosen die tool when BOMs disagree. The default uses the common value when all BOMs match, otherwise the first BOM in line order (#163)
+-   Joint Fetch Items and rejection breakup layout is declared in the form layout (`insert_after` chains) instead of runtime JS repositioning; on Manufacture entries the breakup section now renders after Operation Details (#164)
+-   Migration patches carry existing sites to the final layout: joint Fetch Items/rejection section relocation and Manufacture press field reordering (#163, #164)
+
+### Fixed
+
+-   Die tool auto-fill preserves the operator's choice when BOMs disagree (generator exhaustion in `prescribed_die_tool_item`) (#163)
+-   Manufacture die tool error escapes the BOM number for `frappe.bold` (#163)
+
 ## [1.2.0] - 2026-10-22
 
 ### Added
