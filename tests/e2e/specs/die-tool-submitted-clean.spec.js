@@ -11,7 +11,9 @@ test("submitted entry without die tool item stays clean on open", async ({ page,
 	test.skip(exists.status() === 404, "MAT-STE-01371 only exists on the bench15 host");
 
 	await page.goto(getRoute("/stock-entry/MAT-STE-01371"));
-	await page.waitForFunction(() => window.cur_frm && !window.cur_frm.loading, { timeout: 30000 });
+	await page.waitForFunction(() => window.cur_frm && !window.cur_frm.loading, {
+		timeout: 30000,
+	});
 	// Let the async BOM die-tool fetch settle.
 	await page.waitForTimeout(2000);
 
