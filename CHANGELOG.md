@@ -7,9 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-10-23
+
 ### Changed
 
 -   Removed archived agent plans/specs/spikes (`docs/superpowers/`); their still-live decisions moved into `CONTEXT.md`, `CLAUDE.md` and the Stock Entry override comments (#169)
+-   Removed the test aggregator modules; suites run from their owning test modules directly (#168)
+-   Die tool counter `stroke_capacity` sync now rides on the counter's existing atomic UPDATE instead of a separate `set_value` write, removing a DB round-trip from every Stock Entry submit and cancel (#170)
 
 ## [1.3.1] - 2026-10-23
 
