@@ -1092,6 +1092,10 @@ def _get_or_create_bom(
 			],
 		}
 	)
+	# Production-owned BOM.custom_operation is reqd on host-parity benches.
+	operation_field = frappe.get_meta("BOM").get_field("custom_operation")
+	if operation_field and int(operation_field.reqd or 0):
+		bom.custom_operation = ensure_operation("_Test BOM Operation")
 	bom.insert(ignore_permissions=True)
 	bom.submit()
 	return bom.name
@@ -4451,6 +4455,9 @@ class TestGetItemsWithRejection(FrappeTestCase):
 				],
 			}
 		)
+		operation_field = frappe.get_meta("BOM").get_field("custom_operation")
+		if operation_field and int(operation_field.reqd or 0):
+			parent_bom.custom_operation = ensure_operation("_Test BOM Operation")
 		parent_bom.insert(ignore_permissions=True)
 		parent_bom.submit()
 
