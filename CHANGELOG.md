@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+-   Removed archived agent plans/specs/spikes (`docs/superpowers/`); their still-live decisions moved into `CONTEXT.md`, `CLAUDE.md` and the Stock Entry override comments (#169)
+
 ## [1.3.1] - 2026-10-23
 
 ### Fixed
