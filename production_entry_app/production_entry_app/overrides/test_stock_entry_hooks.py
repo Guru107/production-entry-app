@@ -5264,7 +5264,7 @@ class TestStockEntryLateEntryStamp(FrappeTestCase):
 		from production_entry_app.production_entry_app.tests.support import host_parity
 
 		masters = bootstrap_manufacture_masters()
-		host_parity.ensure_host_custom_field(
+		if host_parity.ensure_host_custom_field(
 			"Stock Entry",
 			{
 				"fieldname": "custom_department",
@@ -5272,8 +5272,8 @@ class TestStockEntryLateEntryStamp(FrappeTestCase):
 				"fieldtype": "Link",
 				"options": "Department",
 			},
-		)
-		self.addCleanup(host_parity.remove_host_custom_field, "Stock Entry", "custom_department")
+		):
+			self.addCleanup(host_parity.remove_host_custom_field, "Stock Entry", "custom_department")
 		shift = self._make_running_shift(masters)
 		department = frappe.db.get_value("Shift", shift.name, "department")
 		self.assertTrue(department)

@@ -238,16 +238,16 @@ class TestCutoverFieldRemoval(CutoverHostParityTestCase):
 
 	def test_cutover_removes_legacy_press_rate_fields(self) -> None:
 		"""Press Rate sits next to legacy SPM/workstation capture and is retired with it."""
-		host_parity.ensure_host_custom_field(
+		if host_parity.ensure_host_custom_field(
 			"Stock Entry",
 			{"fieldname": "custom_press_rate", "label": "Press Rate", "fieldtype": "Data"},
-		)
-		self.addCleanup(host_parity.remove_host_custom_field, "Stock Entry", "custom_press_rate")
-		host_parity.ensure_host_custom_field(
+		):
+			self.addCleanup(host_parity.remove_host_custom_field, "Stock Entry", "custom_press_rate")
+		if host_parity.ensure_host_custom_field(
 			"Workstation",
 			{"fieldname": "custom_press_rate", "label": "Press Rate", "fieldtype": "Float"},
-		)
-		self.addCleanup(host_parity.remove_host_custom_field, "Workstation", "custom_press_rate")
+		):
+			self.addCleanup(host_parity.remove_host_custom_field, "Workstation", "custom_press_rate")
 
 		self.run_cutover()
 
@@ -257,7 +257,7 @@ class TestCutoverFieldRemoval(CutoverHostParityTestCase):
 		self.assertFalse(frappe.db.exists("Custom Field", "Workstation-custom_press_rate"))
 
 	def test_cutover_leaves_host_and_production_owned_metadata_untouched(self) -> None:
-		host_parity.ensure_host_custom_field(
+		if host_parity.ensure_host_custom_field(
 			"Stock Entry",
 			{
 				"fieldname": "custom_stock_entry_purpose",
@@ -265,12 +265,14 @@ class TestCutoverFieldRemoval(CutoverHostParityTestCase):
 				"fieldtype": "Data",
 				"read_only": 1,
 			},
-		)
-		self.addCleanup(host_parity.remove_host_custom_field, "Stock Entry", "custom_stock_entry_purpose")
-		host_parity.ensure_host_custom_field(
+		):
+			self.addCleanup(
+				host_parity.remove_host_custom_field, "Stock Entry", "custom_stock_entry_purpose"
+			)
+		if host_parity.ensure_host_custom_field(
 			"BOM", {"fieldname": "custom_operation", "label": "Operation", "fieldtype": "Data"}
-		)
-		self.addCleanup(host_parity.remove_host_custom_field, "BOM", "custom_operation")
+		):
+			self.addCleanup(host_parity.remove_host_custom_field, "BOM", "custom_operation")
 
 		self.run_cutover()
 

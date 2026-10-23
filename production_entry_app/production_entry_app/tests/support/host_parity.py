@@ -244,13 +244,18 @@ def loss_time_reason_values(stock_entry_name: str) -> list[str]:
 	)
 
 
-def ensure_host_custom_field(dt: str, field_values: dict) -> None:
-	"""Create a host-owned (module-less) custom field if absent."""
+def ensure_host_custom_field(dt: str, field_values: dict) -> bool:
+	"""Create a host-owned (module-less) custom field if absent; True when created.
+
+	The field may pre-exist as production-replicated metadata on host benches —
+	callers must only clean up when this returns True.
+	"""
 	if frappe.db.exists("Custom Field", f"{dt}-{field_values['fieldname']}"):
-		return
+		return False
 	frappe.get_doc({"doctype": "Custom Field", "dt": dt, **field_values}).insert(ignore_permissions=True)
 	frappe.clear_cache(doctype=dt)
 	frappe.db.commit()
+	return True
 
 
 def remove_host_custom_field(dt: str, fieldname: str) -> None:
