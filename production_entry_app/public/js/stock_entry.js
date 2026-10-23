@@ -576,50 +576,9 @@ function _apply_manufacture_visibility(frm) {
 		_expand_sections(frm, PEA_SHIFT_GATED_SECTIONS);
 	}
 
-	_position_joint_fetch_items(frm);
-	_position_rejection_breakup_section(frm);
 	_toggle_rejection_breakup(frm);
 	_configure_rejection_breakup_grid(frm);
 	_update_die_tool_metrics(frm);
-}
-
-function _position_joint_fetch_items(frm) {
-	if (!_is_joint_doc(frm.doc)) {
-		return;
-	}
-	const fetchField = frm.fields_dict?.custom_pea_joint_fetch_items;
-	if (!fetchField?.wrapper) {
-		return;
-	}
-	const anchorField = _is_same_item_joint_doc(frm.doc)
-		? frm.fields_dict?.custom_pea_joint_production_lines
-		: frm.fields_dict?.custom_pea_rh_rejection_qty;
-	const fetchWrapper = fetchField.$wrapper || fetchField.wrapper;
-	const anchorWrapper = anchorField?.$wrapper || anchorField?.wrapper;
-	if (!fetchWrapper || !anchorWrapper || fetchWrapper === anchorWrapper) {
-		return;
-	}
-	const $fetch = fetchWrapper.jquery ? fetchWrapper : $(fetchWrapper);
-	const $anchor = anchorWrapper.jquery ? anchorWrapper : $(anchorWrapper);
-	if (!$fetch.length || !$anchor.length || $fetch[0] === $anchor[0]) {
-		return;
-	}
-	$fetch.insertAfter($anchor);
-}
-
-function _position_rejection_breakup_section(frm) {
-	const rejectionSection = frm.fields_dict?.custom_pea_rejection_section;
-	const normalFetchSection = frm.fields_dict?.custom_pea_fetch_items?.section;
-	const jointProductionSection = frm.fields_dict?.custom_pea_joint_production_section;
-	const anchorSection = _is_joint_doc(frm.doc) ? jointProductionSection : normalFetchSection;
-	if (
-		!rejectionSection?.wrapper ||
-		!anchorSection?.wrapper ||
-		rejectionSection === anchorSection
-	) {
-		return;
-	}
-	rejectionSection.wrapper.insertAfter(anchorSection.wrapper);
 }
 
 function _set_prev_purpose(frm) {
