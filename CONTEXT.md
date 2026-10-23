@@ -99,6 +99,12 @@ may not shrink, Planned Losses are regenerated for the longer window, and the ne
 another non-cancelled Shift of the same Company, Branch and Department. Status stays Completed.
 _Avoid_: Reopening a shift, editing a completed shift
 
+**Late Entry**:
+A Stock Entry submitted against a Completed Shift. Completed Shifts still accept Stock Entries; submit stamps
+`custom_pea_is_late_entry` from the Shift's status-at-submit, and the entry counts in the Shift summary's
+`late_entry_count`.
+_Avoid_: Shift reopening, backdated production entry
+
 **Rework Operation**:
 A native Material Transfer Stock Entry, using the configured rework Stock Entry Type, that moves successfully
 reworked quantity from the Rejection Warehouse to the good warehouse and loads its labour cost onto that stock
@@ -124,11 +130,19 @@ multi-item rejections must name the Item on each breakup row so the pool cannot 
 Manual scrap write-offs do not drain it, so reports show it beside the actual Rejection Warehouse balance.
 _Avoid_: Rework backlog document, rework warehouse balance
 
+**Rejection Warehouse**:
+The warehouse that quarantines rejected units. They stay finished goods carrying full FG valuation rather than
+being written off like scrap; their value follows the stock into this warehouse. Rework Operations move reworked
+quantity back out (ADR 0002).
+_Avoid_: Scrap warehouse, rejection write-off
+
 **Branch Ownership Handoff**:
 Production Entry App owns `Shift.branch` only. The production ERPNext instance owns any `Stock Entry.branch`,
 `Stock Entry Detail.branch`, and accounting-dimension branch fields. When a linked Shift is selected, the app
 copies `Shift.branch` to `Stock Entry.branch` only if that host-owned field already exists; otherwise it skips
-the handoff safely and leaves branch/header-detail synchronization to the production instance.
+the handoff safely and leaves branch/header-detail synchronization to the production instance. Reports read
+through `frappe.qb`/`frappe.get_all`, which bypass native User Permissions, so they remain cross-branch visible
+by design; app-side branch filtering of reports is rejected.
 _Avoid_: App-created Stock Entry Branch field, app-owned detail branch sync, legacy branch-field migration
 
 **Right-First-Time Quality**:

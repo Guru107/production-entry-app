@@ -14,6 +14,9 @@ class ProductionEntryAppStockEntry(StockEntry):
 	# also is_finished_item, so we skip it here. If ERPNext changes multi-FG /
 	# bundle selection, the regression tests in test_stock_entry_override.py
 	# (manufacture+rejection SLEs) will fail -- do not silence them.
+	# Clearing is_finished_item on the rejection row instead fails native
+	# validation (source warehouse mandatory) on v15 and v16, so the row keeps
+	# the flag and this override must stay.
 	def get_finished_item_row(self) -> StockEntryDetail | None:
 		if self.purpose in ("Manufacture", "Repack"):
 			for row in self.get("items"):

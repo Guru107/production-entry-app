@@ -269,6 +269,11 @@ production.
   through `has_child_permission()` on the parent; an empty child `permissions` array is valid.
   Do not duplicate parent roles on a child to implement access control.
 - Do not use `ignore_permissions=True` outside of test/E2E helpers.
+- Frappe permissions are additive: read-only users get `PEA Read Only` only — never `Stock User`/
+  `Manufacturing User`. Close a missing read with a read/select `DocPerm` fixture row for that DocType,
+  not a broader role.
+- Use `DocPerm` fixtures, never `Custom DocPerm`: Custom DocPerm freezes a standard DocType's permission
+  snapshot and stops tracking ERPNext upstream.
 
 ---
 
