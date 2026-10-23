@@ -420,6 +420,11 @@ def install_legacy_time_fields() -> None:
 	)
 
 
+def legacy_time_fields_present() -> bool:
+	"""True when any legacy time-capture custom field still exists on the host."""
+	return any(frappe.db.exists("Custom Field", f"{dt}-{fieldname}") for dt, fieldname in LEGACY_TIME_FIELDS)
+
+
 def remove_legacy_time_fields() -> None:
 	"""Remove the legacy time-capture fields and any leftover property setters."""
 	for dt, fieldname in LEGACY_TIME_FIELDS:

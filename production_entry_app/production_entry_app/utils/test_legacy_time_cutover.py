@@ -60,9 +60,15 @@ class TestCutoverOnCleanSite(DriftNeutralTestCase):
 		self.addCleanup(host_parity.restore_module_property_setters, self.property_setters_before)
 		self.scripts_before = _script_state()
 		# A host-parity clone carries the real legacy fields; a clean site has
-		# none. Remove them so the noop expectation holds on any site.
+		# none. Remove them so the noop expectation holds on any site, and only
+		# restore what the host actually had (a post-cutover host must stay clean).
+		self.host_had_legacy_fields = host_parity.legacy_time_fields_present()
 		host_parity.remove_legacy_time_fields()
-		self.addCleanup(host_parity.install_legacy_time_fields)
+		self.addCleanup(
+			host_parity.install_legacy_time_fields
+			if self.host_had_legacy_fields
+			else host_parity.remove_legacy_time_fields
+		)
 
 	def test_cutover_is_noop_on_clean_site(self) -> None:
 		execute_legacy_time_cutover()
