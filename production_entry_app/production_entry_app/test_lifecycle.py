@@ -101,6 +101,28 @@ class TestReworkDetailsLayout(unittest.TestCase):
 				)
 				fake_frappe.clear_cache.assert_called_once_with(doctype="Stock Entry")
 
+	def test_rework_details_anchor_skips_new_optional_rework_fields(self) -> None:
+		fields = [
+			frappe._dict(fieldname="stock_entry_type", fieldtype="Link"),
+			frappe._dict(fieldname="apply_putaway_rule", fieldtype="Check"),
+			frappe._dict(fieldname="custom_pea_rework_rejection_reason", fieldtype="Link", is_custom_field=1),
+			frappe._dict(fieldname="custom_pea_rework_operation", fieldtype="Link", is_custom_field=1),
+			frappe._dict(fieldname="bom_info_section", fieldtype="Section Break"),
+		]
+		fake_frappe = Mock()
+		fake_frappe.db.get_value.return_value = "stock_entry_type"
+		fake_frappe.get_meta.return_value = frappe._dict(fields=fields)
+		with patch.object(lifecycle, "frappe", fake_frappe):
+			lifecycle.ensure_rework_details_layout()
+
+			fake_frappe.db.set_value.assert_called_once_with(
+				"Custom Field",
+				"Stock Entry-custom_pea_rework_details_section",
+				"insert_after",
+				"apply_putaway_rule",
+				update_modified=False,
+			)
+
 	def test_rework_details_layout_is_idempotent(self) -> None:
 		fields = [
 			frappe._dict(fieldname="stock_entry_type", fieldtype="Link"),

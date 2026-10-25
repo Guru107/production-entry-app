@@ -38,7 +38,9 @@ async function fillReworkEntry(page, context, options = {}) {
 		const frm = window.cur_frm;
 		return (
 			frm?.doc?.__pea_rework_stock_entry_type === expectedType &&
-			frm?.get_field?.("custom_pea_rework_type")?.$wrapper?.is(":visible")
+			frm?.get_field?.("custom_pea_rework_type")?.$wrapper?.is(":visible") &&
+			frm?.get_field?.("custom_pea_rework_rejection_reason")?.$wrapper?.is(":visible") &&
+			frm?.get_field?.("custom_pea_rework_operation")?.$wrapper?.is(":visible")
 		);
 	}, context.rework_stock_entry_type);
 	await setFieldValue(page, "company", context.company);

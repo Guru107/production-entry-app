@@ -4727,6 +4727,21 @@ class TestGetItemsWithRejection(FrappeTestCase):
 		self.assertEqual(int(field.read_only or 0), 1)
 		self.assertEqual(field.insert_after, "custom_pea_operator_efficiency_pct")
 
+	def test_rework_rejection_reason_and_operation_fields_exist(self) -> None:
+		meta = frappe.get_meta("Stock Entry")
+		reason_field = meta.get_field("custom_pea_rework_rejection_reason")
+		self.assertTrue(reason_field)
+		self.assertEqual(reason_field.fieldtype, "Link")
+		self.assertEqual(reason_field.options, "Rejection Reason")
+		self.assertEqual(int(reason_field.reqd or 0), 0)
+		self.assertEqual(reason_field.insert_after, "custom_pea_rework_type")
+		operation_field = meta.get_field("custom_pea_rework_operation")
+		self.assertTrue(operation_field)
+		self.assertEqual(operation_field.fieldtype, "Link")
+		self.assertEqual(operation_field.options, "Operation")
+		self.assertEqual(int(operation_field.reqd or 0), 0)
+		self.assertEqual(operation_field.insert_after, "custom_pea_rework_workstation")
+
 	@classmethod
 	def tearDownClass(cls) -> None:
 		# Clean up any Running shifts used in this class

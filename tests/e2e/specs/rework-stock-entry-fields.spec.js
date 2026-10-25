@@ -61,9 +61,19 @@ test.describe("Rework fields on Stock Entry", () => {
 									?.get_field?.("custom_pea_rework_type")
 									?.$wrapper?.is(":visible")
 							),
+							rejectionReasonVisible: Boolean(
+								frm
+									?.get_field?.("custom_pea_rework_rejection_reason")
+									?.$wrapper?.is(":visible")
+							),
 							workstationVisible: Boolean(
 								frm
 									?.get_field?.("custom_pea_rework_workstation")
+									?.$wrapper?.is(":visible")
+							),
+							operationVisible: Boolean(
+								frm
+									?.get_field?.("custom_pea_rework_operation")
 									?.$wrapper?.is(":visible")
 							),
 							operatorsVisible: Boolean(
@@ -83,7 +93,9 @@ test.describe("Rework fields on Stock Entry", () => {
 					stockEntryType: stockEntryTypes[0],
 					reworkMarker: stockEntryTypes[0],
 					reworkTypeVisible: true,
+					rejectionReasonVisible: true,
 					workstationVisible: true,
+					operationVisible: true,
 					operatorsVisible: true,
 					reworkCostVisible: false,
 				});
@@ -146,7 +158,9 @@ test.describe("Rework fields on Stock Entry", () => {
 					placements: Object.fromEntries(
 						[
 							"custom_pea_rework_type",
+							"custom_pea_rework_rejection_reason",
 							"custom_pea_rework_workstation",
+							"custom_pea_rework_operation",
 							"custom_pea_rework_operators",
 						].map((fieldname) => [fieldname, placement(fieldname)])
 					),
@@ -160,8 +174,12 @@ test.describe("Rework fields on Stock Entry", () => {
 			expect(layout.reworkSectionTop).toBeGreaterThan(layout.stockEntrySectionTop);
 			expect(layout.reworkSectionIndex).toBe(layout.stockEntrySectionIndex + 1);
 			expect(layout.columnFieldOrder).toEqual([
-				["custom_pea_rework_type"],
-				["custom_pea_rework_workstation", "custom_pea_rework_operators"],
+				["custom_pea_rework_type", "custom_pea_rework_rejection_reason"],
+				[
+					"custom_pea_rework_workstation",
+					"custom_pea_rework_operation",
+					"custom_pea_rework_operators",
+				],
 			]);
 			expect(layout.reworkCostVisible).toBe(false);
 			expect(layout.nextNativeField.fieldname).toBeTruthy();
@@ -175,8 +193,13 @@ test.describe("Rework fields on Stock Entry", () => {
 				section: "custom_pea_rework_details_section",
 				column: leftColumn,
 			});
+			expect(layout.placements.custom_pea_rework_rejection_reason).toEqual({
+				section: "custom_pea_rework_details_section",
+				column: leftColumn,
+			});
 			for (const fieldname of [
 				"custom_pea_rework_workstation",
+				"custom_pea_rework_operation",
 				"custom_pea_rework_operators",
 			]) {
 				expect(layout.placements[fieldname]).toEqual({

@@ -29,6 +29,8 @@ _ENTRY_FIELDS = [
 	"posting_date",
 	"custom_pea_rework_type",
 	"custom_pea_rework_workstation",
+	"custom_pea_rework_rejection_reason",
+	"custom_pea_rework_operation",
 	"custom_pea_rework_cost",
 ]
 
@@ -58,6 +60,18 @@ def _get_columns() -> list[dict]:
 				"fieldname": "workstation",
 				"fieldtype": "Data",
 				"width": 170,
+			},
+			{
+				"label": _("Rejection Reason"),
+				"fieldname": "rejection_reason",
+				"fieldtype": "Data",
+				"width": 150,
+			},
+			{
+				"label": _("Operation"),
+				"fieldname": "operation",
+				"fieldtype": "Data",
+				"width": 130,
 			},
 			{"label": _("Items + Qty"), "fieldname": "items", "fieldtype": "Data", "width": 260},
 			{"label": _("Total Qty"), "fieldname": "total_qty", "fieldtype": "Float", "width": 110},
@@ -163,6 +177,8 @@ def _get_rows(filters: dict) -> list[dict]:
 				"rework_entry": entry.name,
 				"rework_type": entry.custom_pea_rework_type,
 				"workstation": entry.custom_pea_rework_workstation,
+				"rejection_reason": entry.get("custom_pea_rework_rejection_reason") or "",
+				"operation": entry.get("custom_pea_rework_operation") or "",
 				"items": ", ".join(f"{row.item_code} ({flt(row.qty, qty_precision):g})" for row in items),
 				"total_qty": flt(sum(flt(row.qty) for row in items), qty_precision),
 				"duration_hours": duration_hours,
