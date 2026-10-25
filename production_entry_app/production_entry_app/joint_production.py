@@ -305,6 +305,7 @@ def materialize_joint_production_rows(doc: Document) -> list[dict[str, Any]]:
 		)
 		_set_scrap_row_classification(scrap_row)
 		rows.append(scrap_row)
+	_set_rows_actual_qty(rows)
 	return rows
 
 
@@ -1180,6 +1181,32 @@ def _joint_output_row(
 		}
 	)
 	return row
+
+
+def _set_rows_actual_qty(rows: list[dict[str, Any]]) -> None:
+	"""Stamp Bin actual_qty so the grid shows stock at each row's warehouse."""
+	pairs = set()
+	for row in rows:
+		warehouse = row.get("s_warehouse") or row.get("t_warehouse")
+		if warehouse:
+			pairs.add((row["item_code"], warehouse))
+	if not pairs:
+		return
+	balances = {
+		(bin_row.item_code, bin_row.warehouse): flt(bin_row.actual_qty)
+		for bin_row in frappe.get_all(
+			"Bin",
+			filters={
+				"item_code": ["in", sorted({item_code for item_code, _ in pairs})],
+				"warehouse": ["in", sorted({warehouse for _, warehouse in pairs})],
+			},
+			fields=["item_code", "warehouse", "actual_qty"],
+		)
+	}
+	for row in rows:
+		warehouse = row.get("s_warehouse") or row.get("t_warehouse")
+		if warehouse:
+			row["actual_qty"] = balances.get((row["item_code"], warehouse), 0.0)
 
 
 def _item_row(

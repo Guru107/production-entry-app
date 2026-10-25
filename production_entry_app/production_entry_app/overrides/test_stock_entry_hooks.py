@@ -4557,6 +4557,25 @@ class TestGetItemsWithRejection(FrappeTestCase):
 		self.assertIsInstance(float(rm_row.get("actual_qty")), float)
 		self.assertIn("original_item", rm_row)
 
+	def test_get_items_with_rejection_populates_actual_qty_for_work_order_entries(self) -> None:
+		ensure_stock(self.rm_item, self.rm_warehouse, self.company, target_qty=50)
+		work_order = frappe.get_doc(
+			{
+				"doctype": "Work Order",
+				"production_item": self.fg_item,
+				"bom_no": self.bom_no,
+				"qty": 10,
+				"company": self.company,
+				"wip_warehouse": self.wip_warehouse,
+				"fg_warehouse": self.fg_warehouse,
+			}
+		).insert(ignore_permissions=True)
+
+		items = self._call_api(work_order=work_order.name)
+
+		rm_row = next(row for row in items if row.get("item_code") == self.rm_item)
+		self.assertEqual(float(rm_row.get("actual_qty") or 0), 50.0)
+
 	def test_rejection_row_basic_rate_matches_fg_on_save(self) -> None:
 		"""Rejection row basic_rate must match FG row basic_rate when saved via validate hook."""
 		shift = _create_test_shift(
