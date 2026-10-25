@@ -759,6 +759,56 @@ class TestJointProductionItems(FrappeTestCase):
 		self.assertEqual(scrap["item_code"], self.scrap_item)
 		self.assertGreater(scrap["qty"], 0)
 
+	def test_materialize_rows_carry_actual_qty_for_all_rows(self) -> None:
+		ensure_stock(
+			self.rm_item,
+			self.masters["wip_warehouse"],
+			self.masters["company"],
+			target_qty=100,
+		)
+		ensure_stock(
+			self.lh_item,
+			self.masters["fg_warehouse"],
+			self.masters["company"],
+			target_qty=25,
+		)
+		doc = frappe.get_doc(
+			{
+				"doctype": "Stock Entry",
+				"purpose": "Repack",
+				"company": self.masters["company"],
+				"branch": self.masters["branch"],
+				"from_warehouse": self.masters["wip_warehouse"],
+				"to_warehouse": self.masters["fg_warehouse"],
+				"custom_pea_lh_bom": self.lh_bom,
+				"custom_pea_lh_gross_qty": 40,
+				"custom_pea_lh_rejection_qty": 0,
+				"custom_pea_rh_bom": self.rh_bom,
+				"custom_pea_rh_gross_qty": 41,
+				"custom_pea_rh_rejection_qty": 0,
+				"custom_pea_total_strokes": 41,
+				"custom_pea_die_tool_item": self.lh_item,
+				"custom_pea_operation": self.operation,
+			}
+		)
+
+		rows = materialize_joint_production_rows(doc)
+
+		source_rows = [row for row in rows if row.get("s_warehouse")]
+		self.assertTrue(source_rows)
+		for row in source_rows:
+			self.assertEqual(float(row.get("actual_qty") or 0), 100.0)
+		lh_fg_row = next(
+			row
+			for row in rows
+			if row.get("is_finished_item")
+			and not row.get("custom_pea_is_rejection_item")
+			and row.get("custom_pea_joint_output_side") == "LH"
+		)
+		self.assertEqual(float(lh_fg_row.get("actual_qty") or 0), 25.0)
+		scrap_row = next(row for row in rows if _is_scrap_row(row))
+		self.assertIn("actual_qty", scrap_row)
+
 	def test_joint_header_accepts_zero_total_strokes(self) -> None:
 		doc = frappe.get_doc(
 			{

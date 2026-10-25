@@ -460,7 +460,7 @@ def get_items_with_rejection(doc: str) -> list[dict]:
 		for row in se.items:
 			if is_scrap_row(row):
 				row.t_warehouse = require_warehouse(warehouses, "scrap_warehouse")
-		se.set_actual_qty()
+	se.set_actual_qty()
 	apply_direct_manufacture_alternative_flags(se)
 	_apply_rejection_entries(se)
 
