@@ -1184,8 +1184,12 @@ def _joint_output_row(
 
 
 def _set_rows_actual_qty(rows: list[dict[str, Any]]) -> None:
-	"""Stamp Bin actual_qty on source rows so the grid shows previous-operation stock."""
-	pairs = {(row["item_code"], row["s_warehouse"]) for row in rows if row.get("s_warehouse")}
+	"""Stamp Bin actual_qty so the grid shows stock at each row's warehouse."""
+	pairs = set()
+	for row in rows:
+		warehouse = row.get("s_warehouse") or row.get("t_warehouse")
+		if warehouse:
+			pairs.add((row["item_code"], warehouse))
 	if not pairs:
 		return
 	balances = {
@@ -1200,8 +1204,9 @@ def _set_rows_actual_qty(rows: list[dict[str, Any]]) -> None:
 		)
 	}
 	for row in rows:
-		if row.get("s_warehouse"):
-			row["actual_qty"] = balances.get((row["item_code"], row["s_warehouse"]), 0.0)
+		warehouse = row.get("s_warehouse") or row.get("t_warehouse")
+		if warehouse:
+			row["actual_qty"] = balances.get((row["item_code"], warehouse), 0.0)
 
 
 def _item_row(
