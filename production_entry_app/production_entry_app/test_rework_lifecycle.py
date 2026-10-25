@@ -187,6 +187,15 @@ class TestReworkLifecycle(FrappeTestCase):
 		self.assertFalse(saved.get("custom_pea_planned_end_date"))
 		self.assertFalse(saved.get("custom_pea_is_late_entry"))
 
+	def test_rework_reason_and_operation_rejected_on_non_rework_entry(self) -> None:
+		doc = self._make_rework_entry("2092-05-10")
+		doc.stock_entry_type = "Material Transfer"
+		doc.custom_pea_rework_rejection_reason = "Any Reason"
+		doc.custom_pea_rework_operation = "Any Operation"
+
+		with self.assertRaises(frappe.ValidationError):
+			doc.insert()
+
 	def _make_rework_entry(self, posting_date: object) -> Document:
 		start = get_datetime(f"{posting_date} 10:00:00")
 		end = get_datetime(f"{posting_date} 11:00:00")
