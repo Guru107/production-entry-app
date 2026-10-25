@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+-   Daily Rework Report: date-grouped rework register built from Rework stock entries — per-day No. of Man and Rework Hours headers, per-entry rows, day subtotals with Daily REW PPM against the day's completed production, and a daily PPM bar chart (#178)
+
 ## [1.3.2] - 2026-10-23
 
 ### Changed

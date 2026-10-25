@@ -300,6 +300,16 @@
   {
    "hidden": 0,
    "is_query_report": 1,
+   "label": "Daily Rework Report",
+   "link_count": 0,
+   "link_to": "Daily Rework Report",
+   "link_type": "Report",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 1,
    "label": "Pending Rework",
    "link_count": 0,
    "link_to": "Pending Rework",
@@ -308,7 +318,7 @@
    "type": "Link"
   }
  ],
- "modified": "2026-09-08 11:16:15.220032",
+ "modified": "2026-10-25 16:00:00.000000",
  "modified_by": "Administrator",
  "module": "Production Entry App",
  "name": "Production Entry App",
