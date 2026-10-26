@@ -31,8 +31,9 @@ Reports with an Operation column: Operator Daily SPM Report, Daily Strokes SPM M
 expose the Operation filter without an Operation column (efficiency, OEE, item/BOM hotspots).
 - From/To Date filters select entries through linked Completed Shifts and `Shift.shift_date`; Stock Entry
   `posting_date` does not determine date-range membership.
-- Rework Register is the exception to this Production Entry scope: it selects submitted Rework Operations and
-  uses their `posting_date`, because Rework Operations are not linked to a Shift.
+- Rework Register and Daily Rework Report are the exception to this Production Entry scope: they select
+  submitted Rework Operations and use their `posting_date`, because Rework Operations are not linked to a
+  Shift.
 
 ## Quantity Semantics
 

@@ -196,9 +196,11 @@ def _get_entries(
 	*,
 	chunk_size: int = _ENTRY_CHUNK_SIZE,
 	max_rows: int = _MAX_ENTRY_ROWS,
+	report_label: str | None = None,
 ) -> list[frappe._dict]:
+	label = report_label or _("Rework Register")
 	effective_chunk_size = max(int(chunk_size or _ENTRY_CHUNK_SIZE), 1)
-	timeout_guard = new_interactive_report_timeout_guard(_("Rework Register"))
+	timeout_guard = new_interactive_report_timeout_guard(label)
 	rows: list[frappe._dict] = []
 	last_name: str | None = None
 	while True:
@@ -208,9 +210,7 @@ def _get_entries(
 			break
 		if max_rows > 0 and len(rows) + len(chunk) > max_rows:
 			frappe.throw(
-				_("Rework Register exceeds {0} submitted entries. Narrow the filters and retry.").format(
-					max_rows
-				)
+				_("{0} exceeds {1} submitted entries. Narrow the filters and retry.").format(label, max_rows)
 			)
 		rows.extend(chunk)
 		last_name = chunk[-1].name
