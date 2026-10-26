@@ -104,6 +104,7 @@ test("selecting a marked Rework Stock Entry Type shows fields under ambiguous ca
 	const originalFrappe = global.frappe;
 	let callCount = 0;
 	global.frappe = {
+		datetime: { get_today: () => "2099-01-08" },
 		call(options) {
 			callCount += 1;
 			assert.deepEqual(options.args, {
@@ -141,7 +142,7 @@ test("selecting a marked Rework Stock Entry Type shows fields under ambiguous ca
 			[REWORK_HIDDEN_FIELDS, false],
 			["custom_pea_shift", false],
 		]);
-		assert.deepEqual(refreshed, []);
+		assert.deepEqual(refreshed, ["custom_pea_rework_date"]);
 	} finally {
 		global.frappe = originalFrappe;
 	}
@@ -197,6 +198,7 @@ test("selecting Rework after cached ordinary type performs a selected-type looku
 	const originalFrappe = global.frappe;
 	const requests = [];
 	global.frappe = {
+		datetime: { get_today: () => "2099-01-08" },
 		call(options) {
 			requests.push(options);
 		},
@@ -232,6 +234,7 @@ test("selecting Rework after cached ordinary type performs a selected-type looku
 test("selecting Rework clears stale Shift and hides Shift field", () => {
 	const originalFrappe = global.frappe;
 	global.frappe = {
+		datetime: { get_today: () => "2099-01-08" },
 		call(options) {
 			options.callback({ message: "Rework Material Transfer" });
 		},
@@ -722,6 +725,7 @@ test("Stock Entry refresh restores Rework classification stripped by draft save"
 	global.flt = Number;
 	global.window = {};
 	global.frappe = {
+		datetime: { get_today: () => "2099-01-08" },
 		call(options) {
 			const isReworkLookup = options.method.endsWith("get_rework_stock_entry_type");
 			if (isReworkLookup) reworkLookupCount += 1;
@@ -806,6 +810,7 @@ test("same-type Rework classification refreshes share one in-flight lookup", () 
 	const originalFrappe = global.frappe;
 	const requests = [];
 	global.frappe = {
+		datetime: { get_today: () => "2099-01-08" },
 		call(options) {
 			requests.push(options);
 		},
@@ -839,6 +844,7 @@ test("Rework classification cache is keyed by type and failed lookups can retry"
 	const messages = [];
 	global.__ = (text) => text;
 	global.frappe = {
+		datetime: { get_today: () => "2099-01-08" },
 		call(options) {
 			requests.push(options);
 		},
@@ -907,6 +913,7 @@ test("stale Rework Stock Entry Type lookup responses do not change visibility", 
 	const originalFrappe = global.frappe;
 	const callbacks = [];
 	global.frappe = {
+		datetime: { get_today: () => "2099-01-08" },
 		call(options) {
 			callbacks.push(options.callback);
 		},
@@ -991,6 +998,7 @@ test("latest ordinary lookup clears Rework data after an intermediate response i
 test("changing between marked Rework Stock Entry Types preserves Rework data", () => {
 	const originalFrappe = global.frappe;
 	global.frappe = {
+		datetime: { get_today: () => "2099-01-08" },
 		call(options) {
 			options.callback({ message: "Rework B" });
 		},
@@ -1029,7 +1037,7 @@ test("changing between marked Rework Stock Entry Types preserves Rework data", (
 test("cached Rework Stock Entry Type applies without another server call", () => {
 	const originalFrappe = global.frappe;
 	let callCount = 0;
-	global.frappe = { call: () => (callCount += 1) };
+	global.frappe = { call: () => (callCount += 1), datetime: { get_today: () => "2099-01-08" } };
 	const visibility = [];
 	const frm = {
 		doc: {
@@ -1046,6 +1054,36 @@ test("cached Rework Stock Entry Type applies without another server call", () =>
 		_sync_rework_mode_from_stock_entry_type(frm);
 		assert.equal(callCount, 0);
 		assert.deepEqual(visibility, [true, false, false]);
+	} finally {
+		global.frappe = originalFrappe;
+	}
+});
+
+test("entering Rework mode defaults Rework Date to today and keeps an existing value", () => {
+	const originalFrappe = global.frappe;
+	global.frappe = {
+		datetime: { get_today: () => "2099-01-08" },
+		call(options) {
+			options.callback({ message: "Rework Material Transfer" });
+		},
+	};
+	const makeFrm = () => ({
+		doc: { stock_entry_type: "Rework Material Transfer" },
+		toggle_display() {},
+		refresh_fields() {},
+		refresh_field() {},
+		set_value() {},
+	});
+
+	try {
+		const fresh = makeFrm();
+		_sync_rework_mode_from_stock_entry_type(fresh);
+		assert.equal(fresh.doc.custom_pea_rework_date, "2099-01-08");
+
+		const existing = makeFrm();
+		existing.doc.custom_pea_rework_date = "2098-12-31";
+		_sync_rework_mode_from_stock_entry_type(existing);
+		assert.equal(existing.doc.custom_pea_rework_date, "2098-12-31");
 	} finally {
 		global.frappe = originalFrappe;
 	}

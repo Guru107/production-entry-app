@@ -4,8 +4,9 @@ Source: `rework_register/rework_register.py`
 
 Each row represents one submitted Stock Entry whose Stock Entry Type is marked as a Rework Entry.
 
-- `Date = Stock Entry posting_date`. Rework Operations are not linked to a Shift, so the register does not use
-  Production Date.
+- `Date = Stock Entry custom_pea_rework_date` (the Rework Date recorded on the entry). Rework Operations are not linked to a Shift, so the register does not use
+  Production Date. Entries saved before the Rework Date field existed have no date and drop out of the
+  register until edited.
 - `Items + Qty` lists each Stock Entry Detail item and its quantity in child-row order.
 - `Total Qty = sum(Stock Entry Detail qty)`.
 - `Duration (Hours) = sum over Rework Operator rows of (Actual End - Actual Start) / 3600`.

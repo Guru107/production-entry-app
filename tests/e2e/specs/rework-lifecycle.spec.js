@@ -40,7 +40,8 @@ async function fillReworkEntry(page, context, options = {}) {
 			frm?.doc?.__pea_rework_stock_entry_type === expectedType &&
 			frm?.get_field?.("custom_pea_rework_type")?.$wrapper?.is(":visible") &&
 			frm?.get_field?.("custom_pea_rework_rejection_reason")?.$wrapper?.is(":visible") &&
-			frm?.get_field?.("custom_pea_rework_operation")?.$wrapper?.is(":visible")
+			frm?.get_field?.("custom_pea_rework_operation")?.$wrapper?.is(":visible") &&
+			frm?.get_field?.("custom_pea_rework_date")?.$wrapper?.is(":visible")
 		);
 	}, context.rework_stock_entry_type);
 	await setFieldValue(page, "company", context.company);
@@ -52,6 +53,7 @@ async function fillReworkEntry(page, context, options = {}) {
 	}
 	await stockEntryPage.waitForFieldValue("from_warehouse", context.rejection_warehouse);
 	await stockEntryPage.setPostingDate(context.shift_date);
+	await setFieldValue(page, "custom_pea_rework_date", context.shift_date);
 	await setFieldValue(page, "to_warehouse", context.fg_warehouse);
 	await setFieldValue(page, "custom_pea_rework_type", context.rework_type);
 	await stockEntryPage.waitForFieldValue(

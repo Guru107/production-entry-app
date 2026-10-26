@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+-   Rework entries capture a required **Rework Date** (defaults to today on the form; the operation-performed date of record, so users stop editing `posting_date`/`posting_time` for it) plus optional **Responsibility Remark** and **Reinspection** employee multi-selects; the Rework Register now dates and filters rows by Rework Date (#182)
+
+### Added
+
 -   Daily Rework Report: date-grouped rework register built from Rework stock entries — per-day No. of Man and Rework Hours headers, per-entry rows, day subtotals with Daily REW PPM against the day's completed production, and a daily PPM bar chart (#178)
 
 ## [1.3.2] - 2026-10-23

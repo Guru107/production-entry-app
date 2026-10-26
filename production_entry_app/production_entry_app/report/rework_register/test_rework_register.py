@@ -96,6 +96,28 @@ class TestReworkRegister(FrappeTestCase):
 		)
 		self.assertEqual(rows_after_rate_change[0]["computed_cost"], 360)
 
+	def test_register_dates_and_filters_rows_by_rework_date_not_posting_date(self) -> None:
+		entry = self._insert_entry(
+			posting_date="2092-08-10",
+			rework_date="2092-08-05",
+			rework_type="Deburring",
+			workstation="Register Workstation",
+			items=[(self.item_a, 4)],
+			operators=["Operator A"],
+			start="2092-08-05 08:00:00",
+			end="2092-08-05 09:00:00",
+			cost=60,
+		)
+
+		rows = rework_register.execute({"from_date": "2092-08-05", "to_date": "2092-08-05"})[1]
+		self.assertEqual([row["rework_entry"] for row in rows], [entry])
+		self.assertEqual(str(rows[0]["date"]), "2092-08-05")
+
+		rows_on_posting_date = rework_register.execute({"from_date": "2092-08-10", "to_date": "2092-08-10"})[
+			1
+		]
+		self.assertEqual(rows_on_posting_date, [])
+
 	def test_report_shows_rejection_reason_and_operation(self) -> None:
 		entry = self._insert_entry(
 			posting_date="2092-04-10",
@@ -317,6 +339,7 @@ class TestReworkRegister(FrappeTestCase):
 		stock_entry_type: str | None = None,
 		rejection_reason: str | None = None,
 		operation: str | None = None,
+		rework_date: str | None = None,
 	) -> str:
 		self._ensure_entry_types()
 		name = f"REGISTER-{frappe.generate_hash(length=10)}"
@@ -334,6 +357,7 @@ class TestReworkRegister(FrappeTestCase):
 				StockEntry.custom_pea_rework_cost,
 				StockEntry.custom_pea_rework_rejection_reason,
 				StockEntry.custom_pea_rework_operation,
+				StockEntry.custom_pea_rework_date,
 			)
 			.insert(
 				name,
@@ -346,6 +370,7 @@ class TestReworkRegister(FrappeTestCase):
 				cost,
 				rejection_reason,
 				operation,
+				rework_date or posting_date,
 			)
 		).run()
 		StockEntryDetail = frappe.qb.DocType("Stock Entry Detail")

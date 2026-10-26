@@ -1488,6 +1488,7 @@ def create_e2e_rework_register_row(
 			StockEntry.custom_pea_rework_type,
 			StockEntry.custom_pea_rework_workstation,
 			StockEntry.custom_pea_rework_cost,
+			StockEntry.custom_pea_rework_date,
 		)
 		.insert(
 			entry_name,
@@ -1498,6 +1499,7 @@ def create_e2e_rework_register_row(
 			rework_type,
 			ctx["workstation"],
 			float(cost),
+			ctx["shift_date"],
 		)
 	).run()
 	StockEntryDetail = frappe.qb.DocType("Stock Entry Detail")

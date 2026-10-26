@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 from collections import defaultdict
 
 import frappe
@@ -27,6 +28,7 @@ _NO_MATCHING_REWORK_ENTRY = "__no_matching_rework_entry__"
 _ENTRY_FIELDS = [
 	"name",
 	"posting_date",
+	"custom_pea_rework_date",
 	"custom_pea_rework_type",
 	"custom_pea_rework_workstation",
 	"custom_pea_rework_rejection_reason",
@@ -113,11 +115,11 @@ def _get_rows(filters: dict) -> list[dict]:
 		return []
 	db_filters: dict = {"docstatus": 1, "stock_entry_type": ["in", rework_entry_types]}
 	if filters.get("from_date") and filters.get("to_date"):
-		db_filters["posting_date"] = ["between", [filters["from_date"], filters["to_date"]]]
+		db_filters["custom_pea_rework_date"] = ["between", [filters["from_date"], filters["to_date"]]]
 	elif filters.get("from_date"):
-		db_filters["posting_date"] = [">=", filters["from_date"]]
+		db_filters["custom_pea_rework_date"] = [">=", filters["from_date"]]
 	elif filters.get("to_date"):
-		db_filters["posting_date"] = ["<=", filters["to_date"]]
+		db_filters["custom_pea_rework_date"] = ["<=", filters["to_date"]]
 	if filters.get("rework_type"):
 		db_filters["custom_pea_rework_type"] = filters["rework_type"]
 	if filters.get("workstation"):
@@ -167,13 +169,17 @@ def _get_rows(filters: dict) -> list[dict]:
 	rows = []
 	qty_precision = get_system_float_precision()
 	cost_precision = get_system_currency_precision()
-	for entry in sorted(entries, key=lambda row: (row.posting_date, row.name), reverse=True):
+	for entry in sorted(
+		entries,
+		key=lambda row: (row.custom_pea_rework_date or datetime.date.min, row.name),
+		reverse=True,
+	):
 		items = items_by_parent[entry.name]
 		operators = operators_by_parent[entry.name]
 		duration_hours = flt(labour_hours_by_parent[entry.name], qty_precision)
 		rows.append(
 			{
-				"date": entry.posting_date,
+				"date": entry.custom_pea_rework_date,
 				"rework_entry": entry.name,
 				"rework_type": entry.custom_pea_rework_type,
 				"workstation": entry.custom_pea_rework_workstation,

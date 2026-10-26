@@ -421,6 +421,7 @@ class TestReworkAdditionalCosts(FrappeTestCase):
 		doc.stock_entry_type = self.stock_entry_type
 		doc.custom_pea_rework_type = self.rework_type
 		doc.custom_pea_rework_workstation = self.workstation
+		doc.custom_pea_rework_date = "2026-09-01"
 		for operator in self.operators:
 			doc.append(
 				"custom_pea_rework_operators",
