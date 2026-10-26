@@ -1167,7 +1167,43 @@ class TestJointProductionItems(FrappeTestCase):
 			{"company": self.masters["company"], "operation": " Shearing "},
 		)
 
-		self.assertIn((trimmed_bom, self.lh_item), rows)
+		self.assertIn((trimmed_bom, self.lh_item, ""), rows)
+
+	def test_joint_bom_link_query_includes_custom_bom_description(self) -> None:
+		row = frappe._dict(
+			name="BOM-DESC",
+			item="ITEM-DESC",
+			custom_operation="Shearing",
+			custom_bom_description="RM: CRCA-D",
+		)
+		with (
+			patch("production_entry_app.production_entry_app.api.frappe.get_meta") as get_meta,
+			patch("production_entry_app.production_entry_app.api.frappe.qb.from_") as from_,
+			patch("production_entry_app.production_entry_app.api.frappe.has_permission", return_value=True),
+		):
+			get_meta.return_value.has_field.return_value = True
+			query = from_.return_value
+			for method in ("select", "where", "orderby", "limit"):
+				getattr(query, method).return_value = query
+			query.run.return_value = [row]
+
+			rows = search_joint_boms_for_operation(
+				"BOM",
+				"",
+				"name",
+				0,
+				20,
+				{"company": "TCPL", "operation": "Shearing"},
+			)
+
+		self.assertEqual(rows, [(row.name, row.item, row.custom_bom_description)])
+		self.assertTrue(any("custom_bom_description" in str(field) for field in query.select.call_args.args))
+		from frappe.desk.search import build_for_autosuggest
+
+		self.assertEqual(
+			build_for_autosuggest(rows, "BOM")[0]["description"],
+			f"{row.item}, {row.custom_bom_description}",
+		)
 
 	def test_joint_bom_link_query_filters_company_status_active_and_exact_operation(self) -> None:
 		suffix = frappe.generate_hash(length=6)

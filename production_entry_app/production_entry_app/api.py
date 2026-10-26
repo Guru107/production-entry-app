@@ -85,11 +85,12 @@ def search_joint_boms_for_operation(
 	start: int,
 	page_len: int,
 	filters: dict | None,
-) -> list[tuple[str, str]]:
+) -> list[tuple[str, str, str]]:
 	"""Return submitted active BOMs whose trimmed operation matches the selected Joint Operation."""
 	if doctype != "BOM":
 		frappe.throw(_("Joint LH/RH BOM search can only be used for BOM."))
-	if not frappe.get_meta("BOM", cached=True).has_field("custom_operation"):
+	bom_meta = frappe.get_meta("BOM", cached=True)
+	if not bom_meta.has_field("custom_operation"):
 		frappe.throw(_("BOM custom_operation metadata is required for joint LH/RH production."))
 	filters = filters or {}
 	company = (filters.get("company") or "").strip()
@@ -101,11 +102,14 @@ def search_joint_boms_for_operation(
 	BOM = DocType("BOM")
 	page_len = page_len or 20
 	start = start or 0
+	select_fields = [BOM.name, BOM.item, BOM.custom_operation]
+	if bom_meta.has_field("custom_bom_description"):
+		select_fields.append(BOM.custom_bom_description)
 	# Over-fetch so the exact operation normalize + per-row read filter can still fill a page.
 	fetch_limit = start + (page_len * 5)
 	rows = (
 		frappe.qb.from_(BOM)
-		.select(BOM.name, BOM.item, BOM.custom_operation)
+		.select(*select_fields)
 		.where(BOM.docstatus == 1)
 		.where(BOM.is_active == 1)
 		.where(BOM.company == company)
@@ -117,7 +121,7 @@ def search_joint_boms_for_operation(
 		.run(as_dict=True)
 	)
 	matched = [
-		(row.name, row.item)
+		(row.name, row.item, row.get("custom_bom_description") or "")
 		for row in rows
 		if _normalize_operation(row.custom_operation) == operation
 		and frappe.has_permission("BOM", "read", row.name)
