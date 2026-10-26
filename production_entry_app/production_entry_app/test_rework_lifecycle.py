@@ -196,6 +196,69 @@ class TestReworkLifecycle(FrappeTestCase):
 		with self.assertRaises(frappe.ValidationError):
 			doc.insert()
 
+	def test_rework_date_is_required_on_rework_entries(self) -> None:
+		doc = self._make_rework_entry("2092-05-11")
+		doc.custom_pea_rework_date = None
+
+		with self.assertRaisesRegex(frappe.ValidationError, "Rework Date is required"):
+			doc.insert()
+
+	def test_new_rework_fields_rejected_on_non_rework_entry(self) -> None:
+		doc = self._make_rework_entry("2092-05-14")
+		doc.stock_entry_type = "Material Transfer"
+
+		with self.assertRaisesRegex(frappe.ValidationError, "Rework fields can only be used"):
+			doc.insert()
+
+	def test_responsibility_and_reinspection_employees_persist_through_submit(self) -> None:
+		shift = make_running_shift(self.masters)
+		source = make_direct_manufacture_entry(
+			self.masters,
+			shift=shift.name,
+			fg_qty=100,
+			rejection_qty=5,
+		)
+		source.custom_pea_rejection_breakup[0].is_rework = 1
+		source.set_posting_time = 1
+		source.posting_time = "10:00:00"
+		source.save(ignore_permissions=True)
+		self._make_source_funding_entry(source)
+		source.submit()
+
+		employees = [self._make_employee(index) for index in range(2)]
+		doc = self._make_rework_entry(shift.shift_date)
+		for employee in employees:
+			doc.append("custom_pea_rework_responsibility", {"employee": employee})
+		doc.append("custom_pea_rework_reinspection", {"employee": employees[0]})
+
+		doc.insert(ignore_permissions=True)
+		doc.submit()
+
+		saved = frappe.get_doc("Stock Entry", doc.name)
+		self.assertEqual([row.employee for row in saved.custom_pea_rework_responsibility], employees)
+		self.assertEqual([row.employee for row in saved.custom_pea_rework_reinspection], [employees[0]])
+
+		saved.cancel()
+		cancelled = frappe.get_doc("Stock Entry", doc.name)
+		self.assertEqual([row.employee for row in cancelled.custom_pea_rework_responsibility], employees)
+		self.assertEqual([row.employee for row in cancelled.custom_pea_rework_reinspection], [employees[0]])
+
+	def _make_employee(self, index: int) -> str:
+		return (
+			frappe.get_doc(
+				{
+					"doctype": "Employee",
+					"first_name": f"Lifecycle Employee {self.suffix} {index}",
+					"company": self.masters["company"],
+					"gender": "Male",
+					"date_of_birth": "1990-01-01",
+					"date_of_joining": "2020-01-01",
+				}
+			)
+			.insert(ignore_permissions=True)
+			.name
+		)
+
 	def _make_rework_entry(self, posting_date: object) -> Document:
 		start = get_datetime(f"{posting_date} 10:00:00")
 		end = get_datetime(f"{posting_date} 11:00:00")
@@ -212,6 +275,7 @@ class TestReworkLifecycle(FrappeTestCase):
 				"posting_time": "11:00:00",
 				"custom_pea_rework_type": self.rework_type,
 				"custom_pea_rework_workstation": self.workstation,
+				"custom_pea_rework_date": posting_date,
 			}
 		)
 		if stock_entry_has_branch_field():

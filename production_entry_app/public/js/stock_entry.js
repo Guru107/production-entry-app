@@ -123,10 +123,15 @@ const REWORK_VISIBLE_SCALAR_FIELDS = [
 	"custom_pea_rework_workstation",
 	"custom_pea_rework_rejection_reason",
 	"custom_pea_rework_operation",
+	"custom_pea_rework_date",
 ];
 const REWORK_HIDDEN_FIELDS = ["custom_pea_rework_cost"];
 const REWORK_SCALAR_FIELDS = [...REWORK_VISIBLE_SCALAR_FIELDS, ...REWORK_HIDDEN_FIELDS];
-const REWORK_TABLE_FIELDS = ["custom_pea_rework_operators"];
+const REWORK_TABLE_FIELDS = [
+	"custom_pea_rework_operators",
+	"custom_pea_rework_responsibility",
+	"custom_pea_rework_reinspection",
+];
 const REWORK_FIELDS = [...REWORK_VISIBLE_SCALAR_FIELDS, ...REWORK_TABLE_FIELDS];
 const REWORK_LAYOUT_FIELDS = [
 	"custom_pea_rework_details_section",
@@ -686,6 +691,10 @@ function _sync_rework_mode_from_stock_entry_type(frm, { previousStockEntryType =
 		if (isReworkType) {
 			if (frm.doc.custom_pea_shift) {
 				frm.set_value("custom_pea_shift", "");
+			}
+			if (!frm.doc.custom_pea_rework_date) {
+				frm.doc.custom_pea_rework_date = frappe.datetime.get_today();
+				frm.refresh_field?.("custom_pea_rework_date");
 			}
 			_schedule_rework_source_warehouse(frm);
 		}

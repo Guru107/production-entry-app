@@ -177,11 +177,25 @@
  },
  {
   "doctype": "Custom Field",
+  "name": "Stock Entry-custom_pea_rework_date",
+  "dt": "Stock Entry",
+  "fieldname": "custom_pea_rework_date",
+  "fieldtype": "Date",
+  "label": "Rework Date",
+  "insert_after": "custom_pea_rework_rejection_reason",
+  "depends_on": "eval:doc.__pea_rework_stock_entry_type && doc.stock_entry_type==doc.__pea_rework_stock_entry_type",
+  "mandatory_depends_on": "eval:doc.__pea_rework_stock_entry_type && doc.stock_entry_type==doc.__pea_rework_stock_entry_type",
+  "search_index": 1,
+  "module": "Production Entry App",
+  "permlevel": 0
+ },
+ {
+  "doctype": "Custom Field",
   "name": "Stock Entry-custom_pea_rework_column_break",
   "dt": "Stock Entry",
   "fieldname": "custom_pea_rework_column_break",
   "fieldtype": "Column Break",
-  "insert_after": "custom_pea_rework_rejection_reason",
+  "insert_after": "custom_pea_rework_date",
   "module": "Production Entry App",
   "permlevel": 0
  },
@@ -229,6 +243,32 @@
  },
  {
   "doctype": "Custom Field",
+  "name": "Stock Entry-custom_pea_rework_responsibility",
+  "dt": "Stock Entry",
+  "fieldname": "custom_pea_rework_responsibility",
+  "fieldtype": "Table MultiSelect",
+  "label": "Responsibility Remark",
+  "options": "Rework Responsibility Employee",
+  "insert_after": "custom_pea_rework_operators",
+  "depends_on": "eval:doc.__pea_rework_stock_entry_type && doc.stock_entry_type==doc.__pea_rework_stock_entry_type",
+  "module": "Production Entry App",
+  "permlevel": 0
+ },
+ {
+  "doctype": "Custom Field",
+  "name": "Stock Entry-custom_pea_rework_reinspection",
+  "dt": "Stock Entry",
+  "fieldname": "custom_pea_rework_reinspection",
+  "fieldtype": "Table MultiSelect",
+  "label": "Reinspection",
+  "options": "Rework Reinspection Employee",
+  "insert_after": "custom_pea_rework_responsibility",
+  "depends_on": "eval:doc.__pea_rework_stock_entry_type && doc.stock_entry_type==doc.__pea_rework_stock_entry_type",
+  "module": "Production Entry App",
+  "permlevel": 0
+ },
+ {
+  "doctype": "Custom Field",
   "name": "Stock Entry-custom_pea_rework_cost",
   "dt": "Stock Entry",
   "fieldname": "custom_pea_rework_cost",
@@ -237,7 +277,7 @@
   "hidden": 1,
   "read_only": 1,
   "non_negative": 1,
-  "insert_after": "custom_pea_rework_operators",
+  "insert_after": "custom_pea_rework_reinspection",
   "depends_on": "eval:doc.__pea_rework_stock_entry_type && doc.stock_entry_type==doc.__pea_rework_stock_entry_type",
   "module": "Production Entry App",
   "permlevel": 0

@@ -84,6 +84,9 @@ _REWORK_FIELDS: tuple[str, ...] = (
 	"custom_pea_rework_operation",
 	"custom_pea_rework_operators",
 	"custom_pea_rework_cost",
+	"custom_pea_rework_date",
+	"custom_pea_rework_responsibility",
+	"custom_pea_rework_reinspection",
 )
 _SHIFT_GATED_SCALAR_FIELDS: tuple[str, ...] = (
 	"custom_pea_planned_start_date",
@@ -191,6 +194,8 @@ def _validate_rework_fields(doc: Document) -> None:
 		frappe.throw(_("Rework Type is required for Rework."))
 	if not doc.get("custom_pea_rework_workstation"):
 		frappe.throw(_("Rework Workstation is required for Rework."))
+	if not doc.get("custom_pea_rework_date"):
+		frappe.throw(_("Rework Date is required for Rework."))
 	operator_rows = [row for row in doc.get("custom_pea_rework_operators") or [] if row.get("operator")]
 	if not operator_rows:
 		frappe.throw(_("Rework requires at least one active Operator."))
