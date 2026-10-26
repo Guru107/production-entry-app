@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
@@ -231,6 +233,102 @@ class TestDailyReworkReport(FrappeTestCase):
 				rows = daily_rework_report.execute(filters)[1]
 				entry_rows = [row for row in rows if row.get("rework_entry")]
 				self.assertEqual([row["rework_entry"] for row in entry_rows], [matching])
+
+	def test_daily_rew_ppm_divides_raw_quantities_before_display_rounding(self) -> None:
+		# At display precision 2, rounding inputs first would give 0.01/1 -> 10000
+		# and 1/0.00 -> 0. Raw division must yield 6000 and 250000.
+		day_one, day_two = "2092-07-14", "2092-07-15"
+		shift_one = self._insert_shift(day_one, "1", status="Completed")
+		self._insert_production_entry(shift_name=shift_one, posting_date=day_one, fg_qty=1)
+		self._insert_entry(
+			posting_date=day_one,
+			rework_type=self.rework_type_a,
+			workstation=self.workstation_a,
+			items=[(self.item_a, 0.006)],
+			operators=["Operator A"],
+			start=f"{day_one} 08:00:00",
+			end=f"{day_one} 09:00:00",
+		)
+		shift_two = self._insert_shift(day_two, "1", status="Completed")
+		self._insert_production_entry(shift_name=shift_two, posting_date=day_two, fg_qty=0.004)
+		self._insert_entry(
+			posting_date=day_two,
+			rework_type=self.rework_type_a,
+			workstation=self.workstation_a,
+			items=[(self.item_a, 0.001)],
+			operators=["Operator A"],
+			start=f"{day_two} 08:00:00",
+			end=f"{day_two} 09:00:00",
+		)
+
+		with patch.object(daily_rework_report, "get_system_float_precision", return_value=2):
+			rows = daily_rework_report.execute({"from_date": day_one, "to_date": day_two})[1]
+
+		subtotals = [row for row in rows if row.get("daily_rew_ppm") is not None]
+		self.assertEqual(len(subtotals), 2)
+		self.assertEqual(subtotals[0]["daily_rew_ppm"], 6000)
+		self.assertEqual(subtotals[0]["total_qty"], 0.01)
+		# 0.001 / 0.004 * 1e6 = 250000 even though both inputs round to 0.00 on display.
+		self.assertEqual(subtotals[1]["daily_rew_ppm"], 250000)
+		self.assertEqual(subtotals[1]["total_qty"], 0)
+
+	def test_child_row_filters_count_only_parents_inside_the_entry_scope(self) -> None:
+		day = "2092-07-20"
+		valid = self._insert_entry(
+			posting_date=day,
+			rework_type=self.rework_type_a,
+			workstation=self.workstation_a,
+			items=[(self.item_a, 2)],
+			operators=["Operator A"],
+			start=f"{day} 08:00:00",
+			end=f"{day} 09:00:00",
+		)
+		# Same item and operator, but outside the entry scope: draft, other date, non-rework type.
+		for posting_date, docstatus, stock_entry_type in (
+			(day, 0, self.rework_entry_type),
+			("2092-07-21", 1, self.rework_entry_type),
+			(day, 1, self.normal_entry_type),
+		):
+			self._insert_entry(
+				posting_date=posting_date,
+				rework_type=self.rework_type_a,
+				workstation=self.workstation_a,
+				items=[(self.item_a, 2)],
+				operators=["Operator A"],
+				start=f"{day} 08:00:00",
+				end=f"{day} 09:00:00",
+				docstatus=docstatus,
+				stock_entry_type=stock_entry_type,
+			)
+
+		for child_filter in ({"item_code": self.item_a}, {"operator": "Operator A"}):
+			with self.subTest(child_filter=child_filter):
+				entry_filters = daily_rework_report._build_entry_filters(
+					{"from_date": day, "to_date": day, **child_filter},
+					[self.rework_entry_type],
+					max_parent_matches=1,
+				)
+				self.assertEqual(entry_filters["name"], ["in", [valid]])
+
+	def test_child_row_filter_overflow_throws(self) -> None:
+		day = "2092-07-22"
+		for _unused in range(3):
+			self._insert_entry(
+				posting_date=day,
+				rework_type=self.rework_type_a,
+				workstation=self.workstation_a,
+				items=[(self.item_a, 1)],
+				operators=["Operator A"],
+				start=f"{day} 08:00:00",
+				end=f"{day} 09:00:00",
+			)
+
+		with self.assertRaisesRegex(frappe.ValidationError, "matches more than 2"):
+			daily_rework_report._build_entry_filters(
+				{"from_date": day, "to_date": day, "item_code": self.item_a},
+				[self.rework_entry_type],
+				max_parent_matches=2,
+			)
 
 	def test_empty_date_range_returns_no_rows_and_no_chart(self) -> None:
 		_columns, rows, _message, chart = daily_rework_report.execute(

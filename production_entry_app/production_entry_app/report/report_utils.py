@@ -435,7 +435,7 @@ def get_stock_entries_for_fg_item(item_code: str) -> list[str]:
 	return [row.get("parent") for row in rows if row.get("parent")]
 
 
-def _stock_entry_qb_criteria(stock_entry: Table, filters: dict) -> list[Criterion]:
+def stock_entry_qb_criteria(stock_entry: Table, filters: dict) -> list[Criterion]:
 	criteria: list[Criterion] = []
 	for fieldname, value in filters.items():
 		column = stock_entry[fieldname]
@@ -490,7 +490,7 @@ def get_stock_entries_for_bom(bom_no: str, *, filters: dict | None = None) -> li
 		.where(joint_line.bom_no == bom_no)
 		.where(joint_line.parenttype == "Stock Entry")
 	)
-	for criterion in _stock_entry_qb_criteria(stock_entry, base_filters):
+	for criterion in stock_entry_qb_criteria(stock_entry, base_filters):
 		line_query = line_query.where(criterion)
 	line_rows = line_query.limit(_MAX_BOM_PARENT_MATCHES + 1).run(as_dict=True)
 	for row in line_rows:
@@ -508,7 +508,7 @@ def get_stock_entries_for_bom(bom_no: str, *, filters: dict | None = None) -> li
 			.where(stock_entry_detail.bom_no == bom_no)
 			.where(stock_entry_detail.parenttype == "Stock Entry")
 		)
-		for criterion in _stock_entry_qb_criteria(stock_entry, base_filters):
+		for criterion in stock_entry_qb_criteria(stock_entry, base_filters):
 			detail_query = detail_query.where(criterion)
 		detail_rows = detail_query.limit(_MAX_BOM_PARENT_MATCHES + 1).run(as_dict=True)
 		for row in detail_rows:

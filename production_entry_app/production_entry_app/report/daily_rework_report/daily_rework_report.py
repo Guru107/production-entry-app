@@ -5,6 +5,7 @@ from collections import defaultdict
 
 import frappe
 from frappe import _
+from frappe.query_builder import DocType
 from frappe.utils import flt, get_datetime, getdate
 
 from production_entry_app.production_entry_app.report.report_utils import (
@@ -12,6 +13,7 @@ from production_entry_app.production_entry_app.report.report_utils import (
 	get_entry_output_quantities,
 	get_report_rows,
 	iter_stock_entries_in_chunks,
+	stock_entry_qb_criteria,
 )
 from production_entry_app.production_entry_app.report.rework_register.rework_register import (
 	_MAX_ENTRY_ROWS,
@@ -100,8 +102,13 @@ def _get_columns() -> list[dict]:
 	)
 
 
-def _build_entry_filters(filters: dict) -> dict:
-	db_filters: dict = {"docstatus": 1}
+def _build_entry_filters(
+	filters: dict,
+	rework_entry_types: list[str],
+	*,
+	max_parent_matches: int = _MAX_ENTRY_ROWS,
+) -> dict:
+	db_filters: dict = {"docstatus": 1, "stock_entry_type": ["in", rework_entry_types]}
 	from_date = filters.get("from_date")
 	to_date = filters.get("to_date")
 	if from_date and to_date:
@@ -125,7 +132,12 @@ def _build_entry_filters(filters: dict) -> dict:
 			set(
 				_get_matching_parent_names(
 					"Stock Entry Detail",
-					{"parentfield": "items", "item_code": filters["item_code"]},
+					"items",
+					"item_code",
+					filters["item_code"],
+					db_filters,
+					max_matches=max_parent_matches,
+					filter_label=_("Item"),
 				)
 			)
 		)
@@ -134,7 +146,12 @@ def _build_entry_filters(filters: dict) -> dict:
 			set(
 				_get_matching_parent_names(
 					"Rework Operator",
-					{"parentfield": "custom_pea_rework_operators", "operator": filters["operator"]},
+					"custom_pea_rework_operators",
+					"operator",
+					filters["operator"],
+					db_filters,
+					max_matches=max_parent_matches,
+					filter_label=_("Operator"),
 				)
 			)
 		)
@@ -144,13 +161,44 @@ def _build_entry_filters(filters: dict) -> dict:
 	return db_filters
 
 
-def _get_matching_parent_names(doctype: str, child_filters: dict) -> list[str]:
-	return get_report_rows(
-		doctype,
-		filters={"parenttype": "Stock Entry", **child_filters},
-		pluck="parent",
-		limit_page_length=_MAX_ENTRY_ROWS + 1,
+def _get_matching_parent_names(
+	child_doctype: str,
+	parentfield: str,
+	child_field: str,
+	child_value: str,
+	parent_filters: dict,
+	*,
+	max_matches: int,
+	filter_label: str,
+) -> list[str]:
+	"""Distinct parent IDs for a child-row filter, joined through the scoped parent entries.
+
+	Scoping the join keeps unrelated child rows (drafts, other dates, non-rework
+	types) from consuming the match budget, and the checked limit fails loudly
+	instead of silently dropping matching entries.
+	"""
+	child = DocType(child_doctype)
+	stock_entry = DocType("Stock Entry")
+	query = (
+		frappe.qb.from_(child)
+		.inner_join(stock_entry)
+		.on(stock_entry.name == child.parent)
+		.select(child.parent)
+		.distinct()
+		.where(child.parenttype == "Stock Entry")
+		.where(child.parentfield == parentfield)
+		.where(child[child_field] == child_value)
 	)
+	for criterion in stock_entry_qb_criteria(stock_entry, parent_filters):
+		query = query.where(criterion)
+	rows = query.limit(max_matches + 1).run(as_dict=True)
+	if len(rows) > max_matches:
+		frappe.throw(
+			_(
+				"Daily Rework Report {0} filter matches more than {1} Stock Entries. Narrow the date range and retry."
+			).format(filter_label, max_matches)
+		)
+	return [row.parent for row in rows if row.parent]
 
 
 def _get_rows(filters: dict) -> tuple[list[dict], list[dict]]:
@@ -162,7 +210,7 @@ def _get_rows(filters: dict) -> tuple[list[dict], list[dict]]:
 	if not rework_entry_types:
 		return [], []
 	entries = _get_entries(
-		_build_entry_filters(filters),
+		_build_entry_filters(filters, rework_entry_types),
 		rework_entry_types,
 		report_label=_("Daily Rework Report"),
 	)
@@ -228,10 +276,12 @@ def _get_rows(filters: dict) -> tuple[list[dict], list[dict]]:
 	for day in sorted(groups):
 		group = groups[day]
 		men = len(group["operators"])
-		qty = flt(group["qty"], precision)
 		hours = flt(group["hours"], precision)
+		raw_qty = group["qty"]
 		production_qty = production_totals.get(day, 0.0)
-		ppm = flt((qty / production_qty) * PPM_MULTIPLIER, precision) if production_qty > 0 else 0
+		# PPM divides raw quantities; flt() rounds display values and the final PPM only.
+		ppm = flt((raw_qty / production_qty) * PPM_MULTIPLIER, precision) if production_qty > 0 else 0
+		qty = flt(raw_qty, precision)
 		rows.append({"date": day, "operator_count": men, "duration_hours": hours, "bold": 1})
 		rows.extend(group["entries"])
 		rows.append(
@@ -248,7 +298,11 @@ def _get_rows(filters: dict) -> tuple[list[dict], list[dict]]:
 
 
 def _get_daily_production_totals(dates: list[datetime.date]) -> dict[datetime.date, float]:
-	"""Day's total production: output of submitted production entries on Completed Shifts."""
+	"""Day's raw total production: submitted production entries on Completed Shifts.
+
+	Returned unrounded on purpose: the totals feed the PPM division, where
+	rounding inputs first would distort the result.
+	"""
 	if not dates:
 		return {}
 	shift_rows = get_report_rows(
@@ -273,8 +327,7 @@ def _get_daily_production_totals(dates: list[datetime.date]) -> dict[datetime.da
 			day = date_by_shift.get(entry.get("custom_pea_shift"))
 			if day is not None:
 				totals[day] += get_entry_output_quantities(entry).total_qty
-	precision = get_system_float_precision()
-	return {day: flt(total, precision) for day, total in totals.items()}
+	return dict(totals)
 
 
 def _get_chart(daily_ppm_points: list[dict]) -> dict | None:
