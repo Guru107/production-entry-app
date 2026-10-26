@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+-   The optional **Rejection Reason** and **Operation** fields on rework entries (#177) — defect and defect-origin stage derive from production Rejection Breakup data instead of being re-entered; the Rework Register and Daily Rework Report drop those columns and filters (#190)
+
 ### Added
 
 -   Rework entries capture a required **Rework Date** (defaults to today on the form; the operation-performed date of record, so users stop editing `posting_date`/`posting_time` for it) plus optional **Responsibility Remark** and **Reinspection** employee multi-selects; the Rework Register now dates and filters rows by Rework Date (#182)

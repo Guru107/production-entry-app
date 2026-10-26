@@ -121,8 +121,6 @@ const PRODUCTION_MODE_CLEAR_TABLE_FIELDS = [
 const REWORK_VISIBLE_SCALAR_FIELDS = [
 	"custom_pea_rework_type",
 	"custom_pea_rework_workstation",
-	"custom_pea_rework_rejection_reason",
-	"custom_pea_rework_operation",
 	"custom_pea_rework_date",
 ];
 const REWORK_HIDDEN_FIELDS = ["custom_pea_rework_cost"];

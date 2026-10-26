@@ -36,8 +36,6 @@ class TestDailyReworkReport(FrappeTestCase):
 			operators=["Operator A", "Operator B"],
 			start=f"{day_one} 08:00:00",
 			end=f"{day_one} 09:30:00",
-			rejection_reason="Bur",
-			operation="Deburring",
 		)
 		entry_two = self._insert_entry(
 			posting_date=day_one,
@@ -90,8 +88,6 @@ class TestDailyReworkReport(FrappeTestCase):
 				"rework_entry",
 				"items",
 				"total_qty",
-				"rejection_reason",
-				"operation",
 				"rework_type",
 				"workstation",
 				"operator_names",
@@ -113,8 +109,6 @@ class TestDailyReworkReport(FrappeTestCase):
 		entry_one_row = next(row for row in day_one_entries if row["rework_entry"] == entry_one)
 		self.assertEqual(entry_one_row["items"], f"{self.item_a} (4), {self.item_b} (2)")
 		self.assertEqual(entry_one_row["total_qty"], 6)
-		self.assertEqual(entry_one_row["rejection_reason"], "Bur")
-		self.assertEqual(entry_one_row["operation"], "Deburring")
 		self.assertEqual(entry_one_row["rework_type"], self.rework_type_a)
 		self.assertEqual(entry_one_row["workstation"], self.workstation_a)
 		self.assertEqual(entry_one_row["operator_names"], "Operator A, Operator B")
@@ -204,8 +198,6 @@ class TestDailyReworkReport(FrappeTestCase):
 			operators=["Operator A"],
 			start=f"{day_one} 08:00:00",
 			end=f"{day_one} 09:00:00",
-			rejection_reason="Bur",
-			operation="Deburring",
 		)
 		self._insert_entry(
 			posting_date=day_two,
@@ -215,8 +207,6 @@ class TestDailyReworkReport(FrappeTestCase):
 			operators=["Operator B"],
 			start=f"{day_two} 08:00:00",
 			end=f"{day_two} 09:00:00",
-			rejection_reason="Crack",
-			operation="Polishing",
 		)
 		date_range = {"from_date": day_one, "to_date": day_two}
 
@@ -224,8 +214,6 @@ class TestDailyReworkReport(FrappeTestCase):
 			{**date_range, "rework_type": self.rework_type_a},
 			{**date_range, "item_code": self.item_a},
 			{**date_range, "workstation": self.workstation_a},
-			{**date_range, "rejection_reason": "Bur"},
-			{**date_range, "operation": "Deburring"},
 			{**date_range, "operator": "Operator A"},
 			{"from_date": day_one, "to_date": day_one},
 		):
@@ -421,8 +409,6 @@ class TestDailyReworkReport(FrappeTestCase):
 		end: str | None,
 		docstatus: int = 1,
 		stock_entry_type: str | None = None,
-		rejection_reason: str | None = None,
-		operation: str | None = None,
 	) -> str:
 		self._ensure_entry_types()
 		name = f"DAILY-{frappe.generate_hash(length=10)}"
@@ -437,8 +423,6 @@ class TestDailyReworkReport(FrappeTestCase):
 				StockEntry.posting_date,
 				StockEntry.custom_pea_rework_type,
 				StockEntry.custom_pea_rework_workstation,
-				StockEntry.custom_pea_rework_rejection_reason,
-				StockEntry.custom_pea_rework_operation,
 			)
 			.insert(
 				name,
@@ -448,8 +432,6 @@ class TestDailyReworkReport(FrappeTestCase):
 				posting_date,
 				rework_type,
 				workstation,
-				rejection_reason,
-				operation,
 			)
 		).run()
 		StockEntryDetail = frappe.qb.DocType("Stock Entry Detail")

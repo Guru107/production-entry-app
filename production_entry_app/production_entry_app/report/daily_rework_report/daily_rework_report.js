@@ -9,18 +9,6 @@ frappe.query_reports["Daily Rework Report"] = {
 			options: "Item",
 		},
 		{
-			fieldname: "rejection_reason",
-			label: __("Rejection Reason"),
-			fieldtype: "Link",
-			options: "Rejection Reason",
-		},
-		{
-			fieldname: "operation",
-			label: __("Operation"),
-			fieldtype: "Link",
-			options: "Operation",
-		},
-		{
 			fieldname: "workstation",
 			label: __("Workstation"),
 			fieldtype: "Link",

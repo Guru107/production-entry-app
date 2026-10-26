@@ -105,8 +105,6 @@ class TestReworkDetailsLayout(unittest.TestCase):
 		fields = [
 			frappe._dict(fieldname="stock_entry_type", fieldtype="Link"),
 			frappe._dict(fieldname="apply_putaway_rule", fieldtype="Check"),
-			frappe._dict(fieldname="custom_pea_rework_rejection_reason", fieldtype="Link", is_custom_field=1),
-			frappe._dict(fieldname="custom_pea_rework_operation", fieldtype="Link", is_custom_field=1),
 			frappe._dict(fieldname="custom_pea_rework_date", fieldtype="Date", is_custom_field=1),
 			frappe._dict(
 				fieldname="custom_pea_rework_responsibility", fieldtype="Table MultiSelect", is_custom_field=1
