@@ -39,6 +39,7 @@ REQUIRED_CUSTOM_FIELD_SEARCH_INDEXES: set[str] = {
 	"Stock Entry-custom_pea_workstation",
 	"Stock Entry-custom_pea_operator",
 	"Stock Entry Detail-custom_pea_is_rejection_item",
+	"Stock Entry-custom_pea_rework_date",
 	"Downtime Entry-custom_pea_downtime_reason",
 }
 
@@ -241,7 +242,35 @@ def test_rework_stock_entry_metadata_is_exported() -> None:
 		"Stock Entry-custom_pea_rework_workstation": ("Link", "Workstation"),
 		"Stock Entry-custom_pea_rework_operators": ("Table", "Rework Operator"),
 		"Stock Entry-custom_pea_rework_cost": ("Currency", None),
+		"Stock Entry-custom_pea_rework_date": ("Date", None),
 	}
+
+	optional_rework_fields = {
+		"Stock Entry-custom_pea_rework_responsibility": "Rework Responsibility Employee",
+		"Stock Entry-custom_pea_rework_reinspection": "Rework Reinspection Employee",
+	}
+	for name, options in optional_rework_fields.items():
+		field = fields_by_name[name]
+		assert field["fieldtype"] == "Table MultiSelect"
+		assert field.get("options") == options
+		assert "stock_entry_type" in field.get("depends_on", "")
+		assert not field.get("mandatory_depends_on")
+
+	for name in optional_rework_fields.values():
+		child = assert_doctype_json(name)
+		assert child["istable"] == 1
+		assert child["permissions"] == []
+		assert child["field_order"] == ["employee"]
+		assert child["fields"] == [
+			{
+				"fieldname": "employee",
+				"fieldtype": "Link",
+				"in_list_view": 1,
+				"label": "Employee",
+				"options": "Employee",
+				"reqd": 1,
+			}
+		]
 
 	for name, (fieldtype, options) in rework_fields.items():
 		field = fields_by_name[name]
@@ -324,13 +353,27 @@ def test_rework_fields_have_a_dedicated_two_column_section() -> None:
 		"module": "Production Entry App",
 		"permlevel": 0,
 	}
+	assert field("custom_pea_rework_date") == {
+		"doctype": "Custom Field",
+		"name": "Stock Entry-custom_pea_rework_date",
+		"dt": "Stock Entry",
+		"fieldname": "custom_pea_rework_date",
+		"fieldtype": "Date",
+		"label": "Rework Date",
+		"insert_after": "custom_pea_rework_rejection_reason",
+		"depends_on": rework_condition,
+		"mandatory_depends_on": rework_condition,
+		"search_index": 1,
+		"module": "Production Entry App",
+		"permlevel": 0,
+	}
 	assert field("custom_pea_rework_column_break") == {
 		"doctype": "Custom Field",
 		"name": "Stock Entry-custom_pea_rework_column_break",
 		"dt": "Stock Entry",
 		"fieldname": "custom_pea_rework_column_break",
 		"fieldtype": "Column Break",
-		"insert_after": "custom_pea_rework_rejection_reason",
+		"insert_after": "custom_pea_rework_date",
 		"module": "Production Entry App",
 		"permlevel": 0,
 	}
@@ -349,7 +392,33 @@ def test_rework_fields_have_a_dedicated_two_column_section() -> None:
 		"permlevel": 0,
 	}
 	assert field("custom_pea_rework_operators")["insert_after"] == "custom_pea_rework_operation"
-	assert field("custom_pea_rework_cost")["insert_after"] == "custom_pea_rework_operators"
+	assert field("custom_pea_rework_responsibility") == {
+		"doctype": "Custom Field",
+		"name": "Stock Entry-custom_pea_rework_responsibility",
+		"dt": "Stock Entry",
+		"fieldname": "custom_pea_rework_responsibility",
+		"fieldtype": "Table MultiSelect",
+		"label": "Responsibility Remark",
+		"options": "Rework Responsibility Employee",
+		"insert_after": "custom_pea_rework_operators",
+		"depends_on": rework_condition,
+		"module": "Production Entry App",
+		"permlevel": 0,
+	}
+	assert field("custom_pea_rework_reinspection") == {
+		"doctype": "Custom Field",
+		"name": "Stock Entry-custom_pea_rework_reinspection",
+		"dt": "Stock Entry",
+		"fieldname": "custom_pea_rework_reinspection",
+		"fieldtype": "Table MultiSelect",
+		"label": "Reinspection",
+		"options": "Rework Reinspection Employee",
+		"insert_after": "custom_pea_rework_responsibility",
+		"depends_on": rework_condition,
+		"module": "Production Entry App",
+		"permlevel": 0,
+	}
+	assert field("custom_pea_rework_cost")["insert_after"] == "custom_pea_rework_reinspection"
 	assert field("custom_pea_rework_details_end_section") == {
 		"doctype": "Custom Field",
 		"name": "Stock Entry-custom_pea_rework_details_end_section",

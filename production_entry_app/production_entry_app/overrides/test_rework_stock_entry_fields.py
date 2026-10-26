@@ -184,4 +184,5 @@ class TestReworkStockEntryFields(FrappeTestCase):
 		doc.stock_entry_type = self.rework_stock_entry_type
 		doc.custom_pea_rework_type = "Deburring"
 		doc.custom_pea_rework_workstation = "Rework Workstation"
+		doc.custom_pea_rework_date = "2026-09-01"
 		return doc

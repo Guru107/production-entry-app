@@ -49,6 +49,8 @@ PEA_READ_ONLY_BLOCKED_MODULE_DOCTYPES: tuple[str, ...] = (
 	"Production Entry Settings",
 	"Rejection Breakup",
 	"Rejection Reason",
+	"Rework Reinspection Employee",
+	"Rework Responsibility Employee",
 )
 
 PEA_READ_ONLY_BLOCKED_FLAGS: tuple[str, ...] = (

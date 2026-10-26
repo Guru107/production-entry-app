@@ -159,9 +159,12 @@ test.describe("Rework fields on Stock Entry", () => {
 						[
 							"custom_pea_rework_type",
 							"custom_pea_rework_rejection_reason",
+							"custom_pea_rework_date",
 							"custom_pea_rework_workstation",
 							"custom_pea_rework_operation",
 							"custom_pea_rework_operators",
+							"custom_pea_rework_responsibility",
+							"custom_pea_rework_reinspection",
 						].map((fieldname) => [fieldname, placement(fieldname)])
 					),
 					reworkCostVisible: Boolean(
@@ -174,11 +177,17 @@ test.describe("Rework fields on Stock Entry", () => {
 			expect(layout.reworkSectionTop).toBeGreaterThan(layout.stockEntrySectionTop);
 			expect(layout.reworkSectionIndex).toBe(layout.stockEntrySectionIndex + 1);
 			expect(layout.columnFieldOrder).toEqual([
-				["custom_pea_rework_type", "custom_pea_rework_rejection_reason"],
+				[
+					"custom_pea_rework_type",
+					"custom_pea_rework_rejection_reason",
+					"custom_pea_rework_date",
+				],
 				[
 					"custom_pea_rework_workstation",
 					"custom_pea_rework_operation",
 					"custom_pea_rework_operators",
+					"custom_pea_rework_responsibility",
+					"custom_pea_rework_reinspection",
 				],
 			]);
 			expect(layout.reworkCostVisible).toBe(false);
@@ -197,10 +206,16 @@ test.describe("Rework fields on Stock Entry", () => {
 				section: "custom_pea_rework_details_section",
 				column: leftColumn,
 			});
+			expect(layout.placements.custom_pea_rework_date).toEqual({
+				section: "custom_pea_rework_details_section",
+				column: leftColumn,
+			});
 			for (const fieldname of [
 				"custom_pea_rework_workstation",
 				"custom_pea_rework_operation",
 				"custom_pea_rework_operators",
+				"custom_pea_rework_responsibility",
+				"custom_pea_rework_reinspection",
 			]) {
 				expect(layout.placements[fieldname]).toEqual({
 					section: "custom_pea_rework_details_section",

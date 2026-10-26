@@ -32,8 +32,9 @@ expose the Operation filter without an Operation column (efficiency, OEE, item/B
 - From/To Date filters select entries through linked Completed Shifts and `Shift.shift_date`; Stock Entry
   `posting_date` does not determine date-range membership.
 - Rework Register and Daily Rework Report are the exception to this Production Entry scope: they select
-  submitted Rework Operations and use their `posting_date`, because Rework Operations are not linked to a
-  Shift.
+  submitted Rework Operations, which are not linked to a Shift. Rework Register dates and filters rows by
+  the entry's Rework Date (`custom_pea_rework_date`); the Daily Rework Report still groups by
+  `posting_date` until its #183 reshape.
 
 ## Quantity Semantics
 
