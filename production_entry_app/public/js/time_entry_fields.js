@@ -74,6 +74,39 @@ function format_datetime_display(value) {
 	};
 }
 
+// Fixed-width "YYYY-MM-DD HH:MM:SS" strings compare lexicographically like datetimes.
+function _normalize_datetime_string(value) {
+	return String(value || "")
+		.replace("T", " ")
+		.split(".")[0];
+}
+
+function _add_days_to_date(dateStr, days) {
+	const [y, m, d] = dateStr.split("-").map(Number);
+	const dt = new Date(Date.UTC(y, m - 1, d + days));
+	return `${dt.getUTCFullYear()}-${_pad2(dt.getUTCMonth() + 1)}-${_pad2(dt.getUTCDate())}`;
+}
+
+// Resolve a composed actual datetime onto the date that places it inside the planned shift
+// window (client-side analogue of the server's resolve_time_interval_in_window). Shift
+// windows span at most 12h, so the same time-of-day matches at most one date in the window.
+function resolve_datetime_in_window(value, window_start, window_end) {
+	const raw = _normalize_datetime_string(value);
+	const start = _normalize_datetime_string(window_start);
+	const end = _normalize_datetime_string(window_end);
+	if (!raw || !start || !end) {
+		return raw;
+	}
+	if (start <= raw && raw <= end) {
+		return raw;
+	}
+	const nextDay = `${_add_days_to_date(raw.slice(0, 10), 1)}${raw.slice(10)}`;
+	if (start <= nextDay && nextDay <= end) {
+		return nextDay;
+	}
+	return raw;
+}
+
 function _set_doc_value(doc, fieldname, value) {
 	if (doc && doc[fieldname] !== value) {
 		doc[fieldname] = value;
@@ -370,6 +403,7 @@ const api = {
 	parse_time,
 	format_time_display,
 	format_datetime_display,
+	resolve_datetime_in_window,
 	sync_time_display_from_doc,
 	sync_datetime_display_from_doc,
 	sync_loss_entry_rows,

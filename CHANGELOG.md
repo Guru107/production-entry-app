@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 -   E2E run optimization: the Playwright suite no longer loads Desk pages to mint CSRF tokens (E2E sites now run with `ignore_csrf: 1`, set automatically for ephemeral sites), tests no longer navigate home before bootstrap or cleanup, Desk navigations return at `domcontentloaded`, CI skips the two asset rebuilds already covered by the workflow's `bench build`, and the E2E workflow shards each Frappe version across two jobs
 
+### Removed
+
+-   The optional **Rejection Reason** and **Operation** fields on rework entries (#177) — defect and defect-origin stage derive from production Rejection Breakup data instead of being re-entered; the Rework Register and Daily Rework Report drop those columns and filters (#190)
+
+### Added
+
 -   Rework entries capture a required **Rework Date** (defaults to today on the form; the operation-performed date of record, so users stop editing `posting_date`/`posting_time` for it) plus optional **Responsibility Remark** and **Reinspection** employee multi-selects; the Rework Register now dates and filters rows by Rework Date (#182)
 
 ### Added

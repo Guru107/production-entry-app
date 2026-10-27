@@ -340,19 +340,6 @@ def test_rework_fields_have_a_dedicated_two_column_section() -> None:
 		"permlevel": 0,
 	}
 	assert field("custom_pea_rework_type")["insert_after"] == "custom_pea_rework_details_section"
-	assert field("custom_pea_rework_rejection_reason") == {
-		"doctype": "Custom Field",
-		"name": "Stock Entry-custom_pea_rework_rejection_reason",
-		"dt": "Stock Entry",
-		"fieldname": "custom_pea_rework_rejection_reason",
-		"fieldtype": "Link",
-		"label": "Rejection Reason",
-		"options": "Rejection Reason",
-		"insert_after": "custom_pea_rework_type",
-		"depends_on": rework_condition,
-		"module": "Production Entry App",
-		"permlevel": 0,
-	}
 	assert field("custom_pea_rework_date") == {
 		"doctype": "Custom Field",
 		"name": "Stock Entry-custom_pea_rework_date",
@@ -360,7 +347,7 @@ def test_rework_fields_have_a_dedicated_two_column_section() -> None:
 		"fieldname": "custom_pea_rework_date",
 		"fieldtype": "Date",
 		"label": "Rework Date",
-		"insert_after": "custom_pea_rework_rejection_reason",
+		"insert_after": "custom_pea_rework_type",
 		"depends_on": rework_condition,
 		"mandatory_depends_on": rework_condition,
 		"search_index": 1,
@@ -378,20 +365,7 @@ def test_rework_fields_have_a_dedicated_two_column_section() -> None:
 		"permlevel": 0,
 	}
 	assert field("custom_pea_rework_workstation")["insert_after"] == "custom_pea_rework_column_break"
-	assert field("custom_pea_rework_operation") == {
-		"doctype": "Custom Field",
-		"name": "Stock Entry-custom_pea_rework_operation",
-		"dt": "Stock Entry",
-		"fieldname": "custom_pea_rework_operation",
-		"fieldtype": "Link",
-		"label": "Operation",
-		"options": "Operation",
-		"insert_after": "custom_pea_rework_workstation",
-		"depends_on": rework_condition,
-		"module": "Production Entry App",
-		"permlevel": 0,
-	}
-	assert field("custom_pea_rework_operators")["insert_after"] == "custom_pea_rework_operation"
+	assert field("custom_pea_rework_operators")["insert_after"] == "custom_pea_rework_workstation"
 	assert field("custom_pea_rework_responsibility") == {
 		"doctype": "Custom Field",
 		"name": "Stock Entry-custom_pea_rework_responsibility",
