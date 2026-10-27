@@ -24,7 +24,7 @@ jobs:
         include:
           - frappe_version: "15"
             erpnext_version: "15"
-            python_version: "3.10"
+            python_version: "3.12"
             node_version: "18"
           - frappe_version: "16"
             erpnext_version: "16"
