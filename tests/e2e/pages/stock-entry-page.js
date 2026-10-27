@@ -155,7 +155,7 @@ class StockEntryPage {
 	}
 
 	async openNew() {
-		await this.page.goto(getRoute("/stock-entry/new"));
+		await this.page.goto(getRoute("/stock-entry/new"), { waitUntil: "domcontentloaded" });
 		await expect(this.page).toHaveURL(
 			new RegExp(getRoutePatternSource("/stock-entry/(?:new|new-stock-entry-)"))
 		);
@@ -165,7 +165,9 @@ class StockEntryPage {
 
 	async open(name) {
 		const encodedName = encodeURIComponent(name);
-		await this.page.goto(getRoute(`/stock-entry/${encodedName}`));
+		await this.page.goto(getRoute(`/stock-entry/${encodedName}`), {
+			waitUntil: "domcontentloaded",
+		});
 		// v16 may append anchor fragment like #tab_overview
 		await expect(this.page).toHaveURL(
 			new RegExp(

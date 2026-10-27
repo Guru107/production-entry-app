@@ -13,7 +13,6 @@ const { hasCurrentStockEntryBranchField } = require("../fixtures/stock-entry-met
 const { ensureUser, loginAs } = require("../fixtures/users");
 const { ReportsPage } = require("../pages/reports-page");
 const { StockEntryPage } = require("../pages/stock-entry-page");
-const { getRoute } = require("../utils/routing");
 
 const ADMIN_USERNAME =
 	process.env.PLAYWRIGHT_ADMIN_USERNAME || process.env.PLAYWRIGHT_USERNAME || "Administrator";
@@ -22,7 +21,6 @@ const ADMIN_PASSWORD =
 const TEST_PASSWORD = process.env.PLAYWRIGHT_TEST_USER_PASSWORD || "E2eT3st!Pass#2026";
 
 async function seedLifecycle(page, prefix) {
-	await page.goto(getRoute("/home"));
 	return await callFrappeMethod(
 		page,
 		"production_entry_app.production_entry_app.e2e_api.create_e2e_rework_lifecycle_source",
@@ -360,7 +358,6 @@ test.describe("Rework full lifecycle", () => {
 	test("@regression does not fan out blank breakup rows across multiple rejected items", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const context = await callFrappeMethod(
 			page,
 			"production_entry_app.production_entry_app.e2e_api.create_e2e_ambiguous_pending_rework_source",

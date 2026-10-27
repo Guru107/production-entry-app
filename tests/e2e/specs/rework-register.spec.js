@@ -4,7 +4,6 @@ const { callFrappeMethod } = require("../fixtures/frappe");
 const { registerE2ELifecycle } = require("../fixtures/lifecycle");
 const { deleteUserIfExists, ensureUser, loginAs } = require("../fixtures/users");
 const { ReportsPage } = require("../pages/reports-page");
-const { getRoute } = require("../utils/routing");
 
 const ADMIN_USERNAME =
 	process.env.PLAYWRIGHT_ADMIN_USERNAME || process.env.PLAYWRIGHT_USERNAME || "Administrator";
@@ -24,7 +23,6 @@ test.describe("Rework Register report", () => {
 	const lifecycle = registerE2ELifecycle(test);
 
 	test("@regression shows stored rework facts and honors all filters", async ({ page }) => {
-		await page.goto(getRoute("/home"));
 		const seeded = await seedRegisterRow(page, lifecycle.getPrefix());
 		const reportsPage = new ReportsPage(page);
 
@@ -52,7 +50,6 @@ test.describe("Rework Register report", () => {
 	test("@regression PEA Read Only can read the register without Stock Entry access", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const seeded = await seedRegisterRow(page, lifecycle.getPrefix());
 		const email = `e2e-user-rework-register-${Date.now()}@example.com`;
 		await ensureUser(page, {

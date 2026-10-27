@@ -10,13 +10,8 @@ const ADMIN_PASSWORD = process.env.PLAYWRIGHT_PASSWORD || "123";
 const TEST_PASSWORD = process.env.PLAYWRIGHT_TEST_USER_PASSWORD || "E2eT3st!Pass#2026";
 const UNAUTHORIZED_USER = "e2e_downtime_reason_no_access@example.com";
 
-async function openDeskHome(page) {
-	await page.goto(getRoute("/home"));
-	await page.waitForFunction(() => Boolean(window.frappe?.csrf_token));
-}
-
 async function openNewDowntimeReason(page) {
-	await page.goto(getRoute("/downtime-reason/new"));
+	await page.goto(getRoute("/downtime-reason/new"), { waitUntil: "domcontentloaded" });
 	await page.waitForFunction(
 		() => window.cur_frm?.doctype === "Downtime Reason" && window.cur_frm?.is_new?.()
 	);
@@ -109,7 +104,6 @@ test.describe("Downtime Reason master", () => {
 	});
 
 	test("@regression blocks users without Downtime Reason access", async ({ page }) => {
-		await openDeskHome(page);
 		await deleteUserIfExists(page, UNAUTHORIZED_USER);
 		await ensureUser(page, {
 			email: UNAUTHORIZED_USER,

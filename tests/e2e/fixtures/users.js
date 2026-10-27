@@ -1,5 +1,4 @@
 const { callFrappeMethod } = require("./frappe");
-const { getRoute } = require("../utils/routing");
 
 async function loginAs(page, username, password) {
 	const response = await page.request.post("/api/method/login", {
@@ -8,8 +7,6 @@ async function loginAs(page, username, password) {
 	if (!response.ok()) {
 		throw new Error(`Unable to login as ${username}.`);
 	}
-	await page.goto(getRoute("/home"));
-	await page.waitForFunction(() => Boolean(window.frappe?.csrf_token));
 }
 
 async function ensureRole(page, roleName) {

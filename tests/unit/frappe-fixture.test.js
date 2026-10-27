@@ -8,27 +8,65 @@ const {
 	saveForm,
 	triggerSaveForm,
 } = require("../e2e/fixtures/frappe");
+const { hasStockEntryBranchField } = require("../e2e/fixtures/stock-entry-meta");
 
-test("callFrappeMethod fails before POST when CSRF token is unavailable", async () => {
-	let evaluateCalls = 0;
+test("callFrappeMethod posts without a CSRF token or page state", async () => {
+	let posted;
 	const page = {
 		async evaluate() {
-			evaluateCalls += 1;
-			return "";
+			throw new Error("page.evaluate must not run: no token is read from Desk pages.");
 		},
-		async waitForLoadState() {},
 		request: {
-			async post() {
-				throw new Error("POST should not run without a CSRF token.");
+			async post(url, options) {
+				posted = { url, options };
+				return {
+					ok: () => true,
+					status: 200,
+					async text() {
+						return JSON.stringify({ message: { name: "SHIFT-1" } });
+					},
+				};
 			},
 		},
 	};
 
-	await assert.rejects(
-		() => callFrappeMethod(page, "frappe.client.get"),
-		/Unable to read CSRF token after retries/
+	const result = await callFrappeMethod(page, "frappe.client.get", { doctype: "Shift" });
+
+	assert.deepEqual(result, { name: "SHIFT-1" });
+	assert.equal(posted.url, "/api/method/frappe.client.get");
+	assert.deepEqual(posted.options.form, { doctype: "Shift" });
+	assert.equal(posted.options.headers, undefined);
+});
+
+test("hasStockEntryBranchField checks DocType meta then Custom Field via API", async () => {
+	const calls = [];
+	const pageFor = (responses) => ({
+		request: {
+			async post(url, options) {
+				calls.push(options.form.doctype);
+				return {
+					ok: () => true,
+					status: 200,
+					async text() {
+						return JSON.stringify({ message: responses.shift() });
+					},
+				};
+			},
+		},
+	});
+
+	// Standard field hit: short-circuits before the Custom Field query.
+	assert.equal(
+		await hasStockEntryBranchField(pageFor([{ fields: [{ fieldname: "branch" }] }])),
+		true
 	);
-	assert.equal(evaluateCalls, 3);
+	assert.deepEqual(calls, ["DocType"]);
+
+	// Custom field hit / total miss.
+	calls.length = 0;
+	assert.equal(await hasStockEntryBranchField(pageFor([{ fields: [] }, [{ name: "x" }]])), true);
+	assert.equal(await hasStockEntryBranchField(pageFor([{ fields: [] }, []])), false);
+	assert.deepEqual(calls, ["DocType", "Custom Field", "DocType", "Custom Field"]);
 });
 
 test("retryOnContextDestroyed bounds the recovery wait before retrying", async () => {

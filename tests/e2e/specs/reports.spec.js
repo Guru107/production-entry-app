@@ -6,7 +6,6 @@ const { StockEntryPage } = require("../pages/stock-entry-page");
 const { getDoc, callFrappeMethod } = require("../fixtures/frappe");
 const { registerE2ELifecycle } = require("../fixtures/lifecycle");
 const { deleteUserIfExists, ensureUser, loginAs } = require("../fixtures/users");
-const { getRoute } = require("../utils/routing");
 
 const ADMIN_USERNAME = process.env.PLAYWRIGHT_USERNAME || "Administrator";
 const ADMIN_PASSWORD = process.env.PLAYWRIGHT_PASSWORD || "123";
@@ -108,7 +107,6 @@ test.describe("Production reports", () => {
 	test("@regression System Manager can open the native Stock Ledger report", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 		const reportsPage = new ReportsPage(page);
 
@@ -122,7 +120,6 @@ test.describe("Production reports", () => {
 	});
 
 	test("@smoke OEE report shows day-workstation aggregate row", async ({ page }) => {
-		await page.goto(getRoute("/home"));
 		const prefix = lifecycle.getPrefix();
 		const ctx = await setupFreshContext(page, prefix);
 		const seeded = await createSubmittedStockEntryForReports(
@@ -178,7 +175,6 @@ test.describe("Production reports", () => {
 	});
 
 	test("@regression OEE quality counts rework as rejected output", async ({ page }) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 		const seeded = await createSubmittedStockEntryForReports(
 			page,
@@ -209,7 +205,6 @@ test.describe("Production reports", () => {
 	test("@regression date-driven reports use Completed Shift date instead of Posting Date", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const prefix = lifecycle.getPrefix();
 		const ctx = await setupFreshContext(page, prefix);
 		await createSubmittedStockEntryForReports(
@@ -253,7 +248,6 @@ test.describe("Production reports", () => {
 	});
 
 	test("@regression OEE report keeps source-controlled non-prepared mode", async ({ page }) => {
-		await page.goto(getRoute("/home"));
 		const prefix = lifecycle.getPrefix();
 		await setupFreshContext(page, prefix);
 
@@ -270,7 +264,6 @@ test.describe("Production reports", () => {
 	test("@regression OEE report derives availability from shift and removes avl-hours filter", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const prefix = lifecycle.getPrefix();
 		const ctx = await setupFreshContext(page, prefix);
 		const seeded = await createSubmittedStockEntryForReports(page, ctx, 0);
@@ -294,7 +287,6 @@ test.describe("Production reports", () => {
 	test("@regression OEE report counts uncovered Downtime Entry hours as Machine Downtime", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const prefix = lifecycle.getPrefix();
 		const ctx = await setupFreshContext(page, prefix);
 		await callFrappeMethod(
@@ -324,7 +316,6 @@ test.describe("Production reports", () => {
 	});
 
 	test("@regression Operator report honors operator and shift filters", async ({ page }) => {
-		await page.goto(getRoute("/home"));
 		const prefix = lifecycle.getPrefix();
 		const ctx = await setupFreshContext(page, prefix);
 		const seeded = await createSubmittedStockEntryForReports(page, ctx, 0);
@@ -348,7 +339,6 @@ test.describe("Production reports", () => {
 	test("@regression Operator Daily SPM report loads grouped operator-workstation rows", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const prefix = lifecycle.getPrefix();
 		const ctx = await setupFreshContext(page, prefix);
 		await createSubmittedStockEntryForReports(page, ctx, 0, [
@@ -381,7 +371,6 @@ test.describe("Production reports", () => {
 	test("@regression Workstation report honors workstation and shift filters", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const prefix = lifecycle.getPrefix();
 		const ctx = await setupFreshContext(page, prefix);
 		const seeded = await createSubmittedStockEntryForReports(page, ctx, 0);
@@ -405,7 +394,6 @@ test.describe("Production reports", () => {
 	test("@regression Die Tool report honors item filter and shows maintenance columns", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const prefix = lifecycle.getPrefix();
 		const ctx = await setupFreshContext(page, prefix);
 		await createSubmittedStockEntryForReports(page, ctx, 0);
@@ -430,7 +418,6 @@ test.describe("Production reports", () => {
 	test("@regression Rejection Pareto report loads and renders chart with grouped reasons", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const prefix = lifecycle.getPrefix();
 		const ctx = await setupFreshContext(page, prefix);
 		const seeded = await createSubmittedStockEntryForReports(
@@ -460,7 +447,6 @@ test.describe("Production reports", () => {
 	test("@regression Rejection Trend report supports daily and monthly grain", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const prefix = lifecycle.getPrefix();
 		const ctx = await setupFreshContext(page, prefix);
 
@@ -495,7 +481,6 @@ test.describe("Production reports", () => {
 	test("@regression Workstation rejection matrix renders dynamic reason columns", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const prefix = lifecycle.getPrefix();
 		const ctx = await setupFreshContext(page, prefix);
 		const seeded = await createSubmittedStockEntryForReports(
@@ -524,7 +509,6 @@ test.describe("Production reports", () => {
 	});
 
 	test("@regression Operator rejection report shows top reasons and rates", async ({ page }) => {
-		await page.goto(getRoute("/home"));
 		const prefix = lifecycle.getPrefix();
 		const ctx = await setupFreshContext(page, prefix);
 		const seeded = await createSubmittedStockEntryForReports(
@@ -553,7 +537,6 @@ test.describe("Production reports", () => {
 	});
 
 	test("@regression Item BOM hotspots report shows dominant reason", async ({ page }) => {
-		await page.goto(getRoute("/home"));
 		const prefix = lifecycle.getPrefix();
 		const ctx = await setupFreshContext(page, prefix);
 		const seeded = await createSubmittedStockEntryForReports(
@@ -585,7 +568,6 @@ test.describe("Production reports", () => {
 	});
 
 	test("@regression Rework Pareto report renders seeded rework data", async ({ page }) => {
-		await page.goto(getRoute("/home"));
 		const prefix = lifecycle.getPrefix();
 		const ctx = await setupFreshContext(page, prefix);
 		const seeded = await createSubmittedStockEntryForReports(
@@ -615,7 +597,6 @@ test.describe("Production reports", () => {
 	test("@regression Pending Rework shows pool, warehouse balance, and source drill-down", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 		const seeded = await createSubmittedStockEntryForReports(
 			page,
@@ -649,7 +630,6 @@ test.describe("Production reports", () => {
 	test("@regression PEA Read Only can open Pending Rework without source access", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const prefix = lifecycle.getPrefix();
 		const ctx = await setupFreshContext(page, prefix);
 		await createSubmittedStockEntryForReports(
@@ -694,7 +674,6 @@ test.describe("Production reports", () => {
 	test("@regression Rework Trend and Rework PPM reports render rework aggregates", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const prefix = lifecycle.getPrefix();
 		const ctx = await setupFreshContext(page, prefix);
 		await createSubmittedStockEntryForReports(
@@ -736,7 +715,6 @@ test.describe("Production reports", () => {
 	test("@regression Operator/Item/Workstation rework reports load with rework data", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const prefix = lifecycle.getPrefix();
 		const ctx = await setupFreshContext(page, prefix);
 		await createSubmittedStockEntryForReports(
@@ -782,7 +760,6 @@ test.describe("Production reports", () => {
 	});
 
 	test("@regression report date range prevents from_date > to_date", async ({ page }) => {
-		await page.goto(getRoute("/home"));
 		const reportsPage = new ReportsPage(page);
 		for (const reportName of [
 			"Daily Strokes SPM Monitor",

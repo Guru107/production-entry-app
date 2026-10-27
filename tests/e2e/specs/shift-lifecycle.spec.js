@@ -3,13 +3,11 @@ const { bootstrapE2E, cleanupE2E } = require("../fixtures/test-data");
 const { getDoc } = require("../fixtures/frappe");
 const { ShiftPage } = require("../pages/shift-page");
 const { registerE2ELifecycle } = require("../fixtures/lifecycle");
-const { getRoute } = require("../utils/routing");
 
 test.describe("Shift lifecycle", () => {
 	const lifecycle = registerE2ELifecycle(test);
 
 	test("@smoke draft shift can be cancelled", async ({ page }) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 		const seededShift = await getDoc(page, "Shift", ctx.shift_name);
 
@@ -34,7 +32,6 @@ test.describe("Shift lifecycle", () => {
 	});
 
 	test("@smoke shift can start and end from UI actions", async ({ page }) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 
 		const shiftPage = new ShiftPage(page);
@@ -69,7 +66,6 @@ test.describe("Shift lifecycle", () => {
 	});
 
 	test("cleanup is idempotent for repeated calls", async ({ page }) => {
-		await page.goto(getRoute("/home"));
 		const prefix = lifecycle.getPrefix();
 		await bootstrapE2E(page, prefix);
 
@@ -81,7 +77,6 @@ test.describe("Shift lifecycle", () => {
 	});
 
 	test("planned break population is debounced to a single API call", async ({ page }) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 		const nextDate = new Date(ctx.shift_date);
 		nextDate.setDate(nextDate.getDate() + 2);

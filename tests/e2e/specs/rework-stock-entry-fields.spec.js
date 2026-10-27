@@ -29,7 +29,6 @@ test.describe("Rework fields on Stock Entry", () => {
 		];
 		const createdStockEntryTypes = [];
 
-		await page.goto(getRoute("/home"));
 		try {
 			for (const name of stockEntryTypes) {
 				await callFrappeMethod(page, "frappe.client.insert", {
@@ -43,7 +42,7 @@ test.describe("Rework fields on Stock Entry", () => {
 				createdStockEntryTypes.push(name);
 			}
 
-			await page.goto(getRoute("/stock-entry/new"));
+			await page.goto(getRoute("/stock-entry/new"), { waitUntil: "domcontentloaded" });
 			await page.waitForFunction(
 				() => window.cur_frm?.doctype === "Stock Entry" && window.cur_frm?.is_new?.()
 			);
@@ -199,7 +198,6 @@ test.describe("Rework fields on Stock Entry", () => {
 				});
 			}
 		} finally {
-			await page.goto(getRoute("/home")).catch(() => {});
 			for (const name of createdStockEntryTypes) {
 				await deleteDocIfExists(page, "Stock Entry Type", name);
 			}
@@ -216,7 +214,6 @@ test.describe("Rework fields on Stock Entry", () => {
 		let createdReworkStockEntryType = false;
 
 		try {
-			await page.goto(getRoute("/home"));
 			const context = await callFrappeMethod(
 				page,
 				"production_entry_app.production_entry_app.e2e_api.bootstrap_e2e_context",
@@ -300,7 +297,6 @@ test.describe("Rework fields on Stock Entry", () => {
 				await stockEntryPage.isSectionVisible("custom_pea_rework_details_section")
 			).toBe(false);
 		} finally {
-			await page.goto(getRoute("/home")).catch(() => {});
 			if (createdReworkType) {
 				await deleteDocIfExists(page, "Rework Type", reworkType);
 			}

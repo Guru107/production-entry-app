@@ -1,10 +1,5 @@
 const { expect } = require("@playwright/test");
-const {
-	escapeRegexLiteral,
-	getRoute,
-	getRoutePatternSource,
-	getRouteRegex,
-} = require("../utils/routing");
+const { escapeRegexLiteral, getRoute, getRoutePatternSource } = require("../utils/routing");
 
 function isContextDestroyed(error) {
 	return String(error?.message || "").includes("Execution context was destroyed");
@@ -36,7 +31,9 @@ class ReportsPage {
 		const ignorePreparedReport =
 			options.ignorePreparedReport === undefined ? true : options.ignorePreparedReport;
 		const queryString = ignorePreparedReport ? "?ignore_prepared_report=1" : "";
-		await this.page.goto(getRoute(`/query-report/${encodedName}${queryString}`));
+		await this.page.goto(getRoute(`/query-report/${encodedName}${queryString}`), {
+			waitUntil: "domcontentloaded",
+		});
 		await expect(this.page).toHaveURL(
 			new RegExp(getRoutePatternSource(`/query-report/${escapeRegexLiteral(encodedName)}`))
 		);

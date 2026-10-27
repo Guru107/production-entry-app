@@ -10,7 +10,7 @@ const baseURL = process.env.PLAYWRIGHT_BASE_URL || "http://localhost:8002";
 module.exports = defineConfig({
 	testDir: "./tests/e2e/specs",
 	globalTeardown: "./tests/e2e/global-teardown.js",
-	fullyParallel: false,
+	fullyParallel: true, // test-level shard balancing (file-level put reports+joint on one shard); workers: 1 keeps in-job execution serial
 	workers: 1,
 	timeout: 90_000,
 	expect: {

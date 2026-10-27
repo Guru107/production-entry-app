@@ -68,12 +68,16 @@ fi
 bench new-site "$SITE_NAME" --db-root-username "$DB_ROOT_USERNAME" --db-root-password "$DB_ROOT_PASSWORD" --admin-password "$EPHEMERAL_ADMIN_PASSWORD"
 bench --site "$SITE_NAME" install-app erpnext
 bench --site "$SITE_NAME" install-app production_entry_app
-bench build --app production_entry_app
+# CI's workflow already ran a full `bench build` for every app before this script; only
+# rebuild when running locally against a bench that may never have built assets.
 # On v16, get-app hooks build only the fetched app, so frappe's own desk bundles are never
 # built on a --skip-assets bench and the desk half-boots (forms fail with undefined
 # frappe.meta). v15 gets them via erpnext's full build hook; build frappe explicitly so
 # both versions serve a complete desk.
-bench build --app frappe
+if [ "${CI:-}" != "true" ]; then
+	bench build --app production_entry_app
+	bench build --app frappe
+fi
 bench --site "$SITE_NAME" execute erpnext.setup.setup_wizard.operations.install_fixtures.install --args '["India"]'
 # v16's desk redirects every route to the setup wizard until every frappe/erpnext
 # Installed Application row is flagged is_setup_complete; the fixtures install above does
@@ -82,6 +86,9 @@ bench --site "$SITE_NAME" execute frappe.db.set_value --args '["Installed Applic
 bench --site "$SITE_NAME" execute production_entry_app.production_entry_app.utils.test_setup.before_tests
 bench --site "$SITE_NAME" set-config developer_mode 1
 bench --site "$SITE_NAME" set-config allow_e2e_tests 1
+# Token-less API calls: the E2E suite posts to whitelisted methods without loading Desk
+# to mint a CSRF token (frappe/auth.py validate_csrf_token honors this on v15 and v16).
+bench --site "$SITE_NAME" set-config ignore_csrf 1
 bench --site "$SITE_NAME" execute production_entry_app.production_entry_app.e2e_api._is_developer_mode_enabled
 bench --site "$SITE_NAME" execute production_entry_app.production_entry_app.e2e_api._is_allow_e2e_tests_enabled
 bench use "$SITE_NAME"
@@ -147,7 +154,11 @@ case "$E2E_MODE" in
 		npm run test:e2e:regression
 		;;
 	ci)
-		npm run test:e2e:ci
+		if [ -n "${PLAYWRIGHT_SHARD:-}" ]; then
+			npx playwright test --shard="$PLAYWRIGHT_SHARD"
+		else
+			npm run test:e2e:ci
+		fi
 		;;
 	*)
 		npx playwright test "$@"
