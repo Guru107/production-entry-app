@@ -8,6 +8,7 @@ const {
 	saveForm,
 	triggerSaveForm,
 } = require("../e2e/fixtures/frappe");
+const { hasStockEntryBranchField } = require("../e2e/fixtures/stock-entry-meta");
 
 test("callFrappeMethod posts without a CSRF token or page state", async () => {
 	let posted;
@@ -35,6 +36,36 @@ test("callFrappeMethod posts without a CSRF token or page state", async () => {
 	assert.equal(posted.url, "/api/method/frappe.client.get");
 	assert.deepEqual(posted.options.form, { doctype: "Shift" });
 	assert.equal(posted.options.headers, undefined);
+});
+
+test("hasStockEntryBranchField checks DocField then Custom Field via API", async () => {
+	const calls = [];
+	const pageFor = (rowsByDoctype) => ({
+		request: {
+			async post(url, options) {
+				const doctype = options.form.doctype;
+				calls.push(doctype);
+				return {
+					ok: () => true,
+					status: 200,
+					async text() {
+						return JSON.stringify({ message: rowsByDoctype[doctype] || [] });
+					},
+				};
+			},
+		},
+	});
+
+	assert.equal(await hasStockEntryBranchField(pageFor({ DocField: [{ name: "x" }] })), true);
+	assert.deepEqual(calls, ["DocField"]); // short-circuits before Custom Field
+
+	calls.length = 0;
+	assert.equal(
+		await hasStockEntryBranchField(pageFor({ "Custom Field": [{ name: "y" }] })),
+		true
+	);
+	assert.equal(await hasStockEntryBranchField(pageFor({})), false);
+	assert.deepEqual(calls, ["DocField", "Custom Field", "DocField", "Custom Field"]);
 });
 
 test("retryOnContextDestroyed bounds the recovery wait before retrying", async () => {
