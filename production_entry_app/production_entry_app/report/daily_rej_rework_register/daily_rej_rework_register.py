@@ -21,6 +21,7 @@ from production_entry_app.production_entry_app.utils.system_precision import get
 
 PPM_MULTIPLIER: int = 1_000_000
 _CHILD_PARENT_CHUNK_SIZE: int = 500
+_MAX_REWORK_ENTRIES: int = 10_000
 _ENTRY_FIELDS: list[str] = ["name", "fg_completed_qty", "custom_pea_operation"]
 
 
@@ -113,16 +114,27 @@ def _get_rows(filters: dict) -> list[dict]:
 	)
 	if not breakup_rows:
 		return []
-	fallback_items = _get_single_rejection_items(entry_names)
+	# The single-rejection-item fallback reads every in-scope Stock Entry Detail
+	# row; only pay for it when some breakup row actually has a blank item.
+	fallback_items = (
+		_get_single_rejection_items(entry_names)
+		if any(not row.get("item_code") for row in breakup_rows)
+		else {}
+	)
 
 	item_filter = filters.get("item_code")
 	reason_filter = filters.get("rejection_reason")
 	line_rows: list[dict] = []
+	unresolved_blank_parents: set[str] = set()
 	for row in breakup_rows:
 		entry = entry_by_name.get(row.get("parent"))
 		if not entry:
 			continue
 		item_code = row.get("item_code") or fallback_items.get(row.get("parent"), "")
+		if not item_code and not row.get("item_code"):
+			# Legacy rows can predate the single-rejection-item validation; log so
+			# the ungroupable line is diagnosable instead of silently zero-rework.
+			unresolved_blank_parents.add(row.get("parent"))
 		if item_filter and item_code != item_filter:
 			continue
 		if reason_filter and row.get("rejection_reason") != reason_filter:
@@ -144,6 +156,14 @@ def _get_rows(filters: dict) -> list[dict]:
 		)
 	if not line_rows:
 		return []
+	for parent in sorted(unresolved_blank_parents):
+		frappe.log_error(
+			title=_("Daily Rej Rework Register: unresolved rejection item"),
+			message=_(
+				"Rejection Breakup rows on {0} have a blank Item Code that cannot be resolved; "
+				"they group under an empty item and match no rework."
+			).format(parent),
+		)
 	line_rows.sort(key=lambda row: (row["day"], row["parent"], row["idx"]))
 
 	day_totals = _get_daily_fg_totals(sorted({row["day"] for row in line_rows}))
@@ -158,7 +178,8 @@ def _get_rows(filters: dict) -> list[dict]:
 		day_fg = day_totals.get(day, 0.0)
 		day_rework = rework_by_day.get(day) or {}
 		day_rejection_qty = sum(line["rejection_qty"] for line in lines_by_day[day])
-		day_rework_qty = flt(day_rework.get("qty", 0.0))
+		# The subtotal sums the lines above it: declared reworkable qty per reason.
+		day_declared_rework_qty = sum(line["rework_qty"] for line in lines_by_day[day])
 		rows.append(
 			{
 				"production_date": day,
@@ -215,9 +236,11 @@ def _get_rows(filters: dict) -> list[dict]:
 			{
 				"production_date": day,
 				"rejection_qty": flt(day_rejection_qty, precision),
-				"rework_qty": flt(day_rework_qty, precision),
+				"rework_qty": flt(day_declared_rework_qty, precision),
 				"rej_ppm": flt(day_rejection_qty / day_fg * PPM_MULTIPLIER, precision) if day_fg > 0 else 0,
-				"rework_ppm": flt(day_rework_qty / day_fg * PPM_MULTIPLIER, precision) if day_fg > 0 else 0,
+				"rework_ppm": flt(day_declared_rework_qty / day_fg * PPM_MULTIPLIER, precision)
+				if day_fg > 0
+				else 0,
 				"bold": 1,
 			}
 		)
@@ -302,17 +325,20 @@ def _get_daily_fg_totals(dates: list[datetime.date]) -> dict[datetime.date, floa
 
 def _get_rework_by_day_item(
 	line_rows: list[dict],
+	*,
+	max_rework_entries: int = _MAX_REWORK_ENTRIES,
 ) -> tuple[dict[tuple[datetime.date, str], dict], dict[datetime.date, dict]]:
 	"""Same-day, same-item rework aggregates from submitted Rework Operations.
 
-	Returns per-(rework date, item) aggregates shown on each rejection line plus
-	per-day aggregates for the day header/subtotal, where reworked entries are
-	deduplicated so a day's qty/hours/operators are never double counted.
+	Returns per-(rework date, item) aggregates shown on item rows plus per-day
+	aggregates for the day header. The day aggregates cover **all** of the day's
+	submitted rework — including items not rejected that day and surviving every
+	report filter — because No. of Operators(working) / Time(hrs.) are day-level
+	figures, not line-level. Only the item match is same-day, same-item.
 	"""
 	rework_types = get_report_rows("Stock Entry Type", filters={"custom_pea_rework_entry": 1}, pluck="name")
 	days = {row["day"] for row in line_rows}
-	items = sorted({row["defective_item_code"] for row in line_rows if row["defective_item_code"]})
-	if not rework_types or not items:
+	if not rework_types:
 		return {}, {}
 	rework_entries = get_report_rows(
 		"Stock Entry",
@@ -325,8 +351,14 @@ def _get_rework_by_day_item(
 			],
 		},
 		fields=["name", "custom_pea_rework_date"],
-		limit_page_length=0,
+		limit_page_length=max_rework_entries + 1,
 	)
+	if len(rework_entries) > max_rework_entries:
+		frappe.throw(
+			_(
+				"Daily Rej Rework Register matches more than {0} Rework Operations. Narrow the date range and retry."
+			).format(max_rework_entries)
+		)
 	day_by_entry = {
 		entry.name: getdate(entry.custom_pea_rework_date)
 		for entry in rework_entries
@@ -335,6 +367,35 @@ def _get_rework_by_day_item(
 	if not day_by_entry:
 		return {}, {}
 
+	operator_rows = _get_child_rows(
+		"Rework Operator",
+		sorted(day_by_entry),
+		fields=["parent", "operator", "actual_start", "actual_end", "idx"],
+		parentfield="custom_pea_rework_operators",
+	)
+	hours_by_entry: defaultdict[str, float] = defaultdict(float)
+	operators_by_entry: defaultdict[str, set[str]] = defaultdict(set)
+	for row in operator_rows:
+		if row.get("operator"):
+			operators_by_entry[row.parent].add(row.operator)
+		start = get_datetime(row.get("actual_start")) if row.get("actual_start") else None
+		end = get_datetime(row.get("actual_end")) if row.get("actual_end") else None
+		if start and end and end > start:
+			hours_by_entry[row.parent] += (end - start).total_seconds() / SECONDS_PER_HOUR
+
+	entries_by_day: defaultdict[datetime.date, set[str]] = defaultdict(set)
+	for parent, day in day_by_entry.items():
+		entries_by_day[day].add(parent)
+	by_day: dict[datetime.date, dict] = {}
+	for day, entries in entries_by_day.items():
+		by_day[day] = {
+			"hours": sum(hours_by_entry.get(parent, 0.0) for parent in entries),
+			"operators": sorted(set().union(*(operators_by_entry.get(parent, set()) for parent in entries))),
+		}
+
+	items = sorted({row["defective_item_code"] for row in line_rows if row["defective_item_code"]})
+	if not items:
+		return {}, by_day
 	item_set = set(items)
 	item_rows = _get_child_rows(
 		"Stock Entry Detail",
@@ -354,14 +415,8 @@ def _get_rework_by_day_item(
 		matched_entries.add(row.parent)
 		matched_pairs.add((day, item_code))
 	if not matched_entries:
-		return {}, {}
+		return {}, by_day
 
-	operator_rows = _get_child_rows(
-		"Rework Operator",
-		sorted(matched_entries),
-		fields=["parent", "operator", "actual_start", "actual_end", "idx"],
-		parentfield="custom_pea_rework_operators",
-	)
 	responsibility_rows = _get_child_rows(
 		"Rework Responsibility Employee",
 		sorted(matched_entries),
@@ -374,16 +429,6 @@ def _get_rework_by_day_item(
 		fields=["parent", "employee", "idx"],
 		parentfield="custom_pea_rework_reinspection",
 	)
-
-	hours_by_entry: defaultdict[str, float] = defaultdict(float)
-	operators_by_entry: defaultdict[str, set[str]] = defaultdict(set)
-	for row in operator_rows:
-		if row.get("operator"):
-			operators_by_entry[row.parent].add(row.operator)
-		start = get_datetime(row.get("actual_start")) if row.get("actual_start") else None
-		end = get_datetime(row.get("actual_end")) if row.get("actual_end") else None
-		if start and end and end > start:
-			hours_by_entry[row.parent] += (end - start).total_seconds() / SECONDS_PER_HOUR
 	responsibility_by_entry: defaultdict[str, set[str]] = defaultdict(set)
 	for row in responsibility_rows:
 		if row.get("employee"):
@@ -415,14 +460,4 @@ def _get_rework_by_day_item(
 		aggregate["reinspection"] = sorted(aggregate["reinspection"])
 		result[(day, item_code)] = aggregate
 
-	entries_by_day: defaultdict[datetime.date, set[str]] = defaultdict(set)
-	for parent in matched_entries:
-		entries_by_day[day_by_entry[parent]].add(parent)
-	by_day: dict[datetime.date, dict] = {}
-	for day, entries in entries_by_day.items():
-		by_day[day] = {
-			"qty": sum(qty for (parent, _item), qty in qty_by_entry_item.items() if parent in entries),
-			"hours": sum(hours_by_entry.get(parent, 0.0) for parent in entries),
-			"operators": sorted(set().union(*(operators_by_entry.get(parent, set()) for parent in entries))),
-		}
 	return result, by_day

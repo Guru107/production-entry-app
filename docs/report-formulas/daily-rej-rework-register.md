@@ -8,7 +8,9 @@ the manual "Daily Rej Rework" Excel register and the old Rework Register / Daily
 Rows group by `Production Date` into day blocks:
 
 1. a bold **date header** carrying the day's `Total FG Qty for Day` and day-level `No. of
-   Operators(working)` / `Time(hrs.)` (deduplicated per rework entry),
+   Operators(working)` / `Time(hrs.)`. These are **day-level** figures: they cover *all* of the day's
+   submitted Rework Operations — including items not rejected that day — and do not change when the
+   Item / Rejection Reason / Operation filters shrink the lines below,
 2. one **item row** per defective item — the item code appears once per day; it carries that item's
    actual same-day rework block (`Rework Qty`, `Rework PPM`, operators, hours, `Responsibility Remark`,
    `Reinspection`) from submitted Rework Operations,
@@ -18,8 +20,10 @@ Rows group by `Production Date` into day blocks:
    the reworkable quantity stays visible against its reason. Line `Rework Qty` is the *declared*
    reworkable quantity; the item row's `Rework Qty` is the *actual* same-day rework, and the two differ
    only while declared rework is still pending (see Pending Rework),
-4. a bold **subtotal** with the day's `Rejection Qty` and `Rework Qty` sums plus day-level `Rej PPM` /
-   `Rework PPM` against the day's total FG.
+4. a bold **subtotal** summing the lines above it: Σ `Rejection Qty` and Σ declared `Rework Qty`, plus
+   day-level `Rej PPM` / `Rework PPM` against the day's total FG. The subtotal reconciles with the
+   lines by construction; it can differ from the item rows' actual rework while rework is pending or
+   was executed on items not rejected that day.
 
 ## Row values
 
@@ -51,11 +55,19 @@ rework happened **on the same item, on the rejection's Production Date** (the re
   (Actual End - Actual Start) hours; `Operator Name` = those operators.
 - `Responsibility Remark` / `Reinspection` = the rework entries' employee multi-selects.
 
-Rework done on a later day than the rejection never appears on that rejection's item row. Because the
-rework block lives on the item row, it appears exactly once per day and item — day header and subtotal
-figures deduplicate rework entries and are always safe to read as day totals.
+Rework done on a later day than the rejection never appears on that rejection's item row — but it does
+count in its own execution day's header figures whenever that day has a block. Days with rework but no
+rejection lines produce no block: this is a rejection register, and pure-rework days have no lines to
+list. Because the rework block lives on the item row, it appears exactly once per day and item, and the
+day header and subtotal never double-count rework entries.
 
 ## Filters
 
 From/To Date default to the current month. Item, Rejection Reason, and Operation filters restrict rows;
 the Operation filter matches the resolved Rejection Stage.
+
+## Dropped with the legacy reports
+
+The legacy reports' Workstation / Operator / Rework Type filters, the Daily REW PPM bar chart, and the
+Rework Cost, Rework Entry, Rework Type, and Workstation columns have no equivalent here — the register
+keeps exactly the agreed column set. Stored rework cost currently has no report surface.

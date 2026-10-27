@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import frappe
 from frappe.desk.query_report import run as run_query_report
 from frappe.tests.utils import FrappeTestCase
@@ -108,11 +110,11 @@ class TestDailyRejReworkRegister(FrappeTestCase):
 		self.assertAlmostEqual(dent["rework_ppm"], flt(2 / 1500 * 1_000_000, precision))
 		subtotal = rows[5]
 		self.assertEqual(subtotal["bold"], 1)
-		# The subtotal sums rejection across lines; reworkable lines contribute nothing.
+		# The subtotal sums the lines above it: rejection 5+3, declared reworkable 2.
 		self.assertEqual(subtotal["rejection_qty"], 8)
-		self.assertEqual(subtotal["rework_qty"], 4)
+		self.assertEqual(subtotal["rework_qty"], 2)
 		self.assertAlmostEqual(subtotal["rej_ppm"], flt(8 / 1500 * 1_000_000, precision))
-		self.assertAlmostEqual(subtotal["rework_ppm"], flt(4 / 1500 * 1_000_000, precision))
+		self.assertAlmostEqual(subtotal["rework_ppm"], flt(2 / 1500 * 1_000_000, precision))
 
 	def test_lines_group_by_item_within_a_day(self) -> None:
 		day = "2092-06-12"
@@ -146,7 +148,8 @@ class TestDailyRejReworkRegister(FrappeTestCase):
 		)
 		subtotal = rows[-1]
 		self.assertEqual(subtotal["rejection_qty"], 8)
-		self.assertEqual(subtotal["rework_qty"], 5)
+		# Declared reworkable: only item B's Burr line (qty 2), not the actual 5 reworked.
+		self.assertEqual(subtotal["rework_qty"], 2)
 
 	def test_rework_matches_only_same_day_and_same_item(self) -> None:
 		day = "2092-06-11"
@@ -177,6 +180,11 @@ class TestDailyRejReworkRegister(FrappeTestCase):
 		rows = daily_rej_rework_register.execute({"from_date": day, "to_date": day})[1]
 
 		self.assertEqual(len(rows), 4)
+		# The day header covers ALL the day's submitted rework, including item B's,
+		# even though item B has no rejection line that day. Drafts stay excluded.
+		header = rows[0]
+		self.assertEqual(header["operator_count"], 1)
+		self.assertEqual(header["rework_hours"], 1.0)
 		item_row = rows[1]
 		self.assertEqual(item_row["defective_item_code"], self.item_a)
 		self.assertEqual(item_row["rework_qty"], 0)
@@ -186,6 +194,48 @@ class TestDailyRejReworkRegister(FrappeTestCase):
 		self.assertEqual(item_row["operator_name"], "")
 		self.assertEqual(rows[2]["rejection_reason"], "Burr")
 		self.assertEqual(rows[2]["rejection_qty"], 5)
+
+	def test_rework_entry_read_rejects_unbounded_result(self) -> None:
+		day = "2092-07-21"
+		for _unused in range(2):
+			self._insert_rework_entry(
+				rework_date=day,
+				items=[(self.item_a, 1)],
+				operators=[("Operator A", f"{day} 08:00:00", f"{day} 09:00:00")],
+			)
+
+		with self.assertRaisesRegex(frappe.ValidationError, "matches more than 1"):
+			daily_rej_rework_register._get_rework_by_day_item(
+				[{"day": frappe.utils.getdate(day), "defective_item_code": self.item_a}],
+				max_rework_entries=1,
+			)
+
+	def test_single_rejection_item_lookup_skipped_when_breakup_items_are_set(self) -> None:
+		day = "2092-07-22"
+		shift = self._insert_shift(day, "1", status="Completed")
+		entry = self._insert_production_entry(shift_name=shift, posting_date=day, fg_qty=100)
+		self._insert_breakup(entry, [(self.item_a, "Burr", 5)])
+
+		with patch.object(daily_rej_rework_register, "_get_single_rejection_items") as fallback_lookup:
+			rows = daily_rej_rework_register.execute({"from_date": day, "to_date": day})[1]
+
+		fallback_lookup.assert_not_called()
+		self.assertEqual(rows[1]["defective_item_code"], self.item_a)
+
+	def test_unresolvable_blank_breakup_item_is_logged(self) -> None:
+		day = "2092-07-23"
+		shift = self._insert_shift(day, "1", status="Completed")
+		entry = self._insert_production_entry(shift_name=shift, posting_date=day, fg_qty=100)
+		# Legacy shape: blank breakup item and no rejection item rows to resolve it.
+		self._insert_breakup(entry, [("", "Burr", 5)])
+
+		with patch.object(frappe, "log_error") as log_error:
+			rows = daily_rej_rework_register.execute({"from_date": day, "to_date": day})[1]
+
+		self.assertEqual(log_error.call_count, 1)
+		self.assertIn(entry, log_error.call_args.kwargs["message"])
+		self.assertEqual(rows[1]["defective_item_code"], "")
+		self.assertEqual(rows[1]["rework_qty"], 0)
 
 	def test_scope_excludes_drafts_running_shifts_and_generic_repacks(self) -> None:
 		day = "2092-06-15"
@@ -267,8 +317,6 @@ class TestDailyRejReworkRegister(FrappeTestCase):
 		entry = self._insert_production_entry(shift_name=shift, posting_date=day, fg_qty=1)
 		self._insert_rejection_item(entry, self.item_a, 0.006)
 		self._insert_breakup(entry, [(self.item_a, "Burr", 0.006)])
-
-		from unittest.mock import patch
 
 		with patch.object(daily_rej_rework_register, "get_system_float_precision", return_value=2):
 			rows = daily_rej_rework_register.execute({"from_date": day, "to_date": day})[1]

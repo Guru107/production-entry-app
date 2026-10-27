@@ -13,5 +13,7 @@ _LEGACY_REPORTS: tuple[str, ...] = ("Rework Register", "Daily Rework Report")
 
 def execute() -> None:
 	for report_name in _LEGACY_REPORTS:
-		if frappe.db.exists("Report", report_name):
+		row = frappe.db.get_value("Report", report_name, ["is_standard", "module"], as_dict=True)
+		# Delete only the app's own standard report, never a user-built namesake.
+		if row and row.is_standard == "Yes" and row.module == "Production Entry App":
 			frappe.delete_doc("Report", report_name, ignore_permissions=True, force=True)
