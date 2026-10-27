@@ -131,14 +131,14 @@ def _get_rows(filters: dict) -> list[dict]:
 		if not entry:
 			continue
 		item_code = row.get("item_code") or fallback_items.get(row.get("parent"), "")
-		if not item_code and not row.get("item_code"):
-			# Legacy rows can predate the single-rejection-item validation; log so
-			# the ungroupable line is diagnosable instead of silently zero-rework.
-			unresolved_blank_parents.add(row.get("parent"))
 		if item_filter and item_code != item_filter:
 			continue
 		if reason_filter and row.get("rejection_reason") != reason_filter:
 			continue
+		if not item_code and not row.get("item_code"):
+			# Legacy rows can predate the single-rejection-item validation; log so
+			# the ungroupable line is diagnosable instead of silently zero-rework.
+			unresolved_blank_parents.add(row.get("parent"))
 		line_rows.append(
 			{
 				"day": getdate(entry["production_date"]),
