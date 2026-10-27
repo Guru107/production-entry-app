@@ -10,13 +10,8 @@ const ADMIN_PASSWORD = process.env.PLAYWRIGHT_PASSWORD || "123";
 const TEST_PASSWORD = process.env.PLAYWRIGHT_TEST_USER_PASSWORD || "E2eT3st!Pass#2026";
 const UNAUTHORIZED_USER = "e2e_rework_type_no_access@example.com";
 
-async function openDeskHome(page) {
-	await page.goto(getRoute("/home"));
-	await page.waitForFunction(() => Boolean(window.frappe?.csrf_token));
-}
-
 async function openNewReworkType(page) {
-	await page.goto(getRoute("/rework-type/new"));
+	await page.goto(getRoute("/rework-type/new"), { waitUntil: "domcontentloaded" });
 	await page.waitForFunction(
 		() => window.cur_frm?.doctype === "Rework Type" && window.cur_frm?.is_new?.()
 	);
@@ -51,7 +46,7 @@ test.describe("Rework Type master", () => {
 			await saveForm(page);
 			expect(await page.evaluate(() => window.cur_frm?.doc?.is_active)).toBe(0);
 
-			await page.goto(getRoute("/rework-type"));
+			await page.goto(getRoute("/rework-type"), { waitUntil: "domcontentloaded" });
 			await expect(
 				page.locator(".list-row-container").filter({ hasText: name })
 			).toBeVisible();
@@ -69,7 +64,6 @@ test.describe("Rework Type master", () => {
 	});
 
 	test("@regression blocks users without Rework Type access", async ({ page }) => {
-		await openDeskHome(page);
 		await deleteUserIfExists(page, UNAUTHORIZED_USER);
 		await ensureUser(page, {
 			email: UNAUTHORIZED_USER,

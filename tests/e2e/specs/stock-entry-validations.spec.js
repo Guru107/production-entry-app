@@ -4,7 +4,6 @@ const { getDoc, callFrappeMethod, setFieldValue } = require("../fixtures/frappe"
 const { expectValidationError } = require("../fixtures/assertions");
 const { StockEntryPage } = require("../pages/stock-entry-page");
 const { registerE2ELifecycle } = require("../fixtures/lifecycle");
-const { getRoute } = require("../utils/routing");
 
 async function setupFreshContext(page, prefix) {
 	await cleanupE2E(page, prefix);
@@ -101,7 +100,6 @@ test.describe("Stock Entry validation matrix", () => {
 	const lifecycle = registerE2ELifecycle(test);
 
 	test("@smoke custom_pea_fetch_items requires qty before fetching", async ({ page }) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 
 		const stockEntryPage = await openManufactureEntry(page, ctx, {
@@ -115,7 +113,6 @@ test.describe("Stock Entry validation matrix", () => {
 	test("@regression custom stock entry purpose is fetched from stock entry type", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 
 		const stockEntryPage = await openManufactureEntry(page, ctx, {
@@ -134,7 +131,6 @@ test.describe("Stock Entry validation matrix", () => {
 	test("@regression manufacture sections are visible for manufacture stock entry type", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 
 		const stockEntryPage = await openManufactureEntry(page, ctx, {
@@ -153,7 +149,6 @@ test.describe("Stock Entry validation matrix", () => {
 	test("@regression manufacture sections hide for non-manufacture stock entry type", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 
 		const stockEntryPage = new StockEntryPage(page);
@@ -227,7 +222,6 @@ test.describe("Stock Entry validation matrix", () => {
 	});
 
 	test("@regression helper chips populate actual start and end datetimes", async ({ page }) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 
 		const stockEntryPage = await openManufactureEntry(page, ctx, {
@@ -272,7 +266,6 @@ test.describe("Stock Entry validation matrix", () => {
 	test("@regression purpose switch from manufacture clears manufacture fields and tables", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 
 		const stockEntryPage = await openManufactureEntry(page, ctx, {
@@ -323,7 +316,6 @@ test.describe("Stock Entry validation matrix", () => {
 	});
 
 	test("@regression manufacture sections remain visible after fetch items", async ({ page }) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 
 		const stockEntryPage = await openManufactureEntry(page, ctx, {
@@ -337,7 +329,6 @@ test.describe("Stock Entry validation matrix", () => {
 	});
 
 	test("@regression rejection qty with empty breakup blocks save", async ({ page }) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 
 		const stockEntryPage = await openManufactureEntry(page, ctx, {
@@ -350,7 +341,6 @@ test.describe("Stock Entry validation matrix", () => {
 	});
 
 	test("@regression rejection breakup total mismatch blocks save", async ({ page }) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 
 		const stockEntryPage = await openManufactureEntry(page, ctx, {
@@ -368,7 +358,6 @@ test.describe("Stock Entry validation matrix", () => {
 	});
 
 	test("@regression rejection breakup row without reason blocks save", async ({ page }) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 
 		const stockEntryPage = await openManufactureEntry(page, ctx, {
@@ -385,7 +374,6 @@ test.describe("Stock Entry validation matrix", () => {
 	test("@regression rejection qty greater than finished good qty blocks save", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 
 		const stockEntryPage = await openManufactureEntry(page, ctx, {
@@ -401,7 +389,6 @@ test.describe("Stock Entry validation matrix", () => {
 	test("@regression actual start outside configured buffer blocks save with range message", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 
 		const stockEntryPage = await openManufactureEntry(page, ctx, {
@@ -417,7 +404,6 @@ test.describe("Stock Entry validation matrix", () => {
 	});
 
 	test("@regression actual end before actual start blocks save", async ({ page }) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 
 		const stockEntryPage = await openManufactureEntry(page, ctx, {
@@ -435,7 +421,6 @@ test.describe("Stock Entry validation matrix", () => {
 	test("@regression unplanned loss row can be added and persists after save", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 
 		const stockEntryPage = await openManufactureEntry(page, ctx, {
@@ -470,7 +455,6 @@ test.describe("Stock Entry validation matrix", () => {
 	test("@regression re-save remains idempotent for rejection row and finished good qty", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 
 		const stockEntryPage = await openManufactureEntry(page, ctx, {
@@ -508,7 +492,6 @@ test.describe("Stock Entry validation matrix", () => {
 	});
 
 	test("@regression explicit warehouse overrides persist after save", async ({ page }) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 
 		const stockEntryPage = await openManufactureEntry(page, ctx, {
@@ -552,7 +535,6 @@ test.describe("Stock Entry validation matrix", () => {
 	test("@regression ok qty is computed as fg completed minus rejection qty", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 
 		const stockEntryPage = await openManufactureEntry(page, ctx, {
@@ -574,7 +556,6 @@ test.describe("Stock Entry validation matrix", () => {
 	});
 
 	test("@regression total press strokes follow finished quantity", async ({ page }) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 
 		const stockEntryPage = await openManufactureEntry(page, ctx, {
@@ -609,7 +590,6 @@ test.describe("Stock Entry validation matrix", () => {
 	test("@regression zero finished quantity cannot be saved as total press strokes", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 
 		const stockEntryPage = await openManufactureEntry(page, ctx, {
@@ -625,7 +605,6 @@ test.describe("Stock Entry validation matrix", () => {
 	test("@regression blocks overlapping stock entry when workstation is already in use", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const prefix = lifecycle.getPrefix();
 		const ctx = await setupFreshContext(page, prefix);
 		const otherOperator = await ensureExtraOperator(page, `${prefix} Other Operator`);
@@ -654,7 +633,6 @@ test.describe("Stock Entry validation matrix", () => {
 	test("@regression blocks overlapping stock entry when operator is already assigned", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const prefix = lifecycle.getPrefix();
 		const ctx = await setupFreshContext(page, prefix);
 		const otherWorkstation = await ensureExtraWorkstation(page, `${prefix} Other Workstation`);
@@ -683,7 +661,6 @@ test.describe("Stock Entry validation matrix", () => {
 	test("@regression blocks stock entry when workstation has overlapping downtime", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const prefix = lifecycle.getPrefix();
 		const ctx = await setupFreshContext(page, prefix);
 		let downtimeEntryName;

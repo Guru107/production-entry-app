@@ -16,34 +16,12 @@ async function retryOnContextDestroyed(page, action, retries = 3) {
 	}
 }
 
-async function getCsrfToken(page, retries = 3) {
-	for (let attempt = 0; attempt < retries; attempt += 1) {
-		try {
-			const token = await page.evaluate(() => window.frappe?.csrf_token || "");
-			if (token) {
-				return token;
-			}
-			if (attempt === retries - 1) {
-				throw new Error("Unable to read CSRF token after retries.");
-			}
-		} catch (error) {
-			const message = String(error?.message || "");
-			if (!message.includes("Execution context was destroyed") || attempt === retries - 1) {
-				throw error;
-			}
-		}
-		await page.waitForLoadState("domcontentloaded", { timeout: 5000 }).catch(() => {});
-	}
-	throw new Error("Unable to read CSRF token after retries.");
-}
-
+// E2E sites must run with ignore_csrf=1 (set by run_ephemeral_e2e.sh; add it to
+// site_config.json for local dev sites). API calls therefore send no CSRF token,
+// which also frees tests from loading a Desk page just to mint one.
 async function callFrappeMethod(page, method, args = {}) {
-	const csrfToken = await getCsrfToken(page);
 	const response = await page.request.post(`/api/method/${method}`, {
 		form: args,
-		headers: {
-			"X-Frappe-CSRF-Token": csrfToken,
-		},
 	});
 	const rawBody = await response.text();
 	let payload = {};

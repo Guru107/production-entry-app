@@ -42,7 +42,7 @@ class ShiftPage {
 
 	async open(name) {
 		const encodedName = encodeURIComponent(name);
-		await this.page.goto(getRoute(`/shift/${encodedName}`));
+		await this.page.goto(getRoute(`/shift/${encodedName}`), { waitUntil: "domcontentloaded" });
 		// v16 may append anchor fragment like #tab_overview
 		await expect(this.page).toHaveURL(
 			new RegExp(
@@ -53,7 +53,7 @@ class ShiftPage {
 	}
 
 	async openNew() {
-		await this.page.goto(getRoute("/shift/new"));
+		await this.page.goto(getRoute("/shift/new"), { waitUntil: "domcontentloaded" });
 		await expect(this.page).toHaveURL(getRouteRegex("/shift/new-shift-"));
 		await this.page.waitForFunction(
 			() => window.cur_frm?.doctype === "Shift" && window.cur_frm?.is_new?.()

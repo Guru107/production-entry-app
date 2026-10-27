@@ -17,7 +17,6 @@ async function login(page, username, password) {
 		form: { usr: username, pwd: password },
 	});
 	expect(response.ok()).toBeTruthy();
-	await page.goto(getRoute("/home"));
 	await expect(page).toHaveURL(getRouteRegex("/home"));
 }
 
@@ -26,7 +25,6 @@ test.describe("Joint Production line table", () => {
 	const createdUsers = new Set();
 
 	test.beforeEach(async ({ page }) => {
-		await page.goto(getRoute("/home"));
 		await expect(page).toHaveURL(getRouteRegex("/home"));
 	});
 
@@ -158,7 +156,6 @@ test.describe("Joint Production line table", () => {
 	test("@regression users without Stock Entry access cannot call the joint-items API", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const email = `e2e-user-joint-lines-${lifecycle.getPrefix()}@example.com`.toLowerCase();
 		createdUsers.add(email);
 		await ensureUser(page, {

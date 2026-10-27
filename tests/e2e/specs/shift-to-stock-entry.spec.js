@@ -39,7 +39,9 @@ async function openForm(page, doctypeRoute, name) {
 		operator: "Operator",
 	};
 	const encodedName = encodeURIComponent(name);
-	await page.goto(getRoute(`/${doctypeRoute}/${encodedName}`));
+	await page.goto(getRoute(`/${doctypeRoute}/${encodedName}`), {
+		waitUntil: "domcontentloaded",
+	});
 	await page.waitForFunction(
 		({ expectedName, expectedDoctype }) =>
 			window.cur_frm?.doc?.name === expectedName &&
@@ -138,7 +140,6 @@ test.describe("Shift to Stock Entry integration", () => {
 	test("@smoke running shift create action opens stock entry with shift prefilled", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 		const jointType = await getJointStockEntryType(page);
 		const shift = await getDoc(page, "Shift", ctx.shift_name);
@@ -248,7 +249,6 @@ test.describe("Shift to Stock Entry integration", () => {
 	});
 
 	test("@regression selecting shift auto-fills branch and planned dates", async ({ page }) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 		const shift = await getDoc(page, "Shift", ctx.shift_name);
 
@@ -280,7 +280,6 @@ test.describe("Shift to Stock Entry integration", () => {
 	test("@regression clearing shift clears auto-filled planning and warehouse fields", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 
 		const stockEntryPage = new StockEntryPage(page);
@@ -314,7 +313,6 @@ test.describe("Shift to Stock Entry integration", () => {
 	test("@regression custom_pea_shift query returns running and completed shifts with title labels", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 		const seededShift = await getDoc(page, "Shift", ctx.shift_name);
 
@@ -375,7 +373,6 @@ test.describe("Shift to Stock Entry integration", () => {
 	test("@regression save is blocked when custom_pea_shift points to draft shift", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 		const runningShift = await getDoc(page, "Shift", ctx.shift_name);
 
@@ -416,7 +413,6 @@ test.describe("Shift to Stock Entry integration", () => {
 	test("@regression shift aggregate production entries format numeric metrics with system precision", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const prefix = lifecycle.getPrefix();
 		const ctx = await setupFreshContext(page, prefix);
 		await setSystemFloatPrecision(page, prefix, 4);
@@ -456,7 +452,6 @@ test.describe("Shift to Stock Entry integration", () => {
 	test("@regression workstation timeline tooltip formats quantity values with system precision", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const prefix = lifecycle.getPrefix();
 		const ctx = await setupFreshContext(page, prefix);
 		await setSystemFloatPrecision(page, prefix, 4);
@@ -508,7 +503,6 @@ test.describe("Shift to Stock Entry integration", () => {
 	test("@regression changing shift_duration while Running updates planned end time and refreshes summary", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 		const shiftPage = new ShiftPage(page);
 

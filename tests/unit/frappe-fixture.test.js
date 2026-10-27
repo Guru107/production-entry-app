@@ -9,26 +9,32 @@ const {
 	triggerSaveForm,
 } = require("../e2e/fixtures/frappe");
 
-test("callFrappeMethod fails before POST when CSRF token is unavailable", async () => {
-	let evaluateCalls = 0;
+test("callFrappeMethod posts without a CSRF token or page state", async () => {
+	let posted;
 	const page = {
 		async evaluate() {
-			evaluateCalls += 1;
-			return "";
+			throw new Error("page.evaluate must not run: no token is read from Desk pages.");
 		},
-		async waitForLoadState() {},
 		request: {
-			async post() {
-				throw new Error("POST should not run without a CSRF token.");
+			async post(url, options) {
+				posted = { url, options };
+				return {
+					ok: () => true,
+					status: 200,
+					async text() {
+						return JSON.stringify({ message: { name: "SHIFT-1" } });
+					},
+				};
 			},
 		},
 	};
 
-	await assert.rejects(
-		() => callFrappeMethod(page, "frappe.client.get"),
-		/Unable to read CSRF token after retries/
-	);
-	assert.equal(evaluateCalls, 3);
+	const result = await callFrappeMethod(page, "frappe.client.get", { doctype: "Shift" });
+
+	assert.deepEqual(result, { name: "SHIFT-1" });
+	assert.equal(posted.url, "/api/method/frappe.client.get");
+	assert.deepEqual(posted.options.form, { doctype: "Shift" });
+	assert.equal(posted.options.headers, undefined);
 });
 
 test("retryOnContextDestroyed bounds the recovery wait before retrying", async () => {

@@ -260,7 +260,9 @@ def _assert_e2e_api_allowed() -> None:
 ```
 
 Add `"allow_e2e_tests": 1` to `site_config.json` in development only. Never set this in
-production.
+production. The Playwright suite also requires `"ignore_csrf": 1` on any site it runs
+against (set automatically for ephemeral sites by `scripts/run_ephemeral_e2e.sh`): E2E
+helpers call whitelisted APIs without loading Desk, so no CSRF token is ever minted.
 
 ### Permissions
 

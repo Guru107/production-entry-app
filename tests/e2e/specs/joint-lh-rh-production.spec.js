@@ -6,7 +6,6 @@ const { getJointStockEntryType } = require("../fixtures/joint-production");
 const { bootstrapE2E } = require("../fixtures/test-data");
 const { deleteUserIfExists, ensureUser } = require("../fixtures/users");
 const { StockEntryPage } = require("../pages/stock-entry-page");
-const { getRoute, getRouteRegex } = require("../utils/routing");
 
 const ADMIN_USERNAME = process.env.PLAYWRIGHT_USERNAME || "Administrator";
 const ADMIN_PASSWORD = process.env.PLAYWRIGHT_PASSWORD || "123";
@@ -17,8 +16,6 @@ async function login(page, username, password) {
 		form: { usr: username, pwd: password },
 	});
 	expect(response.ok()).toBeTruthy();
-	await page.goto(getRoute("/home"));
-	await expect(page).toHaveURL(getRouteRegex("/home"));
 }
 
 async function enableJointProduction(page, form, stockEntryType) {
@@ -100,7 +97,6 @@ test.describe("Joint LH/RH production form", () => {
 	});
 
 	test("@smoke joint Repack uses the common production form", async ({ page }) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 		const stockEntryType = await getJointStockEntryType(page);
 		const form = new StockEntryPage(page);
@@ -185,7 +181,6 @@ test.describe("Joint LH/RH production form", () => {
 	test("@regression Stock Entry Type changes reset joint and normal production state", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 		const stockEntryType = await getJointStockEntryType(page);
 		const form = new StockEntryPage(page);
@@ -243,7 +238,6 @@ test.describe("Joint LH/RH production form", () => {
 	});
 
 	test("@smoke joint Fetch Items populates Shearing rows from both BOMs", async ({ page }) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 		const stockEntryType = await getJointStockEntryType(page);
 		const form = new StockEntryPage(page);
@@ -312,7 +306,6 @@ test.describe("Joint LH/RH production form", () => {
 	test("@regression joint rejection breakup stays editable and preserves rows", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 		const stockEntryType = await getJointStockEntryType(page);
 		const form = new StockEntryPage(page);
@@ -427,7 +420,6 @@ test.describe("Joint LH/RH production form", () => {
 	test("@smoke joint rejection breakup saves and submits through the production form", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 		const stockEntryType = await getJointStockEntryType(page);
 		const form = new StockEntryPage(page);
@@ -503,7 +495,6 @@ test.describe("Joint LH/RH production form", () => {
 	test("@smoke @regression joint Repack shows the resource-overlap validation popup", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 		const stockEntryType = await getJointStockEntryType(page);
 		const source = await callFrappeMethod(
@@ -539,7 +530,6 @@ test.describe("Joint LH/RH production form", () => {
 	test("@regression joint rejection quantity requires a breakup before save", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 		const stockEntryType = await getJointStockEntryType(page);
 		const form = new StockEntryPage(page);
@@ -559,7 +549,6 @@ test.describe("Joint LH/RH production form", () => {
 	});
 
 	test("@regression normal Manufacture hides joint-only rejection columns", async ({ page }) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 		const form = new StockEntryPage(page);
 
@@ -591,7 +580,6 @@ test.describe("Joint LH/RH production form", () => {
 	});
 
 	test("@regression joint Fetch Items shows required-header validation", async ({ page }) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 		const stockEntryType = await getJointStockEntryType(page);
 		const form = new StockEntryPage(page);
@@ -608,7 +596,6 @@ test.describe("Joint LH/RH production form", () => {
 	});
 
 	test("@regression joint Fetch Items blocks the same LH and RH BOM", async ({ page }) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 		const stockEntryType = await getJointStockEntryType(page);
 
@@ -622,7 +609,6 @@ test.describe("Joint LH/RH production form", () => {
 	test("@regression joint Fetch Items blocks LH and RH BOMs with the same output item", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 		const stockEntryType = await getJointStockEntryType(page);
 
@@ -634,7 +620,6 @@ test.describe("Joint LH/RH production form", () => {
 	});
 
 	test("@regression joint Fetch Items blocks BOMs from another company", async ({ page }) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 		const stockEntryType = await getJointStockEntryType(page);
 		const prefix = lifecycle.getPrefix();
@@ -665,7 +650,6 @@ test.describe("Joint LH/RH production form", () => {
 	test("@smoke @regression post-Shearing Fetch Items builds independent rows from both BOMs", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 		const stockEntryType = await getJointStockEntryType(page);
 		const form = new StockEntryPage(page);
@@ -722,7 +706,6 @@ test.describe("Joint LH/RH production form", () => {
 	test("@smoke post-Shearing Joint LH/RH saves and submits through the production form", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 		const stockEntryType = await getJointStockEntryType(page);
 		const form = new StockEntryPage(page);
@@ -773,7 +756,6 @@ test.describe("Joint LH/RH production form", () => {
 	test("@regression post-Shearing submit rejects stale source rows until Fetch Items", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 		const stockEntryType = await getJointStockEntryType(page);
 		const form = new StockEntryPage(page);
@@ -805,7 +787,6 @@ test.describe("Joint LH/RH production form", () => {
 	test("@regression joint save applies BOM operating cost as Additional Cost", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 		const stockEntryType = await getJointStockEntryType(page);
 		const form = new StockEntryPage(page);
@@ -843,7 +824,6 @@ test.describe("Joint LH/RH production form", () => {
 	test("@regression stale joint rows require Fetch Items without clearing logistics", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 		const stockEntryType = await getJointStockEntryType(page);
 		const form = new StockEntryPage(page);
@@ -876,7 +856,6 @@ test.describe("Joint LH/RH production form", () => {
 	test("@regression users without Stock Entry access cannot call the joint-items API", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const email = `e2e-user-joint-${lifecycle.getPrefix()}@example.com`.toLowerCase();
 		createdUsers.add(email);
 		await ensureUser(page, {
@@ -901,7 +880,6 @@ test.describe("Joint LH/RH production form", () => {
 	test("@regression users without Stock Entry access cannot change total press strokes", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 		const form = new StockEntryPage(page);
 		await form.openNew();

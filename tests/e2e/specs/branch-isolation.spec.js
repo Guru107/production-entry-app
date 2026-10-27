@@ -19,8 +19,6 @@ async function loginAs(page, username, password) {
 		},
 	});
 	expect(response.ok()).toBeTruthy();
-	await page.goto(getRoute("/home"));
-	await expect(page).toHaveURL(getRouteRegex("/home"));
 }
 
 async function loginAsAdmin(page) {
@@ -191,7 +189,7 @@ test.describe("Branch isolation", () => {
 			branchPermission = permissionResult?.permission_name;
 
 			await loginAs(page, restrictedEmail, TEST_PASSWORD);
-			await page.goto(getRoute("/shift"));
+			await page.goto(getRoute("/shift"), { waitUntil: "domcontentloaded" });
 			await expect(page).toHaveURL(getRouteRegex("/shift"));
 
 			// API list call here intentionally runs after opening Shift list so it exercises
@@ -213,7 +211,7 @@ test.describe("Branch isolation", () => {
 			expect(visibleShifts[0].branch).toBe(branchA);
 
 			if (stockEntryHasBranch) {
-				await page.goto(getRoute("/stock-entry"));
+				await page.goto(getRoute("/stock-entry"), { waitUntil: "domcontentloaded" });
 				await expect(page).toHaveURL(getRouteRegex("/stock-entry"));
 
 				// API list call here intentionally runs after opening Stock Entry list so it exercises
@@ -245,7 +243,7 @@ test.describe("Branch isolation", () => {
 			}
 
 			await loginAs(page, unrestrictedEmail, TEST_PASSWORD);
-			await page.goto(getRoute("/shift"));
+			await page.goto(getRoute("/shift"), { waitUntil: "domcontentloaded" });
 			await expect(page).toHaveURL(getRouteRegex("/shift"));
 
 			const unrestrictedVisibleShifts = await callFrappeMethod(
@@ -269,7 +267,7 @@ test.describe("Branch isolation", () => {
 			expect(unrestrictedVisibleBranches.has(branchB)).toBe(true);
 			expect(unrestrictedVisibleShifts.length).toBe(2);
 
-			await page.goto(getRoute("/stock-entry"));
+			await page.goto(getRoute("/stock-entry"), { waitUntil: "domcontentloaded" });
 			await expect(page).toHaveURL(getRouteRegex("/stock-entry"));
 
 			const unrestrictedVisibleStockEntries = await callFrappeMethod(
