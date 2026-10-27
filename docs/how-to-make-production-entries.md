@@ -5,7 +5,7 @@ This guide walks a supervisor through every type of entry in the **Production En
 Everything starts from the **Production Entry App** workspace, which has two cards:
 
 - **Forms:** Stock Entry, Shift, Operator, Die Tool Counter, Die Tool Maintenance Log, Rejection Reason, Downtime Entry
-- **Reports:** Production OEE, Monthly OEE, Workstation / Operator Efficiency, Rejection & Rework Pareto / PPM / Trend reports, Pending Rework, Rework Register, Die Tool reports, and more
+- **Reports:** Production OEE, Monthly OEE, Workstation / Operator Efficiency, Rejection & Rework Pareto / PPM / Trend reports, Pending Rework, Daily Rej Rework Register, Die Tool reports, and more
 
 > **Roles:** users need the **PEA User** role to create entries; **PEA Read Only** gives read/report access only.
 
@@ -112,7 +112,7 @@ Rejected quantities flagged **Rework** accumulate in the **Pending Rework** pool
 2. The **Rework Details** section appears: **Rework Type** (e.g. Deburring), **Rework Workstation** (defaults from the Rework Type), and the **Rework Operators** table — one row per operator with their own **Actual Start / Actual End**.
 3. Source warehouse defaults to the **Rejection Warehouse** (from Company + Branch defaults). Move the reworked qty to the good warehouse.
 4. Submit. Labour cost is computed from the sum of per-operator time × Workstation hour rate and loaded onto the stock as one **Additional Cost** row (credited to the Rework Expense Account or the company's Default Operating Cost Account).
-5. Track what remains in the **Pending Rework** report; history is in the **Rework Register**. Rework entries are excluded from OEE (rework-flagged qty already counted as a quality loss at production time — "right first time").
+5. Track what remains in the **Pending Rework** report; rejection and rework history is in the **Daily Rej Rework Register**. Rework entries are excluded from OEE (rework-flagged qty already counted as a quality loss at production time — "right first time").
 
 ---
 
@@ -124,7 +124,7 @@ Rejected quantities flagged **Rework** accumulate in the **Pending Rework** pool
    - **Production OEE Report** / **Monthly Production OEE Report** — Availability, Productivity, Quality, OEE per workstation, with per-reason loss breakdown.
    - **Workstation / Operator Efficiency**, **Operator Daily SPM**, **Daily Strokes SPM Monitor**.
    - **Rejection / Rework Pareto, PPM, Trend** reports, reason matrices, and Item/BOM hotspots.
-   - **Pending Rework**, **Rework Register**, **Die Tool Stroke and Maintenance Report**.
+   - **Pending Rework**, **Daily Rej Rework Register**, **Die Tool Stroke and Maintenance Report**.
 
 ---
 

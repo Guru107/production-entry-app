@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+-   The **Rework Register** and **Daily Rework Report** are replaced by a single **Daily Rej Rework Register**: one row per production Rejection Breakup line (Production Date from the Completed Shift, Rejection Reason/Qty/Stage, entry Finished Goods Qty, Rej PPM against the day's total FG), with same-day, same-item rework columns (Rework Qty, operators, hours, Responsibility Remark, Reinspection, Rework PPM) matched from submitted Rework Operations by Rework Date
+
 ### Removed
 
 -   The optional **Rejection Reason** and **Operation** fields on rework entries (#177) — defect and defect-origin stage derive from production Rejection Breakup data instead of being re-entered; the Rework Register and Daily Rework Report drop those columns and filters (#190)

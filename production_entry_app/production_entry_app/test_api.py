@@ -43,7 +43,6 @@ from production_entry_app.production_entry_app.e2e_api import (
 	create_e2e_downtime_entry,
 	create_e2e_full_shift_stock_entries,
 	create_e2e_rework_lifecycle_source,
-	create_e2e_rework_register_row,
 	create_e2e_submitted_stock_entry,
 	ensure_e2e_user,
 	reset_e2e_die_tool_counter,
@@ -127,7 +126,6 @@ class TestE2EApi(FrappeTestCase):
 			"cleanup_reserved_e2e_artifacts",
 			"create_e2e_submitted_stock_entry",
 			"create_e2e_full_shift_stock_entries",
-			"create_e2e_rework_register_row",
 			"create_e2e_downtime_entry",
 			"reset_e2e_die_tool_counter",
 			"set_e2e_access_control",
@@ -142,7 +140,6 @@ class TestE2EApi(FrappeTestCase):
 		assert callable(e2e_api.bootstrap_e2e_context)
 		assert callable(e2e_api.cleanup_e2e_context)
 		assert callable(e2e_api.create_e2e_rework_lifecycle_source)
-		assert callable(e2e_api.create_e2e_rework_register_row)
 		assert callable(e2e_api.ensure_e2e_user)
 		assert callable(e2e_api.set_e2e_bom_company)
 
@@ -416,18 +413,16 @@ class TestE2EApi(FrappeTestCase):
 
 		set_single_value.assert_not_called()
 
-	def test_cleanup_e2e_rework_lifecycle_entries_skips_synthetic_rows(self) -> None:
+	def test_cleanup_e2e_rework_lifecycle_entries_deletes_by_rework_type(self) -> None:
 		with patch(
 			"production_entry_app.production_entry_app.e2e_api.frappe.get_all",
-			return_value=["E2E-REWORK-REGISTER-SYNTHETIC", "MAT-STE-REAL"],
+			return_value=["MAT-STE-ONE", "MAT-STE-TWO"],
 		):
 			with patch(
 				"production_entry_app.production_entry_app.e2e_api._safe_cancel_and_delete"
 			) as safe_cancel_and_delete:
 				_cleanup_e2e_rework_lifecycle_entries("E2E_REWORK")
-		safe_cancel_and_delete.assert_called_once_with(
-			"Stock Entry", "MAT-STE-REAL", context="cleanup_e2e_context"
-		)
+		self.assertEqual(safe_cancel_and_delete.call_count, 2)
 
 	def test_assert_e2e_api_allowed_requires_administrator(self) -> None:
 		with patch("production_entry_app.production_entry_app.e2e_api.frappe.only_for") as only_for:
@@ -723,8 +718,6 @@ class TestE2EApi(FrappeTestCase):
 				create_e2e_submitted_stock_entry(prefix="E2E-Guard")
 			with self.assertRaises(frappe.PermissionError):
 				create_e2e_rework_lifecycle_source(prefix="E2E-Guard")
-			with self.assertRaises(frappe.PermissionError):
-				create_e2e_rework_register_row(prefix="E2E-Guard")
 			with self.assertRaises(frappe.PermissionError):
 				ensure_e2e_user(
 					email="e2e-user-guard@example.com",
