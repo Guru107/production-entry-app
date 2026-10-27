@@ -146,6 +146,21 @@ Revised lever table (measured, per job):
 | Shard ×3 | wall ≈ 14 min | wall ≈ 11 min | diminishing; reports.spec.js shard approaches the floor |
 | Browser cache / container image | 0 normally; avoids rare 12-min apt stalls (container only) | same | apt stall is the observed failure mode, not download time |
 
+## 10. Outcome (run 40491496043, 2026-10-27, all 6 shards green)
+
+Final state after implementation (token-less API calls, no CSRF Desk loads, redundant builds skipped, domcontentloaded, fullyParallel + 3 shards/version, Python 3.12 for v15, apt stall hardening):
+
+| | Baseline (40321352729) | Final (40491496043) | Δ |
+|---|---|---|---|
+| E2E workflow wall | 31.8 min (v15 long pole) | **12m09s** | −62% |
+| Slowest job | v15 31m49s | v15 (1/3) 12m04s | −62% |
+| Longest test phase | v15 26.9 min | 7.3 min (49 tests) | −73% |
+| Job-minutes (compute) | 2 jobs ≈ 57 min | 6 jobs ≈ 58 min | ≈ same |
+
+Per-shard anatomy (v15 1/3, the slowest): setup 2.5m (apt 0.4m hardened, bench 1.4m, browsers 0.3m) + site setup 2.1m + test phase 7.3m, zero retries. No apt stalls this run.
+
+Wall time was bought with parallelism (3 shards/version); total compute is unchanged. Actual work removed by the CSRF/build/Python changes is what kept per-shard compute flat despite sharding overhead.
+
 ## Recommended order (revised after measurement)
 
 1. **#1 (ignore_csrf + delete CSRF-only Desk loads)** — still first: biggest code lever, low risk, and it shrinks the phase that sharding then divides. Measured: ~3–5 min/job.
