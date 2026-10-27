@@ -326,6 +326,21 @@ def _get_daily_fg_totals(dates: list[datetime.date]) -> dict[datetime.date, floa
 	return dict(totals)
 
 
+def _get_employee_names(employee_ids: set[str]) -> dict[str, str]:
+	"""Map Employee IDs to display names, falling back to the ID."""
+	if not employee_ids:
+		return {}
+	return {
+		row.name: row.employee_name or row.name
+		for row in get_report_rows(
+			"Employee",
+			filters={"name": ["in", sorted(employee_ids)]},
+			fields=["name", "employee_name"],
+			limit_page_length=0,
+		)
+	}
+
+
 def _get_rework_by_day_item(
 	line_rows: list[dict],
 	*,
@@ -432,14 +447,17 @@ def _get_rework_by_day_item(
 		fields=["parent", "employee", "idx"],
 		parentfield="custom_pea_rework_reinspection",
 	)
+	employee_names = _get_employee_names(
+		{row.employee for row in (*responsibility_rows, *reinspection_rows) if row.get("employee")}
+	)
 	responsibility_by_entry: defaultdict[str, set[str]] = defaultdict(set)
 	for row in responsibility_rows:
 		if row.get("employee"):
-			responsibility_by_entry[row.parent].add(row.employee)
+			responsibility_by_entry[row.parent].add(employee_names.get(row.employee, row.employee))
 	reinspection_by_entry: defaultdict[str, set[str]] = defaultdict(set)
 	for row in reinspection_rows:
 		if row.get("employee"):
-			reinspection_by_entry[row.parent].add(row.employee)
+			reinspection_by_entry[row.parent].add(employee_names.get(row.employee, row.employee))
 
 	result: dict[tuple[datetime.date, str], dict] = {}
 	for day, item_code in sorted(matched_pairs):

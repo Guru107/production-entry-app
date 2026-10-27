@@ -14,6 +14,7 @@ from production_entry_app.production_entry_app.report.daily_rej_rework_register 
 from production_entry_app.production_entry_app.test_native_permissions import (
 	_ensure_user_with_exact_roles,
 )
+from production_entry_app.production_entry_app.utils.test_bootstrap import resolve_test_company
 
 
 class TestDailyRejReworkRegister(FrappeTestCase):
@@ -37,6 +38,8 @@ class TestDailyRejReworkRegister(FrappeTestCase):
 		self._insert_production_entry(shift_name=shift, posting_date=day, fg_qty=500)
 		self._insert_rejection_item(entry_a, self.item_a, 10)
 		self._insert_breakup(entry_a, [("", "Burr", 5, 0), ("", "Crack", 3, 0), ("", "Dent", 2, 1)])
+		responsible = self._insert_employee("RejReg Responsible")
+		reinspector = self._insert_employee("RejReg Reinspector")
 		self._insert_rework_entry(
 			rework_date=day,
 			items=[(self.item_a, 4)],
@@ -44,8 +47,8 @@ class TestDailyRejReworkRegister(FrappeTestCase):
 				("Operator A", f"{day} 08:00:00", f"{day} 09:00:00"),
 				("Operator B", f"{day} 09:00:00", f"{day} 09:30:00"),
 			],
-			responsibility=["EMP-RESP-1"],
-			reinspection=["EMP-INSP-1"],
+			responsibility=[responsible],
+			reinspection=[reinspector],
 		)
 
 		columns, rows = daily_rej_rework_register.execute({"from_date": day, "to_date": day})
@@ -87,8 +90,9 @@ class TestDailyRejReworkRegister(FrappeTestCase):
 		self.assertEqual(item_row["operator_count"], 2)
 		self.assertEqual(item_row["rework_hours"], 1.5)
 		self.assertEqual(item_row["operator_name"], "Operator A, Operator B")
-		self.assertEqual(item_row["responsibility_remark"], "EMP-RESP-1")
-		self.assertEqual(item_row["reinspection"], "EMP-INSP-1")
+		# Employees show by name, not by ID.
+		self.assertEqual(item_row["responsibility_remark"], f"RejReg Responsible {self.suffix}")
+		self.assertEqual(item_row["reinspection"], f"RejReg Reinspector {self.suffix}")
 		details = rows[2:5]
 		self.assertEqual([row["rejection_reason"] for row in details], ["Burr", "Crack", "Dent"])
 		for detail in details:
@@ -351,6 +355,22 @@ class TestDailyRejReworkRegister(FrappeTestCase):
 		self.assertEqual(len([row for row in result["result"] if row.get("rejection_reason")]), 1)
 		row = next(row for row in result["result"] if row.get("rejection_reason"))
 		self.assertEqual(row["rejection_qty"], 2.0)
+
+	def _insert_employee(self, first_name: str) -> str:
+		return (
+			frappe.get_doc(
+				{
+					"doctype": "Employee",
+					"first_name": f"{first_name} {self.suffix}",
+					"company": resolve_test_company(),
+					"gender": "Male",
+					"date_of_birth": "1990-01-01",
+					"date_of_joining": "2020-01-01",
+				}
+			)
+			.insert(ignore_permissions=True)
+			.name
+		)
 
 	def _insert_stock_entry_type(self, name: str, purpose: str, **flags: int) -> None:
 		frappe.get_doc(

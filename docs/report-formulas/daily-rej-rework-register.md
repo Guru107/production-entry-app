@@ -56,7 +56,8 @@ rework happened **on the same item, on the rejection's Production Date** (the re
 - `Rework Qty` = sum of the item's reworked qty; `Rework PPM = Rework Qty / Total FG Qty for Day * 1,000,000`.
 - `No. of Operators(working)` = distinct operators; `Time(hrs.)` = sum of per-operator
   (Actual End - Actual Start) hours; `Operator Name` = those operators.
-- `Responsibility Remark` / `Reinspection` = the rework entries' employee multi-selects.
+- `Responsibility Remark` / `Reinspection` = the rework entries' employee multi-selects, shown as
+  employee names (falling back to the Employee ID when no name exists).
 
 Rework done on a later day than the rejection never appears on that rejection's item row — but it does
 count in its own execution day's header figures whenever that day has a block. Days with rework but no
