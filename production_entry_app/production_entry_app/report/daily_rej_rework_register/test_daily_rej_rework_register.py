@@ -34,7 +34,9 @@ class TestDailyRejReworkRegister(FrappeTestCase):
 		day = "2092-06-10"
 		shift = self._insert_shift(day, "1", status="Completed")
 		bom_a = self._insert_bom(self.item_a)
-		entry_a = self._insert_production_entry(shift_name=shift, posting_date=day, fg_qty=1000, bom=bom_a)
+		entry_a = self._insert_production_entry(
+			shift_name=shift, posting_date=day, fg_qty=1000, bom=bom_a, rejection_qty=10
+		)
 		# Day total includes production entries with no rejections of their own.
 		self._insert_production_entry(shift_name=shift, posting_date=day, fg_qty=500, bom=bom_a)
 		self._insert_rejection_item(entry_a, self.item_a, 10)
@@ -94,9 +96,9 @@ class TestDailyRejReworkRegister(FrappeTestCase):
 		# Employees show by name, not by ID.
 		self.assertEqual(item_row["responsibility_remark"], f"RejReg Responsible {self.suffix}")
 		self.assertEqual(item_row["reinspection"], f"RejReg Reinspector {self.suffix}")
-		# The item's day-total production (both entries), matching the Shift's
-		# aggregate-entries view.
-		self.assertEqual(item_row["finished_goods_qty"], 1500)
+		# The item's day-total OK quantity (produced minus rejected), matching the
+		# Shift's aggregate-entries view: (1000-10) + 500.
+		self.assertEqual(item_row["finished_goods_qty"], 1490)
 		details = rows[2:5]
 		self.assertEqual([row["rejection_reason"] for row in details], ["Burr", "Crack", "Dent"])
 		for detail in details:
@@ -317,6 +319,7 @@ class TestDailyRejReworkRegister(FrappeTestCase):
 			rh_bom=bom,
 			lh_gross=40,
 			rh_gross=60,
+			lh_rejection=2,
 		)
 		self._insert_breakup(entry, [(self.item_a, "Burr", 2)])
 
@@ -325,7 +328,8 @@ class TestDailyRejReworkRegister(FrappeTestCase):
 		self.assertEqual(len(rows), 4)
 		row = rows[2]
 		self.assertEqual(row["rejection_stage"], "Blanking")
-		self.assertEqual(rows[1]["finished_goods_qty"], 100)
+		# OK qty: (40-2) + 60.
+		self.assertEqual(rows[1]["finished_goods_qty"], 98)
 		self.assertEqual(rows[1]["day_fg_qty"], 100)
 		self.assertEqual(row["rej_ppm"], 20000)
 
@@ -433,6 +437,9 @@ class TestDailyRejReworkRegister(FrappeTestCase):
 		rh_bom: str | None = None,
 		lh_gross: float | None = None,
 		rh_gross: float | None = None,
+		rejection_qty: float | None = None,
+		lh_rejection: float | None = None,
+		rh_rejection: float | None = None,
 		docstatus: int = 1,
 	) -> str:
 		self._ensure_entry_types()
@@ -463,6 +470,9 @@ class TestDailyRejReworkRegister(FrappeTestCase):
 			(StockEntry.custom_pea_rh_bom, rh_bom),
 			(StockEntry.custom_pea_lh_gross_qty, lh_gross),
 			(StockEntry.custom_pea_rh_gross_qty, rh_gross),
+			(StockEntry.custom_pea_rejection_qty, rejection_qty),
+			(StockEntry.custom_pea_lh_rejection_qty, lh_rejection),
+			(StockEntry.custom_pea_rh_rejection_qty, rh_rejection),
 		):
 			if value is not None:
 				columns.append(column)

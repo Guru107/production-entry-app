@@ -209,7 +209,7 @@ def _get_rows(filters: dict) -> list[dict]:
 					"rework_ppm": flt(rework.get("qty", 0.0) / day_fg * PPM_MULTIPLIER, precision)
 					if day_fg > 0
 					else 0,
-					# The item's total production that day, matching the Shift's
+					# The item's total OK quantity that day, matching the Shift's
 					# aggregate-entries view; per-entry figures would double-count
 					# entries with several rejection lines.
 					"finished_goods_qty": flt(item_day_fg_totals.get((day, item_code), 0.0), precision),
@@ -327,7 +327,14 @@ def _get_daily_fg_totals(
 	item_totals: defaultdict[tuple[datetime.date, str], float] = defaultdict(float)
 	for chunk in iter_stock_entries_in_chunks(
 		{"docstatus": 1, "custom_pea_shift": ["in", sorted(shift_names)]},
-		["name", "fg_completed_qty", "bom_no", "custom_pea_lh_bom", "custom_pea_rh_bom"],
+		[
+			"name",
+			"fg_completed_qty",
+			"custom_pea_rejection_qty",
+			"bom_no",
+			"custom_pea_lh_bom",
+			"custom_pea_rh_bom",
+		],
 	):
 		item_by_bom = _get_bom_item_map(chunk)
 		for entry in chunk:
@@ -366,7 +373,7 @@ def _get_bom_item_map(entries: list[dict]) -> dict[str, str]:
 
 
 def _entry_item_outputs(entry: dict, item_by_bom: dict[str, str]) -> dict[str, str | float]:
-	"""Attribute one entry's produced quantity to its BOM item(s)."""
+	"""Attribute one entry's OK quantity (produced minus rejected) to its BOM item(s)."""
 	if is_joint_production_entry(entry):
 		lines = entry.get(JOINT_PRODUCTION_LINES_FIELD) or []
 		if lines:
@@ -374,20 +381,25 @@ def _entry_item_outputs(entry: dict, item_by_bom: dict[str, str]) -> dict[str, s
 			for line in lines:
 				item_code = item_by_bom.get(line.get("bom_no"))
 				if item_code:
-					outputs[item_code] = outputs.get(item_code, 0.0) + flt(line.get("gross_qty"))
+					ok_qty = max(flt(line.get("gross_qty")) - flt(line.get("rejection_qty")), 0.0)
+					outputs[item_code] = outputs.get(item_code, 0.0) + ok_qty
 			return outputs
 	if is_paired_production_entry(entry):
 		outputs = {}
-		for bom_field, gross_field in (
-			("custom_pea_lh_bom", "custom_pea_lh_gross_qty"),
-			("custom_pea_rh_bom", "custom_pea_rh_gross_qty"),
+		for bom_field, gross_field, rejection_field in (
+			("custom_pea_lh_bom", "custom_pea_lh_gross_qty", "custom_pea_lh_rejection_qty"),
+			("custom_pea_rh_bom", "custom_pea_rh_gross_qty", "custom_pea_rh_rejection_qty"),
 		):
 			item_code = item_by_bom.get(entry.get(bom_field))
 			if item_code:
-				outputs[item_code] = outputs.get(item_code, 0.0) + flt(entry.get(gross_field))
+				ok_qty = max(flt(entry.get(gross_field)) - flt(entry.get(rejection_field)), 0.0)
+				outputs[item_code] = outputs.get(item_code, 0.0) + ok_qty
 		return outputs
 	item_code = item_by_bom.get(entry.get("bom_no"))
-	return {item_code: flt(entry.get("fg_completed_qty"))} if item_code else {}
+	if not item_code:
+		return {}
+	ok_qty = max(flt(entry.get("fg_completed_qty")) - flt(entry.get("custom_pea_rejection_qty")), 0.0)
+	return {item_code: ok_qty}
 
 
 def _get_employee_names(employee_ids: set[str]) -> dict[str, str]:
