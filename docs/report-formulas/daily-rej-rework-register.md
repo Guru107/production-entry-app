@@ -21,9 +21,12 @@ Rows group by `Production Date` into day blocks:
    reworkable quantity; the item row's `Rework Qty` is the *actual* same-day rework, and the two differ
    only while declared rework is still pending (see Pending Rework),
 4. a bold **subtotal** summing the lines above it: Σ `Rejection Qty` and Σ declared `Rework Qty`, plus
-   day-level `Rej PPM` / `Rework PPM` against the day's total FG. The subtotal reconciles with the
-   lines by construction; it can differ from the item rows' actual rework while rework is pending or
-   was executed on items not rejected that day.
+   day-level `Rej PPM` / `Rework PPM` against the day's total FG. The subtotal carries the day-level
+   columns (`Total FG Qty for Day`, `No. of Operators(working)`, `Time(hrs.)`) alongside those sums;
+   per-item/per-line columns stay blank, and `Finished Goods Qty` is not summed (entry outputs would
+   double-count entries with several lines, and entries without rejections are not listed). The
+   subtotal reconciles with the lines by construction; it can differ from the item rows' actual rework
+   while rework is pending or was executed on items not rejected that day.
 
 ## Row values
 

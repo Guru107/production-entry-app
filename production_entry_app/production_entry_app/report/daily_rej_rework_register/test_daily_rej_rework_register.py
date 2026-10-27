@@ -111,6 +111,8 @@ class TestDailyRejReworkRegister(FrappeTestCase):
 		subtotal = rows[5]
 		self.assertEqual(subtotal["bold"], 1)
 		self.assertEqual(subtotal["day_fg_qty"], 1500)
+		self.assertEqual(subtotal["operator_count"], 2)
+		self.assertEqual(subtotal["rework_hours"], 1.5)
 		# The subtotal sums the lines above it: rejection 5+3, declared reworkable 2.
 		self.assertEqual(subtotal["rejection_qty"], 8)
 		self.assertEqual(subtotal["rework_qty"], 2)
