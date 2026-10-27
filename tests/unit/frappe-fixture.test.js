@@ -38,34 +38,35 @@ test("callFrappeMethod posts without a CSRF token or page state", async () => {
 	assert.equal(posted.options.headers, undefined);
 });
 
-test("hasStockEntryBranchField checks DocField then Custom Field via API", async () => {
+test("hasStockEntryBranchField checks DocType meta then Custom Field via API", async () => {
 	const calls = [];
-	const pageFor = (rowsByDoctype) => ({
+	const pageFor = (responses) => ({
 		request: {
 			async post(url, options) {
-				const doctype = options.form.doctype;
-				calls.push(doctype);
+				calls.push(options.form.doctype);
 				return {
 					ok: () => true,
 					status: 200,
 					async text() {
-						return JSON.stringify({ message: rowsByDoctype[doctype] || [] });
+						return JSON.stringify({ message: responses.shift() });
 					},
 				};
 			},
 		},
 	});
 
-	assert.equal(await hasStockEntryBranchField(pageFor({ DocField: [{ name: "x" }] })), true);
-	assert.deepEqual(calls, ["DocField"]); // short-circuits before Custom Field
-
-	calls.length = 0;
+	// Standard field hit: short-circuits before the Custom Field query.
 	assert.equal(
-		await hasStockEntryBranchField(pageFor({ "Custom Field": [{ name: "y" }] })),
+		await hasStockEntryBranchField(pageFor([{ fields: [{ fieldname: "branch" }] }])),
 		true
 	);
-	assert.equal(await hasStockEntryBranchField(pageFor({})), false);
-	assert.deepEqual(calls, ["DocField", "Custom Field", "DocField", "Custom Field"]);
+	assert.deepEqual(calls, ["DocType"]);
+
+	// Custom field hit / total miss.
+	calls.length = 0;
+	assert.equal(await hasStockEntryBranchField(pageFor([{ fields: [] }, [{ name: "x" }]])), true);
+	assert.equal(await hasStockEntryBranchField(pageFor([{ fields: [] }, []])), false);
+	assert.deepEqual(calls, ["DocType", "Custom Field", "DocType", "Custom Field"]);
 });
 
 test("retryOnContextDestroyed bounds the recovery wait before retrying", async () => {
