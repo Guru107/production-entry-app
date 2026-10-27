@@ -655,6 +655,8 @@ class TestJointProductionItems(FrappeTestCase):
 		self.rm_item = ensure_item(f"_Joint_RM_{suffix}", stock_uom="Kg")
 		self.scrap_item = ensure_item(f"_Joint_Scrap_{suffix}", stock_uom="Kg")
 		self.scrap_nos_item = ensure_item(f"_Joint_Scrap_Nos_{suffix}", stock_uom="Nos")
+		# Whole-number scrap rounding follows the site's UOM flag, which differs across installs.
+		frappe.db.set_value("UOM", "Nos", "must_be_whole_number", 1)
 		self.lh_bom = self._make_bom(self.lh_item, scrap_qty=1.125)
 		self.rh_bom = self._make_bom(self.rh_item, scrap_qty=2.125)
 		frappe.db.set_value(
