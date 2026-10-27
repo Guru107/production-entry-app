@@ -22,6 +22,7 @@ jobs:
       FRAPPE_VERSION: ${{ matrix.frappe_version }}
       ERPNEXT_VERSION: ${{ matrix.erpnext_version }}
       PLAYWRIGHT_ROUTE_PREFIX: ${{ matrix.route_prefix }}
+      PLAYWRIGHT_SHARD: ${{ matrix.shard }}
     strategy:
       fail-fast: false
       matrix:
@@ -29,14 +30,40 @@ jobs:
           - frappe_version: "15"
             erpnext_version: "15"
             route_prefix: "app"
-            python_version: "3.10"
+            python_version: "3.12"
             node_version: "20"
+            shard: "1/3"
+          - frappe_version: "15"
+            erpnext_version: "15"
+            route_prefix: "app"
+            python_version: "3.12"
+            node_version: "20"
+            shard: "2/3"
+          - frappe_version: "15"
+            erpnext_version: "15"
+            route_prefix: "app"
+            python_version: "3.12"
+            node_version: "20"
+            shard: "3/3"
           - frappe_version: "16"
             erpnext_version: "16"
             route_prefix: "desk"
             python_version: "3.14"
             node_version: "24"
-    name: E2E v${{ matrix.frappe_version }}-erp${{ matrix.erpnext_version }}
+            shard: "1/3"
+          - frappe_version: "16"
+            erpnext_version: "16"
+            route_prefix: "desk"
+            python_version: "3.14"
+            node_version: "24"
+            shard: "2/3"
+          - frappe_version: "16"
+            erpnext_version: "16"
+            route_prefix: "desk"
+            python_version: "3.14"
+            node_version: "24"
+            shard: "3/3"
+    name: E2E v${{ matrix.frappe_version }}-erp${{ matrix.erpnext_version }} (${{ matrix.shard }})
     services:
       redis-cache:
         image: redis:alpine
@@ -78,6 +105,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pip-e2e-py${{ matrix.python_version }}-
             ${{ runner.os }}-pip-e2e-
+
+      - name: Harden apt against stalled mirrors
+        # playwright install --with-deps shells out to apt-get; a stalled mirror
+        # otherwise crawls for 10+ minutes (observed 3x in CI). Fail fast + retry.
+        run: echo 'Acquire::http::Timeout "30"; Acquire::https::Timeout "30"; Acquire::Retries "5";' | sudo tee /etc/apt/apt.conf.d/99-e2e
 
       - name: Install MariaDB client
         run: sudo apt-get update && sudo apt-get install -y mariadb-client

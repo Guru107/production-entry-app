@@ -3,7 +3,6 @@ const { bootstrapE2E, cleanupE2E, DOWNTIME_REASON } = require("../fixtures/test-
 const { getDoc, callFrappeMethod, retryOnContextDestroyed } = require("../fixtures/frappe");
 const { StockEntryPage } = require("../pages/stock-entry-page");
 const { registerE2ELifecycle } = require("../fixtures/lifecycle");
-const { getRoute } = require("../utils/routing");
 const { expectValidationError } = require("../fixtures/assertions");
 
 async function setupFreshContext(page, prefix) {
@@ -33,7 +32,6 @@ test.describe("Die tool metrics and counter", () => {
 	test("@smoke submitted manufacture entry populates duration SPM cycle and efficiency", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 
 		const stockEntryPage = await createManufactureEntry(page, ctx, {
@@ -55,7 +53,6 @@ test.describe("Die tool metrics and counter", () => {
 	});
 
 	test("@regression planned break overlap reduces net production time", async ({ page }) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 
 		const stockEntryPage = await createManufactureEntry(page, ctx, {
@@ -80,7 +77,6 @@ test.describe("Die tool metrics and counter", () => {
 	test("@regression missing actual end is required for Shift-based entries", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 
 		const stockEntryPage = await createManufactureEntry(page, ctx, {
@@ -94,7 +90,6 @@ test.describe("Die tool metrics and counter", () => {
 	});
 
 	test("@regression zero-duration clears metrics", async ({ page }) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 
 		const stockEntryPage = await createManufactureEntry(page, ctx, {
@@ -117,7 +112,6 @@ test.describe("Die tool metrics and counter", () => {
 	test("@regression full deducted-loss window shows metrics note on stock entry", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 
 		const stockEntryPage = await createManufactureEntry(page, ctx, {
@@ -148,7 +142,6 @@ test.describe("Die tool metrics and counter", () => {
 	test("@regression high utilization sets maintenance due and shows warning headline", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 
 		await callFrappeMethod(
@@ -200,7 +193,6 @@ test.describe("Die tool metrics and counter", () => {
 	test("@regression die-tool warning headline keeps API precision instead of local toFixed", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const prefix = lifecycle.getPrefix();
 		const ctx = await setupFreshContext(page, prefix);
 		await setSystemFloatPrecision(page, prefix, 4);
@@ -255,7 +247,6 @@ test.describe("Die tool metrics and counter", () => {
 	test("@regression die-tool counter increases on submit and decreases on cancel", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 
 		const before = await callFrappeMethod(

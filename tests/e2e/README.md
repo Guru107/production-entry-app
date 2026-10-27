@@ -1,5 +1,12 @@
 # E2E scope notes
 
+## Site requirements
+
+Any site running this suite needs `allow_e2e_tests: 1` **and** `ignore_csrf: 1` in
+`site_config.json` (development sites only — never production). The ephemeral runner
+(`scripts/run_ephemeral_e2e.sh`) sets both itself. E2E API helpers send no CSRF token,
+so tests never load Desk just to authenticate API calls.
+
 ## Stock Entry Branch layout
 
 `Stock Entry.branch` is owned by the production instance, not by this app. The app

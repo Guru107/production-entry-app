@@ -1,6 +1,5 @@
 const { cleanupE2E } = require("./test-data");
 const { e2ePrefix } = require("./prefix");
-const { getRoute } = require("../utils/routing");
 
 const ADMIN_USERNAME = process.env.PLAYWRIGHT_ADMIN_USERNAME || "Administrator";
 const ADMIN_PASSWORD = process.env.PLAYWRIGHT_ADMIN_PASSWORD || "123";
@@ -17,8 +16,7 @@ async function loginAsAdmin(page) {
 	}
 }
 
-function registerE2ELifecycle(test, options = {}) {
-	const { navigateHomeBeforeCleanup = true } = options;
+function registerE2ELifecycle(test) {
 	let prefix = "E2E";
 
 	test.beforeEach(async ({ page: _page }, testInfo) => {
@@ -27,9 +25,6 @@ function registerE2ELifecycle(test, options = {}) {
 
 	test.afterEach(async ({ page }) => {
 		await loginAsAdmin(page);
-		if (navigateHomeBeforeCleanup) {
-			await page.goto(getRoute("/home"));
-		}
 		await cleanupE2E(page, prefix);
 	});
 

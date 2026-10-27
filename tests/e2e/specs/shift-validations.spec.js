@@ -4,7 +4,6 @@ const { getDoc, callFrappeMethod } = require("../fixtures/frappe");
 const { expectValidationError } = require("../fixtures/assertions");
 const { ShiftPage } = require("../pages/shift-page");
 const { registerE2ELifecycle } = require("../fixtures/lifecycle");
-const { getRoute } = require("../utils/routing");
 
 function plusDays(dateString, days) {
 	const nextDate = new Date(dateString);
@@ -64,7 +63,6 @@ test.describe("Shift validations", () => {
 	const lifecycle = registerE2ELifecycle(test);
 
 	test("@regression starting second shift while one is running is blocked", async ({ page }) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 		const seededShift = await getDoc(page, "Shift", ctx.shift_name);
 		const shiftPage = new ShiftPage(page);
@@ -90,7 +88,6 @@ test.describe("Shift validations", () => {
 	});
 
 	test("@regression overlap validation prevents save of overlapping shift", async ({ page }) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 		const seededShift = await getDoc(page, "Shift", ctx.shift_name);
 		const shiftPage = new ShiftPage(page);
@@ -120,7 +117,6 @@ test.describe("Shift validations", () => {
 	});
 
 	test("@regression duplicate shift label/date is blocked", async ({ page }) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 		const seededShift = await getDoc(page, "Shift", ctx.shift_name);
 		const shiftPage = new ShiftPage(page);
@@ -148,7 +144,6 @@ test.describe("Shift validations", () => {
 	});
 
 	test("@regression completed shift duration can extend but not overlap", async ({ page }) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 		const seededShift = await getDoc(page, "Shift", ctx.shift_name);
 		const shiftPage = new ShiftPage(page);
@@ -215,7 +210,6 @@ test.describe("Shift validations", () => {
 	test("@regression planned losses auto-populate and repopulate on duration change", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 		const shiftPage = new ShiftPage(page);
 
@@ -255,7 +249,6 @@ test.describe("Shift validations", () => {
 	test("@regression planned start helper shorthand commits to canonical time and planned losses", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 		const shiftPage = new ShiftPage(page);
 
@@ -279,7 +272,6 @@ test.describe("Shift validations", () => {
 	test("@regression planned start chips and today button update helper-backed fields", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 		const shiftPage = new ShiftPage(page);
 		const targetDate = plusOneDay(ctx.shift_date);
@@ -303,7 +295,6 @@ test.describe("Shift validations", () => {
 	test("@regression planned losses auto-populate on new doc even when status is temporarily blank", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 		const shiftPage = new ShiftPage(page);
 
@@ -326,7 +317,6 @@ test.describe("Shift validations", () => {
 	});
 
 	test("@regression planned losses grid is non-editable once shift starts", async ({ page }) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 		const seededShift = await getDoc(page, "Shift", ctx.shift_name);
 		const shiftPage = new ShiftPage(page);
@@ -348,7 +338,6 @@ test.describe("Shift validations", () => {
 	test("@regression planned losses helper fields drive inline row calculations", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 		const seededShift = await getDoc(page, "Shift", ctx.shift_name);
 		const shiftPage = new ShiftPage(page);
@@ -376,7 +365,6 @@ test.describe("Shift validations", () => {
 	test("@regression linked downtime section renders overlapping downtime entries", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 		const shiftPage = new ShiftPage(page);
 		const employeeRows = await callFrappeMethod(page, "frappe.client.get_list", {

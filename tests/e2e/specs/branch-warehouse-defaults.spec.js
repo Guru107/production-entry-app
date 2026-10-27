@@ -10,7 +10,7 @@ const { StockEntryPage } = require("../pages/stock-entry-page");
 const { getRoute } = require("../utils/routing");
 
 async function openSettings(page) {
-	await page.goto(getRoute("/production-entry-settings"));
+	await page.goto(getRoute("/production-entry-settings"), { waitUntil: "domcontentloaded" });
 	await page.waitForFunction(() => window.cur_frm?.doctype === "Production Entry Settings");
 }
 
@@ -42,7 +42,6 @@ test.describe("Branch warehouse defaults", () => {
 	test("@regression branch settings supply WIP, rejection and scrap for both Fetch Items flows", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 		jointType = await getJointStockEntryType(page);
 		await openSettings(page);
@@ -111,7 +110,6 @@ test.describe("Branch warehouse defaults", () => {
 	});
 
 	test("@regression duplicate Company and Branch is rejected", async ({ page }) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 		const settings = await getDoc(
 			page,
@@ -134,7 +132,6 @@ test.describe("Branch warehouse defaults", () => {
 	test("@regression Work Order Fetch Items retains native scrap warehouse with a Shift", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 		const draft = await callFrappeMethod(page, "frappe.client.insert", {
 			doc: JSON.stringify({
@@ -195,7 +192,6 @@ test.describe("Branch warehouse defaults", () => {
 	test("@regression Shift selection without WIP keeps context and allows manual warehouses", async ({
 		page,
 	}) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 		jointType = await getJointStockEntryType(page);
 		const settings = await getDoc(
@@ -262,7 +258,6 @@ test.describe("Branch warehouse defaults", () => {
 			test(`@regression ${joint ? "joint" : "manufacture"} Shift lookup ${
 				status === 200 ? "null response" : "error"
 			} preserves manual warehouses`, async ({ page }) => {
-				await page.goto(getRoute("/home"));
 				const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 				if (joint) jointType = await getJointStockEntryType(page);
 				const form = new StockEntryPage(page);
@@ -337,7 +332,6 @@ test.describe("Branch warehouse defaults", () => {
 	}
 
 	test("@regression PEA User can read but cannot edit branch settings", async ({ page }) => {
-		await page.goto(getRoute("/home"));
 		await bootstrapE2E(page, lifecycle.getPrefix());
 		user = `e2e-user-${lifecycle.getPrefix().toLowerCase()}@example.com`;
 		const password = "E2eT3st!Pass#2026";
