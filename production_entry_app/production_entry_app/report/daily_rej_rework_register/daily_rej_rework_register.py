@@ -235,6 +235,7 @@ def _get_rows(filters: dict) -> list[dict]:
 		rows.append(
 			{
 				"production_date": day,
+				"day_fg_qty": flt(day_fg, precision),
 				"rejection_qty": flt(day_rejection_qty, precision),
 				"rework_qty": flt(day_declared_rework_qty, precision),
 				"rej_ppm": flt(day_rejection_qty / day_fg * PPM_MULTIPLIER, precision) if day_fg > 0 else 0,
