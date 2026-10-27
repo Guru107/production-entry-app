@@ -33,9 +33,10 @@ class TestDailyRejReworkRegister(FrappeTestCase):
 	def test_columns_and_row_values_with_same_day_item_rework_match(self) -> None:
 		day = "2092-06-10"
 		shift = self._insert_shift(day, "1", status="Completed")
-		entry_a = self._insert_production_entry(shift_name=shift, posting_date=day, fg_qty=1000)
+		bom_a = self._insert_bom(self.item_a)
+		entry_a = self._insert_production_entry(shift_name=shift, posting_date=day, fg_qty=1000, bom=bom_a)
 		# Day total includes production entries with no rejections of their own.
-		self._insert_production_entry(shift_name=shift, posting_date=day, fg_qty=500)
+		self._insert_production_entry(shift_name=shift, posting_date=day, fg_qty=500, bom=bom_a)
 		self._insert_rejection_item(entry_a, self.item_a, 10)
 		self._insert_breakup(entry_a, [("", "Burr", 5, 0), ("", "Crack", 3, 0), ("", "Dent", 2, 1)])
 		responsible = self._insert_employee("RejReg Responsible")
@@ -93,16 +94,19 @@ class TestDailyRejReworkRegister(FrappeTestCase):
 		# Employees show by name, not by ID.
 		self.assertEqual(item_row["responsibility_remark"], f"RejReg Responsible {self.suffix}")
 		self.assertEqual(item_row["reinspection"], f"RejReg Reinspector {self.suffix}")
+		# The item's day-total production (both entries), matching the Shift's
+		# aggregate-entries view.
+		self.assertEqual(item_row["finished_goods_qty"], 1500)
 		details = rows[2:5]
 		self.assertEqual([row["rejection_reason"] for row in details], ["Burr", "Crack", "Dent"])
 		for detail in details:
 			self.assertIsNone(detail.get("defective_item_code"))
+			self.assertNotIn("finished_goods_qty", detail)
 		burr = details[0]
 		self.assertEqual(burr["rejection_qty"], 5)
 		self.assertEqual(burr["rework_qty"], 0)
 		self.assertEqual(burr["rework_ppm"], 0)
 		self.assertEqual(burr["rejection_stage"], self.normal_entry_type)
-		self.assertEqual(burr["finished_goods_qty"], 1000)
 		self.assertAlmostEqual(burr["rej_ppm"], flt(5 / 1500 * 1_000_000, precision))
 		self.assertEqual(details[1]["rejection_qty"], 3)
 		# A reworkable (is_rework) breakup line is not rejection: it shows its qty
@@ -126,7 +130,9 @@ class TestDailyRejReworkRegister(FrappeTestCase):
 	def test_lines_group_by_item_within_a_day(self) -> None:
 		day = "2092-06-12"
 		shift = self._insert_shift(day, "1", status="Completed")
-		entry = self._insert_production_entry(shift_name=shift, posting_date=day, fg_qty=100)
+		entry = self._insert_production_entry(
+			shift_name=shift, posting_date=day, fg_qty=100, bom=self._insert_bom(self.item_a)
+		)
 		self._insert_rejection_item(entry, self.item_a, 8)
 		self._insert_rejection_item(entry, self.item_b, 2)
 		self._insert_breakup(
@@ -147,6 +153,9 @@ class TestDailyRejReworkRegister(FrappeTestCase):
 		self.assertEqual([row["defective_item_code"] for row in item_rows], [self.item_a, self.item_b])
 		self.assertEqual(item_rows[0]["rework_qty"], 4)
 		self.assertEqual(item_rows[1]["rework_qty"], 1)
+		# Item A was produced that day (fg 100 via its BOM); item B was not.
+		self.assertEqual(item_rows[0]["finished_goods_qty"], 100)
+		self.assertEqual(item_rows[1]["finished_goods_qty"], 0)
 		details = [row for row in rows if row.get("rejection_reason")]
 		# Lines order within the day follows their item group, keeping breakup row order.
 		self.assertEqual(
@@ -296,6 +305,7 @@ class TestDailyRejReworkRegister(FrappeTestCase):
 	def test_joint_entry_uses_operation_as_rejection_stage(self) -> None:
 		day = "2092-06-25"
 		shift = self._insert_shift(day, "1", status="Completed")
+		bom = self._insert_bom(self.item_a)
 		entry = self._insert_production_entry(
 			shift_name=shift,
 			posting_date=day,
@@ -303,6 +313,8 @@ class TestDailyRejReworkRegister(FrappeTestCase):
 			purpose="Repack",
 			stock_entry_type=JOINT_LH_RH_STOCK_ENTRY_TYPE,
 			operation="Blanking",
+			lh_bom=bom,
+			rh_bom=bom,
 			lh_gross=40,
 			rh_gross=60,
 		)
@@ -313,7 +325,7 @@ class TestDailyRejReworkRegister(FrappeTestCase):
 		self.assertEqual(len(rows), 4)
 		row = rows[2]
 		self.assertEqual(row["rejection_stage"], "Blanking")
-		self.assertEqual(row["finished_goods_qty"], 100)
+		self.assertEqual(rows[1]["finished_goods_qty"], 100)
 		self.assertEqual(rows[1]["day_fg_qty"], 100)
 		self.assertEqual(row["rej_ppm"], 20000)
 
@@ -401,6 +413,12 @@ class TestDailyRejReworkRegister(FrappeTestCase):
 		).run()
 		return name
 
+	def _insert_bom(self, item_code: str) -> str:
+		name = f"BOM-{item_code}-{frappe.generate_hash(length=6)}"
+		BOM = frappe.qb.DocType("BOM")
+		(frappe.qb.into(BOM).columns(BOM.name, BOM.docstatus, BOM.item).insert(name, 1, item_code)).run()
+		return name
+
 	def _insert_production_entry(
 		self,
 		*,
@@ -410,6 +428,9 @@ class TestDailyRejReworkRegister(FrappeTestCase):
 		purpose: str = "Manufacture",
 		stock_entry_type: str | None = None,
 		operation: str | None = None,
+		bom: str | None = None,
+		lh_bom: str | None = None,
+		rh_bom: str | None = None,
 		lh_gross: float | None = None,
 		rh_gross: float | None = None,
 		docstatus: int = 1,
@@ -437,6 +458,9 @@ class TestDailyRejReworkRegister(FrappeTestCase):
 		]
 		for column, value in (
 			(StockEntry.custom_pea_operation, operation),
+			(StockEntry.bom_no, bom),
+			(StockEntry.custom_pea_lh_bom, lh_bom),
+			(StockEntry.custom_pea_rh_bom, rh_bom),
 			(StockEntry.custom_pea_lh_gross_qty, lh_gross),
 			(StockEntry.custom_pea_rh_gross_qty, rh_gross),
 		):

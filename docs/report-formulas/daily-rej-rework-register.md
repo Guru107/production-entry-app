@@ -15,7 +15,7 @@ Rows group by `Production Date` into day blocks:
    actual same-day rework block (`Rework Qty`, `Rework PPM`, operators, hours, `Responsibility Remark`,
    `Reinspection`) from submitted Rework Operations,
 3. the item's rejection lines underneath it (`Rejection Reason`, `Rejection Qty`, `Rej PPM`,
-   `Rejection Stage`, `Finished Goods Qty`). A breakup line's qty shows under exactly one quantity
+   `Rejection Stage`). A breakup line's qty shows under exactly one quantity
    column: scrap lines under `Rejection Qty`, reworkable (`is_rework`) lines under `Rework Qty` — so
    the reworkable quantity stays visible against its reason. Line `Rework Qty` is the *declared*
    reworkable quantity; the item row's `Rework Qty` is the *actual* same-day rework, and the two differ
@@ -40,8 +40,10 @@ Rows group by `Production Date` into day blocks:
   Line `Rework PPM = line Rework Qty / Total FG Qty for Day * 1,000,000`.
 - `Rejection Stage` = the resolved report Operation: `stock_entry_type` for Manufacture entries,
   `custom_pea_operation` for Joint entries.
-- `Finished Goods Qty` = the entry's output quantity (`fg_completed_qty`; joint gross sums for Joint
-  entries), so per-entry values sum to the day total.
+- `Finished Goods Qty` = the item's **total production that day** across the day's submitted production
+  entries, attributed via BOM items (normal entries contribute `fg_completed_qty`; joint entries their
+  gross quantities) — the same per-item totals as the Shift's aggregate-entries view. Shown on the item
+  row only; per-entry figures on lines would double-count entries with several rejection lines.
 - `Total FG Qty for Day` = sum of output quantities of the day's submitted production entries on Completed
   Shifts, including entries with no rejections.
 - `Rej PPM = Rejection Qty / Total FG Qty for Day * 1,000,000`; `0` when the day has no production. PPM

@@ -7,12 +7,15 @@ import frappe
 from frappe import _
 from frappe.utils import flt, get_datetime, getdate
 
+from production_entry_app.production_entry_app.joint_production import JOINT_PRODUCTION_LINES_FIELD
 from production_entry_app.production_entry_app.report.report_utils import (
 	apply_system_precision,
 	build_stock_entry_filters,
 	get_entry_output_quantities,
 	get_entry_report_operation,
 	get_report_rows,
+	is_joint_production_entry,
+	is_paired_production_entry,
 	iter_stock_entries_in_chunks,
 	new_interactive_report_timeout_guard,
 )
@@ -151,7 +154,6 @@ def _get_rows(filters: dict) -> list[dict]:
 				"rejection_qty": 0.0 if row.get("is_rework") else flt(row.get("qty")),
 				"rework_qty": flt(row.get("qty")) if row.get("is_rework") else 0.0,
 				"rejection_stage": get_entry_report_operation(entry),
-				"finished_goods_qty": get_entry_output_quantities(entry).total_qty,
 			}
 		)
 	if not line_rows:
@@ -166,7 +168,7 @@ def _get_rows(filters: dict) -> list[dict]:
 		)
 	line_rows.sort(key=lambda row: (row["day"], row["parent"], row["idx"]))
 
-	day_totals = _get_daily_fg_totals(sorted({row["day"] for row in line_rows}))
+	day_totals, item_day_fg_totals = _get_daily_fg_totals(sorted({row["day"] for row in line_rows}))
 	rework_by_day_item, rework_by_day = _get_rework_by_day_item(line_rows)
 
 	precision = get_system_float_precision()
@@ -207,6 +209,10 @@ def _get_rows(filters: dict) -> list[dict]:
 					"rework_ppm": flt(rework.get("qty", 0.0) / day_fg * PPM_MULTIPLIER, precision)
 					if day_fg > 0
 					else 0,
+					# The item's total production that day, matching the Shift's
+					# aggregate-entries view; per-entry figures would double-count
+					# entries with several rejection lines.
+					"finished_goods_qty": flt(item_day_fg_totals.get((day, item_code), 0.0), precision),
 					"responsibility_remark": ", ".join(rework.get("responsibility", ())),
 					"reinspection": ", ".join(rework.get("reinspection", ())),
 					"operator_name": ", ".join(rework.get("operators", ())),
@@ -229,7 +235,6 @@ def _get_rows(filters: dict) -> list[dict]:
 						if day_fg > 0
 						else 0,
 						"rejection_stage": line["rejection_stage"],
-						"finished_goods_qty": flt(line["finished_goods_qty"], precision),
 					}
 				)
 		rows.append(
@@ -296,14 +301,18 @@ def _get_single_rejection_items(entry_names: list[str]) -> dict[str, str]:
 	return {parent: next(iter(items)) for parent, items in items_by_parent.items() if len(items) == 1}
 
 
-def _get_daily_fg_totals(dates: list[datetime.date]) -> dict[datetime.date, float]:
+def _get_daily_fg_totals(
+	dates: list[datetime.date],
+) -> tuple[dict[datetime.date, float], dict[tuple[datetime.date, str], float]]:
 	"""Day's raw total production: submitted production entries on Completed Shifts.
 
-	Returned unrounded on purpose: the totals feed the PPM division, where
-	rounding inputs first would distort the result.
+	Returns day totals plus per-(day, item) totals — the item totals attribute each
+	entry's output to its BOM item(s), matching the Shift aggregate-entries view.
+	Both are returned unrounded on purpose: they feed PPM divisions, where rounding
+	inputs first would distort the result.
 	"""
 	if not dates:
-		return {}
+		return {}, {}
 	shift_names = get_report_rows(
 		"Shift",
 		filters={
@@ -313,17 +322,72 @@ def _get_daily_fg_totals(dates: list[datetime.date]) -> dict[datetime.date, floa
 		pluck="name",
 	)
 	if not shift_names:
-		return {}
+		return {}, {}
 	totals: defaultdict[datetime.date, float] = defaultdict(float)
+	item_totals: defaultdict[tuple[datetime.date, str], float] = defaultdict(float)
 	for chunk in iter_stock_entries_in_chunks(
 		{"docstatus": 1, "custom_pea_shift": ["in", sorted(shift_names)]},
-		["name", "fg_completed_qty"],
+		["name", "fg_completed_qty", "bom_no", "custom_pea_lh_bom", "custom_pea_rh_bom"],
 	):
+		item_by_bom = _get_bom_item_map(chunk)
 		for entry in chunk:
 			day = entry.get("production_date")
-			if day:
-				totals[getdate(day)] += get_entry_output_quantities(entry).total_qty
-	return dict(totals)
+			if not day:
+				continue
+			day = getdate(day)
+			totals[day] += get_entry_output_quantities(entry).total_qty
+			for item_code, qty in _entry_item_outputs(entry, item_by_bom).items():
+				item_totals[(day, item_code)] += qty
+	return dict(totals), dict(item_totals)
+
+
+def _get_bom_item_map(entries: list[dict]) -> dict[str, str]:
+	"""BOM name -> BOM item for every BOM referenced by the chunk's entries."""
+	bom_names = set()
+	for entry in entries:
+		for fieldname in ("bom_no", "custom_pea_lh_bom", "custom_pea_rh_bom"):
+			if entry.get(fieldname):
+				bom_names.add(entry[fieldname])
+		for line in entry.get(JOINT_PRODUCTION_LINES_FIELD) or []:
+			if line.get("bom_no"):
+				bom_names.add(line["bom_no"])
+	if not bom_names:
+		return {}
+	return {
+		row.name: row.item
+		for row in get_report_rows(
+			"BOM",
+			filters={"name": ["in", sorted(bom_names)]},
+			fields=["name", "item"],
+			limit_page_length=0,
+		)
+		if row.get("item")
+	}
+
+
+def _entry_item_outputs(entry: dict, item_by_bom: dict[str, str]) -> dict[str, str | float]:
+	"""Attribute one entry's produced quantity to its BOM item(s)."""
+	if is_joint_production_entry(entry):
+		lines = entry.get(JOINT_PRODUCTION_LINES_FIELD) or []
+		if lines:
+			outputs: dict[str, float] = {}
+			for line in lines:
+				item_code = item_by_bom.get(line.get("bom_no"))
+				if item_code:
+					outputs[item_code] = outputs.get(item_code, 0.0) + flt(line.get("gross_qty"))
+			return outputs
+	if is_paired_production_entry(entry):
+		outputs = {}
+		for bom_field, gross_field in (
+			("custom_pea_lh_bom", "custom_pea_lh_gross_qty"),
+			("custom_pea_rh_bom", "custom_pea_rh_gross_qty"),
+		):
+			item_code = item_by_bom.get(entry.get(bom_field))
+			if item_code:
+				outputs[item_code] = outputs.get(item_code, 0.0) + flt(entry.get(gross_field))
+		return outputs
+	item_code = item_by_bom.get(entry.get("bom_no"))
+	return {item_code: flt(entry.get("fg_completed_qty"))} if item_code else {}
 
 
 def _get_employee_names(employee_ids: set[str]) -> dict[str, str]:
