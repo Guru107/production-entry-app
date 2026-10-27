@@ -25,8 +25,8 @@ and linked Stock Entries all flow through it.
 This repo is a **standalone Frappe app** and is currently installed into two local bench servers
 as a symlinked app:
 
-- `/Users/gurudattkulkarni/Workspace/bench16` running Frappe v16 and ERPNext v16
-- `/Users/gurudattkulkarni/Workspace/bench15` running Frappe v15 and ERPNext v15
+- `/root/workspace/bench16` running Frappe v16 and ERPNext v16 (site: `frappe16.localhost`)
+- `/root/workspace/bench15` running Frappe v15 and ERPNext v15 (site: `development.localhost`)
 
 In both benches, `production_entry_app` is linked from this repository into the bench's
 `apps/` directory rather than maintained as a separate clone inside each bench.
@@ -60,19 +60,21 @@ Shifts: `SHIFT-YYYY.MM.DD.Shift-{N}` (e.g., `SHIFT-2026.02.03.Shift-1`)
 All `bench` commands run from the relevant bench root, not from inside the app directory.
 Use the bench that matches the Frappe/ERPNext version you are working against:
 
-- `cd /Users/gurudattkulkarni/Workspace/bench16` for v16 work
-- `cd /Users/gurudattkulkarni/Workspace/bench15` for v15 work
+- `cd /root/workspace/bench16` for v16 work (site: `frappe16.localhost`)
+- `cd /root/workspace/bench15` for v15 work (site: `development.localhost`)
+
+Examples below use `<site>` — substitute the site for the bench you are in.
 
 ```bash
 # Run all tests
-bench --site development.localhost run-tests --app production_entry_app
+bench --site <site> run-tests --app production_entry_app
 
 # Run a single test file
-bench --site development.localhost run-tests --app production_entry_app \
+bench --site <site> run-tests --app production_entry_app \
   --module production_entry_app.production_entry_app.doctype.shift.test_shift
 
 # Run a single test case
-bench --site development.localhost run-tests --app production_entry_app \
+bench --site <site> run-tests --app production_entry_app \
   --module production_entry_app.production_entry_app.doctype.shift.test_shift \
   --test TestShift.test_defaults_are_populated_on_insert
 
@@ -299,7 +301,7 @@ helpers call whitelisted APIs without loading Desk, so no CSRF token is ever min
 
 Custom fields are defined in `fixtures/custom_field.json`. After editing:
 ```bash
-bench --site development.localhost migrate
+bench --site <site> migrate
 ```
 
 ### Fixtures
@@ -451,7 +453,7 @@ const row = `
 
 Run the full suite and check coverage before every PR:
 ```bash
-bench --site development.localhost run-tests --app production_entry_app --coverage
+bench --site <site> run-tests --app production_entry_app --coverage
 ```
 Coverage must not drop below **85%**.
 
@@ -501,7 +503,7 @@ Registered in `hooks.py` for `validate`, `on_submit`, `on_cancel`. Key responsib
 - `downtime_reason.json` — Default Downtime Reason records (Tea Break, Lunch Break).
 
 After changing fixtures: `bench export-fixtures --app production_entry_app`
-After pulling fixture changes: `bench --site development.localhost migrate`
+After pulling fixture changes: `bench --site <site> migrate`
 
 Never commit human-input.md and PLAN.md and shift_losses.csv files to git
 
