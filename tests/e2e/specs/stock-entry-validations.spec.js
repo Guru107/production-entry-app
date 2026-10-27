@@ -290,7 +290,6 @@ test.describe("Stock Entry validation matrix", () => {
 	});
 
 	test("@regression cross-day shift resolves actual end date to next day", async ({ page }) => {
-		await page.goto(getRoute("/home"));
 		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
 		const nextDay = nextDateString(ctx.shift_date);
 
