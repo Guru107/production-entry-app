@@ -97,22 +97,11 @@ async function ensureExtraWorkstation(page, name) {
 }
 
 async function runShiftDocMethod(page, shiftName, method) {
-	await page.evaluate(
-		({ dn, action }) =>
-			new Promise((resolve, reject) => {
-				frappe.call({
-					method: "run_doc_method",
-					type: "POST",
-					args: { method: action, dt: "Shift", dn },
-					callback: () => resolve(true),
-					error: (err) => {
-						const detail = err?._server_messages || err?.message || err?.exc || "";
-						reject(new Error(detail || `Failed doc action: ${action}`));
-					},
-				});
-			}),
-		{ dn: shiftName, action: method }
-	);
+	await callFrappeMethod(page, "run_doc_method", {
+		dt: "Shift",
+		dn: shiftName,
+		method,
+	});
 }
 
 function nextDateString(dateStr) {

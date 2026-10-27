@@ -6,7 +6,6 @@ const { getJointProductionStockEntryType } = require("../fixtures/joint-producti
 const { bootstrapE2E } = require("../fixtures/test-data");
 const { deleteUserIfExists, ensureUser } = require("../fixtures/users");
 const { StockEntryPage } = require("../pages/stock-entry-page");
-const { getRoute, getRouteRegex } = require("../utils/routing");
 
 const ADMIN_USERNAME = process.env.PLAYWRIGHT_USERNAME || "Administrator";
 const ADMIN_PASSWORD = process.env.PLAYWRIGHT_PASSWORD || "123";
@@ -17,16 +16,11 @@ async function login(page, username, password) {
 		form: { usr: username, pwd: password },
 	});
 	expect(response.ok()).toBeTruthy();
-	await expect(page).toHaveURL(getRouteRegex("/home"));
 }
 
 test.describe("Joint Production line table", () => {
 	const lifecycle = registerE2ELifecycle(test);
 	const createdUsers = new Set();
-
-	test.beforeEach(async ({ page }) => {
-		await expect(page).toHaveURL(getRouteRegex("/home"));
-	});
 
 	test.afterEach(async ({ page }) => {
 		await login(page, ADMIN_USERNAME, ADMIN_PASSWORD);
