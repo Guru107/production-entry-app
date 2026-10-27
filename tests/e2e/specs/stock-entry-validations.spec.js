@@ -97,6 +97,32 @@ async function ensureExtraWorkstation(page, name) {
 	return created.name;
 }
 
+async function runShiftDocMethod(page, shiftName, method) {
+	await page.evaluate(
+		({ dn, action }) =>
+			new Promise((resolve, reject) => {
+				frappe.call({
+					method: "run_doc_method",
+					type: "POST",
+					args: { method: action, dt: "Shift", dn },
+					callback: () => resolve(true),
+					error: (err) => {
+						const detail = err?._server_messages || err?.message || err?.exc || "";
+						reject(new Error(detail || `Failed doc action: ${action}`));
+					},
+				});
+			}),
+		{ dn: shiftName, action: method }
+	);
+}
+
+function nextDateString(dateStr) {
+	const [y, m, d] = dateStr.split("-").map(Number);
+	const dt = new Date(Date.UTC(y, m - 1, d + 1));
+	const pad = (value) => String(value).padStart(2, "0");
+	return `${dt.getUTCFullYear()}-${pad(dt.getUTCMonth() + 1)}-${pad(dt.getUTCDate())}`;
+}
+
 test.describe("Stock Entry validation matrix", () => {
 	const lifecycle = registerE2ELifecycle(test);
 
@@ -267,6 +293,69 @@ test.describe("Stock Entry validation matrix", () => {
 		expect(values.custom_pea_actual_end_time_input).toBe("16:00");
 		expect(values.custom_pea_actual_start_date).toBe(values.custom_pea_planned_start_date);
 		expect(values.custom_pea_actual_end_date).toBe(values.custom_pea_planned_end_date);
+	});
+
+	test("@regression cross-day shift resolves actual end date to next day", async ({ page }) => {
+		await page.goto(getRoute("/home"));
+		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
+		const nextDay = nextDateString(ctx.shift_date);
+
+		// Only one Running shift per department+branch: end the bootstrapped day shift,
+		// then insert and start a 22:00–06:00 night shift (label 2).
+		const dayShift = await getDoc(page, "Shift", ctx.shift_name);
+		await runShiftDocMethod(page, ctx.shift_name, "end_shift");
+		const nightShift = await callFrappeMethod(page, "frappe.client.insert", {
+			doc: JSON.stringify({
+				doctype: "Shift",
+				department: dayShift.department,
+				branch: dayShift.branch,
+				shift_label: "2",
+				shift_duration: "8",
+				shift_date: ctx.shift_date,
+				planned_start_time: "22:00:00",
+				work_in_progress_warehouse: dayShift.work_in_progress_warehouse,
+				raw_material_warehouse: dayShift.raw_material_warehouse,
+				rejection_warehouse: dayShift.rejection_warehouse,
+			}),
+		});
+		await runShiftDocMethod(page, nightShift.name, "start_shift");
+
+		const stockEntryPage = await openManufactureEntry(page, ctx, {
+			shiftName: nightShift.name,
+			fgQty: 100,
+			rejectionQty: 0,
+			actualStart: null,
+			actualEnd: null,
+		});
+		await stockEntryPage.waitForShiftAutoFill({
+			plannedStartIncludes: `${ctx.shift_date} 22:00:00`,
+			plannedEndIncludes: `${nextDay} 06:00:00`,
+		});
+
+		// Fill through the split inputs; blur commits the time and resolves the date.
+		await stockEntryPage.fillHelperField("custom_pea_actual_start_time_input", "23:00");
+		await stockEntryPage.fillHelperField("custom_pea_actual_end_time_input", "02:00");
+
+		await stockEntryPage.waitForFieldValue(
+			"custom_pea_actual_start_date",
+			`${ctx.shift_date} 23:00:00`
+		);
+		await stockEntryPage.waitForFieldValue(
+			"custom_pea_actual_end_date",
+			`${nextDay} 02:00:00`
+		);
+		const values = await stockEntryPage.getFieldValues([
+			"custom_pea_actual_start_date_input",
+			"custom_pea_actual_end_date_input",
+			"custom_pea_actual_start_time_input",
+			"custom_pea_actual_end_time_input",
+			"custom_pea_planned_end_date",
+		]);
+		expect(values.custom_pea_actual_start_date_input).toBe(ctx.shift_date);
+		expect(values.custom_pea_actual_end_date_input).toBe(nextDay);
+		expect(values.custom_pea_actual_start_time_input).toBe("23:00");
+		expect(values.custom_pea_actual_end_time_input).toBe("02:00");
+		expect(values.custom_pea_planned_end_date).toContain(`${nextDay} 06:00:00`);
 	});
 
 	test("@regression purpose switch from manufacture clears manufacture fields and tables", async ({

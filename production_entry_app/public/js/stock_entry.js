@@ -1287,29 +1287,47 @@ function _setup_stock_entry_quick_entry(frm) {
 	if (!isProduction) {
 		return;
 	}
-	timeEntry.bind_committed_time_input(frm, "custom_pea_actual_start_time_input", () =>
-		_combine_actual_datetime(frm, {
-			date_fieldname: "custom_pea_actual_start_date_input",
-			time_fieldname: "custom_pea_actual_start_time_input",
-			canonical_fieldname: "custom_pea_actual_start_date",
-		})
+	timeEntry.bind_committed_time_input(frm, "custom_pea_actual_start_time_input", (value) =>
+		_combine_actual_datetime(
+			frm,
+			{
+				date_fieldname: "custom_pea_actual_start_date_input",
+				time_fieldname: "custom_pea_actual_start_time_input",
+				canonical_fieldname: "custom_pea_actual_start_date",
+			},
+			value
+		)
 	);
-	timeEntry.bind_committed_time_input(frm, "custom_pea_actual_end_time_input", () =>
-		_combine_actual_datetime(frm, {
-			date_fieldname: "custom_pea_actual_end_date_input",
-			time_fieldname: "custom_pea_actual_end_time_input",
-			canonical_fieldname: "custom_pea_actual_end_date",
-		})
+	timeEntry.bind_committed_time_input(frm, "custom_pea_actual_end_time_input", (value) =>
+		_combine_actual_datetime(
+			frm,
+			{
+				date_fieldname: "custom_pea_actual_end_date_input",
+				time_fieldname: "custom_pea_actual_end_time_input",
+				canonical_fieldname: "custom_pea_actual_end_date",
+			},
+			value
+		)
 	);
 }
 
-function _combine_actual_datetime(frm, { date_fieldname, time_fieldname, canonical_fieldname }) {
+function _combine_actual_datetime(
+	frm,
+	{ date_fieldname, time_fieldname, canonical_fieldname },
+	committedTime
+) {
 	const timeEntry = _get_time_entry_api();
 	if (!timeEntry) {
 		return;
 	}
 	const dateValue = String(frm.doc?.[date_fieldname] || "").trim();
-	const timeValue = String(frm.doc?.[time_fieldname] || "").trim();
+	// The blur commit handler passes the raw input value: the doc model may not have
+	// synced yet when the blur event fires.
+	const timeValue = String(
+		committedTime !== undefined && committedTime !== null
+			? committedTime
+			: frm.doc?.[time_fieldname] || ""
+	).trim();
 	if (!dateValue && !timeValue) {
 		timeEntry.set_field_invalid(frm, time_fieldname, "");
 		frm.set_value(canonical_fieldname, "");
@@ -1325,7 +1343,13 @@ function _combine_actual_datetime(frm, { date_fieldname, time_fieldname, canonic
 	}
 	timeEntry.set_field_invalid(frm, time_fieldname, "");
 	frm.set_value(time_fieldname, timeEntry.format_time_display(parsed.frappe_time));
-	frm.set_value(canonical_fieldname, `${dateValue} ${parsed.frappe_time}`);
+	const resolved = timeEntry.resolve_datetime_in_window(
+		`${dateValue} ${parsed.frappe_time}`,
+		frm.doc?.custom_pea_planned_start_date,
+		frm.doc?.custom_pea_planned_end_date
+	);
+	frm.set_value(date_fieldname, resolved.slice(0, 10));
+	frm.set_value(canonical_fieldname, resolved);
 }
 
 function _get_shift_ctx(frm) {
