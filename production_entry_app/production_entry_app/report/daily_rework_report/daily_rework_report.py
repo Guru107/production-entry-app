@@ -51,18 +51,6 @@ def _get_columns() -> list[dict]:
 			{"label": _("Items + Qty"), "fieldname": "items", "fieldtype": "Data", "width": 260},
 			{"label": _("Total Qty"), "fieldname": "total_qty", "fieldtype": "Float", "width": 110},
 			{
-				"label": _("Rejection Reason"),
-				"fieldname": "rejection_reason",
-				"fieldtype": "Data",
-				"width": 150,
-			},
-			{
-				"label": _("Operation"),
-				"fieldname": "operation",
-				"fieldtype": "Data",
-				"width": 130,
-			},
-			{
 				"label": _("Rework Type"),
 				"fieldname": "rework_type",
 				"fieldtype": "Data",
@@ -121,10 +109,6 @@ def _build_entry_filters(
 		db_filters["custom_pea_rework_type"] = filters["rework_type"]
 	if filters.get("workstation"):
 		db_filters["custom_pea_rework_workstation"] = filters["workstation"]
-	if filters.get("rejection_reason"):
-		db_filters["custom_pea_rework_rejection_reason"] = filters["rejection_reason"]
-	if filters.get("operation"):
-		db_filters["custom_pea_rework_operation"] = filters["operation"]
 
 	name_matches: list[set[str]] = []
 	if filters.get("item_code"):
@@ -258,8 +242,6 @@ def _get_rows(filters: dict) -> tuple[list[dict], list[dict]]:
 				"rework_entry": entry.name,
 				"items": ", ".join(f"{row.item_code} ({flt(row.qty, precision):g})" for row in items),
 				"total_qty": flt(qty, precision),
-				"rejection_reason": entry.get("custom_pea_rework_rejection_reason") or "",
-				"operation": entry.get("custom_pea_rework_operation") or "",
 				"rework_type": entry.custom_pea_rework_type,
 				"workstation": entry.custom_pea_rework_workstation,
 				"operator_names": ", ".join(operators),

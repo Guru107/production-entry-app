@@ -11,8 +11,8 @@ Each date renders as a block of:
 1. A **date header** row carrying:
    - `No. of Man = count(distinct operators across the day's rework entries)`
    - `Rework Hours = sum of the day's per-entry hours`
-2. One row per rework entry: `Items + Qty`, `Total Qty = sum(Stock Entry Detail qty)`, `Rejection Reason`,
-   `Operation`, `Rework Type`, `Workstation`, `Operators`, and
+2. One row per rework entry: `Items + Qty`, `Total Qty = sum(Stock Entry Detail qty)`, `Rework Type`,
+   `Workstation`, `Operators`, and
    `Rework Hours = sum over Rework Operator rows of (Actual End - Actual Start) / 3600`.
 3. A **subtotal** row: day `Total Qty`, day `Rework Hours`, day `No. of Man`, and `Daily REW PPM`.
 
@@ -33,6 +33,6 @@ a later day than declared lands on different days in the two reports.
 
 ## Filters and chart
 
-From/To Date default to the current month. Item, Rejection Reason, Operation, Workstation, Operator, and
+From/To Date default to the current month. Item, Workstation, Operator, and
 Rework Type filters restrict which rework entries are listed; the PPM denominator always covers the day's
 whole completed production. The chart plots `Daily REW PPM` per day as a bar series.
