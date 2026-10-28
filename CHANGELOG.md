@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-10-28
+
+### Fixed
+
+-   Playwright rework-lifecycle E2E no longer flakes on “rejects wrong rework source and target routes”: submit validation uses the same fire-and-forget save pattern as other specs, waits for pattern-matched dialogs, and avoids racing debounced rework source sync (#195)
+
 ## [1.4.0] - 2026-10-28
 
 ### Added
