@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+-   The **Rework Register** and **Daily Rework Report** are replaced by a single **Daily Rej Rework Register**: one row per production Rejection Breakup line (Production Date from the Completed Shift, Rejection Reason/Qty/Stage, entry Finished Goods Qty, Rej PPM against the day's total FG), with same-day, same-item rework columns (Rework Qty, operators, hours, Responsibility Remark, Reinspection, Rework PPM) matched from submitted Rework Operations by Rework Date. The legacy reports' Workstation/Operator/Rework Type filters, the daily PPM bar chart, and the Rework Cost column are dropped with them
 -   E2E run optimization: the Playwright suite no longer loads Desk pages to mint CSRF tokens (E2E sites now run with `ignore_csrf: 1`, set automatically for ephemeral sites), tests no longer navigate home before bootstrap or cleanup, Desk navigations return at `domcontentloaded`, CI skips the two asset rebuilds already covered by the workflow's `bench build`, and the E2E workflow shards each Frappe version across two jobs
 
 ### Removed

@@ -9,8 +9,10 @@ from frappe.tests.utils import FrappeTestCase
 from frappe.utils import get_datetime
 
 from production_entry_app.production_entry_app import e2e_api, rework
+from production_entry_app.production_entry_app.report.daily_rej_rework_register import (
+	daily_rej_rework_register,
+)
 from production_entry_app.production_entry_app.report.pending_rework import pending_rework
-from production_entry_app.production_entry_app.report.rework_register import rework_register
 from production_entry_app.production_entry_app.tests.support.manufacture_builders import (
 	bootstrap_manufacture_masters,
 	make_direct_manufacture_entry,
@@ -95,7 +97,8 @@ class TestReworkLifecycle(FrappeTestCase):
 		self.assertGreater(rework_entry.items[0].valuation_rate, rework_entry.items[0].basic_rate)
 
 		pending_after_submit = pending_rework.execute({"item_code": self.masters["fg_item"]})[1]
-		register_after_submit = rework_register.execute(
+		shift.end_shift()
+		register_after_submit = daily_rej_rework_register.execute(
 			{
 				"from_date": str(shift.shift_date),
 				"to_date": str(shift.shift_date),
@@ -103,9 +106,24 @@ class TestReworkLifecycle(FrappeTestCase):
 			}
 		)[1]
 		self.assertEqual(pending_after_submit, [])
-		self.assertEqual([row["rework_entry"] for row in register_after_submit], [rework_entry.name])
-		self.assertAlmostEqual(register_after_submit[0]["total_qty"], 5)
-		self.assertAlmostEqual(register_after_submit[0]["computed_cost"], 120)
+		register_details = [row for row in register_after_submit if row.get("rejection_reason")]
+		self.assertEqual(len(register_details), 1)
+		register_row = register_details[0]
+		item_rows = [
+			row for row in register_after_submit if row.get("defective_item_code") == self.masters["fg_item"]
+		]
+		self.assertEqual(len(item_rows), 1)
+		item_row = item_rows[0]
+		# The source rejection was flagged reworkable, so it is not rejection.
+		self.assertAlmostEqual(register_row["rejection_qty"], 0)
+		self.assertAlmostEqual(register_row["rej_ppm"], 0)
+		self.assertAlmostEqual(register_row["rework_qty"], 5)
+		self.assertAlmostEqual(register_row["rework_ppm"], 5 / 100 * 1_000_000)
+		self.assertAlmostEqual(item_row["rework_qty"], 5)
+		self.assertEqual(item_row["operator_count"], 1)
+		self.assertAlmostEqual(item_row["rework_hours"], 1)
+		self.assertEqual(item_row["operator_name"], self.operator)
+		self.assertAlmostEqual(item_row["rework_ppm"], 5 / 100 * 1_000_000)
 
 		rework_entry.cancel()
 
@@ -113,7 +131,7 @@ class TestReworkLifecycle(FrappeTestCase):
 		self.assertEqual(self._stock_qty(self.masters["rejection_warehouse"]), rejection_before)
 		self.assertEqual(self._stock_qty(self.masters["fg_warehouse"]), good_before)
 		pending_after_cancel = pending_rework.execute({"item_code": self.masters["fg_item"]})[1]
-		register_after_cancel = rework_register.execute(
+		register_after_cancel = daily_rej_rework_register.execute(
 			{
 				"from_date": str(shift.shift_date),
 				"to_date": str(shift.shift_date),
@@ -122,7 +140,15 @@ class TestReworkLifecycle(FrappeTestCase):
 		)[1]
 		self.assertEqual(pending_after_cancel[0]["derived_pending_qty"], 5)
 		self.assertEqual(pending_after_cancel[0]["rejection_warehouse_balance"], 5)
-		self.assertEqual(register_after_cancel, [])
+		cancel_details = [row for row in register_after_cancel if row.get("rejection_reason")]
+		self.assertEqual(len(cancel_details), 1)
+		self.assertAlmostEqual(cancel_details[0]["rejection_qty"], 0)
+		cancel_item_rows = [
+			row for row in register_after_cancel if row.get("defective_item_code") == self.masters["fg_item"]
+		]
+		self.assertEqual(len(cancel_item_rows), 1)
+		self.assertAlmostEqual(cancel_item_rows[0]["rework_qty"], 0)
+		self.assertEqual(cancel_item_rows[0]["operator_count"], 0)
 
 	def _ensure_rework_expense_account(self) -> str:
 		company = self.masters["company"]

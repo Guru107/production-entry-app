@@ -490,8 +490,8 @@ def test_workspace_has_forms_and_reports_cards() -> None:
 	report_links = [row.link_to for row in ws.links if row.link_type == "Report"]
 	assert "Production OEE Report" in report_links
 	assert "Monthly Production OEE Report" in report_links
-	assert "Daily Rework Report" in report_links
-	assert len(report_links) == 22
+	assert "Daily Rej Rework Register" in report_links
+	assert len(report_links) == 21
 	pending_rework = next(row for row in ws.links if row.label == "Pending Rework")
 	assert pending_rework.link_type == "Report"
 	assert pending_rework.is_query_report == 1

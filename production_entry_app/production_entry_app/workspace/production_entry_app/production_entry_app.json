@@ -290,19 +290,9 @@
   {
    "hidden": 0,
    "is_query_report": 1,
-   "label": "Rework Register",
+   "label": "Daily Rej Rework Register",
    "link_count": 0,
-   "link_to": "Rework Register",
-   "link_type": "Report",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 1,
-   "label": "Daily Rework Report",
-   "link_count": 0,
-   "link_to": "Daily Rework Report",
+   "link_to": "Daily Rej Rework Register",
    "link_type": "Report",
    "onboard": 0,
    "type": "Link"
@@ -318,7 +308,7 @@
    "type": "Link"
   }
  ],
- "modified": "2026-10-25 16:00:00.000000",
+ "modified": "2026-10-27 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Production Entry App",
  "name": "Production Entry App",

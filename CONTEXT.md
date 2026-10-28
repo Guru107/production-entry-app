@@ -109,7 +109,8 @@ _Avoid_: Shift reopening, backdated production entry
 A native Material Transfer Stock Entry, using the configured rework Stock Entry Type, that moves successfully
 reworked quantity from the Rejection Warehouse to the good warehouse and loads its labour cost onto that stock
 through one native additional-cost row. It records the Rework Type, Workstation, and named Operators, each with
-their own working Actual Start and Actual End. Labour cost and Rework Register duration use the sum of those
+their own working Actual Start and Actual End. Labour cost and the rework hours in the Daily Rej Rework
+Register use the sum of those
 per-operator windows against the Workstation hour rate. It is not managed through Shift: selecting the rework
 Stock Entry Type drops any Shift link together with the planned window, late-entry flag and loss links derived
 from it. The production instance owns `Stock Entry.branch`, so the source Rejection Warehouse resolves from the

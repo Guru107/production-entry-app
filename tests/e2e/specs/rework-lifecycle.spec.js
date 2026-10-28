@@ -20,11 +20,11 @@ const ADMIN_PASSWORD =
 	process.env.PLAYWRIGHT_ADMIN_PASSWORD || process.env.PLAYWRIGHT_PASSWORD || "123";
 const TEST_PASSWORD = process.env.PLAYWRIGHT_TEST_USER_PASSWORD || "E2eT3st!Pass#2026";
 
-async function seedLifecycle(page, prefix) {
+async function seedLifecycle(page, prefix, options = {}) {
 	return await callFrappeMethod(
 		page,
 		"production_entry_app.production_entry_app.e2e_api.create_e2e_rework_lifecycle_source",
-		{ prefix, qty: 5 }
+		{ prefix, qty: 5, complete_shift: options.completeShift ? 1 : 0 }
 	);
 }
 
@@ -159,7 +159,7 @@ async function getBinQty(page, itemCode, warehouse) {
 async function getReportRows(page, reportName, context) {
 	const reportsPage = new ReportsPage(page);
 	await reportsPage.open(reportName);
-	if (reportName === "Rework Register") {
+	if (reportName === "Daily Rej Rework Register") {
 		await reportsPage.runWithDateRange(context.shift_date, context.shift_date);
 	}
 	await reportsPage.setFilterByFieldname("item_code", context.fg_item);
@@ -235,7 +235,7 @@ test.describe("Rework full lifecycle", () => {
 	test("@smoke @regression submits, values, reports, authorizes, and cancels rework", async ({
 		page,
 	}) => {
-		const context = await seedLifecycle(page, lifecycle.getPrefix());
+		const context = await seedLifecycle(page, lifecycle.getPrefix(), { completeShift: true });
 		const stockEntryPage = await fillReworkEntry(page, context);
 		const hasBranchField = await hasCurrentStockEntryBranchField(page);
 		const stockEntrySnapshot = await page.evaluate((includeBranch) => {
@@ -277,11 +277,23 @@ test.describe("Rework full lifecycle", () => {
 		);
 
 		const pendingAfterSubmit = await getReportRows(page, "Pending Rework", context);
-		const registerAfterSubmit = await getReportRows(page, "Rework Register", context);
+		const registerAfterSubmit = await getReportRows(
+			page,
+			"Daily Rej Rework Register",
+			context
+		);
 		expect(pendingAfterSubmit).toEqual([]);
-		expect(
-			registerAfterSubmit.filter((row) => row.rework_entry).map((row) => row.rework_entry)
-		).toEqual([reworkEntry]);
+		const submittedRows = registerAfterSubmit.filter(
+			(row) => row.defective_item_code === context.fg_item
+		);
+		expect(submittedRows).toHaveLength(1);
+		expect(Number(submittedRows[0].rework_qty)).toBe(5);
+		expect(Number(submittedRows[0].operator_count)).toBe(1);
+		expect(submittedRows[0].operator_name).toContain(context.operator);
+		const submittedDetails = registerAfterSubmit.filter((row) => row.rejection_reason);
+		expect(submittedDetails).toHaveLength(1);
+		expect(Number(submittedDetails[0].rejection_qty)).toBe(0);
+		expect(Number(submittedDetails[0].rework_qty)).toBe(5);
 
 		const readOnlyUser = `e2e-user-rework-lifecycle-${Date.now()}@example.com`;
 		await ensureUser(page, {
@@ -303,8 +315,9 @@ test.describe("Rework full lifecycle", () => {
 			).rejects.toThrow(/PermissionError|Not permitted|No permission/i);
 			expect(await getReportRows(page, "Pending Rework", context)).toEqual([]);
 			expect(
-				(await getReportRows(page, "Rework Register", context)).some(
-					(row) => row.rework_entry === reworkEntry
+				(await getReportRows(page, "Daily Rej Rework Register", context)).some(
+					(row) =>
+						row.defective_item_code === context.fg_item && Number(row.rework_qty) === 5
 				)
 			).toBe(true);
 		} finally {
@@ -322,10 +335,19 @@ test.describe("Rework full lifecycle", () => {
 			context.good_warehouse_qty
 		);
 		const pendingAfterCancel = await getReportRows(page, "Pending Rework", context);
-		const registerAfterCancel = await getReportRows(page, "Rework Register", context);
+		const registerAfterCancel = await getReportRows(
+			page,
+			"Daily Rej Rework Register",
+			context
+		);
 		expect(Number(pendingAfterCancel[0].derived_pending_qty)).toBe(5);
 		expect(Number(pendingAfterCancel[0].rejection_warehouse_balance)).toBe(5);
-		expect(registerAfterCancel.filter((row) => row.rework_entry)).toEqual([]);
+		const cancelledRows = registerAfterCancel.filter(
+			(row) => row.defective_item_code === context.fg_item
+		);
+		expect(cancelledRows).toHaveLength(1);
+		expect(Number(cancelledRows[0].rework_qty)).toBe(0);
+		expect(Number(cancelledRows[0].operator_count)).toBe(0);
 	});
 
 	test("@regression shows missing time and operator validation", async ({ page }) => {
