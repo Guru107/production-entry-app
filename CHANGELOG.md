@@ -7,23 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-10-28
+
+### Added
+
+-   Rework entries capture a required **Rework Date** (defaults to today on the form; the operation-performed date of record, so users stop editing `posting_date`/`posting_time` for it) plus optional **Responsibility Remark** and **Reinspection** employee multi-selects (#182)
+
 ### Changed
 
 -   Rejection Breakup's Item field is renamed to `custom_pea_rb_item_code` (with a data-preserving rename patch): the unprefixed name let Frappe's child-table filter fallback resolve the Item dashboard's generic `item_code` filter to Rejection Breakup instead of Items, so clicking the Stock Entry connection on an Item listed the wrong entries (#197)
--   The **Rework Register** and **Daily Rework Report** are replaced by a single **Daily Rej Rework Register**: one row per production Rejection Breakup line (Production Date from the Completed Shift, Rejection Reason/Qty/Stage, entry Finished Goods Qty, Rej PPM against the day's total FG), with same-day, same-item rework columns (Rework Qty, operators, hours, Responsibility Remark, Reinspection, Rework PPM) matched from submitted Rework Operations by Rework Date. The legacy reports' Workstation/Operator/Rework Type filters, the daily PPM bar chart, and the Rework Cost column are dropped with them
+-   The **Rework Register** and **Daily Rework Report** are replaced by a single **Daily Rej Rework Register**: one row per production Rejection Breakup line (Production Date from the Completed Shift, Rejection Reason/Qty/Stage, entry Finished Goods Qty, Rej PPM against the day's total FG), with same-day, same-item rework columns (Rework Qty, operators, hours, Responsibility Remark, Reinspection, Rework PPM) matched from submitted Rework Operations by Rework Date. The legacy reports' Workstation/Operator/Rework Type filters, the daily PPM bar chart, and the Rework Cost column are dropped with them (#178, #183)
 -   E2E run optimization: the Playwright suite no longer loads Desk pages to mint CSRF tokens (E2E sites now run with `ignore_csrf: 1`, set automatically for ephemeral sites), tests no longer navigate home before bootstrap or cleanup, Desk navigations return at `domcontentloaded`, CI skips the two asset rebuilds already covered by the workflow's `bench build`, and the E2E workflow shards each Frappe version across two jobs
 
 ### Removed
 
 -   The optional **Rejection Reason** and **Operation** fields on rework entries (#177) — defect and defect-origin stage derive from production Rejection Breakup data instead of being re-entered; the Rework Register and Daily Rework Report drop those columns and filters (#190)
-
-### Added
-
--   Rework entries capture a required **Rework Date** (defaults to today on the form; the operation-performed date of record, so users stop editing `posting_date`/`posting_time` for it) plus optional **Responsibility Remark** and **Reinspection** employee multi-selects; the Rework Register now dates and filters rows by Rework Date (#182)
-
-### Added
-
--   Daily Rework Report: date-grouped rework register built from Rework stock entries — per-day No. of Man and Rework Hours headers, per-entry rows, day subtotals with Daily REW PPM against the day's completed production, and a daily PPM bar chart (#178)
 
 ## [1.3.2] - 2026-10-23
 
