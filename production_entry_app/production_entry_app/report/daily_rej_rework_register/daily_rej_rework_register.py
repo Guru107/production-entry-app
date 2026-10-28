@@ -112,7 +112,7 @@ def _get_rows(filters: dict) -> list[dict]:
 	breakup_rows = _get_child_rows(
 		"Rejection Breakup",
 		entry_names,
-		fields=["parent", "item_code", "rejection_reason", "qty", "is_rework", "idx"],
+		fields=["parent", "custom_pea_rb_item_code", "rejection_reason", "qty", "is_rework", "idx"],
 		parentfield="custom_pea_rejection_breakup",
 	)
 	if not breakup_rows:
@@ -121,7 +121,7 @@ def _get_rows(filters: dict) -> list[dict]:
 	# row; only pay for it when some breakup row actually has a blank item.
 	fallback_items = (
 		_get_single_rejection_items(entry_names)
-		if any(not row.get("item_code") for row in breakup_rows)
+		if any(not row.get("custom_pea_rb_item_code") for row in breakup_rows)
 		else {}
 	)
 
@@ -133,12 +133,12 @@ def _get_rows(filters: dict) -> list[dict]:
 		entry = entry_by_name.get(row.get("parent"))
 		if not entry:
 			continue
-		item_code = row.get("item_code") or fallback_items.get(row.get("parent"), "")
+		item_code = row.get("custom_pea_rb_item_code") or fallback_items.get(row.get("parent"), "")
 		if item_filter and item_code != item_filter:
 			continue
 		if reason_filter and row.get("rejection_reason") != reason_filter:
 			continue
-		if not item_code and not row.get("item_code"):
+		if not item_code and not row.get("custom_pea_rb_item_code"):
 			# Legacy rows can predate the single-rejection-item validation; log so
 			# the ungroupable line is diagnosable instead of silently zero-rework.
 			unresolved_blank_parents.add(row.get("parent"))

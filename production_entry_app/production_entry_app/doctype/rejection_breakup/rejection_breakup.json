@@ -6,7 +6,7 @@
  "engine": "InnoDB",
  "field_order": [
   "output_side",
-  "item_code",
+  "custom_pea_rb_item_code",
   "rejection_reason",
   "qty",
   "is_rework",
@@ -21,12 +21,13 @@
    "options": "\nLH\nRH\nBOM 1\nBOM 2\nBOM 3\nBOM 4\nBOM 5\nBOM 6\nBOM 7\nBOM 8\nBOM 9\nBOM 10"
   },
   {
-   "fieldname": "item_code",
+   "fieldname": "custom_pea_rb_item_code",
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Item Code",
    "options": "Item",
-   "read_only": 1
+   "read_only": 1,
+   "search_index": 1
   },
   {
    "fieldname": "rejection_reason",
