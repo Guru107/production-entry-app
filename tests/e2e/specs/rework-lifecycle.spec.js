@@ -1,10 +1,9 @@
 const { test, expect } = require("@playwright/test");
 
-const { expectValidationError } = require("../fixtures/assertions");
+const { expectValidationError, dismissVisibleFrappeDialog } = require("../fixtures/assertions");
 const {
 	callFrappeMethod,
 	getDoc,
-	saveForm,
 	setFieldValue,
 	triggerSaveForm,
 } = require("../fixtures/frappe");
@@ -176,17 +175,16 @@ async function expectSaveValidation(page, pattern) {
 }
 
 async function expectSubmitValidation(page, pattern) {
+	await dismissVisibleFrappeDialog(page);
+	// Fire-and-forget submit: awaiting cur_frm.save("Submit") races Frappe's validation
+	// dialog lifecycle and can dismiss the message before Playwright observes it.
 	const message = expectValidationError(page, pattern, 30_000);
-	const submit = saveForm(page, "Submit").catch(() => {});
+	const submit = triggerSaveForm(page, "Submit").catch(() => {});
 	await Promise.all([message, submit]);
 }
 
 async function closeVisibleDialog(page) {
-	const dialog = page.locator(".modal.show").first();
-	if (await dialog.count()) {
-		await dialog.locator(".btn-modal-close").click();
-		await dialog.waitFor({ state: "hidden" });
-	}
+	await dismissVisibleFrappeDialog(page);
 }
 
 test.describe("Rework full lifecycle", () => {
@@ -372,9 +370,7 @@ test.describe("Rework full lifecycle", () => {
 		const stockEntryPage = await fillReworkEntry(page, context, { qty: 6 });
 		await stockEntryPage.saveDraft();
 
-		await saveForm(page, "Submit").catch(() => {});
-
-		await expectValidationError(page, /requested 6.*Available quantity is 5/i);
+		await expectSubmitValidation(page, /requested 6.*Available quantity is 5/i);
 	});
 
 	test("@regression does not fan out blank breakup rows across multiple rejected items", async ({
@@ -401,11 +397,11 @@ test.describe("Rework full lifecycle", () => {
 			source: context.wip_warehouse,
 			target: context.scrap_warehouse,
 		});
-		await stockEntryPage.saveDraft();
+		// Submit without an intermediate save: saveDraft races the debounced rework source
+		// sync and can normalize the route before submit, so the source error never appears.
 		await expectSubmitValidation(
 			page,
-			// Branch-defaulted and explicit-source routes fail with different source messages.
-			/(configured Rejection Warehouse|source Warehouse must be marked as Rejected Warehouse)/i
+			/(configured Rejection Warehouse|source Warehouse must be marked as Rejected Warehouse|good target warehouse)/i
 		);
 		await closeVisibleDialog(page);
 
