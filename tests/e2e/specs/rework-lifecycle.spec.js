@@ -1,12 +1,7 @@
 const { test, expect } = require("@playwright/test");
 
 const { expectValidationError, dismissVisibleFrappeDialog } = require("../fixtures/assertions");
-const {
-	callFrappeMethod,
-	getDoc,
-	setFieldValue,
-	triggerSaveForm,
-} = require("../fixtures/frappe");
+const { callFrappeMethod, getDoc, setFieldValue, triggerSaveForm } = require("../fixtures/frappe");
 const { registerE2ELifecycle } = require("../fixtures/lifecycle");
 const { hasCurrentStockEntryBranchField } = require("../fixtures/stock-entry-meta");
 const { ensureUser, loginAs } = require("../fixtures/users");

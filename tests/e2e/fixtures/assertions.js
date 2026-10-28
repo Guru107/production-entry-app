@@ -10,7 +10,11 @@ const MESSAGE_SELECTORS = [
 
 function patternPayload(pattern) {
 	if (pattern instanceof RegExp) {
-		return { patternSource: pattern.source, patternFlags: pattern.flags, patternLiteral: null };
+		return {
+			patternSource: pattern.source,
+			patternFlags: pattern.flags,
+			patternLiteral: null,
+		};
 	}
 	return { patternSource: null, patternFlags: null, patternLiteral: String(pattern) };
 }

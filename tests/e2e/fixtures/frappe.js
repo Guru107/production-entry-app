@@ -80,7 +80,9 @@ async function saveForm(page, action = "Save") {
 						new Promise((resolve) => {
 							const startedAt = Date.now();
 							const timer = setInterval(() => {
-								const modalVisible = Boolean(document.querySelector(".modal.show"));
+								const modalVisible = Boolean(
+									document.querySelector(".modal.show")
+								);
 								const validationMessage = modalVisible
 									? (window.frappe?.msg_dialog?.msg_area?.text?.() || "").trim()
 									: "";
