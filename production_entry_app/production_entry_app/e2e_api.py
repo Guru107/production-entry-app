@@ -115,7 +115,7 @@ def insert_pending_rework_source(
 				RejectionBreakup.parent,
 				RejectionBreakup.parenttype,
 				RejectionBreakup.parentfield,
-				RejectionBreakup.item_code,
+				RejectionBreakup.custom_pea_rb_item_code,
 				RejectionBreakup.rejection_reason,
 				RejectionBreakup.qty,
 				RejectionBreakup.is_rework,

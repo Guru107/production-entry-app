@@ -196,7 +196,7 @@ test.describe("Shift to Stock Entry integration", () => {
 				rejection_reason: "Burr",
 				qty: 1,
 				output_side: "LH",
-				item_code: ctx.joint_lh_item,
+				custom_pea_rb_item_code: ctx.joint_lh_item,
 			},
 		]);
 		await stockEntryPage.addUnplannedLossRow({

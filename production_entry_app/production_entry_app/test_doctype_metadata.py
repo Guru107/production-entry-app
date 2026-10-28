@@ -43,6 +43,11 @@ REQUIRED_CUSTOM_FIELD_SEARCH_INDEXES: set[str] = {
 	"Downtime Entry-custom_pea_downtime_reason",
 }
 
+# Documented exception (issue #197): `qty` never arrives as a generic route filter
+# (dashboards link via item_code / serial_no / batch_no), so its collision with
+# Stock Entry Detail cannot misroute a connection click.
+SHADOWING_EXCEPTIONS: dict[str, set[str]] = {"Rejection Breakup": {"qty"}}
+
 
 def test_required_apps_declares_erpnext() -> None:
 	from production_entry_app import hooks
@@ -181,10 +186,10 @@ def test_joint_lh_rh_production_metadata_is_exported() -> None:
 		for field in assert_doctype_json("Rejection Breakup").get("fields", [])
 		if field.get("fieldname")
 	}
-	missing_rejection_fields = sorted({"output_side", "item_code"}.difference(rejection_fields))
+	missing_rejection_fields = sorted({"output_side", "custom_pea_rb_item_code"}.difference(rejection_fields))
 	assert not missing_rejection_fields, f"Missing Rejection Breakup fields: {missing_rejection_fields}"
 	assert rejection_fields["output_side"]["options"] == joint_production_output_side_select_options()
-	assert rejection_fields["item_code"]["options"] == "Item"
+	assert rejection_fields["custom_pea_rb_item_code"]["options"] == "Item"
 
 
 def test_canonical_stock_entry_type_fixtures_are_exported() -> None:
@@ -568,6 +573,66 @@ def test_customization_fixtures_stamp_app_module_on_every_record() -> None:
 	assert not unstamped, f"Fixture records missing module 'Production Entry App': {unstamped}"
 
 
+def test_no_app_child_table_shadows_native_stock_entry_filter_fields() -> None:
+	"""App-owned child tables of Stock Entry must not declare fieldnames that exist on
+	Stock Entry Detail but not on the Stock Entry parent.
+
+	Generic route filters (the Item dashboard's Stock Entry connection sends a plain
+	``item_code``) are resolved client-side to the FIRST child table declaring the
+	field in the browser-served form meta, where this app's custom tables sort before
+	Items. A shadowing fieldname misroutes the connection list to the wrong child
+	table (issue #197).
+	"""
+	import frappe
+
+	stock_entry_meta = frappe.get_meta("Stock Entry", cached=False)
+	stock_entry_fields = {df.fieldname for df in stock_entry_meta.fields}
+	detail_fields = {df.fieldname for df in frappe.get_meta("Stock Entry Detail", cached=False).fields}
+	offenders: list[str] = []
+	for table_field in stock_entry_meta.get_table_fields():
+		child_meta = frappe.get_meta(table_field.options, cached=False)
+		if child_meta.module != "Production Entry App":
+			continue
+		shadowed = {
+			df.fieldname for df in child_meta.fields
+		} & detail_fields - stock_entry_fields - SHADOWING_EXCEPTIONS.get(table_field.options, set())
+		if shadowed:
+			offenders.append(f"{table_field.options}: {sorted(shadowed)}")
+	assert not offenders, f"App child tables shadow native Stock Entry Detail fields: {offenders}"
+
+
+def test_form_meta_resolves_item_code_filter_to_stock_entry_detail() -> None:
+	"""The browser-served Stock Entry form meta must resolve a generic ``item_code``
+	filter to Stock Entry Detail.
+
+	Replicates the client's fieldname resolution (first child table declaring the
+	field, in getdoctype's served field order) for the Item dashboard's Stock Entry
+	connection click (issue #197).
+	"""
+	import frappe
+	from frappe.desk.form.load import getdoctype
+
+	frappe.cache().hdel("doctype_form_meta", "Stock Entry")
+	previous_docs = frappe.response.docs
+	frappe.response.docs = []
+	try:
+		getdoctype("Stock Entry")
+	finally:
+		doc = next((d for d in frappe.response.docs if d.name == "Stock Entry"), None)
+		frappe.response.docs = previous_docs
+	assert doc is not None
+	owner = None
+	for table_field in doc.fields:
+		if table_field.fieldtype in ("Table", "Table MultiSelect"):
+			if frappe.get_meta(table_field.options, cached=False).has_field("item_code"):
+				owner = table_field.options
+				break
+	assert owner == "Stock Entry Detail", (
+		f"A generic item_code filter resolves to {owner}; the Item dashboard's Stock Entry"
+		" connection would filter the wrong child table"
+	)
+
+
 def assert_doctype_json(doctype: str) -> dict:
 	doctype_path = DOCTYPE_ROOT / scrub_doctype(doctype) / f"{scrub_doctype(doctype)}.json"
 	return json.loads(doctype_path.read_text())
@@ -620,5 +685,7 @@ def load_tests(
 			test_downtime_entry_uses_downtime_reason_link,
 			test_stock_entry_use_multi_level_bom_default_setter_is_shipped,
 			test_customization_fixtures_stamp_app_module_on_every_record,
+			test_no_app_child_table_shadows_native_stock_entry_filter_fields,
+			test_form_meta_resolves_item_code_filter_to_stock_entry_detail,
 		)
 	)

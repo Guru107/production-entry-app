@@ -916,14 +916,14 @@ def _validate_blank_rejection_breakup_item_scope(doc: Document, breakup_rows: li
 		if row.get("custom_pea_is_rejection_item") and row.get("item_code")
 	}
 	for row in breakup_rows:
-		item_code = row.get("item_code")
+		item_code = row.get("custom_pea_rb_item_code")
 		if item_code and rejection_item_codes and item_code not in rejection_item_codes:
 			frappe.throw(
 				_("Rejection Breakup Item {0} must match a rejected Item on this Stock Entry.").format(
 					_safe_bold(item_code)
 				)
 			)
-	if not any(not row.get("item_code") for row in breakup_rows):
+	if not any(not row.get("custom_pea_rb_item_code") for row in breakup_rows):
 		return
 	if len(rejection_item_codes) <= 1:
 		return

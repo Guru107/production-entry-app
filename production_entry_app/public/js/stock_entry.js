@@ -356,7 +356,7 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 			const bom = _joint_bom_for_output_side(frm.doc, selectedSide);
 			if (!bom) {
 				_rejectionSideRequestIds.delete(cdn);
-				frappe.model.set_value(cdt, cdn, "item_code", "");
+				frappe.model.set_value(cdt, cdn, "custom_pea_rb_item_code", "");
 				return;
 			}
 			frappe.db
@@ -370,7 +370,12 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 					) {
 						return;
 					}
-					frappe.model.set_value(cdt, cdn, "item_code", response?.message?.item || "");
+					frappe.model.set_value(
+						cdt,
+						cdn,
+						"custom_pea_rb_item_code",
+						response?.message?.item || ""
+					);
 				})
 				.catch((error) => {
 					if (_rejectionSideRequestIds.get(cdn) === requestId) {
@@ -492,7 +497,11 @@ function _prune_joint_production_breakup_rows(frm, sides, sideItems) {
 			continue;
 		}
 		const expectedItem = sideItems[row.output_side];
-		if (row.item_code && expectedItem && row.item_code !== expectedItem) {
+		if (
+			row.custom_pea_rb_item_code &&
+			expectedItem &&
+			row.custom_pea_rb_item_code !== expectedItem
+		) {
 			breakup.splice(index, 1);
 			continue;
 		}
@@ -518,7 +527,7 @@ function _refresh_joint_rejection_items(frm, side) {
 			return;
 		}
 		for (const row of frm.doc.custom_pea_rejection_breakup || []) {
-			if (row.output_side === side) row.item_code = itemCode;
+			if (row.output_side === side) row.custom_pea_rb_item_code = itemCode;
 		}
 		frm.refresh_field("custom_pea_rejection_breakup");
 	};
@@ -1662,7 +1671,7 @@ function _configure_rejection_breakup_grid(frm) {
 	const sameItem = _is_same_item_joint_doc(frm.doc);
 	grid.update_docfield_property("output_side", "hidden", isJoint ? 0 : 1);
 	grid.update_docfield_property("output_side", "reqd", isJoint ? 1 : 0);
-	grid.update_docfield_property("item_code", "hidden", isJoint ? 0 : 1);
+	grid.update_docfield_property("custom_pea_rb_item_code", "hidden", isJoint ? 0 : 1);
 	const sideOptions = sameItem
 		? `\n${_joint_production_line_sides(frm.doc).join("\n")}`
 		: "\nLH\nRH";

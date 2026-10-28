@@ -261,7 +261,7 @@ class TestStockEntryHookPureHelpers(FrappeTestCase):
 		doc = frappe._dict(
 			custom_pea_rejection_qty=2,
 			custom_pea_rejection_breakup=[
-				frappe._dict(rejection_reason="Burr", item_code="", qty=2, is_rework=1),
+				frappe._dict(rejection_reason="Burr", custom_pea_rb_item_code="", qty=2, is_rework=1),
 			],
 			items=[
 				frappe._dict(item_code="ITEM-A", custom_pea_is_rejection_item=1),
@@ -276,7 +276,7 @@ class TestStockEntryHookPureHelpers(FrappeTestCase):
 		doc = frappe._dict(
 			custom_pea_rejection_qty=2,
 			custom_pea_rejection_breakup=[
-				frappe._dict(rejection_reason="Burr", item_code="", qty=2, is_rework=1),
+				frappe._dict(rejection_reason="Burr", custom_pea_rb_item_code="", qty=2, is_rework=1),
 			],
 			items=[frappe._dict(item_code="ITEM-A", custom_pea_is_rejection_item=1)],
 		)
@@ -289,7 +289,9 @@ class TestStockEntryHookPureHelpers(FrappeTestCase):
 		doc = frappe._dict(
 			custom_pea_rejection_qty=2,
 			custom_pea_rejection_breakup=[
-				frappe._dict(rejection_reason="Burr", item_code="ITEM-OTHER", qty=2, is_rework=1),
+				frappe._dict(
+					rejection_reason="Burr", custom_pea_rb_item_code="ITEM-OTHER", qty=2, is_rework=1
+				),
 			],
 			items=[frappe._dict(item_code="ITEM-A", custom_pea_is_rejection_item=1)],
 		)

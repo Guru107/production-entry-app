@@ -820,9 +820,9 @@ def _validate_joint_rejection_breakup(doc: Document, plan: JointProductionPlan) 
 					_format_joint_output_sides(sides)
 				)
 			)
-		if not row.get("item_code"):
-			row.set("item_code", items[side])
-		elif row.get("item_code") != items[side]:
+		if not row.get("custom_pea_rb_item_code"):
+			row.set("custom_pea_rb_item_code", items[side])
+		elif row.get("custom_pea_rb_item_code") != items[side]:
 			frappe.throw(_("Joint rejection breakup Item must match the selected {0} BOM.").format(side))
 		actual[side] += flt(row_qty, precision)
 		if row.get("is_rework"):

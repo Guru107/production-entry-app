@@ -236,8 +236,10 @@ def _build_rework_produced_query(
 		.groupby(RejectionDetail.parent)
 	).as_("rejection_item_count")
 	RejectionBreakup = frappe.qb.DocType("Rejection Breakup")
-	blank_breakup_item = RejectionBreakup.item_code.isnull() | (RejectionBreakup.item_code == "")
-	item_matches_breakup = (RejectionBreakup.item_code == RejectionDetail.item_code) | (
+	blank_breakup_item = RejectionBreakup.custom_pea_rb_item_code.isnull() | (
+		RejectionBreakup.custom_pea_rb_item_code == ""
+	)
+	item_matches_breakup = (RejectionBreakup.custom_pea_rb_item_code == RejectionDetail.item_code) | (
 		blank_breakup_item & (RejectionItemCount.item_count == 1)
 	)
 	query = (

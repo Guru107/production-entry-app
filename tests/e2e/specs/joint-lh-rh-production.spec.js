@@ -340,7 +340,7 @@ test.describe("Joint LH/RH production form", () => {
 		const jointColumnState = await page.evaluate(() => {
 			const grid = cur_frm.fields_dict.custom_pea_rejection_breakup.grid;
 			return Object.fromEntries(
-				["output_side", "item_code"].map((fieldname) => {
+				["output_side", "custom_pea_rb_item_code"].map((fieldname) => {
 					const df = grid.docfields.find((field) => field.fieldname === fieldname);
 					return [fieldname, { hidden: Boolean(df.hidden), reqd: Boolean(df.reqd) }];
 				})
@@ -348,20 +348,20 @@ test.describe("Joint LH/RH production form", () => {
 		});
 		expect(jointColumnState).toEqual({
 			output_side: { hidden: false, reqd: true },
-			item_code: { hidden: false, reqd: false },
+			custom_pea_rb_item_code: { hidden: false, reqd: false },
 		});
 
 		await form.setRejectionBreakupRows([
 			{
 				output_side: "LH",
-				item_code: ctx.joint_lh_item,
+				custom_pea_rb_item_code: ctx.joint_lh_item,
 				rejection_reason: "Burr",
 				qty: 2,
 				is_rework: 0,
 			},
 			{
 				output_side: "RH",
-				item_code: ctx.joint_rh_item,
+				custom_pea_rb_item_code: ctx.joint_rh_item,
 				rejection_reason: "Crack",
 				qty: 3,
 				is_rework: 1,
@@ -370,12 +370,15 @@ test.describe("Joint LH/RH production form", () => {
 		await setFieldValue(page, "custom_pea_lh_bom", null);
 		await page.waitForFunction(() => {
 			const rows = window.cur_frm?.doc?.custom_pea_rejection_breakup || [];
-			return rows.find((row) => row.output_side === "LH")?.item_code === "";
+			return rows.find((row) => row.output_side === "LH")?.custom_pea_rb_item_code === "";
 		});
 		await setFieldValue(page, "custom_pea_lh_bom", ctx.joint_lh_bom);
 		await page.waitForFunction((expectedItem) => {
 			const rows = window.cur_frm?.doc?.custom_pea_rejection_breakup || [];
-			return rows.find((row) => row.output_side === "LH")?.item_code === expectedItem;
+			return (
+				rows.find((row) => row.output_side === "LH")?.custom_pea_rb_item_code ===
+				expectedItem
+			);
 		}, ctx.joint_lh_item);
 		const refreshedBreakup = (await form.getFieldValues(["custom_pea_rejection_breakup"]))
 			.custom_pea_rejection_breakup;
@@ -383,14 +386,14 @@ test.describe("Joint LH/RH production form", () => {
 			expect.arrayContaining([
 				expect.objectContaining({
 					output_side: "LH",
-					item_code: ctx.joint_lh_item,
+					custom_pea_rb_item_code: ctx.joint_lh_item,
 					rejection_reason: "Burr",
 					qty: 2,
 					is_rework: 0,
 				}),
 				expect.objectContaining({
 					output_side: "RH",
-					item_code: ctx.joint_rh_item,
+					custom_pea_rb_item_code: ctx.joint_rh_item,
 					rejection_reason: "Crack",
 					qty: 3,
 					is_rework: 1,
@@ -459,7 +462,7 @@ test.describe("Joint LH/RH production form", () => {
 		expect(
 			submitted.custom_pea_rejection_breakup.map((row) => ({
 				side: row.output_side,
-				item: row.item_code,
+				item: row.custom_pea_rb_item_code,
 				qty: Number(row.qty),
 				rework: Number(row.is_rework),
 			}))
@@ -567,7 +570,7 @@ test.describe("Joint LH/RH production form", () => {
 		const columnState = await page.evaluate(() => {
 			const grid = cur_frm.fields_dict.custom_pea_rejection_breakup.grid;
 			return Object.fromEntries(
-				["output_side", "item_code"].map((fieldname) => {
+				["output_side", "custom_pea_rb_item_code"].map((fieldname) => {
 					const df = grid.docfields.find((field) => field.fieldname === fieldname);
 					return [fieldname, { hidden: Boolean(df.hidden), reqd: Boolean(df.reqd) }];
 				})
@@ -575,7 +578,7 @@ test.describe("Joint LH/RH production form", () => {
 		});
 		expect(columnState).toEqual({
 			output_side: { hidden: true, reqd: false },
-			item_code: { hidden: true, reqd: false },
+			custom_pea_rb_item_code: { hidden: true, reqd: false },
 		});
 	});
 

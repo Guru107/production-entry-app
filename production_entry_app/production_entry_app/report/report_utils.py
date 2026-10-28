@@ -815,7 +815,7 @@ def get_parent_breakup_reason_rows(
 			rejection_breakup.parent,
 			rejection_breakup.rejection_reason,
 			rejection_breakup.output_side,
-			rejection_breakup.item_code,
+			rejection_breakup.custom_pea_rb_item_code,
 			Sum(rejection_breakup.qty).as_("qty"),
 		)
 		.where(rejection_breakup.parenttype == "Stock Entry")
@@ -824,7 +824,7 @@ def get_parent_breakup_reason_rows(
 			rejection_breakup.parent,
 			rejection_breakup.rejection_reason,
 			rejection_breakup.output_side,
-			rejection_breakup.item_code,
+			rejection_breakup.custom_pea_rb_item_code,
 		)
 	)
 	if is_rework is True:
@@ -894,8 +894,8 @@ def get_item_bom_quality_facts(entries: list[dict], *, is_rework: bool) -> list[
 		key = (parent, side or "")
 		qty = flt(breakup.get("qty") or 0)
 		quality_by_output[key] += qty
-		if breakup.get("item_code"):
-			breakup_items[key] = breakup.get("item_code")
+		if breakup.get("custom_pea_rb_item_code"):
+			breakup_items[key] = breakup.get("custom_pea_rb_item_code")
 		reason = breakup.get("rejection_reason")
 		if reason and qty > 0:
 			reasons = reasons_by_output[key]

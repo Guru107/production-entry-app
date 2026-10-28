@@ -2113,8 +2113,18 @@ class TestJointProductionItems(FrappeTestCase):
 		doc.set(
 			"custom_pea_rejection_breakup",
 			[
-				{"rejection_reason": "Burr", "qty": 40, "output_side": "LH", "item_code": self.lh_item},
-				{"rejection_reason": "Burr", "qty": 41, "output_side": "RH", "item_code": self.rh_item},
+				{
+					"rejection_reason": "Burr",
+					"qty": 40,
+					"output_side": "LH",
+					"custom_pea_rb_item_code": self.lh_item,
+				},
+				{
+					"rejection_reason": "Burr",
+					"qty": 41,
+					"output_side": "RH",
+					"custom_pea_rb_item_code": self.rh_item,
+				},
 			],
 		)
 		doc.set("items", get_joint_production_items(json.dumps(doc.as_dict(), default=str)))
@@ -2142,7 +2152,7 @@ class TestJointProductionItems(FrappeTestCase):
 					"rejection_reason": "Burr",
 					"qty": 0,
 					"output_side": "LH",
-					"item_code": self.lh_item,
+					"custom_pea_rb_item_code": self.lh_item,
 				},
 				"quantity greater than 0",
 			),
@@ -2150,7 +2160,7 @@ class TestJointProductionItems(FrappeTestCase):
 				{
 					"qty": 1,
 					"output_side": "LH",
-					"item_code": self.lh_item,
+					"custom_pea_rb_item_code": self.lh_item,
 				},
 				"rejection reason",
 			),
@@ -2164,7 +2174,7 @@ class TestJointProductionItems(FrappeTestCase):
 
 		for fieldname, value, message in (
 			("output_side", "INVALID", "must specify one of these Output Sides"),
-			("item_code", self.rh_item, "must match the selected LH BOM"),
+			("custom_pea_rb_item_code", self.rh_item, "must match the selected LH BOM"),
 		):
 			with self.subTest(fieldname=fieldname):
 				doc = self._make_joint_entry(shift)
@@ -2213,7 +2223,10 @@ class TestJointProductionItems(FrappeTestCase):
 
 		self.assertEqual(inserted["custom_pea_rework_qty"], 5)
 		self.assertEqual(
-			[(row["output_side"], row["item_code"]) for row in inserted["custom_pea_rejection_breakup"]],
+			[
+				(row["output_side"], row["custom_pea_rb_item_code"])
+				for row in inserted["custom_pea_rejection_breakup"]
+			],
 			[("LH", self.lh_item), ("RH", self.rh_item)],
 		)
 
@@ -2284,7 +2297,7 @@ class TestJointProductionItems(FrappeTestCase):
 							"rejection_reason": "Burr",
 							"qty": rejection_qty,
 							"output_side": side,
-							"item_code": self.lh_item if side == "LH" else self.rh_item,
+							"custom_pea_rb_item_code": self.lh_item if side == "LH" else self.rh_item,
 						}
 					],
 				)
@@ -3485,7 +3498,7 @@ class TestJointProductionItems(FrappeTestCase):
 					"rejection_reason": "Burr",
 					"qty": qty,
 					"output_side": side,
-					"item_code": fg_item,
+					"custom_pea_rb_item_code": fg_item,
 					"is_rework": is_rework,
 				},
 			)
@@ -3497,11 +3510,11 @@ class TestJointProductionItems(FrappeTestCase):
 			rm_row.basic_rate = 50
 			rm_row.basic_amount = rm_row.qty * rm_row.conversion_factor * rm_row.basic_rate
 
-		doc.custom_pea_rejection_breakup[2].item_code = fg_items[0]
+		doc.custom_pea_rejection_breakup[2].custom_pea_rb_item_code = fg_items[0]
 		with self.assertRaisesRegex(frappe.ValidationError, joint_production_line_side(2)):
 			doc.insert(ignore_permissions=True)
 
-		doc.custom_pea_rejection_breakup[2].item_code = fg_items[2]
+		doc.custom_pea_rejection_breakup[2].custom_pea_rb_item_code = fg_items[2]
 		doc.insert(ignore_permissions=True)
 		self.assertEqual(doc.custom_pea_rework_qty, 2.0)
 
