@@ -8,6 +8,32 @@ const MESSAGE_SELECTORS = [
 	".frappe-alert-message",
 ];
 
+function patternPayload(pattern) {
+	if (pattern instanceof RegExp) {
+		return {
+			patternSource: pattern.source,
+			patternFlags: pattern.flags,
+			patternLiteral: null,
+		};
+	}
+	return { patternSource: null, patternFlags: null, patternLiteral: String(pattern) };
+}
+
+async function dismissVisibleFrappeDialog(page) {
+	await page.keyboard.press("Escape");
+	await page.keyboard.press("Escape");
+	const dialog = page.locator(".modal.show").first();
+	if (await dialog.count()) {
+		await dialog.locator(".btn-modal-close").click();
+		await dialog.waitFor({ state: "hidden" });
+	}
+	await page.evaluate(() => {
+		if (window.frappe?.msg_dialog?.hide) {
+			frappe.msg_dialog.hide();
+		}
+	});
+}
+
 async function waitForVisibleMessage(page, timeout = 10_000) {
 	try {
 		const handle = await page.waitForFunction(
@@ -23,15 +49,27 @@ async function waitForVisibleMessage(page, timeout = 10_000) {
 					);
 				}
 
-				for (const selector of selectors) {
-					for (const element of document.querySelectorAll(selector)) {
-						const text = (element.innerText || element.textContent || "").trim();
-						if (text && isVisible(element)) {
-							return text;
+				function collectVisibleMessages() {
+					const messages = [];
+					if (document.querySelector(".modal.show")) {
+						const dialogText = window.frappe?.msg_dialog?.msg_area?.text?.()?.trim();
+						if (dialogText) {
+							messages.push(dialogText);
 						}
 					}
+					for (const selector of selectors) {
+						for (const element of document.querySelectorAll(selector)) {
+							const text = (element.innerText || element.textContent || "").trim();
+							if (text && isVisible(element)) {
+								messages.push(text);
+							}
+						}
+					}
+					return messages;
 				}
-				return false;
+
+				const messages = collectVisibleMessages();
+				return messages[0] || false;
 			},
 			MESSAGE_SELECTORS,
 			{ timeout }
@@ -42,8 +80,66 @@ async function waitForVisibleMessage(page, timeout = 10_000) {
 	}
 }
 
+async function waitForMatchingVisibleMessage(page, pattern, timeout = 10_000) {
+	const payload = patternPayload(pattern);
+	try {
+		const handle = await page.waitForFunction(
+			({ selectors, patternSource, patternFlags, patternLiteral }) => {
+				function isVisible(element) {
+					const rect = element.getBoundingClientRect();
+					const style = window.getComputedStyle(element);
+					return (
+						rect.width > 0 &&
+						rect.height > 0 &&
+						style.display !== "none" &&
+						style.visibility !== "hidden"
+					);
+				}
+
+				function messageMatches(text) {
+					if (patternSource !== null) {
+						return new RegExp(patternSource, patternFlags).test(text);
+					}
+					return text.includes(patternLiteral);
+				}
+
+				function collectVisibleMessages() {
+					const messages = [];
+					if (document.querySelector(".modal.show")) {
+						const dialogText = window.frappe?.msg_dialog?.msg_area?.text?.()?.trim();
+						if (dialogText) {
+							messages.push(dialogText);
+						}
+					}
+					for (const selector of selectors) {
+						for (const element of document.querySelectorAll(selector)) {
+							const text = (element.innerText || element.textContent || "").trim();
+							if (text && isVisible(element)) {
+								messages.push(text);
+							}
+						}
+					}
+					return messages;
+				}
+
+				for (const text of collectVisibleMessages()) {
+					if (messageMatches(text)) {
+						return text;
+					}
+				}
+				return false;
+			},
+			{ ...payload, selectors: MESSAGE_SELECTORS },
+			{ timeout }
+		);
+		return await handle.jsonValue();
+	} catch (error) {
+		throw new Error("No visible Frappe message found.");
+	}
+}
+
 async function expectValidationError(page, pattern, timeout = 10_000) {
-	const message = await waitForVisibleMessage(page, timeout);
+	const message = await waitForMatchingVisibleMessage(page, pattern, timeout);
 	if (pattern instanceof RegExp) {
 		expect(message).toMatch(pattern);
 	} else {
@@ -70,8 +166,10 @@ async function waitForFormSaved(page, timeout = 10_000) {
 }
 
 module.exports = {
+	dismissVisibleFrappeDialog,
 	expectValidationError,
 	expectToast,
 	waitForFormSaved,
 	waitForVisibleMessage,
+	waitForMatchingVisibleMessage,
 };

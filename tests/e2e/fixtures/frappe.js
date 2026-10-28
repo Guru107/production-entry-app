@@ -80,9 +80,12 @@ async function saveForm(page, action = "Save") {
 						new Promise((resolve) => {
 							const startedAt = Date.now();
 							const timer = setInterval(() => {
-								const validationMessage = (
-									window.frappe?.msg_dialog?.msg_area?.text?.() || ""
-								).trim();
+								const modalVisible = Boolean(
+									document.querySelector(".modal.show")
+								);
+								const validationMessage = modalVisible
+									? (window.frappe?.msg_dialog?.msg_area?.text?.() || "").trim()
+									: "";
 								if (
 									validationMessage ||
 									Date.now() - startedAt >= validationTimeoutMs
