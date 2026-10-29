@@ -1542,19 +1542,16 @@ test("error extraction ignores server message objects without text", () => {
 	assert.equal(detail, "");
 });
 
-test("manufacture decision uses production-owned custom_stock_entry_purpose only", () => {
+test("manufacture decision prefers the production-owned purpose and falls back to the native purpose", () => {
 	assert.equal(_is_manufacture_doc({ custom_stock_entry_purpose: "Manufacture" }), true);
+	// custom_stock_entry_purpose arrives via fetch_from after the native purpose:
+	// the native value bridges that lag (ddd3b85).
 	assert.equal(
 		_is_manufacture_doc({ custom_stock_entry_purpose: "", purpose: "Manufacture" }),
-		false
+		true
 	);
-	assert.equal(
-		_is_manufacture_doc({
-			custom_stock_entry_purpose: "Material Transfer",
-			purpose: "Manufacture",
-		}),
-		false
-	);
+	assert.equal(_is_manufacture_doc({ custom_stock_entry_purpose: "Material Transfer" }), false);
+	assert.equal(_is_manufacture_doc({}), false);
 });
 
 test("joint LH/RH Repack uses the common production form without native BOM fields", () => {
@@ -2549,7 +2546,7 @@ test("a BOM die tool item is set on the production entry", () => {
 	const values = [];
 	const properties = [];
 	const frm = {
-		doc: { custom_pea_die_tool_item: "USER-DIE" },
+		doc: { docstatus: 0, custom_pea_die_tool_item: "USER-DIE" },
 		set_value(fieldname, value) {
 			this.doc[fieldname] = value;
 			values.push([fieldname, value]);
@@ -2576,7 +2573,7 @@ test("disagreeing BOM die tool items expose a fallback without overwriting the f
 test("disagreeing BOM die tool items keep the operator selection on apply", () => {
 	const values = [];
 	const frm = {
-		doc: { custom_pea_die_tool_item: "DIE-2" },
+		doc: { docstatus: 0, custom_pea_die_tool_item: "DIE-2" },
 		set_value(fieldname, value) {
 			this.doc[fieldname] = value;
 			values.push([fieldname, value]);
@@ -2591,7 +2588,7 @@ test("disagreeing BOM die tool items keep the operator selection on apply", () =
 
 test("an empty BOM die tool item leaves the production entry unchanged", () => {
 	const frm = {
-		doc: { custom_pea_die_tool_item: "USER-DIE" },
+		doc: { docstatus: 0, custom_pea_die_tool_item: "USER-DIE" },
 		set_value() {
 			throw new Error("user selection should stay");
 		},
@@ -2607,7 +2604,7 @@ test("an empty BOM die tool item leaves the production entry unchanged", () => {
 
 test("removing the BOM die tool item leaves the previously set value", () => {
 	const frm = {
-		doc: { custom_pea_die_tool_item: "" },
+		doc: { docstatus: 0, custom_pea_die_tool_item: "" },
 		set_value(fieldname, value) {
 			this.doc[fieldname] = value;
 		},
