@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [Unreleased]
+
+### Added
+
+-   Persistent local dev sites (`allow_e2e_tests=1`, non-ephemeral) automatically run full test-data cleanup at Python `before_tests` and after Playwright global teardown; CI ephemeral sites are unchanged
+
 ### Fixed
 
 -   Clearing an Actual Start/End time now also clears the committed datetime behind it — previously the stale value would silently save behind an empty input until a new time was entered

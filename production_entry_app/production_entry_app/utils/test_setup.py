@@ -7,6 +7,9 @@ from typing import Any
 import frappe
 from frappe.utils import now_datetime
 
+from production_entry_app.production_entry_app.utils.dev_bench_cleanup import (
+	cleanup_persistent_dev_site_if_applicable,
+)
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	ensure_branch,
 	ensure_production_owned_joint_metadata,
@@ -251,6 +254,7 @@ def _install_skip_test_records_compat() -> None:
 def before_tests() -> None:
 	"""Bootstrap site-local ERPNext test records for deterministic local/CI runs."""
 	install_test_run_cleanup()
+	cleanup_persistent_dev_site_if_applicable()
 	if not frappe.db.exists("Company", None) or not frappe.db.exists("Cost Center", None):
 		if erpnext_before_tests := _get_erpnext_before_tests():
 			erpnext_before_tests()

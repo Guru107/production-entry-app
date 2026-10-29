@@ -162,6 +162,9 @@ class TestTestSetup(FrappeTestCase):
 				"production_entry_app.production_entry_app.utils.test_setup.install_test_run_cleanup"
 			) as install_cleanup,
 			patch(
+				"production_entry_app.production_entry_app.utils.test_setup.cleanup_persistent_dev_site_if_applicable"
+			) as cleanup_dev_site,
+			patch(
 				"production_entry_app.production_entry_app.utils.test_setup._get_erpnext_before_tests"
 			) as get_erpnext_before_tests,
 			patch(
@@ -191,6 +194,7 @@ class TestTestSetup(FrappeTestCase):
 
 		get_erpnext_before_tests.assert_not_called()
 		install_cleanup.assert_called_once_with()
+		cleanup_dev_site.assert_called_once_with()
 		scope_fiscal_years.assert_called_once_with()
 		run_app_before_tests.assert_called_once_with("india_compliance")
 		install_skip_compat.assert_called_once_with()
@@ -210,6 +214,9 @@ class TestTestSetup(FrappeTestCase):
 				side_effect=fake_exists,
 			),
 			patch("production_entry_app.production_entry_app.utils.test_setup.install_test_run_cleanup"),
+			patch(
+				"production_entry_app.production_entry_app.utils.test_setup.cleanup_persistent_dev_site_if_applicable"
+			),
 			patch(
 				"production_entry_app.production_entry_app.utils.test_setup._get_erpnext_before_tests",
 				return_value=erpnext_before_tests,
@@ -249,6 +256,9 @@ class TestTestSetup(FrappeTestCase):
 				return_value=False,
 			),
 			patch("production_entry_app.production_entry_app.utils.test_setup.install_test_run_cleanup"),
+			patch(
+				"production_entry_app.production_entry_app.utils.test_setup.cleanup_persistent_dev_site_if_applicable"
+			),
 			patch(
 				"production_entry_app.production_entry_app.utils.test_setup._get_erpnext_before_tests",
 				return_value=erpnext_before_tests,
@@ -290,6 +300,9 @@ class TestTestSetup(FrappeTestCase):
 				side_effect=fake_exists,
 			),
 			patch("production_entry_app.production_entry_app.utils.test_setup.install_test_run_cleanup"),
+			patch(
+				"production_entry_app.production_entry_app.utils.test_setup.cleanup_persistent_dev_site_if_applicable"
+			),
 			patch(
 				"production_entry_app.production_entry_app.utils.test_setup._get_erpnext_before_tests",
 				return_value=None,

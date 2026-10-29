@@ -1199,6 +1199,20 @@ def cleanup_reserved_e2e_artifacts() -> dict[str, object]:
 
 
 @frappe.whitelist(methods=["POST"])
+def cleanup_persistent_dev_site() -> dict[str, object]:
+	"""Full dev-bench test-data cleanup for local persistent sites (skipped on CI ephemeral sites)."""
+	_assert_e2e_api_allowed()
+	from production_entry_app.production_entry_app.utils.dev_bench_cleanup import (
+		cleanup_persistent_dev_site_if_applicable,
+	)
+
+	result = cleanup_persistent_dev_site_if_applicable()
+	if result is None:
+		return {"ok": True, "skipped": True}
+	return {"ok": True, **result}
+
+
+@frappe.whitelist(methods=["POST"])
 def create_e2e_submitted_stock_entry(
 	prefix: str = "E2E",
 	rejection_qty: float = 0,

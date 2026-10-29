@@ -24,12 +24,12 @@ module.exports = async () => {
 		}
 
 		const cleanupResponse = await requestContext.post(
-			"/api/method/production_entry_app.production_entry_app.e2e_api.cleanup_reserved_e2e_artifacts"
+			"/api/method/production_entry_app.production_entry_app.e2e_api.cleanup_persistent_dev_site"
 		);
 		if (!cleanupResponse.ok()) {
 			const failure = await cleanupResponse.json().catch(() => ({}));
 			console.warn(
-				`Playwright global teardown reserved E2E cleanup failed (${cleanupResponse.status()}): ${
+				`Playwright global teardown persistent dev cleanup failed (${cleanupResponse.status()}): ${
 					failure.exception || failure.exc_type || "unknown error"
 				}`
 			);
