@@ -227,7 +227,7 @@ class TestReworkLifecycle(FrappeTestCase):
 		with self.assertRaisesRegex(frappe.ValidationError, "Rework fields can only be used"):
 			doc.insert()
 
-	def test_responsibility_and_reinspection_employees_persist_through_submit(self) -> None:
+	def test_responsibility_and_reinspection_users_persist_through_submit(self) -> None:
 		shift = make_running_shift(self.masters)
 		source = make_direct_manufacture_entry(
 			self.masters,
@@ -242,34 +242,33 @@ class TestReworkLifecycle(FrappeTestCase):
 		self._make_source_funding_entry(source)
 		source.submit()
 
-		employees = [self._make_employee(index) for index in range(2)]
+		users = [self._make_user(index) for index in range(2)]
 		doc = self._make_rework_entry(shift.shift_date)
-		for employee in employees:
-			doc.append("custom_pea_rework_responsibility", {"employee": employee})
-		doc.append("custom_pea_rework_reinspection", {"employee": employees[0]})
+		for user in users:
+			doc.append("custom_pea_rework_responsibility", {"user": user})
+		doc.append("custom_pea_rework_reinspection", {"user": users[0]})
 
 		doc.insert(ignore_permissions=True)
 		doc.submit()
 
 		saved = frappe.get_doc("Stock Entry", doc.name)
-		self.assertEqual([row.employee for row in saved.custom_pea_rework_responsibility], employees)
-		self.assertEqual([row.employee for row in saved.custom_pea_rework_reinspection], [employees[0]])
+		self.assertEqual([row.user for row in saved.custom_pea_rework_responsibility], users)
+		self.assertEqual([row.user for row in saved.custom_pea_rework_reinspection], [users[0]])
 
 		saved.cancel()
 		cancelled = frappe.get_doc("Stock Entry", doc.name)
-		self.assertEqual([row.employee for row in cancelled.custom_pea_rework_responsibility], employees)
-		self.assertEqual([row.employee for row in cancelled.custom_pea_rework_reinspection], [employees[0]])
+		self.assertEqual([row.user for row in cancelled.custom_pea_rework_responsibility], users)
+		self.assertEqual([row.user for row in cancelled.custom_pea_rework_reinspection], [users[0]])
 
-	def _make_employee(self, index: int) -> str:
+	def _make_user(self, index: int) -> str:
+		email = f"lifecycle-user-{self.suffix}-{index}@example.com"
 		return (
 			frappe.get_doc(
 				{
-					"doctype": "Employee",
-					"first_name": f"Lifecycle Employee {self.suffix} {index}",
-					"company": self.masters["company"],
-					"gender": "Male",
-					"date_of_birth": "1990-01-01",
-					"date_of_joining": "2020-01-01",
+					"doctype": "User",
+					"email": email,
+					"first_name": f"Lifecycle User {self.suffix} {index}",
+					"send_welcome_email": 0,
 				}
 			)
 			.insert(ignore_permissions=True)

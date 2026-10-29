@@ -3,5 +3,5 @@ from __future__ import annotations
 from frappe.model.document import Document
 
 
-class ReworkResponsibilityEmployee(Document):
+class ReworkReinspectionUser(Document):
 	pass

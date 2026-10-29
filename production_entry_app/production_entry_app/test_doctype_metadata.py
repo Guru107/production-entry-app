@@ -251,8 +251,8 @@ def test_rework_stock_entry_metadata_is_exported() -> None:
 	}
 
 	optional_rework_fields = {
-		"Stock Entry-custom_pea_rework_responsibility": "Rework Responsibility Employee",
-		"Stock Entry-custom_pea_rework_reinspection": "Rework Reinspection Employee",
+		"Stock Entry-custom_pea_rework_responsibility": "Rework Responsibility User",
+		"Stock Entry-custom_pea_rework_reinspection": "Rework Reinspection User",
 	}
 	for name, options in optional_rework_fields.items():
 		field = fields_by_name[name]
@@ -265,14 +265,14 @@ def test_rework_stock_entry_metadata_is_exported() -> None:
 		child = assert_doctype_json(name)
 		assert child["istable"] == 1
 		assert child["permissions"] == []
-		assert child["field_order"] == ["employee"]
+		assert child["field_order"] == ["user"]
 		assert child["fields"] == [
 			{
-				"fieldname": "employee",
+				"fieldname": "user",
 				"fieldtype": "Link",
 				"in_list_view": 1,
-				"label": "Employee",
-				"options": "Employee",
+				"label": "User",
+				"options": "User",
 				"reqd": 1,
 			}
 		]
@@ -378,7 +378,7 @@ def test_rework_fields_have_a_dedicated_two_column_section() -> None:
 		"fieldname": "custom_pea_rework_responsibility",
 		"fieldtype": "Table MultiSelect",
 		"label": "Responsibility Remark",
-		"options": "Rework Responsibility Employee",
+		"options": "Rework Responsibility User",
 		"insert_after": "custom_pea_rework_operators",
 		"depends_on": rework_condition,
 		"module": "Production Entry App",
@@ -391,7 +391,7 @@ def test_rework_fields_have_a_dedicated_two_column_section() -> None:
 		"fieldname": "custom_pea_rework_reinspection",
 		"fieldtype": "Table MultiSelect",
 		"label": "Reinspection",
-		"options": "Rework Reinspection Employee",
+		"options": "Rework Reinspection User",
 		"insert_after": "custom_pea_rework_responsibility",
 		"depends_on": rework_condition,
 		"module": "Production Entry App",

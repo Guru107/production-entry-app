@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.2] - 2026-10-29
+
+### Changed
+
+-   Rework Stock Entry **Responsibility Remark** and **Reinspection** multi-selects link to **User** instead of **Employee** (new child tables replace the employee tables; no data migration)
+
 ## [1.4.1] - 2026-10-28
 
 ### Fixed
