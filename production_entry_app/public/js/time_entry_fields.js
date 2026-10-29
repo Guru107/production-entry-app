@@ -100,9 +100,15 @@ function resolve_datetime_in_window(value, window_start, window_end) {
 	if (start <= raw && raw <= end) {
 		return raw;
 	}
+	// The date helper is sticky: a time that already rolled to the next day stays there
+	// after the time is cleared and re-entered, so roll back a day as well.
 	const nextDay = `${_add_days_to_date(raw.slice(0, 10), 1)}${raw.slice(10)}`;
 	if (start <= nextDay && nextDay <= end) {
 		return nextDay;
+	}
+	const prevDay = `${_add_days_to_date(raw.slice(0, 10), -1)}${raw.slice(10)}`;
+	if (start <= prevDay && prevDay <= end) {
+		return prevDay;
 	}
 	return raw;
 }
