@@ -139,6 +139,7 @@ class TestE2EApi(FrappeTestCase):
 
 		assert callable(e2e_api.bootstrap_e2e_context)
 		assert callable(e2e_api.cleanup_e2e_context)
+		assert callable(e2e_api.cleanup_persistent_dev_site)
 		assert callable(e2e_api.create_e2e_rework_lifecycle_source)
 		assert callable(e2e_api.ensure_e2e_user)
 		assert callable(e2e_api.set_e2e_bom_company)

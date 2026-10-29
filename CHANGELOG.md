@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+-   Persistent local dev sites (`allow_e2e_tests=1`, non-ephemeral) automatically run full test-data cleanup at Python `before_tests` and after Playwright global teardown; CI ephemeral sites are unchanged
+
 ## [1.4.2] - 2026-10-29
 
 ### Changed
