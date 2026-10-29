@@ -402,16 +402,16 @@ def _entry_item_outputs(entry: dict, item_by_bom: dict[str, str]) -> dict[str, s
 	return {item_code: ok_qty}
 
 
-def _get_employee_names(employee_ids: set[str]) -> dict[str, str]:
-	"""Map Employee IDs to display names, falling back to the ID."""
-	if not employee_ids:
+def _get_user_display_names(user_ids: set[str]) -> dict[str, str]:
+	"""Map User IDs to display names, falling back to the ID."""
+	if not user_ids:
 		return {}
 	return {
-		row.name: row.employee_name or row.name
+		row.name: row.full_name or row.name
 		for row in get_report_rows(
-			"Employee",
-			filters={"name": ["in", sorted(employee_ids)]},
-			fields=["name", "employee_name"],
+			"User",
+			filters={"name": ["in", sorted(user_ids)]},
+			fields=["name", "full_name"],
 			limit_page_length=0,
 		)
 	}
@@ -512,28 +512,28 @@ def _get_rework_by_day_item(
 		return {}, by_day
 
 	responsibility_rows = _get_child_rows(
-		"Rework Responsibility Employee",
+		"Rework Responsibility User",
 		sorted(matched_entries),
-		fields=["parent", "employee", "idx"],
+		fields=["parent", "user", "idx"],
 		parentfield="custom_pea_rework_responsibility",
 	)
 	reinspection_rows = _get_child_rows(
-		"Rework Reinspection Employee",
+		"Rework Reinspection User",
 		sorted(matched_entries),
-		fields=["parent", "employee", "idx"],
+		fields=["parent", "user", "idx"],
 		parentfield="custom_pea_rework_reinspection",
 	)
-	employee_names = _get_employee_names(
-		{row.employee for row in (*responsibility_rows, *reinspection_rows) if row.get("employee")}
+	user_names = _get_user_display_names(
+		{row.user for row in (*responsibility_rows, *reinspection_rows) if row.get("user")}
 	)
 	responsibility_by_entry: defaultdict[str, set[str]] = defaultdict(set)
 	for row in responsibility_rows:
-		if row.get("employee"):
-			responsibility_by_entry[row.parent].add(employee_names.get(row.employee, row.employee))
+		if row.get("user"):
+			responsibility_by_entry[row.parent].add(user_names.get(row.user, row.user))
 	reinspection_by_entry: defaultdict[str, set[str]] = defaultdict(set)
 	for row in reinspection_rows:
-		if row.get("employee"):
-			reinspection_by_entry[row.parent].add(employee_names.get(row.employee, row.employee))
+		if row.get("user"):
+			reinspection_by_entry[row.parent].add(user_names.get(row.user, row.user))
 
 	result: dict[tuple[datetime.date, str], dict] = {}
 	for day, item_code in sorted(matched_pairs):
