@@ -1223,7 +1223,8 @@ def new_efficiency_aggregates() -> defaultdict:
 			"total_units": 0.0,
 			"total_strokes": 0.0,
 			"duration_mins": 0.0,
-			"standard_spm": 0.0,
+			"standard_spm_weighted_sum": 0.0,
+			"standard_spm_weight_mins": 0.0,
 			"actual_spm_sum": 0.0,
 		}
 	)
@@ -1256,8 +1257,9 @@ def accumulate_efficiency_aggregate(
 	agg["total_strokes"] += total_strokes
 	agg["duration_mins"] += duration_mins
 	agg["actual_spm_sum"] += flt(entry.get("custom_pea_actual_spm") or 0)
-	if standard_spm > 0 and agg["standard_spm"] <= 0:
-		agg["standard_spm"] = standard_spm
+	if standard_spm > 0 and duration_mins > 0:
+		agg["standard_spm_weighted_sum"] += standard_spm * duration_mins
+		agg["standard_spm_weight_mins"] += duration_mins
 
 
 def aggregate_efficiency_by_field(
@@ -1281,7 +1283,12 @@ def build_efficiency_rows(
 		entry_count = int(agg["entries"])
 		duration_mins = flt(agg["duration_mins"])
 		actual_spm = (agg["total_strokes"] / duration_mins) if duration_mins > 0 else 0
-		standard_spm = flt(agg["standard_spm"])
+		standard_spm_weight_mins = flt(agg["standard_spm_weight_mins"])
+		standard_spm = (
+			flt(agg["standard_spm_weighted_sum"] / standard_spm_weight_mins)
+			if standard_spm_weight_mins > 0
+			else 0
+		)
 		if duration_mins <= 0 and entry_count:
 			actual_spm = agg["actual_spm_sum"] / entry_count
 		efficiency_pct = ((actual_spm / standard_spm) * 100) if standard_spm > 0 else 0

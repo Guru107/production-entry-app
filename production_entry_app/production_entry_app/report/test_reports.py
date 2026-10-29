@@ -2415,6 +2415,55 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(float(rows[0]["standard_spm"]), 4.0)
 		self.assertAlmostEqual(float(rows[0]["workstation_efficiency_pct"]), 83.33, delta=0.02)
 
+	def test_efficiency_reports_use_weighted_standard_spm(self) -> None:
+		from production_entry_app.production_entry_app.report.operator_efficiency_report.operator_efficiency_report import (
+			execute as execute_operator,
+		)
+		from production_entry_app.production_entry_app.report.workstation_efficiency_report.workstation_efficiency_report import (
+			execute as execute_workstation,
+		)
+
+		shift = self._create_shift_for_label("2026-06-20", "1", clear_planned_losses=True)
+		# Entry Standard SPM is fetched from the Workstation on save; change the
+		# workstation rate between entries to simulate a master change over time.
+		frappe.db.set_value("Workstation", "Report Workstation", "custom_pea_standard_spm", 10)
+		self._create_mock_submitted_entry(
+			posting_date="2026-06-20",
+			planned_start="2026-06-20 08:00:00",
+			planned_end="2026-06-20 09:00:00",
+			actual_start="2026-06-20 08:00:00",
+			actual_end="2026-06-20 09:00:00",
+			fg_qty=600,
+			rejection_qty=0,
+			standard_spm=10,
+			shift_name=shift.name,
+			complete_shift=False,
+		)
+		frappe.db.set_value("Workstation", "Report Workstation", "custom_pea_standard_spm", 20)
+		self._create_mock_submitted_entry(
+			posting_date="2026-06-20",
+			planned_start="2026-06-20 09:00:00",
+			planned_end="2026-06-20 10:00:00",
+			actual_start="2026-06-20 09:00:00",
+			actual_end="2026-06-20 10:00:00",
+			fg_qty=1200,
+			rejection_qty=0,
+			standard_spm=20,
+			shift_name=shift.name,
+		)
+
+		filters = {"from_date": "2026-06-20", "to_date": "2026-06-20"}
+		for execute, efficiency_field in (
+			(execute_operator, "operator_efficiency_pct"),
+			(execute_workstation, "workstation_efficiency_pct"),
+		):
+			with self.subTest(efficiency_field=efficiency_field):
+				_, rows = execute(filters)
+				self.assertEqual(len(rows), 1)
+				self.assertAlmostEqual(float(rows[0]["actual_spm"]), 15.0, places=3)
+				self.assertAlmostEqual(float(rows[0]["standard_spm"]), 15.0, places=3)
+				self.assertAlmostEqual(float(rows[0][efficiency_field]), 100.0, places=2)
+
 	def test_aggregate_efficiency_ignores_raw_duration_when_production_time_is_zero(self) -> None:
 		from production_entry_app.production_entry_app.report.report_utils import (
 			aggregate_efficiency_by_field,
@@ -2454,42 +2503,56 @@ class TestProductionReports(FrappeTestCase):
 		self.assertAlmostEqual(float(rows[0]["actual_spm"]), 2.0, places=3)
 		self.assertAlmostEqual(float(rows[0]["standard_spm"]), 2.0, places=3)
 
-	def test_aggregate_efficiency_uses_first_positive_standard_spm(self) -> None:
+	def test_aggregate_efficiency_uses_weighted_standard_spm(self) -> None:
 		from production_entry_app.production_entry_app.report.report_utils import (
 			aggregate_efficiency_by_field,
 			build_efficiency_rows,
 		)
 
-		entries = [
-			{
+		def make_entry(strokes: float, mins: float, standard_spm: float) -> dict:
+			return {
 				"custom_pea_operator": "Report Operator",
-				"_good_qty": 40,
+				"custom_pea_workstation": "Report Workstation",
+				"_good_qty": strokes,
 				"_rejection_qty": 0,
 				"_rework_qty": 0,
-				"_total_strokes": 40,
-				"_production_time_mins": 10,
-				"_duration_mins": 10,
-				"custom_pea_standard_spm": 4,
-				"custom_pea_actual_spm": 4,
-			},
-			{
-				"custom_pea_operator": "Report Operator",
-				"_good_qty": 200,
-				"_rejection_qty": 0,
-				"_rework_qty": 0,
-				"_total_strokes": 200,
-				"_production_time_mins": 50,
-				"_duration_mins": 50,
-				"custom_pea_standard_spm": 9,
-				"custom_pea_actual_spm": 4,
-			},
-		]
+				"_total_strokes": strokes,
+				"_production_time_mins": mins,
+				"_duration_mins": mins,
+				"custom_pea_standard_spm": standard_spm,
+				"custom_pea_actual_spm": 0,
+			}
 
+		base_entries = [
+			make_entry(600, 60, 10),
+			make_entry(1200, 60, 20),
+		]
+		for entries in (base_entries, list(reversed(base_entries))):
+			with self.subTest(first_standard_spm=entries[0]["custom_pea_standard_spm"]):
+				aggregates = aggregate_efficiency_by_field(entries, "custom_pea_operator")
+				rows = build_efficiency_rows(aggregates, "operator", "operator_efficiency_pct")
+				self.assertEqual(len(rows), 1)
+				self.assertAlmostEqual(float(rows[0]["actual_spm"]), 15.0, places=3)
+				self.assertAlmostEqual(float(rows[0]["standard_spm"]), 15.0, places=3)
+				self.assertAlmostEqual(float(rows[0]["operator_efficiency_pct"]), 100.0, places=2)
+
+		# Workstation grouping shares the same weighted aggregation.
+		aggregates = aggregate_efficiency_by_field(base_entries, "custom_pea_workstation")
+		rows = build_efficiency_rows(aggregates, "workstation", "workstation_efficiency_pct")
+		self.assertAlmostEqual(float(rows[0]["standard_spm"]), 15.0, places=3)
+		self.assertAlmostEqual(float(rows[0]["workstation_efficiency_pct"]), 100.0, places=2)
+
+		# Entries without positive production minutes and Standard SPM stay out of the weight.
+		entries = [*base_entries, make_entry(0, 0, 50), make_entry(100, 10, 0)]
 		aggregates = aggregate_efficiency_by_field(entries, "custom_pea_operator")
 		rows = build_efficiency_rows(aggregates, "operator", "operator_efficiency_pct")
-		self.assertEqual(len(rows), 1)
-		self.assertAlmostEqual(float(rows[0]["standard_spm"]), 4.0, places=3)
-		self.assertAlmostEqual(float(rows[0]["operator_efficiency_pct"]), 100.0, places=2)
+		self.assertAlmostEqual(float(rows[0]["standard_spm"]), 15.0, places=3)
+
+		# No eligible entries: zero standard and efficiency, no division by zero.
+		aggregates = aggregate_efficiency_by_field([make_entry(0, 0, 5)], "custom_pea_operator")
+		rows = build_efficiency_rows(aggregates, "operator", "operator_efficiency_pct")
+		self.assertEqual(float(rows[0]["standard_spm"]), 0.0)
+		self.assertEqual(float(rows[0]["operator_efficiency_pct"]), 0.0)
 
 	def test_parent_quantity_metrics_split_rejection_and_rework(self) -> None:
 		from production_entry_app.production_entry_app.report.report_utils import get_parent_quantity_metrics
