@@ -338,6 +338,22 @@ test.describe("Stock Entry validation matrix", () => {
 		expect(values.custom_pea_actual_start_time_input).toBe("23:00");
 		expect(values.custom_pea_actual_end_time_input).toBe("02:00");
 		expect(values.custom_pea_planned_end_date).toContain(`${nextDay} 06:00:00`);
+
+		// Clearing the end time and re-entering an evening time must roll the end date
+		// back off the next day: the split date input is sticky after the first flip.
+		await stockEntryPage.fillHelperField("custom_pea_actual_end_time_input", "");
+		await stockEntryPage.waitForFieldValue("custom_pea_actual_end_date", "");
+		await stockEntryPage.fillHelperField("custom_pea_actual_end_time_input", "23:00");
+		await stockEntryPage.waitForFieldValue(
+			"custom_pea_actual_end_date",
+			`${ctx.shift_date} 23:00:00`
+		);
+		const endValues = await stockEntryPage.getFieldValues([
+			"custom_pea_actual_end_date_input",
+			"custom_pea_actual_end_time_input",
+		]);
+		expect(endValues.custom_pea_actual_end_date_input).toBe(ctx.shift_date);
+		expect(endValues.custom_pea_actual_end_time_input).toBe("23:00");
 	});
 
 	test("@regression purpose switch from manufacture clears manufacture fields and tables", async ({

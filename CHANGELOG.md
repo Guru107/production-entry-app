@@ -7,9 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [Unreleased]
+
 ### Added
 
 -   Persistent local dev sites (`allow_e2e_tests=1`, non-ephemeral) automatically run full test-data cleanup at Python `before_tests` and after Playwright global teardown; CI ephemeral sites are unchanged
+
+### Fixed
+
+-   Clearing an Actual Start/End time now also clears the committed datetime behind it — previously the stale value would silently save behind an empty input until a new time was entered
+-   Cross-day actual-time resolution rolls back a day too: clearing the Actual End time and re-entering an evening time now flips the split date input back off the next day (the resolver previously only rolled forward, so a sticky next-day date input never corrected itself)
 
 ## [1.4.2] - 2026-10-29
 

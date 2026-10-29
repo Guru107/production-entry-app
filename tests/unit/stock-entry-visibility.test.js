@@ -44,6 +44,7 @@ const {
 	MANUFACTURE_CLEAR_TABLE_FIELDS,
 	_prescribed_die_tool_item,
 	_apply_prescribed_die_tool_item,
+	_combine_actual_datetime,
 } = require("../../production_entry_app/public/js/stock_entry.js");
 
 function makeSavedJointStockEntryForm(options = {}) {
@@ -2632,6 +2633,48 @@ test("a submitted entry is never auto-filled with the BOM die tool item", () => 
 	_apply_prescribed_die_tool_item(frm, _prescribed_die_tool_item(["DIE-BOM"]));
 
 	assert.equal(frm.doc.custom_pea_die_tool_item, null);
+});
+
+test("clearing the committed time clears the stale canonical datetime", () => {
+	const originalWindow = global.window;
+	global.window = {
+		production_entry_app: {
+			time_entry: require("../../production_entry_app/public/js/time_entry_fields.js"),
+		},
+	};
+	const values = [];
+	const frm = {
+		doc: {
+			custom_pea_actual_end_date_input: "2026-10-27",
+			custom_pea_actual_end_time_input: "02:00",
+			custom_pea_actual_end_date: "2026-10-27 02:00:00",
+			custom_pea_planned_start_date: "2026-10-26 20:00:00",
+			custom_pea_planned_end_date: "2026-10-27 08:00:00",
+		},
+		set_value(fieldname, value) {
+			this.doc[fieldname] = value;
+			values.push([fieldname, value]);
+		},
+	};
+
+	try {
+		// Blur commit with an empty time while the sticky date input still shows
+		// the previously resolved next day.
+		_combine_actual_datetime(
+			frm,
+			{
+				date_fieldname: "custom_pea_actual_end_date_input",
+				time_fieldname: "custom_pea_actual_end_time_input",
+				canonical_fieldname: "custom_pea_actual_end_date",
+			},
+			""
+		);
+
+		assert.equal(frm.doc.custom_pea_actual_end_date, "");
+		assert.deepEqual(values, [["custom_pea_actual_end_date", ""]]);
+	} finally {
+		global.window = originalWindow;
+	}
 });
 
 function installDieToolBomLookup({ dieToolFieldReady, dieToolItem = "DIE-001" }) {

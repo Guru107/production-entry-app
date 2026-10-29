@@ -130,6 +130,21 @@ test("resolve_datetime_in_window passes through without a window (E6/E7)", () =>
 	assert.equal(resolve_datetime_in_window("2026-10-26 02:00:00"), "2026-10-26 02:00:00");
 });
 
+test("resolve_datetime_in_window rolls back to previous day when the sticky date helper stayed on next day", () => {
+	// Shift 20:00 (D) – 08:00 (D+1). Entering 02:00 first flips the end date input to
+	// D+1; clearing and re-entering 23:00 must resolve back onto D (#186 follow-up).
+	const WINDOW_START = "2026-10-26 20:00:00";
+	const WINDOW_END = "2026-10-27 08:00:00";
+	assert.equal(
+		resolve_datetime_in_window("2026-10-26 02:00:00", WINDOW_START, WINDOW_END),
+		"2026-10-27 02:00:00"
+	);
+	assert.equal(
+		resolve_datetime_in_window("2026-10-27 23:00:00", WINDOW_START, WINDOW_END),
+		"2026-10-26 23:00:00"
+	);
+});
+
 test("resolve_datetime_in_window normalizes T separator and month rollover", () => {
 	assert.equal(
 		resolve_datetime_in_window(

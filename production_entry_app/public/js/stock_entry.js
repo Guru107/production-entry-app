@@ -1335,12 +1335,14 @@ function _combine_actual_datetime(
 			? committedTime
 			: frm.doc?.[time_fieldname] || ""
 	).trim();
-	if (!dateValue && !timeValue) {
+	if (!timeValue) {
+		// A cleared time must also drop the previously committed datetime, or the
+		// doc would silently save the stale value behind an empty input.
 		timeEntry.set_field_invalid(frm, time_fieldname, "");
 		frm.set_value(canonical_fieldname, "");
 		return;
 	}
-	if (!dateValue || !timeValue) {
+	if (!dateValue) {
 		return;
 	}
 	const parsed = timeEntry.parse_time(timeValue);
@@ -2068,5 +2070,6 @@ if (typeof module !== "undefined" && module.exports) {
 		_hide_native_get_items,
 		_prescribed_die_tool_item,
 		_apply_prescribed_die_tool_item,
+		_combine_actual_datetime,
 	};
 }
