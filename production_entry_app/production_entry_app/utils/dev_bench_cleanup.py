@@ -4,6 +4,7 @@ import os
 from typing import Any
 
 import frappe
+from frappe.query_builder import DocType
 from frappe.utils import cint
 
 from production_entry_app.production_entry_app import e2e_api
@@ -30,14 +31,14 @@ def cleanup_persistent_dev_site_if_applicable() -> dict[str, Any] | None:
 
 
 def cleanup_persistent_dev_site_test_data() -> dict[str, Any]:
-	frappe.set_user("Administrator")
+	frappe.set_user("Administrator")  # nosemgrep: dev-bench cleanup must run as Administrator
 	frappe.flags.in_test = True
 	frappe.in_test = True
 	try:
 		_purge_future_transactional_data()
 		_purge_test_master_data()
 		deleted_users = _delete_example_com_test_users()
-		frappe.db.commit()
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit - durable dev-bench cleanup between local runs
 	except Exception:
 		frappe.db.rollback()
 		raise
@@ -67,23 +68,18 @@ def _cancel_delete_stock_entries(names: list[str]) -> None:
 
 
 def _stock_entries_with_test_items() -> list[str]:
-	rows = frappe.db.sql(
-		"""
-		SELECT DISTINCT sed.parent
-		FROM `tabStock Entry Detail` sed
-		INNER JOIN `tabStock Entry` se ON se.name = sed.parent
-		WHERE se.docstatus != 2
-		  AND (
-		    sed.item_code LIKE '_E2E%%'
-		    OR sed.item_code LIKE '_Test%%'
-		    OR sed.item_code LIKE '_RejReg%%'
-		    OR sed.item_code LIKE '\\_%%\\_FG\\_Item' ESCAPE '\\\\'
-		    OR sed.item_code LIKE '\\_%%\\_RM\\_Item' ESCAPE '\\\\'
-		  )
-		""",
-		as_list=True,
+	stock_entry = DocType("Stock Entry")
+	detail = DocType("Stock Entry Detail")
+	rows = (
+		frappe.qb.from_(detail)
+		.inner_join(stock_entry)
+		.on(detail.parent == stock_entry.name)
+		.select(detail.parent, detail.item_code)
+		.where(stock_entry.docstatus != 2)
+		.where(detail.item_code.like("_%"))
+		.run(as_dict=True)
 	)
-	return [row[0] for row in rows]
+	return list({row.parent for row in rows if _is_test_item_code(row.item_code)})
 
 
 def _is_test_item_code(item_code: str) -> bool:
@@ -95,14 +91,16 @@ def _is_test_item_code(item_code: str) -> bool:
 
 
 def _ensure_fiscal_years_for_test_stock_entries() -> None:
-	rows = frappe.db.sql(
-		"""
-		SELECT DISTINCT posting_date, company, custom_pea_rework_date
-		FROM `tabStock Entry`
-		WHERE posting_date >= %s OR custom_pea_rework_date >= %s
-		""",
-		(_PERSISTENT_DEV_TEST_DATE_CUTOFF, _PERSISTENT_DEV_TEST_DATE_CUTOFF),
-		as_dict=True,
+	stock_entry = DocType("Stock Entry")
+	rows = (
+		frappe.qb.from_(stock_entry)
+		.select(stock_entry.posting_date, stock_entry.company, stock_entry.custom_pea_rework_date)
+		.distinct()
+		.where(
+			(stock_entry.posting_date >= _PERSISTENT_DEV_TEST_DATE_CUTOFF)
+			| (stock_entry.custom_pea_rework_date >= _PERSISTENT_DEV_TEST_DATE_CUTOFF)
+		)
+		.run(as_dict=True)
 	)
 	for row in rows:
 		if row.posting_date:
@@ -112,7 +110,7 @@ def _ensure_fiscal_years_for_test_stock_entries() -> None:
 	for year in range(2090, 2101):
 		for company in frappe.get_all("Company", pluck="name", limit_page_length=0):
 			test_bootstrap.ensure_fiscal_year_for_date(f"{year}-06-01", company)
-	frappe.db.commit()
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit - fiscal years must exist before bulk cancels
 
 
 def _purge_future_transactional_data() -> None:

@@ -36,7 +36,7 @@ class TestDevBenchCleanup(FrappeTestCase):
 				"production_entry_app.production_entry_app.utils.dev_bench_cleanup.is_ephemeral_site_name",
 				return_value=False,
 			),
-			patch.dict("os.environ", {}, clear=False),
+			patch.dict("os.environ", {"CI": ""}, clear=False),
 			patch.dict(dev_bench_cleanup.frappe.conf, {"allow_e2e_tests": 1}, clear=False),
 		):
 			self.assertTrue(dev_bench_cleanup.should_run_persistent_dev_cleanup())
