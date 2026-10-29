@@ -342,6 +342,7 @@ test.describe("Stock Entry validation matrix", () => {
 		// Clearing the end time and re-entering an evening time must roll the end date
 		// back off the next day: the split date input is sticky after the first flip.
 		await stockEntryPage.fillHelperField("custom_pea_actual_end_time_input", "");
+		await stockEntryPage.waitForFieldValue("custom_pea_actual_end_date", "");
 		await stockEntryPage.fillHelperField("custom_pea_actual_end_time_input", "23:00");
 		await stockEntryPage.waitForFieldValue(
 			"custom_pea_actual_end_date",
