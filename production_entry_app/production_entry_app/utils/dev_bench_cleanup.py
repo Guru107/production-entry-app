@@ -31,7 +31,6 @@ def cleanup_persistent_dev_site_if_applicable() -> dict[str, Any] | None:
 
 
 def cleanup_persistent_dev_site_test_data() -> dict[str, Any]:
-	frappe.set_user("Administrator")  # nosemgrep: dev-bench cleanup must run as Administrator
 	frappe.flags.in_test = True
 	frappe.in_test = True
 	try:
