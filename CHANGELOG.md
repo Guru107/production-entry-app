@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-10-30
+
 ### Fixed
 
 -   Daily Rej Rework Register **Finished Goods Qty** now shows each defective item's total quantity produced that day, before rejection deduction, instead of its OK quantity
