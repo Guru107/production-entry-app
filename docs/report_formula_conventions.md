@@ -45,6 +45,26 @@ expose the Operation filter without an Operation column (efficiency, OEE, item/B
   - use `custom_pea_rework_qty` when `> 0`
   - else aggregate from `Rejection Breakup` rows where `is_rework = 1`
 
+## PPM Semantics
+
+Normative denominator rule for every Rej / Rew PPM and rework-rate figure in app reports
+(ADR 0009; see `docs/adr/0009-rejection-rework-ppm-total-produced-denominator.md`):
+
+- `Rej PPM = rejection qty / total produced qty * 1,000,000`
+- `Rework PPM = rework qty / total produced qty * 1,000,000`
+- Rework rate percentages (trend reports) use the same base: `rework qty / total produced qty * 100`.
+
+The denominator is always the **total produced quantity for the reporting scope** (day, item, or
+period) — never the OK/good quantity. This follows the ASQ PPM and first-pass-yield definitions
+and IATF 16949 conventions (see `docs/research/rejection-rework-ppm-denominator.md`). The legacy
+Excel register's Rew PPM (rework over finished-good qty) is a local deviation that must not be
+copied; reconcile to it with `legacy Rew PPM = standard Rew PPM * (OK qty / total produced qty)`.
+
+"Total produced" keeps the cross-mode meaning used elsewhere in these conventions: normal
+Manufacture entries use `fg_completed_qty` (falling back to good + rejected from child rows when
+unset); Joint LH/RH and Joint Production entries use their output-slot gross sums. A zero
+denominator yields `0`, never an error.
+
 ## Time Semantics
 
 - `custom_pea_actual_duration_mins` = wall-clock interval duration.

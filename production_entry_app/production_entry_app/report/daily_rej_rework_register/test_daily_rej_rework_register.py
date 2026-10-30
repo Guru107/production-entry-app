@@ -95,9 +95,9 @@ class TestDailyRejReworkRegister(FrappeTestCase):
 		# Users show by name, not by ID.
 		self.assertEqual(item_row["responsibility_remark"], f"RejReg Responsible {self.suffix}")
 		self.assertEqual(item_row["reinspection"], f"RejReg Reinspector {self.suffix}")
-		# The item's day-total OK quantity (produced minus rejected), matching the
-		# Shift's aggregate-entries view: (1000-10) + 500.
-		self.assertEqual(item_row["finished_goods_qty"], 1490)
+		# The item's total quantity produced that day, before rejection deduction:
+		# (1000 with 10 rejected) + 500 clean.
+		self.assertEqual(item_row["finished_goods_qty"], 1500)
 		details = rows[2:5]
 		self.assertEqual([row["rejection_reason"] for row in details], ["Burr", "Crack", "Dent"])
 		for detail in details:
@@ -327,10 +327,27 @@ class TestDailyRejReworkRegister(FrappeTestCase):
 		self.assertEqual(len(rows), 4)
 		row = rows[2]
 		self.assertEqual(row["rejection_stage"], "Blanking")
-		# OK qty: (40-2) + 60.
-		self.assertEqual(rows[1]["finished_goods_qty"], 98)
+		# Total produced before rejection deduction: 40 + 60.
+		self.assertEqual(rows[1]["finished_goods_qty"], 100)
 		self.assertEqual(rows[1]["day_fg_qty"], 100)
 		self.assertEqual(row["rej_ppm"], 20000)
+
+	def test_finished_goods_qty_uses_child_rows_when_fg_qty_is_unset(self) -> None:
+		day = "2092-06-26"
+		shift = self._insert_shift(day, "1", status="Completed")
+		entry = self._insert_production_entry(
+			shift_name=shift,
+			posting_date=day,
+			fg_qty=0,
+			bom=self._insert_bom(self.item_a),
+		)
+		self._insert_good_output(entry, self.item_a, 90)
+		self._insert_rejection_item(entry, self.item_a, 10)
+		self._insert_breakup(entry, [(self.item_a, "Burr", 10)])
+
+		rows = daily_rej_rework_register.execute({"from_date": day, "to_date": day})[1]
+
+		self.assertEqual(rows[1]["finished_goods_qty"], 100)
 
 	def test_ppm_divides_raw_quantities_before_display_rounding(self) -> None:
 		# At display precision 2, rounding inputs first would give 0.01/1 -> 10000.
@@ -478,7 +495,15 @@ class TestDailyRejReworkRegister(FrappeTestCase):
 		frappe.qb.into(StockEntry).columns(*columns).insert(*values).run()
 		return name
 
+	def _insert_good_output(self, parent: str, item_code: str, qty: float) -> None:
+		self._insert_output_item(parent, item_code, qty, is_finished=1, is_rejection=0)
+
 	def _insert_rejection_item(self, parent: str, item_code: str, qty: float) -> None:
+		self._insert_output_item(parent, item_code, qty, is_finished=0, is_rejection=1)
+
+	def _insert_output_item(
+		self, parent: str, item_code: str, qty: float, *, is_finished: int, is_rejection: int
+	) -> None:
 		StockEntryDetail = frappe.qb.DocType("Stock Entry Detail")
 		(
 			frappe.qb.into(StockEntryDetail)
@@ -489,6 +514,8 @@ class TestDailyRejReworkRegister(FrappeTestCase):
 				StockEntryDetail.parentfield,
 				StockEntryDetail.item_code,
 				StockEntryDetail.qty,
+				StockEntryDetail.conversion_factor,
+				StockEntryDetail.is_finished_item,
 				StockEntryDetail.custom_pea_is_rejection_item,
 				StockEntryDetail.idx,
 			)
@@ -500,6 +527,8 @@ class TestDailyRejReworkRegister(FrappeTestCase):
 				item_code,
 				qty,
 				1,
+				is_finished,
+				is_rejection,
 				1,
 			)
 		).run()
