@@ -40,10 +40,9 @@ Rows group by `Production Date` into day blocks:
   Line `Rework PPM = line Rework Qty / Total FG Qty for Day * 1,000,000`.
 - `Rejection Stage` = the resolved report Operation: `stock_entry_type` for Manufacture entries,
   `custom_pea_operation` for Joint entries.
-- `Finished Goods Qty` = the item's **total OK quantity that day** (produced minus rejected) across the
-  day's submitted production entries, attributed via BOM items — the same per-item totals as the
-  Shift's aggregate-entries view. Shown on the item row only; per-entry figures on lines would
-  double-count entries with several rejection lines.
+- `Finished Goods Qty` = the item's **total quantity produced that day**, before rejection deduction,
+  across the day's submitted production entries, attributed via BOM items. Shown on the item row only;
+  per-entry figures on lines would double-count entries with several rejection lines.
 - `Total FG Qty for Day` = sum of output quantities of the day's submitted production entries on Completed
   Shifts, including entries with no rejections.
 - `Rej PPM = Rejection Qty / Total FG Qty for Day * 1,000,000`; `0` when the day has no production. PPM

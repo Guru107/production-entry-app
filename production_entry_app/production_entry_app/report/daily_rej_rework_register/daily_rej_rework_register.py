@@ -13,6 +13,7 @@ from production_entry_app.production_entry_app.report.report_utils import (
 	build_stock_entry_filters,
 	get_entry_output_quantities,
 	get_entry_report_operation,
+	get_parent_quantity_metrics,
 	get_report_rows,
 	is_joint_production_entry,
 	is_paired_production_entry,
@@ -209,9 +210,9 @@ def _get_rows(filters: dict) -> list[dict]:
 					"rework_ppm": flt(rework.get("qty", 0.0) / day_fg * PPM_MULTIPLIER, precision)
 					if day_fg > 0
 					else 0,
-					# The item's total OK quantity that day, matching the Shift's
-					# aggregate-entries view; per-entry figures would double-count
-					# entries with several rejection lines.
+					# The item's total quantity produced that day, before rejection
+					# deduction; per-entry figures would double-count entries with
+					# several rejection lines.
 					"finished_goods_qty": flt(item_day_fg_totals.get((day, item_code), 0.0), precision),
 					"responsibility_remark": ", ".join(rework.get("responsibility", ())),
 					"reinspection": ", ".join(rework.get("reinspection", ())),
@@ -337,13 +338,16 @@ def _get_daily_fg_totals(
 		],
 	):
 		item_by_bom = _get_bom_item_map(chunk)
+		parent_metrics = get_parent_quantity_metrics([entry["name"] for entry in chunk])
 		for entry in chunk:
 			day = entry.get("production_date")
 			if not day:
 				continue
 			day = getdate(day)
+			normal_metrics = parent_metrics.get(entry["name"], {})
+			metrics = normal_metrics if flt(entry.get("fg_completed_qty")) <= 0 else None
 			totals[day] += get_entry_output_quantities(entry).total_qty
-			for item_code, qty in _entry_item_outputs(entry, item_by_bom).items():
+			for item_code, qty in _entry_item_outputs(entry, item_by_bom, metrics).items():
 				item_totals[(day, item_code)] += qty
 	return dict(totals), dict(item_totals)
 
@@ -372,8 +376,10 @@ def _get_bom_item_map(entries: list[dict]) -> dict[str, str]:
 	}
 
 
-def _entry_item_outputs(entry: dict, item_by_bom: dict[str, str]) -> dict[str, str | float]:
-	"""Attribute one entry's OK quantity (produced minus rejected) to its BOM item(s)."""
+def _entry_item_outputs(
+	entry: dict, item_by_bom: dict[str, str], normal_metrics: dict | None
+) -> dict[str, str | float]:
+	"""Attribute one entry's total produced quantity, before rejection, to its BOM item(s)."""
 	if is_joint_production_entry(entry):
 		lines = entry.get(JOINT_PRODUCTION_LINES_FIELD) or []
 		if lines:
@@ -381,25 +387,22 @@ def _entry_item_outputs(entry: dict, item_by_bom: dict[str, str]) -> dict[str, s
 			for line in lines:
 				item_code = item_by_bom.get(line.get("bom_no"))
 				if item_code:
-					ok_qty = max(flt(line.get("gross_qty")) - flt(line.get("rejection_qty")), 0.0)
-					outputs[item_code] = outputs.get(item_code, 0.0) + ok_qty
+					outputs[item_code] = outputs.get(item_code, 0.0) + flt(line.get("gross_qty"))
 			return outputs
 	if is_paired_production_entry(entry):
 		outputs = {}
-		for bom_field, gross_field, rejection_field in (
-			("custom_pea_lh_bom", "custom_pea_lh_gross_qty", "custom_pea_lh_rejection_qty"),
-			("custom_pea_rh_bom", "custom_pea_rh_gross_qty", "custom_pea_rh_rejection_qty"),
+		for bom_field, gross_field in (
+			("custom_pea_lh_bom", "custom_pea_lh_gross_qty"),
+			("custom_pea_rh_bom", "custom_pea_rh_gross_qty"),
 		):
 			item_code = item_by_bom.get(entry.get(bom_field))
 			if item_code:
-				ok_qty = max(flt(entry.get(gross_field)) - flt(entry.get(rejection_field)), 0.0)
-				outputs[item_code] = outputs.get(item_code, 0.0) + ok_qty
+				outputs[item_code] = outputs.get(item_code, 0.0) + flt(entry.get(gross_field))
 		return outputs
 	item_code = item_by_bom.get(entry.get("bom_no"))
 	if not item_code:
 		return {}
-	ok_qty = max(flt(entry.get("fg_completed_qty")) - flt(entry.get("custom_pea_rejection_qty")), 0.0)
-	return {item_code: ok_qty}
+	return {item_code: get_entry_output_quantities(entry, normal_metrics=normal_metrics).total_qty}
 
 
 def _get_user_display_names(user_ids: set[str]) -> dict[str, str]:
