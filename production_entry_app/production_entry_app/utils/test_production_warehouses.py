@@ -5,6 +5,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from production_entry_app.production_entry_app.utils.production_warehouses import (
 	get_configured_scrap_warehouses,
+	get_scrap_row_warehouse,
 	validate_warehouse_companies,
 )
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
@@ -24,6 +25,20 @@ class TestValidateWarehouseCompanies(FrappeTestCase):
 			validate_warehouse_companies(
 				[{"company": "_Test Company", "work_in_progress_warehouse": "Missing Warehouse XYZ"}]
 			)
+
+
+class TestScrapRowWarehouse(FrappeTestCase):
+	def test_only_ms_scrap_routes_to_the_scrap_warehouse(self) -> None:
+		warehouses = {"scrap_warehouse": "Scrap - TC", "work_in_progress_warehouse": "WIP - TC"}
+
+		self.assertEqual(get_scrap_row_warehouse(warehouses, "MS Scrap"), "Scrap - TC")
+		self.assertEqual(get_scrap_row_warehouse(warehouses, "0101CS200490NENP"), "WIP - TC")
+
+	def test_scrap_row_warehouse_requires_only_the_used_destination(self) -> None:
+		with self.assertRaisesRegex(frappe.ValidationError, "Scrap Warehouse"):
+			get_scrap_row_warehouse({}, "MS Scrap")
+		with self.assertRaisesRegex(frappe.ValidationError, "Work In Progress Warehouse"):
+			get_scrap_row_warehouse({}, "0101CS200490NENP")
 
 
 class TestConfiguredScrapWarehouses(FrappeTestCase):

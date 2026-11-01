@@ -100,7 +100,7 @@ test.describe("Branch warehouse defaults", () => {
 			for (const row of rows.filter((row) => row.t_warehouse)) {
 				expect(row.t_warehouse).toBe(
 					isScrap(row)
-						? ctx.scrap_warehouse
+						? ctx.rm_warehouse // BOM scrap rows other than MS Scrap (End Pieces) land in WIP
 						: row.custom_pea_is_rejection_item
 						? ctx.rejection_warehouse
 						: ctx.fg_warehouse
@@ -237,14 +237,20 @@ test.describe("Branch warehouse defaults", () => {
 				await setFieldValue(page, "bom_no", ctx.bom);
 				await setFieldValue(page, "fg_completed_qty", 40);
 			}
-			await form.fetchItems();
-			const rows = await page.evaluate(() => cur_frm.doc.items);
-			expect(rows.length).toBeGreaterThan(1);
-			expect(
-				rows
-					.filter((row) => row.s_warehouse)
-					.every((row) => row.s_warehouse === ctx.wip_warehouse)
-			).toBeTruthy();
+			if (joint) {
+				// Joint BOM scrap rows (End Pieces) need the configured WIP warehouse.
+				await form.fetchItems({ expectValidation: true });
+				await expectValidationError(page, /Work In Progress Warehouse/i);
+			} else {
+				await form.fetchItems();
+				const rows = await page.evaluate(() => cur_frm.doc.items);
+				expect(rows.length).toBeGreaterThan(1);
+				expect(
+					rows
+						.filter((row) => row.s_warehouse)
+						.every((row) => row.s_warehouse === ctx.wip_warehouse)
+				).toBeTruthy();
+			}
 			await setFieldValue(page, "custom_pea_shift", "");
 			await page.waitForFunction(() => !cur_frm.doc.custom_pea_planned_end_date);
 			await page.evaluate(() => frappe.after_ajax());

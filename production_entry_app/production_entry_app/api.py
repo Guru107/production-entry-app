@@ -29,8 +29,8 @@ from production_entry_app.production_entry_app.utils.die_tool_counter import (
 from production_entry_app.production_entry_app.utils.production_warehouses import (
 	get_branch_warehouse_defaults,
 	get_production_warehouses,
+	get_scrap_row_warehouse,
 	get_shift_warehouses,
-	require_warehouse,
 	set_production_header_warehouses,
 )
 from production_entry_app.production_entry_app.utils.shift_time import get_shift_planned_end_datetime
@@ -463,7 +463,7 @@ def get_items_with_rejection(doc: str) -> list[dict]:
 	if use_production_defaults:
 		for row in se.items:
 			if is_scrap_row(row):
-				row.t_warehouse = require_warehouse(warehouses, "scrap_warehouse")
+				row.t_warehouse = get_scrap_row_warehouse(warehouses, row.get("item_code"))
 	se.set_actual_qty()
 	apply_direct_manufacture_alternative_flags(se)
 	_apply_rejection_entries(se)

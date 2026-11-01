@@ -13,6 +13,17 @@ WAREHOUSE_FIELDS: tuple[str, ...] = (
 	"scrap_warehouse",
 )
 
+# shortcut: only this BOM scrap-table item is true scrap; other scrap rows are End Pieces
+# consumed later from WIP. Upgrade to a configurable list when a second true scrap item appears.
+SCRAP_WAREHOUSE_ITEM_CODE: str = "MS Scrap"
+
+
+def get_scrap_row_warehouse(warehouses: dict, item_code: str | None) -> str:
+	"""Route BOM scrap rows: MS Scrap to the Scrap Warehouse, End Pieces to WIP."""
+	if item_code == SCRAP_WAREHOUSE_ITEM_CODE:
+		return require_warehouse(warehouses, "scrap_warehouse")
+	return require_warehouse(warehouses, "work_in_progress_warehouse")
+
 
 def validate_warehouse_companies(rows: Iterable[BaseDocument | dict]) -> None:
 	"""Validate all configured warehouses with one lookup, including settings child rows."""

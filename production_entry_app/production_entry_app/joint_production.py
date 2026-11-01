@@ -18,6 +18,7 @@ from production_entry_app.production_entry_app.doctype.rejection_breakup.rejecti
 )
 from production_entry_app.production_entry_app.utils.production_warehouses import (
 	get_production_warehouses,
+	get_scrap_row_warehouse,
 	require_warehouse,
 	set_production_header_warehouses,
 )
@@ -293,7 +294,7 @@ def materialize_joint_production_rows(doc: Document) -> list[dict[str, Any]]:
 		scrap_row = _item_row(
 			item_code=scrap.item_code,
 			qty=scrap.qty,
-			t_warehouse=require_warehouse(warehouses, "scrap_warehouse"),
+			t_warehouse=get_scrap_row_warehouse(warehouses, scrap.item_code),
 			item_details=item_details,
 		)
 		scrap_row.update(

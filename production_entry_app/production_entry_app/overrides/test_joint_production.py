@@ -540,7 +540,7 @@ class TestJointProductionItems(FrappeTestCase):
 				)
 				self.assertEqual(
 					{row.t_warehouse for row in entry.items if _is_scrap_row(row)},
-					{self.masters["scrap_warehouse"]},
+					{self.masters["wip_warehouse"]},
 				)
 				entry.cancel()
 
@@ -595,7 +595,7 @@ class TestJointProductionItems(FrappeTestCase):
 				)
 				self.assertEqual(
 					{row["t_warehouse"] for row in rows if _is_scrap_row(row)},
-					{self.masters["scrap_warehouse"]},
+					{self.masters["wip_warehouse"]},
 				)
 				self.assertEqual(
 					{row["t_warehouse"] for row in rows if row.get("custom_pea_is_rejection_item")},
@@ -611,6 +611,35 @@ class TestJointProductionItems(FrappeTestCase):
 					},
 					{self.masters["fg_warehouse"]},
 				)
+
+	def test_fetch_items_routes_only_ms_scrap_to_the_scrap_warehouse(self) -> None:
+		# Other BOM scrap-table rows are End Pieces consumed later from WIP (CONTEXT.md "End Piece").
+		ms_scrap = ensure_item("MS Scrap", stock_uom="Kg")
+		lh_bom = self._make_bom(
+			self.lh_item,
+			scrap_items=[(self.scrap_item, 1.125, 10), (ms_scrap, 0.5, 10)],
+		)
+		rh_bom = self._make_bom(
+			self.rh_item,
+			scrap_items=[(self.scrap_item, 2.125, 10), (ms_scrap, 1.5, 10)],
+		)
+		shift = make_running_shift(self.masters)
+		doc = self._make_joint_entry(shift, lh_bom=lh_bom, rh_bom=rh_bom)
+		for joint in (True, False):
+			with self.subTest(joint=joint):
+				payload = doc.as_dict()
+				if not joint:
+					payload.update(
+						purpose="Manufacture",
+						stock_entry_type="Manufacture",
+						bom_no=lh_bom,
+						fg_completed_qty=40,
+					)
+				fetch = get_joint_production_items if joint else get_items_with_rejection
+				rows = fetch(json.dumps(payload, default=str))
+				targets = {row["item_code"]: row["t_warehouse"] for row in rows if _is_scrap_row(row)}
+				self.assertEqual(targets[ms_scrap], self.masters["scrap_warehouse"])
+				self.assertEqual(targets[self.scrap_item], self.masters["wip_warehouse"])
 
 	def test_fetch_items_without_shift_uses_company_branch_defaults(self) -> None:
 		shift = make_running_shift(self.masters)
@@ -640,7 +669,7 @@ class TestJointProductionItems(FrappeTestCase):
 				)
 				self.assertEqual(
 					{row["t_warehouse"] for row in rows if _is_scrap_row(row)},
-					{self.masters["scrap_warehouse"]},
+					{self.masters["wip_warehouse"]},
 				)
 				payload["branch"] = None
 				with self.assertRaisesRegex(frappe.ValidationError, "Work In Progress Warehouse"):
@@ -3114,7 +3143,7 @@ class TestJointProductionItems(FrappeTestCase):
 		end_rows = [row for row in doc.items if row.item_code == end_piece]
 		self.assertEqual(
 			sorted((bool(row.s_warehouse), row.t_warehouse or "") for row in end_rows),
-			[(False, self.masters["scrap_warehouse"]), (True, "")],
+			[(False, self.masters["wip_warehouse"]), (True, "")],
 		)
 
 	def test_joint_production_rounds_aggregated_whole_number_scrap(self) -> None:
