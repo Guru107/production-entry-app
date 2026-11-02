@@ -78,9 +78,9 @@ assumes the two header slots moves to line-derived facts:
 - **N header field pairs.** Rejected: it re-fixes the arity that just changed, and the form layout
   cannot grow a field pair per part.
 - **One multi-output BOM with the extra parts as BOM scrap** (the End Piece mechanism). Rejected:
-  End Pieces are salvage — scrap by definition, routed to the Scrap Warehouse at the BOM scrap rate.
-  The three die parts are intended co-products that must land in WIP as good output with allocated
-  value, per-line rejection, and per-line rework tracking. BOM scrap cannot express that.
+  End Pieces are salvage — scrap by definition, valued at the BOM scrap rate. The three die parts are
+  intended co-products: good output with allocated value, per-line rejection, and per-line rework
+  tracking. BOM scrap cannot express that.
 - **Unify Joint LH/RH into the same line table.** Deferred: LH/RH entries exist in production and the
   type owns the Shearing shared-sheet plan. Generalizing it is a separate decision with a migration
   cost; nothing in this change blocks it later.

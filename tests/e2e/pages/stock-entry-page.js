@@ -27,6 +27,12 @@ function triggerFetchItems() {
 	return window.cur_frm?.script_manager?.trigger("custom_pea_fetch_items");
 }
 
+// Server-side validation errors reject the fetch promise; the visible error dialog is the signal.
+function triggerFetchItemsExpectingMessage() {
+	const result = window.cur_frm?.script_manager?.trigger("custom_pea_fetch_items");
+	if (result?.catch) result.catch(() => {});
+}
+
 // Runs inside the page, so it must stay self-contained for Playwright serialization.
 // It is the single source of the Fetch Items completion state; the other predicates
 // receive its serialized source instead of re-implementing it. A red indicator marks a
@@ -595,7 +601,7 @@ class StockEntryPage {
 					() => window.cur_frm?.doctype === "Stock Entry" && Boolean(window.cur_frm?.doc)
 				);
 				if (expectValidation) {
-					await this.page.evaluate(triggerFetchItems);
+					await this.page.evaluate(triggerFetchItemsExpectingMessage);
 					await this.page.waitForFunction(hasVisibleFetchItemsMessage, stateSource);
 					return;
 				}

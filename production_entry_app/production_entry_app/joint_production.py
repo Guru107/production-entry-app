@@ -18,6 +18,7 @@ from production_entry_app.production_entry_app.doctype.rejection_breakup.rejecti
 )
 from production_entry_app.production_entry_app.utils.production_warehouses import (
 	get_production_warehouses,
+	get_scrap_row_warehouse,
 	require_warehouse,
 	set_production_header_warehouses,
 )
@@ -293,7 +294,7 @@ def materialize_joint_production_rows(doc: Document) -> list[dict[str, Any]]:
 		scrap_row = _item_row(
 			item_code=scrap.item_code,
 			qty=scrap.qty,
-			t_warehouse=require_warehouse(warehouses, "scrap_warehouse"),
+			t_warehouse=get_scrap_row_warehouse(warehouses, item_details[scrap.item_code].item_group),
 			item_details=item_details,
 		)
 		scrap_row.update(
@@ -1234,10 +1235,14 @@ def _item_row(
 
 def _get_item_details(item_codes: Iterable[str]) -> dict[str, frappe._dict]:
 	unique_item_codes = list(dict.fromkeys(item_codes))
-	rows = frappe.get_list(
+	if not unique_item_codes:
+		return {}
+	# Internal lookup (callers check access on the Stock Entry/BOM): get_all, so User Permissions on
+	# Item cannot hide a scrap item and silently misroute it.
+	rows = frappe.get_all(
 		"Item",
 		filters={"name": ["in", unique_item_codes]},
-		fields=["name", "item_name", "description", "stock_uom"],
+		fields=["name", "item_name", "description", "stock_uom", "item_group"],
 	)
 	details = {row.get("name"): frappe._dict(row) for row in rows}
 	missing_item_codes = [item_code for item_code in unique_item_codes if item_code not in details]

@@ -19,7 +19,10 @@ from production_entry_app.production_entry_app.utils.downtime_reason_seed import
 	ensure_downtime_reason,
 	seed_standard_downtime_reasons,
 )
-from production_entry_app.production_entry_app.utils.production_warehouses import WAREHOUSE_FIELDS
+from production_entry_app.production_entry_app.utils.production_warehouses import (
+	SCRAP_ITEM_GROUP,
+	WAREHOUSE_FIELDS,
+)
 from production_entry_app.production_entry_app.utils.shift_time import get_shift_planned_end_datetime
 from production_entry_app.production_entry_app.utils.stock_entry_branch import stock_entry_has_branch_field
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
@@ -30,6 +33,7 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	ensure_department,
 	ensure_fiscal_year_for_date,
 	ensure_item,
+	ensure_item_group,
 	ensure_joint_test_bom,
 	ensure_operation,
 	ensure_operator,
@@ -744,6 +748,23 @@ def bootstrap_e2e_context(prefix: str = "E2E", cleanup_running: int = 1) -> dict
 		company=company,
 		is_default=True,
 	)
+	# BOM pair with one Scrap-group row beside an End Piece, so E2E can see both scrap-row destinations.
+	ensure_item_group(SCRAP_ITEM_GROUP)
+	scrap_group_item = ensure_item(f"_{prefix}_Scrap_Group_Item", item_group=SCRAP_ITEM_GROUP, stock_uom="Kg")
+	scrap_group_bom = ensure_joint_test_bom(
+		item_code=ensure_item(f"_{prefix}_Scrap_Group_FG"),
+		rm_item=joint_rm_item,
+		scrap_items=[(joint_scrap_item, 1, 10), (scrap_group_item, 0.5, 10)],
+		company=company,
+		is_default=True,
+	)
+	scrap_group_bom_2 = ensure_joint_test_bom(
+		item_code=ensure_item(f"_{prefix}_Scrap_Group_FG_2"),
+		rm_item=joint_rm_item,
+		scrap_items=[(joint_scrap_item, 2, 10), (scrap_group_item, 0.5, 10)],
+		company=company,
+		is_default=True,
+	)
 	joint_multipart_fg_item = ensure_item(f"_{prefix}_Joint_Multipart_FG")
 	joint_multipart_rm_item = ensure_item(f"_{prefix}_Joint_Multipart_RM", stock_uom="Kg")
 	joint_multipart_bom = ensure_joint_test_bom(
@@ -834,6 +855,9 @@ def bootstrap_e2e_context(prefix: str = "E2E", cleanup_running: int = 1) -> dict
 		"joint_rm_item": joint_rm_item,
 		"joint_scrap_item": joint_scrap_item,
 		"joint_scrap_nos_item": joint_scrap_nos_item,
+		"scrap_group_item": scrap_group_item,
+		"scrap_group_bom": scrap_group_bom,
+		"scrap_group_bom_2": scrap_group_bom_2,
 		"joint_operation": "Shearing",
 		"joint_lh_bom": joint_lh_bom,
 		"joint_lh_bom_alt": joint_lh_bom_alt,

@@ -61,6 +61,7 @@ from production_entry_app.production_entry_app.tests.support.manufacture_builder
 	make_running_shift,
 )
 from production_entry_app.production_entry_app.utils.downtime_reason_seed import ensure_downtime_reason
+from production_entry_app.production_entry_app.utils.production_warehouses import SCRAP_ITEM_GROUP
 from production_entry_app.production_entry_app.utils.rejection_warehouse import resolve_rejection_warehouse
 from production_entry_app.production_entry_app.utils.stock_entry_branch import stock_entry_has_branch_field
 from production_entry_app.production_entry_app.utils.system_precision import override_system_precision
@@ -68,6 +69,7 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	build_joint_bom_scrap_row,
 	cleanup_running_shifts,
 	ensure_item,
+	ensure_item_group,
 	ensure_joint_test_bom,
 	ensure_operation,
 	ensure_operator,
@@ -175,20 +177,26 @@ class TestJointProductionCalculations(FrappeTestCase):
 
 	def test_joint_item_details_are_loaded_in_one_query(self) -> None:
 		with patch(
-			"production_entry_app.production_entry_app.joint_production.frappe.get_list",
+			"production_entry_app.production_entry_app.joint_production.frappe.get_all",
 			return_value=[
 				{"name": "RM", "item_name": "Raw Material", "description": "RM", "stock_uom": "Kg"},
 				{"name": "FG", "item_name": "Finished Good", "description": "FG", "stock_uom": "Nos"},
 			],
-		) as get_list:
+		) as get_all:
 			details = _get_item_details(["RM", "FG", "RM"])
 
 		self.assertEqual(set(details), {"RM", "FG"})
-		get_list.assert_called_once_with(
+		get_all.assert_called_once_with(
 			"Item",
 			filters={"name": ["in", ["RM", "FG"]]},
-			fields=["name", "item_name", "description", "stock_uom"],
+			fields=["name", "item_name", "description", "stock_uom", "item_group"],
 		)
+
+	def test_item_details_skip_the_query_when_there_are_no_item_codes(self) -> None:
+		with patch("production_entry_app.production_entry_app.joint_production.frappe.get_all") as get_all:
+			self.assertEqual(_get_item_details([]), {})
+
+		get_all.assert_not_called()
 
 	def test_scrap_rate_fallback_uses_the_correct_cross_version_total_field(self) -> None:
 		cases = (
@@ -540,7 +548,7 @@ class TestJointProductionItems(FrappeTestCase):
 				)
 				self.assertEqual(
 					{row.t_warehouse for row in entry.items if _is_scrap_row(row)},
-					{self.masters["scrap_warehouse"]},
+					{self.masters["wip_warehouse"]},
 				)
 				entry.cancel()
 
@@ -595,7 +603,7 @@ class TestJointProductionItems(FrappeTestCase):
 				)
 				self.assertEqual(
 					{row["t_warehouse"] for row in rows if _is_scrap_row(row)},
-					{self.masters["scrap_warehouse"]},
+					{self.masters["wip_warehouse"]},
 				)
 				self.assertEqual(
 					{row["t_warehouse"] for row in rows if row.get("custom_pea_is_rejection_item")},
@@ -611,6 +619,90 @@ class TestJointProductionItems(FrappeTestCase):
 					},
 					{self.masters["fg_warehouse"]},
 				)
+
+	def test_fetch_items_routes_only_scrap_group_items_to_the_scrap_warehouse(self) -> None:
+		# Other BOM scrap-table rows are End Pieces consumed later from WIP (CONTEXT.md "End Piece").
+		ensure_item_group(SCRAP_ITEM_GROUP)
+		scrap_group_item = ensure_item(
+			f"_Joint_Scrap_Group_{frappe.generate_hash(length=6)}",
+			item_group=SCRAP_ITEM_GROUP,
+			stock_uom="Kg",
+		)
+		lh_bom = self._make_bom(
+			self.lh_item,
+			scrap_items=[(self.scrap_item, 1.125, 10), (scrap_group_item, 0.5, 10)],
+		)
+		rh_bom = self._make_bom(
+			self.rh_item,
+			scrap_items=[(self.scrap_item, 2.125, 10), (scrap_group_item, 1.5, 10)],
+		)
+		shift = make_running_shift(self.masters)
+		doc = self._make_joint_entry(shift, lh_bom=lh_bom, rh_bom=rh_bom)
+		for joint in (True, False):
+			with self.subTest(joint=joint):
+				payload = doc.as_dict()
+				if not joint:
+					payload.update(
+						purpose="Manufacture",
+						stock_entry_type="Manufacture",
+						bom_no=lh_bom,
+						fg_completed_qty=40,
+					)
+				fetch = get_joint_production_items if joint else get_items_with_rejection
+				rows = fetch(json.dumps(payload, default=str))
+				targets = {row["item_code"]: row["t_warehouse"] for row in rows if _is_scrap_row(row)}
+				self.assertEqual(targets[scrap_group_item], self.masters["scrap_warehouse"])
+				self.assertEqual(targets[self.scrap_item], self.masters["wip_warehouse"])
+
+	def test_fetch_items_with_end_piece_requires_wip_even_with_manual_warehouses(self) -> None:
+		# End Piece scrap rows need the configured WIP warehouse; manual headers are no substitute.
+		set_test_branch_warehouse_defaults(
+			self.masters["company"], self.masters["branch"], work_in_progress_warehouse=None
+		)
+		shift = make_running_shift(self.masters)
+		shift.db_set("work_in_progress_warehouse", None, update_modified=False)
+		doc = self._make_joint_entry(shift, fetch_items=False)
+		for joint in (True, False):
+			with self.subTest(joint=joint):
+				payload = doc.as_dict()
+				if not joint:
+					payload.update(
+						purpose="Manufacture",
+						stock_entry_type="Manufacture",
+						bom_no=self.lh_bom,
+						fg_completed_qty=40,
+					)
+				fetch = get_joint_production_items if joint else get_items_with_rejection
+				with self.assertRaisesRegex(frappe.ValidationError, "Work In Progress Warehouse"):
+					fetch(json.dumps(payload, default=str))
+
+	def test_fetch_items_routes_scrap_group_items_hidden_by_item_user_permissions(self) -> None:
+		# Item details are an internal lookup: a user permission hiding the scrap item must neither
+		# misroute it to WIP nor block the fetch.
+		ensure_item_group(SCRAP_ITEM_GROUP)
+		scrap_group_item = ensure_item(
+			f"_Hidden_Scrap_Group_{frappe.generate_hash(length=6)}",
+			item_group=SCRAP_ITEM_GROUP,
+			stock_uom="Kg",
+		)
+		bom = self._make_bom(self.lh_item, scrap_items=[(scrap_group_item, 0.5, 10)])
+		real_get_list = frappe.get_list
+
+		def _hide_items(doctype: str, *args: Any, **kwargs: Any) -> list:
+			# A User Permission only filters permission-checked reads; get_all passes ignore_permissions.
+			if doctype == "Item" and not kwargs.get("ignore_permissions"):
+				return []
+			return real_get_list(doctype, *args, **kwargs)
+
+		shift = make_running_shift(self.masters)
+		doc = self._make_joint_entry(shift)
+		payload = doc.as_dict()
+		payload.update(purpose="Manufacture", stock_entry_type="Manufacture", bom_no=bom, fg_completed_qty=40)
+		with patch.object(frappe, "get_list", _hide_items):
+			rows = get_items_with_rejection(json.dumps(payload, default=str))
+
+		targets = {row["item_code"]: row["t_warehouse"] for row in rows if _is_scrap_row(row)}
+		self.assertEqual(targets[scrap_group_item], self.masters["scrap_warehouse"])
 
 	def test_fetch_items_without_shift_uses_company_branch_defaults(self) -> None:
 		shift = make_running_shift(self.masters)
@@ -640,7 +732,7 @@ class TestJointProductionItems(FrappeTestCase):
 				)
 				self.assertEqual(
 					{row["t_warehouse"] for row in rows if _is_scrap_row(row)},
-					{self.masters["scrap_warehouse"]},
+					{self.masters["wip_warehouse"]},
 				)
 				payload["branch"] = None
 				with self.assertRaisesRegex(frappe.ValidationError, "Work In Progress Warehouse"):
@@ -1691,16 +1783,16 @@ class TestJointProductionItems(FrappeTestCase):
 		shift = make_running_shift(self.masters)
 		doc = self._make_joint_entry(shift)
 		doc.set("items", [])
-		original_get_list = frappe.get_list
+		original_get_all = frappe.get_all
 
 		def omit_rh_item(doctype: str, *args: Any, **kwargs: Any) -> list[dict[str, Any]]:
-			rows = original_get_list(doctype, *args, **kwargs)
+			rows = original_get_all(doctype, *args, **kwargs)
 			if doctype == "Item":
 				return [row for row in rows if row.get("name") != self.rh_item]
 			return rows
 
 		with patch(
-			"production_entry_app.production_entry_app.joint_production.frappe.get_list",
+			"production_entry_app.production_entry_app.joint_production.frappe.get_all",
 			side_effect=omit_rh_item,
 		):
 			with self.assertRaisesRegex(frappe.ValidationError, "Unable to load Item"):
@@ -3114,7 +3206,7 @@ class TestJointProductionItems(FrappeTestCase):
 		end_rows = [row for row in doc.items if row.item_code == end_piece]
 		self.assertEqual(
 			sorted((bool(row.s_warehouse), row.t_warehouse or "") for row in end_rows),
-			[(False, self.masters["scrap_warehouse"]), (True, "")],
+			[(False, self.masters["wip_warehouse"]), (True, "")],
 		)
 
 	def test_joint_production_rounds_aggregated_whole_number_scrap(self) -> None:

@@ -13,6 +13,7 @@ from pypika import Order
 from production_entry_app.production_entry_app.joint_production import (
 	JOINT_PRODUCTION_LINES_FIELD,
 	MAX_JOINT_PRODUCTION_BOM_SIDES,
+	_get_item_details,
 	_normalize_operation,
 	is_joint_production_stock_entry_type,
 	is_scrap_row,
@@ -29,8 +30,8 @@ from production_entry_app.production_entry_app.utils.die_tool_counter import (
 from production_entry_app.production_entry_app.utils.production_warehouses import (
 	get_branch_warehouse_defaults,
 	get_production_warehouses,
+	get_scrap_row_warehouse,
 	get_shift_warehouses,
-	require_warehouse,
 	set_production_header_warehouses,
 )
 from production_entry_app.production_entry_app.utils.shift_time import get_shift_planned_end_datetime
@@ -461,9 +462,12 @@ def get_items_with_rejection(doc: str) -> list[dict]:
 		set_production_header_warehouses(se, warehouses)
 	se.get_items()
 	if use_production_defaults:
-		for row in se.items:
-			if is_scrap_row(row):
-				row.t_warehouse = require_warehouse(warehouses, "scrap_warehouse")
+		# Native scrap rows carry no item_group (ERPNext add_to_stock_entry_detail); resolve it here.
+		# _get_item_details ignores Item User Permissions (and throws on a missing item), so scrap is never misrouted.
+		scrap_rows = [row for row in se.items if is_scrap_row(row)]
+		item_details = _get_item_details([row.item_code for row in scrap_rows])
+		for row in scrap_rows:
+			row.t_warehouse = get_scrap_row_warehouse(warehouses, item_details[row.item_code].item_group)
 	se.set_actual_qty()
 	apply_direct_manufacture_alternative_flags(se)
 	_apply_rejection_entries(se)

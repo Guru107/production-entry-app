@@ -101,6 +101,23 @@ def ensure_warehouse(warehouse_name: str, company: str) -> str:
 	return doc.name
 
 
+def ensure_item_group(item_group_name: str) -> str:
+	"""Create the Item Group under All Item Groups when missing (e.g. the Scrap group on CI sites)."""
+	if frappe.db.exists("Item Group", item_group_name):
+		return item_group_name
+	return (
+		frappe.get_doc(
+			{
+				"doctype": "Item Group",
+				"item_group_name": item_group_name,
+				"parent_item_group": "All Item Groups",
+			}
+		)
+		.insert(ignore_permissions=True)
+		.name
+	)
+
+
 def ensure_item(item_code: str, *, item_group: str = "Products", stock_uom: str = "Nos") -> str:
 	if frappe.db.exists("Item", item_code):
 		return item_code

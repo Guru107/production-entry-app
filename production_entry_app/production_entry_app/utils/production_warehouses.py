@@ -13,6 +13,18 @@ WAREHOUSE_FIELDS: tuple[str, ...] = (
 	"scrap_warehouse",
 )
 
+# shortcut: scrap rows whose item is in this Item Group go to the Scrap Warehouse; other BOM
+# scrap-table rows are End Pieces consumed later from WIP. Exact match only; extend to child
+# groups if they appear.
+SCRAP_ITEM_GROUP: str = "Scrap"
+
+
+def get_scrap_row_warehouse(warehouses: dict, item_group: str) -> str:
+	"""Route BOM scrap rows: Scrap-group items to the Scrap Warehouse, End Pieces to WIP."""
+	if item_group == SCRAP_ITEM_GROUP:
+		return require_warehouse(warehouses, "scrap_warehouse")
+	return require_warehouse(warehouses, "work_in_progress_warehouse")
+
 
 def validate_warehouse_companies(rows: Iterable[BaseDocument | dict]) -> None:
 	"""Validate all configured warehouses with one lookup, including settings child rows."""

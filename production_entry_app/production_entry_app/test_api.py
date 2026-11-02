@@ -1987,6 +1987,9 @@ class TestE2EApi(FrappeTestCase):
 						"_E2E-DIE_Joint_RM_Item",
 						"_E2E-DIE_Joint_Scrap_Item",
 						"_E2E-DIE_Joint_Scrap_Nos_Item",
+						"_E2E-DIE_Scrap_Group_Item",
+						"_E2E-DIE_Scrap_Group_FG",
+						"_E2E-DIE_Scrap_Group_FG_2",
 						"_E2E-DIE_Joint_Multipart_FG",
 						"_E2E-DIE_Joint_Multipart_RM",
 						"_E2E-DIE_Joint_LH_WIP_A",
@@ -1997,6 +2000,7 @@ class TestE2EApi(FrappeTestCase):
 					],
 				)
 			)
+			stack.enter_context(patch("production_entry_app.production_entry_app.e2e_api.ensure_item_group"))
 			stack.enter_context(
 				patch(
 					"production_entry_app.production_entry_app.e2e_api.frappe.get_meta",
@@ -2036,6 +2040,8 @@ class TestE2EApi(FrappeTestCase):
 						"BOM-JOINT-LH",
 						"BOM-JOINT-LH-ALT",
 						"BOM-JOINT-RH",
+						"BOM-SCRAP-GROUP",
+						"BOM-SCRAP-GROUP-2",
 						"BOM-JOINT-MULTIPART",
 						"BOM-JOINT-POST-LH",
 						"BOM-JOINT-POST-RH",
@@ -2129,6 +2135,9 @@ class TestE2EApi(FrappeTestCase):
 						"_E2E_Joint_RM_Item",
 						"_E2E_Joint_Scrap_Item",
 						"_E2E_Joint_Scrap_Nos_Item",
+						"_E2E_Scrap_Group_Item",
+						"_E2E_Scrap_Group_FG",
+						"_E2E_Scrap_Group_FG_2",
 						"_E2E_Joint_Multipart_FG",
 						"_E2E_Joint_Multipart_RM",
 						"_E2E_Joint_LH_WIP_A",
@@ -2139,6 +2148,7 @@ class TestE2EApi(FrappeTestCase):
 					],
 				)
 			)
+			stack.enter_context(patch("production_entry_app.production_entry_app.e2e_api.ensure_item_group"))
 			stack.enter_context(
 				patch(
 					"production_entry_app.production_entry_app.e2e_api.frappe.get_meta",
@@ -2178,6 +2188,8 @@ class TestE2EApi(FrappeTestCase):
 						"BOM-JOINT-LH",
 						"BOM-JOINT-LH-ALT",
 						"BOM-JOINT-RH",
+						"BOM-SCRAP-GROUP",
+						"BOM-SCRAP-GROUP-2",
 						"BOM-JOINT-MULTIPART",
 						"BOM-JOINT-POST-LH",
 						"BOM-JOINT-POST-RH",

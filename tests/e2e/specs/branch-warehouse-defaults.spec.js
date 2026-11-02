@@ -79,10 +79,17 @@ test.describe("Branch warehouse defaults", () => {
 			await form.waitForFieldValue("to_warehouse", ctx.rm_warehouse);
 			await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
 			if (joint) {
-				await form.fillJointProductionFields(ctx, { lhRejectionQty: 1 });
+				await form.fillJointProductionFields(
+					{
+						...ctx,
+						joint_lh_bom: ctx.scrap_group_bom,
+						joint_rh_bom: ctx.scrap_group_bom_2,
+					},
+					{ lhRejectionQty: 1 }
+				);
 			} else {
 				await setFieldValue(page, "from_bom", 1);
-				await setFieldValue(page, "bom_no", ctx.joint_lh_bom);
+				await setFieldValue(page, "bom_no", ctx.scrap_group_bom);
 				await setFieldValue(page, "fg_completed_qty", 40);
 				await setFieldValue(page, "custom_pea_rejection_qty", 1);
 			}
@@ -100,12 +107,22 @@ test.describe("Branch warehouse defaults", () => {
 			for (const row of rows.filter((row) => row.t_warehouse)) {
 				expect(row.t_warehouse).toBe(
 					isScrap(row)
-						? ctx.scrap_warehouse
+						? row.item_code === ctx.scrap_group_item
+							? ctx.scrap_warehouse
+							: ctx.rm_warehouse // End Pieces land in WIP (remapped here)
 						: row.custom_pea_is_rejection_item
 						? ctx.rejection_warehouse
 						: ctx.fg_warehouse
 				);
 			}
+			// The BOM pair carries one Scrap-group row: it must reach the Scrap Warehouse in both flows.
+			expect(
+				rows.some(
+					(row) =>
+						row.item_code === ctx.scrap_group_item &&
+						row.t_warehouse === ctx.scrap_warehouse
+				)
+			).toBe(true);
 		}
 	});
 
@@ -237,14 +254,20 @@ test.describe("Branch warehouse defaults", () => {
 				await setFieldValue(page, "bom_no", ctx.bom);
 				await setFieldValue(page, "fg_completed_qty", 40);
 			}
-			await form.fetchItems();
-			const rows = await page.evaluate(() => cur_frm.doc.items);
-			expect(rows.length).toBeGreaterThan(1);
-			expect(
-				rows
-					.filter((row) => row.s_warehouse)
-					.every((row) => row.s_warehouse === ctx.wip_warehouse)
-			).toBeTruthy();
+			if (joint) {
+				// Joint BOM scrap rows (End Pieces) need the configured WIP warehouse.
+				await form.fetchItems({ expectValidation: true });
+				await expectValidationError(page, /Work In Progress Warehouse/i);
+			} else {
+				await form.fetchItems();
+				const rows = await page.evaluate(() => cur_frm.doc.items);
+				expect(rows.length).toBeGreaterThan(1);
+				expect(
+					rows
+						.filter((row) => row.s_warehouse)
+						.every((row) => row.s_warehouse === ctx.wip_warehouse)
+				).toBeTruthy();
+			}
 			await setFieldValue(page, "custom_pea_shift", "");
 			await page.waitForFunction(() => !cur_frm.doc.custom_pea_planned_end_date);
 			await page.evaluate(() => frappe.after_ajax());

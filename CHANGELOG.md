@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+-   Fetch Items routes only BOM scrap rows whose item belongs to the Scrap item group to the configured Scrap Warehouse; every other BOM scrap-table row (End Pieces) now targets the Work In Progress warehouse, in both Manufacture and Joint fetch flows
+
 ## [1.5.1] - 2026-10-30
 
 ### Fixed
