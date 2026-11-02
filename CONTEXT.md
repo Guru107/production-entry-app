@@ -212,9 +212,9 @@ Production consumption defaults to WIP, not the Raw Material Warehouse. Both Fet
 explicit source/target headers, route rejection to the Rejection Warehouse, scrap rows whose item belongs
 to the Scrap item group to the Scrap Warehouse and every other BOM scrap-table row (End Pieces) to the
 Work In Progress warehouse, and fail clearly when a required destination is missing. Every configured
-warehouse must belong to the selected Company. Work Order-backed flows, including those linked to a Shift, keep ERPNext's native
-warehouse configuration. Fetch Items does not introduce a save/submit override of manually selected row
-warehouses. Selecting a Shift without WIP still supplies company, branch and dates; missing warehouses
+warehouse must belong to the selected Company. Work Order-backed flows, including those linked to a Shift,
+keep ERPNext's native warehouse configuration. Fetch Items does not introduce a save/submit override of
+manually selected row warehouses. Selecting a Shift without WIP still supplies company, branch and dates; missing warehouses
 are required only when fetching rows that need them. Raw Material Warehouse remains Shift context;
 production consumes from WIP, not directly from the Raw Material Warehouse.
 

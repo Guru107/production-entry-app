@@ -192,6 +192,12 @@ class TestJointProductionCalculations(FrappeTestCase):
 			fields=["name", "item_name", "description", "stock_uom", "item_group"],
 		)
 
+	def test_item_details_skip_the_query_when_there_are_no_item_codes(self) -> None:
+		with patch("production_entry_app.production_entry_app.joint_production.frappe.get_list") as get_list:
+			self.assertEqual(_get_item_details([]), {})
+
+		get_list.assert_not_called()
+
 	def test_scrap_rate_fallback_uses_the_correct_cross_version_total_field(self) -> None:
 		cases = (
 			(frappe._dict(doctype="BOM Secondary Item", item_code="SCRAP", qty=2, rate=0, cost=8), 4),

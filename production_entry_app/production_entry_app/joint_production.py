@@ -1235,6 +1235,8 @@ def _item_row(
 
 def _get_item_details(item_codes: Iterable[str]) -> dict[str, frappe._dict]:
 	unique_item_codes = list(dict.fromkeys(item_codes))
+	if not unique_item_codes:
+		return {}
 	rows = frappe.get_list(
 		"Item",
 		filters={"name": ["in", unique_item_codes]},
