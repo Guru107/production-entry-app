@@ -13,14 +13,14 @@ WAREHOUSE_FIELDS: tuple[str, ...] = (
 	"scrap_warehouse",
 )
 
-# shortcut: only this BOM scrap-table item is true scrap; other scrap rows are End Pieces
-# consumed later from WIP. Upgrade to a configurable list when a second true scrap item appears.
-SCRAP_WAREHOUSE_ITEM_CODE: str = "MS Scrap"
+# shortcut: only BOM scrap-table items in this Item Group are true scrap; other scrap rows are
+# End Pieces consumed later from WIP. Exact match only; extend to child groups if they appear.
+SCRAP_ITEM_GROUP: str = "Scrap"
 
 
-def get_scrap_row_warehouse(warehouses: dict, item_code: str | None) -> str:
-	"""Route BOM scrap rows: MS Scrap to the Scrap Warehouse, End Pieces to WIP."""
-	if item_code == SCRAP_WAREHOUSE_ITEM_CODE:
+def get_scrap_row_warehouse(warehouses: dict, item_group: str | None) -> str:
+	"""Route BOM scrap rows: Scrap-group items to the Scrap Warehouse, End Pieces to WIP."""
+	if item_group == SCRAP_ITEM_GROUP:
 		return require_warehouse(warehouses, "scrap_warehouse")
 	return require_warehouse(warehouses, "work_in_progress_warehouse")
 

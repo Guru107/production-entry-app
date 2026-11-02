@@ -20,7 +20,7 @@ from production_entry_app.production_entry_app.utils.downtime_reason_seed import
 	seed_standard_downtime_reasons,
 )
 from production_entry_app.production_entry_app.utils.production_warehouses import (
-	SCRAP_WAREHOUSE_ITEM_CODE,
+	SCRAP_ITEM_GROUP,
 	WAREHOUSE_FIELDS,
 )
 from production_entry_app.production_entry_app.utils.shift_time import get_shift_planned_end_datetime
@@ -33,6 +33,7 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	ensure_department,
 	ensure_fiscal_year_for_date,
 	ensure_item,
+	ensure_item_group,
 	ensure_joint_test_bom,
 	ensure_operation,
 	ensure_operator,
@@ -747,12 +748,13 @@ def bootstrap_e2e_context(prefix: str = "E2E", cleanup_running: int = 1) -> dict
 		company=company,
 		is_default=True,
 	)
-	# BOM with one true-scrap row beside an End Piece, so E2E can see both scrap-row destinations.
-	ms_scrap_item = ensure_item(SCRAP_WAREHOUSE_ITEM_CODE, stock_uom="Kg")
-	joint_ms_scrap_bom = ensure_joint_test_bom(
-		item_code=ensure_item(f"_{prefix}_Joint_MS_Scrap_FG"),
+	# BOM with one Scrap-group row beside an End Piece, so E2E can see both scrap-row destinations.
+	ensure_item_group(SCRAP_ITEM_GROUP)
+	scrap_group_item = ensure_item(f"_{prefix}_Scrap_Group_Item", item_group=SCRAP_ITEM_GROUP, stock_uom="Kg")
+	true_scrap_bom = ensure_joint_test_bom(
+		item_code=ensure_item(f"_{prefix}_True_Scrap_FG"),
 		rm_item=joint_rm_item,
-		scrap_items=[(joint_scrap_item, 1, 10), (ms_scrap_item, 0.5, 10)],
+		scrap_items=[(joint_scrap_item, 1, 10), (scrap_group_item, 0.5, 10)],
 		company=company,
 		is_default=True,
 	)
@@ -846,8 +848,8 @@ def bootstrap_e2e_context(prefix: str = "E2E", cleanup_running: int = 1) -> dict
 		"joint_rm_item": joint_rm_item,
 		"joint_scrap_item": joint_scrap_item,
 		"joint_scrap_nos_item": joint_scrap_nos_item,
-		"ms_scrap_item": ms_scrap_item,
-		"joint_ms_scrap_bom": joint_ms_scrap_bom,
+		"scrap_group_item": scrap_group_item,
+		"true_scrap_bom": true_scrap_bom,
 		"joint_operation": "Shearing",
 		"joint_lh_bom": joint_lh_bom,
 		"joint_lh_bom_alt": joint_lh_bom_alt,

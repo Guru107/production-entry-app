@@ -50,7 +50,7 @@ A raw-material item produced as scrap by a shearing BOM. It may come from that p
 BOM or from another part's shearing BOMs, including an LH and RH pair such as `BOM-0101EW506320NSHR-003`
 and `BOM-0101EW506310NSHR-003` producing `0101EW506180NEP`. A later production run consumes it from WIP.
 The entry that consumes it does not manufacture it. Fetch Items routes End Piece scrap rows to the Work In
-Progress warehouse; only `MS Scrap` goes to the Scrap Warehouse.
+Progress warehouse; only scrap rows whose item belongs to the Scrap item group go to the Scrap Warehouse.
 _Avoid_: Second finished output, remnant consumed inside the entry that creates it
 
 **Total Press Strokes**:
@@ -209,10 +209,10 @@ warehouse values take precedence over its matching settings row; there is no glo
 copy only missing values. Existing Shifts keep their chosen warehouses when settings change.
 
 Production consumption defaults to WIP, not the Raw Material Warehouse. Both Fetch Items flows preserve
-explicit source/target headers, route rejection to the Rejection Warehouse, `MS Scrap` scrap rows to the
-Scrap Warehouse and every other BOM scrap-table row (End Pieces) to the Work In Progress warehouse, and
-fail clearly when a required destination is missing. Every configured warehouse must belong to the
-selected Company. Work Order-backed flows, including those linked to a Shift, keep ERPNext's native
+explicit source/target headers, route rejection to the Rejection Warehouse, scrap rows whose item belongs
+to the Scrap item group to the Scrap Warehouse and every other BOM scrap-table row (End Pieces) to the
+Work In Progress warehouse, and fail clearly when a required destination is missing. Every configured
+warehouse must belong to the selected Company. Work Order-backed flows, including those linked to a Shift, keep ERPNext's native
 warehouse configuration. Fetch Items does not introduce a save/submit override of manually selected row
 warehouses. Selecting a Shift without WIP still supplies company, branch and dates; missing warehouses
 are required only when fetching rows that need them. Raw Material Warehouse remains Shift context;

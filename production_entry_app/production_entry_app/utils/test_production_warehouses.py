@@ -28,17 +28,18 @@ class TestValidateWarehouseCompanies(FrappeTestCase):
 
 
 class TestScrapRowWarehouse(FrappeTestCase):
-	def test_only_ms_scrap_routes_to_the_scrap_warehouse(self) -> None:
+	def test_only_scrap_group_items_route_to_the_scrap_warehouse(self) -> None:
 		warehouses = {"scrap_warehouse": "Scrap - TC", "work_in_progress_warehouse": "WIP - TC"}
 
-		self.assertEqual(get_scrap_row_warehouse(warehouses, "MS Scrap"), "Scrap - TC")
-		self.assertEqual(get_scrap_row_warehouse(warehouses, "0101CS200490NENP"), "WIP - TC")
+		self.assertEqual(get_scrap_row_warehouse(warehouses, "Scrap"), "Scrap - TC")
+		self.assertEqual(get_scrap_row_warehouse(warehouses, "Products"), "WIP - TC")
+		self.assertEqual(get_scrap_row_warehouse(warehouses, None), "WIP - TC")
 
 	def test_scrap_row_warehouse_requires_only_the_used_destination(self) -> None:
 		with self.assertRaisesRegex(frappe.ValidationError, "Scrap Warehouse"):
-			get_scrap_row_warehouse({}, "MS Scrap")
+			get_scrap_row_warehouse({}, "Scrap")
 		with self.assertRaisesRegex(frappe.ValidationError, "Work In Progress Warehouse"):
-			get_scrap_row_warehouse({}, "0101CS200490NENP")
+			get_scrap_row_warehouse({}, "Products")
 
 
 class TestConfiguredScrapWarehouses(FrappeTestCase):

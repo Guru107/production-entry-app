@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime
 import json
+from collections.abc import Iterable
 
 import frappe
 from frappe import _
@@ -461,9 +462,11 @@ def get_items_with_rejection(doc: str) -> list[dict]:
 		set_production_header_warehouses(se, warehouses)
 	se.get_items()
 	if use_production_defaults:
-		for row in se.items:
-			if is_scrap_row(row):
-				row.t_warehouse = get_scrap_row_warehouse(warehouses, row.get("item_code"))
+		# Native scrap rows carry no item_group (ERPNext add_to_stock_entry_detail); resolve it here.
+		scrap_rows = [row for row in se.items if is_scrap_row(row)]
+		item_groups = _get_item_groups([row.item_code for row in scrap_rows])
+		for row in scrap_rows:
+			row.t_warehouse = get_scrap_row_warehouse(warehouses, item_groups.get(row.item_code))
 	se.set_actual_qty()
 	apply_direct_manufacture_alternative_flags(se)
 	_apply_rejection_entries(se)
@@ -488,6 +491,20 @@ def get_items_with_rejection(doc: str) -> list[dict]:
 		d = {k: v for k, v in row.as_dict().items() if k not in _meta_fields}
 		items.append(d)
 	return items
+
+
+def _get_item_groups(item_codes: Iterable[str]) -> dict[str, str]:
+	unique_codes = list(dict.fromkeys(item_codes))
+	if not unique_codes:
+		return {}
+	return dict(
+		frappe.get_list(
+			"Item",
+			filters={"name": ["in", unique_codes]},
+			fields=["name", "item_group"],
+			as_list=True,
+		)
+	)
 
 
 @frappe.whitelist()

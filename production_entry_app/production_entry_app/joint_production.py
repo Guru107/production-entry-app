@@ -294,7 +294,7 @@ def materialize_joint_production_rows(doc: Document) -> list[dict[str, Any]]:
 		scrap_row = _item_row(
 			item_code=scrap.item_code,
 			qty=scrap.qty,
-			t_warehouse=get_scrap_row_warehouse(warehouses, scrap.item_code),
+			t_warehouse=get_scrap_row_warehouse(warehouses, item_details[scrap.item_code].item_group),
 			item_details=item_details,
 		)
 		scrap_row.update(
@@ -1238,7 +1238,7 @@ def _get_item_details(item_codes: Iterable[str]) -> dict[str, frappe._dict]:
 	rows = frappe.get_list(
 		"Item",
 		filters={"name": ["in", unique_item_codes]},
-		fields=["name", "item_name", "description", "stock_uom"],
+		fields=["name", "item_name", "description", "stock_uom", "item_group"],
 	)
 	details = {row.get("name"): frappe._dict(row) for row in rows}
 	missing_item_codes = [item_code for item_code in unique_item_codes if item_code not in details]

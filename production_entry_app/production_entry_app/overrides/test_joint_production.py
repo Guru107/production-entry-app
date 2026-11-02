@@ -61,6 +61,7 @@ from production_entry_app.production_entry_app.tests.support.manufacture_builder
 	make_running_shift,
 )
 from production_entry_app.production_entry_app.utils.downtime_reason_seed import ensure_downtime_reason
+from production_entry_app.production_entry_app.utils.production_warehouses import SCRAP_ITEM_GROUP
 from production_entry_app.production_entry_app.utils.rejection_warehouse import resolve_rejection_warehouse
 from production_entry_app.production_entry_app.utils.stock_entry_branch import stock_entry_has_branch_field
 from production_entry_app.production_entry_app.utils.system_precision import override_system_precision
@@ -68,6 +69,7 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	build_joint_bom_scrap_row,
 	cleanup_running_shifts,
 	ensure_item,
+	ensure_item_group,
 	ensure_joint_test_bom,
 	ensure_operation,
 	ensure_operator,
@@ -187,7 +189,7 @@ class TestJointProductionCalculations(FrappeTestCase):
 		get_list.assert_called_once_with(
 			"Item",
 			filters={"name": ["in", ["RM", "FG"]]},
-			fields=["name", "item_name", "description", "stock_uom"],
+			fields=["name", "item_name", "description", "stock_uom", "item_group"],
 		)
 
 	def test_scrap_rate_fallback_uses_the_correct_cross_version_total_field(self) -> None:
@@ -612,16 +614,21 @@ class TestJointProductionItems(FrappeTestCase):
 					{self.masters["fg_warehouse"]},
 				)
 
-	def test_fetch_items_routes_only_ms_scrap_to_the_scrap_warehouse(self) -> None:
+	def test_fetch_items_routes_only_scrap_group_items_to_the_scrap_warehouse(self) -> None:
 		# Other BOM scrap-table rows are End Pieces consumed later from WIP (CONTEXT.md "End Piece").
-		ms_scrap = ensure_item("MS Scrap", stock_uom="Kg")
+		ensure_item_group(SCRAP_ITEM_GROUP)
+		true_scrap = ensure_item(
+			f"_Joint_True_Scrap_{frappe.generate_hash(length=6)}",
+			item_group=SCRAP_ITEM_GROUP,
+			stock_uom="Kg",
+		)
 		lh_bom = self._make_bom(
 			self.lh_item,
-			scrap_items=[(self.scrap_item, 1.125, 10), (ms_scrap, 0.5, 10)],
+			scrap_items=[(self.scrap_item, 1.125, 10), (true_scrap, 0.5, 10)],
 		)
 		rh_bom = self._make_bom(
 			self.rh_item,
-			scrap_items=[(self.scrap_item, 2.125, 10), (ms_scrap, 1.5, 10)],
+			scrap_items=[(self.scrap_item, 2.125, 10), (true_scrap, 1.5, 10)],
 		)
 		shift = make_running_shift(self.masters)
 		doc = self._make_joint_entry(shift, lh_bom=lh_bom, rh_bom=rh_bom)
@@ -638,7 +645,7 @@ class TestJointProductionItems(FrappeTestCase):
 				fetch = get_joint_production_items if joint else get_items_with_rejection
 				rows = fetch(json.dumps(payload, default=str))
 				targets = {row["item_code"]: row["t_warehouse"] for row in rows if _is_scrap_row(row)}
-				self.assertEqual(targets[ms_scrap], self.masters["scrap_warehouse"])
+				self.assertEqual(targets[true_scrap], self.masters["scrap_warehouse"])
 				self.assertEqual(targets[self.scrap_item], self.masters["wip_warehouse"])
 
 	def test_fetch_items_without_shift_uses_company_branch_defaults(self) -> None:
