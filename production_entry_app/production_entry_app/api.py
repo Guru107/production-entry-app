@@ -463,7 +463,7 @@ def get_items_with_rejection(doc: str) -> list[dict]:
 	se.get_items()
 	if use_production_defaults:
 		# Native scrap rows carry no item_group (ERPNext add_to_stock_entry_detail); resolve it here.
-		# _get_item_details throws on unreadable items instead of silently misrouting to WIP.
+		# _get_item_details ignores Item User Permissions (and throws on a missing item), so scrap is never misrouted.
 		scrap_rows = [row for row in se.items if is_scrap_row(row)]
 		item_details = _get_item_details([row.item_code for row in scrap_rows])
 		for row in scrap_rows:

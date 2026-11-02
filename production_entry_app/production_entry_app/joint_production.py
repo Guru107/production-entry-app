@@ -1237,7 +1237,9 @@ def _get_item_details(item_codes: Iterable[str]) -> dict[str, frappe._dict]:
 	unique_item_codes = list(dict.fromkeys(item_codes))
 	if not unique_item_codes:
 		return {}
-	rows = frappe.get_list(
+	# Internal lookup (callers check access on the Stock Entry/BOM): get_all, so User Permissions on
+	# Item cannot hide a scrap item and silently misroute it.
+	rows = frappe.get_all(
 		"Item",
 		filters={"name": ["in", unique_item_codes]},
 		fields=["name", "item_name", "description", "stock_uom", "item_group"],

@@ -177,26 +177,26 @@ class TestJointProductionCalculations(FrappeTestCase):
 
 	def test_joint_item_details_are_loaded_in_one_query(self) -> None:
 		with patch(
-			"production_entry_app.production_entry_app.joint_production.frappe.get_list",
+			"production_entry_app.production_entry_app.joint_production.frappe.get_all",
 			return_value=[
 				{"name": "RM", "item_name": "Raw Material", "description": "RM", "stock_uom": "Kg"},
 				{"name": "FG", "item_name": "Finished Good", "description": "FG", "stock_uom": "Nos"},
 			],
-		) as get_list:
+		) as get_all:
 			details = _get_item_details(["RM", "FG", "RM"])
 
 		self.assertEqual(set(details), {"RM", "FG"})
-		get_list.assert_called_once_with(
+		get_all.assert_called_once_with(
 			"Item",
 			filters={"name": ["in", ["RM", "FG"]]},
 			fields=["name", "item_name", "description", "stock_uom", "item_group"],
 		)
 
 	def test_item_details_skip_the_query_when_there_are_no_item_codes(self) -> None:
-		with patch("production_entry_app.production_entry_app.joint_production.frappe.get_list") as get_list:
+		with patch("production_entry_app.production_entry_app.joint_production.frappe.get_all") as get_all:
 			self.assertEqual(_get_item_details([]), {})
 
-		get_list.assert_not_called()
+		get_all.assert_not_called()
 
 	def test_scrap_rate_fallback_uses_the_correct_cross_version_total_field(self) -> None:
 		cases = (
@@ -676,27 +676,33 @@ class TestJointProductionItems(FrappeTestCase):
 				with self.assertRaisesRegex(frappe.ValidationError, "Work In Progress Warehouse"):
 					fetch(json.dumps(payload, default=str))
 
-	def test_fetch_items_fails_clearly_when_a_scrap_item_is_not_readable(self) -> None:
-		# A user permission hiding the scrap item must fail loudly, not silently route it to WIP.
+	def test_fetch_items_routes_scrap_group_items_hidden_by_item_user_permissions(self) -> None:
+		# Item details are an internal lookup: a user permission hiding the scrap item must neither
+		# misroute it to WIP nor block the fetch.
+		ensure_item_group(SCRAP_ITEM_GROUP)
+		scrap_group_item = ensure_item(
+			f"_Hidden_Scrap_Group_{frappe.generate_hash(length=6)}",
+			item_group=SCRAP_ITEM_GROUP,
+			stock_uom="Kg",
+		)
+		bom = self._make_bom(self.lh_item, scrap_items=[(scrap_group_item, 0.5, 10)])
 		real_get_list = frappe.get_list
 
 		def _hide_items(doctype: str, *args: Any, **kwargs: Any) -> list:
-			if doctype == "Item":
+			# A User Permission only filters permission-checked reads; get_all passes ignore_permissions.
+			if doctype == "Item" and not kwargs.get("ignore_permissions"):
 				return []
 			return real_get_list(doctype, *args, **kwargs)
 
 		shift = make_running_shift(self.masters)
 		doc = self._make_joint_entry(shift)
 		payload = doc.as_dict()
-		payload.update(
-			purpose="Manufacture",
-			stock_entry_type="Manufacture",
-			bom_no=self.lh_bom,
-			fg_completed_qty=40,
-		)
+		payload.update(purpose="Manufacture", stock_entry_type="Manufacture", bom_no=bom, fg_completed_qty=40)
 		with patch.object(frappe, "get_list", _hide_items):
-			with self.assertRaisesRegex(frappe.ValidationError, "Unable to load Item"):
-				get_items_with_rejection(json.dumps(payload, default=str))
+			rows = get_items_with_rejection(json.dumps(payload, default=str))
+
+		targets = {row["item_code"]: row["t_warehouse"] for row in rows if _is_scrap_row(row)}
+		self.assertEqual(targets[scrap_group_item], self.masters["scrap_warehouse"])
 
 	def test_fetch_items_without_shift_uses_company_branch_defaults(self) -> None:
 		shift = make_running_shift(self.masters)
@@ -1777,16 +1783,16 @@ class TestJointProductionItems(FrappeTestCase):
 		shift = make_running_shift(self.masters)
 		doc = self._make_joint_entry(shift)
 		doc.set("items", [])
-		original_get_list = frappe.get_list
+		original_get_all = frappe.get_all
 
 		def omit_rh_item(doctype: str, *args: Any, **kwargs: Any) -> list[dict[str, Any]]:
-			rows = original_get_list(doctype, *args, **kwargs)
+			rows = original_get_all(doctype, *args, **kwargs)
 			if doctype == "Item":
 				return [row for row in rows if row.get("name") != self.rh_item]
 			return rows
 
 		with patch(
-			"production_entry_app.production_entry_app.joint_production.frappe.get_list",
+			"production_entry_app.production_entry_app.joint_production.frappe.get_all",
 			side_effect=omit_rh_item,
 		):
 			with self.assertRaisesRegex(frappe.ValidationError, "Unable to load Item"):
