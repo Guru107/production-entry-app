@@ -119,10 +119,11 @@ authoritative for their topics; this record covers the remaining seams.
 ## Warehouse and branch defaults
 
 - Fetch Items for direct Manufacture (no Work Order) and for joint entries fills blank header warehouses
-  from the Shift or Company/Branch WIP default and routes scrap rows to the configured Scrap Warehouse
-  instead of the BOM or Manufacturing Settings scrap warehouse. Work Order flows keep native warehouses
-  (CONTEXT.md "Warehouse defaults"). Issue #87 lists warehouse overrides as out of scope; the maintainer
-  accepted this bounded exception during PR #79 review.
+  from the Shift or Company/Branch WIP default and routes scrap rows by item: `MS Scrap` to the configured
+  Scrap Warehouse, every other BOM scrap-table row (End Pieces, CONTEXT.md "End Piece") to the configured
+  Work In Progress warehouse — instead of the BOM or Manufacturing Settings scrap warehouse. Work Order
+  flows keep native warehouses (CONTEXT.md "Warehouse defaults"). Issue #87 lists warehouse overrides as
+  out of scope; the maintainer accepted this bounded exception during PR #79 review.
 - Selecting a Shift copies its branch into the host-owned `Stock Entry.branch` only when that field exists
   (CONTEXT.md "Branch Ownership Handoff").
 

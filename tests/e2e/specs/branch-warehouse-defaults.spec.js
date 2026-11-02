@@ -82,7 +82,7 @@ test.describe("Branch warehouse defaults", () => {
 				await form.fillJointProductionFields(ctx, { lhRejectionQty: 1 });
 			} else {
 				await setFieldValue(page, "from_bom", 1);
-				await setFieldValue(page, "bom_no", ctx.joint_lh_bom);
+				await setFieldValue(page, "bom_no", ctx.joint_ms_scrap_bom);
 				await setFieldValue(page, "fg_completed_qty", 40);
 				await setFieldValue(page, "custom_pea_rejection_qty", 1);
 			}
@@ -100,11 +100,23 @@ test.describe("Branch warehouse defaults", () => {
 			for (const row of rows.filter((row) => row.t_warehouse)) {
 				expect(row.t_warehouse).toBe(
 					isScrap(row)
-						? ctx.rm_warehouse // BOM scrap rows other than MS Scrap (End Pieces) land in WIP
+						? row.item_code === ctx.ms_scrap_item
+							? ctx.scrap_warehouse
+							: ctx.rm_warehouse // End Pieces land in WIP (remapped here)
 						: row.custom_pea_is_rejection_item
 						? ctx.rejection_warehouse
 						: ctx.fg_warehouse
 				);
+			}
+			if (!joint) {
+				// The MS Scrap BOM carries one true-scrap row: it must reach the Scrap Warehouse.
+				expect(
+					rows.some(
+						(row) =>
+							row.item_code === ctx.ms_scrap_item &&
+							row.t_warehouse === ctx.scrap_warehouse
+					)
+				).toBe(true);
 			}
 		}
 	});
