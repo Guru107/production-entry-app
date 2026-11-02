@@ -79,10 +79,17 @@ test.describe("Branch warehouse defaults", () => {
 			await form.waitForFieldValue("to_warehouse", ctx.rm_warehouse);
 			await setFieldValue(page, "to_warehouse", ctx.fg_warehouse);
 			if (joint) {
-				await form.fillJointProductionFields(ctx, { lhRejectionQty: 1 });
+				await form.fillJointProductionFields(
+					{
+						...ctx,
+						joint_lh_bom: ctx.scrap_group_bom,
+						joint_rh_bom: ctx.scrap_group_bom_2,
+					},
+					{ lhRejectionQty: 1 }
+				);
 			} else {
 				await setFieldValue(page, "from_bom", 1);
-				await setFieldValue(page, "bom_no", ctx.true_scrap_bom);
+				await setFieldValue(page, "bom_no", ctx.scrap_group_bom);
 				await setFieldValue(page, "fg_completed_qty", 40);
 				await setFieldValue(page, "custom_pea_rejection_qty", 1);
 			}
@@ -108,16 +115,14 @@ test.describe("Branch warehouse defaults", () => {
 						: ctx.fg_warehouse
 				);
 			}
-			if (!joint) {
-				// The true-scrap BOM carries one Scrap-group row: it must reach the Scrap Warehouse.
-				expect(
-					rows.some(
-						(row) =>
-							row.item_code === ctx.scrap_group_item &&
-							row.t_warehouse === ctx.scrap_warehouse
-					)
-				).toBe(true);
-			}
+			// The BOM pair carries one Scrap-group row: it must reach the Scrap Warehouse in both flows.
+			expect(
+				rows.some(
+					(row) =>
+						row.item_code === ctx.scrap_group_item &&
+						row.t_warehouse === ctx.scrap_warehouse
+				)
+			).toBe(true);
 		}
 	});
 

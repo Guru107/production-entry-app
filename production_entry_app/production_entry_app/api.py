@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import datetime
 import json
-from collections.abc import Iterable
 
 import frappe
 from frappe import _
@@ -14,6 +13,7 @@ from pypika import Order
 from production_entry_app.production_entry_app.joint_production import (
 	JOINT_PRODUCTION_LINES_FIELD,
 	MAX_JOINT_PRODUCTION_BOM_SIDES,
+	_get_item_details,
 	_normalize_operation,
 	is_joint_production_stock_entry_type,
 	is_scrap_row,
@@ -463,10 +463,11 @@ def get_items_with_rejection(doc: str) -> list[dict]:
 	se.get_items()
 	if use_production_defaults:
 		# Native scrap rows carry no item_group (ERPNext add_to_stock_entry_detail); resolve it here.
+		# _get_item_details throws on unreadable items instead of silently misrouting to WIP.
 		scrap_rows = [row for row in se.items if is_scrap_row(row)]
-		item_groups = _get_item_groups([row.item_code for row in scrap_rows])
+		item_details = _get_item_details([row.item_code for row in scrap_rows])
 		for row in scrap_rows:
-			row.t_warehouse = get_scrap_row_warehouse(warehouses, item_groups.get(row.item_code))
+			row.t_warehouse = get_scrap_row_warehouse(warehouses, item_details[row.item_code].item_group)
 	se.set_actual_qty()
 	apply_direct_manufacture_alternative_flags(se)
 	_apply_rejection_entries(se)
@@ -491,20 +492,6 @@ def get_items_with_rejection(doc: str) -> list[dict]:
 		d = {k: v for k, v in row.as_dict().items() if k not in _meta_fields}
 		items.append(d)
 	return items
-
-
-def _get_item_groups(item_codes: Iterable[str]) -> dict[str, str]:
-	unique_codes = list(dict.fromkeys(item_codes))
-	if not unique_codes:
-		return {}
-	return dict(
-		frappe.get_list(
-			"Item",
-			filters={"name": ["in", unique_codes]},
-			fields=["name", "item_group"],
-			as_list=True,
-		)
-	)
 
 
 @frappe.whitelist()

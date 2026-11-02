@@ -33,7 +33,6 @@ class TestScrapRowWarehouse(FrappeTestCase):
 
 		self.assertEqual(get_scrap_row_warehouse(warehouses, "Scrap"), "Scrap - TC")
 		self.assertEqual(get_scrap_row_warehouse(warehouses, "Products"), "WIP - TC")
-		self.assertEqual(get_scrap_row_warehouse(warehouses, None), "WIP - TC")
 
 	def test_scrap_row_warehouse_requires_only_the_used_destination(self) -> None:
 		with self.assertRaisesRegex(frappe.ValidationError, "Scrap Warehouse"):

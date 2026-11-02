@@ -617,18 +617,18 @@ class TestJointProductionItems(FrappeTestCase):
 	def test_fetch_items_routes_only_scrap_group_items_to_the_scrap_warehouse(self) -> None:
 		# Other BOM scrap-table rows are End Pieces consumed later from WIP (CONTEXT.md "End Piece").
 		ensure_item_group(SCRAP_ITEM_GROUP)
-		true_scrap = ensure_item(
-			f"_Joint_True_Scrap_{frappe.generate_hash(length=6)}",
+		scrap_group_item = ensure_item(
+			f"_Joint_Scrap_Group_{frappe.generate_hash(length=6)}",
 			item_group=SCRAP_ITEM_GROUP,
 			stock_uom="Kg",
 		)
 		lh_bom = self._make_bom(
 			self.lh_item,
-			scrap_items=[(self.scrap_item, 1.125, 10), (true_scrap, 0.5, 10)],
+			scrap_items=[(self.scrap_item, 1.125, 10), (scrap_group_item, 0.5, 10)],
 		)
 		rh_bom = self._make_bom(
 			self.rh_item,
-			scrap_items=[(self.scrap_item, 2.125, 10), (true_scrap, 1.5, 10)],
+			scrap_items=[(self.scrap_item, 2.125, 10), (scrap_group_item, 1.5, 10)],
 		)
 		shift = make_running_shift(self.masters)
 		doc = self._make_joint_entry(shift, lh_bom=lh_bom, rh_bom=rh_bom)
@@ -645,8 +645,52 @@ class TestJointProductionItems(FrappeTestCase):
 				fetch = get_joint_production_items if joint else get_items_with_rejection
 				rows = fetch(json.dumps(payload, default=str))
 				targets = {row["item_code"]: row["t_warehouse"] for row in rows if _is_scrap_row(row)}
-				self.assertEqual(targets[true_scrap], self.masters["scrap_warehouse"])
+				self.assertEqual(targets[scrap_group_item], self.masters["scrap_warehouse"])
 				self.assertEqual(targets[self.scrap_item], self.masters["wip_warehouse"])
+
+	def test_fetch_items_with_end_piece_requires_wip_even_with_manual_warehouses(self) -> None:
+		# End Piece scrap rows need the configured WIP warehouse; manual headers are no substitute.
+		set_test_branch_warehouse_defaults(
+			self.masters["company"], self.masters["branch"], work_in_progress_warehouse=None
+		)
+		shift = make_running_shift(self.masters)
+		shift.db_set("work_in_progress_warehouse", None, update_modified=False)
+		doc = self._make_joint_entry(shift, fetch_items=False)
+		for joint in (True, False):
+			with self.subTest(joint=joint):
+				payload = doc.as_dict()
+				if not joint:
+					payload.update(
+						purpose="Manufacture",
+						stock_entry_type="Manufacture",
+						bom_no=self.lh_bom,
+						fg_completed_qty=40,
+					)
+				fetch = get_joint_production_items if joint else get_items_with_rejection
+				with self.assertRaisesRegex(frappe.ValidationError, "Work In Progress Warehouse"):
+					fetch(json.dumps(payload, default=str))
+
+	def test_fetch_items_fails_clearly_when_a_scrap_item_is_not_readable(self) -> None:
+		# A user permission hiding the scrap item must fail loudly, not silently route it to WIP.
+		real_get_list = frappe.get_list
+
+		def _hide_items(doctype: str, *args: Any, **kwargs: Any) -> list:
+			if doctype == "Item":
+				return []
+			return real_get_list(doctype, *args, **kwargs)
+
+		shift = make_running_shift(self.masters)
+		doc = self._make_joint_entry(shift)
+		payload = doc.as_dict()
+		payload.update(
+			purpose="Manufacture",
+			stock_entry_type="Manufacture",
+			bom_no=self.lh_bom,
+			fg_completed_qty=40,
+		)
+		with patch.object(frappe, "get_list", _hide_items):
+			with self.assertRaisesRegex(frappe.ValidationError, "Unable to load Item"):
+				get_items_with_rejection(json.dumps(payload, default=str))
 
 	def test_fetch_items_without_shift_uses_company_branch_defaults(self) -> None:
 		shift = make_running_shift(self.masters)

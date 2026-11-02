@@ -748,13 +748,20 @@ def bootstrap_e2e_context(prefix: str = "E2E", cleanup_running: int = 1) -> dict
 		company=company,
 		is_default=True,
 	)
-	# BOM with one Scrap-group row beside an End Piece, so E2E can see both scrap-row destinations.
+	# BOM pair with one Scrap-group row beside an End Piece, so E2E can see both scrap-row destinations.
 	ensure_item_group(SCRAP_ITEM_GROUP)
 	scrap_group_item = ensure_item(f"_{prefix}_Scrap_Group_Item", item_group=SCRAP_ITEM_GROUP, stock_uom="Kg")
-	true_scrap_bom = ensure_joint_test_bom(
-		item_code=ensure_item(f"_{prefix}_True_Scrap_FG"),
+	scrap_group_bom = ensure_joint_test_bom(
+		item_code=ensure_item(f"_{prefix}_Scrap_Group_FG"),
 		rm_item=joint_rm_item,
 		scrap_items=[(joint_scrap_item, 1, 10), (scrap_group_item, 0.5, 10)],
+		company=company,
+		is_default=True,
+	)
+	scrap_group_bom_2 = ensure_joint_test_bom(
+		item_code=ensure_item(f"_{prefix}_Scrap_Group_FG_2"),
+		rm_item=joint_rm_item,
+		scrap_items=[(joint_scrap_item, 2, 10), (scrap_group_item, 0.5, 10)],
 		company=company,
 		is_default=True,
 	)
@@ -849,7 +856,8 @@ def bootstrap_e2e_context(prefix: str = "E2E", cleanup_running: int = 1) -> dict
 		"joint_scrap_item": joint_scrap_item,
 		"joint_scrap_nos_item": joint_scrap_nos_item,
 		"scrap_group_item": scrap_group_item,
-		"true_scrap_bom": true_scrap_bom,
+		"scrap_group_bom": scrap_group_bom,
+		"scrap_group_bom_2": scrap_group_bom_2,
 		"joint_operation": "Shearing",
 		"joint_lh_bom": joint_lh_bom,
 		"joint_lh_bom_alt": joint_lh_bom_alt,
