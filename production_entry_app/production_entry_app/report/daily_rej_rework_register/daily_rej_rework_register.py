@@ -10,6 +10,7 @@ from frappe.utils import flt, get_datetime, getdate
 from production_entry_app.production_entry_app.joint_production import JOINT_PRODUCTION_LINES_FIELD
 from production_entry_app.production_entry_app.report.report_utils import (
 	apply_system_precision,
+	build_overall_row,
 	build_stock_entry_filters,
 	get_entry_output_quantities,
 	get_entry_report_operation,
@@ -19,6 +20,7 @@ from production_entry_app.production_entry_app.report.report_utils import (
 	is_paired_production_entry,
 	iter_stock_entries_in_chunks,
 	new_interactive_report_timeout_guard,
+	safe_ratio,
 )
 from production_entry_app.production_entry_app.rework import SECONDS_PER_HOUR
 from production_entry_app.production_entry_app.utils.system_precision import get_system_float_precision
@@ -177,12 +179,20 @@ def _get_rows(filters: dict) -> list[dict]:
 	lines_by_day: defaultdict[datetime.date, list[dict]] = defaultdict(list)
 	for line in line_rows:
 		lines_by_day[line["day"]].append(line)
+	# Overall bases come from the day-level figures: the per-row cells repeat across levels.
+	overall_fg = overall_hours = overall_rejection = overall_rework = 0.0
+	overall_operators: set[str] = set()
 	for day in sorted(lines_by_day):
 		day_fg = day_totals.get(day, 0.0)
 		day_rework = rework_by_day.get(day) or {}
 		day_rejection_qty = sum(line["rejection_qty"] for line in lines_by_day[day])
 		# The subtotal sums the lines above it: declared reworkable qty per reason.
 		day_declared_rework_qty = sum(line["rework_qty"] for line in lines_by_day[day])
+		overall_fg += day_fg
+		overall_hours += flt(day_rework.get("hours", 0.0))
+		overall_operators.update(day_rework.get("operators", ()))
+		overall_rejection += day_rejection_qty
+		overall_rework += day_declared_rework_qty
 		rows.append(
 			{
 				"production_date": day,
@@ -253,6 +263,18 @@ def _get_rows(filters: dict) -> list[dict]:
 				"bold": 1,
 			}
 		)
+	rows.append(
+		build_overall_row(
+			"production_date",
+			day_fg_qty=flt(overall_fg, precision),
+			operator_count=len(overall_operators),
+			rework_hours=flt(overall_hours, precision),
+			rejection_qty=flt(overall_rejection, precision),
+			rework_qty=flt(overall_rework, precision),
+			rej_ppm=flt(safe_ratio(overall_rejection, overall_fg, PPM_MULTIPLIER), precision),
+			rework_ppm=flt(safe_ratio(overall_rework, overall_fg, PPM_MULTIPLIER), precision),
+		)
+	)
 	return rows
 
 
