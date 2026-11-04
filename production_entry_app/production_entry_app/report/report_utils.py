@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime
 import time
 from collections import defaultdict
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from typing import Any, NamedTuple
 
 import frappe
@@ -1195,6 +1195,15 @@ def format_numeric_summary(value: float) -> str:
 		value,
 		df={"fieldtype": "Float", "precision": get_report_float_precision()},
 	)
+
+
+def sum_rows(rows: list[dict], fieldnames: Sequence[str]) -> dict[str, float]:
+	"""Per-field sums over report rows; the bases an Overall Row recomputes its ratios from."""
+	return {fieldname: flt(sum(flt(row.get(fieldname)) for row in rows)) for fieldname in fieldnames}
+
+
+def safe_ratio(numerator: float, denominator: float, scale: float = 1) -> float:
+	return flt(numerator / denominator * scale) if denominator > 0 else 0
 
 
 def build_overall_row(label_field: str, **values: Any) -> dict:
