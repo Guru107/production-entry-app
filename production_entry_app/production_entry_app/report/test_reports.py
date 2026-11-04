@@ -4173,7 +4173,7 @@ class TestProductionReports(FrappeTestCase):
 			execute,
 		)
 
-		for day, fg_qty, rework_qty, other_qty in (("2026-07-10", 100, 10, 2), ("2026-07-11", 300, 0, 4)):
+		for day, fg_qty, rework_qty, other_qty in (("2093-07-10", 100, 10, 2), ("2093-07-11", 300, 0, 4)):
 			shift = self._create_shift_for_label(day, "1")
 			breakup = [{"rejection_reason": "Burr", "qty": other_qty, "is_rework": 0}]
 			if rework_qty:
@@ -4190,7 +4190,7 @@ class TestProductionReports(FrappeTestCase):
 			)
 
 		_, rows, _, chart = execute(
-			{"from_date": "2026-07-10", "to_date": "2026-07-11", "time_grain": "Daily"}
+			{"from_date": "2093-07-10", "to_date": "2093-07-11", "time_grain": "Daily"}
 		)
 
 		self.assertEqual(len(rows), 3)
@@ -4203,7 +4203,7 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(float(overall["non_rework_rejection_qty"]), 6.0)
 		# 10 / 400, not the mean of the period rates (10% and 0%).
 		self.assertEqual(float(overall["rework_rate_pct"]), 2.5)
-		self.assertEqual(chart["data"]["labels"], ["2026-07-10", "2026-07-11"])
+		self.assertEqual(chart["data"]["labels"], ["2093-07-10", "2093-07-11"])
 
 	def test_rework_ppm_report_data(self) -> None:
 		from production_entry_app.production_entry_app.report.rework_ppm_report.rework_ppm_report import (
