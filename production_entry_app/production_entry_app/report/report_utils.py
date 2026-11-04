@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime
 import time
 from collections import defaultdict
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from typing import Any, NamedTuple
 
 import frappe
@@ -1204,6 +1204,20 @@ def sum_rows(rows: list[dict], fieldnames: Sequence[str]) -> dict[str, float]:
 
 def safe_ratio(numerator: float, denominator: float, scale: float = 1) -> float:
 	return flt(numerator / denominator * scale) if denominator > 0 else 0
+
+
+def merge_aggregates(aggregates: Iterable[dict]) -> dict:
+	"""Combine group aggregates for an Overall Row: numbers add, {key: number} maps add per key."""
+	merged: dict = {}
+	for agg in aggregates:
+		for key, value in agg.items():
+			if isinstance(value, dict):
+				target = merged.setdefault(key, {})
+				for inner_key, inner_value in value.items():
+					target[inner_key] = flt(target.get(inner_key)) + flt(inner_value)
+			else:
+				merged[key] = merged.get(key, 0) + value
+	return merged
 
 
 def build_summed_overall_row(
