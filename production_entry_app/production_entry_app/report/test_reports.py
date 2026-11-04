@@ -3894,6 +3894,28 @@ class TestProductionReports(FrappeTestCase):
 		self.assertAlmostEqual(float(overall["rejection_rate_pct"]), 12 / 180 * 100, places=6)
 		self.assertEqual(overall["dominant_reason"], "Crack (6)")
 
+	def test_item_bom_hotspots_return_no_rows_when_bom_filter_removes_every_fact(self) -> None:
+		from production_entry_app.production_entry_app.report import report_utils
+
+		with (
+			patch.object(report_utils, "iter_stock_entries_in_chunks", return_value=[[{"name": "SE-1"}]]),
+			patch.object(
+				report_utils,
+				"get_item_bom_quality_facts",
+				return_value=[{"parent": "SE-1", "item_code": "A", "bom_no": "BOM-OTHER", "total_qty": 10}],
+			),
+		):
+			rows = report_utils.get_item_bom_quality_hotspot_rows(
+				{"bom_no": "BOM-WANTED"},
+				is_rework=False,
+				quantity_field="rejection_qty",
+				rate_field="rejection_rate_pct",
+				timeout_guard=lambda: None,
+			)
+
+		# Nothing survives the filter: no rows, and so no Overall Row either.
+		self.assertEqual(rows, [])
+
 	def test_item_bom_rejection_hotspots_filters_fg_item(self) -> None:
 		from production_entry_app.production_entry_app.report.item_bom_rejection_hotspots.item_bom_rejection_hotspots import (
 			execute,
@@ -4929,7 +4951,7 @@ class TestProductionReports(FrappeTestCase):
 				"custom_pea_operator": "Report Operator",
 			}
 		)
-		# Should have 1 data row + 1 totals row
+		# Should have 1 data row + 1 Overall Row
 		self.assertEqual(len(rows), 2)
 		data_row = rows[0]
 		self.assertEqual(data_row["date"], "2080-05-10")
