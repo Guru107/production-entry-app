@@ -210,7 +210,7 @@ class TestProductionReports(FrappeTestCase):
 			ignore_prepared_report=True,
 		)
 
-		self.assertEqual(len(result["result"]), 1)
+		self.assertEqual(len(result["result"]), 2)  # group + Overall Row
 		self.assertEqual(result["result"][0]["operator"], "Report Operator")
 
 	def test_report_period_uses_shift_production_date_instead_of_posting_date(self) -> None:
@@ -2282,11 +2282,16 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"from_date": "2026-06-02", "to_date": "2026-06-02"})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # group + Overall Row
 		self.assertEqual(rows[0]["operator"], "Report Operator")
 		self.assertEqual(int(rows[0]["entries"]), 2)
 		self.assertEqual(float(rows[0]["total_units"]), 240.0)
 		self.assertEqual(float(rows[0]["operator_efficiency_pct"]), 100.0)
+		self.assertEqual(rows[-1]["operator"], "Overall")
+		self.assertEqual(rows[-1]["bold"], 1)
+		self.assertEqual(int(rows[-1]["entries"]), 2)
+		self.assertEqual(float(rows[-1]["total_units"]), 240.0)
+		self.assertEqual(float(rows[-1]["operator_efficiency_pct"]), 100.0)
 
 	def test_operator_efficiency_report_filters_by_operation_stock_entry_type(self) -> None:
 		from production_entry_app.production_entry_app.report.operator_efficiency_report.operator_efficiency_report import (
@@ -2330,7 +2335,7 @@ class TestProductionReports(FrappeTestCase):
 				"custom_pea_operation": blanking,
 			}
 		)
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # group + Overall Row
 		self.assertEqual(int(rows[0]["entries"]), 1)
 		self.assertEqual(float(rows[0]["total_units"]), 55.0)
 
@@ -2362,7 +2367,7 @@ class TestProductionReports(FrappeTestCase):
 		):
 			with self.subTest(report=efficiency_field):
 				_, rows = execute({"from_date": "2026-06-16", "to_date": "2026-06-16"})
-				self.assertEqual(len(rows), 1)
+				self.assertEqual(len(rows), 2)  # group + Overall Row
 				self.assertEqual(float(rows[0]["good_qty"]), 100.0)
 				self.assertEqual(float(rows[0]["rejection_qty"]), 20.0)
 				self.assertEqual(float(rows[0]["total_units"]), 120.0)
@@ -2402,7 +2407,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"from_date": "2026-06-02", "to_date": "2026-06-02"})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # group + Overall Row
 		self.assertAlmostEqual(float(rows[0]["actual_spm"]), 3.333, places=3)
 		self.assertEqual(float(rows[0]["standard_spm"]), 4.0)
 		self.assertAlmostEqual(float(rows[0]["operator_efficiency_pct"]), 83.33, delta=0.02)
@@ -2430,7 +2435,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"from_date": "2026-06-14", "to_date": "2026-06-14"})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # group + Overall Row
 		# 60 strokes over 15 minutes production time => 4 SPM, standard=2 => 200% efficiency.
 		self.assertAlmostEqual(float(rows[0]["actual_spm"]), 4.0, places=3)
 		self.assertAlmostEqual(float(rows[0]["standard_spm"]), 2.0, places=3)
@@ -2455,7 +2460,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"from_date": "2026-06-14", "to_date": "2026-06-14"})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # group + Overall Row
 		# Tea Break (09:00-09:10) is deducted from the 30 min window => 20 min production.
 		self.assertAlmostEqual(float(rows[0]["actual_spm"]), 1.5, places=3)
 
@@ -2477,7 +2482,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"from_date": "2026-06-03", "to_date": "2026-06-03"})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # group + Overall Row
 		self.assertEqual(rows[0]["workstation"], "Report Workstation")
 		self.assertEqual(int(rows[0]["entries"]), 1)
 		self.assertEqual(float(rows[0]["actual_spm"]), 2.0)
@@ -2507,7 +2512,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"from_date": "2026-06-15", "to_date": "2026-06-15"})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # group + Overall Row
 		# 90 strokes over 30 minutes production time => 3 SPM, standard=3 => 100% efficiency.
 		self.assertAlmostEqual(float(rows[0]["actual_spm"]), 3.0, places=3)
 		self.assertAlmostEqual(float(rows[0]["standard_spm"]), 3.0, places=3)
@@ -2545,7 +2550,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"from_date": "2026-06-15", "to_date": "2026-06-15"})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # group + Overall Row
 		self.assertAlmostEqual(float(rows[0]["actual_spm"]), 3.333, places=3)
 		self.assertEqual(float(rows[0]["standard_spm"]), 4.0)
 		self.assertAlmostEqual(float(rows[0]["workstation_efficiency_pct"]), 83.33, delta=0.02)
@@ -2594,7 +2599,7 @@ class TestProductionReports(FrappeTestCase):
 		):
 			with self.subTest(efficiency_field=efficiency_field):
 				_, rows = execute(filters)
-				self.assertEqual(len(rows), 1)
+				self.assertEqual(len(rows), 2)  # group + Overall Row
 				self.assertAlmostEqual(float(rows[0]["actual_spm"]), 15.0, places=3)
 				self.assertAlmostEqual(float(rows[0]["standard_spm"]), 15.0, places=3)
 				self.assertAlmostEqual(float(rows[0][efficiency_field]), 100.0, places=2)
@@ -2637,6 +2642,54 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(len(rows), 1)
 		self.assertAlmostEqual(float(rows[0]["actual_spm"]), 2.0, places=3)
 		self.assertAlmostEqual(float(rows[0]["standard_spm"]), 2.0, places=3)
+
+	def test_efficiency_overall_row_recomputes_spm_and_efficiency_from_summed_bases(self) -> None:
+		from production_entry_app.production_entry_app.report.report_utils import (
+			aggregate_efficiency_by_field,
+			build_efficiency_rows_with_overall,
+		)
+
+		def make_entry(operator: str, units: float, strokes: float, mins: float, std_spm: float) -> dict:
+			return {
+				"custom_pea_operator": operator,
+				"_good_qty": units,
+				"_rejection_qty": 0,
+				"_rework_qty": 1,
+				"_total_strokes": strokes,
+				"_production_time_mins": mins,
+				"_duration_mins": mins,
+				"custom_pea_standard_spm": std_spm,
+				"custom_pea_actual_spm": 0,
+			}
+
+		aggregates = aggregate_efficiency_by_field(
+			[make_entry("A", 100, 600, 60, 2), make_entry("B", 300, 1800, 60, 10)], "custom_pea_operator"
+		)
+
+		rows = build_efficiency_rows_with_overall(aggregates, "operator", "operator_efficiency_pct")
+
+		self.assertEqual([row["operator"] for row in rows], ["A", "B", "Overall"])
+		overall = rows[-1]
+		self.assertEqual(overall["bold"], 1)
+		self.assertEqual(overall["entries"], 2)
+		self.assertEqual(overall["good_qty"], 400)
+		self.assertEqual(overall["rework_qty"], 2)
+		self.assertEqual(overall["total_units"], 400)
+		# 2400 strokes / 120 mins, not the mean of 10 and 30.
+		self.assertAlmostEqual(overall["actual_spm"], 20.0, places=6)
+		# Standard SPM is production-time weighted: (2*60 + 10*60) / 120.
+		self.assertAlmostEqual(overall["standard_spm"], 6.0, places=6)
+		self.assertAlmostEqual(overall["operator_efficiency_pct"], 20 / 6 * 100, places=6)
+
+	def test_efficiency_overall_row_is_omitted_without_data(self) -> None:
+		from production_entry_app.production_entry_app.report.report_utils import (
+			build_efficiency_rows_with_overall,
+			new_efficiency_aggregates,
+		)
+
+		self.assertEqual(
+			build_efficiency_rows_with_overall(new_efficiency_aggregates(), "operator", "pct"), []
+		)
 
 	def test_aggregate_efficiency_uses_weighted_standard_spm(self) -> None:
 		from production_entry_app.production_entry_app.report.report_utils import (
@@ -2983,9 +3036,9 @@ class TestProductionReports(FrappeTestCase):
 		filters = {"from_date": "2026-06-05", "to_date": "2026-06-05", "fg_item": self.fg_item}
 		_, operator_rows = operator_execute(filters)
 		_, workstation_rows = workstation_execute(filters)
-		self.assertEqual(len(operator_rows), 1)
+		self.assertEqual(len(operator_rows), 2)  # group + Overall Row
 		self.assertEqual(float(operator_rows[0]["total_units"]), 100.0)
-		self.assertEqual(len(workstation_rows), 1)
+		self.assertEqual(len(workstation_rows), 2)  # group + Overall Row
 		self.assertEqual(float(workstation_rows[0]["total_units"]), 100.0)
 
 	def test_operator_and_workstation_reports_group_unassigned(self) -> None:
@@ -3013,9 +3066,9 @@ class TestProductionReports(FrappeTestCase):
 		filters = {"from_date": "2026-06-06", "to_date": "2026-06-06"}
 		_, operator_rows = operator_execute(filters)
 		_, workstation_rows = workstation_execute(filters)
-		self.assertEqual(len(operator_rows), 1)
+		self.assertEqual(len(operator_rows), 2)  # group + Overall Row
 		self.assertEqual(operator_rows[0]["operator"], "Unassigned")
-		self.assertEqual(len(workstation_rows), 1)
+		self.assertEqual(len(workstation_rows), 2)  # group + Overall Row
 		self.assertEqual(workstation_rows[0]["workstation"], "Unassigned")
 
 	def test_rejection_pareto_report_aggregates_and_sorts_reasons(self) -> None:
