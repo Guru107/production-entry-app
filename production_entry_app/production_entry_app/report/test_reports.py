@@ -3965,9 +3965,42 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows, _, _chart = execute({"from_date": "2026-07-06", "to_date": "2026-07-06"})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # production date + Overall Row
 		self.assertEqual(float(rows[0]["rework_qty"]), 5.0)
 		self.assertEqual(float(rows[0]["ppm"]), 25_000.0)
+
+	def test_rework_ppm_report_ends_with_overall_row_recomputed_from_totals(self) -> None:
+		from production_entry_app.production_entry_app.report.rework_ppm_report.rework_ppm_report import (
+			execute,
+		)
+
+		for day, fg_qty, rework_qty in (("2026-07-08", 100, 10), ("2026-07-09", 300, 0)):
+			shift = self._create_shift_for_label(day, "1")
+			self._create_mock_submitted_entry_with_breakup(
+				posting_date=day,
+				planned_start=f"{day} 08:00:00",
+				planned_end=f"{day} 09:00:00",
+				actual_start=f"{day} 08:00:00",
+				actual_end=f"{day} 09:00:00",
+				fg_qty=fg_qty,
+				shift_name=shift.name,
+				breakup_rows=[{"rejection_reason": "Crack", "qty": rework_qty, "is_rework": 1}]
+				if rework_qty
+				else [],
+			)
+
+		_, rows, _, chart = execute({"from_date": "2026-07-08", "to_date": "2026-07-09"})
+
+		self.assertEqual(len(rows), 3)
+		overall = rows[-1]
+		self.assertEqual(overall["date"], "Overall")
+		self.assertEqual(overall["bold"], 1)
+		self.assertEqual(overall["entries"], 2)
+		self.assertEqual(float(overall["total_qty"]), 400.0)
+		self.assertEqual(float(overall["rework_qty"]), 10.0)
+		# 10 / 400 * 1e6, not the mean of the daily PPMs.
+		self.assertEqual(float(overall["ppm"]), 25_000.0)
+		self.assertEqual(chart["data"]["labels"], ["2026-07-08", "2026-07-09"])
 
 	def test_operator_rework_performance_metrics(self) -> None:
 		from production_entry_app.production_entry_app.report.operator_rework_performance.operator_rework_performance import (
