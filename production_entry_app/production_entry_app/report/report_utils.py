@@ -1206,6 +1206,13 @@ def safe_ratio(numerator: float, denominator: float, scale: float = 1) -> float:
 	return flt(numerator / denominator * scale) if denominator > 0 else 0
 
 
+def build_summed_overall_row(
+	rows: list[dict], label_field: str, sum_fields: Sequence[str], **extra: Any
+) -> dict:
+	"""Overall Row for reports whose columns are all additive (or recomputed via `extra`)."""
+	return build_overall_row(label_field, **sum_rows(rows, sum_fields), **extra)
+
+
 def build_overall_row(label_field: str, **values: Any) -> dict:
 	"""The bold, translatable "Overall" row that closes a report (ADR 0010, CONTEXT.md: Overall Row)."""
 	return {label_field: _("Overall"), "bold": 1, **values}

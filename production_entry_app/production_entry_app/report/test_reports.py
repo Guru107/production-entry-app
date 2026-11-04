@@ -3503,11 +3503,20 @@ class TestProductionReports(FrappeTestCase):
 		self.assertIn("Crack", column_labels)
 		self.assertIn("Blank Cut", column_labels)
 		self.assertNotIn("Burr", column_labels)
-		self.assertEqual(len(rows), 2)
+		self.assertEqual(len(rows), 3)  # two workstations + Overall Row
+		overall = rows[-1]
+		rows = rows[:-1]
 		row_by_workstation = {row["workstation"]: row for row in rows}
 		self.assertEqual(float(row_by_workstation["Report Workstation"]["reason_crack"]), 5.0)
 		self.assertEqual(float(row_by_workstation[workstation_2]["reason_blank_cut"]), 4.0)
 		self.assertEqual(float(row_by_workstation["Report Workstation"]["total_rejection_qty"]), 7.0)
+		self.assertEqual(overall["workstation"], "Overall")
+		self.assertEqual(overall["bold"], 1)
+		self.assertEqual(overall["entries"], 2)
+		self.assertEqual(float(overall["reason_crack"]), 5.0)
+		self.assertEqual(float(overall["reason_blank_cut"]), 4.0)
+		# Burr is outside the top 2 reasons but still counts toward the total.
+		self.assertEqual(float(overall["total_rejection_qty"]), 11.0)
 
 	def test_workstation_rejection_reason_matrix_filters_operator(self) -> None:
 		from production_entry_app.production_entry_app.report.workstation_rejection_reason_matrix.workstation_rejection_reason_matrix import (
@@ -3550,7 +3559,7 @@ class TestProductionReports(FrappeTestCase):
 				"custom_pea_operator": "Report Operator",
 			}
 		)
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # workstation + Overall Row
 		self.assertEqual(rows[0]["workstation"], "Report Workstation")
 		self.assertEqual(float(rows[0]["total_rejection_qty"]), 5.0)
 
