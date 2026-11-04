@@ -6,7 +6,7 @@ from frappe.utils import flt
 from production_entry_app.production_entry_app.report.report_utils import (
 	accumulate_efficiency_aggregate,
 	apply_system_precision,
-	build_efficiency_rows,
+	build_efficiency_rows_with_overall,
 	build_stock_entry_filters,
 	get_entry_production_minutes,
 	get_entry_raw_duration_minutes,
@@ -105,7 +105,7 @@ def _get_rows(filters: dict, timeout_guard) -> list[dict]:
 			entry["_production_time_mins"] = production_time_mins
 			accumulate_efficiency_aggregate(aggregates, entry, "custom_pea_operator")
 
-	return build_efficiency_rows(
+	return build_efficiency_rows_with_overall(
 		aggregates=aggregates,
 		group_result_field="operator",
 		efficiency_result_field="operator_efficiency_pct",
