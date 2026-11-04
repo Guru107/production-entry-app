@@ -5,11 +5,17 @@ from frappe.utils import flt
 
 from production_entry_app.production_entry_app.report.report_utils import (
 	apply_system_precision,
+	build_overall_row,
 	build_stock_entry_filters,
 	format_numeric_summary,
+	get_entry_production_minutes,
+	get_entry_total_strokes,
 	get_parent_breakup_reason_rows,
+	get_parent_loss_metrics,
 	get_parent_quantity_metrics,
 	iter_stock_entries_in_chunks,
+	merge_aggregates,
+	safe_ratio,
 )
 
 
@@ -34,7 +40,7 @@ def _get_columns() -> list[dict]:
 				"width": 150,
 			},
 			{"label": _("Top 3 Reasons"), "fieldname": "top_3_reasons", "fieldtype": "Data", "width": 260},
-			{"label": _("Avg Actual SPM"), "fieldname": "avg_actual_spm", "fieldtype": "Float", "width": 130},
+			{"label": _("Actual SPM"), "fieldname": "actual_spm", "fieldtype": "Float", "width": 130},
 		]
 	)
 
@@ -52,6 +58,17 @@ def _build_filters(filters: dict) -> dict:
 	)
 
 
+def _empty_agg() -> dict:
+	return {
+		"entries": 0,
+		"total_qty": 0.0,
+		"rejection_qty": 0.0,
+		"total_strokes": 0.0,
+		"production_mins": 0.0,
+		"reason_totals": {},
+	}
+
+
 def _get_rows(filters: dict) -> list[dict]:
 	agg_by_operator: dict[str, dict] = {}
 	has_entries = False
@@ -62,7 +79,11 @@ def _get_rows(filters: dict) -> list[dict]:
 			"custom_pea_operator",
 			"fg_completed_qty",
 			"custom_pea_rejection_qty",
-			"custom_pea_actual_spm",
+			"custom_pea_total_strokes",
+			"custom_pea_production_time_mins",
+			"custom_pea_actual_duration_mins",
+			"custom_pea_actual_start_date",
+			"custom_pea_actual_end_date",
 		],
 	):
 		has_entries = True
@@ -70,6 +91,7 @@ def _get_rows(filters: dict) -> list[dict]:
 		if not entry_names:
 			continue
 		parent_quantity_metrics = get_parent_quantity_metrics(entry_names)
+		parent_loss_metrics = get_parent_loss_metrics(entry_names)
 		breakup_rows = get_parent_breakup_reason_rows(entry_names, is_rework=False)
 		for entry in entries:
 			entry_name = entry.get("name")
@@ -81,24 +103,17 @@ def _get_rows(filters: dict) -> list[dict]:
 				total_qty = flt(entry_metrics.get("good_qty") or 0) + flt(
 					entry_metrics.get("total_rejected_qty") or 0
 				)
-			agg = agg_by_operator.setdefault(
-				operator,
-				{
-					"entries": 0,
-					"total_qty": 0.0,
-					"rejection_qty": 0.0,
-					"actual_spm_sum": 0.0,
-					"actual_spm_count": 0,
-					"reason_totals": {},
-				},
-			)
+			loss_metrics = parent_loss_metrics.get(entry_name or "", {})
+			agg = agg_by_operator.setdefault(operator, _empty_agg())
 			agg["entries"] += 1
 			agg["total_qty"] += total_qty
 			agg["rejection_qty"] += rejection_qty
-			actual_spm = flt(entry.get("custom_pea_actual_spm") or 0)
-			if actual_spm > 0:
-				agg["actual_spm_sum"] += actual_spm
-				agg["actual_spm_count"] += 1
+			agg["total_strokes"] += get_entry_total_strokes(entry)[0]
+			agg["production_mins"] += get_entry_production_minutes(
+				entry,
+				setup_mins=flt(loss_metrics.get("setup_mins") or 0),
+				loss_mins=flt(loss_metrics.get("loss_mins") or 0),
+			)
 
 		operator_by_entry = {
 			entry.get("name"): (entry.get("custom_pea_operator") or "Unassigned")
@@ -112,44 +127,32 @@ def _get_rows(filters: dict) -> list[dict]:
 			if not parent or not reason or qty <= 0:
 				continue
 			operator = operator_by_entry.get(parent, "Unassigned")
-			reason_totals = agg_by_operator.setdefault(
-				operator,
-				{
-					"entries": 0,
-					"total_qty": 0.0,
-					"rejection_qty": 0.0,
-					"actual_spm_sum": 0.0,
-					"actual_spm_count": 0,
-					"reason_totals": {},
-				},
-			)["reason_totals"]
+			reason_totals = agg_by_operator.setdefault(operator, _empty_agg())["reason_totals"]
 			reason_totals[reason] = flt(reason_totals.get(reason) or 0) + qty
 
 	if not has_entries:
 		return []
 
-	rows = []
-	for operator in sorted(agg_by_operator.keys()):
-		agg = agg_by_operator[operator]
-		total_qty = flt(agg["total_qty"])
-		rejection_qty = flt(agg["rejection_qty"])
-		rejection_rate_pct = flt((rejection_qty / total_qty) * 100) if total_qty > 0 else 0
-		avg_actual_spm = (
-			flt(agg["actual_spm_sum"] / agg["actual_spm_count"]) if agg["actual_spm_count"] > 0 else 0
-		)
-		reason_totals = agg.get("reason_totals") or {}
-		top_reasons = sorted(reason_totals.items(), key=lambda item: (-flt(item[1]), item[0]))[:3]
-		top_3_reasons = ", ".join(f"{reason} ({format_numeric_summary(qty)})" for reason, qty in top_reasons)
-		rows.append(
-			{
-				"operator": operator,
-				"entries": int(agg["entries"]),
-				"total_qty": total_qty,
-				"rejection_qty": rejection_qty,
-				"rejection_rate_pct": rejection_rate_pct,
-				"top_3_reasons": top_3_reasons,
-				"avg_actual_spm": avg_actual_spm,
-			}
-		)
+	rows = [_build_row(operator, agg_by_operator[operator]) for operator in sorted(agg_by_operator)]
+	overall = _build_row("", merge_aggregates(agg_by_operator.values()))
+	overall.pop("operator")
+	return [*rows, build_overall_row("operator", **overall)]
 
-	return rows
+
+def _build_row(operator: str, agg: dict) -> dict:
+	total_qty = flt(agg["total_qty"])
+	rejection_qty = flt(agg["rejection_qty"])
+	reason_totals = agg.get("reason_totals") or {}
+	top_reasons = sorted(reason_totals.items(), key=lambda item: (-flt(item[1]), item[0]))[:3]
+	return {
+		"operator": operator,
+		"entries": int(agg["entries"]),
+		"total_qty": total_qty,
+		"rejection_qty": rejection_qty,
+		"rejection_rate_pct": safe_ratio(rejection_qty, total_qty, 100),
+		"top_3_reasons": ", ".join(
+			f"{reason} ({format_numeric_summary(qty)})" for reason, qty in top_reasons
+		),
+		# Effective SPM: total strokes over total production time (ADR 0010).
+		"actual_spm": safe_ratio(agg["total_strokes"], agg["production_mins"]),
+	}

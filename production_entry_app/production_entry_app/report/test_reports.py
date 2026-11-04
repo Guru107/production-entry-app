@@ -912,7 +912,7 @@ class TestProductionReports(FrappeTestCase):
 			)
 			self._assert_column_precision(
 				get_operator_rejection_columns(),
-				("total_qty", "avg_actual_spm", "rejection_rate_pct"),
+				("total_qty", "actual_spm", "rejection_rate_pct"),
 				expected_precision=4,
 			)
 			self._assert_column_precision(
@@ -3655,7 +3655,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"from_date": "2026-06-25", "to_date": "2026-06-25"})
-		self.assertEqual(len(rows), 2)
+		self.assertEqual(len(rows), 3)  # operators + Overall Row
 		row_by_operator = {row["operator"]: row for row in rows}
 		self.assertEqual(float(row_by_operator["Report Operator"]["total_qty"]), 100.0)
 		self.assertEqual(float(row_by_operator["Report Operator"]["rejection_qty"]), 8.0)
@@ -3663,6 +3663,51 @@ class TestProductionReports(FrappeTestCase):
 		self.assertIn("Crack (6", row_by_operator["Report Operator"]["top_3_reasons"])
 		self.assertIn("Burr (2", row_by_operator["Report Operator"]["top_3_reasons"])
 		self.assertEqual(float(row_by_operator[operator_2]["rejection_rate_pct"]), 5.0)
+
+	def test_operator_rejection_performance_overall_row_recomputes_from_summed_bases(self) -> None:
+		from production_entry_app.production_entry_app.report.operator_rejection_performance.operator_rejection_performance import (
+			execute,
+		)
+
+		shift = self._create_shift_for_label("2026-06-26", "1", clear_planned_losses=True)
+		operator_2 = "Report Operator 2"
+		if not frappe.db.exists("Operator", operator_2):
+			frappe.get_doc({"doctype": "Operator", "operator_name": operator_2, "is_active": 1}).insert(
+				ignore_permissions=True
+			)
+		# Strokes equal fg_qty in the mock entry: 100 strokes in 60 min, 80 strokes in 120 min.
+		for operator, start, end, fg_qty, breakup in (
+			("Report Operator", "08:00:00", "09:00:00", 100, [{"rejection_reason": "Crack", "qty": 6}]),
+			(operator_2, "10:00:00", "12:00:00", 80, [{"rejection_reason": "Blank Cut", "qty": 4}]),
+		):
+			self._create_mock_submitted_entry_with_breakup(
+				posting_date="2026-06-26",
+				planned_start=f"2026-06-26 {start}",
+				planned_end=f"2026-06-26 {end}",
+				actual_start=f"2026-06-26 {start}",
+				actual_end=f"2026-06-26 {end}",
+				fg_qty=fg_qty,
+				operator=operator,
+				shift_name=shift.name,
+				breakup_rows=breakup,
+			)
+
+		_, rows = execute({"from_date": "2026-06-26", "to_date": "2026-06-26"})
+
+		self.assertEqual(len(rows), 3)
+		row_by_operator = {row["operator"]: row for row in rows}
+		self.assertAlmostEqual(float(row_by_operator["Report Operator"]["actual_spm"]), 100 / 60, places=4)
+		self.assertAlmostEqual(float(row_by_operator[operator_2]["actual_spm"]), 80 / 120, places=4)
+		overall = rows[-1]
+		self.assertEqual(overall["operator"], "Overall")
+		self.assertEqual(overall["bold"], 1)
+		self.assertEqual(overall["entries"], 2)
+		self.assertEqual(float(overall["total_qty"]), 180.0)
+		self.assertEqual(float(overall["rejection_qty"]), 10.0)
+		self.assertAlmostEqual(float(overall["rejection_rate_pct"]), 10 / 180 * 100, places=6)
+		# Effective SPM: 180 strokes / 180 production minutes, not the mean of the operator SPMs.
+		self.assertAlmostEqual(float(overall["actual_spm"]), 1.0, places=4)
+		self.assertEqual(overall["top_3_reasons"], "Crack (6), Blank Cut (4)")
 
 	def test_operator_rejection_performance_preserves_raw_rate_and_string_summary_contract(self) -> None:
 		from production_entry_app.production_entry_app.report.operator_rejection_performance.operator_rejection_performance import (
@@ -3689,7 +3734,7 @@ class TestProductionReports(FrappeTestCase):
 				"custom_pea_operator": "Report Operator",
 			}
 		)
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # operators + Overall Row
 		derived_abs_tol = 1e-6
 		self.assertAlmostEqual(float(rows[0]["rejection_rate_pct"]), 100 / 3, delta=derived_abs_tol)
 		self.assertIsInstance(rows[0]["top_3_reasons"], str)
@@ -3743,7 +3788,7 @@ class TestProductionReports(FrappeTestCase):
 				"custom_pea_workstation": workstation_2,
 			}
 		)
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # operators + Overall Row
 		self.assertEqual(float(rows[0]["rejection_qty"]), 6.0)
 
 	def test_item_bom_rejection_hotspots_aggregates_and_sorts(self) -> None:
