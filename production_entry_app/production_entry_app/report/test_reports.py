@@ -2871,7 +2871,8 @@ class TestProductionReports(FrappeTestCase):
 		maintenance.submit()
 
 		_, rows = execute({"item_code": self.fg_item})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # counter + Overall Row
+		self.assertEqual(rows[-1]["die_tool_item"], "Overall")
 		self.assertEqual(rows[0]["die_tool_item"], self.fg_item)
 		self.assertEqual(float(rows[0]["current_stroke_count"]), 0.0)
 		self.assertEqual(float(rows[0]["stroke_capacity"]), 1000.0)
@@ -2897,7 +2898,7 @@ class TestProductionReports(FrappeTestCase):
 		).insert(ignore_permissions=True)
 
 		_, rows = execute({"item_code": item_code})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # counter + Overall Row
 		derived_abs_tol = 1e-6
 		self.assertAlmostEqual(float(rows[0]["utilization_pct"]), 100 / 3, delta=derived_abs_tol)
 		# warning_threshold_pct is read from DB where field precision may round it;
@@ -2908,6 +2909,58 @@ class TestProductionReports(FrappeTestCase):
 		)
 		self.assertAlmostEqual(float(rows[0]["warning_threshold_pct"]), db_threshold, delta=derived_abs_tol)
 		self.assertEqual(int(rows[0]["maintenance_due"]), 1)
+
+	def test_die_tool_overall_row_uses_capacity_weighted_utilization(self) -> None:
+		from production_entry_app.production_entry_app.report.die_tool_stroke_and_maintenance_report.die_tool_stroke_and_maintenance_report import (
+			_get_overall_row,
+		)
+
+		rows = [
+			{
+				"die_tool_item": "A",
+				"current_stroke_count": 500,
+				"stroke_capacity": 1000,
+				"maintenance_due": 0,
+				"last_maintenance_date": "2026-06-04 12:00:00",
+				"maintenance_count": 2,
+				"last_reset_on": "2026-05-01 08:00:00",
+			},
+			{
+				"die_tool_item": "B",
+				"current_stroke_count": 950,
+				"stroke_capacity": 1000,
+				"maintenance_due": 1,
+				"last_maintenance_date": "2026-06-10 09:00:00",
+				"maintenance_count": 1,
+				"last_reset_on": "2026-04-01 08:00:00",
+			},
+			{
+				# Capacity 0 means "no limit set": counts toward strokes, not toward utilization.
+				"die_tool_item": "C",
+				"current_stroke_count": 40,
+				"stroke_capacity": 0,
+				"maintenance_due": 0,
+				"last_maintenance_date": None,
+				"maintenance_count": 0,
+				"last_reset_on": None,
+			},
+		]
+
+		overall = _get_overall_row(rows)
+
+		self.assertEqual(overall["die_tool_item"], "Overall")
+		self.assertEqual(overall["bold"], 1)
+		self.assertEqual(overall["current_stroke_count"], 1490)
+		self.assertEqual(overall["stroke_capacity"], 2000)
+		# (500 + 950) / 2000, excluding the unlimited tool; not the mean of 50% and 95%.
+		self.assertAlmostEqual(overall["utilization_pct"], 72.5, places=6)
+		self.assertEqual(overall["maintenance_due"], 1)
+		self.assertEqual(overall["maintenance_count"], 3)
+		self.assertEqual(overall["last_maintenance_date"], "2026-06-10 09:00:00")
+		self.assertEqual(overall["last_reset_on"], "2026-05-01 08:00:00")
+		# Per-tool settings and identities have no overall meaning.
+		self.assertIsNone(overall.get("warning_threshold_pct"))
+		self.assertIsNone(overall.get("last_reset_by"))
 
 	def test_die_tool_stroke_report_groups_maintenance_history_in_database(self) -> None:
 		from production_entry_app.production_entry_app.compat import IS_V15
