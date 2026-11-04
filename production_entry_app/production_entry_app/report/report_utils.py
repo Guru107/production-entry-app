@@ -1197,6 +1197,11 @@ def format_numeric_summary(value: float) -> str:
 	)
 
 
+def build_overall_row(label_field: str, **values: Any) -> dict:
+	"""The bold, translatable "Overall" row that closes a report (ADR 0010, CONTEXT.md: Overall Row)."""
+	return {label_field: _("Overall"), "bold": 1, **values}
+
+
 def apply_system_precision(columns: list[dict]) -> list[dict]:
 	precision = get_report_float_precision()
 	for column in columns:

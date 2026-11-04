@@ -15,20 +15,6 @@ from production_entry_app.production_entry_app.report.report_utils import (
 	new_interactive_report_timeout_guard,
 )
 
-_SUM_FIELDS = (
-	"first_shift_strokes",
-	"second_shift_strokes",
-	"total_strokes",
-	"rejection",
-	"avl_time_hrs",
-	"machine_downtime",
-	"total_loss_time",
-	"running_time",
-	"quality_total",
-	"production_mins_sum",
-	"standard_spm_weighted_sum",
-)
-
 
 def execute(filters: dict | None = None) -> tuple[list[dict], list[dict]]:
 	filters = filters or {}
@@ -36,7 +22,12 @@ def execute(filters: dict | None = None) -> tuple[list[dict], list[dict]]:
 	columns = _get_columns(filters, reason_codes)
 	timeout_guard = new_interactive_report_timeout_guard(_("Monthly Production OEE Report"))
 	rows = _get_rows(filters, timeout_guard, reason_codes)
-	return columns, rows
+	if rows:
+		rows = [
+			*rows,
+			daily_oee.build_oee_overall_row(rows, "month", daily_oee.get_reason_fieldnames(reason_codes)),
+		]
+	return columns, [daily_oee.public_row(row) for row in rows]
 
 
 def _get_columns(filters: dict | None = None, reason_codes: list[str] | None = None) -> list[dict]:
@@ -72,21 +63,14 @@ def _get_rows(
 		return []
 
 	aggregates: dict[str, dict] = {}
-	reason_fieldnames = [
-		fieldname
-		for code in reason_codes
-		for fieldname in (
-			daily_oee._reason_fieldname(code, "1st"),
-			daily_oee._reason_fieldname(code, "2nd"),
-		)
-	]
+	reason_fieldnames = daily_oee.get_reason_fieldnames(reason_codes)
 
 	for daily_row in daily_rows:
 		workstation = str(daily_row.get("workstation") or "Unassigned")
 		if workstation not in aggregates:
 			aggregates[workstation] = _new_month_aggregate(month_key, workstation, reason_fieldnames)
 		agg = aggregates[workstation]
-		for fieldname in _SUM_FIELDS:
+		for fieldname in daily_oee.OEE_SUM_FIELDS:
 			agg[fieldname] = flt(agg[fieldname] + flt(daily_row.get(fieldname) or 0))
 		for fieldname in reason_fieldnames:
 			agg[fieldname] = flt(agg[fieldname] + flt(daily_row.get(fieldname) or 0))
@@ -134,7 +118,7 @@ def _new_month_aggregate(month_key: str, workstation: str, reason_fieldnames: li
 		"workstation": workstation,
 		"fallback_std_spm": 0.0,
 	}
-	for fieldname in _SUM_FIELDS:
+	for fieldname in daily_oee.OEE_SUM_FIELDS:
 		agg[fieldname] = 0.0
 	for fieldname in reason_fieldnames:
 		agg[fieldname] = 0.0
@@ -175,6 +159,9 @@ def _finalize_month_row(agg: dict, reason_fieldnames: list[str]) -> dict:
 		"machine_downtime": flt(agg["machine_downtime"]),
 		"total_loss_time": flt(agg["total_loss_time"]),
 		"running_time": running_time,
+		"quality_total": quality_total,
+		"production_mins_sum": production_mins,
+		"standard_spm_weighted_sum": weighted_sum,
 		**rate_fields,
 	}
 	for fieldname in reason_fieldnames:

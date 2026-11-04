@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import datetime
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
 import frappe
 from frappe import _
@@ -9,6 +9,7 @@ from frappe.utils import flt, get_datetime, get_time
 
 from production_entry_app.production_entry_app.report.report_utils import (
 	apply_system_precision,
+	build_overall_row,
 	build_stock_entry_filters,
 	completed_shift_filters,
 	get_entry_output_quantities,
@@ -48,14 +49,29 @@ _ROLLUP_BASE_FIELDS = (
 	"standard_spm_weighted_sum",
 )
 
+# Additive columns: a day row, a month row and the Overall Row all carry these sums.
+OEE_SUM_FIELDS = (
+	"first_shift_strokes",
+	"second_shift_strokes",
+	"total_strokes",
+	"rejection",
+	"avl_time_hrs",
+	"machine_downtime",
+	"total_loss_time",
+	"running_time",
+	*_ROLLUP_BASE_FIELDS,
+)
+
 
 def execute(filters: dict | None = None) -> tuple[list[dict], list[dict]]:
 	filters = filters or {}
 	reason_codes = _get_selected_reason_codes(filters)
 	columns = _get_columns(filters, reason_codes)
 	timeout_guard = new_interactive_report_timeout_guard(_("Production OEE Report"))
-	rows = [_public_row(row) for row in get_rows_with_rollup_bases(filters, timeout_guard, reason_codes)]
-	return columns, rows
+	rows = get_rows_with_rollup_bases(filters, timeout_guard, reason_codes)
+	if rows:
+		rows = [*rows, build_oee_overall_row(rows, "day", get_reason_fieldnames(reason_codes))]
+	return columns, [public_row(row) for row in rows]
 
 
 def get_rows_with_rollup_bases(
@@ -95,7 +111,39 @@ def compute_oee_rate_fields(
 	}
 
 
-def _public_row(row: dict) -> dict:
+def get_reason_fieldnames(reason_codes: list[str]) -> list[str]:
+	return [_reason_fieldname(code, shift) for code in reason_codes for shift in ("1st", "2nd")]
+
+
+def build_oee_overall_row(rows: list[dict], label_field: str, reason_fieldnames: Sequence[str] = ()) -> dict:
+	"""Overall Row: sum the bases across rows, then recompute the rates (ADR 0010).
+
+	`rows` must still carry the rollup bases. STD SPM is production-time-weighted (ADR 0006); when no
+	row has an eligible entry it falls back to the running-time-weighted mean of the row rates.
+	"""
+	totals = {
+		fieldname: flt(sum(flt(row.get(fieldname)) for row in rows))
+		for fieldname in (*OEE_SUM_FIELDS, *reason_fieldnames)
+	}
+	running_time = totals["running_time"]
+	if totals["production_mins_sum"] > 0 and totals["standard_spm_weighted_sum"] > 0:
+		std_spm = flt(totals["standard_spm_weighted_sum"] / totals["production_mins_sum"])
+	elif running_time > 0:
+		std_spm = flt(sum(flt(row.get("stroke_required")) for row in rows) / (running_time * 60))
+	else:
+		std_spm = 0.0
+	rate_fields = compute_oee_rate_fields(
+		running_time=running_time,
+		avl_time_hrs=totals["avl_time_hrs"],
+		total_strokes=totals["total_strokes"],
+		std_spm=std_spm,
+		quality_total=totals["quality_total"],
+		rejection=totals["rejection"],
+	)
+	return build_overall_row(label_field, workstation="", std_spm=std_spm, **totals, **rate_fields)
+
+
+def public_row(row: dict) -> dict:
 	return {key: value for key, value in row.items() if key not in _ROLLUP_BASE_FIELDS}
 
 
