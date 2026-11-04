@@ -3271,7 +3271,7 @@ class TestProductionReports(FrappeTestCase):
 		_, rows, _, chart = execute(
 			{"from_date": "2026-06-12", "to_date": "2026-06-13", "time_grain": "Daily"}
 		)
-		self.assertEqual(len(rows), 2)
+		self.assertEqual(len(rows), 3)  # two periods + Overall Row
 		self.assertEqual(rows[0]["period"], "2026-06-12")
 		self.assertEqual(float(rows[0]["total_qty"]), 100.0)
 		self.assertEqual(float(rows[0]["rejection_qty"]), 10.0)
@@ -3281,6 +3281,40 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(float(rows[1]["rejection_rate_pct"]), 10.0)
 		self.assertEqual(chart.get("type"), "axis-mixed")
 		self.assertEqual(chart.get("data", {}).get("labels"), ["2026-06-12", "2026-06-13"])
+
+	def test_rejection_trend_report_ends_with_overall_row_recomputed_from_totals(self) -> None:
+		from production_entry_app.production_entry_app.report.rejection_trend_report.rejection_trend_report import (
+			execute,
+		)
+
+		for day, fg_qty, rejection_qty in (("2026-06-14", 100, 10), ("2026-06-15", 300, 0)):
+			shift = self._create_shift_for_label(day, "1")
+			self._create_mock_submitted_entry(
+				posting_date=day,
+				planned_start=f"{day} 08:00:00",
+				planned_end=f"{day} 09:00:00",
+				actual_start=f"{day} 08:00:00",
+				actual_end=f"{day} 09:00:00",
+				fg_qty=fg_qty,
+				rejection_qty=rejection_qty,
+				shift_name=shift.name,
+			)
+
+		_, rows, _, chart = execute(
+			{"from_date": "2026-06-14", "to_date": "2026-06-15", "time_grain": "Daily"}
+		)
+
+		self.assertEqual(len(rows), 3)
+		overall = rows[-1]
+		self.assertEqual(overall["period"], "Overall")
+		self.assertEqual(overall["bold"], 1)
+		self.assertEqual(overall["entries"], 2)
+		self.assertEqual(float(overall["total_qty"]), 400.0)
+		self.assertEqual(float(overall["rejection_qty"]), 10.0)
+		self.assertEqual(float(overall["ok_qty"]), 390.0)
+		# 10 / 400, not the mean of the period rates (10% and 0%).
+		self.assertEqual(float(overall["rejection_rate_pct"]), 2.5)
+		self.assertEqual(chart["data"]["labels"], ["2026-06-14", "2026-06-15"])
 
 	def test_rejection_trend_report_chart_preserves_raw_rate_values(self) -> None:
 		from production_entry_app.production_entry_app.report.rejection_trend_report.rejection_trend_report import (
@@ -3315,7 +3349,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 		expected_rate = 100 / 3
 		derived_abs_tol = 1e-6
-		self.assertEqual(len(rows), 2)
+		self.assertEqual(len(rows), 3)  # periods + Overall Row
 		self.assertAlmostEqual(float(rows[0]["rejection_rate_pct"]), expected_rate, delta=derived_abs_tol)
 		self.assertAlmostEqual(float(rows[1]["rejection_rate_pct"]), expected_rate, delta=derived_abs_tol)
 		self.assertEqual(chart.get("type"), "axis-mixed")
@@ -3368,7 +3402,7 @@ class TestProductionReports(FrappeTestCase):
 		_, rows, _, _chart = execute(
 			{"from_date": "2026-06-15", "to_date": "2026-06-22", "time_grain": "Weekly"}
 		)
-		self.assertEqual(len(rows), 2)
+		self.assertEqual(len(rows), 3)  # periods + Overall Row
 		self.assertEqual(rows[0]["period"], "2026-06-15 to 2026-06-21")
 		self.assertEqual(float(rows[0]["total_qty"]), 160.0)
 		self.assertEqual(float(rows[0]["rejection_qty"]), 8.0)
@@ -3414,7 +3448,7 @@ class TestProductionReports(FrappeTestCase):
 				"fg_item": fg_item,
 			}
 		)
-		self.assertEqual(len(rows), 2)
+		self.assertEqual(len(rows), 3)  # periods + Overall Row
 		self.assertEqual(rows[0]["period"], "2026-06")
 		self.assertEqual(float(rows[0]["rejection_rate_pct"]), 10.0)
 		self.assertEqual(rows[1]["period"], "2026-07")
