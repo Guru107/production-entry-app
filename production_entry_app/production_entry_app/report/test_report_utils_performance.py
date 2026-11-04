@@ -429,7 +429,9 @@ class TestReportUtilsPerformance(FrappeTestCase):
 
 		self.assertEqual(rows[0]["operator"], "Unassigned")
 		self.assertEqual(rows[0]["actual_spm"], 3.0)
-		self.assertEqual(rows[0]["efficiency_pct"], 150.0)
+		# Zero production minutes makes the entry ineligible for the weighted standard.
+		self.assertEqual(rows[0]["standard_spm"], 0)
+		self.assertEqual(rows[0]["efficiency_pct"], 0.0)
 
 	def test_iter_stock_entries_in_chunks_pages_by_name_keyset(self) -> None:
 		responses = [
