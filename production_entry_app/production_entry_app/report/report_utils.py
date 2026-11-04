@@ -1001,8 +1001,7 @@ def get_item_bom_quality_hotspot_rows(
 	if not has_entries:
 		return []
 
-	rows: list[dict] = []
-	for (item_code, bom_no), values in agg.items():
+	def build_row(item_code: str, bom_no: str, values: dict) -> dict:
 		total_qty = flt(values["total_qty"])
 		quality_qty = flt(values["quality_qty"])
 		reasons = values.get("reason_totals") or {}
@@ -1010,19 +1009,22 @@ def get_item_bom_quality_hotspot_rows(
 		if reasons:
 			reason, qty = sorted(reasons.items(), key=lambda item: (-flt(item[1]), item[0]))[0]
 			dominant_reason = f"{reason} ({format_numeric_summary(qty)})"
-		rows.append(
-			{
-				"item_code": item_code,
-				"bom_no": bom_no,
-				"entries": len(values["entries"]),
-				"total_qty": total_qty,
-				quantity_field: quality_qty,
-				rate_field: flt((quality_qty / total_qty) * 100) if total_qty > 0 else 0,
-				"dominant_reason": dominant_reason,
-			}
-		)
+		return {
+			"item_code": item_code,
+			"bom_no": bom_no,
+			"entries": len(values["entries"]),
+			"total_qty": total_qty,
+			quantity_field: quality_qty,
+			rate_field: safe_ratio(quality_qty, total_qty, 100),
+			"dominant_reason": dominant_reason,
+		}
+
+	rows = [build_row(item_code, bom_no, values) for (item_code, bom_no), values in agg.items()]
 	rows.sort(key=lambda row: (-flt(row[quantity_field]), row["item_code"], row["bom_no"] or ""))
-	return rows
+	# One Stock Entry can sit in several rows (joint outputs), so the Overall counts the union of entries.
+	overall = build_row("", "", merge_aggregates(agg.values()))
+	overall.pop("item_code")
+	return [*rows, build_overall_row("item_code", **overall)]
 
 
 def _get_joint_output_item_map(stock_entry_names: list[str]) -> dict[tuple[str, str], str]:
@@ -1207,11 +1209,14 @@ def safe_ratio(numerator: float, denominator: float, scale: float = 1) -> float:
 
 
 def merge_aggregates(aggregates: Iterable[dict]) -> dict:
-	"""Combine group aggregates for an Overall Row: numbers add, {key: number} maps add per key."""
+	"""Combine group aggregates for an Overall Row: numbers add, {key: number} maps add per key,
+	sets union."""
 	merged: dict = {}
 	for agg in aggregates:
 		for key, value in agg.items():
-			if isinstance(value, dict):
+			if isinstance(value, set):
+				merged[key] = merged.get(key, set()) | value
+			elif isinstance(value, dict):
 				target = merged.setdefault(key, {})
 				for inner_key, inner_value in value.items():
 					target[inner_key] = flt(target.get(inner_key)) + flt(inner_value)

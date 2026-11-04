@@ -3825,13 +3825,21 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"from_date": "2026-06-27", "to_date": "2026-06-27"})
-		self.assertEqual(len(rows), 2)
+		self.assertEqual(len(rows), 3)  # two items + Overall Row
 		self.assertEqual(rows[0]["item_code"], self.fg_item)
 		self.assertEqual(float(rows[0]["total_qty"]), 100.0)
 		self.assertEqual(float(rows[0]["rejection_qty"]), 8.0)
 		self.assertEqual(float(rows[0]["rejection_rate_pct"]), 8.0)
 		self.assertIn("Crack (6", rows[0]["dominant_reason"])
 		self.assertEqual(float(rows[1]["rejection_qty"]), 4.0)
+		overall = rows[-1]
+		self.assertEqual(overall["item_code"], "Overall")
+		self.assertEqual(overall["bold"], 1)
+		self.assertEqual(overall["entries"], 2)
+		self.assertEqual(float(overall["total_qty"]), 180.0)
+		self.assertEqual(float(overall["rejection_qty"]), 12.0)
+		self.assertAlmostEqual(float(overall["rejection_rate_pct"]), 12 / 180 * 100, places=6)
+		self.assertEqual(overall["dominant_reason"], "Crack (6)")
 
 	def test_item_bom_rejection_hotspots_filters_fg_item(self) -> None:
 		from production_entry_app.production_entry_app.report.item_bom_rejection_hotspots.item_bom_rejection_hotspots import (
@@ -3864,7 +3872,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"from_date": "2026-06-28", "to_date": "2026-06-28", "fg_item": self.fg_item})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # item/BOM rows + Overall Row
 		self.assertEqual(rows[0]["item_code"], self.fg_item)
 		self.assertEqual(float(rows[0]["rejection_qty"]), 5.0)
 
@@ -4310,7 +4318,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"from_date": "2026-07-08", "to_date": "2026-07-08"})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # item/BOM rows + Overall Row
 		self.assertEqual(rows[0]["item_code"], self.fg_item)
 		self.assertEqual(float(rows[0]["rework_qty"]), 6.0)
 		self.assertIn("Crack (6", rows[0]["dominant_reason"])
