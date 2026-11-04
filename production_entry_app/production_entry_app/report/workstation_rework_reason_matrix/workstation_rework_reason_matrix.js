@@ -41,4 +41,5 @@ frappe.query_reports["Workstation Rework Reason Matrix"] = {
 			options: "BOM",
 		},
 	],
+	formatter: window.production_entry_app?.report_filter_utils?.overall_row_formatter,
 };

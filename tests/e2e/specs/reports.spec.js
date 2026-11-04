@@ -156,6 +156,14 @@ test.describe("Production reports", () => {
 		expect(seededRow).toHaveProperty("oee_mult_pct");
 		expect(seededRow).toHaveProperty("oee_avg_pct");
 
+		// The Overall Row closes the report; with one Workstation filtered it matches that row.
+		const overallRow = rows[rows.length - 1];
+		expect(overallRow.day).toBe("Overall");
+		expect(Number(overallRow.total_strokes)).toBe(Number(seededRow.total_strokes));
+		expect(Number(overallRow.oee_mult_pct)).toBeCloseTo(Number(seededRow.oee_mult_pct), 6);
+		// The label shows as bold text, not a blank Date cell.
+		await expect(page.locator(".dt-row b", { hasText: "Overall" }).last()).toBeVisible();
+
 		await reportsPage.setFilterByFieldname("downtime_reason", ["00"]);
 		await reportsPage.clickRefresh();
 		await reportsPage.waitForRows(1);

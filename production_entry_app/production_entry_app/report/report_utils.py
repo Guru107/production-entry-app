@@ -1234,7 +1234,13 @@ def build_summed_overall_row(
 
 def build_overall_row(label_field: str, **values: Any) -> dict:
 	"""The bold, translatable "Overall" row that closes a report (ADR 0010, CONTEXT.md: Overall Row)."""
-	return {label_field: _("Overall"), "bold": 1, **values}
+	return {
+		label_field: _("Overall"),
+		"bold": 1,
+		"is_overall": 1,
+		"overall_label_field": label_field,
+		**values,
+	}
 
 
 def apply_system_precision(columns: list[dict]) -> list[dict]:
