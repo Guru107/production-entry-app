@@ -5,6 +5,7 @@ from frappe.utils import flt
 
 from production_entry_app.production_entry_app.report.report_utils import (
 	apply_system_precision,
+	build_overall_row,
 	build_stock_entry_filters,
 	get_entry_production_minutes,
 	get_entry_report_operation,
@@ -12,6 +13,8 @@ from production_entry_app.production_entry_app.report.report_utils import (
 	get_parent_loss_metrics,
 	get_report_rows,
 	iter_stock_entries_in_chunks,
+	safe_ratio,
+	sum_rows,
 )
 
 
@@ -92,6 +95,7 @@ def _get_shift_duration_map(shift_names: set[str]) -> dict[str, float]:
 def _get_rows(filters: dict) -> list[dict]:
 	aggregates: dict[tuple[str, str, str, str], dict] = {}
 	shift_names: set[str] = set()
+	operator_shifts: set[tuple[str, str]] = set()
 	has_entries = False
 	for entries in iter_stock_entries_in_chunks(
 		_build_filters(filters),
@@ -141,6 +145,7 @@ def _get_rows(filters: dict) -> list[dict]:
 			if shift_name:
 				agg["shift_names"].add(shift_name)
 				shift_names.add(shift_name)
+				operator_shifts.add((operator, shift_name))
 
 			if entry_name:
 				agg["setting_time_hrs"] += float(loss_metrics.get("setup_mins") or 0) / 60
@@ -167,7 +172,7 @@ def _get_rows(filters: dict) -> list[dict]:
 		setting_time_hrs = float(agg["setting_time_hrs"])
 		loss_time_hrs = float(agg["loss_time_hrs"])
 		production_time_hrs = (production_mins / 60) if production_mins > 0 else 0
-		spm = (agg["total_strokes"] / (production_time_hrs * 60)) if production_time_hrs > 0 else 0
+		spm = safe_ratio(agg["total_strokes"], production_time_hrs * 60)
 		rows.append(
 			{
 				"date": agg["date"],
@@ -183,4 +188,20 @@ def _get_rows(filters: dict) -> list[dict]:
 			}
 		)
 
+	# An operator's Shift counts once, however many workstation/operation rows it spans.
+	overall_working_hours = sum(
+		shift_duration_map.get(shift_name, 0) for _operator, shift_name in operator_shifts
+	)
+	totals = sum_rows(rows, ("setting_time_hrs", "loss_time_hrs", "production_time_hrs", "total_strokes"))
+	rows.append(
+		build_overall_row(
+			"date",
+			operator="",
+			workstation="",
+			operation="",
+			working_hours=overall_working_hours,
+			**totals,
+			spm=safe_ratio(totals["total_strokes"], totals["production_time_hrs"] * 60),
+		)
+	)
 	return rows

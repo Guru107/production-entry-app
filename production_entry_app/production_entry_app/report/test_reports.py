@@ -4693,7 +4693,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"from_date": "2090-09-05", "to_date": "2090-09-05"})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # rows + Overall Row
 		self.assertEqual(rows[0]["operation"], shearing)
 
 	def test_daily_strokes_spm_monitor_operation_from_stock_entry_type(self) -> None:
@@ -5162,7 +5162,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"from_date": "2026-08-02", "to_date": "2026-08-02"})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # rows + Overall Row
 		row = rows[0]
 		self.assertEqual(row["date"], "2026-08-02")
 		self.assertEqual(row["operator"], "Report Operator")
@@ -5199,7 +5199,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"from_date": "2026-08-05", "to_date": "2026-08-05"})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # rows + Overall Row
 		row = rows[0]
 		expected_setup = 20 / 3600
 		expected_loss = 20 / 3600
@@ -5253,12 +5253,71 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"from_date": "2026-08-03", "to_date": "2026-08-03"})
-		self.assertEqual(len(rows), 2)
+		self.assertEqual(len(rows), 3)  # rows + Overall Row
+		rows, overall = rows[:-1], rows[-1]
 		self.assertEqual(
 			{row["workstation"] for row in rows},
 			{"Report Workstation", "Report Workstation 2"},
 		)
 		self.assertTrue(all(float(row["working_hours"]) == 8.0 for row in rows))
+		# One operator in two different shifts: both shifts count.
+		self.assertEqual(float(overall["working_hours"]), 16.0)
+
+	def test_operator_daily_spm_report_overall_row_counts_each_operator_shift_once(self) -> None:
+		from production_entry_app.production_entry_app.report.operator_daily_spm_report.operator_daily_spm_report import (
+			execute,
+		)
+
+		for workstation in ("Report Workstation 2",):
+			if not frappe.db.exists("Workstation", workstation):
+				frappe.get_doc(
+					{
+						"doctype": "Workstation",
+						"workstation_name": workstation,
+						"production_capacity": 1,
+						"hour_rate": 100,
+						"custom_pea_standard_spm": 2,
+					}
+				).insert(ignore_permissions=True)
+		operator_2 = "Report Operator 2"
+		if not frappe.db.exists("Operator", operator_2):
+			frappe.get_doc({"doctype": "Operator", "operator_name": operator_2, "is_active": 1}).insert(
+				ignore_permissions=True
+			)
+
+		shift = self._create_shift_for_label("2026-08-05", "1", clear_planned_losses=True)
+		# Operator 1 runs two workstations in the same shift (two rows, one shift); operator 2 runs one.
+		for operator, workstation, start, end, fg_qty in (
+			("Report Operator", "Report Workstation", "08:00:00", "09:00:00", 60),
+			("Report Operator", "Report Workstation 2", "09:00:00", "10:00:00", 120),
+			(operator_2, "Report Workstation", "10:00:00", "11:00:00", 180),
+		):
+			self._create_mock_submitted_entry(
+				posting_date="2026-08-05",
+				planned_start=f"2026-08-05 {start}",
+				planned_end=f"2026-08-05 {end}",
+				actual_start=f"2026-08-05 {start}",
+				actual_end=f"2026-08-05 {end}",
+				fg_qty=fg_qty,
+				rejection_qty=0,
+				operator=operator,
+				workstation=workstation,
+				shift_name=shift.name,
+			)
+
+		_, rows = execute({"from_date": "2026-08-05", "to_date": "2026-08-05"})
+
+		self.assertEqual(len(rows), 4)
+		self.assertEqual(sum(float(row["working_hours"]) for row in rows[:-1]), 24.0)
+		overall = rows[-1]
+		self.assertEqual(overall["date"], "Overall")
+		self.assertEqual(overall["bold"], 1)
+		# 8h shift counted once per operator: 2 operators x 8h, not once per row.
+		self.assertEqual(float(overall["working_hours"]), 16.0)
+		self.assertEqual(float(overall["total_strokes"]), 360.0)
+		self.assertEqual(float(overall["production_time_hrs"]), 3.0)
+		# Effective SPM: 360 strokes / 180 minutes.
+		self.assertAlmostEqual(float(overall["spm"]), 2.0, places=6)
 
 	def test_operator_daily_spm_report_sums_non_contiguous_entry_durations(self) -> None:
 		from production_entry_app.production_entry_app.report.operator_daily_spm_report.operator_daily_spm_report import (
@@ -5288,7 +5347,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"from_date": "2026-08-04", "to_date": "2026-08-04"})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # rows + Overall Row
 		row = rows[0]
 		# Sum per-entry durations and deduct planned losses where overlapped.
 		# Only Shift Start Up (08:00-08:10) overlaps; JH Activity (10:00) is outside both entries.
@@ -5329,7 +5388,7 @@ class TestProductionReports(FrappeTestCase):
 		frappe.db.set_value("Shift", shift.name, "status", "Completed", update_modified=False)
 
 		_, rows = execute({"from_date": "2026-08-06", "to_date": "2026-08-06"})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # rows + Overall Row
 		self.assertEqual(float(rows[0]["working_hours"]), 10.0)
 
 	def _configure_mock_joint_entry(
