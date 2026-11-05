@@ -967,7 +967,6 @@ def get_item_bom_quality_hotspot_rows(
 	)
 	requested_bom = filters.get("bom_no")
 	agg: dict[tuple[str, str], dict] = {}
-	has_entries = False
 	for entries in iter_stock_entries_in_chunks(
 		stock_entry_filters,
 		[
@@ -983,7 +982,6 @@ def get_item_bom_quality_hotspot_rows(
 		],
 	):
 		timeout_guard()
-		has_entries = True
 		for fact in get_item_bom_quality_facts(entries, is_rework=is_rework):
 			if requested_bom and fact.get("bom_no") != requested_bom:
 				continue
@@ -998,7 +996,7 @@ def get_item_bom_quality_hotspot_rows(
 			for reason, qty in (fact.get("reason_totals") or {}).items():
 				row["reason_totals"][reason] = flt(row["reason_totals"].get(reason) or 0) + flt(qty)
 
-	if not has_entries:
+	if not agg:
 		return []
 
 	def build_row(item_code: str, bom_no: str, values: dict) -> dict:

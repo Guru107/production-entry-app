@@ -21,7 +21,7 @@ and OEE. See ADR 0007.
 - `productivity_pct`, `quality_pct`, `availability_pct`, `oee_avg_pct` (Avg. OEE),
   `oee_mult_pct`: same formulas as Production OEE Report, applied to the month totals
   (never averages of daily percentages).
-- Downtime-only Production Dates are included. There is no cross-workstation totals row.
+- Downtime-only Production Dates are included. The report ends with an Overall Row (ADR 0010) that sums the same bases across all Workstations and recomputes Availability, Quality, Productivity and OEE from them.
 
 Filters: Year, Month, Workstation, Operation, Downtime Reason. Operation filter keeps the daily
 report's rule of omitting downtime-only contributions.

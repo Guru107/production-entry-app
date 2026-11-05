@@ -3894,6 +3894,28 @@ class TestProductionReports(FrappeTestCase):
 		self.assertAlmostEqual(float(overall["rejection_rate_pct"]), 12 / 180 * 100, places=6)
 		self.assertEqual(overall["dominant_reason"], "Crack (6)")
 
+	def test_item_bom_hotspots_return_no_rows_when_bom_filter_removes_every_fact(self) -> None:
+		from production_entry_app.production_entry_app.report import report_utils
+
+		with (
+			patch.object(report_utils, "iter_stock_entries_in_chunks", return_value=[[{"name": "SE-1"}]]),
+			patch.object(
+				report_utils,
+				"get_item_bom_quality_facts",
+				return_value=[{"parent": "SE-1", "item_code": "A", "bom_no": "BOM-OTHER", "total_qty": 10}],
+			),
+		):
+			rows = report_utils.get_item_bom_quality_hotspot_rows(
+				{"bom_no": "BOM-WANTED"},
+				is_rework=False,
+				quantity_field="rejection_qty",
+				rate_field="rejection_rate_pct",
+				timeout_guard=lambda: None,
+			)
+
+		# Nothing survives the filter: no rows, and so no Overall Row either.
+		self.assertEqual(rows, [])
+
 	def test_item_bom_rejection_hotspots_filters_fg_item(self) -> None:
 		from production_entry_app.production_entry_app.report.item_bom_rejection_hotspots.item_bom_rejection_hotspots import (
 			execute,
@@ -4151,7 +4173,7 @@ class TestProductionReports(FrappeTestCase):
 			execute,
 		)
 
-		for day, fg_qty, rework_qty, other_qty in (("2026-07-10", 100, 10, 2), ("2026-07-11", 300, 0, 4)):
+		for day, fg_qty, rework_qty, other_qty in (("2093-07-10", 100, 10, 2), ("2093-07-11", 300, 0, 4)):
 			shift = self._create_shift_for_label(day, "1")
 			breakup = [{"rejection_reason": "Burr", "qty": other_qty, "is_rework": 0}]
 			if rework_qty:
@@ -4168,7 +4190,7 @@ class TestProductionReports(FrappeTestCase):
 			)
 
 		_, rows, _, chart = execute(
-			{"from_date": "2026-07-10", "to_date": "2026-07-11", "time_grain": "Daily"}
+			{"from_date": "2093-07-10", "to_date": "2093-07-11", "time_grain": "Daily"}
 		)
 
 		self.assertEqual(len(rows), 3)
@@ -4181,7 +4203,7 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(float(overall["non_rework_rejection_qty"]), 6.0)
 		# 10 / 400, not the mean of the period rates (10% and 0%).
 		self.assertEqual(float(overall["rework_rate_pct"]), 2.5)
-		self.assertEqual(chart["data"]["labels"], ["2026-07-10", "2026-07-11"])
+		self.assertEqual(chart["data"]["labels"], ["2093-07-10", "2093-07-11"])
 
 	def test_rework_ppm_report_data(self) -> None:
 		from production_entry_app.production_entry_app.report.rework_ppm_report.rework_ppm_report import (
@@ -4929,7 +4951,7 @@ class TestProductionReports(FrappeTestCase):
 				"custom_pea_operator": "Report Operator",
 			}
 		)
-		# Should have 1 data row + 1 totals row
+		# Should have 1 data row + 1 Overall Row
 		self.assertEqual(len(rows), 2)
 		data_row = rows[0]
 		self.assertEqual(data_row["date"], "2080-05-10")
