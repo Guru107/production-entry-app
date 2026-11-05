@@ -1327,3 +1327,26 @@ def build_efficiency_rows(
 			}
 		)
 	return rows
+
+
+def build_efficiency_rows_with_overall(
+	aggregates: dict[str, dict],
+	group_result_field: str,
+	efficiency_result_field: str,
+) -> list[dict]:
+	"""Group rows plus an Overall Row built from the merged bases (ADR 0010).
+
+	Actual SPM, weighted Standard SPM and efficiency % are recomputed from the summed strokes,
+	production minutes and weighted-SPM bases, never averaged across rows.
+	"""
+	rows = build_efficiency_rows(aggregates, group_result_field, efficiency_result_field)
+	if not rows:
+		return rows
+	merged = {
+		field: sum(agg[field] for agg in aggregates.values()) for field in next(iter(aggregates.values()))
+	}
+	overall = build_efficiency_rows(
+		{group_result_field: merged}, group_result_field, efficiency_result_field
+	)[0]
+	overall.pop(group_result_field)
+	return [*rows, build_overall_row(group_result_field, **overall)]
