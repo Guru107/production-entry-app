@@ -6,7 +6,10 @@ from frappe.utils import flt
 from production_entry_app.production_entry_app.compat import IS_V15
 from production_entry_app.production_entry_app.report.report_utils import (
 	apply_system_precision,
+	build_overall_row,
 	get_report_rows,
+	safe_ratio,
+	sum_rows,
 )
 from production_entry_app.production_entry_app.utils.die_tool_counter import get_counter_health
 
@@ -15,6 +18,8 @@ def execute(filters: dict | None = None):
 	filters = filters or {}
 	columns = _get_columns()
 	rows = _get_rows(filters)
+	if rows:
+		rows = [*rows, _get_overall_row(rows)]
 	return columns, rows
 
 
@@ -168,3 +173,24 @@ def _get_rows(filters: dict) -> list[dict]:
 			}
 		)
 	return rows
+
+
+def _get_overall_row(rows: list[dict]) -> dict:
+	"""Counters are cumulative "as of now" levels, so the overall is a capacity-weighted snapshot."""
+	totals = sum_rows(rows, ("current_stroke_count", "stroke_capacity", "maintenance_count"))
+	# Zero capacity means "no limit set": its strokes stay out of utilization.
+	limited_strokes = sum(
+		flt(row.get("current_stroke_count")) for row in rows if flt(row.get("stroke_capacity")) > 0
+	)
+	return build_overall_row(
+		"die_tool_item",
+		current_stroke_count=totals["current_stroke_count"],
+		stroke_capacity=totals["stroke_capacity"],
+		utilization_pct=safe_ratio(limited_strokes, totals["stroke_capacity"], 100),
+		maintenance_due=sum(1 for row in rows if row.get("maintenance_due")),
+		last_maintenance_date=max(
+			(row["last_maintenance_date"] for row in rows if row.get("last_maintenance_date")), default=None
+		),
+		maintenance_count=int(totals["maintenance_count"]),
+		last_reset_on=max((row["last_reset_on"] for row in rows if row.get("last_reset_on")), default=None),
+	)
