@@ -20,7 +20,7 @@ from production_entry_app.production_entry_app.report.report_utils import (
 )
 
 
-def execute(filters: dict | None = None):
+def execute(filters: dict | None = None) -> tuple[list[dict], list[dict]]:
 	filters = filters or {}
 	columns = _get_columns()
 	rows = _get_rows(filters)

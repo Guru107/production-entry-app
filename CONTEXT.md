@@ -203,9 +203,10 @@ Production Dates are included. It ends with an Overall Row across all Workstatio
 _Avoid_: average of daily OEE percentages, posting-date month, plant-wide OEE average
 
 **Overall Row**:
-The last row of a report, labelled "Overall", that summarises everything the report's filters match, including
-unassigned Operators and Workstations. Rates and percentages in it are computed from the underlying totals, never
-added or averaged across rows. Pareto reports and Pending Rework have none.
+The bold last row of a report, labelled "Overall", that summarises everything the report's filters match, including
+unassigned Operators and Workstations. Quantities and times in it are summed; rates and percentages are computed from
+those totals, never added or averaged across rows; a figure that cannot be combined across rows is left blank. Pareto
+reports and Pending Rework have none.
 _Avoid_: Total row, grand total, footer row, average row, subtotal
 
 ## Warehouse defaults

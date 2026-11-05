@@ -18,7 +18,7 @@ from production_entry_app.production_entry_app.report.report_utils import (
 _TIME_GRAINS: frozenset[str] = frozenset({"Daily", "Weekly", "Monthly"})
 
 
-def execute(filters: dict | None = None):
+def execute(filters: dict | None = None) -> tuple[list[dict], list[dict], None, dict | None]:
 	filters = filters or {}
 	columns = _get_columns()
 	rows = _get_rows(filters)
@@ -30,9 +30,9 @@ def execute(filters: dict | None = None):
 				rows,
 				"period",
 				("entries", "total_qty", "rework_qty", "non_rework_rejection_qty"),
-				"rework_rate_pct",
-				"rework_qty",
-				PERCENT_SCALE,
+				rate_field="rework_rate_pct",
+				numerator_field="rework_qty",
+				scale=PERCENT_SCALE,
 			),
 		]
 	return columns, rows, None, chart

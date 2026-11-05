@@ -19,7 +19,7 @@ from production_entry_app.production_entry_app.report.report_utils import (
 )
 
 
-def execute(filters: dict | None = None):
+def execute(filters: dict | None = None) -> tuple[list[dict], list[dict]]:
 	filters = filters or {}
 	return _get_columns(), _get_rows(filters)
 
@@ -149,8 +149,8 @@ def _get_rows(filters: dict) -> list[dict]:
 				operator_shifts.add((operator, shift_name))
 
 			if entry_name:
-				agg["setting_time_hrs"] += float(loss_metrics.get("setup_mins") or 0) / 60
-				agg["loss_time_hrs"] += float(loss_metrics.get("loss_mins") or 0) / 60
+				agg["setting_time_hrs"] += float(loss_metrics.get("setup_mins") or 0) / MINUTES_PER_HOUR
+				agg["loss_time_hrs"] += float(loss_metrics.get("loss_mins") or 0) / MINUTES_PER_HOUR
 
 			total_strokes, _rejection_qty = get_entry_total_strokes(entry)
 			agg["total_strokes"] += float(total_strokes)
@@ -172,7 +172,7 @@ def _get_rows(filters: dict) -> list[dict]:
 		production_mins = float(agg["production_mins"])
 		setting_time_hrs = float(agg["setting_time_hrs"])
 		loss_time_hrs = float(agg["loss_time_hrs"])
-		production_time_hrs = (production_mins / 60) if production_mins > 0 else 0
+		production_time_hrs = (production_mins / MINUTES_PER_HOUR) if production_mins > 0 else 0
 		spm = safe_ratio(agg["total_strokes"], production_time_hrs * MINUTES_PER_HOUR)
 		rows.append(
 			{

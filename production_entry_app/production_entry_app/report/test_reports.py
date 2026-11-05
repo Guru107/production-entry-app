@@ -4128,6 +4128,8 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(overall["date"], "Overall")
 		self.assertEqual(overall["bold"], 1)
 		self.assertEqual(overall["entries"], 2)
+		# Entries is an Int column; a summed 2.0 would render as a decimal.
+		self.assertIsInstance(overall["entries"], int)
 		self.assertEqual(float(overall["total_qty"]), 400.0)
 		self.assertEqual(float(overall["rejection_qty"]), 10.0)
 		# 10 / 400 * 1e6, not the mean of the daily PPMs (100_000 and 0).

@@ -4,6 +4,7 @@ from frappe import _
 from frappe.utils import flt, getdate
 
 from production_entry_app.production_entry_app.report.report_utils import (
+	PPM_MULTIPLIER,
 	apply_system_precision,
 	build_rate_overall_row,
 	build_stock_entry_filters,
@@ -12,10 +13,8 @@ from production_entry_app.production_entry_app.report.report_utils import (
 	safe_ratio,
 )
 
-PPM_MULTIPLIER: int = 1_000_000
 
-
-def execute(filters: dict | None = None):
+def execute(filters: dict | None = None) -> tuple[list[dict], list[dict], None, dict | None]:
 	filters = filters or {}
 	columns = _get_columns()
 	rows = _get_rows(filters)
@@ -27,9 +26,9 @@ def execute(filters: dict | None = None):
 				rows,
 				"date",
 				("entries", "total_qty", "rework_qty"),
-				"ppm",
-				"rework_qty",
-				PPM_MULTIPLIER,
+				rate_field="ppm",
+				numerator_field="rework_qty",
+				scale=PPM_MULTIPLIER,
 			),
 		]
 	return columns, rows, None, chart

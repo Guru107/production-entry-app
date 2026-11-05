@@ -9,6 +9,7 @@ from frappe.utils import flt, get_datetime, getdate
 
 from production_entry_app.production_entry_app.joint_production import JOINT_PRODUCTION_LINES_FIELD
 from production_entry_app.production_entry_app.report.report_utils import (
+	PPM_MULTIPLIER,
 	apply_system_precision,
 	build_overall_row,
 	build_stock_entry_filters,
@@ -25,7 +26,6 @@ from production_entry_app.production_entry_app.report.report_utils import (
 from production_entry_app.production_entry_app.rework import SECONDS_PER_HOUR
 from production_entry_app.production_entry_app.utils.system_precision import get_system_float_precision
 
-PPM_MULTIPLIER: int = 1_000_000
 _CHILD_PARENT_CHUNK_SIZE: int = 500
 _MAX_REWORK_ENTRIES: int = 10_000
 _ENTRY_FIELDS: list[str] = ["name", "fg_completed_qty", "custom_pea_operation"]

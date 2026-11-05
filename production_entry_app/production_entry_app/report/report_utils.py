@@ -33,6 +33,7 @@ from production_entry_app.production_entry_app.utils.system_precision import (
 )
 
 PERCENT_SCALE: int = 100
+PPM_MULTIPLIER: int = 1_000_000
 MINUTES_PER_HOUR: int = 60
 _MAX_FG_ITEM_PARENT_MATCHES: int = 5000
 _MAX_BOM_PARENT_MATCHES: int = 5000
@@ -1001,7 +1002,7 @@ def get_item_bom_quality_hotspot_rows(
 	if not agg:
 		return []
 
-	def build_metrics(values: dict) -> dict:
+	def _hotspot_metrics(values: dict) -> dict:
 		total_qty = flt(values["total_qty"])
 		quality_qty = flt(values["quality_qty"])
 		reasons = values.get("reason_totals") or {}
@@ -1018,12 +1019,15 @@ def get_item_bom_quality_hotspot_rows(
 		}
 
 	rows = [
-		{"item_code": item_code, "bom_no": bom_no, **build_metrics(values)}
+		{"item_code": item_code, "bom_no": bom_no, **_hotspot_metrics(values)}
 		for (item_code, bom_no), values in agg.items()
 	]
 	rows.sort(key=lambda row: (-flt(row[quantity_field]), row["item_code"], row["bom_no"] or ""))
 	# One Stock Entry can sit in several rows (joint outputs), so the Overall counts the union of entries.
-	return [*rows, build_overall_row("item_code", bom_no="", **build_metrics(merge_aggregates(agg.values())))]
+	return [
+		*rows,
+		build_overall_row("item_code", bom_no="", **_hotspot_metrics(merge_aggregates(agg.values()))),
+	]
 
 
 def _get_joint_output_item_map(stock_entry_names: list[str]) -> dict[tuple[str, str], str]:
@@ -1199,8 +1203,14 @@ def format_numeric_summary(value: float) -> str:
 
 
 def sum_rows(rows: list[dict], fieldnames: Sequence[str]) -> dict[str, float]:
-	"""Per-field sums over report rows; the bases an Overall Row recomputes its ratios from."""
-	return {fieldname: flt(sum(flt(row.get(fieldname)) for row in rows)) for fieldname in fieldnames}
+	"""Per-field sums over report rows; the bases an Overall Row recomputes its ratios from.
+	Integer columns (Entries, counts) stay integers."""
+	return {
+		fieldname: sum(
+			value if isinstance(value, int) else flt(value) for value in (row.get(fieldname) for row in rows)
+		)
+		for fieldname in fieldnames
+	}
 
 
 def safe_ratio(numerator: float, denominator: float, scale: float = 1) -> float:
@@ -1235,6 +1245,7 @@ def build_rate_overall_row(
 	rows: list[dict],
 	label_field: str,
 	sum_fields: Sequence[str],
+	*,
 	rate_field: str,
 	numerator_field: str,
 	scale: float,

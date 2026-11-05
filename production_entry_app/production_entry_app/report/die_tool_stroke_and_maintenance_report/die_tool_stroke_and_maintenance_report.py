@@ -15,7 +15,7 @@ from production_entry_app.production_entry_app.report.report_utils import (
 from production_entry_app.production_entry_app.utils.die_tool_counter import get_counter_health
 
 
-def execute(filters: dict | None = None):
+def execute(filters: dict | None = None) -> tuple[list[dict], list[dict]]:
 	filters = filters or {}
 	columns = _get_columns()
 	rows = _get_rows(filters)
@@ -195,6 +195,6 @@ def _get_overall_row(rows: list[dict]) -> dict:
 		last_maintenance_date=max(
 			(row["last_maintenance_date"] for row in rows if row.get("last_maintenance_date")), default=None
 		),
-		maintenance_count=int(totals["maintenance_count"]),
+		maintenance_count=totals["maintenance_count"],
 		last_reset_on=max((row["last_reset_on"] for row in rows if row.get("last_reset_on")), default=None),
 	)
