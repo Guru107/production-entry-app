@@ -232,7 +232,7 @@ class TestProductionReports(FrappeTestCase):
 			ignore_prepared_report=True,
 		)
 
-		self.assertEqual(len(result["result"]), 1)
+		self.assertEqual(len(result["result"]), 2)  # production date + Overall Row
 		self.assertEqual(str(result["result"][0]["date"]), "2091-09-11")
 
 	def test_date_grouped_reports_label_rows_by_shift_production_date(self) -> None:
@@ -3758,7 +3758,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows, _, _ = execute({"from_date": "2026-06-30", "to_date": "2026-06-30", "fg_item": fg_item})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # production date + Overall Row
 		self.assertEqual(rows[0]["date"], "2026-06-30")
 		self.assertEqual(float(rows[0]["total_qty"]), 100.0)
 		self.assertEqual(float(rows[0]["rejection_qty"]), 10.0)
@@ -3851,6 +3851,38 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(chart["data"]["labels"], ["2026-07-03"])
 		# PPM = (5 / 200) * 1_000_000 = 25_000
 		self.assertEqual(chart["data"]["datasets"][0]["values"], [25_000.0])
+
+	def test_rejection_ppm_report_ends_with_overall_row_recomputed_from_totals(self) -> None:
+		from production_entry_app.production_entry_app.report.rejection_ppm_report.rejection_ppm_report import (
+			execute,
+		)
+
+		for day, fg_qty, rejection_qty in (("2026-07-05", 100, 10), ("2026-07-06", 300, 0)):
+			shift = self._create_shift_for_label(day, "1")
+			self._create_mock_submitted_entry(
+				posting_date=day,
+				planned_start=f"{day} 08:00:00",
+				planned_end=f"{day} 09:00:00",
+				actual_start=f"{day} 08:00:00",
+				actual_end=f"{day} 09:00:00",
+				fg_qty=fg_qty,
+				rejection_qty=rejection_qty,
+				shift_name=shift.name,
+			)
+
+		_, rows, _, chart = execute({"from_date": "2026-07-05", "to_date": "2026-07-06"})
+
+		self.assertEqual(len(rows), 3)
+		overall = rows[-1]
+		self.assertEqual(overall["date"], "Overall")
+		self.assertEqual(overall["bold"], 1)
+		self.assertEqual(overall["entries"], 2)
+		self.assertEqual(float(overall["total_qty"]), 400.0)
+		self.assertEqual(float(overall["rejection_qty"]), 10.0)
+		# 10 / 400 * 1e6, not the mean of the daily PPMs (100_000 and 0).
+		self.assertEqual(float(overall["ppm"]), 25_000.0)
+		# The chart plots days only.
+		self.assertEqual(chart["data"]["labels"], ["2026-07-05", "2026-07-06"])
 
 	def test_rejection_ppm_report_empty(self) -> None:
 		from production_entry_app.production_entry_app.report.rejection_ppm_report.rejection_ppm_report import (
