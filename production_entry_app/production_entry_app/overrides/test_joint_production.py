@@ -9,6 +9,7 @@ import erpnext
 import frappe
 import frappe.client
 import frappe.handler
+from erpnext.stock.serial_batch_bundle import SerialBatchCreation
 from frappe.model.document import Document
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_to_date, cint, cstr, flt, get_datetime
@@ -1468,22 +1469,23 @@ class TestJointProductionItems(FrappeTestCase):
 			[(self.lh_item, "LH", 2.0), (self.rh_item, "RH", 5.0)],
 		)
 
-	def test_post_shearing_submits_when_a_shared_batch_tracked_input_spans_two_batches(self) -> None:
-		"""#233: stock just covers the shared input, split over batches; per-BOM rows used to overdraw batch A."""
+	def test_post_shearing_submits_when_draft_bundles_are_picked_for_a_shared_batch_tracked_input(
+		self,
+	) -> None:
+		"""#233: two BOMs share a batch-tracked input and stock exactly covers both; per-BOM rows overdrew batch 1."""
 		operation = ensure_operation("Blanking")
 		suffix = frappe.generate_hash(length=6)
-		shared_wip = ensure_item(f"_Joint_Batch_Shared_{suffix}")
+		shared_wip = ensure_item(f"_Joint_Batch_Shared_{suffix}", stock_uom="Kg")
 		frappe.db.set_value(
 			"Item", shared_wip, {"has_batch_no": 1, "create_new_batch": 0}, update_modified=False
 		)
 		frappe.clear_document_cache("Item", shared_wip)
 		warehouse, company = self.masters["wip_warehouse"], self.masters["company"]
-		# Need is 2 (LH) + 3 (RH) = 5; batch A alone covers either line but not both.
-		for qty in (3, 2):
-			batch = frappe.get_doc(
-				{"doctype": "Batch", "batch_id": f"JB-{suffix}-{qty}", "item": shared_wip}
-			).insert(ignore_permissions=True)
-			receipt = frappe.get_doc(
+		for batch_id, qty in ((f"JB1-{suffix}", 549.212), (f"JB2-{suffix}", 1246.872)):
+			batch = frappe.get_doc({"doctype": "Batch", "batch_id": batch_id, "item": shared_wip}).insert(
+				ignore_permissions=True
+			)
+			frappe.get_doc(
 				{
 					"doctype": "Stock Entry",
 					"stock_entry_type": "Material Receipt",
@@ -1501,30 +1503,48 @@ class TestJointProductionItems(FrappeTestCase):
 						}
 					],
 				}
-			).insert(ignore_permissions=True)
-			receipt.submit()
-		lh_bom = self._make_bom(
-			self.lh_item, bom_quantity=10, rm_items=[(shared_wip, 1)], scrap_qty=0.5, operation=operation
-		)
-		rh_bom = self._make_bom(
-			self.rh_item, bom_quantity=10, rm_items=[(shared_wip, 1)], scrap_qty=0.75, operation=operation
-		)
+			).insert(ignore_permissions=True).submit()
+		boms = [
+			self._make_bom(
+				item, bom_quantity=1, rm_items=[(shared_wip, 898.042)], scrap_qty=0, operation=operation
+			)
+			for item in (self.lh_item, self.rh_item)
+		]
 		doc = self._make_joint_entry(
 			make_running_shift(self.masters),
-			lh_bom=lh_bom,
-			rh_bom=rh_bom,
+			lh_bom=boms[0],
+			rh_bom=boms[1],
 			operation=operation,
-			lh_gross_qty=20,
+			lh_gross_qty=1,
 			lh_rejection_qty=0,
-			rh_gross_qty=30,
+			rh_gross_qty=1,
 			rh_rejection_qty=0,
 		)
-		self.assertEqual(len([row for row in doc.items if row.s_warehouse]), 1)
-
 		doc.insert(ignore_permissions=True)
+
+		# Like the Desk "Pick Serial/Batch" flow: every source row gets its own draft bundle, FIFO-picked
+		# without knowing the other rows' allocations.
+		for row in (row for row in doc.items if row.s_warehouse):
+			bundle = SerialBatchCreation(
+				{
+					"item_code": row.item_code,
+					"warehouse": row.s_warehouse,
+					"posting_datetime": get_datetime(f"{doc.posting_date} {doc.posting_time}"),
+					"voucher_type": "Stock Entry",
+					"voucher_detail_no": row.name,
+					"qty": flt(row.transfer_qty) * -1,
+					"type_of_transaction": "Outward",
+					"company": company,
+					"do_not_submit": True,
+				}
+			).make_serial_and_batch_bundle()
+			row.serial_and_batch_bundle = bundle.name
+			row.use_serial_batch_fields = 0
+		doc.save(ignore_permissions=True)
 		doc.submit()
 
 		self.assertEqual(doc.docstatus, 1)
+		self.assertEqual(len([row for row in doc.items if row.s_warehouse]), 1)
 
 	def test_post_shearing_fetch_merges_duplicate_inputs_within_one_bom(self) -> None:
 		operation = ensure_operation("Blanking")
