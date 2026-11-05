@@ -2811,9 +2811,10 @@ class TestJointProductionItems(FrappeTestCase):
 				"custom_pea_workstation": counted.workstation,
 			}
 		)
-		self.assertEqual(len(oee_rows), 1)
+		self.assertEqual(len(oee_rows), 2)  # day/workstation row + Overall Row
 		self.assertEqual(flt(oee_rows[0]["total_strokes"]), 77)
 		self.assertEqual(flt(oee_rows[0]["rejection"]), 4)
+		self.assertEqual(flt(oee_rows[-1]["total_strokes"]), 77)
 
 		_, rework_rows = rework_execute({"custom_pea_shift": counted.shift.name})
 		rework_by_bom = {row["bom_no"]: row for row in rework_rows}
