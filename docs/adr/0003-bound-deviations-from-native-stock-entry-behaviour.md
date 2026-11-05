@@ -143,8 +143,9 @@ authoritative for their topics; this record covers the remaining seams.
   lifecycle, permissions, batch and serial handling must stay available.
 - Drive joint rows through native `get_items()` and BOM explosion. Rejected: Shearing needs one
   common raw-material row feeding both BOMs with the additive share, while post-Shearing needs
-  per-side input quantities (merged into one source row per item, valued at the item's average rate per
-  side); each scrap item must still aggregate across both BOMs before rounding.
+  per-side input quantities (merged into one source row per item, priced at the item's average
+  source rate when each side's consumed value is computed); each scrap item must still aggregate
+  across both BOMs before rounding.
 - Accept native uniform Repack pricing. Rejected (#89): outputs must follow BOM cost weighting.
 - Persist a joint checkbox on Stock Entry. Rejected by the maintainer (PR #79 Round 18): the Stock Entry
   Type flag is the single source of truth.

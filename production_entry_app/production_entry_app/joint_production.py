@@ -646,6 +646,8 @@ def _get_joint_row_role(row: BaseDocument, plan: JointProductionPlan) -> str:
 			if item_code != plan.first_line.bom.rm_item_code:
 				_throw_stale_joint_rows(_("The source row must be the common BOM raw material."))
 			return "rm"
+		if row.get("bom_no"):
+			_throw_stale_joint_rows(_("The source row cannot carry a BOM."))
 		role = _post_shearing_source_role(cstr(item_code))
 		if role not in plan.expected_role_quantities:
 			_throw_stale_joint_rows(_("The source row does not match the selected BOMs."))

@@ -1622,6 +1622,16 @@ class TestJointProductionItems(FrappeTestCase):
 		with self.assertRaisesRegex(frappe.ValidationError, "Run Fetch Items again"):
 			validate_and_apply_joint_production(doc)
 
+	def test_post_shearing_submit_rejects_a_source_row_that_carries_a_bom(self) -> None:
+		"""Drafts saved with per-BOM source rows (pre-#233) must be re-fetched, not submitted."""
+		shift = make_running_shift(self.masters)
+		doc = self._make_post_shearing_entry(shift)
+		source_row = next(row for row in doc.items if row.s_warehouse)
+		source_row.bom_no = doc.custom_pea_lh_bom
+
+		with self.assertRaisesRegex(frappe.ValidationError, "Run Fetch Items again"):
+			validate_and_apply_joint_production(doc)
+
 	def test_post_shearing_submit_allows_absent_zero_rejection_rows(self) -> None:
 		shift = make_running_shift(self.masters)
 		doc = self._make_post_shearing_entry(
@@ -1679,6 +1689,42 @@ class TestJointProductionItems(FrappeTestCase):
 		# Manufacture-like: each side's outputs absorb only that side's consumed value minus scrap.
 		self.assertAlmostEqual(lh_output_value, lh_outgoing - lh_scrap_value, places=5)
 		self.assertAlmostEqual(rh_output_value, rh_outgoing - rh_scrap_value, places=5)
+
+	def test_post_shearing_valuation_prices_a_shared_input_split_across_rates_at_its_average(self) -> None:
+		shift = make_running_shift(self.masters)
+		doc = self._make_post_shearing_entry(
+			shift, lh_gross_qty=20, lh_rejection_qty=0, rh_gross_qty=30, rh_rejection_qty=0
+		)
+		lh_bom, rh_bom = doc.custom_pea_lh_bom, doc.custom_pea_rh_bom
+		(shared_item,) = get_bom_item_codes(lh_bom) & get_bom_item_codes(rh_bom)
+		self._rate_source_rows(doc, lambda item_code: 10)
+		shared_row = next(row for row in doc.items if row.s_warehouse and row.item_code == shared_item)
+		self.assertEqual(flt(shared_row.qty), 5)
+		# Split 5 = 2 @ 10 + 3 @ 40, e.g. two batches with different valuation rates; average rate is 28.
+		shared_row.qty = shared_row.transfer_qty = 2
+		shared_row.basic_amount = 2 * 10
+		self._append_split_row(doc, shared_row, qty=3)
+		split_row = doc.items[-1]
+		split_row.basic_rate = 40
+		split_row.basic_amount = 3 * 40
+
+		validate_and_apply_joint_production(doc)
+
+		lh_consumed = self._bom_consumed_value(doc, lh_bom, 20)
+		rh_consumed = self._bom_consumed_value(doc, rh_bom, 30)
+		lh_output_value = sum(
+			flt(row.basic_amount)
+			for row in doc.items
+			if row.custom_pea_joint_output_side == "LH" and not _is_scrap_row(row)
+		)
+		rh_output_value = sum(
+			flt(row.basic_amount)
+			for row in doc.items
+			if row.custom_pea_joint_output_side == "RH" and not _is_scrap_row(row)
+		)
+		# Fixture scrap rate is 10; planned scrap qty is side_gross / bom_qty * scrap_qty.
+		self.assertAlmostEqual(lh_output_value, lh_consumed - (20 / 10) * 0.5 * 10, places=5)
+		self.assertAlmostEqual(rh_output_value, rh_consumed - (30 / 10) * 0.75 * 10, places=5)
 
 	def test_post_shearing_valuation_covers_a_fully_rejected_side(self) -> None:
 		shift = make_running_shift(self.masters)
@@ -2774,9 +2820,14 @@ class TestJointProductionItems(FrappeTestCase):
 				row.basic_amount = flt(row.qty) * row.basic_rate
 
 	def _bom_consumed_value(self, doc: object, bom_no: str, gross_qty: float) -> float:
-		"""Value of the BOM's inputs for gross_qty, priced at the rates set on the merged source rows."""
+		"""Value of the BOM's inputs for gross_qty, priced at each item's average rate over its source rows."""
 		bom = frappe.get_cached_doc("BOM", bom_no)
-		rates = {row.item_code: flt(row.basic_rate) for row in doc.items if row.s_warehouse}
+		amounts: dict[str, float] = {}
+		qtys: dict[str, float] = {}
+		for row in (row for row in doc.items if row.s_warehouse):
+			amounts[row.item_code] = amounts.get(row.item_code, 0) + flt(row.qty) * flt(row.basic_rate)
+			qtys[row.item_code] = qtys.get(row.item_code, 0) + flt(row.qty)
+		rates = {item_code: amounts[item_code] / qtys[item_code] for item_code in amounts}
 		return sum(
 			gross_qty * flt(item.qty) / flt(bom.quantity) * rates[item.item_code] for item in bom.items
 		)
