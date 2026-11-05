@@ -7,9 +7,12 @@ from frappe.utils import flt, getdate
 
 from production_entry_app.production_entry_app.report.report_utils import (
 	apply_system_precision,
+	build_overall_row,
 	build_stock_entry_filters,
 	get_parent_quantity_metrics,
 	iter_stock_entries_in_chunks,
+	safe_ratio,
+	sum_rows,
 )
 
 _TIME_GRAINS: frozenset[str] = frozenset({"Daily", "Weekly", "Monthly"})
@@ -20,6 +23,8 @@ def execute(filters: dict | None = None):
 	columns = _get_columns()
 	rows = _get_rows(filters)
 	chart = _get_chart(rows)
+	if rows:
+		rows = [*rows, _get_overall_row(rows)]
 	return columns, rows, None, chart
 
 
@@ -123,7 +128,7 @@ def _get_rows(filters: dict) -> list[dict]:
 		total_qty = flt(aggregate["total_qty"])
 		rework_qty = flt(aggregate["rework_qty"])
 		non_rework_rejection_qty = flt(aggregate["non_rework_rejection_qty"])
-		rework_rate_pct = flt((rework_qty / total_qty) * 100) if total_qty > 0 else 0
+		rework_rate_pct = safe_ratio(rework_qty, total_qty, 100)
 		rows.append(
 			{
 				"period": aggregate["period"],
@@ -136,6 +141,18 @@ def _get_rows(filters: dict) -> list[dict]:
 		)
 
 	return rows
+
+
+def _get_overall_row(rows: list[dict]) -> dict:
+	totals = sum_rows(rows, ("entries", "total_qty", "rework_qty", "non_rework_rejection_qty"))
+	return build_overall_row(
+		"period",
+		entries=int(totals["entries"]),
+		total_qty=totals["total_qty"],
+		rework_qty=totals["rework_qty"],
+		non_rework_rejection_qty=totals["non_rework_rejection_qty"],
+		rework_rate_pct=safe_ratio(totals["rework_qty"], totals["total_qty"], 100),
+	)
 
 
 def _get_chart(rows: list[dict]) -> dict | None:

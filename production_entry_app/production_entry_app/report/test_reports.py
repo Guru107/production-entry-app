@@ -3973,10 +3973,47 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows, _, _chart = execute({"from_date": "2026-07-05", "to_date": "2026-07-05"})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # period + Overall Row
 		self.assertEqual(float(rows[0]["rework_qty"]), 6.0)
 		self.assertEqual(float(rows[0]["non_rework_rejection_qty"]), 4.0)
 		self.assertEqual(float(rows[0]["rework_rate_pct"]), 6.0)
+
+	def test_rework_trend_report_ends_with_overall_row_recomputed_from_totals(self) -> None:
+		from production_entry_app.production_entry_app.report.rework_trend_report.rework_trend_report import (
+			execute,
+		)
+
+		for day, fg_qty, rework_qty, other_qty in (("2026-07-10", 100, 10, 2), ("2026-07-11", 300, 0, 4)):
+			shift = self._create_shift_for_label(day, "1")
+			breakup = [{"rejection_reason": "Burr", "qty": other_qty, "is_rework": 0}]
+			if rework_qty:
+				breakup.append({"rejection_reason": "Crack", "qty": rework_qty, "is_rework": 1})
+			self._create_mock_submitted_entry_with_breakup(
+				posting_date=day,
+				planned_start=f"{day} 08:00:00",
+				planned_end=f"{day} 09:00:00",
+				actual_start=f"{day} 08:00:00",
+				actual_end=f"{day} 09:00:00",
+				fg_qty=fg_qty,
+				shift_name=shift.name,
+				breakup_rows=breakup,
+			)
+
+		_, rows, _, chart = execute(
+			{"from_date": "2026-07-10", "to_date": "2026-07-11", "time_grain": "Daily"}
+		)
+
+		self.assertEqual(len(rows), 3)
+		overall = rows[-1]
+		self.assertEqual(overall["period"], "Overall")
+		self.assertEqual(overall["bold"], 1)
+		self.assertEqual(overall["entries"], 2)
+		self.assertEqual(float(overall["total_qty"]), 400.0)
+		self.assertEqual(float(overall["rework_qty"]), 10.0)
+		self.assertEqual(float(overall["non_rework_rejection_qty"]), 6.0)
+		# 10 / 400, not the mean of the period rates (10% and 0%).
+		self.assertEqual(float(overall["rework_rate_pct"]), 2.5)
+		self.assertEqual(chart["data"]["labels"], ["2026-07-10", "2026-07-11"])
 
 	def test_rework_ppm_report_data(self) -> None:
 		from production_entry_app.production_entry_app.report.rework_ppm_report.rework_ppm_report import (
