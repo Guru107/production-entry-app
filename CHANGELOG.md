@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
--   Post-Shearing Joint production now builds one source row per input item (summed across BOMs) instead of one per BOM, so a raw material shared by both BOMs no longer gets the same batch allocated twice and fails submit with a negative-stock error (#233)
+-   Post-Shearing Joint production now builds one source row per input item (summed across BOMs) instead of one per BOM, so a raw material shared by both BOMs no longer gets the same batch allocated twice and fails submit with a negative-stock error; drafts saved with per-BOM source rows now ask for Fetch Items to be run again (#233)
 
 ## [1.5.2] - 2026-11-02
 
