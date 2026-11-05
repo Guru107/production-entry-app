@@ -76,7 +76,7 @@ class TestDailyRejReworkRegister(FrappeTestCase):
 				"operator_name",
 			],
 		)
-		self.assertEqual(len(rows), 6)
+		self.assertEqual(len(rows), 7)  # + Overall Row
 		header = rows[0]
 		self.assertEqual(header["bold"], 1)
 		self.assertEqual(str(header["production_date"]), day)
@@ -128,6 +128,52 @@ class TestDailyRejReworkRegister(FrappeTestCase):
 		self.assertAlmostEqual(subtotal["rej_ppm"], flt(8 / 1500 * 1_000_000, precision))
 		self.assertAlmostEqual(subtotal["rework_ppm"], flt(2 / 1500 * 1_000_000, precision))
 
+	def test_overall_row_uses_day_level_figures_across_the_range(self) -> None:
+		day_1, day_2 = "2092-06-20", "2092-06-21"
+		for day, fg_qty, breakup, rework_operators in (
+			(
+				day_1,
+				1000,
+				[("", "Burr", 5, 0), ("", "Dent", 2, 1)],
+				[
+					("Operator A", f"{day_1} 08:00:00", f"{day_1} 09:00:00"),
+					("Operator B", f"{day_1} 09:00:00", f"{day_1} 09:30:00"),
+				],
+			),
+			(
+				day_2,
+				500,
+				[("", "Crack", 3, 0)],
+				[("Operator A", f"{day_2} 08:00:00", f"{day_2} 09:00:00")],
+			),
+		):
+			shift = self._insert_shift(day, "1", status="Completed")
+			entry = self._insert_production_entry(
+				shift_name=shift, posting_date=day, fg_qty=fg_qty, bom=self._insert_bom(self.item_a)
+			)
+			self._insert_rejection_item(entry, self.item_a, sum(row[2] for row in breakup))
+			self._insert_breakup(entry, breakup)
+			self._insert_rework_entry(rework_date=day, items=[(self.item_a, 1)], operators=rework_operators)
+
+		rows = daily_rej_rework_register.execute({"from_date": day_1, "to_date": day_2})[1]
+		precision = daily_rej_rework_register.get_system_float_precision()
+
+		overall = rows[-1]
+		self.assertEqual(overall["production_date"], "Overall")
+		self.assertEqual(overall["bold"], 1)
+		# Each listed day's total once (1000 + 500); the repeated header/item/subtotal cells are not summed.
+		self.assertEqual(overall["day_fg_qty"], 1500)
+		# Operator A worked both days: counted once, not once per day.
+		self.assertEqual(overall["operator_count"], 2)
+		self.assertEqual(overall["rework_hours"], 2.5)
+		# Day subtotals: rejection 5 + 3, declared reworkable 2.
+		self.assertEqual(overall["rejection_qty"], 8)
+		self.assertEqual(overall["rework_qty"], 2)
+		self.assertAlmostEqual(overall["rej_ppm"], flt(8 / 1500 * 1_000_000, precision))
+		self.assertAlmostEqual(overall["rework_ppm"], flt(2 / 1500 * 1_000_000, precision))
+		self.assertNotIn("finished_goods_qty", overall)
+		self.assertNotIn("operator_name", overall)
+
 	def test_lines_group_by_item_within_a_day(self) -> None:
 		day = "2092-06-12"
 		shift = self._insert_shift(day, "1", status="Completed")
@@ -149,7 +195,7 @@ class TestDailyRejReworkRegister(FrappeTestCase):
 		rows = daily_rej_rework_register.execute({"from_date": day, "to_date": day})[1]
 
 		# Day header, item A group (2 lines), item B group (1 line), day subtotal.
-		self.assertEqual(len(rows), 7)
+		self.assertEqual(len(rows), 8)  # + Overall Row
 		item_rows = [row for row in rows if row.get("defective_item_code")]
 		self.assertEqual([row["defective_item_code"] for row in item_rows], [self.item_a, self.item_b])
 		self.assertEqual(item_rows[0]["rework_qty"], 4)
@@ -163,7 +209,7 @@ class TestDailyRejReworkRegister(FrappeTestCase):
 			[(row["rejection_reason"], row["rejection_qty"], row["rework_qty"]) for row in details],
 			[("Crack", 3, 0), ("Burr", 5, 0), ("Burr", 0, 2)],
 		)
-		subtotal = rows[-1]
+		subtotal = rows[-2]
 		self.assertEqual(subtotal["rejection_qty"], 8)
 		# Declared reworkable: only item B's Burr line (qty 2), not the actual 5 reworked.
 		self.assertEqual(subtotal["rework_qty"], 2)
@@ -196,7 +242,7 @@ class TestDailyRejReworkRegister(FrappeTestCase):
 
 		rows = daily_rej_rework_register.execute({"from_date": day, "to_date": day})[1]
 
-		self.assertEqual(len(rows), 4)
+		self.assertEqual(len(rows), 5)  # + Overall Row
 		# The day header covers ALL the day's submitted rework, including item B's,
 		# even though item B has no rejection line that day. Drafts stay excluded.
 		header = rows[0]
@@ -324,7 +370,7 @@ class TestDailyRejReworkRegister(FrappeTestCase):
 
 		rows = daily_rej_rework_register.execute({"from_date": day, "to_date": day})[1]
 
-		self.assertEqual(len(rows), 4)
+		self.assertEqual(len(rows), 5)  # + Overall Row
 		row = rows[2]
 		self.assertEqual(row["rejection_stage"], "Blanking")
 		# Total produced before rejection deduction: 40 + 60.
