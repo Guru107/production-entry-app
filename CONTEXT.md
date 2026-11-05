@@ -199,8 +199,16 @@ A Script Report with one row per Workstation for one calendar month of Productio
 the Production OEE Report uses for each day (available time, running time, strokes, quality quantities, rejection,
 Machine Downtime, and OEE Loss Breakdown hours), keeps OEE Standard SPM production-time-weighted across the
 month, then recomputes Availability, Quality, Productivity, and OEE from those month totals. Downtime-only
-Production Dates are included. There is no cross-workstation totals row.
+Production Dates are included. It ends with an Overall Row across all Workstations.
 _Avoid_: average of daily OEE percentages, posting-date month, plant-wide OEE average
+
+**Overall Row**:
+The single bold last row of a report, labelled "Overall", that summarises every row the report's filters match, including
+rows for unassigned Operators or Workstations. Quantity and time columns are summed; rate and percentage columns
+(OEE, Availability, Quality, Productivity, SPM, PPM) are recomputed from the summed bases, never summed or averaged
+across rows; a column whose figure cannot be combined meaningfully across rows is left blank. Pareto reports and
+Pending Rework have none.
+_Avoid_: Total row, grand total, footer row, average row, subtotal
 
 ## Warehouse defaults
 

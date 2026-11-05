@@ -6,8 +6,9 @@ the OEE product invariant. The month row sums the same bases the Production OEE 
 uses (available time, running time, strokes, quality quantities, rejection, Machine
 Downtime, and OEE Loss Breakdown hours), keeps OEE Standard SPM production-time-weighted
 across the month (ADR 0006), then recomputes Availability, Quality, Productivity, and OEE
-from those totals. Downtime-only Production Dates are included; there is no
-cross-workstation totals row.
+from those totals. Downtime-only Production Dates are included. (The original "no
+cross-workstation totals row" is superseded by ADR 0010: the report now ends with an
+Overall Row built the same way.)
 
 ## Considered Options
 

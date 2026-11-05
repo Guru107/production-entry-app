@@ -429,7 +429,7 @@ class TestProductionReports(FrappeTestCase):
 			shift_name=shift.name,
 		)
 		_, rows = execute({"from_date": "2026-06-03", "to_date": "2026-06-03"})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # data rows + Overall Row
 		self.assertNotIn("quality_total", rows[0])
 		self.assertNotIn("production_mins_sum", rows[0])
 		self.assertNotIn("standard_spm_weighted_sum", rows[0])
@@ -489,10 +489,11 @@ class TestProductionReports(FrappeTestCase):
 			)
 
 		_daily_columns, daily_rows = daily_execute({"from_date": "2026-06-01", "to_date": "2026-06-02"})
-		self.assertEqual(len(daily_rows), 2)
+		self.assertEqual(len(daily_rows), 3)  # two days + Overall Row
+		daily_rows = daily_rows[:-1]
 
 		_, rows = execute({"year": 2026, "month": 6})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # data rows + Overall Row
 		row = rows[0]
 		self.assertEqual(row["month"], "2026-06")
 		self.assertEqual(float(row["avl_time_hrs"]), sum(float(r["avl_time_hrs"]) for r in daily_rows))
@@ -523,7 +524,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"year": 2026, "month": 7})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # data rows + Overall Row
 		self.assertEqual(rows[0]["month"], "2026-07")
 		self.assertEqual(float(rows[0]["running_time"]), 0.0)
 		self.assertGreater(float(rows[0]["machine_downtime"]), 0.0)
@@ -551,6 +552,152 @@ class TestProductionReports(FrappeTestCase):
 			execute as daily_execute,
 		)
 
+		self._seed_two_day_oee_fixture()
+
+		_daily_columns, daily_rows = daily_execute({"from_date": "2026-08-01", "to_date": "2026-08-02"})
+		self.assertEqual(len(daily_rows), 3)  # two days + Overall row
+		self.assertEqual([float(row["oee_mult_pct"]) for row in daily_rows[:2]], [12.5, 0.0])
+
+		_, rows = execute({"year": 2026, "month": 8})
+		self.assertEqual(len(rows), 2)  # one workstation + Overall row
+		month_row = rows[0]
+		# Naive average of daily OEE% would be 6.25; summed bases yield Q=96% and OEE=12%.
+		self.assertAlmostEqual(float(month_row["quality_pct"]), 96.0, places=6)
+		self.assertAlmostEqual(float(month_row["oee_mult_pct"]), 12.0, places=6)
+		self.assertNotAlmostEqual(float(month_row["oee_mult_pct"]), 6.25, places=6)
+
+	def test_oee_overall_row_recomputes_ratios_from_summed_bases(self) -> None:
+		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
+			build_oee_overall_row,
+		)
+
+		rows = [
+			{
+				"first_shift_strokes": 1200,
+				"second_shift_strokes": 0,
+				"total_strokes": 1200,
+				"rejection": 10,
+				"avl_time_hrs": 12,
+				"machine_downtime": 1,
+				"total_loss_time": 2,
+				"running_time": 10,
+				"stroke_required": 1200,
+				"quality_total": 100,
+				"production_mins_sum": 600,
+				"standard_spm_weighted_sum": 1200,
+				"reason_01_1st": 1.5,
+			},
+			{
+				"first_shift_strokes": 1800,
+				"second_shift_strokes": 0,
+				"total_strokes": 1800,
+				"rejection": 0,
+				"avl_time_hrs": 6,
+				"machine_downtime": 0,
+				"total_loss_time": 1,
+				"running_time": 5,
+				"stroke_required": 3000,
+				"quality_total": 50,
+				"production_mins_sum": 300,
+				"standard_spm_weighted_sum": 3000,
+				"reason_01_1st": 0.5,
+			},
+		]
+
+		overall = build_oee_overall_row(rows, "day", ["reason_01_1st"])
+
+		self.assertEqual(overall["day"], "Overall")
+		self.assertEqual(overall["bold"], 1)
+		self.assertEqual(overall["total_strokes"], 3000)
+		self.assertEqual(overall["running_time"], 15)
+		self.assertEqual(overall["avl_time_hrs"], 18)
+		self.assertEqual(overall["reason_01_1st"], 2)
+		self.assertAlmostEqual(overall["std_spm"], 4200 / 900, places=6)
+		self.assertAlmostEqual(overall["act_spm"], 3000 / 900, places=6)
+		self.assertAlmostEqual(overall["stroke_required"], 15 * (4200 / 900) * 60, places=6)
+		self.assertAlmostEqual(overall["availability_pct"], 15 / 18 * 100, places=6)
+		self.assertAlmostEqual(overall["quality_pct"], 140 / 150 * 100, places=6)
+		self.assertAlmostEqual(overall["productivity_pct"], (3000 / 900) / (4200 / 900) * 100, places=6)
+		self.assertAlmostEqual(overall["oee_mult_pct"], 55.555556, places=5)
+		self.assertEqual(overall["workstation"], "")
+
+	def test_oee_overall_row_std_spm_falls_back_to_running_time_weighted_mean(self) -> None:
+		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
+			build_oee_overall_row,
+		)
+
+		rows = [
+			{
+				"total_strokes": 600,
+				"avl_time_hrs": 5,
+				"running_time": 5,
+				"stroke_required": 600,
+				"quality_total": 0,
+				"production_mins_sum": 0,
+				"standard_spm_weighted_sum": 0,
+			},
+			{
+				"total_strokes": 0,
+				"avl_time_hrs": 5,
+				"running_time": 0,
+				"stroke_required": 0,
+				"quality_total": 0,
+				"production_mins_sum": 0,
+				"standard_spm_weighted_sum": 0,
+			},
+		]
+
+		overall = build_oee_overall_row(rows, "day")
+		self.assertAlmostEqual(overall["std_spm"], 2.0, places=6)
+
+		rows[0]["running_time"] = rows[0]["stroke_required"] = 0
+		self.assertEqual(build_oee_overall_row(rows, "day")["std_spm"], 0)
+
+	def test_production_oee_report_ends_with_overall_row(self) -> None:
+		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
+			execute as daily_execute,
+		)
+
+		self._seed_two_day_oee_fixture()
+
+		_columns, rows = daily_execute({"from_date": "2026-08-01", "to_date": "2026-08-02"})
+
+		self.assertEqual(len(rows), 3)
+		overall = rows[-1]
+		self.assertEqual(overall["day"], "Overall")
+		self.assertEqual(overall["bold"], 1)
+		self.assertAlmostEqual(float(overall["quality_pct"]), 96.0, places=6)
+		self.assertAlmostEqual(float(overall["oee_mult_pct"]), 12.0, places=6)
+		self.assertEqual(overall["total_strokes"], sum(row["total_strokes"] for row in rows[:2]))
+		self.assertNotIn("quality_total", overall)
+		self.assertNotIn("quality_total", rows[0])
+
+	def test_production_oee_report_has_no_overall_row_without_data(self) -> None:
+		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
+			execute as daily_execute,
+		)
+
+		_columns, rows = daily_execute({"from_date": "2026-09-01", "to_date": "2026-09-02"})
+		self.assertEqual(rows, [])
+
+	def test_monthly_production_oee_report_ends_with_overall_row(self) -> None:
+		from production_entry_app.production_entry_app.report.monthly_production_oee_report.monthly_production_oee_report import (
+			execute,
+		)
+
+		self._seed_two_day_oee_fixture()
+
+		_columns, rows = execute({"year": 2026, "month": 8})
+
+		self.assertEqual(len(rows), 2)
+		month_row, overall = rows
+		self.assertEqual(overall["month"], "Overall")
+		self.assertEqual(overall["bold"], 1)
+		for fieldname in ("total_strokes", "running_time", "quality_pct", "oee_mult_pct", "std_spm"):
+			self.assertAlmostEqual(float(overall[fieldname]), float(month_row[fieldname]), places=6)
+		self.assertNotIn("quality_total", month_row)
+
+	def _seed_two_day_oee_fixture(self) -> None:
 		# Day 1: 120 good parts, Q=100%, OEE=12.5%
 		shift_1 = self._create_shift_for_label("2026-08-01", "1", clear_planned_losses=True)
 		self._create_mock_submitted_entry(
@@ -577,18 +724,6 @@ class TestProductionReports(FrappeTestCase):
 			total_strokes=120,
 			shift_name=shift_2.name,
 		)
-
-		_daily_columns, daily_rows = daily_execute({"from_date": "2026-08-01", "to_date": "2026-08-02"})
-		self.assertEqual(len(daily_rows), 2)
-		self.assertEqual([float(row["oee_mult_pct"]) for row in daily_rows], [12.5, 0.0])
-
-		_, rows = execute({"year": 2026, "month": 8})
-		self.assertEqual(len(rows), 1)
-		month_row = rows[0]
-		# Naive average of daily OEE% would be 6.25; summed bases yield Q=96% and OEE=12%.
-		self.assertAlmostEqual(float(month_row["quality_pct"]), 96.0, places=6)
-		self.assertAlmostEqual(float(month_row["oee_mult_pct"]), 12.0, places=6)
-		self.assertNotAlmostEqual(float(month_row["oee_mult_pct"]), 6.25, places=6)
 
 	def test_production_oee_report_adds_one_column_pair_per_selected_reason(self) -> None:
 		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
@@ -820,7 +955,7 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(stock_entry.docstatus, 1)
 
 		_, rows = execute({"from_date": "2026-06-01", "to_date": "2026-06-01"})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # data rows + Overall Row
 		self.assertEqual(str(rows[0]["day"]), "2026-06-01")
 		self.assertEqual(float(rows[0]["availability_pct"]), 100.0)
 		self.assertEqual(float(rows[0]["productivity_pct"]), 12.5)
@@ -861,7 +996,7 @@ class TestProductionReports(FrappeTestCase):
 			shift_name=shift.name,
 		)
 		_, rows = execute({"from_date": "2026-06-01", "to_date": "2026-06-01"})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # data rows + Overall Row
 		self.assertEqual(float(rows[0]["total_strokes"]), 70.0)
 		self.assertEqual(float(rows[0]["rejection"]), 5.0)
 		self.assertEqual(float(rows[0]["first_shift_strokes"]), 70.0)
@@ -916,9 +1051,9 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(entry_ok_quantities, [95.0, 95.0])
 		self.assertEqual([float(row["ok_qty"]) for row in shift_snapshots], [95.0, 95.0])
 		self.assertEqual([float(row["rejection_pct"]) for row in shift_snapshots], [5.0, 5.0])
-		self.assertEqual(len(rows), 2)
-		self.assertEqual([float(row["quality_pct"]) for row in rows], [95.0, 95.0])
-		self.assertEqual([float(row["rejection"]) for row in rows], [5.0, 5.0])
+		self.assertEqual(len(rows), 3)  # data rows + Overall Row
+		self.assertEqual([float(row["quality_pct"]) for row in rows], [95.0, 95.0, 95.0])
+		self.assertEqual([float(row["rejection"]) for row in rows], [5.0, 5.0, 10.0])
 
 	def test_production_oee_report_shift_split_and_loss_breakdown(self) -> None:
 		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
@@ -957,7 +1092,7 @@ class TestProductionReports(FrappeTestCase):
 				"downtime_reason": ["01", "04", "21"],
 			}
 		)
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # data rows + Overall Row
 		row = rows[0]
 		self.assertEqual(float(row["first_shift_strokes"]), 100.0)
 		self.assertEqual(float(row["second_shift_strokes"]), 80.0)
@@ -1001,7 +1136,7 @@ class TestProductionReports(FrappeTestCase):
 			unplanned_losses=[{"downtime_reason": "21", "start_time": "18:00:00", "end_time": "19:00:00"}],
 		)
 		_, rows = execute({"from_date": "2026-06-02", "to_date": "2026-06-02"})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # data rows + Overall Row
 		row = rows[0]
 		self.assertNotIn("reason_01_1st", row)
 		self.assertNotIn("reason_21_2nd", row)
@@ -1028,7 +1163,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"from_date": "2026-06-09", "to_date": "2026-06-09", "downtime_reason": ["00"]})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # data rows + Overall Row
 		row = rows[0]
 		self.assertEqual(float(row["reason_00_1st"]), 0.0)
 		self.assertEqual(float(row["reason_00_2nd"]), 1.0)
@@ -1067,7 +1202,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"from_date": "2026-06-07", "to_date": "2026-06-07", "downtime_reason": ["01"]})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # data rows + Overall Row
 		row = rows[0]
 		self.assertEqual(float(row["reason_01_1st"]), 0.0)
 		self.assertEqual(float(row["reason_01_2nd"]), 0.0)
@@ -1106,7 +1241,7 @@ class TestProductionReports(FrappeTestCase):
 			[(column.get("label"), column.get("fieldtype")) for column in machine_downtime_columns],
 			[("Machine Downtime", "Float")],
 		)
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # data rows + Overall Row
 		row = rows[0]
 		self.assertEqual(float(row["avl_time_hrs"]), 8.0)
 		self.assertEqual(float(row["machine_downtime"]), 1.0)
@@ -1144,7 +1279,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"from_date": "2026-07-02", "to_date": "2026-07-02", "downtime_reason": ["01"]})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # data rows + Overall Row
 		row = rows[0]
 		self.assertEqual(float(row["reason_01_1st"]), 0.5)
 		self.assertEqual(float(row["machine_downtime"]), 0.5)
@@ -1176,7 +1311,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"from_date": "2026-07-03", "to_date": "2026-07-03"})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # data rows + Overall Row
 		row = rows[0]
 		self.assertAlmostEqual(float(row["avl_time_hrs"]), 7.5, places=2)
 		self.assertAlmostEqual(float(row["machine_downtime"]), 20 / 60, places=4)
@@ -1244,7 +1379,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"from_date": "2026-07-04", "to_date": "2026-07-04"})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # data rows + Overall Row
 		self.assertEqual(float(rows[0]["machine_downtime"]), 2.0)
 		self.assertEqual(float(rows[0]["running_time"]), 6.0)
 
@@ -1280,7 +1415,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"from_date": "2026-07-05", "to_date": "2026-07-05"})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # data rows + Overall Row
 		self.assertEqual(float(rows[0]["machine_downtime"]), 1.0)
 		self.assertEqual(float(rows[0]["avl_time_hrs"]), 8.0)
 
@@ -1314,7 +1449,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"from_date": "2026-07-06", "to_date": "2026-07-06"})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # data rows + Overall Row
 		self.assertEqual(float(rows[0]["machine_downtime"]), 1.0)
 		self.assertEqual(float(rows[0]["avl_time_hrs"]), 16.0)
 		self.assertEqual(float(rows[0]["running_time"]), 15.0)
@@ -1349,7 +1484,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"from_date": "2026-07-11", "to_date": "2026-07-11"})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # data rows + Overall Row
 		self.assertEqual(float(rows[0]["machine_downtime"]), 0.5)
 
 	def test_production_oee_report_counts_downtime_during_a_completed_shift_without_production(
@@ -1381,7 +1516,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"from_date": "2026-07-12", "to_date": "2026-07-12"})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # data rows + Overall Row
 		self.assertEqual(float(rows[0]["avl_time_hrs"]), 8.0)
 		self.assertEqual(float(rows[0]["machine_downtime"]), 1.0)
 		self.assertEqual(float(rows[0]["running_time"]), 7.0)
@@ -1419,7 +1554,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"from_date": "2026-07-07", "to_date": "2026-07-07"})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # data rows + Overall Row
 		self.assertEqual(float(rows[0]["machine_downtime"]), 0.5)
 
 	def test_production_oee_report_ignores_cancelled_downtime_entries(self) -> None:
@@ -1455,7 +1590,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"from_date": "2026-07-08", "to_date": "2026-07-08"})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # data rows + Overall Row
 		self.assertEqual(float(rows[0]["machine_downtime"]), 0.5)
 
 	def test_production_oee_report_ignores_downtime_on_another_workstation(self) -> None:
@@ -1525,7 +1660,7 @@ class TestProductionReports(FrappeTestCase):
 				"custom_pea_operation": operation,
 			}
 		)
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # data rows + Overall Row
 		self.assertEqual(float(rows[0]["machine_downtime"]), 1.0)
 		self.assertEqual(float(rows[0]["running_time"]), 7.0)
 
@@ -1551,7 +1686,7 @@ class TestProductionReports(FrappeTestCase):
 			if "downtime" in str(column.get("fieldname")) or "gap" in str(column.get("fieldname"))
 		]
 		self.assertEqual(downtime_fieldnames, ["machine_downtime"])
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # data rows + Overall Row
 		row = rows[0]
 		self.assertEqual(row["day"], "2026-07-13")
 		self.assertEqual(row["workstation"], "Report Workstation")
@@ -1594,7 +1729,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"from_date": "2026-06-18", "to_date": "2026-06-18", "downtime_reason": ["01"]})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # data rows + Overall Row
 		row = rows[0]
 		self.assertEqual(float(row["reason_01_1st"]), 1.5)
 		self.assertEqual(float(row["total_loss_time"]), 1.5)
@@ -1641,7 +1776,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"from_date": "2026-07-15", "to_date": "2026-07-15"})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # data rows + Overall Row
 		self.assertAlmostEqual(float(rows[0]["avl_time_hrs"]), 7.5, places=2)
 		self.assertEqual(float(rows[0]["machine_downtime"]), 1.0)
 		self.assertEqual(float(rows[0]["running_time"]), 0.0)
@@ -1664,7 +1799,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"from_date": "2026-07-21", "to_date": "2026-07-21"})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # data rows + Overall Row
 		self.assertEqual(float(rows[0]["avl_time_hrs"]), 8.0)
 		self.assertEqual(float(rows[0]["machine_downtime"]), 1.0)
 		self.assertEqual(float(rows[0]["running_time"]), 0.0)
@@ -1699,7 +1834,7 @@ class TestProductionReports(FrappeTestCase):
 				"custom_pea_workstation": "Report Workstation",
 			}
 		)
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # data rows + Overall Row
 		self.assertEqual(rows[0]["workstation"], "Report Workstation")
 		self.assertEqual(float(rows[0]["machine_downtime"]), 1.0)
 
@@ -1792,7 +1927,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"from_date": "2026-06-03", "to_date": "2026-06-03"})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # data rows + Overall Row
 		self.assertEqual(float(rows[0]["avl_time_hrs"]), 8.0)
 		self.assertEqual(float(rows[0]["running_time"]), 6.0)
 		self.assertEqual(float(rows[0]["availability_pct"]), 75.0)
@@ -1816,7 +1951,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"from_date": "2026-06-13", "to_date": "2026-06-13"})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # data rows + Overall Row
 		row = rows[0]
 		expected_total_loss_time = (20 / 60) / 60
 		expected_running_time = 8 - expected_total_loss_time
@@ -1857,7 +1992,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"from_date": "2026-08-10", "to_date": "2026-08-10"})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # data rows + Overall Row
 		self.assertEqual(float(rows[0]["avl_time_hrs"]), 16.0)
 
 	def test_production_oee_report_availability_scopes_to_workstation_linked_shifts(self) -> None:
@@ -1893,7 +2028,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"from_date": "2026-08-11", "to_date": "2026-08-11"})
-		self.assertEqual(len(rows), 2)
+		self.assertEqual(len(rows), 3)  # data rows + Overall Row
 		by_workstation = {row["workstation"]: row for row in rows}
 		self.assertEqual(float(by_workstation["Report Workstation"]["avl_time_hrs"]), 8.0)
 		self.assertEqual(float(by_workstation[other_workstation]["avl_time_hrs"]), 8.0)
@@ -1917,7 +2052,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"from_date": "2026-08-12", "to_date": "2026-08-12"})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # data rows + Overall Row
 		self.assertEqual(float(rows[0]["avl_time_hrs"]), 8.0)
 
 	def test_production_oee_report_deducts_shift_planned_losses_from_availability(self) -> None:
@@ -1938,7 +2073,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"from_date": "2026-06-12", "to_date": "2026-06-12"})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # data rows + Overall Row
 		# 8-hour shift with default planned losses totaling 30 minutes.
 		self.assertAlmostEqual(float(rows[0]["avl_time_hrs"]), 7.5, places=2)
 		self.assertAlmostEqual(float(rows[0]["running_time"]), 7.5, places=2)
@@ -1964,7 +2099,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"from_date": "2026-06-10", "to_date": "2026-06-10"})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # data rows + Overall Row
 		self.assertEqual(float(rows[0]["avl_time_hrs"]), 8.0)
 
 	def test_production_oee_report_excludes_entries_without_a_shift(self) -> None:
@@ -2013,7 +2148,7 @@ class TestProductionReports(FrappeTestCase):
 			update_modified=False,
 		)
 		_, rows = execute({"from_date": "2026-06-04", "to_date": "2026-06-04"})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # data rows + Overall Row
 		self.assertEqual(float(rows[0]["std_spm"]), 2.0)
 		self.assertEqual(float(rows[0]["productivity_pct"]), 12.5)
 
@@ -2054,7 +2189,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"from_date": "2026-06-12", "to_date": "2026-06-12"})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # data rows + Overall Row
 		# Equal 30-minute production windows: (2*30 + 9*30) / 60 = 5.5
 		self.assertEqual(float(rows[0]["std_spm"]), 5.5)
 
@@ -2087,7 +2222,7 @@ class TestProductionReports(FrappeTestCase):
 		frappe.db.set_value("Shift", shift.name, "status", "Completed", update_modified=False)
 
 		_, rows = execute({"from_date": "2026-07-01", "to_date": "2026-07-01"})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # data rows + Overall Row
 		self.assertEqual(float(rows[0]["avl_time_hrs"]), 10.0)
 
 	def test_production_oee_shift_label_cache_reuses_loaded_shift_labels(self) -> None:
@@ -4097,7 +4232,7 @@ class TestProductionReports(FrappeTestCase):
 		).insert(ignore_permissions=True)
 
 		_, rows = execute({"from_date": "2026-09-01", "to_date": "2026-09-01"})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # data rows + Overall Row
 		self.assertEqual(float(rows[0]["total_strokes"]), 41.0)
 
 	def test_production_oee_report_filters_joint_entries_by_operation(self) -> None:
@@ -4140,7 +4275,7 @@ class TestProductionReports(FrappeTestCase):
 				"custom_pea_operation": shearing,
 			}
 		)
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # data rows + Overall Row
 		self.assertEqual(float(rows[0]["total_strokes"]), 41.0)
 
 	def test_daily_strokes_spm_monitor_filters_by_operation(self) -> None:
