@@ -4319,7 +4319,7 @@ class TestProductionReports(FrappeTestCase):
 				"custom_pea_operation": blanking,
 			}
 		)
-		data_rows = [row for row in rows if row.get("date") != "Total"]
+		data_rows = [row for row in rows if row.get("date") != "Overall"]
 		self.assertEqual(len(data_rows), 1)
 		self.assertEqual(data_rows[0]["operation"], blanking)
 		self.assertEqual(float(data_rows[0]["total_strokes"]), 55.0)
@@ -4428,9 +4428,41 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"from_date": "2090-09-06", "to_date": "2090-09-06"})
-		data_rows = [row for row in rows if row.get("date") != "Total"]
+		data_rows = [row for row in rows if row.get("date") != "Overall"]
 		self.assertEqual(len(data_rows), 1)
 		self.assertEqual(data_rows[0]["operation"], shearing)
+
+	def test_daily_strokes_spm_monitor_ends_with_bold_overall_row(self) -> None:
+		from production_entry_app.production_entry_app.report.daily_strokes_spm_monitor.daily_strokes_spm_monitor import (
+			execute,
+		)
+
+		for day, strokes in (("2090-09-08", 120), ("2090-09-09", 60)):
+			shift = self._create_shift_for_label(day, "1", clear_planned_losses=True)
+			self._create_mock_submitted_entry(
+				posting_date=day,
+				planned_start=f"{day} 08:00:00",
+				planned_end=f"{day} 09:00:00",
+				actual_start=f"{day} 08:00:00",
+				actual_end=f"{day} 09:00:00",
+				fg_qty=10,
+				rejection_qty=0,
+				total_strokes=strokes,
+				shift_name=shift.name,
+			)
+
+		_, rows = execute({"from_date": "2090-09-08", "to_date": "2090-09-09"})
+
+		overall = rows[-1]
+		data_rows = rows[:-1]
+		self.assertEqual(len(data_rows), 2)
+		self.assertEqual(overall["date"], "Overall")
+		self.assertEqual(overall["bold"], 1)
+		self.assertEqual(overall["total_strokes"], 180)
+		# SPM is recomputed (strokes / production minutes), not the mean of row SPMs.
+		self.assertAlmostEqual(
+			overall["spm"], 180 / (sum(r["prod_time_hrs"] for r in data_rows) * 60), places=6
+		)
 
 	def test_daily_strokes_spm_monitor_filters_operation_named_stock_entry_type(self) -> None:
 		from production_entry_app.production_entry_app.report.daily_strokes_spm_monitor.daily_strokes_spm_monitor import (
@@ -4474,7 +4506,7 @@ class TestProductionReports(FrappeTestCase):
 				"custom_pea_operation": blanking,
 			}
 		)
-		data_rows = [row for row in rows if row.get("date") != "Total"]
+		data_rows = [row for row in rows if row.get("date") != "Overall"]
 		self.assertEqual(len(data_rows), 1)
 		self.assertEqual(data_rows[0]["operation"], blanking)
 		self.assertEqual(float(data_rows[0]["total_strokes"]), 55.0)
@@ -4719,7 +4751,7 @@ class TestProductionReports(FrappeTestCase):
 		):
 			rows = _get_rows({"from_date": "2092-05-01", "to_date": "2092-05-01"})
 
-		data_rows = [row for row in rows if row["date"] != "Total"]
+		data_rows = [row for row in rows if row["date"] != "Overall"]
 		self.assertEqual([row["date"] for row in data_rows], ["2092-05-01"])
 		self.assertEqual(data_rows[0]["operation"], "Press")
 		self.assertNotIn("", [row["date"] for row in rows])

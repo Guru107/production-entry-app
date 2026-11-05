@@ -5,6 +5,7 @@ from frappe.utils import flt
 
 from production_entry_app.production_entry_app.report.report_utils import (
 	apply_system_precision,
+	build_overall_row,
 	build_stock_entry_filters,
 	get_entry_production_minutes,
 	get_entry_raw_duration_minutes,
@@ -183,14 +184,13 @@ def _get_rows(filters: dict) -> list[dict]:
 		row["rework"] = rework
 		rows.append(row)
 
-	# Append totals row
 	if rows:
-		rows.append(_build_totals_row(rows, group_by_operator))
+		rows.append(_build_overall_row(rows, group_by_operator))
 
 	return rows
 
 
-def _build_totals_row(rows: list[dict], group_by_operator: bool) -> dict:
+def _build_overall_row(rows: list[dict], group_by_operator: bool) -> dict:
 	total_setup = sum(float(r["setup_time_hrs"]) for r in rows)
 	total_loss = sum(float(r["loss_time_hrs"]) for r in rows)
 	total_prod = sum(float(r["prod_time_hrs"]) for r in rows)
@@ -199,14 +199,15 @@ def _build_totals_row(rows: list[dict], group_by_operator: bool) -> dict:
 	total_rework = sum(float(r["rework"]) for r in rows)
 	total_spm = (total_strokes / (total_prod * 60)) if total_prod > 0 else 0.0
 
-	totals: dict = {"date": _("Total"), "operation": ""}
-	if group_by_operator:
-		totals["operator"] = ""
-	totals["setup_time_hrs"] = total_setup
-	totals["loss_time_hrs"] = total_loss
-	totals["prod_time_hrs"] = total_prod
-	totals["total_strokes"] = total_strokes
-	totals["spm"] = total_spm
-	totals["rejection"] = total_rejection
-	totals["rework"] = total_rework
-	return totals
+	return build_overall_row(
+		"date",
+		operation="",
+		**({"operator": ""} if group_by_operator else {}),
+		setup_time_hrs=total_setup,
+		loss_time_hrs=total_loss,
+		prod_time_hrs=total_prod,
+		total_strokes=total_strokes,
+		spm=total_spm,
+		rejection=total_rejection,
+		rework=total_rework,
+	)
