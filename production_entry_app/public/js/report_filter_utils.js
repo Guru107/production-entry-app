@@ -64,7 +64,31 @@
 			report.set_filter_value("from_date", toDate);
 		}
 	}
+
+	// Reports ending in an Overall Row (ADR 0010) set `bold` and `is_overall`. Frappe ignores `bold` on
+	// its own, and the "Overall" label sits in typed (Date/Link) columns that would blank it or turn it
+	// into a link, so format that row by hand.
+	function overall_row_formatter(value, row, column, data, default_formatter) {
+		if (!data || !data.bold) {
+			return default_formatter(value, row, column, data);
+		}
+		if (!data.is_overall) {
+			return `<b>${default_formatter(value, row, column, data)}</b>`;
+		}
+		if (column.fieldname === data.overall_label_field) {
+			return `<b>${frappe.utils.escape_html(value)}</b>`;
+		}
+		// Columns with no overall figure are blank, not a formatted zero.
+		if (value === undefined || value === null || value === "") {
+			return "";
+		}
+		// A Check column holds a count on the Overall Row, so it must not render as a checkbox.
+		const display = column.fieldtype === "Check" ? { ...column, fieldtype: "Int" } : column;
+		return `<b>${default_formatter(value, row, display, data)}</b>`;
+	}
+
 	const api = {
+		overall_row_formatter,
 		get_standard_report_date_filters,
 		get_operation_filter,
 		get_year_month_filters,

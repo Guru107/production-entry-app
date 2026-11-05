@@ -22,4 +22,5 @@ frappe.query_reports["Monthly Production OEE Report"] = {
 			},
 		},
 	],
+	formatter: window.production_entry_app?.report_filter_utils?.overall_row_formatter,
 };

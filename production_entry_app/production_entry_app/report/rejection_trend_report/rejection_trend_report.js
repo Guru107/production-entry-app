@@ -40,4 +40,5 @@ frappe.query_reports["Rejection Trend Report"] = {
 			options: "BOM",
 		},
 	],
+	formatter: window.production_entry_app?.report_filter_utils?.overall_row_formatter,
 };

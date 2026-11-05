@@ -6,6 +6,7 @@ const {
 	get_operation_filter,
 	get_year_month_filters,
 	validate_report_date_range,
+	overall_row_formatter,
 } = require("../../production_entry_app/public/js/report_filter_utils.js");
 
 test("validate_report_date_range normalizes inverted date ranges", () => {
@@ -97,4 +98,69 @@ test("get_year_month_filters defaults to the current calendar month", (t) => {
 	assert.equal(monthFilter.reqd, 1);
 	assert.equal(yearFilter.default, 2026);
 	assert.equal(monthFilter.default, 10);
+});
+
+test("overall_row_formatter leaves ordinary rows to the default formatter", () => {
+	const plain = overall_row_formatter("x", 0, { fieldname: "a" }, { a: "x" }, () => "default");
+	assert.equal(plain, "default");
+});
+
+test("overall_row_formatter bolds other bold rows without changing their content", () => {
+	const html = overall_row_formatter("x", 0, { fieldname: "a" }, { bold: 1 }, () => "default");
+	assert.equal(html, "<b>default</b>");
+});
+
+test("overall_row_formatter shows the Overall label as plain text, not a date or link", (t) => {
+	const originalFrappe = global.frappe;
+	t.after(() => {
+		global.frappe = originalFrappe;
+	});
+	global.frappe = { utils: { escape_html: (text) => `esc(${text})` } };
+	const data = { bold: 1, is_overall: 1, overall_label_field: "operator", operator: "Overall" };
+
+	const label = overall_row_formatter(
+		"Overall",
+		0,
+		{ fieldname: "operator", fieldtype: "Link" },
+		data,
+		() => {
+			throw new Error("the label column must not go through the typed formatter");
+		}
+	);
+	assert.equal(label, "<b>esc(Overall)</b>");
+
+	const seen = [];
+	const value = overall_row_formatter(
+		3,
+		0,
+		{ fieldname: "maintenance_due", fieldtype: "Check" },
+		data,
+		(_value, _row, column) => {
+			seen.push(column.fieldtype);
+			return "3";
+		}
+	);
+	assert.equal(value, "<b>3</b>");
+	// A Check column holds a count on the Overall Row, so it must not render as a checkbox.
+	assert.deepEqual(seen, ["Int"]);
+});
+
+test("overall_row_formatter leaves missing values blank instead of formatting them as zero", () => {
+	const data = { bold: 1, is_overall: 1, overall_label_field: "item" };
+	const blank = overall_row_formatter(
+		undefined,
+		0,
+		{ fieldname: "pct", fieldtype: "Percent" },
+		data,
+		() => "0.0000%"
+	);
+	assert.equal(blank, "");
+	const zero = overall_row_formatter(
+		0,
+		0,
+		{ fieldname: "pct", fieldtype: "Percent" },
+		data,
+		() => "0.0000%"
+	);
+	assert.equal(zero, "<b>0.0000%</b>");
 });
