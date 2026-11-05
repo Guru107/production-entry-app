@@ -4,6 +4,7 @@ from frappe import _
 from frappe.utils import flt
 
 from production_entry_app.production_entry_app.report.report_utils import (
+	MINUTES_PER_HOUR,
 	apply_system_precision,
 	build_overall_row,
 	build_stock_entry_filters,
@@ -197,7 +198,7 @@ def _build_overall_row(rows: list[dict], group_by_operator: bool) -> dict:
 	total_strokes = sum(float(r["total_strokes"]) for r in rows)
 	total_rejection = sum(float(r["rejection"]) for r in rows)
 	total_rework = sum(float(r["rework"]) for r in rows)
-	total_spm = (total_strokes / (total_prod * 60)) if total_prod > 0 else 0.0
+	total_spm = (total_strokes / (total_prod * MINUTES_PER_HOUR)) if total_prod > 0 else 0.0
 
 	return build_overall_row(
 		"date",

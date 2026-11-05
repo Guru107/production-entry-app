@@ -32,6 +32,8 @@ from production_entry_app.production_entry_app.utils.system_precision import (
 	get_system_float_precision,
 )
 
+PERCENT_SCALE: int = 100
+MINUTES_PER_HOUR: int = 60
 _MAX_FG_ITEM_PARENT_MATCHES: int = 5000
 _MAX_BOM_PARENT_MATCHES: int = 5000
 _DEFAULT_REPORT_CHUNK_SIZE: int = 1000
@@ -999,7 +1001,7 @@ def get_item_bom_quality_hotspot_rows(
 	if not agg:
 		return []
 
-	def build_row(item_code: str, bom_no: str, values: dict) -> dict:
+	def build_metrics(values: dict) -> dict:
 		total_qty = flt(values["total_qty"])
 		quality_qty = flt(values["quality_qty"])
 		reasons = values.get("reason_totals") or {}
@@ -1008,21 +1010,20 @@ def get_item_bom_quality_hotspot_rows(
 			reason, qty = sorted(reasons.items(), key=lambda item: (-flt(item[1]), item[0]))[0]
 			dominant_reason = f"{reason} ({format_numeric_summary(qty)})"
 		return {
-			"item_code": item_code,
-			"bom_no": bom_no,
 			"entries": len(values["entries"]),
 			"total_qty": total_qty,
 			quantity_field: quality_qty,
-			rate_field: safe_ratio(quality_qty, total_qty, 100),
+			rate_field: safe_ratio(quality_qty, total_qty, PERCENT_SCALE),
 			"dominant_reason": dominant_reason,
 		}
 
-	rows = [build_row(item_code, bom_no, values) for (item_code, bom_no), values in agg.items()]
+	rows = [
+		{"item_code": item_code, "bom_no": bom_no, **build_metrics(values)}
+		for (item_code, bom_no), values in agg.items()
+	]
 	rows.sort(key=lambda row: (-flt(row[quantity_field]), row["item_code"], row["bom_no"] or ""))
 	# One Stock Entry can sit in several rows (joint outputs), so the Overall counts the union of entries.
-	overall = build_row("", "", merge_aggregates(agg.values()))
-	overall.pop("item_code")
-	return [*rows, build_overall_row("item_code", **overall)]
+	return [*rows, build_overall_row("item_code", **build_metrics(merge_aggregates(agg.values())))]
 
 
 def _get_joint_output_item_map(stock_entry_names: list[str]) -> dict[tuple[str, str], str]:
@@ -1228,6 +1229,20 @@ def build_summed_overall_row(
 ) -> dict:
 	"""Overall Row for reports whose columns are all additive (or recomputed via `extra`)."""
 	return build_overall_row(label_field, **sum_rows(rows, sum_fields), **extra)
+
+
+def build_rate_overall_row(
+	rows: list[dict],
+	label_field: str,
+	sum_fields: Sequence[str],
+	rate_field: str,
+	numerator_field: str,
+	scale: float,
+) -> dict:
+	"""Overall Row for quality reports: sum the bases, recompute one rate as numerator ÷ total_qty."""
+	totals = sum_rows(rows, sum_fields)
+	rate = safe_ratio(totals[numerator_field], totals["total_qty"], scale)
+	return build_overall_row(label_field, **totals, **{rate_field: rate})
 
 
 def build_overall_row(label_field: str, **values: Any) -> dict:

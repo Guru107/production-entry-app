@@ -2910,6 +2910,18 @@ class TestProductionReports(FrappeTestCase):
 		self.assertAlmostEqual(float(rows[0]["warning_threshold_pct"]), db_threshold, delta=derived_abs_tol)
 		self.assertEqual(int(rows[0]["maintenance_due"]), 1)
 
+	def test_die_tool_overall_row_leaves_utilization_blank_when_no_tool_has_a_limit(self) -> None:
+		from production_entry_app.production_entry_app.report.die_tool_stroke_and_maintenance_report.die_tool_stroke_and_maintenance_report import (
+			_get_overall_row,
+		)
+
+		overall = _get_overall_row(
+			[{"die_tool_item": "A", "current_stroke_count": 40, "stroke_capacity": 0, "maintenance_count": 0}]
+		)
+
+		self.assertEqual(overall["current_stroke_count"], 40)
+		self.assertIsNone(overall["utilization_pct"])
+
 	def test_die_tool_overall_row_uses_capacity_weighted_utilization(self) -> None:
 		from production_entry_app.production_entry_app.report.die_tool_stroke_and_maintenance_report.die_tool_stroke_and_maintenance_report import (
 			_get_overall_row,
@@ -3894,6 +3906,20 @@ class TestProductionReports(FrappeTestCase):
 		self.assertAlmostEqual(float(overall["rejection_rate_pct"]), 12 / 180 * 100, places=6)
 		self.assertEqual(overall["dominant_reason"], "Crack (6)")
 
+	def test_merge_aggregates_unions_sets_so_shared_entries_count_once(self) -> None:
+		from production_entry_app.production_entry_app.report.report_utils import merge_aggregates
+
+		merged = merge_aggregates(
+			[
+				{"entries": {"SE-1", "SE-2"}, "total_qty": 10, "reason_totals": {"Crack": 1}},
+				{"entries": {"SE-2", "SE-3"}, "total_qty": 5, "reason_totals": {"Crack": 2, "Burr": 1}},
+			]
+		)
+
+		self.assertEqual(merged["entries"], {"SE-1", "SE-2", "SE-3"})
+		self.assertEqual(merged["total_qty"], 15)
+		self.assertEqual(merged["reason_totals"], {"Crack": 3, "Burr": 1})
+
 	def test_item_bom_hotspots_return_no_rows_when_bom_filter_removes_every_fact(self) -> None:
 		from production_entry_app.production_entry_app.report import report_utils
 
@@ -4397,6 +4423,13 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(rows[0]["item_code"], self.fg_item)
 		self.assertEqual(float(rows[0]["rework_qty"]), 6.0)
 		self.assertIn("Crack (6", rows[0]["dominant_reason"])
+		overall = rows[-1]
+		self.assertEqual(overall["item_code"], "Overall")
+		self.assertEqual(overall["entries"], 1)
+		self.assertEqual(float(overall["total_qty"]), 120.0)
+		self.assertEqual(float(overall["rework_qty"]), 6.0)
+		self.assertAlmostEqual(float(overall["rework_rate_pct"]), 6 / 120 * 100, places=6)
+		self.assertEqual(overall["dominant_reason"], "Crack (6)")
 
 	def test_workstation_rework_reason_matrix_aggregates_top_reasons(self) -> None:
 		from production_entry_app.production_entry_app.report.workstation_rework_reason_matrix.workstation_rework_reason_matrix import (

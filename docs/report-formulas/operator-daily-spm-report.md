@@ -15,3 +15,7 @@ Grouped by `(Completed Shift shift_date, operator, workstation, operation)`.
 - `production_time_hrs`: `Σ production_mins / 60`.
 - `total_strokes`: sum of each entry's authoritative `custom_pea_total_strokes`.
 - `spm`: `total_strokes / (production_time_hrs * 60)` if `production_time_hrs > 0` else `0`.
+
+**Overall Row** (ADR 0010): `setting_time_hrs`, `loss_time_hrs`, `production_time_hrs` and `total_strokes` are summed;
+`spm` is `Σ total_strokes / (Σ production_time_hrs * 60)`; `working_hours` counts each (operator, shift) pair once,
+so an operator on two workstations in one shift is not double counted. Operator, Workstation and Operation are blank.

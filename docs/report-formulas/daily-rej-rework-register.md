@@ -48,6 +48,13 @@ Rows group by `Production Date` into day blocks:
 - `Rej PPM = Rejection Qty / Total FG Qty for Day * 1,000,000`; `0` when the day has no production. PPM
   divides raw quantities; only the final value is rounded to system float precision.
 
+## Overall Row
+
+Built from the day-level figures (ADR 0010), never by summing the repeated item and line cells: each listed
+day's Total FG Qty counts once, hours are summed from day headers, operators are the union across days, rejection
+and declared rework come from the day subtotals, and Rej / Rework PPM are recomputed over the summed FG qty
+(ADR 0009). Item-level columns (Finished Goods Qty, names, remarks) are blank.
+
 ## Rework columns (same-day, same-item match)
 
 Rework is not linked back to individual rejections; the register shows against each rejection line whatever

@@ -4,6 +4,7 @@ from frappe import _
 from frappe.utils import flt
 
 from production_entry_app.production_entry_app.report.report_utils import (
+	MINUTES_PER_HOUR,
 	apply_system_precision,
 	build_overall_row,
 	build_stock_entry_filters,
@@ -172,7 +173,7 @@ def _get_rows(filters: dict) -> list[dict]:
 		setting_time_hrs = float(agg["setting_time_hrs"])
 		loss_time_hrs = float(agg["loss_time_hrs"])
 		production_time_hrs = (production_mins / 60) if production_mins > 0 else 0
-		spm = safe_ratio(agg["total_strokes"], production_time_hrs * 60)
+		spm = safe_ratio(agg["total_strokes"], production_time_hrs * MINUTES_PER_HOUR)
 		rows.append(
 			{
 				"date": agg["date"],
@@ -201,7 +202,7 @@ def _get_rows(filters: dict) -> list[dict]:
 			operation="",
 			working_hours=overall_working_hours,
 			**totals,
-			spm=safe_ratio(totals["total_strokes"], totals["production_time_hrs"] * 60),
+			spm=safe_ratio(totals["total_strokes"], totals["production_time_hrs"] * MINUTES_PER_HOUR),
 		)
 	)
 	return rows

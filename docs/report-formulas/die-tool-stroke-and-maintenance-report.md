@@ -13,3 +13,9 @@ Source: `die_tool_stroke_and_maintenance_report/die_tool_stroke_and_maintenance_
 - `last_reset_on`: counter metadata.
 - `last_reset_by`: counter metadata.
 
+**Overall Row** (ADR 0010): the counters are as-of-now levels, so this is a snapshot. `current_stroke_count`,
+`stroke_capacity` and `maintenance_count` are summed; `utilization_pct` is capacity-weighted
+(`Σ strokes of tools with a limit / Σ stroke_capacity`, blank when no tool has a limit — zero capacity means "no
+limit set"); `maintenance_due` is the count of due tools; `last_maintenance_date` and `last_reset_on` are the latest.
+Warning Threshold % and Last Reset By are blank.
+

@@ -5,6 +5,7 @@ from frappe.utils import flt
 
 from production_entry_app.production_entry_app.compat import IS_V15
 from production_entry_app.production_entry_app.report.report_utils import (
+	PERCENT_SCALE,
 	apply_system_precision,
 	build_overall_row,
 	get_report_rows,
@@ -186,7 +187,10 @@ def _get_overall_row(rows: list[dict]) -> dict:
 		"die_tool_item",
 		current_stroke_count=totals["current_stroke_count"],
 		stroke_capacity=totals["stroke_capacity"],
-		utilization_pct=safe_ratio(limited_strokes, totals["stroke_capacity"], 100),
+		# No tool has a limit: blank, not 0% (ADR 0010: figures that cannot be combined stay blank).
+		utilization_pct=safe_ratio(limited_strokes, totals["stroke_capacity"], PERCENT_SCALE)
+		if totals["stroke_capacity"] > 0
+		else None,
 		maintenance_due=sum(1 for row in rows if row.get("maintenance_due")),
 		last_maintenance_date=max(
 			(row["last_maintenance_date"] for row in rows if row.get("last_maintenance_date")), default=None

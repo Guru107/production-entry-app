@@ -4,6 +4,7 @@ from frappe import _
 from frappe.utils import flt
 
 from production_entry_app.production_entry_app.report.report_utils import (
+	PERCENT_SCALE,
 	apply_system_precision,
 	build_overall_row,
 	build_stock_entry_filters,
@@ -149,7 +150,7 @@ def _build_row(operator: str, agg: dict) -> dict:
 		"entries": int(agg["entries"]),
 		"total_qty": total_qty,
 		"rejection_qty": rejection_qty,
-		"rejection_rate_pct": safe_ratio(rejection_qty, total_qty, 100),
+		"rejection_rate_pct": safe_ratio(rejection_qty, total_qty, PERCENT_SCALE),
 		"top_3_reasons": ", ".join(
 			f"{reason} ({format_numeric_summary(qty)})" for reason, qty in top_reasons
 		),
