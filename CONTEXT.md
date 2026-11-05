@@ -24,16 +24,16 @@ One physical stamping operation that produces paired LH and RH outputs while tra
 gross quantity and rejection quantity separately. It is always two selected BOMs — one LH and one RH —
 under one shared production event (one Repack Stock Entry) that records time, loss, utilization, and
 total press strokes once. For Shearing, both sides consume a common raw material sheet. For any other
-Operation (post-Shearing), each side consumes its own BOM-derived inputs independently; input item codes
-may differ and are not merged across sides. Operational validation classifies Joint LH/RH Production from
+Operation (post-Shearing), each side's BOM-derived input quantities are computed independently; an input
+item shared by both sides is posted as one source row with the summed quantity (so batch picks cannot overlap). Operational validation classifies Joint LH/RH Production from
 selected Stock Entry Type `custom_pea_joint_lh_rh_production`; submitted-entry reports join or
 batch-enrich the Stock Entry Type flag before classifying Repack entries.
 _Avoid_: Joint Production, combined production, dual production
 
 **Joint Production**:
 One run of two or more BOM recipes on one shared Operation and time. Each line keeps its own gross
-quantity and rejection quantity and consumes its own BOM's inputs independently for every Operation;
-input rows are never merged across lines. Lines may produce the same finished item or distinct finished
+quantity and rejection quantity and computes its own BOM's input quantities independently for every Operation;
+post-Shearing source rows are merged per input item across lines (one row, summed quantity). Lines may produce the same finished item or distinct finished
 items; the output composition is not constrained. A line that repeats another line's finished item and
 input items is one line, not two. A run that uses only one BOM is a Manufacture Production Entry. The
 Stock Entry Type is Joint Production.

@@ -40,8 +40,9 @@ authoritative for their topics; this record covers the remaining seams.
 ## Joint Production rows and valuation
 
 - Fetch Items for a joint entry does not call native `get_items()`. The app materialises the rows: Shearing
-  uses one raw-material row from the additive LH and RH BOM share; post-Shearing uses independent source
-  rows per side from each BOM's inputs scaled by that side's gross quantity; both paths add LH and RH
+  uses one raw-material row from the additive LH and RH BOM share; post-Shearing uses one source row per
+  input item, summing each BOM's inputs scaled by that side's gross quantity (#233: separate rows for a
+  shared item make native batch auto-pick allocate the same batch twice); both paths add LH and RH
   good and rejection rows and every BOM scrap row (CONTEXT.md "BOM Sheet Capacity", "Whole-number Scrap
   Boundary"). Rows use the stock UOM with conversion factor 1. Native BOM explosion cannot express one
   raw-material row feeding two BOMs.
@@ -142,8 +143,8 @@ authoritative for their topics; this record covers the remaining seams.
   lifecycle, permissions, batch and serial handling must stay available.
 - Drive joint rows through native `get_items()` and BOM explosion. Rejected: Shearing needs one
   common raw-material row feeding both BOMs with the additive share, while post-Shearing needs
-  independent per-side source rows that must not merge across BOMs; each scrap item must still
-  aggregate across both BOMs before rounding.
+  per-side input quantities (merged into one source row per item, valued at the item's average rate per
+  side); each scrap item must still aggregate across both BOMs before rounding.
 - Accept native uniform Repack pricing. Rejected (#89): outputs must follow BOM cost weighting.
 - Persist a joint checkbox on Stock Entry. Rejected by the maintainer (PR #79 Round 18): the Stock Entry
   Type flag is the single source of truth.

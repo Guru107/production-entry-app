@@ -150,15 +150,22 @@ class JointProductionPlan:
 		if self.is_shearing:
 			quantities["rm"] = self.total_rm_consumption
 		else:
-			quantities.update(self._expected_post_shearing_source_quantities())
+			quantities.update(
+				{
+					_post_shearing_source_role(item): qty
+					for item, qty in self.post_shearing_source_quantities.items()
+				}
+			)
 		quantities.update({scrap.role: scrap.qty for scrap in self.scrap_items})
 		return quantities
 
-	def _expected_post_shearing_source_quantities(self) -> dict[str, float]:
+	@property
+	def post_shearing_source_quantities(self) -> dict[str, float]:
+		"""Input qty per item across all lines; one source row per item so batch picks cannot overlap."""
 		quantities: dict[str, float] = {}
 		for line in self.lines:
 			for item_code, qty in _merged_post_shearing_input_quantities(line.bom, line.gross_qty).items():
-				quantities[_post_shearing_source_role(line.bom.name, item_code)] = qty
+				quantities[item_code] = quantities.get(item_code, 0) + qty
 		return quantities
 
 
@@ -166,8 +173,8 @@ def is_shearing_joint_operation(operation: str | None) -> bool:
 	return _normalize_operation(operation) == SHEARING_OPERATION
 
 
-def _post_shearing_source_role(bom_no: str, item_code: str) -> str:
-	return f"source:{bom_no}:{item_code}"
+def _post_shearing_source_role(item_code: str) -> str:
+	return f"source:{item_code}"
 
 
 def calculate_joint_rm_consumption(
@@ -269,14 +276,13 @@ def materialize_joint_production_rows(doc: Document) -> list[dict[str, Any]]:
 		]
 	else:
 		rows = [
-			row
-			for line in plan.lines
-			for row in _build_post_shearing_source_rows(
-				bom=line.bom,
-				gross_qty=line.gross_qty,
+			_item_row(
+				item_code=item_code,
+				qty=qty,
 				s_warehouse=doc.get("from_warehouse"),
 				item_details=item_details,
 			)
+			for item_code, qty in plan.post_shearing_source_quantities.items()
 		]
 	for line in plan.lines:
 		rows.extend(
@@ -618,8 +624,7 @@ def _get_joint_role_label(role: str) -> str:
 	if role.startswith("scrap:"):
 		return _("Scrap quantity for {0}").format(role.removeprefix("scrap:"))
 	if role.startswith("source:"):
-		_prefix, bom_no, item_code = role.split(":", 2)
-		return _("Source quantity for {0} from BOM {1}").format(item_code, bom_no)
+		return _("Source quantity for {0}").format(role.removeprefix("source:"))
 	raise KeyError(role)
 
 
@@ -641,7 +646,7 @@ def _get_joint_row_role(row: BaseDocument, plan: JointProductionPlan) -> str:
 			if item_code != plan.first_line.bom.rm_item_code:
 				_throw_stale_joint_rows(_("The source row must be the common BOM raw material."))
 			return "rm"
-		role = _post_shearing_source_role(cstr(row.get("bom_no")), cstr(item_code))
+		role = _post_shearing_source_role(cstr(item_code))
 		if role not in plan.expected_role_quantities:
 			_throw_stale_joint_rows(_("The source row does not match the selected BOMs."))
 		return role
@@ -737,11 +742,17 @@ def _set_shearing_output_valuation(rows: list[Any], plan: JointProductionPlan) -
 def _set_post_shearing_output_valuation(rows: list[Any], plan: JointProductionPlan) -> None:
 	"""Value each line like Manufacture: (line consumed amount - line scrap) / line qty."""
 	side_scrap_values = _post_shearing_side_scrap_values(plan)
+	source_rows = [row for row in rows if row.get("s_warehouse") and not row.get("t_warehouse")]
+	item_values: defaultdict[str, float] = defaultdict(float)
+	item_qtys: defaultdict[str, float] = defaultdict(float)
+	for row in source_rows:
+		item_values[row.get("item_code")] += flt(row.get("basic_amount"))
+		item_qtys[row.get("item_code")] += _get_row_stock_qty(row)
 	for line in plan.lines:
+		# Merged source rows are shared across lines: price each line's input at the item's average rate.
 		outgoing_value = sum(
-			flt(row.get("basic_amount"))
-			for row in rows
-			if row.get("s_warehouse") and not row.get("t_warehouse") and row.get("bom_no") == line.bom.name
+			qty * item_values[item_code] / item_qtys[item_code]
+			for item_code, qty in _merged_post_shearing_input_quantities(line.bom, line.gross_qty).items()
 		)
 		_apply_side_output_rate(
 			rows,
@@ -1039,26 +1050,6 @@ def _merged_post_shearing_input_quantities(bom: JointBomDetails, gross_qty: floa
 			item.qty, bom.quantity, gross_qty
 		)
 	return {item_code: qty for item_code, qty in quantities.items() if qty > 0}
-
-
-def _build_post_shearing_source_rows(
-	*,
-	bom: JointBomDetails,
-	gross_qty: float,
-	s_warehouse: str | None,
-	item_details: dict[str, frappe._dict],
-) -> list[dict[str, Any]]:
-	rows: list[dict[str, Any]] = []
-	for item_code, qty in _merged_post_shearing_input_quantities(bom, gross_qty).items():
-		row = _item_row(
-			item_code=item_code,
-			qty=qty,
-			s_warehouse=s_warehouse,
-			item_details=item_details,
-		)
-		row["bom_no"] = bom.name
-		rows.append(row)
-	return rows
 
 
 def _validate_same_finished_item_pair(lh_bom: JointBomDetails, rh_bom: JointBomDetails) -> None:

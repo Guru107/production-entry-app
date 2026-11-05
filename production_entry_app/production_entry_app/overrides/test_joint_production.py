@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from typing import Any
 from unittest.mock import patch
 
@@ -60,6 +61,7 @@ from production_entry_app.production_entry_app.tests.support.manufacture_builder
 	make_direct_manufacture_entry,
 	make_running_shift,
 )
+from production_entry_app.production_entry_app.utils.alternative_items import get_bom_item_codes
 from production_entry_app.production_entry_app.utils.downtime_reason_seed import ensure_downtime_reason
 from production_entry_app.production_entry_app.utils.production_warehouses import SCRAP_ITEM_GROUP
 from production_entry_app.production_entry_app.utils.rejection_warehouse import resolve_rejection_warehouse
@@ -1407,7 +1409,7 @@ class TestJointProductionItems(FrappeTestCase):
 		self.assertTrue(all(row.set_basic_rate_manually for row in output_rows))
 		self.assertTrue(all(flt(row.basic_rate) > 0 for row in output_rows))
 
-	def test_post_shearing_fetch_builds_independent_source_rows_from_each_bom(self) -> None:
+	def test_post_shearing_fetch_merges_a_shared_input_across_boms_into_one_source_row(self) -> None:
 		operation = ensure_operation("Blanking")
 		lh_wip_a = ensure_item(f"_Joint_LH_WIP_A_{frappe.generate_hash(length=6)}")
 		lh_wip_b = ensure_item(f"_Joint_LH_WIP_B_{frappe.generate_hash(length=6)}")
@@ -1440,18 +1442,12 @@ class TestJointProductionItems(FrappeTestCase):
 			rh_rejection_qty=5,
 		)
 
-		source_rows = [(row.item_code, row.bom_no, flt(row.qty)) for row in doc.items if row.s_warehouse]
+		source_rows = [row for row in doc.items if row.s_warehouse]
 		self.assertEqual(
-			source_rows,
-			[
-				(lh_wip_a, lh_bom, 4.0),
-				(lh_wip_b, lh_bom, 6.0),
-				(shared_wip, lh_bom, 2.0),
-				(rh_wip_a, rh_bom, 12.0),
-				(rh_wip_b, rh_bom, 3.0),
-				(shared_wip, rh_bom, 3.0),
-			],
+			[(row.item_code, flt(row.qty)) for row in source_rows],
+			[(lh_wip_a, 4.0), (lh_wip_b, 6.0), (shared_wip, 5.0), (rh_wip_a, 12.0), (rh_wip_b, 3.0)],
 		)
+		self.assertFalse(any(row.bom_no for row in source_rows))
 		self.assertEqual(
 			[
 				(row.item_code, row.custom_pea_joint_output_side, flt(row.qty), row.bom_no)
@@ -1472,7 +1468,65 @@ class TestJointProductionItems(FrappeTestCase):
 			[(self.lh_item, "LH", 2.0), (self.rh_item, "RH", 5.0)],
 		)
 
-	def test_post_shearing_fetch_merges_duplicate_inputs_within_one_side_only(self) -> None:
+	def test_post_shearing_submits_when_a_shared_batch_tracked_input_spans_two_batches(self) -> None:
+		"""#233: stock just covers the shared input, split over batches; per-BOM rows used to overdraw batch A."""
+		operation = ensure_operation("Blanking")
+		suffix = frappe.generate_hash(length=6)
+		shared_wip = ensure_item(f"_Joint_Batch_Shared_{suffix}")
+		frappe.db.set_value(
+			"Item", shared_wip, {"has_batch_no": 1, "create_new_batch": 0}, update_modified=False
+		)
+		frappe.clear_document_cache("Item", shared_wip)
+		warehouse, company = self.masters["wip_warehouse"], self.masters["company"]
+		# Need is 2 (LH) + 3 (RH) = 5; batch A alone covers either line but not both.
+		for qty in (3, 2):
+			batch = frappe.get_doc(
+				{"doctype": "Batch", "batch_id": f"JB-{suffix}-{qty}", "item": shared_wip}
+			).insert(ignore_permissions=True)
+			receipt = frappe.get_doc(
+				{
+					"doctype": "Stock Entry",
+					"stock_entry_type": "Material Receipt",
+					"purpose": "Material Receipt",
+					"company": company,
+					"to_warehouse": warehouse,
+					"items": [
+						{
+							"item_code": shared_wip,
+							"qty": qty,
+							"t_warehouse": warehouse,
+							"basic_rate": 50,
+							"batch_no": batch.name,
+							"use_serial_batch_fields": 1,
+						}
+					],
+				}
+			).insert(ignore_permissions=True)
+			receipt.submit()
+		lh_bom = self._make_bom(
+			self.lh_item, bom_quantity=10, rm_items=[(shared_wip, 1)], scrap_qty=0.5, operation=operation
+		)
+		rh_bom = self._make_bom(
+			self.rh_item, bom_quantity=10, rm_items=[(shared_wip, 1)], scrap_qty=0.75, operation=operation
+		)
+		doc = self._make_joint_entry(
+			make_running_shift(self.masters),
+			lh_bom=lh_bom,
+			rh_bom=rh_bom,
+			operation=operation,
+			lh_gross_qty=20,
+			lh_rejection_qty=0,
+			rh_gross_qty=30,
+			rh_rejection_qty=0,
+		)
+		self.assertEqual(len([row for row in doc.items if row.s_warehouse]), 1)
+
+		doc.insert(ignore_permissions=True)
+		doc.submit()
+
+		self.assertEqual(doc.docstatus, 1)
+
+	def test_post_shearing_fetch_merges_duplicate_inputs_within_one_bom(self) -> None:
 		operation = ensure_operation("Blanking")
 		lh_wip = ensure_item(f"_Joint_LH_Dup_{frappe.generate_hash(length=6)}")
 		rh_wip = ensure_item(f"_Joint_RH_Dup_{frappe.generate_hash(length=6)}")
@@ -1503,11 +1557,11 @@ class TestJointProductionItems(FrappeTestCase):
 		)
 
 		self.assertEqual(
-			[(row.item_code, row.bom_no, flt(row.qty)) for row in doc.items if row.s_warehouse],
-			[(lh_wip, lh_bom, 3.0), (rh_wip, rh_bom, 5.0)],
+			[(row.item_code, flt(row.qty)) for row in doc.items if row.s_warehouse],
+			[(lh_wip, 3.0), (rh_wip, 5.0)],
 		)
 
-	def test_post_shearing_submit_accepts_fetched_independent_source_rows(self) -> None:
+	def test_post_shearing_submit_accepts_fetched_merged_source_rows(self) -> None:
 		shift = make_running_shift(self.masters)
 		doc = self._make_post_shearing_entry(shift)
 
@@ -1515,7 +1569,7 @@ class TestJointProductionItems(FrappeTestCase):
 		doc.submit()
 
 		self.assertEqual(doc.docstatus, 1)
-		self.assertEqual(len([row for row in doc.items if row.s_warehouse]), 6)
+		self.assertEqual(len([row for row in doc.items if row.s_warehouse]), 5)
 
 	def test_post_shearing_submit_rejects_stale_source_quantity(self) -> None:
 		shift = make_running_shift(self.masters)
@@ -1573,21 +1627,13 @@ class TestJointProductionItems(FrappeTestCase):
 		)
 		lh_bom = doc.custom_pea_lh_bom
 		rh_bom = doc.custom_pea_rh_bom
-		for row in doc.items:
-			if not row.s_warehouse:
-				continue
-			rate = 10 if row.bom_no == lh_bom else 40
-			row.basic_rate = rate
-			row.basic_amount = flt(row.qty) * rate
+		lh_items = get_bom_item_codes(lh_bom)
+		self._rate_source_rows(doc, lambda item_code: 10 if item_code in lh_items else 40)
 
 		validate_and_apply_joint_production(doc)
 
-		lh_outgoing = sum(
-			flt(row.basic_amount) for row in doc.items if row.s_warehouse and row.bom_no == lh_bom
-		)
-		rh_outgoing = sum(
-			flt(row.basic_amount) for row in doc.items if row.s_warehouse and row.bom_no == rh_bom
-		)
+		lh_outgoing = self._bom_consumed_value(doc, lh_bom, 20)
+		rh_outgoing = self._bom_consumed_value(doc, rh_bom, 30)
 		lh_output_value = sum(
 			flt(row.basic_amount)
 			for row in doc.items
@@ -2701,6 +2747,20 @@ class TestJointProductionItems(FrappeTestCase):
 					if doc.name and frappe.db.exists("Stock Entry", doc.name):
 						frappe.delete_doc("Stock Entry", doc.name, force=True, ignore_permissions=True)
 
+	def _rate_source_rows(self, doc: object, rate_for_item: Callable[[str], float]) -> None:
+		for row in doc.items:
+			if row.s_warehouse:
+				row.basic_rate = rate_for_item(row.item_code)
+				row.basic_amount = flt(row.qty) * row.basic_rate
+
+	def _bom_consumed_value(self, doc: object, bom_no: str, gross_qty: float) -> float:
+		"""Value of the BOM's inputs for gross_qty, priced at the rates set on the merged source rows."""
+		bom = frappe.get_cached_doc("BOM", bom_no)
+		rates = {row.item_code: flt(row.basic_rate) for row in doc.items if row.s_warehouse}
+		return sum(
+			gross_qty * flt(item.qty) / flt(bom.quantity) * rates[item.item_code] for item in bom.items
+		)
+
 	def _make_post_shearing_entry(
 		self,
 		shift: object,
@@ -3035,8 +3095,8 @@ class TestJointProductionItems(FrappeTestCase):
 		doc.insert(ignore_permissions=True)
 
 		self.assertEqual(
-			[(row.item_code, row.bom_no, flt(row.qty)) for row in doc.items if row.s_warehouse],
-			[(sheet, sheet_bom, 4.0), (end_piece, end_bom, 1.0)],
+			[(row.item_code, flt(row.qty)) for row in doc.items if row.s_warehouse],
+			[(sheet, 4.0), (end_piece, 1.0)],
 		)
 		self.assertEqual(
 			[
@@ -3069,8 +3129,8 @@ class TestJointProductionItems(FrappeTestCase):
 		)
 
 		self.assertEqual(
-			[(row.item_code, row.bom_no, flt(row.qty)) for row in doc.items if row.s_warehouse],
-			[(end_piece, end_bom, 1.0), (sheet, sheet_bom, 4.0)],
+			[(row.item_code, flt(row.qty)) for row in doc.items if row.s_warehouse],
+			[(end_piece, 1.0), (sheet, 4.0)],
 		)
 		self.assertEqual(
 			[
@@ -3081,7 +3141,7 @@ class TestJointProductionItems(FrappeTestCase):
 			["BOM 1", "BOM 2"],
 		)
 
-	def test_joint_production_draw_consumes_each_bom_including_a_shared_input(self) -> None:
+	def test_joint_production_draw_merges_a_shared_input_into_one_source_row(self) -> None:
 		operation = ensure_operation("Draw")
 		suffix = frappe.generate_hash(length=6)
 		finished = ensure_item(f"_Same_Draw_FG_{suffix}")
@@ -3117,13 +3177,8 @@ class TestJointProductionItems(FrappeTestCase):
 		)
 
 		self.assertEqual(
-			[(row.item_code, row.bom_no, flt(row.qty)) for row in doc.items if row.s_warehouse],
-			[
-				(first_input, first_bom, 2.0),
-				(shared, first_bom, 1.0),
-				(second_input, second_bom, 3.0),
-				(shared, second_bom, 1.0),
-			],
+			[(row.item_code, flt(row.qty)) for row in doc.items if row.s_warehouse],
+			[(first_input, 2.0), (shared, 2.0), (second_input, 3.0)],
 		)
 
 	def test_joint_production_values_each_recipe_from_its_own_materials(self) -> None:
@@ -3144,12 +3199,7 @@ class TestJointProductionItems(FrappeTestCase):
 			rh_rejection_qty=0,
 			**self._same_item_entry_args(finished),
 		)
-		for row in doc.items:
-			if not row.s_warehouse:
-				continue
-			rate = 10 if row.bom_no == sheet_bom else 40
-			row.basic_rate = rate
-			row.basic_amount = flt(row.qty) * rate
+		self._rate_source_rows(doc, lambda item_code: 10 if item_code == sheet else 40)
 
 		validate_and_apply_joint_production(doc)
 
@@ -3160,12 +3210,8 @@ class TestJointProductionItems(FrappeTestCase):
 				if row.custom_pea_joint_output_side == side and not _is_scrap_row(row)
 			)
 
-		sheet_consumed = sum(
-			flt(row.basic_amount) for row in doc.items if row.s_warehouse and row.bom_no == sheet_bom
-		)
-		end_consumed = sum(
-			flt(row.basic_amount) for row in doc.items if row.s_warehouse and row.bom_no == end_bom
-		)
+		sheet_consumed = self._bom_consumed_value(doc, sheet_bom, 40)
+		end_consumed = self._bom_consumed_value(doc, end_bom, 20)
 		# Scrap rate 10; generated qty is gross / bom qty * scrap qty, then aggregated.
 		sheet_scrap = (40 / 100) * 1 * 10
 		end_scrap = (20 / 100) * 1 * 10
@@ -3690,12 +3736,11 @@ class TestJointProductionItems(FrappeTestCase):
 			"items",
 			get_joint_production_items(json.dumps(doc.as_dict(), default=str)),
 		)
-		rates = {boms[0]: 10, boms[1]: 40, boms[2]: 25}
-		for row in doc.items:
-			if not row.s_warehouse:
-				continue
-			row.basic_rate = rates[row.bom_no]
-			row.basic_amount = flt(row.qty) * row.basic_rate
+		bom_rates = {boms[0]: 10, boms[1]: 40, boms[2]: 25}
+		item_rates = {
+			item_code: rate for bom_no, rate in bom_rates.items() for item_code in get_bom_item_codes(bom_no)
+		}
+		self._rate_source_rows(doc, item_rates.__getitem__)
 
 		validate_and_apply_joint_production(doc)
 
@@ -3708,9 +3753,7 @@ class TestJointProductionItems(FrappeTestCase):
 
 		for index, bom_no in enumerate(boms):
 			side = joint_production_line_side(index)
-			consumed = sum(
-				flt(row.basic_amount) for row in doc.items if row.s_warehouse and row.bom_no == bom_no
-			)
+			consumed = self._bom_consumed_value(doc, bom_no, gross_qtys[index])
 			scrap = (gross_qtys[index] / 100) * 1 * 10
 			self.assertAlmostEqual(_output_value(side), consumed - scrap, places=5)
 
