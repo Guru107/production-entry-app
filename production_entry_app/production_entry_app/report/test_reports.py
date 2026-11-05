@@ -4196,9 +4196,12 @@ class TestProductionReports(FrappeTestCase):
 
 		columns, rows = execute({"from_date": "2026-07-09", "to_date": "2026-07-09", "top_n_reasons": 3})
 		self.assertIn("Crack", [col.get("label") for col in columns])
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # workstation + Overall Row
 		self.assertEqual(float(rows[0]["total_rework_qty"]), 5.0)
 		self.assertEqual(float(rows[0]["reason_crack"]), 5.0)
+		self.assertEqual(rows[-1]["workstation"], "Overall")
+		self.assertEqual(float(rows[-1]["total_rework_qty"]), 5.0)
+		self.assertEqual(float(rows[-1]["reason_crack"]), 5.0)
 
 	def test_workstation_rework_reason_matrix_translates_unassigned_label(self) -> None:
 		from production_entry_app.production_entry_app.report.workstation_rework_reason_matrix import (

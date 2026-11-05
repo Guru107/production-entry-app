@@ -8,6 +8,7 @@ from frappe.utils import flt
 from production_entry_app.production_entry_app.report.report_utils import (
 	apply_system_precision,
 	build_stock_entry_filters,
+	build_summed_overall_row,
 	get_parent_breakup_reason_rows,
 	get_stock_entry_alias_fields,
 	get_stock_entry_alias_value,
@@ -24,6 +25,13 @@ def execute(filters: dict | None = None):
 	top_n = _normalize_top_n(filters.get("top_n_reasons"))
 	rows, reason_order = _get_rows(filters, top_n)
 	columns = _get_columns(reason_order)
+	if rows:
+		sum_fields = (
+			"entries",
+			"total_rework_qty",
+			*[_sanitize_reason_fieldname(reason) for reason in reason_order],
+		)
+		rows = [*rows, build_summed_overall_row(rows, "workstation", sum_fields)]
 	return columns, rows
 
 
