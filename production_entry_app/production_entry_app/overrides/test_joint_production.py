@@ -2373,7 +2373,10 @@ class TestJointProductionItems(FrappeTestCase):
 		)
 		self.assertEqual(rework_by_item[self.rh_item]["rework_qty"], 3)
 		self.assertEqual(rework_by_item[self.lh_item]["rework_qty"], 0)
-		self.assertEqual([row["item_code"] for row in lh_bom_rows], [self.lh_item])
+		self.assertEqual([row["item_code"] for row in lh_bom_rows], [self.lh_item, "Overall"])
+		# One Stock Entry spans both sides, so the Overall counts it once (entry-set union).
+		self.assertEqual(rejection_rows[-1]["entries"], 1)
+		self.assertEqual(rejection_rows[-1]["rejection_qty"], 2)
 
 	def test_each_side_may_individually_be_fully_rejected(self) -> None:
 		shift = make_running_shift(self.masters)
