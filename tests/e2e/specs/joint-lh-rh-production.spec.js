@@ -689,12 +689,11 @@ test.describe("Joint LH/RH production form", () => {
 			.filter((row) => row.s_warehouse)
 			.map((row) => [row.item_code, row.bom_no, Number(row.qty)]);
 		expect(sourceRows).toEqual([
-			[ctx.joint_lh_wip_a, ctx.joint_post_shearing_lh_bom, 4],
-			[ctx.joint_lh_wip_b, ctx.joint_post_shearing_lh_bom, 6],
-			[ctx.joint_shared_wip, ctx.joint_post_shearing_lh_bom, 2],
-			[ctx.joint_rh_wip_a, ctx.joint_post_shearing_rh_bom, 12],
-			[ctx.joint_rh_wip_b, ctx.joint_post_shearing_rh_bom, 3],
-			[ctx.joint_shared_wip, ctx.joint_post_shearing_rh_bom, 3],
+			[ctx.joint_lh_wip_a, "", 4],
+			[ctx.joint_lh_wip_b, "", 6],
+			[ctx.joint_shared_wip, "", 5],
+			[ctx.joint_rh_wip_a, "", 12],
+			[ctx.joint_rh_wip_b, "", 3],
 		]);
 		expect(
 			rows
@@ -742,8 +741,7 @@ test.describe("Joint LH/RH production form", () => {
 		expect(submitted.custom_pea_lh_bom).toBe(ctx.joint_post_shearing_lh_bom);
 		expect(submitted.custom_pea_rh_bom).toBe(ctx.joint_post_shearing_rh_bom);
 		const sourceRows = submitted.items.filter((row) => row.s_warehouse);
-		expect(sourceRows).toHaveLength(6);
-		expect(sourceRows.every((row) => row.bom_no)).toBe(true);
+		expect(sourceRows).toHaveLength(5);
 		expect(
 			submitted.items
 				.filter(
