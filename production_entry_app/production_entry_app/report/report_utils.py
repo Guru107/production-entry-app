@@ -1023,7 +1023,7 @@ def get_item_bom_quality_hotspot_rows(
 	]
 	rows.sort(key=lambda row: (-flt(row[quantity_field]), row["item_code"], row["bom_no"] or ""))
 	# One Stock Entry can sit in several rows (joint outputs), so the Overall counts the union of entries.
-	return [*rows, build_overall_row("item_code", **build_metrics(merge_aggregates(agg.values())))]
+	return [*rows, build_overall_row("item_code", bom_no="", **build_metrics(merge_aggregates(agg.values())))]
 
 
 def _get_joint_output_item_map(stock_entry_names: list[str]) -> dict[tuple[str, str], str]:

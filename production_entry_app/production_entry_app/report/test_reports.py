@@ -3900,6 +3900,7 @@ class TestProductionReports(FrappeTestCase):
 		overall = rows[-1]
 		self.assertEqual(overall["item_code"], "Overall")
 		self.assertEqual(overall["bold"], 1)
+		self.assertEqual(overall["bom_no"], "")  # every column key exists on the Overall Row
 		self.assertEqual(overall["entries"], 2)
 		self.assertEqual(float(overall["total_qty"]), 180.0)
 		self.assertEqual(float(overall["rejection_qty"]), 12.0)
