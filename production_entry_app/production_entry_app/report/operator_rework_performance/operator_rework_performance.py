@@ -4,6 +4,7 @@ from frappe import _
 from frappe.utils import flt
 
 from production_entry_app.production_entry_app.report.report_utils import (
+	PERCENT_SCALE,
 	apply_system_precision,
 	build_overall_row,
 	build_stock_entry_filters,
@@ -19,7 +20,7 @@ from production_entry_app.production_entry_app.report.report_utils import (
 )
 
 
-def execute(filters: dict | None = None):
+def execute(filters: dict | None = None) -> tuple[list[dict], list[dict]]:
 	filters = filters or {}
 	columns = _get_columns()
 	rows = _get_rows(filters)
@@ -154,7 +155,7 @@ def _build_row(operator: str, agg: dict) -> dict:
 		"entries": int(agg["entries"]),
 		"total_qty": total_qty,
 		"rework_qty": rework_qty,
-		"rework_rate_pct": safe_ratio(rework_qty, total_qty, 100),
+		"rework_rate_pct": safe_ratio(rework_qty, total_qty, PERCENT_SCALE),
 		"top_3_reasons": ", ".join(
 			f"{reason} ({format_numeric_summary(qty)})" for reason, qty in top_reasons
 		),

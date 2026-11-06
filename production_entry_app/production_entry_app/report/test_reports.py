@@ -2871,7 +2871,8 @@ class TestProductionReports(FrappeTestCase):
 		maintenance.submit()
 
 		_, rows = execute({"item_code": self.fg_item})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # counter + Overall Row
+		self.assertEqual(rows[-1]["die_tool_item"], "Overall")
 		self.assertEqual(rows[0]["die_tool_item"], self.fg_item)
 		self.assertEqual(float(rows[0]["current_stroke_count"]), 0.0)
 		self.assertEqual(float(rows[0]["stroke_capacity"]), 1000.0)
@@ -2897,7 +2898,7 @@ class TestProductionReports(FrappeTestCase):
 		).insert(ignore_permissions=True)
 
 		_, rows = execute({"item_code": item_code})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # counter + Overall Row
 		derived_abs_tol = 1e-6
 		self.assertAlmostEqual(float(rows[0]["utilization_pct"]), 100 / 3, delta=derived_abs_tol)
 		# warning_threshold_pct is read from DB where field precision may round it;
@@ -2908,6 +2909,70 @@ class TestProductionReports(FrappeTestCase):
 		)
 		self.assertAlmostEqual(float(rows[0]["warning_threshold_pct"]), db_threshold, delta=derived_abs_tol)
 		self.assertEqual(int(rows[0]["maintenance_due"]), 1)
+
+	def test_die_tool_overall_row_leaves_utilization_blank_when_no_tool_has_a_limit(self) -> None:
+		from production_entry_app.production_entry_app.report.die_tool_stroke_and_maintenance_report.die_tool_stroke_and_maintenance_report import (
+			_get_overall_row,
+		)
+
+		overall = _get_overall_row(
+			[{"die_tool_item": "A", "current_stroke_count": 40, "stroke_capacity": 0, "maintenance_count": 0}]
+		)
+
+		self.assertEqual(overall["current_stroke_count"], 40)
+		self.assertIsNone(overall["utilization_pct"])
+
+	def test_die_tool_overall_row_uses_capacity_weighted_utilization(self) -> None:
+		from production_entry_app.production_entry_app.report.die_tool_stroke_and_maintenance_report.die_tool_stroke_and_maintenance_report import (
+			_get_overall_row,
+		)
+
+		rows = [
+			{
+				"die_tool_item": "A",
+				"current_stroke_count": 500,
+				"stroke_capacity": 1000,
+				"maintenance_due": 0,
+				"last_maintenance_date": "2026-06-04 12:00:00",
+				"maintenance_count": 2,
+				"last_reset_on": "2026-05-01 08:00:00",
+			},
+			{
+				"die_tool_item": "B",
+				"current_stroke_count": 950,
+				"stroke_capacity": 1000,
+				"maintenance_due": 1,
+				"last_maintenance_date": "2026-06-10 09:00:00",
+				"maintenance_count": 1,
+				"last_reset_on": "2026-04-01 08:00:00",
+			},
+			{
+				# Capacity 0 means "no limit set": counts toward strokes, not toward utilization.
+				"die_tool_item": "C",
+				"current_stroke_count": 40,
+				"stroke_capacity": 0,
+				"maintenance_due": 0,
+				"last_maintenance_date": None,
+				"maintenance_count": 0,
+				"last_reset_on": None,
+			},
+		]
+
+		overall = _get_overall_row(rows)
+
+		self.assertEqual(overall["die_tool_item"], "Overall")
+		self.assertEqual(overall["bold"], 1)
+		self.assertEqual(overall["current_stroke_count"], 1490)
+		self.assertEqual(overall["stroke_capacity"], 2000)
+		# (500 + 950) / 2000, excluding the unlimited tool; not the mean of 50% and 95%.
+		self.assertAlmostEqual(overall["utilization_pct"], 72.5, places=6)
+		self.assertEqual(overall["maintenance_due"], 1)
+		self.assertEqual(overall["maintenance_count"], 3)
+		self.assertEqual(overall["last_maintenance_date"], "2026-06-10 09:00:00")
+		self.assertEqual(overall["last_reset_on"], "2026-05-01 08:00:00")
+		# Per-tool settings and identities have no overall meaning.
+		self.assertIsNone(overall.get("warning_threshold_pct"))
+		self.assertIsNone(overall.get("last_reset_by"))
 
 	def test_die_tool_stroke_report_groups_maintenance_history_in_database(self) -> None:
 		from production_entry_app.production_entry_app.compat import IS_V15
@@ -3825,13 +3890,58 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"from_date": "2026-06-27", "to_date": "2026-06-27"})
-		self.assertEqual(len(rows), 2)
+		self.assertEqual(len(rows), 3)  # two items + Overall Row
 		self.assertEqual(rows[0]["item_code"], self.fg_item)
 		self.assertEqual(float(rows[0]["total_qty"]), 100.0)
 		self.assertEqual(float(rows[0]["rejection_qty"]), 8.0)
 		self.assertEqual(float(rows[0]["rejection_rate_pct"]), 8.0)
 		self.assertIn("Crack (6", rows[0]["dominant_reason"])
 		self.assertEqual(float(rows[1]["rejection_qty"]), 4.0)
+		overall = rows[-1]
+		self.assertEqual(overall["item_code"], "Overall")
+		self.assertEqual(overall["bold"], 1)
+		self.assertEqual(overall["bom_no"], "")  # every column key exists on the Overall Row
+		self.assertEqual(overall["entries"], 2)
+		self.assertEqual(float(overall["total_qty"]), 180.0)
+		self.assertEqual(float(overall["rejection_qty"]), 12.0)
+		self.assertAlmostEqual(float(overall["rejection_rate_pct"]), 12 / 180 * 100, places=6)
+		self.assertEqual(overall["dominant_reason"], "Crack (6)")
+
+	def test_merge_aggregates_unions_sets_so_shared_entries_count_once(self) -> None:
+		from production_entry_app.production_entry_app.report.report_utils import merge_aggregates
+
+		merged = merge_aggregates(
+			[
+				{"entries": {"SE-1", "SE-2"}, "total_qty": 10, "reason_totals": {"Crack": 1}},
+				{"entries": {"SE-2", "SE-3"}, "total_qty": 5, "reason_totals": {"Crack": 2, "Burr": 1}},
+			]
+		)
+
+		self.assertEqual(merged["entries"], {"SE-1", "SE-2", "SE-3"})
+		self.assertEqual(merged["total_qty"], 15)
+		self.assertEqual(merged["reason_totals"], {"Crack": 3, "Burr": 1})
+
+	def test_item_bom_hotspots_return_no_rows_when_bom_filter_removes_every_fact(self) -> None:
+		from production_entry_app.production_entry_app.report import report_utils
+
+		with (
+			patch.object(report_utils, "iter_stock_entries_in_chunks", return_value=[[{"name": "SE-1"}]]),
+			patch.object(
+				report_utils,
+				"get_item_bom_quality_facts",
+				return_value=[{"parent": "SE-1", "item_code": "A", "bom_no": "BOM-OTHER", "total_qty": 10}],
+			),
+		):
+			rows = report_utils.get_item_bom_quality_hotspot_rows(
+				{"bom_no": "BOM-WANTED"},
+				is_rework=False,
+				quantity_field="rejection_qty",
+				rate_field="rejection_rate_pct",
+				timeout_guard=lambda: None,
+			)
+
+		# Nothing survives the filter: no rows, and so no Overall Row either.
+		self.assertEqual(rows, [])
 
 	def test_item_bom_rejection_hotspots_filters_fg_item(self) -> None:
 		from production_entry_app.production_entry_app.report.item_bom_rejection_hotspots.item_bom_rejection_hotspots import (
@@ -3864,7 +3974,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"from_date": "2026-06-28", "to_date": "2026-06-28", "fg_item": self.fg_item})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # item/BOM rows + Overall Row
 		self.assertEqual(rows[0]["item_code"], self.fg_item)
 		self.assertEqual(float(rows[0]["rejection_qty"]), 5.0)
 
@@ -4018,6 +4128,8 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(overall["date"], "Overall")
 		self.assertEqual(overall["bold"], 1)
 		self.assertEqual(overall["entries"], 2)
+		# Entries is an Int column; a summed 2.0 would render as a decimal.
+		self.assertIsInstance(overall["entries"], int)
 		self.assertEqual(float(overall["total_qty"]), 400.0)
 		self.assertEqual(float(overall["rejection_qty"]), 10.0)
 		# 10 / 400 * 1e6, not the mean of the daily PPMs (100_000 and 0).
@@ -4090,7 +4202,7 @@ class TestProductionReports(FrappeTestCase):
 			execute,
 		)
 
-		for day, fg_qty, rework_qty, other_qty in (("2026-07-10", 100, 10, 2), ("2026-07-11", 300, 0, 4)):
+		for day, fg_qty, rework_qty, other_qty in (("2093-07-10", 100, 10, 2), ("2093-07-11", 300, 0, 4)):
 			shift = self._create_shift_for_label(day, "1")
 			breakup = [{"rejection_reason": "Burr", "qty": other_qty, "is_rework": 0}]
 			if rework_qty:
@@ -4107,7 +4219,7 @@ class TestProductionReports(FrappeTestCase):
 			)
 
 		_, rows, _, chart = execute(
-			{"from_date": "2026-07-10", "to_date": "2026-07-11", "time_grain": "Daily"}
+			{"from_date": "2093-07-10", "to_date": "2093-07-11", "time_grain": "Daily"}
 		)
 
 		self.assertEqual(len(rows), 3)
@@ -4120,7 +4232,7 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(float(overall["non_rework_rejection_qty"]), 6.0)
 		# 10 / 400, not the mean of the period rates (10% and 0%).
 		self.assertEqual(float(overall["rework_rate_pct"]), 2.5)
-		self.assertEqual(chart["data"]["labels"], ["2026-07-10", "2026-07-11"])
+		self.assertEqual(chart["data"]["labels"], ["2093-07-10", "2093-07-11"])
 
 	def test_rework_ppm_report_data(self) -> None:
 		from production_entry_app.production_entry_app.report.rework_ppm_report.rework_ppm_report import (
@@ -4310,10 +4422,17 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"from_date": "2026-07-08", "to_date": "2026-07-08"})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # item/BOM rows + Overall Row
 		self.assertEqual(rows[0]["item_code"], self.fg_item)
 		self.assertEqual(float(rows[0]["rework_qty"]), 6.0)
 		self.assertIn("Crack (6", rows[0]["dominant_reason"])
+		overall = rows[-1]
+		self.assertEqual(overall["item_code"], "Overall")
+		self.assertEqual(overall["entries"], 1)
+		self.assertEqual(float(overall["total_qty"]), 120.0)
+		self.assertEqual(float(overall["rework_qty"]), 6.0)
+		self.assertAlmostEqual(float(overall["rework_rate_pct"]), 6 / 120 * 100, places=6)
+		self.assertEqual(overall["dominant_reason"], "Crack (6)")
 
 	def test_workstation_rework_reason_matrix_aggregates_top_reasons(self) -> None:
 		from production_entry_app.production_entry_app.report.workstation_rework_reason_matrix.workstation_rework_reason_matrix import (
@@ -4693,7 +4812,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"from_date": "2090-09-05", "to_date": "2090-09-05"})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # rows + Overall Row
 		self.assertEqual(rows[0]["operation"], shearing)
 
 	def test_daily_strokes_spm_monitor_operation_from_stock_entry_type(self) -> None:
@@ -4868,7 +4987,7 @@ class TestProductionReports(FrappeTestCase):
 				"custom_pea_operator": "Report Operator",
 			}
 		)
-		# Should have 1 data row + 1 totals row
+		# Should have 1 data row + 1 Overall Row
 		self.assertEqual(len(rows), 2)
 		data_row = rows[0]
 		self.assertEqual(data_row["date"], "2080-05-10")
@@ -5162,7 +5281,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"from_date": "2026-08-02", "to_date": "2026-08-02"})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # rows + Overall Row
 		row = rows[0]
 		self.assertEqual(row["date"], "2026-08-02")
 		self.assertEqual(row["operator"], "Report Operator")
@@ -5199,7 +5318,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"from_date": "2026-08-05", "to_date": "2026-08-05"})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # rows + Overall Row
 		row = rows[0]
 		expected_setup = 20 / 3600
 		expected_loss = 20 / 3600
@@ -5253,12 +5372,71 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"from_date": "2026-08-03", "to_date": "2026-08-03"})
-		self.assertEqual(len(rows), 2)
+		self.assertEqual(len(rows), 3)  # rows + Overall Row
+		rows, overall = rows[:-1], rows[-1]
 		self.assertEqual(
 			{row["workstation"] for row in rows},
 			{"Report Workstation", "Report Workstation 2"},
 		)
 		self.assertTrue(all(float(row["working_hours"]) == 8.0 for row in rows))
+		# One operator in two different shifts: both shifts count.
+		self.assertEqual(float(overall["working_hours"]), 16.0)
+
+	def test_operator_daily_spm_report_overall_row_counts_each_operator_shift_once(self) -> None:
+		from production_entry_app.production_entry_app.report.operator_daily_spm_report.operator_daily_spm_report import (
+			execute,
+		)
+
+		for workstation in ("Report Workstation 2",):
+			if not frappe.db.exists("Workstation", workstation):
+				frappe.get_doc(
+					{
+						"doctype": "Workstation",
+						"workstation_name": workstation,
+						"production_capacity": 1,
+						"hour_rate": 100,
+						"custom_pea_standard_spm": 2,
+					}
+				).insert(ignore_permissions=True)
+		operator_2 = "Report Operator 2"
+		if not frappe.db.exists("Operator", operator_2):
+			frappe.get_doc({"doctype": "Operator", "operator_name": operator_2, "is_active": 1}).insert(
+				ignore_permissions=True
+			)
+
+		shift = self._create_shift_for_label("2026-08-05", "1", clear_planned_losses=True)
+		# Operator 1 runs two workstations in the same shift (two rows, one shift); operator 2 runs one.
+		for operator, workstation, start, end, fg_qty in (
+			("Report Operator", "Report Workstation", "08:00:00", "09:00:00", 60),
+			("Report Operator", "Report Workstation 2", "09:00:00", "10:00:00", 120),
+			(operator_2, "Report Workstation", "10:00:00", "11:00:00", 180),
+		):
+			self._create_mock_submitted_entry(
+				posting_date="2026-08-05",
+				planned_start=f"2026-08-05 {start}",
+				planned_end=f"2026-08-05 {end}",
+				actual_start=f"2026-08-05 {start}",
+				actual_end=f"2026-08-05 {end}",
+				fg_qty=fg_qty,
+				rejection_qty=0,
+				operator=operator,
+				workstation=workstation,
+				shift_name=shift.name,
+			)
+
+		_, rows = execute({"from_date": "2026-08-05", "to_date": "2026-08-05"})
+
+		self.assertEqual(len(rows), 4)
+		self.assertEqual(sum(float(row["working_hours"]) for row in rows[:-1]), 24.0)
+		overall = rows[-1]
+		self.assertEqual(overall["date"], "Overall")
+		self.assertEqual(overall["bold"], 1)
+		# 8h shift counted once per operator: 2 operators x 8h, not once per row.
+		self.assertEqual(float(overall["working_hours"]), 16.0)
+		self.assertEqual(float(overall["total_strokes"]), 360.0)
+		self.assertEqual(float(overall["production_time_hrs"]), 3.0)
+		# Effective SPM: 360 strokes / 180 minutes.
+		self.assertAlmostEqual(float(overall["spm"]), 2.0, places=6)
 
 	def test_operator_daily_spm_report_sums_non_contiguous_entry_durations(self) -> None:
 		from production_entry_app.production_entry_app.report.operator_daily_spm_report.operator_daily_spm_report import (
@@ -5288,7 +5466,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		_, rows = execute({"from_date": "2026-08-04", "to_date": "2026-08-04"})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # rows + Overall Row
 		row = rows[0]
 		# Sum per-entry durations and deduct planned losses where overlapped.
 		# Only Shift Start Up (08:00-08:10) overlaps; JH Activity (10:00) is outside both entries.
@@ -5329,7 +5507,7 @@ class TestProductionReports(FrappeTestCase):
 		frappe.db.set_value("Shift", shift.name, "status", "Completed", update_modified=False)
 
 		_, rows = execute({"from_date": "2026-08-06", "to_date": "2026-08-06"})
-		self.assertEqual(len(rows), 1)
+		self.assertEqual(len(rows), 2)  # rows + Overall Row
 		self.assertEqual(float(rows[0]["working_hours"]), 10.0)
 
 	def _configure_mock_joint_entry(

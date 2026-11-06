@@ -1,6 +1,6 @@
 # Overall Row sums bases and recomputes ratios
 
-Reports end with an Overall Row that summarises everything the filters match. Quantity and time columns are summed; rate and percentage columns (OEE, Availability, Quality, Productivity, SPM, PPM) are recomputed from the summed bases using the same formula as a data row, because summing or averaging row percentages gives a figure that means nothing. A column that cannot be combined meaningfully across rows (ranks, cumulative %, dominant reason, as-of balances) is left blank. This supersedes the "no cross-workstation totals row" sentence in ADR 0007.
+Reports end with an Overall Row that summarises everything the filters match. Quantity and time columns are summed; rate and percentage columns (OEE, Availability, Quality, Productivity, SPM, PPM) are recomputed from the summed bases using the same formula as a data row, because summing or averaging row percentages gives a figure that means nothing. A column that cannot be combined meaningfully across rows (ranks, cumulative %, as-of balances) is left blank. Reason-text columns (Dominant Reason, Top 3 Reasons) are recomputed from the merged per-reason totals, not left blank. This supersedes the "no cross-workstation totals row" sentence in ADR 0007.
 
 The Overall Row is a bold, server-built last row, not Frappe's `add_total_row`: the native total sums Float and Percent columns and divides Percent totals by the row count, which is exactly the wrong operation for ratios. The Rejection Pareto, Rework Pareto and Pending Rework reports have none.
 

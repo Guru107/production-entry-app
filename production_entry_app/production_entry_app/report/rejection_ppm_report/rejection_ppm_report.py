@@ -4,25 +4,33 @@ from frappe import _
 from frappe.utils import flt, getdate
 
 from production_entry_app.production_entry_app.report.report_utils import (
+	PPM_MULTIPLIER,
 	apply_system_precision,
-	build_overall_row,
+	build_rate_overall_row,
 	build_stock_entry_filters,
 	get_parent_quantity_metrics,
 	iter_stock_entries_in_chunks,
 	safe_ratio,
-	sum_rows,
 )
 
-PPM_MULTIPLIER: int = 1_000_000
 
-
-def execute(filters: dict | None = None):
+def execute(filters: dict | None = None) -> tuple[list[dict], list[dict], None, dict | None]:
 	filters = filters or {}
 	columns = _get_columns()
 	rows = _get_rows(filters)
 	chart = _get_chart(rows)
 	if rows:
-		rows = [*rows, _get_overall_row(rows)]
+		rows = [
+			*rows,
+			build_rate_overall_row(
+				rows,
+				"date",
+				("entries", "total_qty", "rejection_qty"),
+				rate_field="ppm",
+				numerator_field="rejection_qty",
+				scale=PPM_MULTIPLIER,
+			),
+		]
 	return columns, rows, None, chart
 
 
@@ -113,17 +121,6 @@ def _get_rows(filters: dict) -> list[dict]:
 		)
 
 	return rows
-
-
-def _get_overall_row(rows: list[dict]) -> dict:
-	totals = sum_rows(rows, ("entries", "total_qty", "rejection_qty"))
-	return build_overall_row(
-		"date",
-		entries=int(totals["entries"]),
-		total_qty=totals["total_qty"],
-		rejection_qty=totals["rejection_qty"],
-		ppm=safe_ratio(totals["rejection_qty"], totals["total_qty"], PPM_MULTIPLIER),
-	)
 
 
 def _get_chart(rows: list[dict]) -> dict | None:

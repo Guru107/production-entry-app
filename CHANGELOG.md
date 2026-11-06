@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-11-06
+
+### Added
+
+-   Operator Daily SPM Report, Item BOM Rejection Hotspots, Item BOM Rework Hotspots, Die Tool Stroke and Maintenance Report and Daily Rej Rework Register now end with an Overall Row: quantities and times are summed, rates (SPM, PPM, Rejection/Rework %, Utilization %) are recomputed from those totals, and figures that cannot be combined are left blank (ADR 0010)
+-   The Overall Row renders bold with a plain "Overall" label in every report screen that has one
+
 ## [1.5.3] - 2026-11-05
 
 ### Fixed

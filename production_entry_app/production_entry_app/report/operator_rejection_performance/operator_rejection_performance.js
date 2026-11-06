@@ -33,4 +33,5 @@ frappe.query_reports["Operator Rejection Performance"] = {
 			options: "BOM",
 		},
 	],
+	formatter: window.production_entry_app?.report_filter_utils?.overall_row_formatter,
 };

@@ -6,25 +6,35 @@ from frappe import _
 from frappe.utils import flt, getdate
 
 from production_entry_app.production_entry_app.report.report_utils import (
+	PERCENT_SCALE,
 	apply_system_precision,
-	build_overall_row,
+	build_rate_overall_row,
 	build_stock_entry_filters,
 	get_parent_quantity_metrics,
 	iter_stock_entries_in_chunks,
 	safe_ratio,
-	sum_rows,
 )
 
 _TIME_GRAINS: frozenset[str] = frozenset({"Daily", "Weekly", "Monthly"})
 
 
-def execute(filters: dict | None = None):
+def execute(filters: dict | None = None) -> tuple[list[dict], list[dict], None, dict | None]:
 	filters = filters or {}
 	columns = _get_columns()
 	rows = _get_rows(filters)
 	chart = _get_chart(rows)
 	if rows:
-		rows = [*rows, _get_overall_row(rows)]
+		rows = [
+			*rows,
+			build_rate_overall_row(
+				rows,
+				"period",
+				("entries", "total_qty", "rejection_qty", "ok_qty"),
+				rate_field="rejection_rate_pct",
+				numerator_field="rejection_qty",
+				scale=PERCENT_SCALE,
+			),
+		]
 	return columns, rows, None, chart
 
 
@@ -114,7 +124,7 @@ def _get_rows(filters: dict) -> list[dict]:
 		total_qty = flt(aggregate["total_qty"])
 		rejection_qty = flt(aggregate["rejection_qty"])
 		ok_qty = flt(total_qty - rejection_qty)
-		rejection_rate_pct = safe_ratio(rejection_qty, total_qty, 100)
+		rejection_rate_pct = safe_ratio(rejection_qty, total_qty, PERCENT_SCALE)
 		rows.append(
 			{
 				"period": aggregate["period"],
@@ -127,18 +137,6 @@ def _get_rows(filters: dict) -> list[dict]:
 		)
 
 	return rows
-
-
-def _get_overall_row(rows: list[dict]) -> dict:
-	totals = sum_rows(rows, ("entries", "total_qty", "rejection_qty", "ok_qty"))
-	return build_overall_row(
-		"period",
-		entries=int(totals["entries"]),
-		total_qty=totals["total_qty"],
-		rejection_qty=totals["rejection_qty"],
-		ok_qty=totals["ok_qty"],
-		rejection_rate_pct=safe_ratio(totals["rejection_qty"], totals["total_qty"], 100),
-	)
 
 
 def _get_chart(rows: list[dict]) -> dict | None:

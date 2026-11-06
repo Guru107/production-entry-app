@@ -36,4 +36,5 @@ frappe.query_reports["Item BOM Rejection Hotspots"] = {
 			? [window.production_entry_app.report_filter_utils.get_operation_filter()]
 			: []),
 	],
+	formatter: window.production_entry_app?.report_filter_utils?.overall_row_formatter,
 };

@@ -4,6 +4,7 @@ from frappe import _
 from frappe.utils import flt
 
 from production_entry_app.production_entry_app.report.report_utils import (
+	MINUTES_PER_HOUR,
 	apply_system_precision,
 	build_overall_row,
 	build_stock_entry_filters,
@@ -14,10 +15,12 @@ from production_entry_app.production_entry_app.report.report_utils import (
 	get_parent_loss_metrics,
 	get_parent_quantity_metrics,
 	iter_stock_entries_in_chunks,
+	safe_ratio,
+	sum_rows,
 )
 
 
-def execute(filters: dict | None = None):
+def execute(filters: dict | None = None) -> tuple[list[dict], list[dict]]:
 	filters = filters or {}
 	columns = _get_columns(filters)
 	rows = _get_rows(filters)
@@ -133,8 +136,8 @@ def _get_rows(filters: dict) -> list[dict]:
 			loss_metrics = parent_loss_metrics.get(entry_name or "", {})
 			setup_mins = float(loss_metrics.get("setup_mins") or 0)
 			loss_mins = float(loss_metrics.get("loss_mins") or 0)
-			setup_hrs = setup_mins / 60
-			loss_hrs = loss_mins / 60
+			setup_hrs = setup_mins / MINUTES_PER_HOUR
+			loss_hrs = loss_mins / MINUTES_PER_HOUR
 			rework_qty = float(entry.get("custom_pea_rework_qty") or entry_metrics.get("rework_qty") or 0)
 			total_strokes, rejection_qty = get_entry_total_strokes(
 				entry,
@@ -148,7 +151,9 @@ def _get_rows(filters: dict) -> list[dict]:
 			if production_time_mins <= 0 and entry.get("custom_pea_production_time_mins") is not None:
 				raw_duration_mins = get_entry_raw_duration_minutes(entry)
 				production_time_mins = max(raw_duration_mins - setup_mins - loss_mins, 0)
-			production_time_hrs = (production_time_mins / 60) if production_time_mins > 0 else 0.0
+			production_time_hrs = (
+				(production_time_mins / MINUTES_PER_HOUR) if production_time_mins > 0 else 0.0
+			)
 
 			agg["setup_time_hrs"] += setup_hrs
 			agg["loss_time_hrs"] += loss_hrs
@@ -170,7 +175,7 @@ def _get_rows(filters: dict) -> list[dict]:
 		strokes = float(agg["total_strokes"])
 		rejection = float(agg["rejection"])
 		rework = float(agg["rework"])
-		spm = (strokes / (prod_hrs * 60)) if prod_hrs > 0 else 0.0
+		spm = safe_ratio(strokes, prod_hrs * MINUTES_PER_HOUR)
 
 		row: dict = {"date": agg["date"], "operation": agg.get("operation") or None}
 		if group_by_operator:
@@ -191,23 +196,13 @@ def _get_rows(filters: dict) -> list[dict]:
 
 
 def _build_overall_row(rows: list[dict], group_by_operator: bool) -> dict:
-	total_setup = sum(float(r["setup_time_hrs"]) for r in rows)
-	total_loss = sum(float(r["loss_time_hrs"]) for r in rows)
-	total_prod = sum(float(r["prod_time_hrs"]) for r in rows)
-	total_strokes = sum(float(r["total_strokes"]) for r in rows)
-	total_rejection = sum(float(r["rejection"]) for r in rows)
-	total_rework = sum(float(r["rework"]) for r in rows)
-	total_spm = (total_strokes / (total_prod * 60)) if total_prod > 0 else 0.0
-
+	totals = sum_rows(
+		rows, ("setup_time_hrs", "loss_time_hrs", "prod_time_hrs", "total_strokes", "rejection", "rework")
+	)
 	return build_overall_row(
 		"date",
 		operation="",
 		**({"operator": ""} if group_by_operator else {}),
-		setup_time_hrs=total_setup,
-		loss_time_hrs=total_loss,
-		prod_time_hrs=total_prod,
-		total_strokes=total_strokes,
-		spm=total_spm,
-		rejection=total_rejection,
-		rework=total_rework,
+		**totals,
+		spm=safe_ratio(totals["total_strokes"], totals["prod_time_hrs"] * MINUTES_PER_HOUR),
 	)

@@ -11,6 +11,18 @@ const ADMIN_USERNAME = process.env.PLAYWRIGHT_USERNAME || "Administrator";
 const ADMIN_PASSWORD = process.env.PLAYWRIGHT_PASSWORD || "123";
 const TEST_PASSWORD = process.env.PLAYWRIGHT_TEST_USER_PASSWORD || "E2eT3st!Pass#2026";
 
+// The Overall Row label must be bold plain text: no link (Link columns) and not blank (Date columns).
+async function expectBoldOverallLabel(page, reportsPage) {
+	const rows = await reportsPage.getRows();
+	expect(rows.length).toBeGreaterThan(1);
+	const overallRow = page
+		.locator(".dt-row", { has: page.locator("b", { hasText: "Overall" }) })
+		.last();
+	await expect(overallRow).toBeVisible();
+	await expect(overallRow.locator("a")).toHaveCount(0);
+	return overallRow;
+}
+
 async function setupFreshContext(page, prefix) {
 	await cleanupE2E(page, prefix);
 	return await bootstrapE2E(page, prefix);
@@ -155,6 +167,14 @@ test.describe("Production reports", () => {
 		expect(labels.filter((label) => label.includes("OEE"))).toEqual(["Avg. OEE", "OEE %"]);
 		expect(seededRow).toHaveProperty("oee_mult_pct");
 		expect(seededRow).toHaveProperty("oee_avg_pct");
+
+		// The Overall Row closes the report; with one Workstation filtered it matches that row.
+		const overallRow = rows[rows.length - 1];
+		expect(overallRow.day).toBe("Overall");
+		expect(Number(overallRow.total_strokes)).toBe(Number(seededRow.total_strokes));
+		expect(Number(overallRow.oee_mult_pct)).toBeCloseTo(Number(seededRow.oee_mult_pct), 6);
+		// The label shows as bold text, not a blank Date cell.
+		await expect(page.locator(".dt-row b", { hasText: "Overall" }).last()).toBeVisible();
 
 		await reportsPage.setFilterByFieldname("downtime_reason", ["00"]);
 		await reportsPage.clickRefresh();
@@ -366,6 +386,7 @@ test.describe("Production reports", () => {
 		expect(Number(row.total_strokes || 0)).toBeGreaterThan(0);
 		expect(Number(row.working_hours || 0)).toBeGreaterThan(0);
 		expect(Number(row.spm || 0)).toBeGreaterThan(0);
+		await expectBoldOverallLabel(page, reportsPage);
 	});
 
 	test("@regression Workstation report honors workstation and shift filters", async ({
@@ -413,6 +434,10 @@ test.describe("Production reports", () => {
 		expect(filteredRow.utilization_pct).toBeDefined();
 		expect(filteredRow.maintenance_due).toBeDefined();
 		expect(filteredRow.maintenance_count).toBeDefined();
+
+		// The Maintenance Due count on the Overall Row is a number, not a checkbox.
+		const overallRow = await expectBoldOverallLabel(page, reportsPage);
+		await expect(overallRow.locator("input[type=checkbox]")).toHaveCount(0);
 	});
 
 	test("@regression Rejection Pareto report loads and renders chart with grouped reasons", async ({
@@ -565,6 +590,7 @@ test.describe("Production reports", () => {
 		expect(
 			rows.some((row) => String(row.dominant_reason || "").includes("Blank Cut"))
 		).toBeTruthy();
+		await expectBoldOverallLabel(page, reportsPage);
 	});
 
 	test("@regression Rework Pareto report renders seeded rework data", async ({ page }) => {

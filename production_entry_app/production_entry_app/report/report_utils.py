@@ -32,6 +32,9 @@ from production_entry_app.production_entry_app.utils.system_precision import (
 	get_system_float_precision,
 )
 
+PERCENT_SCALE: int = 100
+PPM_MULTIPLIER: int = 1_000_000
+MINUTES_PER_HOUR: int = 60
 _MAX_FG_ITEM_PARENT_MATCHES: int = 5000
 _MAX_BOM_PARENT_MATCHES: int = 5000
 _DEFAULT_REPORT_CHUNK_SIZE: int = 1000
@@ -967,7 +970,6 @@ def get_item_bom_quality_hotspot_rows(
 	)
 	requested_bom = filters.get("bom_no")
 	agg: dict[tuple[str, str], dict] = {}
-	has_entries = False
 	for entries in iter_stock_entries_in_chunks(
 		stock_entry_filters,
 		[
@@ -983,7 +985,6 @@ def get_item_bom_quality_hotspot_rows(
 		],
 	):
 		timeout_guard()
-		has_entries = True
 		for fact in get_item_bom_quality_facts(entries, is_rework=is_rework):
 			if requested_bom and fact.get("bom_no") != requested_bom:
 				continue
@@ -998,11 +999,10 @@ def get_item_bom_quality_hotspot_rows(
 			for reason, qty in (fact.get("reason_totals") or {}).items():
 				row["reason_totals"][reason] = flt(row["reason_totals"].get(reason) or 0) + flt(qty)
 
-	if not has_entries:
+	if not agg:
 		return []
 
-	rows: list[dict] = []
-	for (item_code, bom_no), values in agg.items():
+	def _hotspot_metrics(values: dict) -> dict:
 		total_qty = flt(values["total_qty"])
 		quality_qty = flt(values["quality_qty"])
 		reasons = values.get("reason_totals") or {}
@@ -1010,19 +1010,24 @@ def get_item_bom_quality_hotspot_rows(
 		if reasons:
 			reason, qty = sorted(reasons.items(), key=lambda item: (-flt(item[1]), item[0]))[0]
 			dominant_reason = f"{reason} ({format_numeric_summary(qty)})"
-		rows.append(
-			{
-				"item_code": item_code,
-				"bom_no": bom_no,
-				"entries": len(values["entries"]),
-				"total_qty": total_qty,
-				quantity_field: quality_qty,
-				rate_field: flt((quality_qty / total_qty) * 100) if total_qty > 0 else 0,
-				"dominant_reason": dominant_reason,
-			}
-		)
+		return {
+			"entries": len(values["entries"]),
+			"total_qty": total_qty,
+			quantity_field: quality_qty,
+			rate_field: safe_ratio(quality_qty, total_qty, PERCENT_SCALE),
+			"dominant_reason": dominant_reason,
+		}
+
+	rows = [
+		{"item_code": item_code, "bom_no": bom_no, **_hotspot_metrics(values)}
+		for (item_code, bom_no), values in agg.items()
+	]
 	rows.sort(key=lambda row: (-flt(row[quantity_field]), row["item_code"], row["bom_no"] or ""))
-	return rows
+	# One Stock Entry can sit in several rows (joint outputs), so the Overall counts the union of entries.
+	return [
+		*rows,
+		build_overall_row("item_code", bom_no="", **_hotspot_metrics(merge_aggregates(agg.values()))),
+	]
 
 
 def _get_joint_output_item_map(stock_entry_names: list[str]) -> dict[tuple[str, str], str]:
@@ -1198,8 +1203,14 @@ def format_numeric_summary(value: float) -> str:
 
 
 def sum_rows(rows: list[dict], fieldnames: Sequence[str]) -> dict[str, float]:
-	"""Per-field sums over report rows; the bases an Overall Row recomputes its ratios from."""
-	return {fieldname: flt(sum(flt(row.get(fieldname)) for row in rows)) for fieldname in fieldnames}
+	"""Per-field sums over report rows; the bases an Overall Row recomputes its ratios from.
+	Integer columns (Entries, counts) stay integers."""
+	return {
+		fieldname: sum(
+			value if isinstance(value, int) else flt(value) for value in (row.get(fieldname) for row in rows)
+		)
+		for fieldname in fieldnames
+	}
 
 
 def safe_ratio(numerator: float, denominator: float, scale: float = 1) -> float:
@@ -1207,11 +1218,14 @@ def safe_ratio(numerator: float, denominator: float, scale: float = 1) -> float:
 
 
 def merge_aggregates(aggregates: Iterable[dict]) -> dict:
-	"""Combine group aggregates for an Overall Row: numbers add, {key: number} maps add per key."""
+	"""Combine group aggregates for an Overall Row: numbers add, {key: number} maps add per key,
+	sets union."""
 	merged: dict = {}
 	for agg in aggregates:
 		for key, value in agg.items():
-			if isinstance(value, dict):
+			if isinstance(value, set):
+				merged[key] = merged.get(key, set()) | value
+			elif isinstance(value, dict):
 				target = merged.setdefault(key, {})
 				for inner_key, inner_value in value.items():
 					target[inner_key] = flt(target.get(inner_key)) + flt(inner_value)
@@ -1227,9 +1241,30 @@ def build_summed_overall_row(
 	return build_overall_row(label_field, **sum_rows(rows, sum_fields), **extra)
 
 
+def build_rate_overall_row(
+	rows: list[dict],
+	label_field: str,
+	sum_fields: Sequence[str],
+	*,
+	rate_field: str,
+	numerator_field: str,
+	scale: float,
+) -> dict:
+	"""Overall Row for quality reports: sum the bases, recompute one rate as numerator ÷ total_qty."""
+	totals = sum_rows(rows, sum_fields)
+	rate = safe_ratio(totals[numerator_field], totals["total_qty"], scale)
+	return build_overall_row(label_field, **totals, **{rate_field: rate})
+
+
 def build_overall_row(label_field: str, **values: Any) -> dict:
 	"""The bold, translatable "Overall" row that closes a report (ADR 0010, CONTEXT.md: Overall Row)."""
-	return {label_field: _("Overall"), "bold": 1, **values}
+	return {
+		label_field: _("Overall"),
+		"bold": 1,
+		"is_overall": 1,
+		"overall_label_field": label_field,
+		**values,
+	}
 
 
 def apply_system_precision(columns: list[dict]) -> list[dict]:
