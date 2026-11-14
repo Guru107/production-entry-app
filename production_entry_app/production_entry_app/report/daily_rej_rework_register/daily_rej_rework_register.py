@@ -13,6 +13,7 @@ from production_entry_app.production_entry_app.report.report_utils import (
 	apply_system_precision,
 	build_overall_row,
 	build_stock_entry_filters,
+	completed_shift_filters,
 	get_entry_output_quantities,
 	get_entry_report_operation,
 	get_parent_quantity_metrics,
@@ -171,7 +172,8 @@ def _get_rows(filters: dict) -> list[dict]:
 		)
 	line_rows.sort(key=lambda row: (row["day"], row["parent"], row["idx"]))
 
-	day_totals, item_day_fg_totals = _get_daily_fg_totals(sorted({row["day"] for row in line_rows}))
+	# Every day in the range, not only days with rejection lines: clean days are production too.
+	day_totals, item_day_fg_totals = _get_daily_fg_totals(filters.get("from_date"), filters.get("to_date"))
 	rework_by_day_item, rework_by_day = _get_rework_by_day_item(line_rows)
 
 	precision = get_system_float_precision()
@@ -179,16 +181,21 @@ def _get_rows(filters: dict) -> list[dict]:
 	lines_by_day: defaultdict[datetime.date, list[dict]] = defaultdict(list)
 	for line in line_rows:
 		lines_by_day[line["day"]].append(line)
+	# With an Item filter, PPM divides by that item's production; the day header stays plant-wide.
+	if item_filter:
+		ppm_base_by_day = {day: qty for (day, item), qty in item_day_fg_totals.items() if item == item_filter}
+	else:
+		ppm_base_by_day = day_totals
 	# Overall bases come from the day-level figures: the per-row cells repeat across levels.
-	overall_fg = overall_hours = overall_rejection = overall_rework = 0.0
+	overall_hours = overall_rejection = overall_rework = 0.0
 	overall_operators: set[str] = set()
 	for day in sorted(lines_by_day):
 		day_fg = day_totals.get(day, 0.0)
+		ppm_base = ppm_base_by_day.get(day, 0.0)
 		day_rework = rework_by_day.get(day) or {}
 		day_rejection_qty = sum(line["rejection_qty"] for line in lines_by_day[day])
 		# The subtotal sums the lines above it: declared reworkable qty per reason.
 		day_declared_rework_qty = sum(line["rework_qty"] for line in lines_by_day[day])
-		overall_fg += day_fg
 		overall_hours += flt(day_rework.get("hours", 0.0))
 		overall_operators.update(day_rework.get("operators", ()))
 		overall_rejection += day_rejection_qty
@@ -217,9 +224,9 @@ def _get_rows(filters: dict) -> list[dict]:
 					"operator_count": len(rework.get("operators", ())),
 					"rework_hours": flt(rework.get("hours", 0.0), precision),
 					"rework_qty": flt(rework.get("qty", 0.0), precision),
-					"rework_ppm": flt(rework.get("qty", 0.0) / day_fg * PPM_MULTIPLIER, precision)
-					if day_fg > 0
-					else 0,
+					"rework_ppm": flt(
+						safe_ratio(rework.get("qty", 0.0), ppm_base, PPM_MULTIPLIER), precision
+					),
 					# The item's total quantity produced that day, before rejection
 					# deduction; per-entry figures would double-count entries with
 					# several rejection lines.
@@ -239,12 +246,12 @@ def _get_rows(filters: dict) -> list[dict]:
 						# that reason; the item row above carries the actual rework.
 						"rework_qty": flt(line["rework_qty"], precision),
 						# PPM divides raw quantities; flt() rounds the final value only.
-						"rej_ppm": flt(line["rejection_qty"] / day_fg * PPM_MULTIPLIER, precision)
-						if day_fg > 0
-						else 0,
-						"rework_ppm": flt(line["rework_qty"] / day_fg * PPM_MULTIPLIER, precision)
-						if day_fg > 0
-						else 0,
+						"rej_ppm": flt(
+							safe_ratio(line["rejection_qty"], ppm_base, PPM_MULTIPLIER), precision
+						),
+						"rework_ppm": flt(
+							safe_ratio(line["rework_qty"], ppm_base, PPM_MULTIPLIER), precision
+						),
 						"rejection_stage": line["rejection_stage"],
 					}
 				)
@@ -256,23 +263,25 @@ def _get_rows(filters: dict) -> list[dict]:
 				"rework_hours": flt(day_rework.get("hours", 0.0), precision),
 				"rejection_qty": flt(day_rejection_qty, precision),
 				"rework_qty": flt(day_declared_rework_qty, precision),
-				"rej_ppm": flt(day_rejection_qty / day_fg * PPM_MULTIPLIER, precision) if day_fg > 0 else 0,
-				"rework_ppm": flt(day_declared_rework_qty / day_fg * PPM_MULTIPLIER, precision)
-				if day_fg > 0
-				else 0,
+				"rej_ppm": flt(safe_ratio(day_rejection_qty, ppm_base, PPM_MULTIPLIER), precision),
+				"rework_ppm": flt(safe_ratio(day_declared_rework_qty, ppm_base, PPM_MULTIPLIER), precision),
 				"bold": 1,
 			}
 		)
+	overall_ppm_base = sum(ppm_base_by_day.values())
+	# Shown when filtered by item so the Overall PPM's denominator stays visible (ADR 0009).
+	item_fg = {"finished_goods_qty": flt(overall_ppm_base, precision)} if item_filter else {}
 	rows.append(
 		build_overall_row(
 			"production_date",
-			day_fg_qty=flt(overall_fg, precision),
+			day_fg_qty=flt(sum(day_totals.values()), precision),
 			operator_count=len(overall_operators),
 			rework_hours=flt(overall_hours, precision),
 			rejection_qty=flt(overall_rejection, precision),
 			rework_qty=flt(overall_rework, precision),
-			rej_ppm=flt(safe_ratio(overall_rejection, overall_fg, PPM_MULTIPLIER), precision),
-			rework_ppm=flt(safe_ratio(overall_rework, overall_fg, PPM_MULTIPLIER), precision),
+			rej_ppm=flt(safe_ratio(overall_rejection, overall_ppm_base, PPM_MULTIPLIER), precision),
+			rework_ppm=flt(safe_ratio(overall_rework, overall_ppm_base, PPM_MULTIPLIER), precision),
+			**item_fg,
 		)
 	)
 	return rows
@@ -325,25 +334,17 @@ def _get_single_rejection_items(entry_names: list[str]) -> dict[str, str]:
 
 
 def _get_daily_fg_totals(
-	dates: list[datetime.date],
+	from_date: str | None,
+	to_date: str | None,
 ) -> tuple[dict[datetime.date, float], dict[tuple[datetime.date, str], float]]:
-	"""Day's raw total production: submitted production entries on Completed Shifts.
+	"""Raw total production per day in the range: submitted production entries on Completed Shifts.
 
 	Returns day totals plus per-(day, item) totals — the item totals attribute each
 	entry's output to its BOM item(s), matching the Shift aggregate-entries view.
 	Both are returned unrounded on purpose: they feed PPM divisions, where rounding
 	inputs first would distort the result.
 	"""
-	if not dates:
-		return {}, {}
-	shift_names = get_report_rows(
-		"Shift",
-		filters={
-			"status": "Completed",
-			"shift_date": ["in", [day.isoformat() for day in dates]],
-		},
-		pluck="name",
-	)
+	shift_names = get_report_rows("Shift", filters=completed_shift_filters(from_date, to_date), pluck="name")
 	if not shift_names:
 		return {}, {}
 	totals: defaultdict[datetime.date, float] = defaultdict(float)

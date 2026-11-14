@@ -50,10 +50,20 @@ Rows group by `Production Date` into day blocks:
 
 ## Overall Row
 
-Built from the day-level figures (ADR 0010), never by summing the repeated item and line cells: each listed
-day's Total FG Qty counts once, hours are summed from day headers, operators are the union across days, rejection
-and declared rework come from the day subtotals, and Rej / Rework PPM are recomputed over the summed FG qty
-(ADR 0009). Item-level columns (Finished Goods Qty, names, remarks) are blank.
+Built from the day-level figures (ADR 0010), never by summing the repeated item and line cells. Its
+`Total FG Qty for Day` is the production of **every day in the Production Date Range**, including days with no
+rejection lines (those days get no day block), so it can exceed the sum of the listed day headers. Hours are
+summed from day headers, operators are the union across days, rejection and declared rework come from the day
+subtotals, and Rej / Rework PPM are recomputed over the range's production (ADR 0009). Item-level columns
+(names, remarks) are blank; `Finished Goods Qty` is blank too unless the Item filter is set (see below).
+
+## PPM denominator and filters
+
+Every PPM (line, item row, subtotal, Overall) divides by the day's (or the range's) total production. With the
+**Item** filter set, it divides by that item's production instead (the same per-(day, item) figure as
+`Finished Goods Qty`), and the Overall Row's `Finished Goods Qty` shows the item's production over the range,
+so the denominator stays visible. `Total FG Qty for Day` stays plant-wide either way. The **Rejection Reason**
+and **Operation** filters narrow the lines only; the denominator does not change.
 
 ## Rework columns (same-day, same-item match)
 

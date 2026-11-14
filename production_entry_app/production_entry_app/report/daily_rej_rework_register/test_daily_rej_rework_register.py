@@ -174,6 +174,78 @@ class TestDailyRejReworkRegister(FrappeTestCase):
 		self.assertNotIn("finished_goods_qty", overall)
 		self.assertNotIn("operator_name", overall)
 
+	def test_overall_ppm_counts_clean_production_days_in_the_range(self) -> None:
+		day_1, day_2 = "2092-06-22", "2092-06-23"
+		bom = self._insert_bom(self.item_a)
+		entry = self._insert_production_entry(
+			shift_name=self._insert_shift(day_1, "1", status="Completed"),
+			posting_date=day_1,
+			fg_qty=1000,
+			bom=bom,
+		)
+		self._insert_rejection_item(entry, self.item_a, 10)
+		self._insert_breakup(entry, [(self.item_a, "Burr", 10, 0)])
+		# Day 2 produced but rejected nothing: no day block, still part of the range's production.
+		self._insert_production_entry(
+			shift_name=self._insert_shift(day_2, "1", status="Completed"),
+			posting_date=day_2,
+			fg_qty=1000,
+			bom=bom,
+		)
+
+		rows = daily_rej_rework_register.execute({"from_date": day_1, "to_date": day_2})[1]
+		precision = daily_rej_rework_register.get_system_float_precision()
+
+		self.assertEqual(
+			{str(row["production_date"]) for row in rows[:-1] if row.get("production_date")}, {day_1}
+		)
+		overall = rows[-1]
+		self.assertEqual(overall["day_fg_qty"], 2000)
+		self.assertAlmostEqual(overall["rej_ppm"], flt(10 / 2000 * 1_000_000, precision))
+
+	def test_item_filter_ppm_divides_by_the_items_production(self) -> None:
+		day = "2092-06-24"
+		shift = self._insert_shift(day, "1", status="Completed")
+		entry_a = self._insert_production_entry(
+			shift_name=shift, posting_date=day, fg_qty=400, bom=self._insert_bom(self.item_a)
+		)
+		self._insert_rejection_item(entry_a, self.item_a, 6)
+		self._insert_breakup(entry_a, [(self.item_a, "Burr", 4, 0), (self.item_a, "Dent", 2, 1)])
+		self._insert_production_entry(
+			shift_name=shift, posting_date=day, fg_qty=600, bom=self._insert_bom(self.item_b)
+		)
+		self._insert_rework_entry(
+			rework_date=day,
+			items=[(self.item_a, 2)],
+			operators=[("Operator A", f"{day} 08:00:00", f"{day} 09:00:00")],
+		)
+		precision = daily_rej_rework_register.get_system_float_precision()
+		ppm = lambda qty, fg: flt(qty / fg * 1_000_000, precision)  # noqa: E731
+
+		rows = daily_rej_rework_register.execute(
+			{"from_date": day, "to_date": day, "item_code": self.item_a}
+		)[1]
+
+		header, item_row, burr, dent, subtotal, overall = rows
+		# The day header keeps the plant-wide production; every PPM divides by item A's 400.
+		self.assertEqual(header["day_fg_qty"], 1000)
+		self.assertAlmostEqual(item_row["rework_ppm"], ppm(2, 400))
+		self.assertAlmostEqual(burr["rej_ppm"], ppm(4, 400))
+		self.assertAlmostEqual(dent["rework_ppm"], ppm(2, 400))
+		self.assertAlmostEqual(subtotal["rej_ppm"], ppm(4, 400))
+		self.assertAlmostEqual(subtotal["rework_ppm"], ppm(2, 400))
+		self.assertEqual(overall["day_fg_qty"], 1000)
+		self.assertEqual(overall["finished_goods_qty"], 400)
+		self.assertAlmostEqual(overall["rej_ppm"], ppm(4, 400))
+		self.assertAlmostEqual(overall["rework_ppm"], ppm(2, 400))
+
+		# A Rejection Reason filter narrows the lines only: PPM stays over the whole day's production.
+		rows = daily_rej_rework_register.execute(
+			{"from_date": day, "to_date": day, "rejection_reason": "Burr"}
+		)[1]
+		self.assertAlmostEqual(rows[-1]["rej_ppm"], ppm(4, 1000))
+		self.assertNotIn("finished_goods_qty", rows[-1])
+
 	def test_lines_group_by_item_within_a_day(self) -> None:
 		day = "2092-06-12"
 		shift = self._insert_shift(day, "1", status="Completed")
