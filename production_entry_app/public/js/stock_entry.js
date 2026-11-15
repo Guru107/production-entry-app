@@ -748,6 +748,7 @@ function _sync_rework_mode_from_stock_entry_type(frm, { previousStockEntryType =
 	};
 	frappe.call({
 		method: "production_entry_app.production_entry_app.api.get_rework_stock_entry_type",
+		type: "GET",
 		args: { required: 0, stock_entry_type: selectedStockEntryType },
 		callback(r) {
 			clearPendingLookup();
@@ -801,6 +802,7 @@ function _sync_rework_source_warehouse(
 	}
 	frappe.call({
 		method: "production_entry_app.production_entry_app.api.get_rework_source_warehouse",
+		type: "GET",
 		args: { company, branch },
 		callback(r) {
 			if (
@@ -1006,6 +1008,7 @@ function _sync_joint_mode_from_stock_entry_type(frm, requestId, previousStockEnt
 	// Passive discovery on every form: an unconfigured site answers "" instead of an error.
 	frappe.call({
 		method: "production_entry_app.production_entry_app.api.get_joint_stock_entry_type",
+		type: "GET",
 		args: { required: 0 },
 		callback(r) {
 			if (requestId !== _jointStockEntryTypeRequestId || pendingTypes.failed) return;
@@ -1030,6 +1033,7 @@ function _sync_joint_mode_from_stock_entry_type(frm, requestId, previousStockEnt
 	}
 	frappe.call({
 		method: "production_entry_app.production_entry_app.api.get_joint_production_stock_entry_type",
+		type: "GET",
 		args: { required: 0 },
 		callback(response) {
 			if (requestId !== _jointStockEntryTypeRequestId || pendingTypes.failed) return;
@@ -1394,6 +1398,7 @@ function _handle_shift_change(frm) {
 	const reqId = ++_shiftDetailsRequestId;
 	frappe.call({
 		method: "production_entry_app.production_entry_app.api.get_shift_details_for_stock_entry",
+		type: "GET",
 		args: { shift_name: selectedShift },
 		callback(r) {
 			_apply_shift_details_response(frm, selectedShift, reqId, r.message);
@@ -1816,6 +1821,7 @@ function _update_die_tool_metrics(frm) {
 	const reqId = ++_dieToolRequestId;
 	frappe.call({
 		method: "production_entry_app.production_entry_app.api.get_die_tool_counter",
+		type: "GET",
 		args: { die_tool_code: item_code },
 		callback(r) {
 			if (reqId !== _dieToolRequestId) return;

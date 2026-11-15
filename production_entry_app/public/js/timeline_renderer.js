@@ -624,6 +624,7 @@ function render_shift_timeline(frm, doctype, htmlFieldname) {
 
 	frappe.call({
 		method: "production_entry_app.production_entry_app.api_timeline.get_shift_timeline_data",
+		type: "GET",
 		args: { doctype, docname: frm.doc.name },
 		callback(r) {
 			const data = r.message || {};

@@ -28,7 +28,7 @@ class _ReworkRoute(NamedTuple):
 	target: str | None
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["GET"])
 def get_pending_rework(item_code: str | None = None) -> list[dict[str, Any]]:
 	"""Return the submitted, derived rework pool, optionally for one item."""
 	if not frappe.has_permission("Stock Entry", "read"):

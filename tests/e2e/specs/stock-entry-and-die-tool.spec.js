@@ -52,7 +52,8 @@ test.describe("Stock Entry integration", () => {
 		const dieCounter = await callFrappeMethod(
 			page,
 			"production_entry_app.production_entry_app.api.get_die_tool_counter",
-			{ die_tool_code: ctx.fg_item }
+			{ die_tool_code: ctx.fg_item },
+			"GET"
 		);
 		expect(Number(dieCounter.current_strokes)).toBeGreaterThan(0);
 		expect(Number(dieCounter.utilization_pct)).toBeGreaterThan(0);
@@ -84,7 +85,8 @@ test.describe("Stock Entry integration", () => {
 		const dieCounter = await callFrappeMethod(
 			page,
 			"production_entry_app.production_entry_app.api.get_die_tool_counter",
-			{ die_tool_code: ctx.fg_item }
+			{ die_tool_code: ctx.fg_item },
+			"GET"
 		);
 		expect(Number(dieCounter.has_die_tool || 0)).toBe(0);
 		expect(Number(dieCounter.current_strokes || 0)).toBe(0);
@@ -120,7 +122,8 @@ test.describe("Stock Entry integration", () => {
 					"production_entry_app.production_entry_app.api.get_die_tool_counter",
 					{
 						die_tool_code: ctx.fg_item,
-					}
+					},
+					"GET"
 				)
 			)
 		);
