@@ -7,7 +7,8 @@ async function getJointStockEntryType(page) {
 	const name = await callFrappeMethod(
 		page,
 		"production_entry_app.production_entry_app.api.get_joint_stock_entry_type",
-		{ required: 1 }
+		{ required: 1 },
+		"GET"
 	);
 	if (name !== JOINT_STOCK_ENTRY_TYPE) {
 		throw new Error(
@@ -20,7 +21,9 @@ async function getJointStockEntryType(page) {
 async function getJointProductionStockEntryType(page) {
 	const name = await callFrappeMethod(
 		page,
-		"production_entry_app.production_entry_app.api.get_joint_production_stock_entry_type"
+		"production_entry_app.production_entry_app.api.get_joint_production_stock_entry_type",
+		{},
+		"GET"
 	);
 	if (name !== JOINT_PRODUCTION_STOCK_ENTRY_TYPE) {
 		throw new Error(

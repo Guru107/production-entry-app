@@ -252,7 +252,8 @@ test.describe("Die tool metrics and counter", () => {
 		const before = await callFrappeMethod(
 			page,
 			"production_entry_app.production_entry_app.api.get_die_tool_counter",
-			{ die_tool_code: ctx.fg_item }
+			{ die_tool_code: ctx.fg_item },
+			"GET"
 		);
 
 		const stockEntryPage = await createManufactureEntry(page, ctx, {
@@ -269,7 +270,8 @@ test.describe("Die tool metrics and counter", () => {
 		const afterSubmit = await callFrappeMethod(
 			page,
 			"production_entry_app.production_entry_app.api.get_die_tool_counter",
-			{ die_tool_code: ctx.fg_item }
+			{ die_tool_code: ctx.fg_item },
+			"GET"
 		);
 		expect(Number(afterSubmit.current_strokes)).toBeGreaterThan(
 			Number(before.current_strokes)
@@ -285,7 +287,8 @@ test.describe("Die tool metrics and counter", () => {
 		const afterCancel = await callFrappeMethod(
 			page,
 			"production_entry_app.production_entry_app.api.get_die_tool_counter",
-			{ die_tool_code: ctx.fg_item }
+			{ die_tool_code: ctx.fg_item },
+			"GET"
 		);
 		expect(Number(afterCancel.current_strokes)).toBe(Number(before.current_strokes));
 	});

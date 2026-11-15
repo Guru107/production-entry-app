@@ -89,7 +89,7 @@ def _with_float_precision(payload: dict) -> dict:
 	return result
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["GET"])
 def get_shift_timeline_data(doctype: str, docname: str) -> dict:
 	"""Return running shift timeline data for Workstation/Operator forms."""
 	if doctype not in ("Workstation", "Operator"):

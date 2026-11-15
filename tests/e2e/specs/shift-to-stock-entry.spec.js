@@ -438,7 +438,8 @@ test.describe("Shift to Stock Entry integration", () => {
 		const rows = await callFrappeMethod(
 			page,
 			"production_entry_app.production_entry_app.doctype.shift.shift.get_shift_aggregate_production_entries",
-			{ shift_name: ctx.shift_name }
+			{ shift_name: ctx.shift_name },
+			"GET"
 		);
 		const firstRow = rows[0];
 		expect(firstRow).toBeTruthy();
@@ -468,7 +469,8 @@ test.describe("Shift to Stock Entry integration", () => {
 		const timelineData = await callFrappeMethod(
 			page,
 			"production_entry_app.production_entry_app.api_timeline.get_shift_timeline_data",
-			{ doctype: "Workstation", docname: ctx.workstation }
+			{ doctype: "Workstation", docname: ctx.workstation },
+			"GET"
 		);
 		const productionEntry = (timelineData.entries || []).find(
 			(row) => row.entry_type === "production"

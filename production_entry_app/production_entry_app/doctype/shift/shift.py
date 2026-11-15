@@ -228,7 +228,7 @@ def _get_next_shift_sequence(shift_date: str) -> int:
 	return max_sequence + 1
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["GET"])
 def get_planned_losses_for_duration(
 	shift_duration: str, planned_start_time: str, shift_date: str
 ) -> list[dict]:
@@ -254,7 +254,7 @@ def get_planned_losses_for_duration(
 	]
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["GET"])
 def get_linked_downtime_entries(shift_name: str | None = None) -> list[dict]:
 	"""Return Downtime Entries whose time range overlaps with the given Shift.
 
@@ -312,7 +312,7 @@ def get_linked_downtime_entries(shift_name: str | None = None) -> list[dict]:
 	return entries
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["GET"])
 def check_running_shift_conflict(shift_name: str) -> dict:
 	"""Return whether another shift in the same department and branch is currently Running.
 
@@ -877,7 +877,7 @@ def _find_fixed_time_in_window(
 	return next((candidate for candidate in candidates if base <= candidate < shift_end), None)
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["GET"])
 def get_shift_summary(shift_name: str | None = None) -> dict:
 	"""Return structured summary data for the Shift summary tab."""
 	if not shift_name:
@@ -1122,7 +1122,7 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 	return summary
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["GET"])
 def get_shift_aggregate_production_entries(shift_name: str | None = None) -> list[dict]:
 	"""Return per-BOM aggregate production values for submitted manufacture entries in a shift."""
 	if not shift_name:
@@ -1399,7 +1399,7 @@ class Shift(Document):
 		self._validate_no_overlapping_shifts()
 		self._validate_unique_shift_label_per_date()
 
-	@frappe.whitelist()
+	@frappe.whitelist(methods=["POST"])
 	def start_shift(self) -> None:
 		self._validate_no_other_running_shift()
 		self._transition_status(to_status="Running", allowed_from=("Draft",))
@@ -1429,11 +1429,11 @@ class Shift(Document):
 				)
 			)
 
-	@frappe.whitelist()
+	@frappe.whitelist(methods=["POST"])
 	def end_shift(self) -> None:
 		self._transition_status(to_status="Completed", allowed_from=("Running",))
 
-	@frappe.whitelist()
+	@frappe.whitelist(methods=["POST"])
 	def cancel_shift(self) -> None:
 		self._transition_status(to_status="Cancelled", allowed_from=("Draft", "Completed"))
 

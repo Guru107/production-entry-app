@@ -19,10 +19,12 @@ async function retryOnContextDestroyed(page, action, retries = 3) {
 // E2E sites must run with ignore_csrf=1 (set by run_ephemeral_e2e.sh; add it to
 // site_config.json for local dev sites). API calls therefore send no CSRF token,
 // which also frees tests from loading a Desk page just to mint one.
-async function callFrappeMethod(page, method, args = {}) {
-	const response = await page.request.post(`/api/method/${method}`, {
-		form: args,
-	});
+async function callFrappeMethod(page, method, args = {}, httpMethod = "POST") {
+	const url = `/api/method/${method}`;
+	const response =
+		httpMethod === "GET"
+			? await page.request.get(url, { params: args })
+			: await page.request.post(url, { form: args });
 	const rawBody = await response.text();
 	let payload = {};
 	try {

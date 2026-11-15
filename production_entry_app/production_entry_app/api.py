@@ -42,7 +42,7 @@ _ALLOWED_STOCK_ENTRY_SHIFT_STATUSES: tuple[str, ...] = ("Running", "Completed")
 _MAX_JOINT_BOM_SEARCH_PAGE_LEN: int = 50
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["GET"])
 @frappe.validate_and_sanitize_search_inputs
 def stock_entry_shift_query(
 	doctype: str,
@@ -72,7 +72,7 @@ def stock_entry_shift_query(
 	return [[row.name, f"{row.shift_date} · {row.status}"] for row in rows]
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["GET"])
 @frappe.validate_and_sanitize_search_inputs
 def search_joint_boms_for_operation(
 	doctype: str,
@@ -139,7 +139,7 @@ def _get_stored_operation_spellings(operation: str, company: str) -> list[str]:
 	return [value for value in values if _normalize_operation(value) == operation]
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["GET"])
 def get_joint_stock_entry_type(required: int = 1) -> str:
 	"""Resolve the Joint LH/RH Repack type; passive callers (``required=0``) get "" when none exists."""
 	if not frappe.has_permission("Stock Entry", "create"):
@@ -152,7 +152,7 @@ def get_joint_stock_entry_type(required: int = 1) -> str:
 	)
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["GET"])
 def get_joint_production_stock_entry_type(required: int = 1) -> str:
 	"""Resolve the same-item Joint Production Repack type."""
 	if not frappe.has_permission("Stock Entry", "create"):
@@ -190,7 +190,7 @@ def _get_single_marked_stock_entry_type(
 	return stock_entry_types[0]
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["GET"])
 def get_rework_stock_entry_type(required: int = 1, stock_entry_type: str | None = None) -> str:
 	if not frappe.has_permission("Stock Entry", "create"):
 		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
@@ -233,7 +233,7 @@ def get_rework_stock_entry_type(required: int = 1, stock_entry_type: str | None 
 	return stock_entry_types[0]
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["GET"])
 def get_rework_source_warehouse(
 	company: str,
 	branch: str,
@@ -247,7 +247,8 @@ def get_rework_source_warehouse(
 	return warehouse
 
 
-@frappe.whitelist()
+# POST despite being a read: the full doc payload is too large for a query string.
+@frappe.whitelist(methods=["POST"])
 def get_joint_production_items(doc: str) -> list[dict]:
 	try:
 		doc_dict = json.loads(doc)
@@ -359,7 +360,7 @@ def _cleanup_orphan_stock_entry_loss_links(shift_name: str) -> None:
 		frappe.db.delete("Loss Entry", {"name": ("in", orphan_row_names)})
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["GET"])
 def get_shift_details_for_stock_entry(shift_name: str) -> dict:
 	"""Return shift details to auto-populate Stock Entry fields.
 
@@ -407,7 +408,8 @@ def get_shift_details_for_stock_entry(shift_name: str) -> dict:
 	}
 
 
-@frappe.whitelist()
+# POST despite being a read: the full doc payload is too large for a query string.
+@frappe.whitelist(methods=["POST"])
 def get_items_with_rejection(doc: str) -> list[dict]:
 	"""Populate BOM items and apply rejection logic, returning the items list.
 
@@ -503,7 +505,7 @@ def get_items_with_rejection(doc: str) -> list[dict]:
 	return items
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["GET"])
 def get_die_tool_counter(die_tool_code: str) -> dict:
 	if not die_tool_code or not frappe.db.exists("Item", die_tool_code):
 		return _empty_die_tool_payload(die_tool_code)
@@ -563,7 +565,7 @@ def _empty_die_tool_payload(die_tool_code: str | None) -> dict:
 	}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def reset_die_tool_counter(die_tool_code: str, maintenance_date: str | None = None) -> dict:
 	if not die_tool_code:
 		frappe.throw(_("Die Tool Item is required."))

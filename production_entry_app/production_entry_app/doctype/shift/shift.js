@@ -287,6 +287,7 @@ function _get_planned_breaks_request_key(frm) {
 function _fetch_default_breaks(frm, requestKey) {
 	frappe.call({
 		method: "production_entry_app.production_entry_app.doctype.shift.shift.get_planned_losses_for_duration",
+		type: "GET",
 		args: {
 			shift_duration: frm.doc.shift_duration,
 			planned_start_time: frm.doc.planned_start_time,
@@ -368,6 +369,7 @@ function _render_linked_downtime_entries(frm) {
 	}
 	frappe.call({
 		method: "production_entry_app.production_entry_app.doctype.shift.shift.get_linked_downtime_entries",
+		type: "GET",
 		args: { shift_name: frm.doc.name },
 		callback(r) {
 			const list = r.message || [];
@@ -420,6 +422,7 @@ function _render_shift_summary(frm) {
 	}
 	frappe.call({
 		method: "production_entry_app.production_entry_app.doctype.shift.shift.get_shift_summary",
+		type: "GET",
 		args: { shift_name: frm.doc.name },
 		callback(r) {
 			_set_shared_html_field(
@@ -727,6 +730,7 @@ function _render_aggregate_production_entries(frm) {
 	}
 	frappe.call({
 		method: "production_entry_app.production_entry_app.doctype.shift.shift.get_shift_aggregate_production_entries",
+		type: "GET",
 		args: { shift_name: frm.doc.name },
 		callback(r) {
 			const rows = r.message || [];

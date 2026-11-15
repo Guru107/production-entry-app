@@ -303,8 +303,8 @@ test.describe("Branch warehouse defaults", () => {
 					"custom_pea_planned_end_date",
 					`${ctx.shift_date} 16:00:00`
 				);
-				const endpoint =
-					"**/api/method/production_entry_app.production_entry_app.api.get_shift_details_for_stock_entry";
+				const endpoint = (url) =>
+					url.pathname.endsWith("api.get_shift_details_for_stock_entry");
 				await page.route(endpoint, (route) =>
 					route.fulfill({
 						status,
