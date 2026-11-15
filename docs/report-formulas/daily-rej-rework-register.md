@@ -59,6 +59,9 @@ subtotals, and Rej / Rework PPM are recomputed over the range's production (ADR 
 
 ## PPM denominator and filters
 
+From Date and To Date are required, by the report screen and by the server (an API call without both throws),
+so the range is always bounded.
+
 Every PPM (line, item row, subtotal, Overall) divides by the day's (or the range's) total production. With the
 **Item** filter set, it divides by that item's production instead (the same per-(day, item) figure as
 `Finished Goods Qty`), and the Overall Row's `Finished Goods Qty` shows the item's production over the range,

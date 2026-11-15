@@ -33,7 +33,11 @@ _ENTRY_FIELDS: list[str] = ["name", "fg_completed_qty", "custom_pea_operation"]
 
 
 def execute(filters: dict | None = None) -> tuple[list[dict], list[dict]]:
-	return _get_columns(), _get_rows(filters or {})
+	filters = filters or {}
+	# The JS filters are reqd, but API callers bypass them; an open range would scan all history.
+	if not (filters.get("from_date") and filters.get("to_date")):
+		frappe.throw(_("From Date and To Date are required."), frappe.MandatoryError)
+	return _get_columns(), _get_rows(filters)
 
 
 def _get_columns() -> list[dict]:

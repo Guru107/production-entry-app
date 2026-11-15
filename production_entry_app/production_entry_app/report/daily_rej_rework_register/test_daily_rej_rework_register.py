@@ -395,6 +395,11 @@ class TestDailyRejReworkRegister(FrappeTestCase):
 
 		self.assertEqual(rows, [])
 
+	def test_missing_date_filter_throws(self) -> None:
+		for filters in ({}, {"from_date": "2092-06-20"}, {"to_date": "2092-06-20"}):
+			with self.subTest(filters=filters), self.assertRaises(frappe.MandatoryError):
+				daily_rej_rework_register.execute(filters)
+
 	def test_filters_restrict_rows(self) -> None:
 		day = "2092-06-20"
 		shift = self._insert_shift(day, "1", status="Completed")
