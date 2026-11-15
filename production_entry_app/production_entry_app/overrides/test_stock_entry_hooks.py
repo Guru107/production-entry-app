@@ -4133,6 +4133,95 @@ class TestOverlapValidation(FrappeTestCase):
 
 		find_downtime.assert_not_called()
 
+	def test_downtime_overlap_rechecked_on_submit_when_inputs_are_unchanged(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-05-07",
+			shift_label="2",
+			planned_start_time="16:00:00",
+			wip_warehouse=self.wip_warehouse,
+		)
+		se = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-07 16:00:00",
+			end="2026-05-07 18:00:00",
+			workstation=self.workstation_1,
+		)
+		se.save()
+		downtime = frappe.get_doc(
+			{
+				"doctype": "Downtime Entry",
+				"workstation": self.workstation_1,
+				"operator": self.employee_name,
+				"from_time": "2026-05-07 17:00:00",
+				"to_time": "2026-05-07 17:30:00",
+				"custom_pea_downtime_reason": "00",
+			}
+		)
+		# Simulates a downtime row that predates the mirror check on Downtime Entry.
+		downtime.flags.ignore_validate = True
+		downtime.insert(ignore_permissions=True)
+
+		with self.assertRaisesRegex(ValidationError, "downtime"):
+			se.submit()
+
+	def test_downtime_entry_blocked_by_overlapping_draft_production_entry(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-05-08",
+			shift_label="2",
+			planned_start_time="16:00:00",
+			wip_warehouse=self.wip_warehouse,
+		)
+		se = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-08 16:00:00",
+			end="2026-05-08 18:00:00",
+			workstation=self.workstation_1,
+		)
+		se.save()
+
+		with self.assertRaisesRegex(ValidationError, f"{se.name}"):
+			_create_downtime_entry(
+				workstation=self.workstation_1,
+				operator=self.employee_name,
+				from_time="2026-05-08 17:00:00",
+				to_time="2026-05-08 17:30:00",
+			)
+
+	def test_downtime_entry_allows_other_workstation_adjacent_time_and_cancelled_entries(self) -> None:
+		shift = _create_test_shift(
+			shift_date="2026-05-09",
+			shift_label="2",
+			planned_start_time="16:00:00",
+			wip_warehouse=self.wip_warehouse,
+		)
+		se = self._create_entry(
+			shift_name=shift.name,
+			start="2026-05-09 16:00:00",
+			end="2026-05-09 18:00:00",
+			workstation=self.workstation_1,
+		)
+		se.save()
+
+		_create_downtime_entry(
+			workstation=self.workstation_2,
+			operator=self.employee_name,
+			from_time="2026-05-09 17:00:00",
+			to_time="2026-05-09 17:30:00",
+		)
+		_create_downtime_entry(
+			workstation=self.workstation_1,
+			operator=self.employee_name,
+			from_time="2026-05-09 18:00:00",
+			to_time="2026-05-09 18:30:00",
+		)
+		frappe.db.set_value("Stock Entry", se.name, "docstatus", 2, update_modified=False)
+		_create_downtime_entry(
+			workstation=self.workstation_1,
+			operator=self.employee_name,
+			from_time="2026-05-09 17:00:00",
+			to_time="2026-05-09 17:30:00",
+		)
+
 	def test_downtime_overlap_runs_query_when_workstation_changes(self) -> None:
 		shift = _create_test_shift(
 			shift_date="2026-05-05",
@@ -4237,6 +4326,63 @@ class TestOverlapValidation(FrappeTestCase):
 		)
 		second.save()
 		self.assertTrue(bool(second.name))
+
+
+class TestInactiveMasterValidation(FrappeTestCase):
+	def setUp(self) -> None:
+		suffix = frappe.generate_hash(length=6)
+		self.inactive_operator = (
+			frappe.get_doc({"doctype": "Operator", "operator_name": f"Inactive Op {suffix}", "is_active": 0})
+			.insert(ignore_permissions=True)
+			.name
+		)
+		self.inactive_reason = (
+			frappe.get_doc(
+				{
+					"doctype": "Rejection Reason",
+					"rejection_reason_name": f"Inactive Reason {suffix}",
+					"is_active": 0,
+				}
+			)
+			.insert(ignore_permissions=True)
+			.name
+		)
+		self.active_reason = (
+			frappe.get_doc(
+				{"doctype": "Rejection Reason", "rejection_reason_name": f"Active Reason {suffix}"}
+			)
+			.insert(ignore_permissions=True)
+			.name
+		)
+
+	def tearDown(self) -> None:
+		frappe.db.rollback()
+
+	def test_inactive_production_operator_is_rejected(self) -> None:
+		doc = frappe._dict(custom_pea_operator=self.inactive_operator)
+
+		with self.assertRaisesRegex(ValidationError, f"{self.inactive_operator}.*is inactive"):
+			stock_entry_hooks._validate_active_masters(doc)
+
+	def test_inactive_rejection_reason_is_rejected(self) -> None:
+		doc = frappe._dict(
+			custom_pea_rejection_breakup=[
+				frappe._dict(rejection_reason=self.active_reason, qty=1),
+				frappe._dict(rejection_reason=self.inactive_reason, qty=1),
+			]
+		)
+
+		with self.assertRaisesRegex(ValidationError, f"{self.inactive_reason}.*is inactive"):
+			stock_entry_hooks._validate_active_masters(doc)
+
+	def test_active_masters_pass(self) -> None:
+		ensure_operator("SE Hook Active Operator")
+		doc = frappe._dict(
+			custom_pea_operator="SE Hook Active Operator",
+			custom_pea_rejection_breakup=[frappe._dict(rejection_reason=self.active_reason, qty=1)],
+		)
+
+		stock_entry_hooks._validate_active_masters(doc)
 
 
 class TestGetItemsWithRejection(FrappeTestCase):

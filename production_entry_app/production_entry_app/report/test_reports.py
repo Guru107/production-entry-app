@@ -5798,7 +5798,10 @@ class TestProductionReports(FrappeTestCase):
 		}
 		if shift_name:
 			payload["custom_pea_shift"] = shift_name
-		return frappe.get_doc(payload).insert(ignore_permissions=True).name
+		doc = frappe.get_doc(payload)
+		# Report fixtures seed overlap data directly, like the db_insert'ed mock production entries.
+		doc.flags.ignore_validate = True
+		return doc.insert(ignore_permissions=True).name
 
 
 def _ensure_user_with_exact_roles(email: str, roles: tuple[str, ...]) -> None:

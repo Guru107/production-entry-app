@@ -143,6 +143,28 @@ test.describe("Stock Entry validation matrix", () => {
 		expect(values.custom_stock_entry_purpose).toBe("Manufacture");
 	});
 
+	test("@regression operator, rework type and rejection reason links offer only active masters", async ({
+		page,
+	}) => {
+		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
+
+		await openManufactureEntry(page, ctx, { fgQty: 100, rejectionQty: 0 });
+		const queries = await page.evaluate(() => {
+			const frm = window.cur_frm;
+			const gridQuery = (table, field) =>
+				frm.fields_dict[table].grid.get_field(field).get_query();
+			return [
+				frm.fields_dict.custom_pea_operator.get_query(),
+				frm.fields_dict.custom_pea_rework_type.get_query(),
+				gridQuery("custom_pea_rework_operators", "operator"),
+				gridQuery("custom_pea_rejection_breakup", "rejection_reason"),
+			];
+		});
+		for (const query of queries) {
+			expect(query).toEqual({ filters: { is_active: 1 } });
+		}
+	});
+
 	test("@regression manufacture sections are visible for manufacture stock entry type", async ({
 		page,
 	}) => {
@@ -789,5 +811,35 @@ test.describe("Stock Entry validation matrix", () => {
 				});
 			}
 		}
+	});
+
+	test("@regression blocks downtime entry that overlaps a draft production entry", async ({
+		page,
+	}) => {
+		const prefix = lifecycle.getPrefix();
+		const ctx = await setupFreshContext(page, prefix);
+		const employeeName = await getOrCreateEmployee(page, ctx, `${prefix}-DT-EMP`);
+
+		const stockEntryPage = await openManufactureEntry(page, ctx, {
+			fgQty: 100,
+			rejectionQty: 0,
+			actualStart: `${ctx.shift_date} 08:30:00`,
+			actualEnd: `${ctx.shift_date} 09:30:00`,
+		});
+		await stockEntryPage.fetchItems();
+		await stockEntryPage.saveDraft();
+
+		await expect(
+			callFrappeMethod(page, "frappe.client.insert", {
+				doc: JSON.stringify({
+					doctype: "Downtime Entry",
+					workstation: ctx.workstation,
+					operator: employeeName,
+					from_time: `${ctx.shift_date} 09:00:00`,
+					to_time: `${ctx.shift_date} 09:15:00`,
+					custom_pea_downtime_reason: "00",
+				}),
+			})
+		).rejects.toThrow(/production entry/i);
 	});
 });

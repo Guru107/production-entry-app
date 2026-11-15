@@ -156,6 +156,7 @@ def validate_stock_entry(doc: Document, method: str | None = None) -> None:
 		_sync_unplanned_loss_shift_links(doc)
 
 	_validate_rework_fields(doc)
+	_validate_active_masters(doc)
 	_validate_actual_times(doc)
 	_validate_unplanned_losses_within_actual_window(doc)
 	_validate_workstation_overlap(doc)
@@ -199,18 +200,38 @@ def _validate_rework_fields(doc: Document) -> None:
 		frappe.throw(_("Rework requires at least one active Operator."))
 	for row in operator_rows:
 		_validate_rework_operator_working_window(row)
-	operator_names = [row.get("operator") for row in operator_rows]
-	inactive_operators = frappe.get_all(
+	_throw_if_inactive(
 		"Operator",
-		filters={"name": ["in", operator_names], "is_active": 0},
-		pluck="name",
+		[row.get("operator") for row in operator_rows],
+		_("Operator {0} is inactive and cannot be assigned to Rework."),
 	)
-	if inactive_operators:
-		frappe.throw(
-			_("Operator {0} is inactive and cannot be assigned to Rework.").format(
-				_safe_bold(inactive_operators[0])
-			)
-		)
+
+
+def _validate_active_masters(doc: Document) -> None:
+	_throw_if_inactive(
+		"Operator",
+		[doc.get("custom_pea_operator")],
+		_("Operator {0} is inactive and cannot be selected."),
+	)
+	_throw_if_inactive(
+		"Rework Type",
+		[doc.get("custom_pea_rework_type")],
+		_("Rework Type {0} is inactive and cannot be selected."),
+	)
+	_throw_if_inactive(
+		"Rejection Reason",
+		[row.get("rejection_reason") for row in doc.get("custom_pea_rejection_breakup") or []],
+		_("Rejection Reason {0} is inactive and cannot be selected."),
+	)
+
+
+def _throw_if_inactive(doctype: str, names: list[str | None], message: str) -> None:
+	names = [name for name in names if name]
+	if not names:
+		return
+	inactive = frappe.get_all(doctype, filters={"name": ["in", names], "is_active": 0}, pluck="name", limit=1)
+	if inactive:
+		frappe.throw(message.format(_safe_bold(inactive[0])))
 
 
 def _validate_rework_operator_working_window(row: Document | frappe._dict) -> None:
@@ -705,7 +726,10 @@ def _validate_workstation_downtime_overlap(doc: Document) -> None:
 	workstation = doc.get("custom_pea_workstation")
 	if not workstation:
 		return
-	if not _did_overlap_inputs_change(doc, (*_COMMON_OVERLAP_FIELDS, "custom_pea_workstation")):
+	# Downtime Entries can be logged after the draft was saved, so submit always re-checks.
+	if doc.docstatus != 1 and not _did_overlap_inputs_change(
+		doc, (*_COMMON_OVERLAP_FIELDS, "custom_pea_workstation")
+	):
 		return
 
 	start = _as_datetime(doc.get("custom_pea_actual_start_date"))
@@ -730,8 +754,23 @@ def _find_overlapping_stock_entry(doc: Document, fieldname: str, fieldvalue: str
 	if not _should_check_overlap(doc) or not fieldvalue:
 		return None
 
-	start = _as_datetime(doc.get("custom_pea_actual_start_date"))
-	end = _as_datetime(doc.get("custom_pea_actual_end_date"))
+	return find_overlapping_production_entry(
+		fieldname,
+		fieldvalue,
+		_as_datetime(doc.get("custom_pea_actual_start_date")),
+		_as_datetime(doc.get("custom_pea_actual_end_date")),
+		exclude_name=doc.name,
+	)
+
+
+def find_overlapping_production_entry(
+	fieldname: str,
+	fieldvalue: str,
+	start: datetime.datetime,
+	end: datetime.datetime,
+	exclude_name: str | None = None,
+) -> dict | None:
+	"""Return a non-cancelled shift Production Entry on ``fieldname`` overlapping ``start``-``end``."""
 	stock_entry = DocType("Stock Entry")
 	stock_entry_type = DocType("Stock Entry Type")
 	query = (
@@ -752,8 +791,8 @@ def _find_overlapping_stock_entry(doc: Document, fieldname: str, fieldvalue: str
 			)
 		)
 	)
-	if doc.name:
-		query = query.where(stock_entry.name != doc.name)
+	if exclude_name:
+		query = query.where(stock_entry.name != exclude_name)
 
 	conflict = query.limit(1).run(as_dict=True)
 	return conflict[0] if conflict else None

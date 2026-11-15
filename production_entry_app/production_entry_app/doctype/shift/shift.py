@@ -8,7 +8,7 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 from frappe.query_builder import DocType
-from frappe.query_builder.functions import CustomFunction, Sum
+from frappe.query_builder.functions import CustomFunction
 from frappe.utils import add_to_date, cint, flt, get_datetime
 
 from production_entry_app.production_entry_app.joint_production import JOINT_PRODUCTION_LINES_FIELD
@@ -1156,6 +1156,8 @@ def get_shift_aggregate_production_entries(shift_name: str | None = None) -> lis
 			"custom_pea_lh_rejection_qty",
 			"custom_pea_rh_gross_qty",
 			"custom_pea_rh_rejection_qty",
+			"fg_completed_qty",
+			"custom_pea_rejection_qty",
 			"custom_pea_total_strokes",
 			"custom_pea_actual_duration_mins",
 			"custom_pea_production_time_mins",
@@ -1177,75 +1179,40 @@ def get_shift_aggregate_production_entries(shift_name: str | None = None) -> lis
 		fields=["name", "item"],
 		limit_page_length=0,
 	)
-	permitted_bom_names = [row.get("name") for row in permitted_bom_rows if row.get("name")]
 	item_by_bom = {row.get("name"): row.get("item") for row in permitted_bom_rows}
 
-	result: list[dict] = []
-	if permitted_bom_names:
-		stock_entry = DocType("Stock Entry")
-		bom = DocType("BOM")
-		has_production_time_field = frappe.get_meta("Stock Entry", cached=True).has_field(
-			"custom_pea_production_time_mins"
+	# Same per-entry quantities as the summary tab, so both tabs agree on Total/OK qty.
+	manufacture_entries = [
+		row
+		for row in permitted_entries
+		if row.get("purpose") == "Manufacture" and row.get("bom_no") in item_by_bom
+	]
+	parent_quantity_metrics = get_parent_quantity_metrics([row.get("name") for row in manufacture_entries])
+	manufacture_aggregates: dict[str, dict[str, float]] = {}
+	for entry in manufacture_entries:
+		quantities = get_entry_output_quantities(
+			entry, normal_metrics=parent_quantity_metrics.get(entry.get("name"))
 		)
-		production_time_expr = (
-			frappe.qb.terms.Case()
-			.when(
-				stock_entry.custom_pea_production_time_mins > 0, stock_entry.custom_pea_production_time_mins
-			)
-			.else_(stock_entry.custom_pea_actual_duration_mins)
+		production_mins = flt(entry.get("custom_pea_production_time_mins"))
+		aggregate = manufacture_aggregates.setdefault(
+			entry.get("bom_no"),
+			{"total_qty": 0.0, "total_reject_qty": 0.0, "total_strokes": 0.0, "mins": 0.0},
 		)
-		select_fields = [
-			stock_entry.bom_no.as_("bom_used"),
-			bom.item.as_("item_code"),
-			Sum(stock_entry.fg_completed_qty).as_("total_qty"),
-			Sum(stock_entry.custom_pea_rejection_qty).as_("total_reject_qty"),
-			Sum(stock_entry.custom_pea_total_strokes).as_("total_strokes"),
-			Sum(stock_entry.custom_pea_actual_duration_mins).as_("total_duration_mins"),
-		]
-		if has_production_time_field:
-			select_fields.append(Sum(production_time_expr).as_("total_production_mins"))
-		rows = (
-			frappe.qb.from_(stock_entry)
-			.inner_join(bom)
-			.on(bom.name == stock_entry.bom_no)
-			.select(*select_fields)
-			.where(
-				(stock_entry.docstatus == 1)
-				& (stock_entry.purpose == "Manufacture")
-				& (stock_entry.custom_pea_shift == shift_name)
-				& stock_entry.name.isin(permitted_entry_names)
-				& stock_entry.bom_no.isin(permitted_bom_names)
-				& stock_entry.bom_no.isnotnull()
-				& (stock_entry.bom_no != "")
-			)
-			.groupby(stock_entry.bom_no, bom.item)
-			.orderby(stock_entry.bom_no, order=frappe.qb.asc)
-			.orderby(bom.item, order=frappe.qb.asc)
-		).run(as_dict=True)
-
-		for row in rows:
-			total_qty = flt(row.get("total_qty") or 0)
-			total_reject_qty = flt(row.get("total_reject_qty") or 0)
-			total_ok_qty = total_qty - total_reject_qty
-			total_production_mins = row.get("total_production_mins")
-			total_duration_mins = flt(
-				total_production_mins
-				if total_production_mins is not None
-				else (row.get("total_duration_mins") or 0),
-			)
-			total_strokes = flt(row.get("total_strokes") or 0)
-			avg_spm = (total_strokes / total_duration_mins) if total_duration_mins > 0 else 0
-			result.append(
-				{
-					"bom_used": row.get("bom_used"),
-					"item_code": row.get("item_code"),
-					"total_qty": total_qty,
-					"total_ok_qty": total_ok_qty,
-					"total_reject_qty": total_reject_qty,
-					"avg_spm": avg_spm,
-					"float_precision": float_precision,
-				}
-			)
+		aggregate["total_qty"] += quantities.total_qty
+		aggregate["total_reject_qty"] += quantities.rejection_qty
+		aggregate["total_strokes"] += flt(entry.get("custom_pea_total_strokes"))
+		aggregate["mins"] += (
+			production_mins if production_mins > 0 else flt(entry.get("custom_pea_actual_duration_mins"))
+		)
+	result = [
+		_aggregate_row(
+			bom_used=bom_no,
+			item_code=item_by_bom.get(bom_no) or "",
+			aggregate=aggregate,
+			float_precision=float_precision,
+		)
+		for bom_no, aggregate in sorted(manufacture_aggregates.items())
+	]
 
 	joint_aggregates: dict[tuple[str, ...], dict[str, float]] = {}
 	same_item_aggregates: dict[str, dict[str, float | str]] = {}
@@ -1267,7 +1234,7 @@ def get_shift_aggregate_production_entries(shift_name: str | None = None) -> lis
 		aggregate["mins"] += _get_entry_production_minutes(entry)
 	for boms, aggregate in sorted(joint_aggregates.items()):
 		result.append(
-			_paired_aggregate_row(
+			_aggregate_row(
 				bom_used=" + ".join(bom for bom in boms if bom),
 				item_code=" + ".join(item for item in (item_by_bom.get(bom) for bom in boms) if item),
 				aggregate=aggregate,
@@ -1277,7 +1244,7 @@ def get_shift_aggregate_production_entries(shift_name: str | None = None) -> lis
 	manufacture_boms = {str(row.get("bom_used") or "") for row in result}
 	for bom_no, aggregate in sorted(same_item_aggregates.items()):
 		result.append(
-			_paired_aggregate_row(
+			_aggregate_row(
 				bom_used=_same_item_aggregate_bom_label(bom_no, manufacture_boms),
 				item_code=str(aggregate.get("item_code") or ""),
 				aggregate=aggregate,
@@ -1294,7 +1261,7 @@ def _same_item_aggregate_bom_label(bom_no: str, manufacture_boms: set[str]) -> s
 	return bom_no
 
 
-def _paired_aggregate_row(
+def _aggregate_row(
 	*,
 	bom_used: str,
 	item_code: str,

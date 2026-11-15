@@ -213,6 +213,11 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 			frm.set_query("bom_no", JOINT_PRODUCTION_LINES_FIELD, function () {
 				return _get_joint_bom_query(frm);
 			});
+			const activeOnly = () => ({ filters: { is_active: 1 } });
+			frm.set_query("custom_pea_operator", activeOnly);
+			frm.set_query("custom_pea_rework_type", activeOnly);
+			frm.set_query("operator", "custom_pea_rework_operators", activeOnly);
+			frm.set_query("rejection_reason", "custom_pea_rejection_breakup", activeOnly);
 
 			_ensure_use_multi_level_bom_unchecked(frm);
 			_apply_manufacture_visibility(frm);
