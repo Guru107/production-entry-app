@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 -   Daily Rej Rework Register Overall Rej / Rework PPM now divides by the production of every day in the date range, not only the days that had rejections; with the Item filter set, every PPM divides by that item's production (#236)
 -   Every whitelisted endpoint now declares its HTTP method: Start / End / Cancel Shift and Reset Die Tool Counter accept POST only, so a GET can no longer run them and silently drop the change; read endpoints accept GET only (#251)
 -   End Shift and Cancel Shift now apply the same field locks as Save, so an unsaved edit to a locked field (date, label, times, planned losses) on a Running or Completed shift is rejected instead of saved with the status change; the form also shows Shift Date and Shift Label as read-only once the shift starts (#282)
+-   Changing a Draft Shift's date or label now renames it to match (also when Start Shift is clicked with the edit unsaved), and the open form follows the new name; a new Shift on the old date no longer fails with a duplicate name
 
 ## [1.6.0] - 2026-11-06
 

@@ -4,6 +4,12 @@ const { getDoc } = require("../fixtures/frappe");
 const { ShiftPage } = require("../pages/shift-page");
 const { registerE2ELifecycle } = require("../fixtures/lifecycle");
 
+function addDays(dateString, days) {
+	const date = new Date(dateString);
+	date.setDate(date.getDate() + days);
+	return date.toISOString().slice(0, 10);
+}
+
 test.describe("Shift lifecycle", () => {
 	const lifecycle = registerE2ELifecycle(test);
 
@@ -63,6 +69,53 @@ test.describe("Shift lifecycle", () => {
 
 		const runningShift = await getDoc(page, "Shift", draft.name);
 		expect(runningShift.status).toBe("Running");
+	});
+
+	test("editing a draft shift's date renames it on save", async ({ page }) => {
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const seededShift = await getDoc(page, "Shift", ctx.shift_name);
+		const shiftPage = new ShiftPage(page);
+		const draft = await shiftPage.createDraftViaApi({
+			department: seededShift.department,
+			branch: seededShift.branch,
+			date: addDays(ctx.shift_date, 1),
+			label: "2",
+			startTime: "16:00:00",
+		});
+		const movedDate = addDays(ctx.shift_date, 2);
+
+		await shiftPage.open(draft.name);
+		await shiftPage.setDraftFields({ date: movedDate });
+		await shiftPage.saveDraft();
+
+		await shiftPage.waitForRename(`SHIFT-${movedDate}.2.`);
+		const renamed = await getDoc(page, "Shift", await shiftPage.getFieldValue("name"));
+		expect(renamed.shift_date).toBe(movedDate);
+	});
+
+	test("starting a draft with an unsaved date edit follows the rename", async ({ page }) => {
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const seededShift = await getDoc(page, "Shift", ctx.shift_name);
+		const shiftPage = new ShiftPage(page);
+		if (seededShift.status === "Running") {
+			await shiftPage.open(ctx.shift_name);
+			await shiftPage.endShift();
+		}
+		const draft = await shiftPage.createDraftViaApi({
+			department: seededShift.department,
+			branch: seededShift.branch,
+			date: addDays(ctx.shift_date, 3),
+			label: "2",
+			startTime: "16:00:00",
+		});
+		const movedDate = addDays(ctx.shift_date, 4);
+
+		await shiftPage.open(draft.name);
+		await shiftPage.setDraftFields({ date: movedDate });
+		await shiftPage.clickStartShiftButton();
+
+		await shiftPage.waitForRename(`SHIFT-${movedDate}.2.`);
+		await page.waitForFunction(() => window.cur_frm?.doc?.status === "Running");
 	});
 
 	test("cleanup is idempotent for repeated calls", async ({ page }) => {

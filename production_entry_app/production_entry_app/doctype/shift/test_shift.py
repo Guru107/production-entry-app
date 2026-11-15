@@ -1862,6 +1862,67 @@ class TestShift(FrappeTestCase):
 		self.assertEqual(doc.name, "SHIFT-2026-09-01.1.0001")
 		self.assertEqual(getattr(doc, "shift_title", None), "2026-09-01 08:00-16:00")
 
+	def _insert_rename_shift(self, shift_label: str = "1") -> Document:
+		return frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"department": self._test_department,
+				"branch": self._test_branch,
+				"shift_label": shift_label,
+				"shift_duration": "8",
+				"shift_date": "2090-01-23",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+
+	def test_draft_shift_is_renamed_when_date_changes(self) -> None:
+		self._delete_shifts_for_date("2090-01-23")
+		self._delete_shifts_for_date("2090-01-24")
+		doc = self._insert_rename_shift()
+		self.assertEqual(doc.name, "SHIFT-2090-01-23.1.0001")
+
+		doc.shift_date = "2090-01-24"
+		doc.save()
+
+		self.assertEqual(doc.name, "SHIFT-2090-01-24.1.0001")
+		self.assertEqual(doc.localname, "SHIFT-2090-01-23.1.0001")
+		self.assertFalse(frappe.db.exists("Shift", "SHIFT-2090-01-23.1.0001"))
+		self.assertTrue(frappe.get_doc("Shift", doc.name).planned_losses)
+		# The old date's name is free again instead of clashing with the moved shift.
+		self.assertEqual(self._insert_rename_shift().name, "SHIFT-2090-01-23.1.0001")
+
+	def test_draft_shift_is_renamed_when_label_changes(self) -> None:
+		self._delete_shifts_for_date("2090-01-23")
+		doc = self._insert_rename_shift()
+
+		doc.shift_label = "2"
+		doc.save()
+
+		self.assertEqual(doc.name, "SHIFT-2090-01-23.2.0002")
+		self.assertFalse(frappe.db.exists("Shift", "SHIFT-2090-01-23.1.0001"))
+
+	def test_start_shift_with_unsaved_date_change_renames_shift(self) -> None:
+		self._delete_shifts_for_date("2090-01-23")
+		self._delete_shifts_for_date("2090-01-24")
+		doc = self._insert_rename_shift()
+
+		doc.shift_date = "2090-01-24"
+		doc.start_shift()
+
+		self.assertEqual(doc.name, "SHIFT-2090-01-24.1.0001")
+		self.assertEqual(frappe.db.get_value("Shift", doc.name, "status"), "Running")
+		self.assertFalse(frappe.db.exists("Shift", "SHIFT-2090-01-23.1.0001"))
+
+	def test_draft_shift_keeps_name_when_date_and_label_are_unchanged(self) -> None:
+		self._delete_shifts_for_date("2090-01-23")
+		doc = self._insert_rename_shift()
+
+		doc.shift_duration = "10"
+		doc.save()
+
+		self.assertEqual(doc.name, "SHIFT-2090-01-23.1.0001")
+		self.assertFalse(hasattr(doc, "localname"))
+
 	def test_shift_title_includes_end_date_when_shift_crosses_day(self) -> None:
 		self._delete_shifts_for_date("2026-09-02")
 		self._delete_shifts_for_date("2026-09-03")
