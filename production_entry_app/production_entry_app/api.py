@@ -8,7 +8,6 @@ from frappe import _
 from frappe.desk.search import get_std_fields_list
 from frappe.query_builder import DocType
 from frappe.utils import cint, get_datetime, get_time, now_datetime
-from pypika import Order
 
 from production_entry_app.production_entry_app.joint_production import (
 	JOINT_PRODUCTION_LINES_FIELD,
@@ -40,6 +39,7 @@ from production_entry_app.production_entry_app.utils.system_precision import (
 )
 
 _ALLOWED_STOCK_ENTRY_SHIFT_STATUSES: tuple[str, ...] = ("Running", "Completed")
+_MAX_JOINT_BOM_SEARCH_PAGE_LEN: int = 50
 
 
 @frappe.whitelist()
@@ -57,23 +57,17 @@ def stock_entry_shift_query(
 		return []
 	if not frappe.has_permission("Shift", "read"):
 		return []
-	Shift = DocType("Shift")
-	page_len = page_len or 10
-	start = start or 0
-	search_column = Shift[searchfield] if searchfield in ("name", "shift_date") else Shift.name
-	query = (
-		frappe.qb.from_(Shift)
-		.select(Shift.name, Shift.shift_date, Shift.status)
-		.where(Shift.status.isin(list(_ALLOWED_STOCK_ENTRY_SHIFT_STATUSES)))
-	)
+	shift_filters = {"status": ["in", list(_ALLOWED_STOCK_ENTRY_SHIFT_STATUSES)]}
 	if txt:
-		query = query.where(search_column.like(f"%{txt}%"))
-	rows = (
-		query.orderby(Shift.shift_date, order=Order.desc)
-		.orderby(Shift.name, order=Order.desc)
-		.limit(page_len)
-		.offset(start)
-		.run(as_dict=True)
+		search_field = "shift_date" if searchfield == "shift_date" else "name"
+		shift_filters[search_field] = ["like", f"%{txt}%"]
+	rows = frappe.get_list(
+		"Shift",
+		fields=["name", "shift_date", "status"],
+		filters=shift_filters,
+		order_by="shift_date desc, name desc",
+		limit_start=start or 0,
+		limit_page_length=page_len or 10,
 	)
 	return [[row.name, f"{row.shift_date} · {row.status}"] for row in rows]
 
@@ -90,10 +84,10 @@ def search_joint_boms_for_operation(
 ) -> list[tuple[str, ...]]:
 	"""Return submitted active BOMs whose trimmed operation matches the selected Joint Operation."""
 	if doctype != "BOM":
-		frappe.throw(_("Joint LH/RH BOM search can only be used for BOM."))
+		frappe.throw(_("Joint BOM search can only be used for BOM."))
 	bom_meta = frappe.get_meta("BOM", cached=True)
 	if not bom_meta.has_field("custom_operation"):
-		frappe.throw(_("BOM custom_operation metadata is required for joint LH/RH production."))
+		frappe.throw(_("BOM custom_operation metadata is required for joint BOM search."))
 	filters = filters or {}
 	company = (filters.get("company") or "").strip()
 	operation = (filters.get("operation") or "").strip()
@@ -101,33 +95,48 @@ def search_joint_boms_for_operation(
 		return []
 	if not frappe.has_permission("BOM", "read"):
 		return []
-	BOM = DocType("BOM")
-	page_len = page_len or 20
-	start = start or 0
+	if searchfield != "name" and not bom_meta.has_field(searchfield):
+		searchfield = "name"
 	display_fields = get_std_fields_list(bom_meta, searchfield)
-	select_fields = [BOM[field] for field in dict.fromkeys([*display_fields, "custom_operation"])]
-	# Over-fetch so the exact operation normalize + per-row read filter can still fill a page.
-	fetch_limit = start + (page_len * 5)
-	rows = (
-		frappe.qb.from_(BOM)
-		.select(*select_fields)
-		.where(BOM.docstatus == 1)
-		.where(BOM.is_active == 1)
-		.where(BOM.company == company)
-		.where(BOM[searchfield].like(f"%{txt}%"))
-		.where(BOM.custom_operation.like(f"%{operation}%"))
-		.orderby(BOM.idx, order=Order.desc)
-		.orderby(BOM.name)
-		.limit(fetch_limit)
-		.run(as_dict=True)
+	operations = _get_stored_operation_spellings(operation, company)
+	if not operations:
+		return []
+	bom_filters = {"docstatus": 1, "is_active": 1, "company": company}
+	if txt:
+		bom_filters[searchfield] = ["like", f"%{txt}%"]
+	rows = frappe.get_list(
+		"BOM",
+		fields=list(dict.fromkeys([*display_fields, "custom_operation"])),
+		filters=bom_filters,
+		# `=` per spelling, not `in`: v15 strips `in` values and would lose " Shearing".
+		or_filters=[["custom_operation", "=", value] for value in operations],
+		order_by="idx desc, name asc",
+		limit_start=start or 0,
+		limit_page_length=min(page_len or 20, _MAX_JOINT_BOM_SEARCH_PAGE_LEN),
 	)
-	matched = [
+	# The case-insensitive collation lets `=` match case variants; keep only exact spellings.
+	return [
 		tuple(row.get(field) or "" for field in display_fields)
 		for row in rows
 		if _normalize_operation(row.custom_operation) == operation
-		and frappe.has_permission("BOM", "read", row.name)
 	]
-	return matched[start : start + page_len]
+
+
+def _get_stored_operation_spellings(operation: str, company: str) -> list[str]:
+	"""Stored custom_operation spellings that strip to ``operation`` (e.g. " Shearing ")."""
+	BOM = DocType("BOM")
+	# Reads only operation spellings, never BOM rows, so skipping permissions exposes nothing.
+	values = (
+		frappe.qb.from_(BOM)
+		.select(BOM.custom_operation)
+		.distinct()
+		.where(BOM.docstatus == 1)
+		.where(BOM.is_active == 1)
+		.where(BOM.company == company)
+		.where(BOM.custom_operation.like(f"%{operation}%"))
+		.run(pluck=True)
+	)
+	return [value for value in values if _normalize_operation(value) == operation]
 
 
 @frappe.whitelist()
