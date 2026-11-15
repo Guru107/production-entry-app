@@ -166,7 +166,11 @@ class TestProductionReports(FrappeTestCase):
 			frappe.set_user(original_user)
 
 	def _get_pea_read_only_report_filters(self, report_name: str) -> dict:
-		if report_name in ("Daily Strokes SPM Monitor", "Operator Daily SPM Report"):
+		if report_name in (
+			"Daily Rej Rework Register",
+			"Daily Strokes SPM Monitor",
+			"Operator Daily SPM Report",
+		):
 			return {"from_date": "2090-04-01", "to_date": "2090-04-30"}
 		if report_name == "Monthly Production OEE Report":
 			return {"year": 2090, "month": 4}
