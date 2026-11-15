@@ -519,8 +519,12 @@ class TestShiftPureHelpers(FrappeTestCase):
 		shift._validate_status()
 		self.assertEqual(shift.status, "Draft")
 		shift.status = "Paused"
-		with self.assertRaisesRegex(frappe.ValidationError, "Invalid status value"):
-			shift._validate_status()
+		shift._validate_status()
+		self.assertEqual(shift.status, "Draft")
+		shift.status = "Paused"
+		with patch.object(shift, "is_new", return_value=False):
+			with self.assertRaisesRegex(frappe.ValidationError, "Invalid status value"):
+				shift._validate_status()
 
 		shift = frappe.new_doc("Shift")
 		shift.name = "SHIFT-LOCK-001"
@@ -716,6 +720,28 @@ class TestShiftPureHelpers(FrappeTestCase):
 			},
 		)
 		with patch.object(shift, "get_doc_before_save", return_value=before):
+			self.assertFalse(shift._planned_losses_changed())
+
+		# DB rows load Time as timedelta; the same doc object still holds the "HH:MM:SS" strings.
+		db_before = frappe._dict(
+			{
+				"planned_losses": [
+					frappe._dict(
+						{
+							"downtime_reason": "14",
+							"start_time": datetime.timedelta(hours=9),
+							"end_time": datetime.timedelta(hours=9, minutes=10),
+						}
+					)
+				]
+			}
+		)
+		shift.planned_losses = []
+		shift.append(
+			"planned_losses",
+			{"downtime_reason": "14", "start_time": "09:00:00", "end_time": "09:10:00"},
+		)
+		with patch.object(shift, "get_doc_before_save", return_value=db_before):
 			self.assertFalse(shift._planned_losses_changed())
 
 
@@ -1346,9 +1372,88 @@ class TestShift(FrappeTestCase):
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so _validate_field_locking sees persisted status via get_value
 		doc = frappe.get_doc("Shift", name)
 
-		doc.shift_label = "Locked"
-		with self.assertRaises(ValidationError):
+		doc.shift_label = "2"
+		with self.assertRaisesRegex(ValidationError, "Only shift duration extension"):
 			doc.save()
+
+	def _insert_state_machine_shift(
+		self, shift_label: str = "1", shift_date: str = "2026-10-01", **fields: object
+	) -> Document:
+		return frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"department": self._test_department,
+				"shift_label": shift_label,
+				"shift_duration": "8",
+				"shift_date": shift_date,
+				"planned_start_time": "08:00:00",
+				**fields,
+			}
+		).insert()
+
+	def _client_copy(self, name: str, **edits: object) -> Document:
+		"""Mimic run_doc_method: a doc rebuilt from the client's (possibly edited) JSON."""
+		return frappe.get_doc({**frappe.get_doc("Shift", name).as_dict(), **edits})
+
+	def test_transitions_reject_forged_client_status(self) -> None:
+		self._delete_shifts_for_date("2026-10-01")
+		self._delete_shifts_for_date("2026-10-02")
+		cancelled = self._insert_state_machine_shift("1")
+		cancelled.cancel_shift()
+		draft = self._insert_state_machine_shift("2", planned_start_time="16:00:00")
+
+		with self.assertRaisesRegex(ValidationError, "Invalid status transition"):
+			self._client_copy(cancelled.name, status="Draft").start_shift()
+		with self.assertRaisesRegex(ValidationError, "Invalid status transition"):
+			self._client_copy(draft.name, status="Running").end_shift()
+		# Started last: a Running shift in the same scope would block start_shift before the status check.
+		running = self._insert_state_machine_shift("1", "2026-10-02")
+		running.start_shift()
+		with self.assertRaisesRegex(ValidationError, "Invalid status transition"):
+			self._client_copy(running.name, status="Draft").cancel_shift()
+
+		self.assertEqual(frappe.db.get_value("Shift", cancelled.name, "status"), "Cancelled")
+		self.assertEqual(frappe.db.get_value("Shift", draft.name, "status"), "Draft")
+		self.assertEqual(frappe.db.get_value("Shift", running.name, "status"), "Running")
+
+	def test_status_change_flag_does_not_outlive_transition(self) -> None:
+		self._delete_shifts_for_date("2026-10-01")
+		doc = self._insert_state_machine_shift()
+		doc.start_shift()
+
+		doc.status = "Draft"
+		with self.assertRaisesRegex(ValidationError, "Status is system-managed"):
+			doc.save()
+
+	def test_new_shift_always_starts_as_draft(self) -> None:
+		self._delete_shifts_for_date("2026-10-01")
+		self._delete_shifts_for_date("2026-10-02")
+		source = self._insert_state_machine_shift("1")
+		source.start_shift()
+		frappe.db.set_value("Shift", source.name, "supervisor", "Guest")
+
+		forged_insert = self._insert_state_machine_shift(
+			"2", planned_start_time="16:00:00", status="Completed"
+		)
+
+		duplicate = frappe.copy_doc(frappe.get_doc("Shift", source.name), ignore_no_copy=False)
+		duplicate.update({"shift_date": "2026-10-02"})
+		duplicate.insert()
+
+		self.assertEqual(forged_insert.status, "Draft")
+		self.assertEqual(duplicate.status, "Draft")
+		self.assertEqual(duplicate.supervisor, frappe.session.user)
+
+	def test_running_shift_start_time_is_locked(self) -> None:
+		self._delete_shifts_for_date("2026-10-01")
+		doc = self._insert_state_machine_shift()
+		doc.start_shift()
+
+		running = frappe.get_doc("Shift", doc.name)
+		running.planned_start_time = "10:00:00"
+		running.planned_start_time_input = "10:00"
+		with self.assertRaisesRegex(ValidationError, "Only shift duration and warehouse fields"):
+			running.save()
 
 	def test_completed_shift_allows_duration_extension_and_recomputes_end_fields(self) -> None:
 		"""A completed shift may be extended when the new window does not overlap another shift."""
