@@ -3652,6 +3652,54 @@ class TestShiftAggregateProductionEntries(FrappeTestCase):
 		self.assertEqual(float(rows[f"{self.bom} (Joint Production)"]["total_qty"]), 10.0)
 		self.assertEqual(float(rows[other_bom]["total_qty"]), 4.0)
 
+	def test_aggregate_quantities_match_shift_summary(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import (
+			get_shift_aggregate_production_entries,
+			get_shift_summary,
+		)
+
+		shift = self._create_shift("2026-10-03", shift_label="2")
+		entry_name = self._create_submitted_like_entry(
+			shift.name,
+			good_qty=100,
+			rejection_qty=0,
+			duration_mins=60,
+			bom_no=self.bom,
+		)
+		frappe.get_doc(
+			{
+				"doctype": "Stock Entry Detail",
+				"parenttype": "Stock Entry",
+				"parent": entry_name,
+				"parentfield": "items",
+				"idx": 1,
+				"item_code": self.fg_item,
+				"qty": 80,
+				"transfer_qty": 80,
+				"conversion_factor": 1,
+				"is_finished_item": 1,
+				"t_warehouse": self.ctx["fg_warehouse"],
+				"basic_rate": 0,
+			}
+		).db_insert()
+		self._create_submitted_like_entry(
+			shift.name,
+			good_qty=2,
+			rejection_qty=5,
+			duration_mins=10,
+			bom_no=self.bom,
+		)
+
+		snapshot = get_shift_summary(shift.name)["snapshot"]
+		rows = get_shift_aggregate_production_entries(shift.name)
+
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(float(rows[0]["total_qty"]), 82.0)
+		self.assertEqual(float(rows[0]["total_reject_qty"]), 5.0)
+		self.assertEqual(float(rows[0]["total_ok_qty"]), 77.0)
+		self.assertEqual(float(rows[0]["total_qty"]), float(snapshot["total_qty"]))
+		self.assertEqual(float(rows[0]["total_ok_qty"]), float(snapshot["ok_qty"]))
+
 	def test_avg_spm_is_zero_when_total_duration_is_zero(self) -> None:
 		from production_entry_app.production_entry_app.doctype.shift.shift import (
 			get_shift_aggregate_production_entries,

@@ -75,6 +75,31 @@ class TestReworkStockEntryFields(FrappeTestCase):
 		with self.assertRaisesRegex(frappe.ValidationError, "Inactive Rework Operator.*is inactive"):
 			validate_stock_entry(doc)
 
+	def test_rework_rejects_inactive_rework_type(self) -> None:
+		doc = self._make_rework_entry()
+		doc.custom_pea_rework_type = (
+			frappe.get_doc(
+				{
+					"doctype": "Rework Type",
+					"rework_type_name": f"Inactive {self.rework_stock_entry_type}",
+					"is_active": 0,
+				}
+			)
+			.insert(ignore_permissions=True)
+			.name
+		)
+		doc.append(
+			"custom_pea_rework_operators",
+			{
+				"operator": self.active_operator,
+				"actual_start": "2026-09-01 08:00:00",
+				"actual_end": "2026-09-01 09:00:00",
+			},
+		)
+
+		with self.assertRaisesRegex(frappe.ValidationError, "Rework Type .*is inactive"):
+			validate_stock_entry(doc)
+
 	def test_rework_requires_rework_type(self) -> None:
 		doc = self._make_rework_entry()
 		doc.custom_pea_rework_type = None

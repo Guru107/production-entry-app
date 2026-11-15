@@ -5,13 +5,18 @@ from collections.abc import Iterable
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import get_datetime
+from frappe.utils import format_datetime, get_datetime
+
+from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
+	find_overlapping_production_entry,
+)
 
 
 def validate_downtime_entry(doc: Document, method: str | None = None) -> None:
 	"""Validate Downtime Entry time order and required Downtime Reason link."""
 	_validate_downtime_reason_required(doc)
 	_validate_from_time_before_to_time(doc)
+	_validate_no_overlapping_production_entry(doc)
 	_default_native_stop_reason(doc)
 
 
@@ -44,6 +49,30 @@ def _validate_from_time_before_to_time(doc: Document) -> None:
 		return
 	if from_time >= to_time:
 		frappe.throw(_("From Time must be before To Time."))
+
+
+def _validate_no_overlapping_production_entry(doc: Document) -> None:
+	workstation = doc.get("workstation")
+	if not workstation or not doc.get("from_time") or not doc.get("to_time"):
+		return
+	conflict = find_overlapping_production_entry(
+		"custom_pea_workstation",
+		workstation,
+		get_datetime(doc.get("from_time")),
+		get_datetime(doc.get("to_time")),
+	)
+	if not conflict:
+		return
+	frappe.throw(
+		_(
+			"Workstation {0} has a production entry ({1}) that overlaps with this downtime from {2} to {3}."
+		).format(
+			frappe.bold(frappe.utils.escape_html(workstation)),
+			frappe.bold(frappe.utils.escape_html(conflict["name"])),
+			format_datetime(doc.get("from_time")),
+			format_datetime(doc.get("to_time")),
+		)
+	)
 
 
 def _default_native_stop_reason(doc: Document) -> None:
