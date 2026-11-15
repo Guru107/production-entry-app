@@ -874,11 +874,11 @@ def _validate_joint_header(
 
 def _get_joint_operation(doc: Document, *, same_finished_item: bool) -> str:
 	operation = _normalize_operation(doc.get("custom_pea_operation"))
+	pairing = _("Joint Production") if same_finished_item else _("joint LH/RH production")
 	if not operation:
-		pairing = _("Joint Production") if same_finished_item else _("joint LH/RH production")
 		frappe.throw(_("Operation is required for {0}.").format(pairing))
 	if not frappe.get_meta("BOM", cached=True).has_field("custom_operation"):
-		frappe.throw(_("BOM custom_operation metadata is required for joint LH/RH production."))
+		frappe.throw(_("BOM custom_operation metadata is required for {0}.").format(pairing))
 	return operation
 
 

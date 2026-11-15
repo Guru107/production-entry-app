@@ -79,6 +79,7 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	ensure_stock,
 	ensure_workstation,
 	get_joint_bom_scrap_rate,
+	save_test_user,
 	set_test_branch_warehouse_defaults,
 )
 
@@ -1276,20 +1277,21 @@ class TestJointProductionItems(FrappeTestCase):
 		)
 		with (
 			patch("production_entry_app.production_entry_app.api.frappe.get_meta") as get_meta,
-			patch("production_entry_app.production_entry_app.api.frappe.qb.from_") as from_,
-			patch("production_entry_app.production_entry_app.api.frappe.has_permission", return_value=True),
+			patch(
+				"production_entry_app.production_entry_app.api._get_stored_operation_spellings",
+				return_value=["Shearing"],
+			),
+			patch(
+				"production_entry_app.production_entry_app.api.frappe.get_list", return_value=[row]
+			) as get_list,
 		):
 			get_meta.return_value.has_field.return_value = True
 			get_meta.return_value.title_field = None
 			get_meta.return_value.search_fields = "item,item_name,custom_bom_description"
-			query = from_.return_value
-			for method in ("select", "where", "orderby", "limit"):
-				getattr(query, method).return_value = query
-			query.run.return_value = [row]
 
 			rows = search_joint_boms_for_operation(
 				"BOM",
-				"",
+				"desc",
 				"name",
 				0,
 				20,
@@ -1300,11 +1302,10 @@ class TestJointProductionItems(FrappeTestCase):
 			rows,
 			[(row.name, row.item, row.item_name, row.custom_bom_description)],
 		)
-		selected_fields = {field.name for field in query.select.call_args.args}
-		self.assertLessEqual(
-			{"item_name", "custom_bom_description", "custom_operation"},
-			selected_fields,
-		)
+		kwargs = get_list.call_args.kwargs
+		self.assertLessEqual({"item_name", "custom_bom_description"}, set(kwargs["fields"]))
+		self.assertEqual(kwargs["filters"]["name"], ["like", "%desc%"])
+		self.assertEqual(kwargs["or_filters"], [["custom_operation", "=", "Shearing"]])
 		from frappe.desk.search import build_for_autosuggest
 
 		self.assertEqual(
@@ -1375,6 +1376,69 @@ class TestJointProductionItems(FrappeTestCase):
 			},
 			{punctuated_bom},
 		)
+
+	def test_joint_bom_link_query_strips_non_space_whitespace_from_bom_operation(self) -> None:
+		# SQL TRIM() strips only spaces; the match must follow Python's strip().
+		frappe.db.set_value("BOM", self.rh_bom, "custom_operation", "Shearing\t", update_modified=False)
+
+		rows = search_joint_boms_for_operation(
+			"BOM",
+			self.rh_item,
+			"name",
+			0,
+			20,
+			{"company": self.masters["company"], "operation": "Shearing"},
+		)
+
+		self.assertIn(self.rh_bom, {row[0] for row in rows})
+
+	def test_joint_bom_link_query_returns_full_page_under_user_permissions(self) -> None:
+		suffix = self.lh_item.rsplit("_", 1)[-1]
+		# Hidden BOMs sort before the visible RH BOM and outnumber the old 5x over-fetch window.
+		for index in range(5):
+			self._make_bom(ensure_item(f"_Joint_A{index}_{suffix}"), scrap_qty=1.125)
+		user = "test_joint_bom_search_user@example.com"
+		if not frappe.db.exists("User", user):
+			new_user = frappe.new_doc("User")
+			new_user.update({"email": user, "first_name": "Joint BOM Search", "user_type": "System User"})
+			new_user.append("roles", {"role": "Manufacturing User"})
+			save_test_user(new_user)
+		frappe.get_doc(
+			{"doctype": "User Permission", "user": user, "allow": "Item", "for_value": self.rh_item}
+		).insert(ignore_permissions=True)
+		frappe.clear_cache(user=user)
+		frappe.set_user(user)
+		try:
+			rows = search_joint_boms_for_operation(
+				"BOM",
+				suffix,
+				"item",
+				0,
+				1,
+				{"company": self.masters["company"], "operation": "Shearing"},
+			)
+		finally:
+			frappe.set_user("Administrator")
+
+		self.assertEqual([row[0] for row in rows], [self.rh_bom])
+
+	def test_joint_bom_link_query_caps_page_len_and_ignores_unknown_searchfield(self) -> None:
+		with patch(
+			"production_entry_app.production_entry_app.api.frappe.get_list", return_value=[]
+		) as get_list:
+			search_joint_boms_for_operation(
+				"BOM",
+				"x",
+				"no_such_column",
+				0,
+				100000,
+				{"company": self.masters["company"], "operation": "Shearing"},
+			)
+
+		kwargs = get_list.call_args.kwargs
+		self.assertEqual(kwargs["limit_page_length"], 50)
+		self.assertNotIn("no_such_column", kwargs["fields"])
+		self.assertNotIn("no_such_column", kwargs["filters"])
 
 	def test_shearing_keeps_existing_joint_row_generation_contract(self) -> None:
 		shift = make_running_shift(self.masters)
