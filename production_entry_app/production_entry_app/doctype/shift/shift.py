@@ -1341,6 +1341,25 @@ def _resolve_department_name_for_shift_naming(department: str) -> str:
 	return department
 
 
+def _rename_to_match_date_and_label(shift: Document) -> None:
+	"""Keep the name in step when a Draft's date or label is edited; both lock once Running.
+
+	Checks the stored status, so Start Shift on an unsaved date edit renames too. rename_doc writes the
+	new name to the database; the assignments below only sync the in-memory doc sent back to the form.
+	"""
+	before = shift.get_doc_before_save()
+	if (before and before.status != "Draft") or shift.name.startswith(
+		f"SHIFT-{shift.shift_date}.{shift.shift_label}."
+	):
+		return
+	old_name = shift.name
+	shift.name = frappe.rename_doc("Shift", old_name, shift._build_name(), force=True, rebuild_search=False)
+	for row in shift.get_all_children():
+		row.parent = shift.name
+	# send_updated_docs returns localname, so the open form follows the rename instead of 404ing.
+	shift.localname = old_name
+
+
 class Shift(Document):
 	def autoname(self) -> None:
 		"""Format: SHIFT-{shift_date}.{shift_label}.{sequence:04d}."""
@@ -1349,28 +1368,11 @@ class Shift(Document):
 		self.name = self._build_name()
 
 	def on_update(self) -> None:
-		self._rename_to_match_date_and_label()
+		_rename_to_match_date_and_label(self)
 
 	def _build_name(self) -> str:
 		sequence = _get_next_shift_sequence(self.shift_date)
 		return f"SHIFT-{self.shift_date}.{self.shift_label}.{sequence:04d}"
-
-	def _rename_to_match_date_and_label(self) -> None:
-		"""Keep the name in step when a Draft's date or label is edited; both lock once Running.
-
-		Checks the stored status, so Start Shift on an unsaved date edit renames too.
-		"""
-		before = self.get_doc_before_save()
-		if (before and before.status != "Draft") or self.name.startswith(
-			f"SHIFT-{self.shift_date}.{self.shift_label}."
-		):
-			return
-		old_name = self.name
-		self.name = frappe.rename_doc("Shift", old_name, self._build_name(), force=True, rebuild_search=False)
-		for row in self.get_all_children():
-			row.parent = self.name
-		# send_updated_docs returns localname, so the open form follows the rename instead of 404ing.
-		self.localname = old_name
 
 	def before_insert(self) -> None:
 		self._set_defaults()
