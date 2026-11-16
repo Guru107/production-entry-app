@@ -233,6 +233,7 @@ function attach_today_button(frm, fieldname) {
 	const { field, inputArea } = _get_field_wrapper(frm, fieldname);
 	if (!field || !inputArea) return;
 	field.$wrapper.find(".pea-date-row").remove();
+	if (field.df.read_only) return;
 	const row = $(`<div class="pea-chip-row pea-date-row"></div>`);
 	const button = $(
 		`<button type="button" class="pea-chip btn btn-default btn-xs">${__("Today")}</button>`

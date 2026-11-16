@@ -41,6 +41,10 @@ frappe.ui.form.on("Shift", {
 
 function _prepare_shift_form(frm) {
 	frm.set_df_property("planned_losses", "read_only", frm.doc.status !== "Draft");
+	// The server rejects date / label edits once the shift starts (also on End / Cancel Shift).
+	["shift_date", "shift_label"].forEach((fieldname) => {
+		frm.set_df_property(fieldname, "read_only", _is_draft_or_new(frm) ? 0 : 1);
+	});
 	_set_warehouse_field_editability(frm);
 	_toggle_company_field_visibility(frm);
 	_set_warehouse_queries(frm);
