@@ -1923,6 +1923,18 @@ class TestShift(FrappeTestCase):
 		self.assertEqual(doc.name, "SHIFT-2090-01-23.1.0001")
 		self.assertFalse(hasattr(doc, "localname"))
 
+	def test_stale_name_does_not_block_new_shift_on_old_date(self) -> None:
+		self._delete_shifts_for_date("2090-01-23")
+		self._delete_shifts_for_date("2090-01-24")
+		doc = self._insert_rename_shift()
+		doc.start_shift()
+		# End Shift skips field locks, so the Running shift's date moves without a rename.
+		doc.shift_date = "2090-01-24"
+		doc.end_shift()
+		self.assertEqual(doc.name, "SHIFT-2090-01-23.1.0001")
+
+		self.assertEqual(self._insert_rename_shift().name, "SHIFT-2090-01-23.1.0002")
+
 	def test_shift_title_includes_end_date_when_shift_crosses_day(self) -> None:
 		self._delete_shifts_for_date("2026-09-02")
 		self._delete_shifts_for_date("2026-09-03")

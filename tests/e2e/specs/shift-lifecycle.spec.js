@@ -1,14 +1,8 @@
 const { test, expect } = require("@playwright/test");
-const { bootstrapE2E, cleanupE2E } = require("../fixtures/test-data");
+const { addDays, bootstrapE2E, cleanupE2E } = require("../fixtures/test-data");
 const { getDoc } = require("../fixtures/frappe");
 const { ShiftPage } = require("../pages/shift-page");
 const { registerE2ELifecycle } = require("../fixtures/lifecycle");
-
-function addDays(dateString, days) {
-	const date = new Date(dateString);
-	date.setDate(date.getDate() + days);
-	return date.toISOString().slice(0, 10);
-}
 
 test.describe("Shift lifecycle", () => {
 	const lifecycle = registerE2ELifecycle(test);

@@ -213,7 +213,8 @@ def _get_next_shift_sequence(shift_date: str) -> int:
 	prefix = f"SHIFT-{shift_date}."
 	existing_names = frappe.get_all(
 		"Shift",
-		filters={"shift_date": shift_date},
+		# By name, not shift_date: a shift whose date moved without a rename still holds its old name.
+		filters={"name": ["like", f"{prefix}%"]},
 		pluck="name",
 		limit_page_length=0,
 	)
@@ -1342,10 +1343,11 @@ def _resolve_department_name_for_shift_naming(department: str) -> str:
 
 
 def _rename_to_match_date_and_label(shift: Document) -> None:
-	"""Keep the name in step when a Draft's date or label is edited; both lock once Running.
+	"""Keep the name in step when a Draft's date or label is edited.
 
-	Checks the stored status, so Start Shift on an unsaved date edit renames too. rename_doc writes the
-	new name to the database; the assignments below only sync the in-memory doc sent back to the form.
+	Checks the stored status, so Start Shift on an unsaved date edit renames too. Non-Draft shifts keep their
+	name, since stock entries may link to them. rename_doc writes the new name to the database; the
+	assignments below only sync the in-memory doc sent back to the form.
 	"""
 	before = shift.get_doc_before_save()
 	if (before and before.status != "Draft") or shift.name.startswith(
