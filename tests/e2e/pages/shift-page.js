@@ -207,6 +207,17 @@ class ShiftPage {
 		);
 	}
 
+	async clickActionAndConfirm(label) {
+		await this.page.evaluate((buttonLabel) => {
+			const button = window.cur_frm?.custom_buttons?.[__(buttonLabel)];
+			if (!button) {
+				throw new Error(`${buttonLabel} action button not found on Shift form.`);
+			}
+			button.trigger("click");
+		}, label);
+		await this.page.locator(".modal:visible").getByRole("button", { name: "Yes" }).click();
+	}
+
 	async endShift() {
 		await this.runDocAction("end_shift");
 		await this.page.waitForFunction(() => window.cur_frm?.doc?.status === "Completed");

@@ -9,7 +9,7 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.query_builder import DocType
 from frappe.query_builder.functions import CustomFunction
-from frappe.utils import add_to_date, cint, flt, get_datetime
+from frappe.utils import add_to_date, cint, flt, get_datetime, get_time
 
 from production_entry_app.production_entry_app.joint_production import JOINT_PRODUCTION_LINES_FIELD
 from production_entry_app.production_entry_app.report.report_utils import (
@@ -743,9 +743,10 @@ def _build_completeness_state(
 
 
 def _normalize_planned_loss_time(value: Any) -> str | None:
-	if hasattr(value, "strftime"):
-		return value.strftime("%H:%M:%S")
-	return str(value) if value is not None else None
+	# The DB gives timedelta ("8:00:00" as str), the form and inserts give "08:00:00"; compare as time.
+	if value is None or value == "":
+		return None
+	return get_time(value).strftime("%H:%M:%S")
 
 
 def _format_shift_title_date(value: Any) -> str:
@@ -1486,9 +1487,6 @@ class Shift(Document):
 		if self.is_new():
 			return
 
-		if self.flags.get("allow_status_change"):
-			return
-
 		current_status = self._get_current_status_for_locking()
 		if not current_status:
 			return
@@ -1547,10 +1545,11 @@ class Shift(Document):
 	def _get_changed_scalar_fields(self) -> set[str]:
 		# Only check scalar fields via has_value_changed; child tables (e.g. planned_losses)
 		# may report false positives after reload due to object identity vs content equality.
+		# status is left out: _validate_status guards it, so transitions still get the field locks.
 		return {
 			f.fieldname
 			for f in self.meta.get("fields", [])
-			if f.fieldtype != "Table" and self.has_value_changed(f.fieldname)
+			if f.fieldtype != "Table" and f.fieldname != "status" and self.has_value_changed(f.fieldname)
 		}
 
 	def _planned_losses_changed(self) -> bool:

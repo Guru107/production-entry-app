@@ -316,6 +316,47 @@ test.describe("Shift validations", () => {
 		expect(planned).toHaveLength(3);
 	});
 
+	test("@regression End Shift rejects an unsaved date edit on a running shift", async ({
+		page,
+	}) => {
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const shiftPage = new ShiftPage(page);
+		await shiftPage.open(ctx.shift_name);
+		if ((await getDoc(page, "Shift", ctx.shift_name)).status === "Draft") {
+			await shiftPage.startShift();
+		}
+
+		await shiftPage.setDraftFields({ date: plusOneDay(ctx.shift_date) });
+		await shiftPage.clickActionAndConfirm("End Shift");
+
+		await expectValidationError(
+			page,
+			"Only shift duration and warehouse fields can be edited"
+		);
+		const shift = await getDoc(page, "Shift", ctx.shift_name);
+		expect(shift.status).toBe("Running");
+		expect(shift.shift_date).toBe(ctx.shift_date);
+	});
+
+	test("@regression completed shift can be cancelled from the form", async ({ page }) => {
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const shiftPage = new ShiftPage(page);
+		await shiftPage.open(ctx.shift_name);
+		const seededShift = await getDoc(page, "Shift", ctx.shift_name);
+		if (seededShift.status === "Draft") {
+			await shiftPage.startShift();
+		}
+		if (seededShift.status !== "Completed") {
+			await shiftPage.endShift();
+		}
+		await shiftPage.open(ctx.shift_name);
+
+		await shiftPage.clickActionAndConfirm("Cancel");
+
+		await page.waitForFunction(() => window.cur_frm?.doc?.status === "Cancelled");
+		expect((await getDoc(page, "Shift", ctx.shift_name)).status).toBe("Cancelled");
+	});
+
 	test("@regression planned losses grid is non-editable once shift starts", async ({ page }) => {
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 		const seededShift = await getDoc(page, "Shift", ctx.shift_name);
