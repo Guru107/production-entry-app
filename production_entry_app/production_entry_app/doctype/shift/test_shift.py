@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import frappe
 from frappe.exceptions import ValidationError
+from frappe.model.document import Document
 from frappe.tests.utils import FrappeTestCase
 
 from production_entry_app.production_entry_app.doctype.shift import shift as shift_module
@@ -159,6 +160,14 @@ class TestShiftPureHelpers(FrappeTestCase):
 					self.assertEqual(
 						shift_module._resolve_shift_branch(None, "Missing Branch"), "Only Branch"
 					)
+
+	def test_normalize_planned_loss_time_matches_db_and_form_values(self) -> None:
+		normalize = shift_module._normalize_planned_loss_time
+		self.assertEqual(normalize(datetime.timedelta(hours=8)), "08:00:00")
+		self.assertEqual(normalize("8:00:00"), "08:00:00")
+		self.assertEqual(normalize("08:00:00"), "08:00:00")
+		self.assertEqual(normalize(datetime.timedelta(0)), "00:00:00")
+		self.assertIsNone(normalize(None))
 
 	def test_next_shift_sequence_ignores_unparseable_legacy_names(self) -> None:
 		with patch(
@@ -1087,6 +1096,46 @@ class TestShift(FrappeTestCase):
 			ValidationError, r"Invalid status transition from .*Completed.* to .*Running"
 		):
 			doc.start_shift()
+
+	def _insert_transition_lock_shift(self, shift_date: str) -> Document:
+		self._delete_shifts_for_date(shift_date)
+		return frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"department": self._test_department,
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": shift_date,
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+
+	def test_end_shift_rejects_unsaved_locked_field_edit(self) -> None:
+		doc = self._insert_transition_lock_shift("2090-02-10")
+		doc.start_shift()
+
+		doc.shift_date = "2090-02-11"
+		with self.assertRaisesRegex(ValidationError, "Only shift duration and warehouse fields"):
+			doc.end_shift()
+		self.assertEqual(frappe.db.get_value("Shift", doc.name, "status"), "Running")
+
+	def test_cancel_shift_from_completed_without_edits(self) -> None:
+		doc = self._insert_transition_lock_shift("2090-02-13")
+		doc.start_shift()
+		doc.end_shift()
+
+		frappe.get_doc("Shift", doc.name).cancel_shift()
+		self.assertEqual(frappe.db.get_value("Shift", doc.name, "status"), "Cancelled")
+
+	def test_cancel_shift_rejects_unsaved_edit_on_completed_shift(self) -> None:
+		doc = self._insert_transition_lock_shift("2090-02-12")
+		doc.start_shift()
+		doc.end_shift()
+
+		doc.shift_label = "2"
+		with self.assertRaisesRegex(ValidationError, "Only shift duration extension is allowed"):
+			doc.cancel_shift()
+		self.assertEqual(frappe.db.get_value("Shift", doc.name, "status"), "Completed")
 
 	def test_status_transition_draft_to_cancelled(self) -> None:
 		name = self._expected_name(self._test_department, "2026-05-15", "2")

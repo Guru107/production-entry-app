@@ -207,6 +207,17 @@ class ShiftPage {
 		);
 	}
 
+	async clickActionAndConfirm(label) {
+		await this.page.evaluate((buttonLabel) => {
+			const button = window.cur_frm?.custom_buttons?.[__(buttonLabel)];
+			if (!button) {
+				throw new Error(`${buttonLabel} action button not found on Shift form.`);
+			}
+			button.trigger("click");
+		}, label);
+		await this.page.locator(".modal:visible").getByRole("button", { name: "Yes" }).click();
+	}
+
 	async endShift() {
 		await this.runDocAction("end_shift");
 		await this.page.waitForFunction(() => window.cur_frm?.doc?.status === "Completed");
@@ -237,9 +248,19 @@ class ShiftPage {
 		);
 	}
 
-	async isPlannedLossesReadOnly() {
-		return await this.page.evaluate(() =>
-			Boolean(window.cur_frm?.fields_dict?.planned_losses?.df?.read_only)
+	async isFieldReadOnly(fieldname) {
+		return await this.page.evaluate(
+			(name) => Boolean(window.cur_frm?.fields_dict?.[name]?.df?.read_only),
+			fieldname
+		);
+	}
+
+	async hasTodayButton() {
+		// Scoped to cur_frm: Frappe keeps previously opened forms in the DOM.
+		return await this.page.evaluate(
+			() =>
+				(window.cur_frm?.fields_dict?.shift_date?.$wrapper?.find(".pea-date-row").length ||
+					0) > 0
 		);
 	}
 }

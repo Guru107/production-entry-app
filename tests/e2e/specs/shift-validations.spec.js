@@ -5,6 +5,8 @@ const { expectValidationError } = require("../fixtures/assertions");
 const { ShiftPage } = require("../pages/shift-page");
 const { registerE2ELifecycle } = require("../fixtures/lifecycle");
 
+const LOCKED_ONCE_STARTED_FIELDS = ["planned_losses", "shift_date", "shift_label"];
+
 function plusDays(dateString, days) {
 	const nextDate = new Date(dateString);
 	nextDate.setDate(nextDate.getDate() + days);
@@ -316,7 +318,51 @@ test.describe("Shift validations", () => {
 		expect(planned).toHaveLength(3);
 	});
 
-	test("@regression planned losses grid is non-editable once shift starts", async ({ page }) => {
+	test("@regression End Shift rejects an unsaved date edit on a running shift", async ({
+		page,
+	}) => {
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const shiftPage = new ShiftPage(page);
+		await shiftPage.open(ctx.shift_name);
+		if ((await getDoc(page, "Shift", ctx.shift_name)).status === "Draft") {
+			await shiftPage.startShift();
+		}
+
+		// shift_date is read-only here; set_value stands in for an API client or a stale form.
+		await shiftPage.setDraftFields({ date: plusOneDay(ctx.shift_date) });
+		await shiftPage.clickActionAndConfirm("End Shift");
+
+		await expectValidationError(
+			page,
+			"Only shift duration and warehouse fields can be edited"
+		);
+		const shift = await getDoc(page, "Shift", ctx.shift_name);
+		expect(shift.status).toBe("Running");
+		expect(shift.shift_date).toBe(ctx.shift_date);
+	});
+
+	test("@regression completed shift can be cancelled from the form", async ({ page }) => {
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const shiftPage = new ShiftPage(page);
+		await shiftPage.open(ctx.shift_name);
+		const seededShift = await getDoc(page, "Shift", ctx.shift_name);
+		if (seededShift.status === "Draft") {
+			await shiftPage.startShift();
+		}
+		if (seededShift.status !== "Completed") {
+			await shiftPage.endShift();
+		}
+		await shiftPage.open(ctx.shift_name);
+
+		await shiftPage.clickActionAndConfirm("Cancel");
+
+		await page.waitForFunction(() => window.cur_frm?.doc?.status === "Cancelled");
+		expect((await getDoc(page, "Shift", ctx.shift_name)).status).toBe("Cancelled");
+	});
+
+	test("@regression planned losses, date and label are locked once shift starts", async ({
+		page,
+	}) => {
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 		const seededShift = await getDoc(page, "Shift", ctx.shift_name);
 		const shiftPage = new ShiftPage(page);
@@ -329,10 +375,16 @@ test.describe("Shift validations", () => {
 			startTime: "16:00:00",
 		});
 		await shiftPage.open(draft.name);
-		expect(await shiftPage.isPlannedLossesReadOnly()).toBe(false);
+		for (const fieldname of LOCKED_ONCE_STARTED_FIELDS) {
+			expect(await shiftPage.isFieldReadOnly(fieldname)).toBe(false);
+		}
+		expect(await shiftPage.hasTodayButton()).toBe(true);
 
 		await shiftPage.open(ctx.shift_name);
-		expect(await shiftPage.isPlannedLossesReadOnly()).toBe(true);
+		for (const fieldname of LOCKED_ONCE_STARTED_FIELDS) {
+			expect(await shiftPage.isFieldReadOnly(fieldname)).toBe(true);
+		}
+		expect(await shiftPage.hasTodayButton()).toBe(false);
 	});
 
 	test("@regression planned losses helper fields drive inline row calculations", async ({
