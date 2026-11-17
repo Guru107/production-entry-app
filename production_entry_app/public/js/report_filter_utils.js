@@ -64,9 +64,10 @@
 			}
 			return;
 		}
-		// A custom on_change replaces Frappe's automatic refresh, so re-run here.
-		if (report && typeof report.refresh === "function") {
-			report.refresh();
+		// A custom on_change replaces Frappe's automatic refresh, so re-run here, honouring the
+		// _no_refresh flag Frappe sets while it applies several filters at once.
+		if (report && !report._no_refresh && typeof report.refresh === "function") {
+			report.refresh(true);
 		}
 	}
 

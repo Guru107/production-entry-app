@@ -186,43 +186,6 @@ class TestReportUtilsPerformance(FrappeTestCase):
 		self.assertNotIn(report_utils._OPERATION_REPORT_FILTER_KEY, bom_lookup.call_args.kwargs["filters"])
 		self.assertEqual(filters[report_utils._OPERATION_REPORT_FILTER_KEY], "Blanking")
 
-	def test_stock_entry_alias_helpers_read_only_pea_fields(self) -> None:
-		"""Cutover release: the legacy parallel fields are never read."""
-		row = {
-			"name": "STE-001",
-			"custom_pea_workstation": "PEA WS",
-			"custom_workstation": "Legacy WS",
-			"custom_operator": "Legacy Operator",
-		}
-
-		self.assertEqual(
-			report_utils.get_stock_entry_alias_value(row, "custom_pea_workstation", "Unassigned"),
-			"PEA WS",
-		)
-		self.assertTrue(
-			report_utils.row_matches_stock_entry_alias_filters(
-				row,
-				{"custom_pea_workstation": "PEA WS"},
-				("custom_pea_workstation",),
-			)
-		)
-		self.assertFalse(
-			report_utils.row_matches_stock_entry_alias_filters(
-				row,
-				{"custom_pea_workstation": "Legacy WS"},
-				("custom_pea_workstation",),
-			)
-		)
-		legacy_only_row = {
-			"name": "STE-LEGACY",
-			"custom_pea_workstation": "",
-			"custom_workstation": "Legacy WS",
-		}
-		self.assertEqual(
-			report_utils.get_stock_entry_alias_value(legacy_only_row, "custom_pea_workstation", "Unassigned"),
-			"Unassigned",
-		)
-
 	def test_new_interactive_report_timeout_guard_allows_within_budget(self) -> None:
 		frappe.local.request = object()
 		frappe.local.form_dict = frappe._dict(ignore_prepared_report=1)
@@ -280,7 +243,7 @@ class TestReportUtilsPerformance(FrappeTestCase):
 		):
 			get_meta.return_value.has_field.return_value = True
 			with self.assertRaisesRegex(frappe.ValidationError, "FG Item filter matches more"):
-				report_utils.get_stock_entries_for_fg_item("FG-001")
+				report_utils.get_stock_entries_for_fg_item("FG-001", ["SHIFT-1"])
 
 	def test_iter_stock_entries_in_chunks_throws_when_order_fields_are_missing(self) -> None:
 		with self.assertRaisesRegex(frappe.ValidationError, "posting_date"):
@@ -398,11 +361,12 @@ class TestReportUtilsPerformance(FrappeTestCase):
 		self.assertEqual(rejection_qty, 3.0)
 		self.assertEqual(
 			report_utils.get_entry_production_minutes(
-				{"custom_pea_actual_duration_mins": 90},
-				setup_mins=20,
-				loss_mins=10,
+				{"custom_pea_production_time_mins": 60, "custom_pea_actual_duration_mins": 90}
 			),
 			60.0,
+		)
+		self.assertEqual(
+			report_utils.get_entry_production_minutes({"custom_pea_actual_duration_mins": 90}), 0.0
 		)
 		self.assertEqual(
 			report_utils.get_entry_production_minutes({"custom_pea_production_time_mins": -10}),

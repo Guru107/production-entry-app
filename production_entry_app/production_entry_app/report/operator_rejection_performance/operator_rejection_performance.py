@@ -12,7 +12,6 @@ from production_entry_app.production_entry_app.report.report_utils import (
 	get_entry_production_minutes,
 	get_entry_total_strokes,
 	get_parent_breakup_reason_rows,
-	get_parent_loss_metrics,
 	get_parent_quantity_metrics,
 	iter_stock_entries_in_chunks,
 	merge_aggregates,
@@ -92,7 +91,6 @@ def _get_rows(filters: dict) -> list[dict]:
 		if not entry_names:
 			continue
 		parent_quantity_metrics = get_parent_quantity_metrics(entry_names)
-		parent_loss_metrics = get_parent_loss_metrics(entry_names)
 		breakup_rows = get_parent_breakup_reason_rows(entry_names, is_rework=False)
 		for entry in entries:
 			entry_name = entry.get("name")
@@ -104,17 +102,12 @@ def _get_rows(filters: dict) -> list[dict]:
 				total_qty = flt(entry_metrics.get("good_qty") or 0) + flt(
 					entry_metrics.get("total_rejected_qty") or 0
 				)
-			loss_metrics = parent_loss_metrics.get(entry_name or "", {})
 			agg = agg_by_operator.setdefault(operator, _empty_agg())
 			agg["entries"] += 1
 			agg["total_qty"] += total_qty
 			agg["rejection_qty"] += rejection_qty
 			agg["total_strokes"] += get_entry_total_strokes(entry)[0]
-			agg["production_mins"] += get_entry_production_minutes(
-				entry,
-				setup_mins=flt(loss_metrics.get("setup_mins") or 0),
-				loss_mins=flt(loss_metrics.get("loss_mins") or 0),
-			)
+			agg["production_mins"] += get_entry_production_minutes(entry)
 
 		operator_by_entry = {
 			entry.get("name"): (entry.get("custom_pea_operator") or _("Unassigned"))

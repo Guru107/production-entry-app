@@ -77,11 +77,6 @@ _JOINT_OUTPUT_SIDES: frozenset[str] = frozenset(
 		*(joint_production_line_side(index) for index in range(MAX_JOINT_PRODUCTION_BOM_SIDES)),
 	}
 )
-# Cutover release: reports read the app's own fields only. Entries created
-# before the changeover are not considered, so the legacy parallel fields
-# (custom_workstation / custom_shift / custom_operator) are never read and the
-# helpers below are strict pass-throughs on the app fieldname.
-_STOCK_ENTRY_FIELD_ALIASES: dict[str, tuple[str, ...]] = {}
 
 
 class EntryOutputQuantities(NamedTuple):
@@ -335,40 +330,6 @@ def get_entry_output_quantities(
 	return EntryOutputQuantities(total_qty, max(total_qty - rejection_qty, 0), rejection_qty)
 
 
-def get_stock_entry_alias_fields(base_fields: list[str], alias_keys: tuple[str, ...]) -> list[str]:
-	meta = frappe.get_meta("Stock Entry")
-	fields = list(base_fields)
-	for key in alias_keys:
-		for fieldname in _STOCK_ENTRY_FIELD_ALIASES.get(key, (key,)):
-			if fieldname == key or meta.has_field(fieldname):
-				fields.append(fieldname)
-	return list(dict.fromkeys(fields))
-
-
-def row_matches_stock_entry_alias_filters(row: dict, filters: dict, alias_keys: tuple[str, ...]) -> bool:
-	for key in alias_keys:
-		filter_value = get_stock_entry_alias_filter_value(filters, key)
-		if filter_value and get_stock_entry_alias_value(row, key) != filter_value:
-			return False
-	return True
-
-
-def get_stock_entry_alias_filter_value(filters: dict, key: str) -> str | None:
-	for fieldname in _STOCK_ENTRY_FIELD_ALIASES.get(key, (key,)):
-		value = filters.get(fieldname)
-		if value:
-			return value
-	return None
-
-
-def get_stock_entry_alias_value(row: dict, key: str, default: str | None = None) -> str | None:
-	for fieldname in _STOCK_ENTRY_FIELD_ALIASES.get(key, (key,)):
-		value = row.get(fieldname)
-		if value:
-			return value
-	return default
-
-
 def new_interactive_report_timeout_guard(
 	report_label: str,
 	timeout_sec: float = _DEFAULT_INTERACTIVE_REPORT_TIMEOUT_SEC,
@@ -400,7 +361,7 @@ def _should_enforce_interactive_report_timeout() -> bool:
 	return bool(cint(frappe.form_dict.get("ignore_prepared_report")))
 
 
-def get_stock_entries_for_fg_item(item_code: str, shift_names: list[str] | None = None) -> list[str]:
+def get_stock_entries_for_fg_item(item_code: str, shift_names: list[str]) -> list[str]:
 	stock_entry_detail = DocType("Stock Entry Detail")
 	stock_entry = DocType("Stock Entry")
 	stock_entry_type = DocType("Stock Entry Type")
@@ -424,9 +385,8 @@ def get_stock_entries_for_fg_item(item_code: str, shift_names: list[str] | None 
 			)
 		)
 	)
-	if shift_names is not None:
-		# Apply the report's shift scope before the cap so old history cannot trip it.
-		query = query.where(stock_entry.custom_pea_shift.isin(shift_names or [_NO_MATCHING_SHIFT]))
+	# Apply the report's shift scope before the cap so old history cannot trip it.
+	query = query.where(stock_entry.custom_pea_shift.isin(shift_names or [_NO_MATCHING_SHIFT]))
 	rows = query.limit(_MAX_FG_ITEM_PARENT_MATCHES + 1).run(as_dict=True)
 	if len(rows) > _MAX_FG_ITEM_PARENT_MATCHES:
 		frappe.throw(
@@ -1168,18 +1128,9 @@ def get_entry_total_strokes(
 	return flt(entry.get("custom_pea_total_strokes") or 0), rejection_qty
 
 
-def get_entry_production_minutes(
-	entry: dict,
-	setup_mins: float = 0.0,
-	loss_mins: float = 0.0,
-) -> float:
-	"""Return production minutes using custom_pea_production_time_mins when present."""
-	production_time_value = entry.get("custom_pea_production_time_mins")
-	if production_time_value is not None:
-		return flt(max(production_time_value, 0))
-
-	duration_mins = get_entry_raw_duration_minutes(entry)
-	return max(duration_mins - flt(setup_mins) - flt(loss_mins), 0)
+def get_entry_production_minutes(entry: dict) -> float:
+	"""Return the stored custom_pea_production_time_mins (Frappe stores an unset Float as 0)."""
+	return flt(max(flt(entry.get("custom_pea_production_time_mins")), 0))
 
 
 def get_entry_raw_duration_minutes(entry: dict) -> float:

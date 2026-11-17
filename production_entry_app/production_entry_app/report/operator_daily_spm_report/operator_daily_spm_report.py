@@ -156,10 +156,7 @@ def _get_rows(filters: dict) -> list[dict]:
 			total_strokes, _rejection_qty = get_entry_total_strokes(entry)
 			agg["total_strokes"] += float(total_strokes)
 
-			setup_mins = float(loss_metrics.get("setup_mins") or 0)
-			loss_mins = float(loss_metrics.get("loss_mins") or 0)
-			production_mins = get_entry_production_minutes(entry, setup_mins=setup_mins, loss_mins=loss_mins)
-			agg["production_mins"] += production_mins
+			agg["production_mins"] += get_entry_production_minutes(entry)
 
 	if not has_entries:
 		return []

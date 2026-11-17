@@ -142,11 +142,7 @@ def _get_rows(filters: dict) -> list[dict]:
 				entry,
 				rejection_qty_map=rejection_qty_map,
 			)
-			production_time_mins = get_entry_production_minutes(
-				entry,
-				setup_mins=setup_mins,
-				loss_mins=loss_mins,
-			)
+			production_time_mins = get_entry_production_minutes(entry)
 			production_time_hrs = (
 				(production_time_mins / MINUTES_PER_HOUR) if production_time_mins > 0 else 0.0
 			)

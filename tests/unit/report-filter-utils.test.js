@@ -214,3 +214,18 @@ test("overall_row_formatter renders Unassigned in a Link column as plain text", 
 		"<b>Unassigned</b>"
 	);
 });
+
+test("validate_report_date_range does not refresh while Frappe is applying several filters", () => {
+	let refreshed = 0;
+	const report = {
+		_no_refresh: true,
+		get_filter_value: (fieldname) =>
+			({ from_date: "2026-02-01", to_date: "2026-02-28" }[fieldname]),
+		refresh() {
+			refreshed += 1;
+		},
+	};
+
+	validate_report_date_range(report);
+	assert.equal(refreshed, 0);
+});

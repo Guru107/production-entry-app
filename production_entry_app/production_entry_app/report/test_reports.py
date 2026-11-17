@@ -5591,15 +5591,64 @@ class TestProductionReports(FrappeTestCase):
 			self.assertEqual(float(row[reason_columns[reason]]), float(qty))
 		self.assertEqual(float(row["total_rejection_qty"]), float(sum(reasons.values())))
 
-	def test_reason_matrix_filters_by_workstation_in_the_database(self) -> None:
-		from production_entry_app.production_entry_app.report.workstation_rejection_reason_matrix import (
-			workstation_rejection_reason_matrix as matrix,
+	def test_reason_matrix_workstation_filter_excludes_other_workstations(self) -> None:
+		from production_entry_app.production_entry_app.report.workstation_rejection_reason_matrix.workstation_rejection_reason_matrix import (
+			execute,
 		)
 
-		self.assertIn("custom_pea_workstation", matrix._FILTER_KEYS)
-		with patch.object(matrix, "build_stock_entry_filters", return_value={}) as build:
-			matrix._build_filters({"custom_pea_workstation": "WS-1"})
-		self.assertIn("custom_pea_workstation", build.call_args.kwargs["filter_keys"])
+		workstation_2 = "Report Workstation 3"
+		if not frappe.db.exists("Workstation", workstation_2):
+			frappe.get_doc(
+				{
+					"doctype": "Workstation",
+					"workstation_name": workstation_2,
+					"production_capacity": 1,
+					"hour_rate": 100,
+					"custom_pea_standard_spm": 2,
+				}
+			).insert(ignore_permissions=True)
+		shift = self._create_shift_for_label("2026-06-09", "1")
+		for index, (workstation, reason) in enumerate(
+			(("Report Workstation", "Crack"), (workstation_2, "Burr"))
+		):
+			self._create_mock_submitted_entry_with_breakup(
+				posting_date="2026-06-09",
+				planned_start=f"2026-06-09 {8 + 2 * index:02d}:00:00",
+				planned_end=f"2026-06-09 {9 + 2 * index:02d}:00:00",
+				actual_start=f"2026-06-09 {8 + 2 * index:02d}:00:00",
+				actual_end=f"2026-06-09 {9 + 2 * index:02d}:00:00",
+				fg_qty=100,
+				workstation=workstation,
+				shift_name=shift.name,
+				breakup_rows=[{"rejection_reason": reason, "qty": 4}],
+			)
+
+		columns, rows = execute(
+			{"from_date": "2026-06-09", "to_date": "2026-06-09", "custom_pea_workstation": workstation_2}
+		)
+
+		self.assertEqual([row["workstation"] for row in rows[:-1]], [workstation_2])
+		self.assertEqual([column["label"] for column in columns[3:]], ["Burr"])
+
+	def test_ppm_report_skips_entries_without_production_date(self) -> None:
+		from production_entry_app.production_entry_app.report.rejection_ppm_report.rejection_ppm_report import (
+			_get_rows,
+		)
+
+		entry_rows = [[{"name": "STE-X", "posting_date": "2026-06-30", "fg_completed_qty": 100}]]
+		with (
+			patch(
+				"production_entry_app.production_entry_app.report.rejection_ppm_report.rejection_ppm_report.iter_stock_entries_in_chunks",
+				return_value=entry_rows,
+			),
+			patch(
+				"production_entry_app.production_entry_app.report.rejection_ppm_report.rejection_ppm_report.get_parent_quantity_metrics",
+				return_value={},
+			),
+		):
+			rows = _get_rows({"from_date": "2026-06-30", "to_date": "2026-06-30"})
+
+		self.assertEqual(rows, [])
 
 	def _create_mock_submitted_entry(
 		self,
