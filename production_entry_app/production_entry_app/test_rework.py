@@ -198,6 +198,25 @@ class TestPendingReworkPool(FrappeTestCase):
 			with patch.object(rework, "_validate_rework_route"):
 				rework.validate_rework_submission(doc)
 
+	def test_pool_compares_stock_uom_quantities_on_both_sides(self) -> None:
+		self._insert_production_source(
+			stock_entry_type=self.normal_type,
+			breakups=[(None, None, 100)],
+			rejection_items=[self.item_a],
+		)
+		consumed = f"POOL-REWORK-{frappe.generate_hash(length=10)}"
+		self._insert_stock_entry(consumed, self.rework_type, docstatus=1)
+		self._insert_stock_entry_item(consumed, self.item_a, 2, conversion_factor=10)
+		self.assertEqual(
+			rework.get_pending_rework(self.item_a), [{"item_code": self.item_a, "pending_qty": 80.0}]
+		)
+		doc = self._rework_doc("REWORK-UOM", [(self.item_a, 9)])
+		doc.get("items")[0].update(conversion_factor=10, transfer_qty=90)
+
+		with self.assertRaisesRegex(frappe.ValidationError, r"requested 90.*Available quantity is 80"):
+			with patch.object(rework, "_validate_rework_route"):
+				rework.validate_rework_submission(doc)
+
 	def test_submission_locks_items_before_reading_pool(self) -> None:
 		doc = self._rework_doc("REWORK-CONCURRENT", [(self.item_b, 1), (self.item_a, 1)])
 		events: list[tuple[str, object]] = []
@@ -482,7 +501,13 @@ class TestPendingReworkPool(FrappeTestCase):
 		).run()
 
 	def _insert_stock_entry_item(
-		self, parent: str, item_code: str, qty: float, *, is_rejection: bool = False
+		self,
+		parent: str,
+		item_code: str,
+		qty: float,
+		*,
+		is_rejection: bool = False,
+		conversion_factor: float = 1,
 	) -> None:
 		StockEntryDetail = frappe.qb.DocType("Stock Entry Detail")
 		(
@@ -494,6 +519,8 @@ class TestPendingReworkPool(FrappeTestCase):
 				StockEntryDetail.parentfield,
 				StockEntryDetail.item_code,
 				StockEntryDetail.qty,
+				StockEntryDetail.conversion_factor,
+				StockEntryDetail.transfer_qty,
 				StockEntryDetail.custom_pea_is_rejection_item,
 			)
 			.insert(
@@ -503,6 +530,8 @@ class TestPendingReworkPool(FrappeTestCase):
 				"items",
 				item_code,
 				qty,
+				conversion_factor,
+				qty * conversion_factor,
 				int(is_rejection),
 			)
 		).run()
@@ -511,7 +540,7 @@ class TestPendingReworkPool(FrappeTestCase):
 		return frappe._dict(
 			name=name,
 			stock_entry_type=self.rework_type,
-			items=[frappe._dict(item_code=item_code, qty=qty) for item_code, qty in items],
+			items=[frappe._dict(item_code=item_code, qty=qty, transfer_qty=qty) for item_code, qty in items],
 			flags=frappe._dict(),
 		)
 
@@ -546,7 +575,7 @@ def _run_rework_submission_transaction(
 		doc = frappe._dict(
 			name=stock_entry_name,
 			stock_entry_type=stock_entry_type,
-			items=[frappe._dict(item_code=item_code, qty=qty)],
+			items=[frappe._dict(item_code=item_code, qty=qty, transfer_qty=qty)],
 			flags=frappe._dict(),
 		)
 		try:

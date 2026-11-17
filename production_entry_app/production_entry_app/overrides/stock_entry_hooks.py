@@ -286,9 +286,12 @@ def _apply_rework_cost(doc: Document) -> None:
 	_clear_rework_cost_rows(doc)
 	hour_rate = flt(frappe.db.get_value("Workstation", doc.get("custom_pea_rework_workstation"), "hour_rate"))
 	rework_cost = flt(labour_hours * hour_rate, get_system_currency_precision())
-	expense_account = frappe.db.get_single_value(
-		"Production Entry Settings", "rework_expense_account"
-	) or frappe.db.get_value("Company", doc.get("company"), "default_operating_cost_account")
+	expense_account = frappe.db.get_single_value("Production Entry Settings", "rework_expense_account")
+	# The Settings account is global; a rework entry of another company uses its own default.
+	if not expense_account or frappe.db.get_value("Account", expense_account, "company") != doc.get(
+		"company"
+	):
+		expense_account = frappe.db.get_value("Company", doc.get("company"), "default_operating_cost_account")
 	if not expense_account:
 		frappe.throw(
 			_(
