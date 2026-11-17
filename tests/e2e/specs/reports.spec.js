@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { bootstrapE2E, cleanupE2E, DOWNTIME_REASON } = require("../fixtures/test-data");
+const { addDays, bootstrapE2E, cleanupE2E, DOWNTIME_REASON } = require("../fixtures/test-data");
 const { ReportsPage } = require("../pages/reports-page");
 const { ShiftPage } = require("../pages/shift-page");
 const { StockEntryPage } = require("../pages/stock-entry-page");
@@ -26,12 +26,6 @@ async function expectBoldOverallLabel(page, reportsPage) {
 async function setupFreshContext(page, prefix) {
 	await cleanupE2E(page, prefix);
 	return await bootstrapE2E(page, prefix);
-}
-
-function addDays(dateString, days) {
-	const date = new Date(`${dateString}T00:00:00Z`);
-	date.setUTCDate(date.getUTCDate() + days);
-	return date.toISOString().slice(0, 10);
 }
 
 async function seedRawMaterialForPostingDate(page, ctx, postingDate) {

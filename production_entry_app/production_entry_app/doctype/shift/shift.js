@@ -111,7 +111,13 @@ function _call_shift_transition(frm, method) {
 		method,
 		doc: frm.doc,
 		freeze: true,
-		callback: () => {
+		callback: (r) => {
+			// Starting a Draft with an unsaved date or label edit renames the shift.
+			const name = r.docs?.[0]?.name;
+			if (name && name !== frm.doc.name) {
+				frappe.set_route("Form", frm.doctype, name);
+				return;
+			}
 			frm.reload_doc();
 		},
 	});

@@ -45,8 +45,15 @@ async function cleanupE2E(page, prefix = "E2E") {
 	);
 }
 
+function addDays(dateString, days) {
+	const date = new Date(`${dateString}T00:00:00Z`);
+	date.setUTCDate(date.getUTCDate() + days);
+	return date.toISOString().slice(0, 10);
+}
+
 module.exports = {
 	DOWNTIME_REASON,
+	addDays,
 	bootstrapE2E,
 	cleanupE2E,
 	retryTransientRequest,

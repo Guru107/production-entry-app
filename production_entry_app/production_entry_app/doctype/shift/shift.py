@@ -213,7 +213,8 @@ def _get_next_shift_sequence(shift_date: str) -> int:
 	prefix = f"SHIFT-{shift_date}."
 	existing_names = frappe.get_all(
 		"Shift",
-		filters={"shift_date": shift_date},
+		# By name, not shift_date: a shift saved before Draft renames existed may hold a stale name.
+		filters={"name": ["like", f"{prefix}%"]},
 		pluck="name",
 		limit_page_length=0,
 	)
@@ -1341,13 +1342,39 @@ def _resolve_department_name_for_shift_naming(department: str) -> str:
 	return department
 
 
+def _rename_to_match_date_and_label(shift: Document) -> None:
+	"""Keep the name in step when a Draft's date or label is edited.
+
+	Checks the stored status, so Start Shift on an unsaved date edit renames too. Non-Draft shifts keep their
+	name, since stock entries may link to them. rename_doc writes the new name to the database; the
+	assignments below only sync the in-memory doc sent back to the form.
+	"""
+	before = shift.get_doc_before_save()
+	if (before and before.status != "Draft") or shift.name.startswith(
+		f"SHIFT-{shift.shift_date}.{shift.shift_label}."
+	):
+		return
+	old_name = shift.name
+	shift.name = frappe.rename_doc("Shift", old_name, shift._build_name(), force=True, rebuild_search=False)
+	for row in shift.get_all_children():
+		row.parent = shift.name
+	# send_updated_docs returns localname, so the open form follows the rename instead of 404ing.
+	shift.localname = old_name
+
+
 class Shift(Document):
 	def autoname(self) -> None:
 		"""Format: SHIFT-{shift_date}.{shift_label}.{sequence:04d}."""
 		if not self.shift_date or not self.shift_label:
 			return
+		self.name = self._build_name()
+
+	def on_update(self) -> None:
+		_rename_to_match_date_and_label(self)
+
+	def _build_name(self) -> str:
 		sequence = _get_next_shift_sequence(self.shift_date)
-		self.name = f"SHIFT-{self.shift_date}.{self.shift_label}.{sequence:04d}"
+		return f"SHIFT-{self.shift_date}.{self.shift_label}.{sequence:04d}"
 
 	def before_insert(self) -> None:
 		self._set_defaults()

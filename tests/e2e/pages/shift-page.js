@@ -182,6 +182,26 @@ class ShiftPage {
 		await triggerSaveForm(this.page, "Save");
 	}
 
+	async clickStartShiftButton() {
+		await this.page.evaluate(() => {
+			const button = window.cur_frm?.custom_buttons?.[__("Start Shift")];
+			if (!button) {
+				throw new Error("Start Shift action button not found on Shift form.");
+			}
+			button.trigger("click");
+		});
+	}
+
+	async waitForRename(namePrefix) {
+		await this.page.waitForFunction(
+			(prefix) => window.cur_frm?.doc?.name?.startsWith(prefix),
+			namePrefix
+		);
+		await expect(this.page).toHaveURL(
+			new RegExp(getRoutePatternSource(`/shift/${escapeRegexLiteral(namePrefix)}`))
+		);
+	}
+
 	async startShift() {
 		await this.runDocAction("start_shift");
 		await this.page.waitForFunction(() => window.cur_frm?.doc?.status === "Running");
