@@ -22,7 +22,10 @@ def execute() -> None:
 		fieldnames.insert(fieldnames.index(insert_after) + 1, fieldname)
 
 	for index, fieldname in enumerate(fieldnames, start=1):
-		custom_field_name = frappe.db.get_value("Custom Field", {"dt": "Stock Entry", "fieldname": fieldname})
+		custom_field_name = frappe.db.get_value(
+			"Custom Field",
+			{"dt": "Stock Entry", "fieldname": fieldname, "module": "Production Entry App"},
+		)
 		if not custom_field_name:
 			continue
 		frappe.db.set_value(

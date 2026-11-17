@@ -1,7 +1,10 @@
 // Copyright (c) 2026, Gurudatt Kulkarni and contributors
 // For license information, please see license.txt
 
-const INVALID_TIME_MESSAGE = "Enter a valid time in HH:MM format.";
+function _invalid_time_message() {
+	const message = "Enter a valid time in HH:MM format.";
+	return typeof __ === "function" ? __("Enter a valid time in HH:MM format.") : message;
+}
 
 function _pad2(value) {
 	return String(value).padStart(2, "0");
@@ -28,7 +31,7 @@ function parse_time(input) {
 	} else {
 		const match = raw.match(/^(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?$/);
 		if (!match) {
-			return { error: INVALID_TIME_MESSAGE };
+			return { error: _invalid_time_message() };
 		}
 		hh = match[1];
 		mm = match[2];
@@ -44,7 +47,7 @@ function parse_time(input) {
 		minutes < 0 ||
 		minutes > 59
 	) {
-		return { error: INVALID_TIME_MESSAGE };
+		return { error: _invalid_time_message() };
 	}
 
 	const paddedHours = _pad2(hours);
@@ -343,6 +346,8 @@ function _handle_loss_entry_start(frm, cdt, cdn) {
 	const row = frappe.get_doc(cdt, cdn);
 	const parsed = parse_time(row.start_time_input);
 	if (parsed.error) {
+		// Drop the stale canonical value so it cannot be saved behind an invalid input.
+		_set_child_value(cdt, cdn, "start_time", "");
 		_loss_entry_alert(parsed.error);
 		return;
 	}
@@ -376,6 +381,7 @@ function _handle_loss_entry_end(frm, cdt, cdn) {
 	const row = frappe.get_doc(cdt, cdn);
 	const parsed = parse_time(row.end_time_input);
 	if (parsed.error) {
+		_set_child_value(cdt, cdn, "end_time", "");
 		_loss_entry_alert(parsed.error);
 		return;
 	}

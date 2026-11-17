@@ -40,6 +40,7 @@ from production_entry_app.production_entry_app.joint_production import (
 	allocate_joint_output_value,
 	calculate_joint_rm_consumption,
 	calculate_joint_rm_consumption_from_boms,
+	clear_inactive_joint_fields,
 	is_joint_lh_rh_production,
 	joint_production_line_side,
 	materialize_joint_production_rows,
@@ -3018,6 +3019,36 @@ class TestJointProductionItems(FrappeTestCase):
 		rework_by_bom = {row["bom_no"]: row for row in rework_rows}
 		self.assertEqual(flt(rework_by_bom[counted.end_bom]["rework_qty"]), 4)
 		self.assertEqual(flt(rework_by_bom[counted.sheet_bom]["rework_qty"]), 0)
+
+	def test_same_item_joint_drops_leftover_lh_rh_fields(self) -> None:
+		shift = make_running_shift(self.masters)
+		_finished, sheet_bom, _end_bom, doc = self._draft_same_item_joint(
+			shift, lh_gross_qty=10, rh_gross_qty=10
+		)
+		doc.custom_pea_lh_bom = sheet_bom
+		doc.custom_pea_rh_gross_qty = 5
+		doc.custom_pea_lh_rejection_qty = 2
+
+		clear_inactive_joint_fields(doc)
+
+		self.assertFalse(doc.custom_pea_lh_bom)
+		self.assertEqual(flt(doc.custom_pea_rh_gross_qty), 0)
+		self.assertEqual(flt(doc.custom_pea_lh_rejection_qty), 0)
+		self.assertEqual(len(doc.get(JOINT_PRODUCTION_LINES_FIELD)), 2)
+
+	def test_lh_rh_and_plain_entries_drop_leftover_joint_production_lines(self) -> None:
+		shift = make_running_shift(self.masters)
+		doc = self._make_joint_entry(shift)
+		self._set_joint_production_lines(doc, [(doc.custom_pea_lh_bom, 5, 0)])
+
+		clear_inactive_joint_fields(doc)
+
+		self.assertEqual(doc.get(JOINT_PRODUCTION_LINES_FIELD), [])
+		self.assertEqual(doc.custom_pea_lh_bom, self.lh_bom)
+
+		doc.stock_entry_type = "Manufacture"
+		clear_inactive_joint_fields(doc)
+		self.assertFalse(doc.custom_pea_lh_bom)
 
 	def test_joint_production_refuses_workstation_overlap_and_downtime(self) -> None:
 		shift = make_running_shift(self.masters)

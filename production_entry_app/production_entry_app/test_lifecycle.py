@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 from unittest.mock import Mock, call, patch
 
 import frappe
@@ -9,6 +10,7 @@ from frappe.tests.utils import FrappeTestCase
 from frappe.utils import now, nowdate
 
 from production_entry_app.production_entry_app import lifecycle
+from production_entry_app.production_entry_app.utils.downtime_reason_adoption import adoption_export_path
 
 
 def _seed_flagged_stock_entry_type(flag_fieldname: str) -> str:
@@ -204,7 +206,7 @@ class TestLifecycle(FrappeTestCase):
 				"production_entry_app.production_entry_app.lifecycle.ensure_rework_details_layout"
 			) as ensure_rework_layout,
 			patch(
-				"production_entry_app.production_entry_app.lifecycle.performance_indexes.ensure_performance_indexes_with_recovery"
+				"production_entry_app.production_entry_app.lifecycle.performance_indexes.ensure_performance_indexes"
 			) as ensure_indexes,
 			patch(
 				"production_entry_app.production_entry_app.lifecycle.seed_standard_downtime_reasons"
@@ -225,7 +227,7 @@ class TestLifecycle(FrappeTestCase):
 				"production_entry_app.production_entry_app.lifecycle.seed_standard_downtime_reasons"
 			) as seed_downtime_reasons,
 			patch(
-				"production_entry_app.production_entry_app.lifecycle.performance_indexes.ensure_performance_indexes_with_recovery"
+				"production_entry_app.production_entry_app.lifecycle.performance_indexes.ensure_performance_indexes"
 			) as ensure_indexes,
 		):
 			lifecycle.after_migrate()
@@ -313,6 +315,34 @@ class TestLifecycle(FrappeTestCase):
 
 		self.assertFalse(frappe.db.exists("Stock Entry Type", joint_type))
 		self.assertFalse(frappe.db.exists("Stock Entry Type", rework_type))
+
+	def test_after_uninstall_deletes_joint_production_flagged_stock_entry_type(self) -> None:
+		joint_type = _seed_flagged_stock_entry_type("custom_pea_joint_production")
+
+		lifecycle.after_uninstall()
+
+		self.assertFalse(frappe.db.exists("Stock Entry Type", joint_type))
+
+	def test_after_uninstall_removes_adoption_export(self) -> None:
+		path = Path(adoption_export_path())
+		path.parent.mkdir(parents=True, exist_ok=True)
+		path.write_text("{}")
+
+		lifecycle.after_uninstall()
+
+		self.assertFalse(path.exists())
+
+	def test_after_migrate_propagates_index_failure(self) -> None:
+		with (
+			patch("production_entry_app.production_entry_app.lifecycle.ensure_rework_details_layout"),
+			patch("production_entry_app.production_entry_app.lifecycle.seed_standard_downtime_reasons"),
+			patch(
+				"production_entry_app.production_entry_app.lifecycle.performance_indexes.ensure_performance_indexes",
+				side_effect=frappe.db.ProgrammingError(1054, "Unknown column"),
+			),
+		):
+			with self.assertRaises(frappe.db.ProgrammingError):
+				lifecycle.after_migrate()
 
 	def test_after_uninstall_retains_referenced_stock_entry_type_with_warning(self) -> None:
 		rework_type = _seed_flagged_stock_entry_type("custom_pea_rework_entry")
