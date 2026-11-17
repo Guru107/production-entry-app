@@ -151,7 +151,11 @@ def _has_app_schema(meta: Meta) -> bool:
 def adopt_host_downtime_reason_schema() -> None:
 	"""Pre-sync step: export the host state and reshape the DocType in place."""
 	state = classify_downtime_reason_doctype()
-	if state in (STATE_ABSENT, STATE_ADOPTED, STATE_RESHAPED):
+	if state == STATE_ABSENT:
+		# No table means any export is stale (reinstall, restore, recreated site).
+		remove_adoption_export()
+		return
+	if state in (STATE_ADOPTED, STATE_RESHAPED):
 		return
 	if state == STATE_UNEXPECTED:
 		values = frappe.db.get_value(
@@ -285,6 +289,7 @@ def convert_host_downtime_reasons() -> None:
 	seed_standard_downtime_reasons()
 	convert_legacy_downtime_reasons()
 	_verify_adoption()
+	remove_adoption_export()
 	frappe.logger("production_entry_app").info(
 		"Downtime Reason adoption: conversion and verification complete."
 	)

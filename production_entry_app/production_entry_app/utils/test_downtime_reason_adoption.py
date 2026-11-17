@@ -18,6 +18,7 @@ from production_entry_app.production_entry_app.utils.downtime_reason_adoption im
 	adopt_host_downtime_reason,
 	adopt_host_downtime_reason_schema,
 	adoption_export_path,
+	convert_host_downtime_reasons,
 	remove_adoption_export,
 )
 from production_entry_app.production_entry_app.utils.downtime_reason_seed import (
@@ -323,8 +324,17 @@ class TestAdoptionFailurePaths(HostParityTestCase):
 
 
 class TestAdoptionRecovery(HostParityWithLinksTestCase):
+	def _adopt_and_restore_export(self) -> None:
+		"""Adopt, then put the export back: a passing verification discards it."""
+		adopt_host_downtime_reason_schema()
+		path = Path(adoption_export_path())
+		export = path.read_text()
+		convert_host_downtime_reasons()
+		self.assertFalse(path.exists())
+		path.write_text(export)
+
 	def test_verification_failure_throws_with_details(self) -> None:
-		adopt_host_downtime_reason()
+		self._adopt_and_restore_export()
 		frappe.db.set_value(
 			"Loss Time",
 			{"parent": self.stock_entry, "loss_type": "01"},
@@ -334,17 +344,17 @@ class TestAdoptionRecovery(HostParityWithLinksTestCase):
 		)
 
 		with self.assertRaises(frappe.ValidationError) as raised:
-			adopt_host_downtime_reason()
+			convert_host_downtime_reasons()
 
 		self.assertIn("verification failed", str(raised.exception))
 		self.assertIn("Setup Time", str(raised.exception))
 
 	def test_verification_flags_dropped_link_rows(self) -> None:
-		adopt_host_downtime_reason()
+		self._adopt_and_restore_export()
 		frappe.db.delete("Loss Time", {"parent": self.stock_entry, "loss_type": "23"})
 
 		with self.assertRaises(frappe.ValidationError) as raised:
-			adopt_host_downtime_reason()
+			convert_host_downtime_reasons()
 
 		self.assertIn("row count changed", str(raised.exception))
 

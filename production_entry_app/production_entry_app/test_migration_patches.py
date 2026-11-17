@@ -62,17 +62,15 @@ class TestPatchPairOnHostParity(install_parity.HostParityMigrationTestCase):
 		run_patch_pair()
 
 		self.assert_adopted_converted_and_cut_over()
-		self.assertTrue(Path(adoption_export_path()).exists())
+		self.assertFalse(Path(adoption_export_path()).exists())
 
 	def test_second_invocation_of_the_pair_changes_nothing(self) -> None:
 		run_patch_pair()
 		state_after_first = install_parity.migration_state()
-		export_after_first = Path(adoption_export_path()).read_text()
 
 		run_patch_pair()
 
 		self.assertEqual(install_parity.migration_state(), state_after_first)
-		self.assertEqual(Path(adoption_export_path()).read_text(), export_after_first)
 
 
 class TestFailedPatchRerun(install_parity.HostParityMigrationTestCase):
