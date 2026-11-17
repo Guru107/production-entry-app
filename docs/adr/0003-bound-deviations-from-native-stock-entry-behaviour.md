@@ -15,8 +15,9 @@ authoritative for their topics; this record covers the remaining seams.
 - The native Get Items button is hidden for every purpose and replaced by the app's Fetch Items buttons,
   which add the rejection row and route rejection and scrap to configured warehouses before rows reach
   the form. The native BOM fields (`from_bom`, `bom_no`, `use_multi_level_bom`, `fg_completed_qty`) and
-  BOM section are shown only for Manufacture, multi-level BOM stays unchecked (Fetch Items ignores it and
-  Shift-linked direct Manufacture saves it as 0), and the native process-loss fields are hidden. A BOM
+  BOM section are shown only for Manufacture, multi-level BOM stays unchecked (Fetch Items ignores it;
+  direct BOM Manufacture without a Work Order shows it read-only and saves it as 0 before native
+  validation), and the native process-loss fields are hidden. A BOM
   describes what Manufacture consumes and produces; for every other purpose the section is hidden to keep
   the form simple, and ERPNext 16 itself no longer offers it for Material Transfer. The native toolbar action Get Items From > Bill of Materials (`show_bom_custom_button`, offered
   for Material Issue, Material Receipt, Material Transfer and Send to Subcontractor) is not removed, so a

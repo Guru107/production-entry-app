@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from production_entry_app.production_entry_app.api import get_items_with_rejection
 from production_entry_app.production_entry_app.overrides.stock_entry import ProductionEntryAppStockEntry
 from production_entry_app.production_entry_app.overrides.test_stock_entry_hooks import (
 	_append_rejection_breakup_rows,
@@ -13,9 +16,11 @@ from production_entry_app.production_entry_app.overrides.test_stock_entry_hooks 
 )
 from production_entry_app.production_entry_app.tests.support.manufacture_builders import (
 	bootstrap_manufacture_masters,
+	direct_manufacture_doc_dict,
 	make_direct_manufacture_entry,
 	make_running_shift,
 )
+from production_entry_app.production_entry_app.utils.test_bootstrap import ensure_default_bom, ensure_item
 
 
 class TestStockEntryOverride(FrappeTestCase):
@@ -224,3 +229,21 @@ class TestStockEntryOverride(FrappeTestCase):
 		se.save(ignore_permissions=True)
 
 		self.assertEqual(frappe.db.get_value("Stock Entry", se.name, "use_multi_level_bom"), 0)
+
+	def test_direct_manufacture_without_shift_saves_single_level_rows_under_component_validation(
+		self,
+	) -> None:
+		top_item = ensure_item(f"_Multi Level Top {frappe.generate_hash(length=6)}")
+		doc_dict = direct_manufacture_doc_dict(self.masters, fg_qty=10, rejection_qty=0)
+		doc_dict.update(
+			bom_no=ensure_default_bom(top_item, self.masters["fg_item"], self.masters["company"]),
+			use_multi_level_bom=1,
+		)
+		rows = get_items_with_rejection(json.dumps(doc_dict))
+		frappe.db.set_single_value("Manufacturing Settings", "validate_components_quantities_per_bom", 1)
+		se = frappe.get_doc({"doctype": "Stock Entry", **doc_dict, "from_bom": 1, "items": rows})
+
+		se.insert(ignore_permissions=True)
+
+		self.assertEqual(se.use_multi_level_bom, 0)
+		self.assertEqual({row.item_code for row in se.items if row.s_warehouse}, {self.masters["fg_item"]})

@@ -149,9 +149,6 @@ def validate_stock_entry(doc: Document, method: str | None = None) -> None:
 	else:
 		if doc.get("custom_pea_shift"):
 			_validate_linked_shift_can_accept_stock_entry(doc)
-			if doc.purpose == "Manufacture" and not doc.get("work_order"):
-				# Fetch Items ignores the flag (single-level, ADR 0003), so it must not claim otherwise.
-				doc.use_multi_level_bom = 0
 			_apply_shift_defaults(doc)
 			_validate_shift_based_required_fields(doc)
 			apply_bom_die_tool_item(doc)
@@ -182,6 +179,9 @@ def validate_stock_entry(doc: Document, method: str | None = None) -> None:
 
 
 def before_validate_stock_entry(doc: Document, method: str | None = None) -> None:
+	if doc.purpose == "Manufacture" and doc.get("from_bom") and not doc.get("work_order"):
+		# Fetch Items is single-level (ADR 0003); native component checks must read the same BOM level.
+		doc.use_multi_level_bom = 0
 	apply_rework_source_warehouse(doc)
 	_apply_rework_cost(doc)
 	# Default strokes before ERPNext's own validate: on 15.122+ its finished-qty guard would
