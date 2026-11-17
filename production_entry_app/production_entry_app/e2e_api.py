@@ -820,7 +820,12 @@ def bootstrap_e2e_context(prefix: str = "E2E", cleanup_running: int = 1) -> dict
 		(joint_post_shearing_rh_bom, joint_rh_bom_operating_cost),
 		(joint_multipart_bom, joint_lh_bom_operating_cost),
 	):
-		frappe.db.set_value("BOM", bom_no, "operating_cost", operating_cost, update_modified=False)
+		frappe.db.set_value(
+			"BOM",
+			bom_no,
+			{"operating_cost": operating_cost, "base_operating_cost": operating_cost},
+			update_modified=False,
+		)
 		frappe.clear_document_cache("BOM", bom_no)
 
 	dept_name = f"{prefix} Department"

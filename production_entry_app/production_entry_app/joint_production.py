@@ -209,8 +209,8 @@ def calculate_joint_rm_consumption_from_boms(
 	lh_gross_qty: float,
 	rh_gross_qty: float,
 ) -> float:
-	lh_bom = _get_joint_bom_details(lh_bom_no)
-	rh_bom = _get_joint_bom_details(rh_bom_no)
+	boms = _get_joint_bom_details_map((lh_bom_no, rh_bom_no))
+	lh_bom, rh_bom = boms[cstr(lh_bom_no)], boms[cstr(rh_bom_no)]
 	_validate_shearing_bom_inputs(lh_bom)
 	_validate_shearing_bom_inputs(rh_bom)
 	_validate_joint_bom_pair(lh_bom, rh_bom, require_common_rm=True)
@@ -355,15 +355,16 @@ def _build_joint_production_plan(doc: Document) -> JointProductionPlan:
 	)
 	operation = _get_joint_operation(doc, same_finished_item=same_finished_item)
 	is_shearing = False if same_finished_item else is_shearing_joint_operation(operation)
+	boms = _get_joint_bom_details_map((doc.get("custom_pea_lh_bom"), doc.get("custom_pea_rh_bom")))
 	lines = (
 		JointProductionLine(
-			bom=_get_joint_bom_details(doc.get("custom_pea_lh_bom")),
+			bom=boms[cstr(doc.get("custom_pea_lh_bom"))],
 			gross_qty=flt(doc.get("custom_pea_lh_gross_qty")),
 			rejection_qty=flt(doc.get("custom_pea_lh_rejection_qty")),
 			side=first_side,
 		),
 		JointProductionLine(
-			bom=_get_joint_bom_details(doc.get("custom_pea_rh_bom")),
+			bom=boms[cstr(doc.get("custom_pea_rh_bom"))],
 			gross_qty=flt(doc.get("custom_pea_rh_gross_qty")),
 			rejection_qty=flt(doc.get("custom_pea_rh_rejection_qty")),
 			side=second_side,
@@ -405,9 +406,10 @@ def _build_joint_production_plan_from_lines(doc: Document) -> JointProductionPla
 	if len(table_rows) > MAX_JOINT_PRODUCTION_BOM_SIDES:
 		frappe.throw(_("Joint Production supports at most {0} lines.").format(MAX_JOINT_PRODUCTION_BOM_SIDES))
 	operation = _get_joint_operation(doc, same_finished_item=True)
+	boms = _get_joint_bom_details_map(row.get("bom_no") for row in table_rows)
 	lines = tuple(
 		JointProductionLine(
-			bom=_get_joint_bom_details(cstr(row.get("bom_no"))),
+			bom=boms[cstr(row.get("bom_no"))],
 			gross_qty=flt(row.get("gross_qty")),
 			rejection_qty=flt(row.get("rejection_qty")),
 			side=joint_production_line_side(index),
@@ -495,8 +497,9 @@ def _build_planned_scrap_items(
 			uoms[scrap.item_code] = scrap.uom
 
 	uom_names = set(uoms.values())
+	# get_all: field-level read rules must not strip must_be_whole_number for some users.
 	uom_rows = (
-		frappe.get_list(
+		frappe.get_all(
 			"UOM",
 			filters={"name": ("in", tuple(uom_names))},
 			fields=["name", "must_be_whole_number"],
@@ -624,7 +627,8 @@ def _validate_joint_item_rows(doc: Document, plan: JointProductionPlan) -> None:
 
 	for role, expected_qty in plan.expected_role_quantities.items():
 		actual_qty = actual_quantities.get(role, 0)
-		if exceeds_one_unit(actual_qty, expected_qty, precision):
+		# An absent row for a tiny expected qty would pass the tolerance and divide by zero in valuation.
+		if exceeds_one_unit(actual_qty, expected_qty, precision) or (actual_qty <= 0 < expected_qty):
 			_throw_stale_joint_rows(
 				_("{0} is {1}; expected {2}.").format(
 					_get_joint_role_label(role),
@@ -906,48 +910,114 @@ def _normalize_operation(operation: Any) -> str:
 	return cstr(operation).strip()
 
 
-def _get_joint_bom_details(bom_no: str) -> JointBomDetails:
-	bom = frappe.get_doc("BOM", bom_no)
-	bold_bom_no = frappe.bold(frappe.utils.escape_html(str(bom_no)))
-	if bom.docstatus != 1 or not bom.is_active:
-		frappe.throw(_("BOM {0} must be submitted and active.").format(bold_bom_no))
-	items = list(bom.get("items") or [])
-	secondary_scrap_items = [
-		row
-		for row in (bom.get("secondary_items") or [])
-		if row.get("secondary_item_type") == "Scrap" or row.get("type") == "Scrap" or row.get("is_legacy")
-	]
-	scrap_items = secondary_scrap_items or list(bom.get("scrap_items") or [])
-	if not items:
-		frappe.throw(_("BOM {0} must contain at least one input item.").format(bold_bom_no))
-	if flt(bom.quantity) <= 0:
-		frappe.throw(_("BOM {0} quantity must be greater than zero.").format(bold_bom_no))
-	total_cost = flt(bom.total_cost)
-	if total_cost <= 0:
-		frappe.throw(
-			_("BOM-derived manufacturing cost cannot be calculated for BOM {0}.").format(bold_bom_no)
+def _get_joint_bom_details_map(bom_nos: Iterable[str]) -> dict[str, JointBomDetails]:
+	"""Load each line BOM with one query per table, in company currency (base_* fields).
+
+	Internal lookup (callers check access on the Stock Entry): get_all, so field-level read rules
+	and User Permissions cannot change quantities, rounding or valuation per user.
+	"""
+	names = list(dict.fromkeys(cstr(bom_no) for bom_no in bom_nos))
+	has_operation = frappe.get_meta("BOM", cached=True).has_field("custom_operation")
+	headers = {
+		row.name: row
+		for row in frappe.get_all(
+			"BOM",
+			filters={"name": ["in", names]},
+			fields=[
+				"name",
+				"docstatus",
+				"is_active",
+				"company",
+				"item",
+				"quantity",
+				"base_total_cost",
+				"base_operating_cost",
+				*(["custom_operation"] if has_operation else []),
+			],
 		)
-	stock_uom_by_item = _get_item_stock_uoms(
-		(*(row.item_code for row in items), *(scrap.item_code for scrap in scrap_items))
+	}
+	items_by_bom: defaultdict[str, list[frappe._dict]] = defaultdict(list)
+	for row in frappe.get_all(
+		"BOM Item",
+		filters={"parent": ["in", names], "parenttype": "BOM"},
+		fields=["parent", "item_code", "qty", "stock_qty", "uom", "stock_uom"],
+		order_by="idx asc",
+	):
+		items_by_bom[row.parent].append(row)
+	scrap_by_bom: defaultdict[str, list[frappe._dict]] = defaultdict(list)
+	for row in _get_bom_scrap_rows(names):
+		scrap_by_bom[row.parent].append(row)
+	item_details = _get_item_details(
+		row.item_code for rows in (*items_by_bom.values(), *scrap_by_bom.values()) for row in rows
 	)
-	return JointBomDetails(
-		name=bom.name,
-		company=cstr(bom.company),
-		item_code=bom.item,
-		quantity=flt(bom.quantity),
-		total_cost=total_cost,
-		operating_cost=flt(bom.operating_cost),
-		operation=_normalize_operation(bom.get("custom_operation")),
-		input_items=tuple(
-			JointInputItem(
-				item_code=row.item_code,
-				qty=flt(row.stock_qty or row.qty),
-				uom=row.stock_uom or row.uom or stock_uom_by_item[row.item_code],
+
+	details: dict[str, JointBomDetails] = {}
+	for name in names:
+		bom = headers.get(name)
+		bold_bom_no = frappe.bold(frappe.utils.escape_html(name))
+		if not bom or bom.docstatus != 1 or not bom.is_active:
+			frappe.throw(_("BOM {0} must be submitted and active.").format(bold_bom_no))
+		items = items_by_bom[name]
+		if not items:
+			frappe.throw(_("BOM {0} must contain at least one input item.").format(bold_bom_no))
+		if flt(bom.quantity) <= 0:
+			frappe.throw(_("BOM {0} quantity must be greater than zero.").format(bold_bom_no))
+		total_cost = flt(bom.base_total_cost)
+		if total_cost <= 0:
+			frappe.throw(
+				_("BOM-derived manufacturing cost cannot be calculated for BOM {0}.").format(bold_bom_no)
 			)
-			for row in items
-		),
-		scrap_items=tuple(_get_bom_scrap_item_details(scrap, stock_uom_by_item) for scrap in scrap_items),
+		details[name] = JointBomDetails(
+			name=name,
+			company=cstr(bom.company),
+			item_code=bom.item,
+			quantity=flt(bom.quantity),
+			total_cost=total_cost,
+			operating_cost=flt(bom.base_operating_cost),
+			operation=_normalize_operation(bom.get("custom_operation")),
+			input_items=tuple(
+				JointInputItem(
+					item_code=row.item_code,
+					qty=flt(row.stock_qty or row.qty),
+					uom=row.stock_uom or row.uom or item_details[row.item_code].stock_uom,
+				)
+				for row in items
+			),
+			scrap_items=tuple(
+				_get_bom_scrap_item_details(scrap, item_details[scrap.item_code].stock_uom)
+				for scrap in scrap_by_bom[name]
+			),
+		)
+	return details
+
+
+def _get_bom_scrap_rows(bom_nos: list[str]) -> list[frappe._dict]:
+	if not frappe.get_meta("BOM", cached=True).has_field("secondary_items"):
+		return frappe.get_all(
+			"BOM Scrap Item",
+			filters={"parent": ["in", bom_nos], "parenttype": "BOM"},
+			fields=["parent", "item_code", "stock_qty", "base_rate", "base_amount"],
+			order_by="idx asc",
+		)
+	rows = frappe.get_all(
+		"BOM Secondary Item",
+		filters={"parent": ["in", bom_nos], "parenttype": "BOM"},
+		fields=["parent", "item_code", "qty", "stock_qty", "base_cost", "secondary_item_type"],
+		order_by="idx asc",
 	)
+	# Native v16 Manufacture posts Co-/By-Product rows the joint plan cannot value; refuse, never drop.
+	unsupported = next((row for row in rows if row.secondary_item_type != "Scrap"), None)
+	if unsupported:
+		frappe.throw(
+			_(
+				"BOM {0} has {1} secondary item {2}. Joint production supports only Scrap secondary items."
+			).format(
+				frappe.bold(frappe.utils.escape_html(unsupported.parent)),
+				frappe.utils.escape_html(cstr(unsupported.secondary_item_type)),
+				frappe.bold(frappe.utils.escape_html(unsupported.item_code)),
+			)
+		)
+	return rows
 
 
 def _validate_joint_bom_operations(
@@ -980,36 +1050,13 @@ def _validate_joint_bom_operations(
 	)
 
 
-def _get_item_stock_uoms(item_codes: Iterable[str]) -> dict[str, str]:
-	unique_item_codes = list(dict.fromkeys(item_codes))
-	if not unique_item_codes:
-		return {}
-	return {
-		row.name: row.stock_uom
-		for row in frappe.get_list(
-			"Item",
-			filters={"name": ["in", unique_item_codes]},
-			fields=["name", "stock_uom"],
-		)
-	}
-
-
-def _get_bom_scrap_item_details(scrap: BaseDocument, stock_uom_by_item: dict[str, str]) -> JointScrapItem:
+def _get_bom_scrap_item_details(scrap: frappe._dict, stock_uom: str) -> JointScrapItem:
 	qty = flt(scrap.get("stock_qty") or scrap.get("qty"))
-	rate = flt(scrap.get("rate"))
+	# v15 BOM Scrap Item has a per-unit base_rate; v16 BOM Secondary Item only a total base_cost.
+	rate = flt(scrap.get("base_rate"))
 	if not rate and qty > 0:
-		total_value = (
-			flt(scrap.get("cost"))
-			if scrap.get("doctype") == "BOM Secondary Item"
-			else flt(scrap.get("base_amount") or scrap.get("amount"))
-		)
-		rate = total_value / qty
-	return JointScrapItem(
-		item_code=scrap.item_code,
-		qty=qty,
-		uom=stock_uom_by_item[scrap.item_code],
-		rate=rate,
-	)
+		rate = flt(scrap.get("base_cost") or scrap.get("base_amount")) / qty
+	return JointScrapItem(item_code=scrap.item_code, qty=qty, uom=stock_uom, rate=rate)
 
 
 def _validate_shearing_bom_inputs(bom: JointBomDetails) -> None:

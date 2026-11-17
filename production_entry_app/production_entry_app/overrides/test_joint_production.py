@@ -34,7 +34,7 @@ from production_entry_app.production_entry_app.joint_production import (
 	MAX_JOINT_PRODUCTION_BOM_SIDES,
 	_get_bom_scrap_item_details,
 	_get_item_details,
-	_get_joint_bom_details,
+	_get_joint_bom_details_map,
 	_net_production_value_after_scrap,
 	_set_scrap_row_classification,
 	allocate_joint_output_value,
@@ -203,17 +203,19 @@ class TestJointProductionCalculations(FrappeTestCase):
 
 		get_all.assert_not_called()
 
-	def test_scrap_rate_fallback_uses_the_correct_cross_version_total_field(self) -> None:
+	def test_scrap_rate_uses_the_company_currency_field_of_each_version(self) -> None:
 		cases = (
-			(frappe._dict(doctype="BOM Secondary Item", item_code="SCRAP", qty=2, rate=0, cost=8), 4),
+			("v16 BOM Secondary Item", frappe._dict(item_code="SCRAP", qty=2, base_cost=8), 4),
+			("v15 BOM Scrap Item", frappe._dict(item_code="SCRAP", stock_qty=2, base_rate=6), 6),
 			(
-				frappe._dict(doctype="BOM Scrap Item", item_code="SCRAP", stock_qty=2, rate=0, amount=10),
+				"v15 BOM Scrap Item without base_rate",
+				frappe._dict(item_code="SCRAP", stock_qty=2, base_rate=0, base_amount=10),
 				5,
 			),
 		)
-		for row, expected_rate in cases:
-			with self.subTest(doctype=row.doctype):
-				details = _get_bom_scrap_item_details(row, {"SCRAP": "Kg"})
+		for label, row, expected_rate in cases:
+			with self.subTest(label):
+				details = _get_bom_scrap_item_details(row, "Kg")
 				self.assertEqual(details.rate, expected_rate)
 
 	def test_scrap_row_classification_supports_each_stock_entry_detail_schema(self) -> None:
@@ -228,48 +230,6 @@ class TestJointProductionCalculations(FrappeTestCase):
 					_set_scrap_row_classification(row)
 
 				self.assertTrue(_is_scrap_row(row))
-
-	def test_v16_secondary_scrap_supports_both_type_fieldnames(self) -> None:
-		for type_fieldname in ("type", "secondary_item_type"):
-			with self.subTest(type_fieldname=type_fieldname):
-				secondary_item = frappe._dict(item_code="SCRAP-V16", qty=1.5, rate=10)
-				secondary_item[type_fieldname] = "Scrap"
-				bom = frappe._dict(
-					name="BOM-JOINT-V16",
-					item="FG-V16",
-					docstatus=1,
-					is_active=1,
-					quantity=100,
-					total_cost=100,
-					items=[
-						frappe._dict(
-							item_code="RM-V16",
-							stock_qty=49.125,
-							qty=49.125,
-							stock_uom="Kg",
-							uom="Kg",
-						)
-					],
-					scrap_items=[],
-					secondary_items=[secondary_item],
-				)
-
-				with (
-					patch(
-						"production_entry_app.production_entry_app.joint_production.frappe.get_doc",
-						return_value=bom,
-					),
-					patch(
-						"production_entry_app.production_entry_app.joint_production._get_item_stock_uoms",
-						return_value={"SCRAP-V16": "Kg"},
-					),
-				):
-					details = _get_joint_bom_details(bom.name)
-
-				self.assertEqual(
-					[(row.item_code, row.qty, row.uom) for row in details.scrap_items],
-					[("SCRAP-V16", 1.5, "Kg")],
-				)
 
 	def test_normal_manufacture_sets_total_strokes_from_finished_qty(self) -> None:
 		from production_entry_app.production_entry_app.overrides.stock_entry_hooks import (
@@ -1675,6 +1635,120 @@ class TestJointProductionItems(FrappeTestCase):
 		with self.assertRaisesRegex(frappe.ValidationError, "Run Fetch Items again"):
 			validate_and_apply_joint_production(doc)
 
+	def test_post_shearing_submit_rejects_missing_tiny_source_row(self) -> None:
+		operation = ensure_operation("Blanking")
+		main_input = ensure_item(f"_Joint_Main_WIP_{frappe.generate_hash(length=6)}", stock_uom="Kg")
+		tiny_input = ensure_item(f"_Joint_Tiny_WIP_{frappe.generate_hash(length=6)}", stock_uom="Kg")
+		lh_bom = self._make_bom(
+			self.lh_item,
+			bom_quantity=1000,
+			rm_items=[(main_input, 100), (tiny_input, 0.001)],
+			scrap_items=[],
+			operation=operation,
+		)
+		rh_bom = self._make_bom(
+			self.rh_item, bom_quantity=1000, rm_items=[(main_input, 100)], scrap_items=[], operation=operation
+		)
+		shift = make_running_shift(self.masters)
+		doc = self._make_joint_entry(
+			shift, lh_bom=lh_bom, rh_bom=rh_bom, operation=operation, lh_rejection_qty=0
+		)
+		doc.items = [row for row in doc.items if row.item_code != tiny_input]
+
+		with override_system_precision("float_precision", 3):
+			with self.assertRaisesRegex(frappe.ValidationError, "Run Fetch Items again"):
+				validate_and_apply_joint_production(doc)
+
+	def test_joint_bom_details_use_company_currency_costs(self) -> None:
+		company_currency = frappe.get_cached_value("Company", self.masters["company"], "default_currency")
+		bom_values = {
+			"doctype": "BOM",
+			"item": self.lh_item,
+			"company": self.masters["company"],
+			"currency": "USD" if company_currency != "USD" else "EUR",
+			"conversion_rate": 83,
+			"quantity": 100,
+			"is_active": 1,
+			"is_default": 0,
+			"custom_operation": self.operation,
+			"items": [{"item_code": self.rm_item, "qty": 49.125, "rate": 50}],
+		}
+		scrap_row = build_joint_bom_scrap_row(
+			secondary_item_meta=frappe.get_meta("BOM Secondary Item")
+			if frappe.get_meta("BOM").has_field("secondary_items")
+			else frappe._dict(has_field=lambda fieldname: fieldname == "rate"),
+			item_code=self.scrap_item,
+			qty=2,
+			rate=2,
+			uom="Kg",
+		)
+		if frappe.get_meta("BOM").has_field("secondary_items"):
+			bom_values["secondary_items"] = [scrap_row]
+		else:
+			bom_values["scrap_items"] = [{"item_code": self.scrap_item, "stock_qty": 2, "rate": 2}]
+		bom = frappe.get_doc(bom_values).insert(ignore_permissions=True)
+		bom.submit()
+		frappe.db.set_value(
+			"BOM", bom.name, {"operating_cost": 10, "base_operating_cost": 830}, update_modified=False
+		)
+
+		details = _get_joint_bom_details_map([bom.name])[bom.name]
+
+		self.assertEqual(bom.conversion_rate, 83)
+		self.assertAlmostEqual(details.total_cost, flt(bom.base_total_cost), places=2)
+		self.assertNotAlmostEqual(details.total_cost, flt(bom.total_cost), places=2)
+		self.assertEqual(details.operating_cost, 830)
+		self.assertAlmostEqual(details.scrap_items[0].rate, 166, places=2)
+
+	def test_joint_bom_details_refuse_v16_non_scrap_secondary_items(self) -> None:
+		if not frappe.get_meta("BOM").has_field("secondary_items"):
+			self.skipTest("BOM Secondary Item exists only on ERPNext 16")
+		bom_no = self._make_bom(self.lh_item, scrap_qty=1.125)
+		frappe.get_doc(
+			{
+				"doctype": "BOM Secondary Item",
+				"parent": bom_no,
+				"parenttype": "BOM",
+				"parentfield": "secondary_items",
+				"idx": 99,
+				"secondary_item_type": "By-Product",
+				"item_code": self.scrap_nos_item,
+				"qty": 1,
+				"stock_qty": 1,
+			}
+		).db_insert()
+
+		with self.assertRaisesRegex(frappe.ValidationError, "supports only Scrap secondary items"):
+			_get_joint_bom_details_map([bom_no])
+
+	def test_joint_bom_details_load_every_line_in_constant_queries(self) -> None:
+		with patch.object(frappe, "get_all", wraps=frappe.get_all) as get_all:
+			details = _get_joint_bom_details_map([self.lh_bom, self.rh_bom, self.lh_bom])
+
+		self.assertEqual(set(details), {self.lh_bom, self.rh_bom})
+		self.assertEqual(get_all.call_count, 4)
+
+	def test_joint_fetch_ignores_list_permissions_on_uom_and_item_masters(self) -> None:
+		lh_bom = self._make_bom(self.lh_item, scrap_items=[(self.scrap_nos_item, 1, 4)])
+		rh_bom = self._make_bom(self.rh_item, scrap_items=[(self.scrap_nos_item, 1, 4)])
+		shift = make_running_shift(self.masters)
+		doc = self._make_joint_entry(shift, lh_bom=lh_bom, rh_bom=rh_bom, fetch_items=False)
+		doc.custom_pea_lh_gross_qty = 49
+		doc.custom_pea_rh_gross_qty = 1
+		real_get_list = frappe.get_list
+
+		def _restricted_get_list(doctype: str, *args: Any, **kwargs: Any) -> list:
+			# Stand-in for a user whose read rules hide Items and strip UOM.must_be_whole_number.
+			if doctype in ("Item", "UOM") and not kwargs.get("ignore_permissions"):
+				return []
+			return real_get_list(doctype, *args, **kwargs)
+
+		with patch.object(frappe, "get_list", _restricted_get_list):
+			rows = get_joint_production_items(json.dumps(doc.as_dict(), default=str))
+
+		scrap_row = next(row for row in rows if _is_scrap_row(row))
+		self.assertEqual((scrap_row["item_code"], scrap_row["qty"]), (self.scrap_nos_item, 1))
+
 	def test_post_shearing_submit_rejects_extra_non_bom_source_row(self) -> None:
 		shift = make_running_shift(self.masters)
 		doc = self._make_post_shearing_entry(shift)
@@ -1819,8 +1893,8 @@ class TestJointProductionItems(FrappeTestCase):
 	def test_post_shearing_fails_when_bom_manufacturing_cost_is_unavailable(self) -> None:
 		shift = make_running_shift(self.masters)
 		doc = self._make_post_shearing_entry(shift, lh_rejection_qty=0, rh_rejection_qty=0)
-		original_cost = frappe.db.get_value("BOM", doc.custom_pea_lh_bom, "total_cost")
-		frappe.db.set_value("BOM", doc.custom_pea_lh_bom, "total_cost", 0, update_modified=False)
+		original_cost = frappe.db.get_value("BOM", doc.custom_pea_lh_bom, "base_total_cost")
+		frappe.db.set_value("BOM", doc.custom_pea_lh_bom, "base_total_cost", 0, update_modified=False)
 		frappe.clear_document_cache("BOM", doc.custom_pea_lh_bom)
 		try:
 			with self.assertRaisesRegex(
@@ -1835,7 +1909,7 @@ class TestJointProductionItems(FrappeTestCase):
 				validate_and_apply_joint_production(doc)
 		finally:
 			frappe.db.set_value(
-				"BOM", doc.custom_pea_lh_bom, "total_cost", original_cost, update_modified=False
+				"BOM", doc.custom_pea_lh_bom, "base_total_cost", original_cost, update_modified=False
 			)
 			frappe.clear_document_cache("BOM", doc.custom_pea_lh_bom)
 
@@ -2249,7 +2323,7 @@ class TestJointProductionItems(FrappeTestCase):
 			bom = frappe.get_doc("BOM", bom_name)
 			scrap_rows = bom.get("scrap_items") or bom.get("secondary_items")
 			zero_values = {}
-			for fieldname in ("rate", "cost", "base_amount", "amount"):
+			for fieldname in ("rate", "cost", "base_rate", "base_cost", "base_amount", "amount"):
 				if scrap_rows[0].meta.has_field(fieldname):
 					zero_values[fieldname] = 0
 			frappe.db.set_value(
@@ -4107,7 +4181,12 @@ class TestJointProductionItems(FrappeTestCase):
 		doc.append("items", row)
 
 	def _set_bom_operating_cost(self, bom_no: str, operating_cost: float) -> None:
-		frappe.db.set_value("BOM", bom_no, "operating_cost", operating_cost, update_modified=False)
+		frappe.db.set_value(
+			"BOM",
+			bom_no,
+			{"operating_cost": operating_cost, "base_operating_cost": operating_cost},
+			update_modified=False,
+		)
 		frappe.clear_document_cache("BOM", bom_no)
 
 	def _require_operating_cost_account(self) -> str:
