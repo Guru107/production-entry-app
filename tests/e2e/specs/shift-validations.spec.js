@@ -404,14 +404,15 @@ test.describe("Shift validations", () => {
 		await shiftPage.open(draft.name);
 		await shiftPage.waitForPlannedLossRows(3);
 		await shiftPage.setPlannedLossHelperRow(0, {
-			start_time_input: "2350",
+			start_time_input: "1530",
 			duration_mins_input: 20,
 		});
 		await shiftPage.saveDraft();
 
+		// Rows must lie inside the 08:00-16:00 window since #257, so no midnight-wrapping row here.
 		const savedShift = await getDoc(page, "Shift", draft.name);
-		expect(savedShift.planned_losses[0].start_time).toBe("23:50:00");
-		expect(String(savedShift.planned_losses[0].end_time)).toMatch(/^(00|0):10:00$/);
+		expect(savedShift.planned_losses[0].start_time).toBe("15:30:00");
+		expect(savedShift.planned_losses[0].end_time).toBe("15:50:00");
 	});
 
 	test("@regression linked downtime section renders overlapping downtime entries", async ({

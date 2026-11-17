@@ -18,9 +18,6 @@ class DieToolMaintenanceLog(Document):
 		item_code = _sanitize_item_code(self.die_tool_item)
 		base = f"DTML-{item_code}-{date_str}"
 		raw_name = make_autoname(f"{base}.#####")
-		if "." in raw_name:
-			self.name = raw_name
-			return
 		sequence = raw_name[-5:]
 		prefix = raw_name[:-5]
 		self.name = f"{prefix}.{sequence}"

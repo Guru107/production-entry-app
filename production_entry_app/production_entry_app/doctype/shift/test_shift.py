@@ -1642,6 +1642,83 @@ class TestShift(FrappeTestCase):
 			],
 		)
 
+	def _insert_edited_loss_shift(self, label: str, edits: dict[int, tuple[str, str]]):
+		name = self._expected_name(self._test_department, "2026-02-12", label)
+		self._delete_shift_if_exists(name)
+		doc = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"department": self._test_department,
+				"shift_label": label,
+				"shift_duration": "8",
+				"shift_date": "2026-02-12",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+		for index, (start, end) in edits.items():
+			doc.planned_losses[index].start_time = start
+			doc.planned_losses[index].end_time = end
+		return doc
+
+	def test_planned_loss_row_with_reversed_times_is_rejected(self) -> None:
+		doc = self._insert_edited_loss_shift("1", {1: ("09:00:00", "08:50:00")})
+		with self.assertRaises(ValidationError):
+			doc.save()
+
+	def test_planned_loss_row_outside_shift_window_is_rejected(self) -> None:
+		doc = self._insert_edited_loss_shift("1", {1: ("17:00:00", "17:10:00")})
+		with self.assertRaises(ValidationError):
+			doc.save()
+
+	def test_overlapping_planned_loss_rows_are_rejected(self) -> None:
+		doc = self._insert_edited_loss_shift("1", {1: ("08:05:00", "08:20:00")})
+		with self.assertRaises(ValidationError):
+			doc.save()
+
+	def test_planned_losses_filling_the_whole_shift_are_rejected(self) -> None:
+		doc = self._insert_edited_loss_shift("1", {0: ("08:00:00", "16:00:00")})
+		doc.planned_losses = doc.planned_losses[:1]
+		with self.assertRaises(ValidationError):
+			doc.save()
+
+	def _insert_shift_starting_at(self, shift_date: str, start_time: str) -> Document:
+		self._delete_shifts_for_date(shift_date)
+		return frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"department": self._test_department,
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": shift_date,
+				"planned_start_time": start_time,
+			}
+		).insert()
+
+	def test_generated_overlapping_planned_losses_do_not_block_later_saves_or_transitions(self) -> None:
+		# Startup overlaps Tea Break at 09:00 and JH Activity at 10:00 by design.
+		for shift_date, start_time in (("2090-03-10", "09:00:00"), ("2090-03-11", "10:00:00")):
+			doc = self._insert_shift_starting_at(shift_date, start_time)
+			doc = frappe.get_doc("Shift", doc.name)
+			doc.save()
+			doc.start_shift()
+			doc.end_shift()
+			self.assertEqual(frappe.db.get_value("Shift", doc.name, "status"), "Completed")
+
+	def test_preexisting_bad_planned_loss_row_does_not_block_end_or_cancel(self) -> None:
+		doc = self._insert_shift_starting_at("2090-03-12", "08:00:00")
+		frappe.db.set_value(
+			"Loss Entry", doc.planned_losses[1].name, {"start_time": "09:00:00", "end_time": "08:50:00"}
+		)
+		doc = frappe.get_doc("Shift", doc.name)
+		doc.start_shift()
+		doc.end_shift()
+		frappe.get_doc("Shift", doc.name).cancel_shift()
+		self.assertEqual(frappe.db.get_value("Shift", doc.name, "status"), "Cancelled")
+
+	def test_valid_edited_planned_loss_row_is_saved(self) -> None:
+		doc = self._insert_edited_loss_shift("1", {1: ("09:00:00", "09:15:00")})
+		doc.save()
+
 	def test_fixed_time_planned_losses_are_clamped_to_shift_end(self) -> None:
 		name = self._expected_name(self._test_department, "2026-02-10", "1")
 		self._delete_shift_if_exists(name)

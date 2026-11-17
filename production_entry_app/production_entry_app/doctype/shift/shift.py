@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime
 from collections.abc import Callable
+from itertools import pairwise
 from typing import Any, NamedTuple
 
 import frappe
@@ -28,7 +29,9 @@ from production_entry_app.production_entry_app.report.report_utils import (
 from production_entry_app.production_entry_app.utils.loss_time import (
 	build_interval_overlap_criterion,
 	build_interval_overlap_filters,
+	get_interval_minutes,
 	get_loss_duration_minutes,
+	resolve_time_interval_in_window,
 )
 from production_entry_app.production_entry_app.utils.production_warehouses import (
 	get_shift_warehouses,
@@ -40,7 +43,6 @@ from production_entry_app.production_entry_app.utils.system_precision import (
 )
 
 METRICS_CACHE_TTL_SEC: int = 30
-WARNING_THRESHOLD_PCT_DEFAULT: float = 90.0
 SHIFT_SUMMARY_TARGET_COVERAGE_PCT_MIN: float = 60.0
 SHIFT_SUMMARY_COMPLETENESS_MIN_RECORDED_RATIO: float = 0.5
 SHIFT_SUMMARY_WORKSTATION_MIN_PRODUCTION_MINS: float = 15.0
@@ -1390,7 +1392,9 @@ class Shift(Document):
 		self._validate_field_locking()
 		self._calculate_planned_end_time_and_dates()
 		self._set_shift_title()
-		self._populate_planned_losses_if_needed()
+		# Generated rows may overlap by design; only hand edits are validated.
+		if not self._populate_planned_losses_if_needed() and self._planned_losses_changed():
+			self._validate_planned_losses()
 		self._validate_no_overlapping_shifts()
 		self._validate_unique_shift_label_per_date()
 
@@ -1748,13 +1752,55 @@ class Shift(Document):
 	def _combine_date_time(self, date_value: str, time_value: str) -> datetime.datetime:
 		return combine_date_time(date_value, time_value)
 
-	def _populate_planned_losses_if_needed(self) -> None:
+	def _validate_planned_losses(self) -> None:
+		"""Planned-loss rows must sit inside the shift window, not overlap, and not fill the shift."""
+		if not self.planned_losses or not self.shift_end_date or not self.planned_end_time:
+			return
+		# Row times are stored to the second, but planned_start_time may carry microseconds.
+		window_start = self._combine_date_time(self.shift_date, self.planned_start_time).replace(
+			microsecond=0
+		)
+		window_end = self._combine_date_time(self.shift_end_date, self.planned_end_time).replace(
+			microsecond=0
+		)
+		resolved: list[tuple[datetime.datetime, datetime.datetime, Any]] = []
+		for row in self.planned_losses:
+			if not row.start_time or not row.end_time:
+				continue
+			interval = resolve_time_interval_in_window(row.start_time, row.end_time, window_start, window_end)
+			if (
+				not interval
+				or interval[0] < window_start
+				or interval[1] > window_end
+				or get_time(row.end_time) == get_time(row.start_time)
+			):
+				frappe.throw(
+					_(
+						"Row {0}: planned loss {1} to {2} must end after it starts and lie within the shift window {3} to {4}."
+					).format(row.idx, row.start_time, row.end_time, window_start.time(), window_end.time())
+				)
+			resolved.append((interval[0], interval[1], row))
+
+		resolved.sort(key=lambda item: item[0])
+		for (_prev_start, prev_end, prev_row), (next_start, _next_end, next_row) in pairwise(resolved):
+			if next_start < prev_end:
+				frappe.throw(
+					_("Row {0} and Row {1}: planned loss times overlap.").format(prev_row.idx, next_row.idx)
+				)
+		total_mins = sum(get_interval_minutes(start, end) for start, end, _row in resolved)
+		if total_mins >= get_interval_minutes(window_start, window_end):
+			frappe.throw(
+				_("Total planned loss ({0} mins) must be less than the shift duration.").format(total_mins)
+			)
+
+	def _populate_planned_losses_if_needed(self) -> bool:
 		"""Auto-populate planned_losses when shift_duration, planned_start_time, or shift_date changes.
 
 		Also repopulates when a Running shift's duration is changed (allowed by _validate_field_locking).
+		Returns True when rows were regenerated.
 		"""
 		if not self.shift_duration or not self.planned_start_time or not self.shift_date:
-			return
+			return False
 
 		should_populate = (
 			self.is_new()
@@ -1763,9 +1809,10 @@ class Shift(Document):
 			or self.has_value_changed("shift_date")
 		)
 		if not should_populate:
-			return
+			return False
 
 		self._populate_planned_losses()
+		return True
 
 	def _populate_planned_losses(self) -> None:
 		"""Populate planned_losses based on shift duration and planned_start_time."""

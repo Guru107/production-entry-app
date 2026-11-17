@@ -120,6 +120,20 @@ class TestNativeShiftPermissions(FrappeTestCase):
 		finally:
 			frappe.set_user("Administrator")
 
+	def test_pea_user_can_read_but_not_write_or_delete_die_tool_counter(self) -> None:
+		frappe.reload_doc("production_entry_app", "doctype", "die_tool_counter")
+		frappe.clear_cache(doctype="Die Tool Counter")
+		email = f"test_native_counter_user_{frappe.generate_hash(length=6)}@example.com"
+		_ensure_user_with_exact_roles(email, ("PEA User",))
+
+		try:
+			frappe.set_user(email)
+			self.assertTrue(frappe.has_permission("Die Tool Counter", "read"))
+			for ptype in ("write", "create", "delete"):
+				self.assertFalse(frappe.has_permission("Die Tool Counter", ptype), ptype)
+		finally:
+			frappe.set_user("Administrator")
+
 	def test_pea_user_can_read_stock_settings_required_by_stock_entry_form(self) -> None:
 		from frappe.client import get_single_value, get_value
 

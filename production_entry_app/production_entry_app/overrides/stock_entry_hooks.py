@@ -46,6 +46,7 @@ from production_entry_app.production_entry_app.utils.die_tool_counter import (
 	get_counter_health,
 	is_die_tool_enabled,
 	resolve_die_tool_item_code,
+	resolve_warning_threshold,
 	update_counter_for_stock_entry,
 )
 from production_entry_app.production_entry_app.utils.die_tool_item import apply_bom_die_tool_item
@@ -1315,7 +1316,7 @@ def _set_die_tool_health_metrics(doc: Document, meta: Any) -> None:
 
 	current_strokes = float((counter or {}).get("current_stroke_count") or 0)
 	stroke_capacity = float((counter or {}).get("stroke_capacity") or 0)
-	warning_threshold = float((counter or {}).get("warning_threshold_pct") or 90)
+	warning_threshold = resolve_warning_threshold((counter or {}).get("warning_threshold_pct"))
 	utilization_pct, maintenance_due = get_counter_health(
 		current_strokes=current_strokes,
 		stroke_capacity=stroke_capacity,

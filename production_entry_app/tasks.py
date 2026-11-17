@@ -3,10 +3,10 @@ from __future__ import annotations
 import frappe
 from frappe import _
 
-from production_entry_app.production_entry_app.doctype.shift.shift import (
-	WARNING_THRESHOLD_PCT_DEFAULT,
+from production_entry_app.production_entry_app.utils.die_tool_counter import (
+	get_counter_health,
+	resolve_warning_threshold,
 )
-from production_entry_app.production_entry_app.utils.die_tool_counter import get_counter_health
 
 
 def _get_maintenance_recipients() -> list[str]:
@@ -35,7 +35,7 @@ def _get_due_die_tool_counters() -> list[dict]:
 	for row in rows:
 		current_strokes = float(row.get("current_stroke_count") or 0)
 		stroke_capacity = float(row.get("stroke_capacity") or 0)
-		threshold = float(row.get("warning_threshold_pct") or WARNING_THRESHOLD_PCT_DEFAULT)
+		threshold = resolve_warning_threshold(row.get("warning_threshold_pct"))
 		utilization_pct, is_maintenance_due = get_counter_health(
 			current_strokes=current_strokes,
 			stroke_capacity=stroke_capacity,
@@ -68,7 +68,7 @@ def _build_alert_message(due_counters: list[dict]) -> str:
 				_format_numeric_fragment(row.get("utilization_pct") or 0),
 				_format_numeric_fragment(row.get("current_stroke_count") or 0),
 				_format_numeric_fragment(row.get("stroke_capacity") or 0),
-				_format_numeric_fragment(row.get("warning_threshold_pct") or WARNING_THRESHOLD_PCT_DEFAULT),
+				_format_numeric_fragment(resolve_warning_threshold(row.get("warning_threshold_pct"))),
 			)
 		)
 	return "\n".join(lines)

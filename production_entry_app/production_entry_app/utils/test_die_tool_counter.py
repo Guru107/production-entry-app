@@ -220,3 +220,15 @@ class TestResolveDieToolItemCode(FrappeTestCase):
 			return_value="",
 		):
 			self.assertEqual(resolve_die_tool_item_code(doc, persisted_only=True), "FG-1")
+
+
+class TestResolveWarningThreshold(FrappeTestCase):
+	def test_zero_is_kept_and_only_none_falls_back_to_default(self) -> None:
+		from production_entry_app.production_entry_app.utils.die_tool_counter import (
+			WARNING_THRESHOLD_PCT_DEFAULT,
+			resolve_warning_threshold,
+		)
+
+		self.assertEqual(resolve_warning_threshold(0), 0.0)
+		self.assertEqual(resolve_warning_threshold(75), 75.0)
+		self.assertEqual(resolve_warning_threshold(None), WARNING_THRESHOLD_PCT_DEFAULT)
