@@ -56,8 +56,8 @@ RUNNING_SHIFT_USER_EDITABLE_FIELDS: frozenset[str] = frozenset(
 )
 RUNNING_SHIFT_SERVER_COMPUTED_FIELDS: frozenset[str] = frozenset(
 	{
+		# Display helper re-synced from planned_start_time by the form; the canonical time stays locked.
 		"planned_start_time_input",
-		"planned_start_time",
 		"planned_end_time",
 		"shift_end_date",
 		"shift_title",
@@ -1491,16 +1491,15 @@ class Shift(Document):
 		frappe.throw(_("Branch is required to create a Shift."))
 
 	def _validate_status(self) -> None:
-		if not self.status:
+		# A new Shift always starts as Draft, whatever the form, a duplicate or the API sent.
+		if self.is_new():
 			self.status = "Draft"
+			return
 
 		if self.status not in VALID_STATUSES:
 			frappe.throw(_("Invalid status value."))
 
 		# Prevent direct edits to status from form/API.
-		if self.is_new():
-			return
-
 		if self.has_value_changed("status") and not self.flags.get("allow_status_change"):
 			frappe.throw(_("Status is system-managed. Use Start Shift / End Shift actions."))
 
@@ -1666,17 +1665,22 @@ class Shift(Document):
 		if self.is_new():
 			frappe.throw(_("Please save the Shift before changing status."))
 
-		if self.status not in allowed_from:
+		# The doc may be rebuilt from client JSON (run_doc_method), so trust only the stored status.
+		stored_status = frappe.db.get_value("Shift", self.name, "status", for_update=True)
+		if stored_status not in allowed_from:
 			frappe.throw(
 				_("Invalid status transition from {0} to {1}.").format(
-					frappe.bold(frappe.utils.escape_html(str(self.status))),
+					frappe.bold(frappe.utils.escape_html(str(stored_status))),
 					frappe.bold(frappe.utils.escape_html(str(to_status))),
 				)
 			)
 
 		self.flags.allow_status_change = True
 		self.status = to_status
-		self.save()
+		try:
+			self.save()
+		finally:
+			self.flags.allow_status_change = False
 		self.add_comment(
 			"Info",
 			_("Status changed to {0} by {1}").format(
