@@ -1642,6 +1642,49 @@ class TestShift(FrappeTestCase):
 			],
 		)
 
+	def _insert_edited_loss_shift(self, label: str, edits: dict[int, tuple[str, str]]):
+		name = self._expected_name(self._test_department, "2026-02-12", label)
+		self._delete_shift_if_exists(name)
+		doc = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"department": self._test_department,
+				"shift_label": label,
+				"shift_duration": "8",
+				"shift_date": "2026-02-12",
+				"planned_start_time": "08:00:00",
+			}
+		).insert()
+		for index, (start, end) in edits.items():
+			doc.planned_losses[index].start_time = start
+			doc.planned_losses[index].end_time = end
+		return doc
+
+	def test_planned_loss_row_with_reversed_times_is_rejected(self) -> None:
+		doc = self._insert_edited_loss_shift("1", {1: ("09:00:00", "08:50:00")})
+		with self.assertRaises(ValidationError):
+			doc.save()
+
+	def test_planned_loss_row_outside_shift_window_is_rejected(self) -> None:
+		doc = self._insert_edited_loss_shift("1", {1: ("17:00:00", "17:10:00")})
+		with self.assertRaises(ValidationError):
+			doc.save()
+
+	def test_overlapping_planned_loss_rows_are_rejected(self) -> None:
+		doc = self._insert_edited_loss_shift("1", {1: ("08:05:00", "08:20:00")})
+		with self.assertRaises(ValidationError):
+			doc.save()
+
+	def test_planned_losses_filling_the_whole_shift_are_rejected(self) -> None:
+		doc = self._insert_edited_loss_shift("1", {0: ("08:00:00", "16:00:00")})
+		doc.planned_losses = doc.planned_losses[:1]
+		with self.assertRaises(ValidationError):
+			doc.save()
+
+	def test_valid_edited_planned_loss_row_is_saved(self) -> None:
+		doc = self._insert_edited_loss_shift("1", {1: ("09:00:00", "09:15:00")})
+		doc.save()
+
 	def test_fixed_time_planned_losses_are_clamped_to_shift_end(self) -> None:
 		name = self._expected_name(self._test_department, "2026-02-10", "1")
 		self._delete_shift_if_exists(name)
