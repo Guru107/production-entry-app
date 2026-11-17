@@ -163,3 +163,37 @@ test("resolve_datetime_in_window normalizes T separator and month rollover", () 
 		"2026-11-01 02:00:00"
 	);
 });
+
+test("an invalid Loss Entry time clears the stale canonical value", (t) => {
+	const original = { frappe: global.frappe, refresh_field: global.refresh_field };
+	t.after(() => {
+		global.frappe = original.frappe;
+		global.refresh_field = original.refresh_field;
+	});
+	let handlers;
+	const row = {
+		start_time: "08:00:00",
+		end_time: "09:00:00",
+		start_time_input: "8:7O",
+		end_time_input: "x",
+	};
+	const alerts = [];
+	global.refresh_field = () => {};
+	global.frappe = {
+		ui: { form: { on: (_doctype, map) => (handlers = map) } },
+		get_doc: () => row,
+		show_alert: (options) => alerts.push(options.message),
+	};
+	const modulePath = require.resolve(
+		"../../production_entry_app/public/js/time_entry_fields.js"
+	);
+	delete require.cache[modulePath];
+	require(modulePath);
+
+	handlers.start_time_input({ fields_dict: {} }, "Loss Entry", "row1");
+	handlers.end_time_input({ fields_dict: {} }, "Loss Entry", "row1");
+
+	assert.equal(row.start_time, "");
+	assert.equal(row.end_time, "");
+	assert.equal(alerts.length, 2);
+});

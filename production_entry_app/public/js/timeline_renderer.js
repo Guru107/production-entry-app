@@ -459,7 +459,7 @@ function _render_canvas_timeline(frm, htmlFieldname, data) {
 	render(1);
 
 	const state = _init_timeline_state(frm, htmlFieldname);
-	_start_timeline_animation_if_running(state, render, shiftStart, shiftEnd);
+	_start_timeline_animation_if_running(state, render, shiftStart, shiftEnd, elements.canvas);
 	_bind_timeline_resize(state, elements.card, render);
 }
 
@@ -519,7 +519,11 @@ function _get_timeline_render_fn(elements, field, data, shiftStart, shiftEnd, pr
 			Math.round(elements.card.clientWidth || field.$wrapper.width() || 320)
 		);
 		const dpr = window.devicePixelRatio || 1;
-		_setup_canvas_for_dpr(elements.canvas, width, dpr, data.float_precision);
+		// Resizing reallocates the backing store, so do it only when the size changed.
+		if (elements.canvas.__peaWidth !== width || elements.canvas.__peaDpr !== dpr) {
+			_setup_canvas_for_dpr(elements.canvas, width, dpr, data.float_precision);
+			elements.canvas.__peaDpr = dpr;
+		}
 		_draw_timeline(
 			elements.canvas,
 			{
@@ -556,12 +560,17 @@ function _init_timeline_state(frm, htmlFieldname) {
 	return state;
 }
 
-function _start_timeline_animation_if_running(state, render, shiftStart, shiftEnd) {
+function _start_timeline_animation_if_running(state, render, shiftStart, shiftEnd, canvas) {
 	if (!_is_now_within_shift(shiftStart, shiftEnd)) {
 		return;
 	}
 	const animate = () => {
 		if (state.stopped) {
+			return;
+		}
+		// Form navigated away (canvas detached/hidden) or the shift window ended: stop for good.
+		if (!canvas.isConnected || !canvas.offsetParent || Date.now() > shiftEnd.getTime()) {
+			state.stopped = true;
 			return;
 		}
 		const alpha = 0.7 + (Math.sin(Date.now() / ANIMATION_PERIOD_MS) + 1) * 0.15;
@@ -618,15 +627,21 @@ function _render_timeline_message(frm, htmlFieldname, message) {
 }
 
 function render_shift_timeline(frm, doctype, htmlFieldname) {
-	if (!frm.doc.name) {
+	// An unsaved doc has a truthy temporary name; the server would answer 404 for it.
+	if (frm.is_new()) {
 		return;
 	}
+	const docname = frm.doc.name;
 
 	frappe.call({
 		method: "production_entry_app.production_entry_app.api_timeline.get_shift_timeline_data",
 		type: "GET",
-		args: { doctype, docname: frm.doc.name },
+		args: { doctype, docname },
 		callback(r) {
+			// Frappe reuses one frm per doctype: drop responses for a previously open doc.
+			if (frm.doc.name !== docname) {
+				return;
+			}
 			const data = r.message || {};
 			const shiftName = data.shift_name;
 			if (!shiftName) {
@@ -636,6 +651,9 @@ function render_shift_timeline(frm, doctype, htmlFieldname) {
 			_render_canvas_timeline(frm, htmlFieldname, data);
 		},
 		error() {
+			if (frm.doc.name !== docname) {
+				return;
+			}
 			_render_timeline_message(frm, htmlFieldname, __("Unable to load timeline data."));
 		},
 	});
@@ -645,3 +663,7 @@ PEA.timeline_renderer = {
 	render_shift_timeline,
 	set_html_field,
 };
+
+if (typeof module !== "undefined" && module.exports) {
+	module.exports = { render_shift_timeline, _start_timeline_animation_if_running };
+}

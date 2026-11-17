@@ -120,6 +120,11 @@ function _call_shift_transition(frm, method) {
 			}
 			frm.reload_doc();
 		},
+		error: () => {
+			frappe.msgprint(
+				__("Could not change the shift status. Please retry or contact support.")
+			);
+		},
 	});
 }
 
@@ -165,10 +170,19 @@ function _set_warehouse_field_editability(frm) {
 	});
 }
 
+let _companyCountPromise = null;
+
 function _toggle_company_field_visibility(frm) {
-	frappe.db.count("Company").then((count) => {
-		frm.toggle_display("company", Number(count || 0) > 1);
-	});
+	// Company count rarely changes: ask once per session, retry after a failure.
+	_companyCountPromise = _companyCountPromise || frappe.db.count("Company");
+	_companyCountPromise
+		.then((count) => {
+			frm.toggle_display("company", Number(count || 0) > 1);
+		})
+		.catch((err) => {
+			_companyCountPromise = null;
+			console.error(err);
+		});
 }
 
 function _set_department_query(frm) {
@@ -355,6 +369,7 @@ function _setup_shift_quick_entry(frm) {
 		const parsed = timeEntry.parse_time(input);
 		if (parsed.error) {
 			timeEntry.set_field_invalid(frm, "planned_start_time_input", parsed.error);
+			frm.set_value("planned_start_time", "");
 			return;
 		}
 		timeEntry.set_field_invalid(frm, "planned_start_time_input", "");
@@ -374,14 +389,18 @@ function _setup_shift_quick_entry(frm) {
 }
 
 function _render_linked_downtime_entries(frm) {
-	if (!frm.doc.name) {
+	if (frm.is_new()) {
 		return;
 	}
+	const docname = frm.doc.name;
 	frappe.call({
 		method: "production_entry_app.production_entry_app.doctype.shift.shift.get_linked_downtime_entries",
 		type: "GET",
-		args: { shift_name: frm.doc.name },
+		args: { shift_name: docname },
 		callback(r) {
+			if (frm.doc.name !== docname) {
+				return;
+			}
 			const list = r.message || [];
 			let html;
 			if (list.length === 0) {
@@ -417,6 +436,9 @@ function _render_linked_downtime_entries(frm) {
 			_set_shared_html_field(frm, "linked_downtime_entries", html);
 		},
 		error() {
+			if (frm.doc.name !== docname) {
+				return;
+			}
 			_set_shared_html_field(
 				frm,
 				"linked_downtime_entries",
@@ -427,14 +449,18 @@ function _render_linked_downtime_entries(frm) {
 }
 
 function _render_shift_summary(frm) {
-	if (!frm.doc.name) {
+	if (frm.is_new()) {
 		return;
 	}
+	const docname = frm.doc.name;
 	frappe.call({
 		method: "production_entry_app.production_entry_app.doctype.shift.shift.get_shift_summary",
 		type: "GET",
-		args: { shift_name: frm.doc.name },
+		args: { shift_name: docname },
 		callback(r) {
+			if (frm.doc.name !== docname) {
+				return;
+			}
 			_set_shared_html_field(
 				frm,
 				"shift_metrics",
@@ -442,6 +468,9 @@ function _render_shift_summary(frm) {
 			);
 		},
 		error() {
+			if (frm.doc.name !== docname) {
+				return;
+			}
 			_set_shared_html_field(
 				frm,
 				"shift_metrics",
@@ -735,14 +764,18 @@ function _format_aggregate_metric_value(value, floatPrecision) {
 }
 
 function _render_aggregate_production_entries(frm) {
-	if (!frm.doc.name) {
+	if (frm.is_new()) {
 		return;
 	}
+	const docname = frm.doc.name;
 	frappe.call({
 		method: "production_entry_app.production_entry_app.doctype.shift.shift.get_shift_aggregate_production_entries",
 		type: "GET",
-		args: { shift_name: frm.doc.name },
+		args: { shift_name: docname },
 		callback(r) {
+			if (frm.doc.name !== docname) {
+				return;
+			}
 			const rows = r.message || [];
 			if (!rows.length) {
 				_set_shared_html_field(
@@ -792,6 +825,9 @@ function _render_aggregate_production_entries(frm) {
 			);
 		},
 		error() {
+			if (frm.doc.name !== docname) {
+				return;
+			}
 			_set_shared_html_field(
 				frm,
 				"aggregate_production_entries",

@@ -19,6 +19,7 @@ from production_entry_app.production_entry_app.doctype.rejection_breakup.rejecti
 )
 from production_entry_app.production_entry_app.doctype.shift.shift import invalidate_shift_summary_cache
 from production_entry_app.production_entry_app.joint_production import (
+	clear_inactive_joint_fields,
 	is_paired_production,
 	validate_and_apply_joint_production,
 )
@@ -165,6 +166,7 @@ def validate_stock_entry(doc: Document, method: str | None = None) -> None:
 	_validate_workstation_downtime_overlap(doc)
 	_validate_standard_spm(doc)
 	_default_total_strokes(doc)
+	clear_inactive_joint_fields(doc)
 	if is_paired_production(doc):
 		validate_and_apply_joint_production(doc)
 	else:

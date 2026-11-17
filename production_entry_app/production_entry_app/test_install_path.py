@@ -66,6 +66,21 @@ class TestInstallHooksOnCleanSite(install_parity.CleanSiteTestCase):
 		self.assertEqual(install_parity.migration_state(), state_before)
 
 
+class TestReinstallWithStaleExport(install_parity.CleanSiteTestCase):
+	def test_stale_export_with_absent_table_is_discarded_and_install_does_not_throw(self) -> None:
+		"""Reinstall/restore never calls after_uninstall; the old export must not poison it."""
+		host_parity.delete_downtime_reason_doctype()
+		path = Path(adoption_export_path())
+		path.parent.mkdir(parents=True, exist_ok=True)
+		path.write_text('{"reasons": [{"name": "Gone", "docstatus": 0}], "link_inventory": []}')
+
+		install.before_install()
+		host_parity.restore_app_downtime_reason()
+		install.after_install()
+
+		self.assertFalse(path.exists())
+
+
 class TestBeforeInstallOnHostParity(install_parity.HostParityMigrationTestCase):
 	def test_before_install_reshapes_host_doctype_in_place(self) -> None:
 		install.before_install()
@@ -103,13 +118,17 @@ class TestInstallSequenceOnHostParity(install_parity.HostParityMigrationTestCase
 	def test_reinstall_converges_without_duplicate_work(self) -> None:
 		run_install_sequence()
 		state_after_first = install_parity.migration_state()
-		export_after_first = Path(adoption_export_path()).read_text()
 
 		run_install_sequence()
 
 		self.assertEqual(install_parity.migration_state(), state_after_first)
 		self.assertEqual(sorted(host_parity.loss_time_reason_values(self.stock_entry)), ["01", "23"])
-		self.assertEqual(Path(adoption_export_path()).read_text(), export_after_first)
+		self.assertFalse(Path(adoption_export_path()).exists())
+
+	def test_install_discards_the_export_after_verification_passes(self) -> None:
+		run_install_sequence()
+
+		self.assertFalse(Path(adoption_export_path()).exists())
 
 
 class TestAfterInstallFailureRecovery(install_parity.HostParityMigrationTestCase):
