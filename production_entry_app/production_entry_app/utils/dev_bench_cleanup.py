@@ -21,7 +21,8 @@ def should_run_persistent_dev_cleanup() -> bool:
 		return False
 	if os.environ.get("CI"):
 		return False
-	return bool(cint(getattr(frappe.conf, "allow_e2e_tests", 0)))
+	# Mirrors e2e_api._assert_e2e_api_allowed: both flags must be set.
+	return bool(cint(frappe.conf.get("developer_mode")) and cint(frappe.conf.get("allow_e2e_tests")))
 
 
 def cleanup_persistent_dev_site_if_applicable() -> dict[str, Any] | None:
@@ -55,14 +56,14 @@ def _cancel_delete_stock_entries(names: list[str]) -> None:
 		try:
 			e2e_api._safe_cancel_and_delete("Stock Entry", name, context="persistent_dev_cleanup")
 		except Exception:
-			docstatus = frappe.db.get_value("Stock Entry", name, "docstatus")
-			if docstatus == 1:
-				try:
-					doc = frappe.get_doc("Stock Entry", name)
-					doc.flags.ignore_permissions = True
-					doc.cancel()
-				except Exception:
-					pass
+			# A submitted voucher that cannot be cancelled must never be raw-deleted:
+			# that would orphan its SLE/GL/Bin rows.
+			if frappe.db.get_value("Stock Entry", name, "docstatus") == 1:
+				frappe.log_error(
+					title="persistent dev cleanup skipped submitted Stock Entry",
+					message=f"Stock Entry {name} could not be cancelled and was left in place.",
+				)
+				continue
 			e2e_api._delete_e2e_stock_entry_rows(name)
 
 
@@ -136,7 +137,15 @@ def _purge_future_transactional_data() -> None:
 	):
 		e2e_api._safe_force_delete("Shift", name, context="persistent_dev_cleanup")
 
-	for name in frappe.get_all("Downtime Entry", pluck="name", limit_page_length=0):
+	for name in frappe.get_all(
+		"Downtime Entry",
+		or_filters={
+			"workstation": ["like", "E2E%"],
+			"from_time": [">=", _PERSISTENT_DEV_TEST_DATE_CUTOFF],
+		},
+		pluck="name",
+		limit_page_length=0,
+	):
 		e2e_api._safe_force_delete("Downtime Entry", name, context="persistent_dev_cleanup")
 
 
