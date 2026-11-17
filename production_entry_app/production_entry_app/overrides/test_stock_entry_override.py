@@ -171,3 +171,48 @@ class TestStockEntryOverride(FrappeTestCase):
 		cancelled_warehouses = {row["warehouse"] for row in cancelled_after_cancel}
 		for warehouse in submitted_warehouses:
 			assert warehouse in cancelled_warehouses
+
+	def test_single_pass_submit_posts_fg_stock_qty_net_of_rejection(self) -> None:
+		shift = make_running_shift(self.masters)
+		se = make_direct_manufacture_entry(
+			self.masters, shift=shift.name, fg_qty=100, rejection_qty=10, docstatus=1
+		)
+
+		fg_row = se.get_finished_item_row()
+		self.assertEqual((fg_row.qty, fg_row.transfer_qty), (90, 90))
+		sles = frappe.get_all(
+			"Stock Ledger Entry",
+			filters={"voucher_no": se.name, "is_cancelled": 0},
+			fields=["warehouse", "actual_qty", "stock_value_difference"],
+		)
+		incoming = {row.warehouse: row for row in sles if row.actual_qty > 0}
+		self.assertEqual(incoming[self.masters["fg_warehouse"]].actual_qty, 90)
+		self.assertEqual(incoming[self.masters["rejection_warehouse"]].actual_qty, 10)
+		self.assertAlmostEqual(
+			sum(row.stock_value_difference for row in sles), se.total_additional_costs or 0, places=2
+		)
+
+	def test_resave_with_split_finished_rows_keeps_each_row_quantity(self) -> None:
+		shift = make_running_shift(self.masters)
+		se = make_direct_manufacture_entry(self.masters, shift=shift.name, fg_qty=100, rejection_qty=10)
+		fg_row = se.get_finished_item_row()
+		fg_row.qty = 50
+		se.append("items", fg_row.as_dict(no_default_fields=True)).qty = 40
+		se.save(ignore_permissions=True)
+		expected = [(row.idx, row.qty, row.transfer_qty) for row in se.items if row.is_finished_item]
+
+		se.save(ignore_permissions=True)
+		se.save(ignore_permissions=True)
+
+		self.assertEqual(
+			[(row.idx, row.qty, row.transfer_qty) for row in se.items if row.is_finished_item], expected
+		)
+		self.assertEqual(se.get_finished_item_row().qty, 40)
+
+	def test_finished_item_row_override_matches_native_last_row_selection(self) -> None:
+		shift = make_running_shift(self.masters)
+		se = make_direct_manufacture_entry(self.masters, shift=shift.name, fg_qty=100, rejection_qty=10)
+		split_row = se.append("items", se.get_finished_item_row().as_dict(no_default_fields=True))
+
+		self.assertIs(se.get_finished_item_row(), split_row)
+

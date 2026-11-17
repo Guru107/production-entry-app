@@ -997,18 +997,30 @@ def _apply_rejection_entries(doc: Document) -> None:
 	existing_rejection_t_warehouse = _get_existing_rejection_target_warehouse(doc)
 
 	_remove_existing_rejection_rows(doc)
-
-	if rejection_qty <= 0:
-		return
-
 	fg_row = _find_finished_good_row(doc)
-	if not fg_row:
-		return
 
-	_validate_rejection_qty_against_finished_good(rejection_qty, fg_row)
-	rejection_warehouse = resolve_rejection_warehouse(doc, existing_rejection_t_warehouse)
-	fg_row.qty -= rejection_qty
-	_append_rejection_item_row(doc, fg_row, rejection_qty, rejection_warehouse)
+	if rejection_qty > 0 and fg_row:
+		_validate_rejection_qty_against_finished_good(rejection_qty, fg_row)
+		rejection_warehouse = resolve_rejection_warehouse(doc, existing_rejection_t_warehouse)
+		fg_row.qty -= rejection_qty
+		_append_rejection_item_row(doc, fg_row, rejection_qty, rejection_warehouse)
+
+	if fg_row:
+		_reprice_if_finished_stock_qty_changed(doc, fg_row)
+
+
+def _reprice_if_finished_stock_qty_changed(doc: Document, fg_row: Any) -> None:
+	"""Re-run native pricing when the rows differ from what the controller's validate priced.
+
+	The controller sets transfer_qty and rates before this hook; SLEs post transfer_qty, so a
+	single-pass submit would otherwise book the pre-rejection FG quantity plus the rejection row.
+	"""
+	transfer_qty = flt(flt(fg_row.qty) * flt(fg_row.conversion_factor or 1), fg_row.precision("transfer_qty"))
+	if transfer_qty == flt(fg_row.transfer_qty, fg_row.precision("transfer_qty")):
+		return
+	fg_row.transfer_qty = transfer_qty
+	# Missing rates were already raised by the controller; Fetch Items (get_items) never raises.
+	doc.calculate_rate_and_amount(reset_outgoing_rate=False, raise_error_if_no_rate=False)
 
 
 def _validate_rejection_qty_against_finished_good(rejection_qty: float, fg_row: Any) -> None:
@@ -1071,31 +1083,29 @@ def _remove_existing_rejection_rows(doc: Document) -> None:
 	"""Remove rows marked as rejection items and restore their qty to the FG row."""
 	items_to_keep = []
 	total_rejection_qty = 0
-	fg_row = None
 
 	for row in doc.get("items", []):
 		if row.get("custom_pea_is_rejection_item"):
 			total_rejection_qty += row.qty
 		else:
 			items_to_keep.append(row)
-			if row.get("is_finished_item"):
-				fg_row = row
 
 	if not total_rejection_qty:
 		return
 
+	doc.items = items_to_keep
+	fg_row = _find_finished_good_row(doc)
 	if fg_row:
 		fg_row.qty += total_rejection_qty
 
-	doc.items = items_to_keep
 	for idx, row in enumerate(doc.items, start=1):
 		row.idx = idx
 
 
 def _find_finished_good_row(doc: Document) -> Any:
-	"""Find and return the finished good row from Stock Entry items."""
-	for row in doc.get("items", []):
-		if row.get("is_finished_item"):
+	"""Return the last non-rejection finished row, the row native get_finished_item_row picks."""
+	for row in reversed(doc.get("items", [])):
+		if row.get("is_finished_item") and not row.get("custom_pea_is_rejection_item"):
 			return row
 	return None
 
