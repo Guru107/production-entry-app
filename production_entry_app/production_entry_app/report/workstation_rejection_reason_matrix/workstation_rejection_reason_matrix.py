@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import re
-
 from frappe import _
 from frappe.utils import flt
 
@@ -10,14 +8,11 @@ from production_entry_app.production_entry_app.report.report_utils import (
 	build_stock_entry_filters,
 	build_summed_overall_row,
 	get_parent_breakup_reason_rows,
-	get_stock_entry_alias_fields,
-	get_stock_entry_alias_value,
 	iter_stock_entries_in_chunks,
-	row_matches_stock_entry_alias_filters,
 )
 
 _DEFAULT_TOP_N = 10
-_ALIAS_FILTER_KEYS = ("custom_pea_workstation", "custom_pea_shift", "custom_pea_operator")
+_FILTER_KEYS = ("bom_no", "custom_pea_workstation", "custom_pea_shift", "custom_pea_operator")
 
 
 def execute(filters: dict | None = None):
@@ -29,7 +24,7 @@ def execute(filters: dict | None = None):
 		sum_fields = (
 			"entries",
 			"total_rejection_qty",
-			*[_sanitize_reason_fieldname(reason) for reason in reason_order],
+			*[_reason_fieldname(index) for index in range(len(reason_order))],
 		)
 		rows = [*rows, build_summed_overall_row(rows, "workstation", sum_fields)]
 	return columns, rows
@@ -46,15 +41,13 @@ def _normalize_top_n(value) -> int:
 def _build_filters(filters: dict) -> dict:
 	return build_stock_entry_filters(
 		filters,
-		filter_keys=("bom_no",),
+		filter_keys=_FILTER_KEYS,
 	)
 
 
-def _sanitize_reason_fieldname(reason: str) -> str:
-	slug = re.sub(r"[^a-z0-9]+", "_", (reason or "").lower()).strip("_")
-	if not slug:
-		slug = "unknown"
-	return f"reason_{slug}"
+def _reason_fieldname(index: int) -> str:
+	# Positional, not derived from the reason text: distinct reasons can slug to the same name.
+	return f"reason_{index + 1}"
 
 
 def _get_columns(reason_order: list[str]) -> list[dict]:
@@ -73,11 +66,11 @@ def _get_columns(reason_order: list[str]) -> list[dict]:
 			"width": 150,
 		},
 	]
-	for reason in reason_order:
+	for index, reason in enumerate(reason_order):
 		columns.append(
 			{
 				"label": _(reason),
-				"fieldname": _sanitize_reason_fieldname(reason),
+				"fieldname": _reason_fieldname(index),
 				"fieldtype": "Float",
 				"width": 130,
 			}
@@ -90,19 +83,15 @@ def _get_rows(filters: dict, top_n: int) -> tuple[list[dict], list[str]]:
 	matrix: dict[str, dict[str, float]] = {}
 	entry_sets: dict[str, set[str]] = {}
 	has_entries = False
-	fields = get_stock_entry_alias_fields(["name"], _ALIAS_FILTER_KEYS)
-	for entry_rows in iter_stock_entries_in_chunks(_build_filters(filters), fields):
-		entry_rows = [
-			row
-			for row in entry_rows
-			if row_matches_stock_entry_alias_filters(row, filters, _ALIAS_FILTER_KEYS)
-		]
+	for entry_rows in iter_stock_entries_in_chunks(
+		_build_filters(filters), ["name", "custom_pea_workstation"]
+	):
 		has_entries = True
 		entry_names = [row.get("name") for row in entry_rows if row.get("name")]
 		if not entry_names:
 			continue
 		workstation_by_entry = {
-			row.get("name"): get_stock_entry_alias_value(row, "custom_pea_workstation", _("Unassigned"))
+			row.get("name"): row.get("custom_pea_workstation") or _("Unassigned")
 			for row in entry_rows
 			if row.get("name")
 		}
@@ -134,8 +123,8 @@ def _get_rows(filters: dict, top_n: int) -> tuple[list[dict], list[str]]:
 			"entries": len(entry_sets.get(workstation, set())),
 			"total_rejection_qty": flt(sum(reason_map.values())),
 		}
-		for reason in reason_order:
-			row[_sanitize_reason_fieldname(reason)] = flt(reason_map.get(reason) or 0)
+		for index, reason in enumerate(reason_order):
+			row[_reason_fieldname(index)] = flt(reason_map.get(reason) or 0)
 		rows.append(row)
 
 	return rows, reason_order

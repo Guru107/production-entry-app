@@ -114,7 +114,11 @@ class TestReworkMetricsExclusion(FrappeTestCase):
 		shift = make_running_shift(bootstrap_manufacture_masters())
 		rework_name = self._insert_submitted_rework(shift.name, operator="Report Operator")
 		filters = build_stock_entry_filters(
-			{"custom_pea_shift": shift.name},
+			{
+				"from_date": str(shift.shift_date),
+				"to_date": str(shift.shift_date),
+				"custom_pea_shift": shift.name,
+			},
 			filter_keys=("custom_pea_shift",),
 		)
 

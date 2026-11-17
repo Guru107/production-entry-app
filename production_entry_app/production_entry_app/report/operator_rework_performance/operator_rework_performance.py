@@ -11,7 +11,6 @@ from production_entry_app.production_entry_app.report.report_utils import (
 	format_numeric_summary,
 	get_entry_production_minutes,
 	get_entry_total_strokes,
-	get_parent_loss_metrics,
 	get_parent_quantity_metrics,
 	get_report_rows,
 	iter_stock_entries_in_chunks,
@@ -93,7 +92,6 @@ def _get_rows(filters: dict) -> list[dict]:
 		if not entry_names:
 			continue
 		parent_quantity_metrics = get_parent_quantity_metrics(entry_names, include_rework=True)
-		parent_loss_metrics = get_parent_loss_metrics(entry_names)
 		breakup_rows = get_report_rows(
 			"Rejection Breakup",
 			filters={"parenttype": "Stock Entry", "parent": ["in", entry_names], "is_rework": 1},
@@ -102,7 +100,7 @@ def _get_rows(filters: dict) -> list[dict]:
 		for entry in entries:
 			entry_name = entry.get("name")
 			entry_metrics = parent_quantity_metrics.get(entry_name or "", {})
-			operator = entry.get("custom_pea_operator") or "Unassigned"
+			operator = entry.get("custom_pea_operator") or _("Unassigned")
 			total_qty = flt(entry.get("fg_completed_qty") or 0)
 			if total_qty <= 0 and entry_name:
 				total_qty = flt(entry_metrics.get("good_qty") or 0) + flt(
@@ -113,16 +111,11 @@ def _get_rows(filters: dict) -> list[dict]:
 			agg["entries"] += 1
 			agg["total_qty"] += total_qty
 			agg["rework_qty"] += rework_qty
-			loss_metrics = parent_loss_metrics.get(entry_name or "", {})
 			agg["total_strokes"] += get_entry_total_strokes(entry)[0]
-			agg["production_mins"] += get_entry_production_minutes(
-				entry,
-				setup_mins=flt(loss_metrics.get("setup_mins") or 0),
-				loss_mins=flt(loss_metrics.get("loss_mins") or 0),
-			)
+			agg["production_mins"] += get_entry_production_minutes(entry)
 
 		operator_by_entry = {
-			entry.get("name"): (entry.get("custom_pea_operator") or "Unassigned")
+			entry.get("name"): (entry.get("custom_pea_operator") or _("Unassigned"))
 			for entry in entries
 			if entry.get("name")
 		}
@@ -132,7 +125,7 @@ def _get_rows(filters: dict) -> list[dict]:
 			qty = flt(row.get("qty") or 0)
 			if not parent or not reason or qty <= 0:
 				continue
-			operator = operator_by_entry.get(parent, "Unassigned")
+			operator = operator_by_entry.get(parent, _("Unassigned"))
 			reason_totals = agg_by_operator.setdefault(operator, _empty_agg())["reason_totals"]
 			reason_totals[reason] = flt(reason_totals.get(reason) or 0) + qty
 

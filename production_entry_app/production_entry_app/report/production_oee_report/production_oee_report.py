@@ -20,6 +20,7 @@ from production_entry_app.production_entry_app.report.report_utils import (
 	get_report_rows,
 	iter_stock_entries_in_chunks,
 	new_interactive_report_timeout_guard,
+	require_date_range,
 )
 from production_entry_app.production_entry_app.utils.loss_time import (
 	build_interval_overlap_filters,
@@ -65,6 +66,7 @@ OEE_SUM_FIELDS = (
 
 def execute(filters: dict | None = None) -> tuple[list[dict], list[dict]]:
 	filters = filters or {}
+	require_date_range(filters.get("from_date"), filters.get("to_date"))
 	reason_codes = _get_selected_reason_codes(filters)
 	columns = _get_columns(filters, reason_codes)
 	timeout_guard = new_interactive_report_timeout_guard(_("Production OEE Report"))

@@ -140,61 +140,51 @@ class TestReportUtilsPerformance(FrappeTestCase):
 			limit_page_length=report_utils._MAX_BOM_PARENT_MATCHES + 1,
 		)
 
-	def test_build_stock_entry_filters_handles_single_sided_dates_and_fg_item(self) -> None:
+	def test_build_stock_entry_filters_requires_both_dates(self) -> None:
+		for filters in ({}, {"from_date": "2026-01-01"}, {"to_date": "2026-01-31"}):
+			with self.subTest(filters=filters), self.assertRaises(frappe.MandatoryError):
+				report_utils.build_stock_entry_filters(filters, ())
+
+	def test_build_stock_entry_filters_scopes_fg_item_to_report_shifts(self) -> None:
 		with (
 			patch(
 				"production_entry_app.production_entry_app.report.report_utils.get_stock_entries_for_fg_item",
 				return_value=["STE-001"],
-			),
-			patch.object(report_utils, "get_report_rows", side_effect=[["SHIFT-FROM"], ["SHIFT-TO"]]),
+			) as fg_lookup,
+			patch.object(report_utils, "get_report_rows", return_value=["SHIFT-FROM"]),
 		):
-			from_filters = report_utils.build_stock_entry_filters(
-				{"from_date": "2026-01-01", "fg_item": "FG-001", "custom_pea_operator": "OP-1"},
+			filters = report_utils.build_stock_entry_filters(
+				{
+					"from_date": "2026-01-01",
+					"to_date": "2026-01-31",
+					"fg_item": "FG-001",
+					"custom_pea_operator": "OP-1",
+				},
 				("custom_pea_operator",),
 			)
-			to_filters = report_utils.build_stock_entry_filters({"to_date": "2026-01-31"}, ())
 
-		self.assertEqual(from_filters["custom_pea_shift"], ["in", ["SHIFT-FROM"]])
-		self.assertEqual(from_filters["custom_pea_operator"], "OP-1")
-		self.assertEqual(from_filters["name"], ["in", ["STE-001"]])
-		self.assertEqual(to_filters["custom_pea_shift"], ["in", ["SHIFT-TO"]])
+		fg_lookup.assert_called_once_with("FG-001", ["SHIFT-FROM"])
+		self.assertEqual(filters["custom_pea_shift"], ["in", ["SHIFT-FROM"]])
+		self.assertEqual(filters["custom_pea_operator"], "OP-1")
+		self.assertEqual(filters["name"], ["in", ["STE-001"]])
 
-	def test_stock_entry_alias_helpers_read_only_pea_fields(self) -> None:
-		"""Cutover release: the legacy parallel fields are never read."""
-		row = {
-			"name": "STE-001",
-			"custom_pea_workstation": "PEA WS",
-			"custom_workstation": "Legacy WS",
-			"custom_operator": "Legacy Operator",
-		}
-
-		self.assertEqual(
-			report_utils.get_stock_entry_alias_value(row, "custom_pea_workstation", "Unassigned"),
-			"PEA WS",
-		)
-		self.assertTrue(
-			report_utils.row_matches_stock_entry_alias_filters(
-				row,
-				{"custom_pea_workstation": "PEA WS"},
-				("custom_pea_workstation",),
+	def test_build_stock_entry_filters_keeps_operation_sentinel_out_of_bom_lookup(self) -> None:
+		with (
+			patch.object(report_utils, "get_stock_entries_for_bom", return_value=["STE-001"]) as bom_lookup,
+			patch.object(report_utils, "get_report_rows", return_value=["SHIFT-1"]),
+		):
+			filters = report_utils.build_stock_entry_filters(
+				{
+					"from_date": "2026-01-01",
+					"to_date": "2026-01-31",
+					"bom_no": "BOM-001",
+					"custom_pea_operation": "Blanking",
+				},
+				("bom_no", "custom_pea_operation"),
 			)
-		)
-		self.assertFalse(
-			report_utils.row_matches_stock_entry_alias_filters(
-				row,
-				{"custom_pea_workstation": "Legacy WS"},
-				("custom_pea_workstation",),
-			)
-		)
-		legacy_only_row = {
-			"name": "STE-LEGACY",
-			"custom_pea_workstation": "",
-			"custom_workstation": "Legacy WS",
-		}
-		self.assertEqual(
-			report_utils.get_stock_entry_alias_value(legacy_only_row, "custom_pea_workstation", "Unassigned"),
-			"Unassigned",
-		)
+
+		self.assertNotIn(report_utils._OPERATION_REPORT_FILTER_KEY, bom_lookup.call_args.kwargs["filters"])
+		self.assertEqual(filters[report_utils._OPERATION_REPORT_FILTER_KEY], "Blanking")
 
 	def test_new_interactive_report_timeout_guard_allows_within_budget(self) -> None:
 		frappe.local.request = object()
@@ -253,7 +243,7 @@ class TestReportUtilsPerformance(FrappeTestCase):
 		):
 			get_meta.return_value.has_field.return_value = True
 			with self.assertRaisesRegex(frappe.ValidationError, "FG Item filter matches more"):
-				report_utils.get_stock_entries_for_fg_item("FG-001")
+				report_utils.get_stock_entries_for_fg_item("FG-001", ["SHIFT-1"])
 
 	def test_iter_stock_entries_in_chunks_throws_when_order_fields_are_missing(self) -> None:
 		with self.assertRaisesRegex(frappe.ValidationError, "posting_date"):
@@ -371,11 +361,12 @@ class TestReportUtilsPerformance(FrappeTestCase):
 		self.assertEqual(rejection_qty, 3.0)
 		self.assertEqual(
 			report_utils.get_entry_production_minutes(
-				{"custom_pea_actual_duration_mins": 90},
-				setup_mins=20,
-				loss_mins=10,
+				{"custom_pea_production_time_mins": 60, "custom_pea_actual_duration_mins": 90}
 			),
 			60.0,
+		)
+		self.assertEqual(
+			report_utils.get_entry_production_minutes({"custom_pea_actual_duration_mins": 90}), 0.0
 		)
 		self.assertEqual(
 			report_utils.get_entry_production_minutes({"custom_pea_production_time_mins": -10}),

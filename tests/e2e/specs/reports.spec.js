@@ -808,4 +808,21 @@ test.describe("Production reports", () => {
 			expect(filters.to_date).toBe("2026-02-10");
 		}
 	});
+
+	test("@regression changing a date filter re-runs the report without clicking Refresh", async ({
+		page,
+	}) => {
+		const prefix = lifecycle.getPrefix();
+		const ctx = await setupFreshContext(page, prefix);
+		await createSubmittedStockEntryForReports(page, ctx, 2);
+
+		const reportsPage = new ReportsPage(page);
+		await reportsPage.open("Rejection Pareto Report");
+		// An empty past range first, then widen it by changing only a filter: no Refresh click.
+		await reportsPage.runWithDateRange("2000-01-01", "2000-01-02");
+		await expect.poll(async () => (await reportsPage.getRows()).length).toBe(0);
+		await reportsPage.setFilterByFieldname("to_date", ctx.shift_date);
+		await reportsPage.setFilterByFieldname("from_date", ctx.shift_date);
+		await reportsPage.waitForRows(1);
+	});
 });

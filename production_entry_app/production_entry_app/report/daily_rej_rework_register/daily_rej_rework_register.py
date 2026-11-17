@@ -22,6 +22,7 @@ from production_entry_app.production_entry_app.report.report_utils import (
 	is_paired_production_entry,
 	iter_stock_entries_in_chunks,
 	new_interactive_report_timeout_guard,
+	require_date_range,
 	safe_ratio,
 )
 from production_entry_app.production_entry_app.rework import SECONDS_PER_HOUR
@@ -34,9 +35,7 @@ _ENTRY_FIELDS: list[str] = ["name", "fg_completed_qty", "custom_pea_operation"]
 
 def execute(filters: dict | None = None) -> tuple[list[dict], list[dict]]:
 	filters = filters or {}
-	# The JS filters are reqd, but API callers bypass them; an open range would scan all history.
-	if not (filters.get("from_date") and filters.get("to_date")):
-		frappe.throw(_("From Date and To Date are required."), frappe.MandatoryError)
+	require_date_range(filters.get("from_date"), filters.get("to_date"))
 	return _get_columns(), _get_rows(filters)
 
 
@@ -373,7 +372,7 @@ def _get_daily_fg_totals(
 			day = getdate(day)
 			normal_metrics = parent_metrics.get(entry["name"], {})
 			metrics = normal_metrics if flt(entry.get("fg_completed_qty")) <= 0 else None
-			totals[day] += get_entry_output_quantities(entry).total_qty
+			totals[day] += get_entry_output_quantities(entry, normal_metrics=metrics).total_qty
 			for item_code, qty in _entry_item_outputs(entry, item_by_bom, metrics).items():
 				item_totals[(day, item_code)] += qty
 	return dict(totals), dict(item_totals)
