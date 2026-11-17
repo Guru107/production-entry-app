@@ -9,7 +9,6 @@ from production_entry_app.production_entry_app.report.report_utils import (
 	build_overall_row,
 	build_stock_entry_filters,
 	get_entry_production_minutes,
-	get_entry_raw_duration_minutes,
 	get_entry_report_operation,
 	get_entry_total_strokes,
 	get_parent_loss_metrics,
@@ -109,7 +108,7 @@ def _get_rows(filters: dict) -> list[dict]:
 			production_date = str(entry.get("production_date") or "")
 			if not production_date:
 				continue
-			operator = entry.get("custom_pea_operator") or "Unassigned"
+			operator = entry.get("custom_pea_operator") or _("Unassigned")
 			operation = get_entry_report_operation(entry)
 			group_key = (
 				(production_date, operator, operation) if group_by_operator else (production_date, operation)
@@ -143,14 +142,7 @@ def _get_rows(filters: dict) -> list[dict]:
 				entry,
 				rejection_qty_map=rejection_qty_map,
 			)
-			production_time_mins = get_entry_production_minutes(
-				entry,
-				setup_mins=setup_mins,
-				loss_mins=loss_mins,
-			)
-			if production_time_mins <= 0 and entry.get("custom_pea_production_time_mins") is not None:
-				raw_duration_mins = get_entry_raw_duration_minutes(entry)
-				production_time_mins = max(raw_duration_mins - setup_mins - loss_mins, 0)
+			production_time_mins = get_entry_production_minutes(entry)
 			production_time_hrs = (
 				(production_time_mins / MINUTES_PER_HOUR) if production_time_mins > 0 else 0.0
 			)

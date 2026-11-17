@@ -2606,9 +2606,12 @@ class TestJointProductionItems(FrappeTestCase):
 		inserted = frappe.client.insert(doc.as_dict())
 		frappe.client.submit(inserted)
 
-		_, rejection_rows = rejection_execute({"custom_pea_shift": shift.name})
-		_, rework_rows = rework_execute({"custom_pea_shift": shift.name})
-		_, lh_bom_rows = rejection_execute({"custom_pea_shift": shift.name, "bom_no": self.lh_bom})
+		# Reports only read Completed Shifts.
+		frappe.db.set_value("Shift", shift.name, "status", "Completed", update_modified=False)
+		dates = {"from_date": str(shift.shift_date), "to_date": str(shift.shift_date)}
+		_, rejection_rows = rejection_execute({**dates, "custom_pea_shift": shift.name})
+		_, rework_rows = rework_execute({**dates, "custom_pea_shift": shift.name})
+		_, lh_bom_rows = rejection_execute({**dates, "custom_pea_shift": shift.name, "bom_no": self.lh_bom})
 		rejection_by_item = {row["item_code"]: row for row in rejection_rows}
 		rework_by_item = {row["item_code"]: row for row in rework_rows}
 
@@ -3089,7 +3092,13 @@ class TestJointProductionItems(FrappeTestCase):
 		self.assertEqual(flt(oee_rows[0]["rejection"]), 4)
 		self.assertEqual(flt(oee_rows[-1]["total_strokes"]), 77)
 
-		_, rework_rows = rework_execute({"custom_pea_shift": counted.shift.name})
+		_, rework_rows = rework_execute(
+			{
+				"from_date": str(counted.shift.shift_date),
+				"to_date": str(counted.shift.shift_date),
+				"custom_pea_shift": counted.shift.name,
+			}
+		)
 		rework_by_bom = {row["bom_no"]: row for row in rework_rows}
 		self.assertEqual(flt(rework_by_bom[counted.end_bom]["rework_qty"]), 4)
 		self.assertEqual(flt(rework_by_bom[counted.sheet_bom]["rework_qty"]), 0)

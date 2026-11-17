@@ -65,9 +65,9 @@ def _get_rows(filters: dict) -> list[dict]:
 		entry_names = [entry.get("name") for entry in entries if entry.get("name")]
 		parent_quantity_metrics = get_parent_quantity_metrics(entry_names, include_rework=True)
 		for entry in entries:
-			production_date = getdate(entry.get("production_date"))
-			if not production_date:
+			if not entry.get("production_date"):
 				continue
+			production_date = getdate(entry.get("production_date"))
 			entry_name = entry.get("name")
 			entry_metrics = parent_quantity_metrics.get(entry_name or "", {})
 			rework_qty = flt(entry.get("custom_pea_rework_qty") or entry_metrics.get("rework_qty") or 0)

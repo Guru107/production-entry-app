@@ -108,6 +108,7 @@ def _get_rows(filters: dict) -> list[dict]:
 			"custom_pea_shift",
 			"fg_completed_qty",
 			"custom_pea_rejection_qty",
+			"custom_pea_actual_duration_mins",
 			"custom_pea_actual_start_date",
 			"custom_pea_actual_end_date",
 			"custom_pea_production_time_mins",
@@ -123,8 +124,8 @@ def _get_rows(filters: dict) -> list[dict]:
 			entry_name = entry.get("name")
 			loss_metrics = parent_loss_metrics.get(entry_name or "", {})
 			production_date = str(entry.get("production_date") or "")
-			operator = entry.get("custom_pea_operator") or "Unassigned"
-			workstation = entry.get("custom_pea_workstation") or "Unassigned"
+			operator = entry.get("custom_pea_operator") or _("Unassigned")
+			workstation = entry.get("custom_pea_workstation") or _("Unassigned")
 			operation = get_entry_report_operation(entry)
 			group_key = (production_date, operator, workstation, operation)
 			agg = aggregates.setdefault(
@@ -155,10 +156,7 @@ def _get_rows(filters: dict) -> list[dict]:
 			total_strokes, _rejection_qty = get_entry_total_strokes(entry)
 			agg["total_strokes"] += float(total_strokes)
 
-			setup_mins = float(loss_metrics.get("setup_mins") or 0)
-			loss_mins = float(loss_metrics.get("loss_mins") or 0)
-			production_mins = get_entry_production_minutes(entry, setup_mins=setup_mins, loss_mins=loss_mins)
-			agg["production_mins"] += production_mins
+			agg["production_mins"] += get_entry_production_minutes(entry)
 
 	if not has_entries:
 		return []

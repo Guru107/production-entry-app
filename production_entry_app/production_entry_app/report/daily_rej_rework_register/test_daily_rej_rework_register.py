@@ -471,6 +471,8 @@ class TestDailyRejReworkRegister(FrappeTestCase):
 		rows = daily_rej_rework_register.execute({"from_date": day, "to_date": day})[1]
 
 		self.assertEqual(rows[1]["finished_goods_qty"], 100)
+		self.assertEqual(rows[1]["day_fg_qty"], 100)
+		self.assertEqual(rows[2]["rej_ppm"], 100_000)
 
 	def test_ppm_divides_raw_quantities_before_display_rounding(self) -> None:
 		# At display precision 2, rounding inputs first would give 0.01/1 -> 10000.

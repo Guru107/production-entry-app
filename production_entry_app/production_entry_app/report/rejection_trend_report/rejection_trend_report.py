@@ -74,7 +74,7 @@ def _period_key(production_date: datetime.date, time_grain: str) -> tuple[dateti
 	if time_grain == "Weekly":
 		period_start = production_date - datetime.timedelta(days=production_date.weekday())
 		period_end = period_start + datetime.timedelta(days=6)
-		return period_start, f"{period_start.isoformat()} to {period_end.isoformat()}"
+		return period_start, _("{0} to {1}").format(period_start.isoformat(), period_end.isoformat())
 	if time_grain == "Monthly":
 		period_start = production_date.replace(day=1)
 		return period_start, period_start.strftime("%Y-%m")
@@ -95,9 +95,9 @@ def _get_rows(filters: dict) -> list[dict]:
 		entry_names = [entry.get("name") for entry in entries if entry.get("name")]
 		parent_quantity_metrics = get_parent_quantity_metrics(entry_names)
 		for entry in entries:
-			production_date = getdate(entry.get("production_date"))
-			if not production_date:
+			if not entry.get("production_date"):
 				continue
+			production_date = getdate(entry.get("production_date"))
 			entry_name = entry.get("name")
 			entry_metrics = parent_quantity_metrics.get(entry_name or "", {})
 			rejection_qty = flt(entry_metrics.get("rejection_qty") or 0)
