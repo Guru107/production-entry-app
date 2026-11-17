@@ -814,13 +814,7 @@ test.describe("Production reports", () => {
 	}) => {
 		const prefix = lifecycle.getPrefix();
 		const ctx = await setupFreshContext(page, prefix);
-		await createSubmittedStockEntryForReports(
-			page,
-			ctx,
-			5,
-			[],
-			[{ rejection_reason: "Burr", qty: 2, is_rework: 0 }]
-		);
+		await createSubmittedStockEntryForReports(page, ctx, 2);
 
 		const reportsPage = new ReportsPage(page);
 		await reportsPage.open("Rejection Pareto Report");
