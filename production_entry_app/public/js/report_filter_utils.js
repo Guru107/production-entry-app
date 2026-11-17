@@ -54,14 +54,19 @@
 	function validate_report_date_range(report) {
 		const fromDate = report?.get_filter_value?.("from_date");
 		const toDate = report?.get_filter_value?.("to_date");
-		if (!fromDate || !toDate || fromDate <= toDate) {
+		if (fromDate && toDate && fromDate > toDate) {
+			if (typeof frappe !== "undefined" && typeof frappe.msgprint === "function") {
+				frappe.msgprint(__("From Date cannot be after To Date."));
+			}
+			if (report && typeof report.set_filter_value === "function") {
+				// Setting the filter fires this handler again, which refreshes.
+				report.set_filter_value("from_date", toDate);
+			}
 			return;
 		}
-		if (typeof frappe !== "undefined" && typeof frappe.msgprint === "function") {
-			frappe.msgprint(__("From Date cannot be after To Date."));
-		}
-		if (report && typeof report.set_filter_value === "function") {
-			report.set_filter_value("from_date", toDate);
+		// A custom on_change replaces Frappe's automatic refresh, so re-run here.
+		if (report && typeof report.refresh === "function") {
+			report.refresh();
 		}
 	}
 
@@ -69,6 +74,12 @@
 	// its own, and the "Overall" label sits in typed (Date/Link) columns that would blank it or turn it
 	// into a link, so format that row by hand.
 	function overall_row_formatter(value, row, column, data, default_formatter) {
+		// "Unassigned" is a placeholder, not a record: a Link column would point at a document that
+		// does not exist.
+		if (column.fieldtype === "Link" && value === __("Unassigned")) {
+			value = frappe.utils.escape_html(value);
+			return data && data.bold ? `<b>${value}</b>` : value;
+		}
 		if (!data || !data.bold) {
 			return default_formatter(value, row, column, data);
 		}

@@ -108,6 +108,7 @@ def _get_rows(filters: dict) -> list[dict]:
 			"custom_pea_shift",
 			"fg_completed_qty",
 			"custom_pea_rejection_qty",
+			"custom_pea_actual_duration_mins",
 			"custom_pea_actual_start_date",
 			"custom_pea_actual_end_date",
 			"custom_pea_production_time_mins",
@@ -123,8 +124,8 @@ def _get_rows(filters: dict) -> list[dict]:
 			entry_name = entry.get("name")
 			loss_metrics = parent_loss_metrics.get(entry_name or "", {})
 			production_date = str(entry.get("production_date") or "")
-			operator = entry.get("custom_pea_operator") or "Unassigned"
-			workstation = entry.get("custom_pea_workstation") or "Unassigned"
+			operator = entry.get("custom_pea_operator") or _("Unassigned")
+			workstation = entry.get("custom_pea_workstation") or _("Unassigned")
 			operation = get_entry_report_operation(entry)
 			group_key = (production_date, operator, workstation, operation)
 			agg = aggregates.setdefault(

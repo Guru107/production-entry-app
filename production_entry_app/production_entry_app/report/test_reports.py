@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+import importlib
 import json
 import time
 from contextlib import ExitStack
@@ -166,15 +167,11 @@ class TestProductionReports(FrappeTestCase):
 			frappe.set_user(original_user)
 
 	def _get_pea_read_only_report_filters(self, report_name: str) -> dict:
-		if report_name in (
-			"Daily Rej Rework Register",
-			"Daily Strokes SPM Monitor",
-			"Operator Daily SPM Report",
-		):
-			return {"from_date": "2090-04-01", "to_date": "2090-04-30"}
 		if report_name == "Monthly Production OEE Report":
 			return {"year": 2090, "month": 4}
-		return {}
+		if report_name in ("Pending Rework", "Die Tool Stroke and Maintenance Report"):
+			return {}
+		return {"from_date": "2090-04-01", "to_date": "2090-04-30"}
 
 	def test_manufacturing_user_cannot_run_pea_report_through_query_report_runner(self) -> None:
 		user_email = f"test_pea_report_mfg_{frappe.generate_hash(length=8)}@example.com"
@@ -389,7 +386,7 @@ class TestProductionReports(FrappeTestCase):
 			execute,
 		)
 
-		columns, _rows = execute({})
+		columns, _rows = execute({"from_date": "2090-04-01", "to_date": "2090-04-30"})
 		fieldnames = [column.get("fieldname") for column in columns]
 		self.assertEqual(
 			fieldnames,
@@ -735,7 +732,9 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		ensure_downtime_reason("04")
-		columns, _rows = execute({"downtime_reason": ["21", "01", "04"]})
+		columns, _rows = execute(
+			{"from_date": "2090-04-01", "to_date": "2090-04-30", "downtime_reason": ["21", "01", "04"]}
+		)
 		fieldnames = [column.get("fieldname") for column in columns]
 		self.assertEqual(
 			fieldnames,
@@ -784,7 +783,9 @@ class TestProductionReports(FrappeTestCase):
 			('["01", "04"]', True),
 		):
 			with self.subTest(value=value):
-				columns, _rows = execute({"downtime_reason": value})
+				columns, _rows = execute(
+					{"from_date": "2090-04-01", "to_date": "2090-04-30", "downtime_reason": value}
+				)
 				fieldnames = [column.get("fieldname") for column in columns]
 				self.assertIn("reason_01_1st", fieldnames)
 				if expect_04:
@@ -931,12 +932,12 @@ class TestProductionReports(FrappeTestCase):
 			)
 			self._assert_column_precision(
 				get_workstation_rejection_matrix_columns(["Crack"]),
-				("total_rejection_qty", "reason_crack"),
+				("total_rejection_qty", "reason_1"),
 				expected_precision=4,
 			)
 			self._assert_column_precision(
 				get_workstation_rework_matrix_columns(["Crack"]),
-				("total_rework_qty", "reason_crack"),
+				("total_rework_qty", "reason_1"),
 				expected_precision=4,
 			)
 
@@ -3050,23 +3051,24 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(operator_rows, [])
 		self.assertEqual(workstation_rows, [])
 
-	def test_reports_execute_without_filters_returns_rows_or_empty(self) -> None:
-		from production_entry_app.production_entry_app.report.operator_efficiency_report.operator_efficiency_report import (
-			execute as operator_execute,
-		)
-		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
-			execute as oee_execute,
-		)
-		from production_entry_app.production_entry_app.report.workstation_efficiency_report.workstation_efficiency_report import (
-			execute as workstation_execute,
-		)
-
-		_, oee_rows = oee_execute({})
-		_, operator_rows = operator_execute({})
-		_, workstation_rows = workstation_execute({})
-		self.assertIsInstance(oee_rows, list)
-		self.assertIsInstance(operator_rows, list)
-		self.assertIsInstance(workstation_rows, list)
+	def test_dated_reports_reject_undated_runs(self) -> None:
+		report_root = Path(__file__).parent
+		undated = {
+			"pending_rework",
+			"die_tool_stroke_and_maintenance_report",
+			"monthly_production_oee_report",
+		}
+		for report_dir in sorted(p for p in report_root.iterdir() if (p / "__init__.py").is_file()):
+			if report_dir.name in undated:
+				continue
+			module = importlib.import_module(
+				f"production_entry_app.production_entry_app.report.{report_dir.name}.{report_dir.name}"
+			)
+			with self.subTest(report=report_dir.name):
+				with self.assertRaises(frappe.MandatoryError):
+					module.execute({})
+				with self.assertRaises(frappe.MandatoryError):
+					module.execute({"from_date": "2026-01-01"})
 
 	def test_reports_support_fg_item_filter_for_operator_and_workstation(self) -> None:
 		from production_entry_app.production_entry_app.report.operator_efficiency_report.operator_efficiency_report import (
@@ -3360,7 +3362,7 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(float(hotspot_rows[0]["rejection_qty"]), 4.0)
 		self.assertIn("Crack (4", hotspot_rows[0]["dominant_reason"])
 		self.assertEqual(float(matrix_rows[0]["total_rejection_qty"]), 4.0)
-		self.assertEqual(float(matrix_rows[0]["reason_crack"]), 4.0)
+		self.assertEqual(float(matrix_rows[0]["reason_1"]), 4.0)
 
 	def test_rejection_trend_report_daily_aggregation(self) -> None:
 		from production_entry_app.production_entry_app.report.rejection_trend_report.rejection_trend_report import (
@@ -3629,14 +3631,14 @@ class TestProductionReports(FrappeTestCase):
 		overall = rows[-1]
 		rows = rows[:-1]
 		row_by_workstation = {row["workstation"]: row for row in rows}
-		self.assertEqual(float(row_by_workstation["Report Workstation"]["reason_crack"]), 5.0)
-		self.assertEqual(float(row_by_workstation[workstation_2]["reason_blank_cut"]), 4.0)
+		self.assertEqual(float(row_by_workstation["Report Workstation"]["reason_1"]), 5.0)
+		self.assertEqual(float(row_by_workstation[workstation_2]["reason_2"]), 4.0)
 		self.assertEqual(float(row_by_workstation["Report Workstation"]["total_rejection_qty"]), 7.0)
 		self.assertEqual(overall["workstation"], "Overall")
 		self.assertEqual(overall["bold"], 1)
 		self.assertEqual(overall["entries"], 2)
-		self.assertEqual(float(overall["reason_crack"]), 5.0)
-		self.assertEqual(float(overall["reason_blank_cut"]), 4.0)
+		self.assertEqual(float(overall["reason_1"]), 5.0)
+		self.assertEqual(float(overall["reason_2"]), 4.0)
 		# Burr is outside the top 2 reasons but still counts toward the total.
 		self.assertEqual(float(overall["total_rejection_qty"]), 11.0)
 
@@ -3937,7 +3939,7 @@ class TestProductionReports(FrappeTestCase):
 			),
 		):
 			rows = report_utils.get_item_bom_quality_hotspot_rows(
-				{"bom_no": "BOM-WANTED"},
+				{"bom_no": "BOM-WANTED", "from_date": "2026-06-01", "to_date": "2026-06-30"},
 				is_rework=False,
 				quantity_field="rejection_qty",
 				rate_field="rejection_rate_pct",
@@ -3989,7 +3991,7 @@ class TestProductionReports(FrappeTestCase):
 			execute,
 		)
 
-		columns, _, _, _ = execute({})
+		columns, _, _, _ = execute({"from_date": "2090-04-01", "to_date": "2090-04-30"})
 		fieldnames = [c["fieldname"] for c in columns]
 		self.assertEqual(fieldnames, ["date", "entries", "total_qty", "rejection_qty", "ppm"])
 
@@ -4030,6 +4032,7 @@ class TestProductionReports(FrappeTestCase):
 				{
 					"name": "MAT-STE-TEST-0001",
 					"posting_date": "2026-06-30",
+					"production_date": "2026-06-30",
 					"fg_completed_qty": 100,
 					"custom_pea_rejection_qty": 9,
 				}
@@ -4061,6 +4064,7 @@ class TestProductionReports(FrappeTestCase):
 				{
 					"name": "MAT-STE-TEST-0002",
 					"posting_date": "2026-06-30",
+					"production_date": "2026-06-30",
 					"fg_completed_qty": 100,
 					"custom_pea_rejection_qty": 0,
 				}
@@ -4463,10 +4467,10 @@ class TestProductionReports(FrappeTestCase):
 		self.assertIn("Crack", [col.get("label") for col in columns])
 		self.assertEqual(len(rows), 2)  # workstation + Overall Row
 		self.assertEqual(float(rows[0]["total_rework_qty"]), 5.0)
-		self.assertEqual(float(rows[0]["reason_crack"]), 5.0)
+		self.assertEqual(float(rows[0]["reason_1"]), 5.0)
 		self.assertEqual(rows[-1]["workstation"], "Overall")
 		self.assertEqual(float(rows[-1]["total_rework_qty"]), 5.0)
-		self.assertEqual(float(rows[-1]["reason_crack"]), 5.0)
+		self.assertEqual(float(rows[-1]["reason_1"]), 5.0)
 
 	def test_workstation_rework_reason_matrix_translates_unassigned_label(self) -> None:
 		from production_entry_app.production_entry_app.report.workstation_rework_reason_matrix import (
@@ -4492,68 +4496,6 @@ class TestProductionReports(FrappeTestCase):
 			_rows, rows = report.execute({"from_date": "2026-07-10", "to_date": "2026-07-10"})
 
 		self.assertEqual(rows[0]["workstation"], "translated:Unassigned")
-
-	def test_workstation_rework_reason_matrix_ignores_legacy_workstation_values(self) -> None:
-		from production_entry_app.production_entry_app.report.workstation_rework_reason_matrix import (
-			workstation_rework_reason_matrix as report,
-		)
-
-		with (
-			patch.object(
-				report,
-				"iter_stock_entries_in_chunks",
-				return_value=[
-					[
-						{
-							"name": "STE-LEGACY",
-							"custom_pea_workstation": "",
-							"custom_workstation": "Legacy Workstation",
-						},
-						{
-							"name": "STE-OTHER",
-							"custom_pea_workstation": "Other Workstation",
-							"custom_workstation": "",
-						},
-					]
-				],
-			),
-			patch.object(
-				report,
-				"get_parent_breakup_reason_rows",
-				return_value=[{"parent": "STE-LEGACY", "rejection_reason": "Crack", "qty": 4}],
-			),
-			patch.object(report, "apply_system_precision", side_effect=lambda columns: columns),
-		):
-			_columns, legacy_filter_rows = report.execute({"custom_pea_workstation": "Legacy Workstation"})
-
-		self.assertEqual(legacy_filter_rows, [])
-		with (
-			patch.object(
-				report,
-				"iter_stock_entries_in_chunks",
-				return_value=[
-					[
-						{
-							"name": "STE-LEGACY",
-							"custom_pea_workstation": "",
-							"custom_workstation": "Legacy Workstation",
-						},
-					]
-				],
-			),
-			patch.object(
-				report,
-				"get_parent_breakup_reason_rows",
-				return_value=[{"parent": "STE-LEGACY", "rejection_reason": "Crack", "qty": 4}],
-			),
-			patch.object(report, "apply_system_precision", side_effect=lambda columns: columns),
-			patch.object(report, "_", side_effect=lambda text: f"translated:{text}"),
-		):
-			_columns, unfiltered_rows = report.execute({})
-
-		self.assertEqual(unfiltered_rows[0]["workstation"], "translated:Unassigned")
-
-	# ── Daily Strokes SPM Monitor ─────────────────────────────────────
 
 	def test_daily_strokes_spm_monitor_columns_without_operator(self) -> None:
 		from production_entry_app.production_entry_app.report.daily_strokes_spm_monitor.daily_strokes_spm_monitor import (
@@ -5014,7 +4956,7 @@ class TestProductionReports(FrappeTestCase):
 		)
 
 		shift = self._create_shift_for_label("2082-05-11", "1")
-		self._create_mock_submitted_entry(
+		entry = self._create_mock_submitted_entry(
 			posting_date="2082-05-11",
 			planned_start="2082-05-11 08:00:00",
 			planned_end="2082-05-11 08:01:00",
@@ -5035,6 +4977,11 @@ class TestProductionReports(FrappeTestCase):
 					"end_time": "08:00:40",
 				},
 			],
+		)
+
+		# Reports trust the stored production time (60s run minus 40s of loss).
+		frappe.db.set_value(
+			"Stock Entry", entry.name, "custom_pea_production_time_mins", 20 / 60, update_modified=False
 		)
 
 		_, rows = execute(
@@ -5553,6 +5500,106 @@ class TestProductionReports(FrappeTestCase):
 				"purpose": "Manufacture",
 			}
 		).insert(ignore_permissions=True)
+
+	def test_fg_item_filter_cap_counts_only_entries_in_the_report_range(self) -> None:
+		from production_entry_app.production_entry_app.report import report_utils
+		from production_entry_app.production_entry_app.report.operator_efficiency_report.operator_efficiency_report import (
+			execute,
+		)
+
+		for day in ("2026-06-05", "2026-06-06"):
+			shift = self._create_shift_for_label(day, "1")
+			self._create_mock_submitted_entry(
+				posting_date=day,
+				planned_start=f"{day} 08:00:00",
+				planned_end=f"{day} 09:00:00",
+				actual_start=f"{day} 08:00:00",
+				actual_end=f"{day} 09:00:00",
+				fg_qty=100,
+				rejection_qty=0,
+				shift_name=shift.name,
+			)
+
+		with patch.object(report_utils, "_MAX_FG_ITEM_PARENT_MATCHES", 1):
+			_, rows = execute({"from_date": "2026-06-05", "to_date": "2026-06-05", "fg_item": self.fg_item})
+			self.assertEqual(float(rows[0]["total_units"]), 100.0)
+			with self.assertRaises(frappe.ValidationError):
+				execute({"from_date": "2026-06-05", "to_date": "2026-06-06", "fg_item": self.fg_item})
+
+	def test_spm_reports_agree_when_stored_production_time_is_zero(self) -> None:
+		from production_entry_app.production_entry_app.report.daily_strokes_spm_monitor.daily_strokes_spm_monitor import (
+			execute as monitor_execute,
+		)
+		from production_entry_app.production_entry_app.report.operator_daily_spm_report.operator_daily_spm_report import (
+			execute as operator_execute,
+		)
+
+		shift = self._create_shift_for_label("2026-06-07", "1")
+		entry = self._create_mock_submitted_entry(
+			posting_date="2026-06-07",
+			planned_start="2026-06-07 08:00:00",
+			planned_end="2026-06-07 09:00:00",
+			actual_start="2026-06-07 08:00:00",
+			actual_end="2026-06-07 09:00:00",
+			fg_qty=100,
+			rejection_qty=0,
+			shift_name=shift.name,
+		)
+		frappe.db.set_value(
+			"Stock Entry",
+			entry.name,
+			{"custom_pea_production_time_mins": 0, "custom_pea_actual_duration_mins": 60},
+			update_modified=False,
+		)
+		filters = {"from_date": "2026-06-07", "to_date": "2026-06-07"}
+
+		_, monitor_rows = monitor_execute(filters)
+		_, operator_rows = operator_execute(filters)
+
+		self.assertEqual(float(monitor_rows[0]["prod_time_hrs"]), 0.0)
+		self.assertEqual(float(operator_rows[0]["production_time_hrs"]), 0.0)
+
+	def test_reason_matrix_columns_stay_distinct_for_colliding_and_non_ascii_reasons(self) -> None:
+		from production_entry_app.production_entry_app.report.workstation_rejection_reason_matrix.workstation_rejection_reason_matrix import (
+			execute,
+		)
+
+		shift = self._create_shift_for_label("2026-06-08", "1")
+		reasons = {"Dent / Scratch": 5, "Dent-Scratch": 4, "डेंट": 3, "खरोंच": 2}
+		for index, (reason, qty) in enumerate(reasons.items()):
+			frappe.get_doc({"doctype": "Rejection Reason", "rejection_reason_name": reason}).insert(
+				ignore_if_duplicate=True
+			)
+			self._create_mock_submitted_entry_with_breakup(
+				posting_date="2026-06-08",
+				planned_start=f"2026-06-08 {8 + index:02d}:00:00",
+				planned_end=f"2026-06-08 {9 + index:02d}:00:00",
+				actual_start=f"2026-06-08 {8 + index:02d}:00:00",
+				actual_end=f"2026-06-08 {9 + index:02d}:00:00",
+				fg_qty=100,
+				shift_name=shift.name,
+				breakup_rows=[{"rejection_reason": reason, "qty": qty}],
+			)
+
+		columns, rows = execute({"from_date": "2026-06-08", "to_date": "2026-06-08"})
+
+		reason_columns = {column["label"]: column["fieldname"] for column in columns[3:]}
+		self.assertEqual(set(reason_columns), set(reasons))
+		self.assertEqual(len(set(reason_columns.values())), len(reasons))
+		row = rows[0]
+		for reason, qty in reasons.items():
+			self.assertEqual(float(row[reason_columns[reason]]), float(qty))
+		self.assertEqual(float(row["total_rejection_qty"]), float(sum(reasons.values())))
+
+	def test_reason_matrix_filters_by_workstation_in_the_database(self) -> None:
+		from production_entry_app.production_entry_app.report.workstation_rejection_reason_matrix import (
+			workstation_rejection_reason_matrix as matrix,
+		)
+
+		self.assertIn("custom_pea_workstation", matrix._FILTER_KEYS)
+		with patch.object(matrix, "build_stock_entry_filters", return_value={}) as build:
+			matrix._build_filters({"custom_pea_workstation": "WS-1"})
+		self.assertIn("custom_pea_workstation", build.call_args.kwargs["filter_keys"])
 
 	def _create_mock_submitted_entry(
 		self,

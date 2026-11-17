@@ -115,40 +115,36 @@ def build_stock_entry_filters(filters: dict, filter_keys: tuple[str, ...]) -> di
 		if key != "bom_no" and filters.get(key):
 			db_filters[key] = filters.get(key)
 
-	from_date = filters.get("from_date")
-	to_date = filters.get("to_date")
-	if from_date or to_date:
-		shift_filters = completed_shift_filters(from_date, to_date)
-		shift_names = get_report_rows("Shift", filters=shift_filters, pluck="name")
-		requested_shift = filters.get("custom_pea_shift")
-		if requested_shift:
-			shift_names = [shift_name for shift_name in shift_names if shift_name == requested_shift]
-		db_filters["custom_pea_shift"] = ["in", shift_names or [_NO_MATCHING_SHIFT]]
+	shift_filters = completed_shift_filters(filters.get("from_date"), filters.get("to_date"))
+	shift_names = get_report_rows("Shift", filters=shift_filters, pluck="name")
+	requested_shift = filters.get("custom_pea_shift")
+	if requested_shift:
+		shift_names = [shift_name for shift_name in shift_names if shift_name == requested_shift]
+	db_filters["custom_pea_shift"] = ["in", shift_names or [_NO_MATCHING_SHIFT]]
 
 	fg_item = filters.get("fg_item")
 	if fg_item:
-		_restrict_stock_entry_names(db_filters, get_stock_entries_for_fg_item(fg_item))
+		_restrict_stock_entry_names(db_filters, get_stock_entries_for_fg_item(fg_item, shift_names))
 
 	bom_no = filters.get("bom_no")
 	if bom_no and "bom_no" in filter_keys:
-		_restrict_stock_entry_names(
-			db_filters,
-			get_stock_entries_for_bom(bom_no, filters=db_filters),
-		)
+		# The operation sentinel is not a Stock Entry column; the BOM lookup queries the table directly.
+		bom_filters = {k: v for k, v in db_filters.items() if k != _OPERATION_REPORT_FILTER_KEY}
+		_restrict_stock_entry_names(db_filters, get_stock_entries_for_bom(bom_no, filters=bom_filters))
 
 	return db_filters
 
 
+def require_date_range(from_date: str | None, to_date: str | None) -> None:
+	# The JS filters are reqd, but API callers bypass them; an open range would scan all history.
+	if not (from_date and to_date):
+		frappe.throw(_("From Date and To Date are required."), frappe.MandatoryError)
+
+
 def completed_shift_filters(from_date: str | None, to_date: str | None) -> dict:
-	"""Completed Shifts, narrowed to the report Production Date Range when one is set."""
-	shift_filters: dict = {"status": "Completed"}
-	if from_date and to_date:
-		shift_filters["shift_date"] = ["between", [from_date, to_date]]
-	elif from_date:
-		shift_filters["shift_date"] = [">=", from_date]
-	elif to_date:
-		shift_filters["shift_date"] = ["<=", to_date]
-	return shift_filters
+	"""Completed Shifts within the report Production Date Range, which is mandatory."""
+	require_date_range(from_date, to_date)
+	return {"status": "Completed", "shift_date": ["between", [from_date, to_date]]}
 
 
 def get_shift_production_dates(shift_names: list[str] | set[str]) -> dict[str, Any]:
@@ -404,11 +400,11 @@ def _should_enforce_interactive_report_timeout() -> bool:
 	return bool(cint(frappe.form_dict.get("ignore_prepared_report")))
 
 
-def get_stock_entries_for_fg_item(item_code: str) -> list[str]:
+def get_stock_entries_for_fg_item(item_code: str, shift_names: list[str] | None = None) -> list[str]:
 	stock_entry_detail = DocType("Stock Entry Detail")
 	stock_entry = DocType("Stock Entry")
 	stock_entry_type = DocType("Stock Entry Type")
-	rows = (
+	query = (
 		frappe.qb.from_(stock_entry_detail)
 		.inner_join(stock_entry)
 		.on(stock_entry.name == stock_entry_detail.parent)
@@ -427,8 +423,11 @@ def get_stock_entries_for_fg_item(item_code: str) -> list[str]:
 				| ((stock_entry.purpose == "Repack") & paired_repack_type_criterion(stock_entry_type))
 			)
 		)
-		.limit(_MAX_FG_ITEM_PARENT_MATCHES + 1)
-	).run(as_dict=True)
+	)
+	if shift_names is not None:
+		# Apply the report's shift scope before the cap so old history cannot trip it.
+		query = query.where(stock_entry.custom_pea_shift.isin(shift_names or [_NO_MATCHING_SHIFT]))
+	rows = query.limit(_MAX_FG_ITEM_PARENT_MATCHES + 1).run(as_dict=True)
 	if len(rows) > _MAX_FG_ITEM_PARENT_MATCHES:
 		frappe.throw(
 			_(
@@ -1304,9 +1303,9 @@ def accumulate_efficiency_aggregate(
 	aggregates: defaultdict,
 	entry: dict,
 	group_field: str,
-	group_label_default: str = "Unassigned",
+	group_label_default: str | None = None,
 ) -> None:
-	group_value = entry.get(group_field) or group_label_default
+	group_value = entry.get(group_field) or group_label_default or _("Unassigned")
 	good_qty = flt(entry.get("_good_qty") or 0)
 	rejection_qty = flt(entry.get("_rejection_qty") or 0)
 	rework_qty = flt(entry.get("_rework_qty") or 0)
@@ -1335,7 +1334,7 @@ def accumulate_efficiency_aggregate(
 def aggregate_efficiency_by_field(
 	entries: list[dict],
 	group_field: str,
-	group_label_default: str = "Unassigned",
+	group_label_default: str | None = None,
 ) -> dict[str, dict]:
 	aggregates = new_efficiency_aggregates()
 	for entry in entries:

@@ -102,7 +102,7 @@ def _get_rows(filters: dict) -> list[dict]:
 		for entry in entries:
 			entry_name = entry.get("name")
 			entry_metrics = parent_quantity_metrics.get(entry_name or "", {})
-			operator = entry.get("custom_pea_operator") or "Unassigned"
+			operator = entry.get("custom_pea_operator") or _("Unassigned")
 			total_qty = flt(entry.get("fg_completed_qty") or 0)
 			if total_qty <= 0 and entry_name:
 				total_qty = flt(entry_metrics.get("good_qty") or 0) + flt(
@@ -122,7 +122,7 @@ def _get_rows(filters: dict) -> list[dict]:
 			)
 
 		operator_by_entry = {
-			entry.get("name"): (entry.get("custom_pea_operator") or "Unassigned")
+			entry.get("name"): (entry.get("custom_pea_operator") or _("Unassigned"))
 			for entry in entries
 			if entry.get("name")
 		}
@@ -132,7 +132,7 @@ def _get_rows(filters: dict) -> list[dict]:
 			qty = flt(row.get("qty") or 0)
 			if not parent or not reason or qty <= 0:
 				continue
-			operator = operator_by_entry.get(parent, "Unassigned")
+			operator = operator_by_entry.get(parent, _("Unassigned"))
 			reason_totals = agg_by_operator.setdefault(operator, _empty_agg())["reason_totals"]
 			reason_totals[reason] = flt(reason_totals.get(reason) or 0) + qty
 

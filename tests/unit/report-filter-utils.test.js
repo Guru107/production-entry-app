@@ -164,3 +164,53 @@ test("overall_row_formatter leaves missing values blank instead of formatting th
 	);
 	assert.equal(zero, "<b>0.0000%</b>");
 });
+
+test("validate_report_date_range refreshes the report when the range is valid", () => {
+	let refreshed = 0;
+	const report = {
+		get_filter_value: (fieldname) =>
+			({ from_date: "2026-02-01", to_date: "2026-02-28" }[fieldname]),
+		refresh() {
+			refreshed += 1;
+		},
+	};
+
+	validate_report_date_range(report);
+	assert.equal(refreshed, 1);
+});
+
+test("validate_report_date_range leaves the refresh to the corrected filter when inverted", () => {
+	let refreshed = 0;
+	const report = {
+		get_filter_value: (fieldname) =>
+			({ from_date: "2026-03-01", to_date: "2026-02-28" }[fieldname]),
+		set_filter_value() {},
+		refresh() {
+			refreshed += 1;
+		},
+	};
+
+	validate_report_date_range(report);
+	assert.equal(refreshed, 0);
+});
+
+test("overall_row_formatter renders Unassigned in a Link column as plain text", (t) => {
+	const originalFrappe = global.frappe;
+	const originalTranslate = global.__;
+	t.after(() => {
+		global.frappe = originalFrappe;
+		global.__ = originalTranslate;
+	});
+	global.frappe = { utils: { escape_html: (text) => text } };
+	global.__ = (text) => text;
+	const linkFormatter = () => "<a>Unassigned</a>";
+
+	assert.equal(
+		overall_row_formatter("Unassigned", 0, { fieldtype: "Link" }, {}, linkFormatter),
+		"Unassigned"
+	);
+	assert.equal(
+		overall_row_formatter("Unassigned", 0, { fieldtype: "Link" }, { bold: 1 }, linkFormatter),
+		"<b>Unassigned</b>"
+	);
+});

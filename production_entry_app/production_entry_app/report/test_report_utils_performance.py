@@ -140,24 +140,51 @@ class TestReportUtilsPerformance(FrappeTestCase):
 			limit_page_length=report_utils._MAX_BOM_PARENT_MATCHES + 1,
 		)
 
-	def test_build_stock_entry_filters_handles_single_sided_dates_and_fg_item(self) -> None:
+	def test_build_stock_entry_filters_requires_both_dates(self) -> None:
+		for filters in ({}, {"from_date": "2026-01-01"}, {"to_date": "2026-01-31"}):
+			with self.subTest(filters=filters), self.assertRaises(frappe.MandatoryError):
+				report_utils.build_stock_entry_filters(filters, ())
+
+	def test_build_stock_entry_filters_scopes_fg_item_to_report_shifts(self) -> None:
 		with (
 			patch(
 				"production_entry_app.production_entry_app.report.report_utils.get_stock_entries_for_fg_item",
 				return_value=["STE-001"],
-			),
-			patch.object(report_utils, "get_report_rows", side_effect=[["SHIFT-FROM"], ["SHIFT-TO"]]),
+			) as fg_lookup,
+			patch.object(report_utils, "get_report_rows", return_value=["SHIFT-FROM"]),
 		):
-			from_filters = report_utils.build_stock_entry_filters(
-				{"from_date": "2026-01-01", "fg_item": "FG-001", "custom_pea_operator": "OP-1"},
+			filters = report_utils.build_stock_entry_filters(
+				{
+					"from_date": "2026-01-01",
+					"to_date": "2026-01-31",
+					"fg_item": "FG-001",
+					"custom_pea_operator": "OP-1",
+				},
 				("custom_pea_operator",),
 			)
-			to_filters = report_utils.build_stock_entry_filters({"to_date": "2026-01-31"}, ())
 
-		self.assertEqual(from_filters["custom_pea_shift"], ["in", ["SHIFT-FROM"]])
-		self.assertEqual(from_filters["custom_pea_operator"], "OP-1")
-		self.assertEqual(from_filters["name"], ["in", ["STE-001"]])
-		self.assertEqual(to_filters["custom_pea_shift"], ["in", ["SHIFT-TO"]])
+		fg_lookup.assert_called_once_with("FG-001", ["SHIFT-FROM"])
+		self.assertEqual(filters["custom_pea_shift"], ["in", ["SHIFT-FROM"]])
+		self.assertEqual(filters["custom_pea_operator"], "OP-1")
+		self.assertEqual(filters["name"], ["in", ["STE-001"]])
+
+	def test_build_stock_entry_filters_keeps_operation_sentinel_out_of_bom_lookup(self) -> None:
+		with (
+			patch.object(report_utils, "get_stock_entries_for_bom", return_value=["STE-001"]) as bom_lookup,
+			patch.object(report_utils, "get_report_rows", return_value=["SHIFT-1"]),
+		):
+			filters = report_utils.build_stock_entry_filters(
+				{
+					"from_date": "2026-01-01",
+					"to_date": "2026-01-31",
+					"bom_no": "BOM-001",
+					"custom_pea_operation": "Blanking",
+				},
+				("bom_no", "custom_pea_operation"),
+			)
+
+		self.assertNotIn(report_utils._OPERATION_REPORT_FILTER_KEY, bom_lookup.call_args.kwargs["filters"])
+		self.assertEqual(filters[report_utils._OPERATION_REPORT_FILTER_KEY], "Blanking")
 
 	def test_stock_entry_alias_helpers_read_only_pea_fields(self) -> None:
 		"""Cutover release: the legacy parallel fields are never read."""
