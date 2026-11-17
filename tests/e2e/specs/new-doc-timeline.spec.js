@@ -13,6 +13,25 @@ test.describe("Timeline panel on unsaved documents", () => {
 		["Workstation", "/workstation/new"],
 		["Operator", "/operator/new"],
 	]) {
+		test(`@regression Administrator opens a new ${doctype} with no dialog and an empty timeline`, async ({
+			page,
+		}) => {
+			await page.goto(getRoute(route), { waitUntil: "domcontentloaded" });
+			await page.waitForFunction(
+				(expected) => window.cur_frm?.doctype === expected && window.cur_frm?.is_new?.(),
+				doctype
+			);
+			await page.waitForLoadState("networkidle");
+
+			await expect(page.locator(".msgprint-dialog:visible")).toHaveCount(0);
+			await expect(page.locator(".pea-shift-timeline-canvas")).toHaveCount(0);
+		});
+	}
+
+	for (const [doctype, route] of [
+		["Workstation", "/workstation/new"],
+		["Operator", "/operator/new"],
+	]) {
 		test(`@regression a Manufacturing User opening a new ${doctype} sees no Not Found dialog`, async ({
 			page,
 		}) => {

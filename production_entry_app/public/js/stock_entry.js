@@ -2101,6 +2101,8 @@ if (typeof module !== "undefined" && module.exports) {
 		_handle_custom_pea_fetch_items,
 		_apply_manufacture_visibility,
 		_apply_joint_slot_labels,
+		_prune_joint_production_breakup_rows,
+		_drop_breakup_rows_of_remapped_sides,
 		_sync_joint_stock_entry_type,
 		_sync_rework_mode_from_stock_entry_type,
 		_schedule_rework_workstation_default,
