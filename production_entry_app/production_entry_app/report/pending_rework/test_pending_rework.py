@@ -228,6 +228,7 @@ class TestPendingReworkReport(FrappeTestCase):
 				StockEntryDetail.parentfield,
 				StockEntryDetail.item_code,
 				StockEntryDetail.qty,
+				StockEntryDetail.transfer_qty,
 			)
 			.insert(
 				frappe.generate_hash(length=10),
@@ -235,6 +236,7 @@ class TestPendingReworkReport(FrappeTestCase):
 				"Stock Entry",
 				"items",
 				self.item,
+				qty,
 				qty,
 			)
 		).run()
