@@ -77,6 +77,8 @@ APP_SCHEMA_FIELDS = (
 	},
 )
 
+ADOPTION_EXPORT_FILENAME = "downtime_reason_adoption_export.json"
+
 STATE_ABSENT = "absent"
 STATE_ADOPTED = "adopted"
 STATE_RESHAPED = "reshaped"
@@ -85,8 +87,16 @@ STATE_UNEXPECTED = "unexpected"
 
 
 def adoption_export_path() -> str:
-	"""Path of the pre-adoption recovery export inside the site's private backups."""
-	return str(Path(frappe.get_site_path()) / "private" / "backups" / "downtime_reason_adoption_export.json")
+	"""Path of the pre-adoption recovery export.
+
+	Not under private/backups: Frappe's backup job prunes that folder after 23 hours.
+	"""
+	return str(Path(frappe.get_site_path("private", "files", "pea_adoption")) / ADOPTION_EXPORT_FILENAME)
+
+
+def remove_adoption_export() -> None:
+	"""Uninstall drops the Downtime Reason table, so a leftover export would poison a reinstall."""
+	Path(adoption_export_path()).unlink(missing_ok=True)
 
 
 def classify_downtime_reason_doctype() -> str:
@@ -141,7 +151,11 @@ def _has_app_schema(meta: Meta) -> bool:
 def adopt_host_downtime_reason_schema() -> None:
 	"""Pre-sync step: export the host state and reshape the DocType in place."""
 	state = classify_downtime_reason_doctype()
-	if state in (STATE_ABSENT, STATE_ADOPTED, STATE_RESHAPED):
+	if state == STATE_ABSENT:
+		# No table means any export is stale (reinstall, restore, recreated site).
+		remove_adoption_export()
+		return
+	if state in (STATE_ADOPTED, STATE_RESHAPED):
 		return
 	if state == STATE_UNEXPECTED:
 		values = frappe.db.get_value(
@@ -275,6 +289,7 @@ def convert_host_downtime_reasons() -> None:
 	seed_standard_downtime_reasons()
 	convert_legacy_downtime_reasons()
 	_verify_adoption()
+	remove_adoption_export()
 	frappe.logger("production_entry_app").info(
 		"Downtime Reason adoption: conversion and verification complete."
 	)

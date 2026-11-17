@@ -62,17 +62,15 @@ class TestPatchPairOnHostParity(install_parity.HostParityMigrationTestCase):
 		run_patch_pair()
 
 		self.assert_adopted_converted_and_cut_over()
-		self.assertTrue(Path(adoption_export_path()).exists())
+		self.assertFalse(Path(adoption_export_path()).exists())
 
 	def test_second_invocation_of_the_pair_changes_nothing(self) -> None:
 		run_patch_pair()
 		state_after_first = install_parity.migration_state()
-		export_after_first = Path(adoption_export_path()).read_text()
 
 		run_patch_pair()
 
 		self.assertEqual(install_parity.migration_state(), state_after_first)
-		self.assertEqual(Path(adoption_export_path()).read_text(), export_after_first)
 
 
 class TestFailedPatchRerun(install_parity.HostParityMigrationTestCase):
@@ -97,3 +95,23 @@ class TestFailedPatchRerun(install_parity.HostParityMigrationTestCase):
 			self.assertEqual(install_parity.script_enabled(name), 0, name)
 		self.assertIsNone(frappe.get_meta("Stock Entry", cached=False).get_field("custom_loss_time"))
 		self.assertEqual(sorted(host_parity.loss_time_reason_values(self.stock_entry)), ["01", "23"])
+
+
+class TestReorderManufacturePressFieldsPatch(FrappeTestCase):
+	def test_lookup_is_scoped_to_the_app_module(self) -> None:
+		from production_entry_app.patches import reorder_manufacture_press_fields
+
+		fields = [frappe._dict(fieldname="custom_pea_operator"), frappe._dict(fieldname="host_field")]
+		with (
+			patch.object(
+				reorder_manufacture_press_fields.frappe, "get_meta", return_value=frappe._dict(fields=fields)
+			),
+			patch.object(
+				reorder_manufacture_press_fields.frappe.db, "get_value", return_value=None
+			) as get_value,
+			patch.object(reorder_manufacture_press_fields.frappe, "clear_cache"),
+		):
+			reorder_manufacture_press_fields.execute()
+
+		for call_args in get_value.call_args_list:
+			self.assertEqual(call_args.args[1]["module"], "Production Entry App")
