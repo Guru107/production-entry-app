@@ -18,6 +18,7 @@ from production_entry_app.production_entry_app.utils.downtime_reason_adoption im
 	adopt_host_downtime_reason,
 	adopt_host_downtime_reason_schema,
 	adoption_export_path,
+	remove_adoption_export,
 )
 from production_entry_app.production_entry_app.utils.downtime_reason_seed import (
 	STANDARD_DOWNTIME_REASONS,
@@ -250,6 +251,24 @@ class TestFullAdoption(HostParityWithLinksTestCase):
 		)
 		self.assertEqual(tuple(f.fieldname for f in frappe.get_meta("Stock Entry").fields), se_fields_before)
 		self.assertEqual(frappe.get_meta("BOM").get_field("custom_operation") is not None, bom_has_operation)
+
+
+class TestAdoptionExportLocation(FrappeTestCase):
+	def test_export_lives_outside_the_pruned_backups_folder(self) -> None:
+		path = Path(adoption_export_path())
+
+		self.assertNotIn("backups", path.parts)
+		self.assertEqual(path.parent.name, "pea_adoption")
+
+	def test_remove_adoption_export_deletes_file_and_tolerates_absence(self) -> None:
+		path = Path(adoption_export_path())
+		path.parent.mkdir(parents=True, exist_ok=True)
+		path.write_text("{}")
+
+		remove_adoption_export()
+		remove_adoption_export()
+
+		self.assertFalse(path.exists())
 
 
 class TestAdoptionFailurePaths(HostParityTestCase):

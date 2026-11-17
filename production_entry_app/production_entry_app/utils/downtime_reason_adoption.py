@@ -77,6 +77,8 @@ APP_SCHEMA_FIELDS = (
 	},
 )
 
+ADOPTION_EXPORT_FILENAME = "downtime_reason_adoption_export.json"
+
 STATE_ABSENT = "absent"
 STATE_ADOPTED = "adopted"
 STATE_RESHAPED = "reshaped"
@@ -85,8 +87,16 @@ STATE_UNEXPECTED = "unexpected"
 
 
 def adoption_export_path() -> str:
-	"""Path of the pre-adoption recovery export inside the site's private backups."""
-	return str(Path(frappe.get_site_path()) / "private" / "backups" / "downtime_reason_adoption_export.json")
+	"""Path of the pre-adoption recovery export.
+
+	Not under private/backups: Frappe's backup job prunes that folder after 23 hours.
+	"""
+	return str(Path(frappe.get_site_path("private", "files", "pea_adoption")) / ADOPTION_EXPORT_FILENAME)
+
+
+def remove_adoption_export() -> None:
+	"""Uninstall drops the Downtime Reason table, so a leftover export would poison a reinstall."""
+	Path(adoption_export_path()).unlink(missing_ok=True)
 
 
 def classify_downtime_reason_doctype() -> str:

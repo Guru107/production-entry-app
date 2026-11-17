@@ -5,6 +5,9 @@ from frappe.query_builder import DocType
 from frappe.utils import cint
 
 from production_entry_app.production_entry_app import performance_indexes
+from production_entry_app.production_entry_app.utils.downtime_reason_adoption import (
+	remove_adoption_export,
+)
 from production_entry_app.production_entry_app.utils.downtime_reason_seed import (
 	seed_standard_downtime_reasons,
 )
@@ -13,6 +16,7 @@ APP_MODULE = "Production Entry App"
 CUSTOMIZATION_DOCTYPES = ("Property Setter", "Custom Field")
 APP_ROLES = ("PEA User", "PEA Read Only")
 STOCK_ENTRY_TYPE_FLAG_FIELDNAMES = (
+	"custom_pea_joint_production",
 	"custom_pea_joint_lh_rh_production",
 	"custom_pea_rework_entry",
 )
@@ -53,6 +57,7 @@ def after_uninstall() -> None:
 	_delete_app_docperms_on_host_doctypes()
 	_delete_app_roles()
 	_delete_app_owned_stock_entry_types()
+	remove_adoption_export()
 
 
 def _delete_app_docperms_on_host_doctypes() -> None:
@@ -112,7 +117,7 @@ def _warn_if_e2e_enabled_on_non_test_site() -> None:
 def _setup_app() -> None:
 	ensure_rework_details_layout()
 	seed_standard_downtime_reasons()
-	performance_indexes.ensure_performance_indexes_with_recovery()
+	performance_indexes.ensure_performance_indexes()
 	frappe.logger("production_entry_app").info(
 		"Production Entry App setup ran: Rework Stock Entry layout, standard Downtime Reasons "
 		"and performance indexes were reconciled during sync/migrate."
