@@ -1681,6 +1681,40 @@ class TestShift(FrappeTestCase):
 		with self.assertRaises(ValidationError):
 			doc.save()
 
+	def _insert_shift_starting_at(self, shift_date: str, start_time: str) -> Document:
+		self._delete_shifts_for_date(shift_date)
+		return frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"department": self._test_department,
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": shift_date,
+				"planned_start_time": start_time,
+			}
+		).insert()
+
+	def test_generated_overlapping_planned_losses_do_not_block_later_saves_or_transitions(self) -> None:
+		# Startup overlaps Tea Break at 09:00 and JH Activity at 10:00 by design.
+		for shift_date, start_time in (("2090-03-10", "09:00:00"), ("2090-03-11", "10:00:00")):
+			doc = self._insert_shift_starting_at(shift_date, start_time)
+			doc = frappe.get_doc("Shift", doc.name)
+			doc.save()
+			doc.start_shift()
+			doc.end_shift()
+			self.assertEqual(frappe.db.get_value("Shift", doc.name, "status"), "Completed")
+
+	def test_preexisting_bad_planned_loss_row_does_not_block_end_or_cancel(self) -> None:
+		doc = self._insert_shift_starting_at("2090-03-12", "08:00:00")
+		frappe.db.set_value(
+			"Loss Entry", doc.planned_losses[1].name, {"start_time": "09:00:00", "end_time": "08:50:00"}
+		)
+		doc = frappe.get_doc("Shift", doc.name)
+		doc.start_shift()
+		doc.end_shift()
+		frappe.get_doc("Shift", doc.name).cancel_shift()
+		self.assertEqual(frappe.db.get_value("Shift", doc.name, "status"), "Cancelled")
+
 	def test_valid_edited_planned_loss_row_is_saved(self) -> None:
 		doc = self._insert_edited_loss_shift("1", {1: ("09:00:00", "09:15:00")})
 		doc.save()

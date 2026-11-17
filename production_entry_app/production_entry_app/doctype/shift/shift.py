@@ -43,7 +43,6 @@ from production_entry_app.production_entry_app.utils.system_precision import (
 )
 
 METRICS_CACHE_TTL_SEC: int = 30
-WARNING_THRESHOLD_PCT_DEFAULT: float = 90.0
 SHIFT_SUMMARY_TARGET_COVERAGE_PCT_MIN: float = 60.0
 SHIFT_SUMMARY_COMPLETENESS_MIN_RECORDED_RATIO: float = 0.5
 SHIFT_SUMMARY_WORKSTATION_MIN_PRODUCTION_MINS: float = 15.0
@@ -1393,7 +1392,8 @@ class Shift(Document):
 		self._validate_field_locking()
 		self._calculate_planned_end_time_and_dates()
 		self._set_shift_title()
-		if not self._populate_planned_losses_if_needed():
+		# Generated rows may overlap by design; only hand edits are validated.
+		if not self._populate_planned_losses_if_needed() and self._planned_losses_changed():
 			self._validate_planned_losses()
 		self._validate_no_overlapping_shifts()
 		self._validate_unique_shift_label_per_date()

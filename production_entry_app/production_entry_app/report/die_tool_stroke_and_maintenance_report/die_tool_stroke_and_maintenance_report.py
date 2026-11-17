@@ -12,7 +12,10 @@ from production_entry_app.production_entry_app.report.report_utils import (
 	safe_ratio,
 	sum_rows,
 )
-from production_entry_app.production_entry_app.utils.die_tool_counter import get_counter_health
+from production_entry_app.production_entry_app.utils.die_tool_counter import (
+	get_counter_health,
+	resolve_warning_threshold,
+)
 
 
 def execute(filters: dict | None = None) -> tuple[list[dict], list[dict]]:
@@ -151,7 +154,7 @@ def _get_rows(filters: dict) -> list[dict]:
 	for counter in counters:
 		stroke_capacity = flt(counter.get("stroke_capacity") or 0)
 		current_strokes = flt(counter.get("current_stroke_count") or 0)
-		warning_threshold_pct = float(counter.get("warning_threshold_pct") or 90)
+		warning_threshold_pct = resolve_warning_threshold(counter.get("warning_threshold_pct"))
 		utilization_pct, maintenance_due = get_counter_health(
 			current_strokes=current_strokes,
 			stroke_capacity=stroke_capacity,

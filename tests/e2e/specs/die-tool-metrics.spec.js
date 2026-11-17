@@ -4,6 +4,12 @@ const { getDoc, callFrappeMethod, retryOnContextDestroyed } = require("../fixtur
 const { StockEntryPage } = require("../pages/stock-entry-page");
 const { registerE2ELifecycle } = require("../fixtures/lifecycle");
 const { expectValidationError } = require("../fixtures/assertions");
+const { deleteUserIfExists, ensureUser, loginAs } = require("../fixtures/users");
+
+const ADMIN_USERNAME = process.env.PLAYWRIGHT_USERNAME || "Administrator";
+const ADMIN_PASSWORD = process.env.PLAYWRIGHT_PASSWORD || "123";
+const TEST_PASSWORD = process.env.PLAYWRIGHT_TEST_USER_PASSWORD || "E2eT3st!Pass#2026";
+const COUNTER_USER = "e2e_die_counter_pea_user@example.com";
 
 async function setupFreshContext(page, prefix) {
 	await cleanupE2E(page, prefix);
@@ -291,5 +297,35 @@ test.describe("Die tool metrics and counter", () => {
 			"GET"
 		);
 		expect(Number(afterCancel.current_strokes)).toBe(Number(before.current_strokes));
+	});
+
+	test("@regression PEA User can read but not edit or delete a Die Tool Counter over REST", async ({
+		page,
+	}) => {
+		const ctx = await setupFreshContext(page, lifecycle.getPrefix());
+		await callFrappeMethod(
+			page,
+			"production_entry_app.production_entry_app.e2e_api.reset_e2e_die_tool_counter",
+			{ prefix: lifecycle.getPrefix() }
+		);
+		await deleteUserIfExists(page, COUNTER_USER);
+		await ensureUser(page, {
+			email: COUNTER_USER,
+			firstName: "Die Counter PEA User",
+			password: TEST_PASSWORD,
+			roles: ["PEA User"],
+		});
+		const url = `/api/resource/Die Tool Counter/${encodeURIComponent(ctx.fg_item)}`;
+
+		try {
+			await loginAs(page, COUNTER_USER, TEST_PASSWORD);
+			expect((await page.request.get(url)).status()).toBe(200);
+			const put = await page.request.put(url, { data: { current_stroke_count: 0 } });
+			expect(put.status()).toBe(403);
+			expect((await page.request.delete(url)).status()).toBe(403);
+		} finally {
+			await loginAs(page, ADMIN_USERNAME, ADMIN_PASSWORD);
+			await deleteUserIfExists(page, COUNTER_USER);
+		}
 	});
 });

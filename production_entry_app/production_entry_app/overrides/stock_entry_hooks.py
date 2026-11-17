@@ -17,10 +17,7 @@ from production_entry_app.production_entry_app.api_timeline import invalidate_ti
 from production_entry_app.production_entry_app.doctype.rejection_breakup.rejection_breakup import (
 	validate_rejection_breakup_row,
 )
-from production_entry_app.production_entry_app.doctype.shift.shift import (
-	WARNING_THRESHOLD_PCT_DEFAULT,
-	invalidate_shift_summary_cache,
-)
+from production_entry_app.production_entry_app.doctype.shift.shift import invalidate_shift_summary_cache
 from production_entry_app.production_entry_app.joint_production import (
 	is_paired_production,
 	validate_and_apply_joint_production,
@@ -48,6 +45,7 @@ from production_entry_app.production_entry_app.utils.die_tool_counter import (
 	get_counter_health,
 	is_die_tool_enabled,
 	resolve_die_tool_item_code,
+	resolve_warning_threshold,
 	update_counter_for_stock_entry,
 )
 from production_entry_app.production_entry_app.utils.die_tool_item import apply_bom_die_tool_item
@@ -1316,7 +1314,7 @@ def _set_die_tool_health_metrics(doc: Document, meta: Any) -> None:
 
 	current_strokes = float((counter or {}).get("current_stroke_count") or 0)
 	stroke_capacity = float((counter or {}).get("stroke_capacity") or 0)
-	warning_threshold = float((counter or {}).get("warning_threshold_pct") or WARNING_THRESHOLD_PCT_DEFAULT)
+	warning_threshold = resolve_warning_threshold((counter or {}).get("warning_threshold_pct"))
 	utilization_pct, maintenance_due = get_counter_health(
 		current_strokes=current_strokes,
 		stroke_capacity=stroke_capacity,

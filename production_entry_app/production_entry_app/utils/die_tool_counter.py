@@ -15,6 +15,13 @@ from production_entry_app.production_entry_app.joint_production import (
 )
 from production_entry_app.production_entry_app.utils.die_tool_item import DIE_TOOL_ITEM_FIELD
 
+WARNING_THRESHOLD_PCT_DEFAULT: float = 90.0
+
+
+def resolve_warning_threshold(value: float | None) -> float:
+	"""A configured 0 is a valid threshold; only a missing value falls back to the default."""
+	return WARNING_THRESHOLD_PCT_DEFAULT if value is None else float(value)
+
 
 def resolve_die_tool_item_code(doc: Document, *, persisted_only: bool = False) -> str | None:
 	"""Return the Item whose Die Tool Counter should receive this entry's strokes."""
@@ -85,7 +92,7 @@ def reset_counter_from_maintenance_log(item_code: str, maintenance_date: str | d
 def get_counter_health(
 	current_strokes: float,
 	stroke_capacity: float,
-	warning_threshold_pct: float = 90,
+	warning_threshold_pct: float = WARNING_THRESHOLD_PCT_DEFAULT,
 ) -> tuple[float, int]:
 	utilization_pct = ((current_strokes / stroke_capacity) * 100) if stroke_capacity > 0 else 0
 	is_maintenance_due = 1 if stroke_capacity > 0 and utilization_pct >= warning_threshold_pct else 0
