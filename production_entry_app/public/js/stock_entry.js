@@ -448,6 +448,7 @@ function _refresh_joint_production_line_rejection_items(frm) {
 	if (!_is_same_item_joint_doc(frm.doc)) {
 		return;
 	}
+	_drop_breakup_rows_of_remapped_sides(frm);
 	const requestId = ++_jointLineRejectionRequestId;
 	const lineSnapshot = _joint_production_line_snapshot(frm.doc);
 	const sides = new Set(_joint_production_line_sides(frm.doc));
@@ -490,6 +491,26 @@ function _refresh_joint_production_line_rejection_items(frm) {
 		});
 }
 
+// Sides are line positions: when a line's BOM changes (reorder, swap), reasons entered under that
+// side belong to a different BOM now, so they are dropped rather than silently re-attributed.
+function _drop_breakup_rows_of_remapped_sides(frm) {
+	const current = {};
+	_joint_production_line_sides(frm.doc).forEach((side) => {
+		current[side] = _joint_bom_for_output_side(frm.doc, side) || "";
+	});
+	const previous =
+		frm.__peaJointSideBoms?.docname === frm.docname ? frm.__peaJointSideBoms.boms : null;
+	frm.__peaJointSideBoms = { docname: frm.docname, boms: current };
+	if (!previous) return;
+	const breakup = frm.doc.custom_pea_rejection_breakup || [];
+	for (let index = breakup.length - 1; index >= 0; index -= 1) {
+		const side = breakup[index].output_side;
+		if (previous[side] && previous[side] !== current[side]) {
+			breakup.splice(index, 1);
+		}
+	}
+}
+
 function _prune_joint_production_breakup_rows(frm, sides, sideItems) {
 	const breakup = frm.doc.custom_pea_rejection_breakup || [];
 	for (let index = breakup.length - 1; index >= 0; index -= 1) {
@@ -511,7 +532,7 @@ function _prune_joint_production_breakup_rows(frm, sides, sideItems) {
 			continue;
 		}
 		if (expectedItem !== undefined) {
-			row.item_code = expectedItem;
+			row.custom_pea_rb_item_code = expectedItem;
 		}
 	}
 }
@@ -830,7 +851,11 @@ function _sync_rework_source_warehouse(
 					);
 				}
 			}
-			Promise.all(updates).then(() => frm.refresh_field?.("items"));
+			Promise.all(updates)
+				.then(() => frm.refresh_field?.("items"))
+				.catch((error) =>
+					_notify_call_error(__("Failed to default the rework source warehouse."), error)
+				);
 		},
 		error(error) {
 			if (requestId !== _reworkSourceWarehouseRequestId) return;
@@ -1352,11 +1377,13 @@ function _combine_actual_datetime(
 		return;
 	}
 	if (!dateValue) {
+		frm.set_value(canonical_fieldname, "");
 		return;
 	}
 	const parsed = timeEntry.parse_time(timeValue);
 	if (parsed.error) {
 		timeEntry.set_field_invalid(frm, time_fieldname, parsed.error);
+		frm.set_value(canonical_fieldname, "");
 		return;
 	}
 	timeEntry.set_field_invalid(frm, time_fieldname, "");
@@ -1452,12 +1479,14 @@ function _apply_shift_details_response(frm, selectedShift, reqId, data) {
 	}
 	const isCurrentRequest = () =>
 		reqId === _shiftDetailsRequestId && frm.doc.custom_pea_shift === selectedShift;
-	_apply_shift_detail_updates(frm, data, { isCurrentRequest }).then((applied) => {
-		if (applied && isCurrentRequest()) {
-			_sync_stock_entry_helper_fields(frm);
-			_setup_stock_entry_quick_entry(frm);
-		}
-	});
+	_apply_shift_detail_updates(frm, data, { isCurrentRequest })
+		.then((applied) => {
+			if (applied && isCurrentRequest()) {
+				_sync_stock_entry_helper_fields(frm);
+				_setup_stock_entry_quick_entry(frm);
+			}
+		})
+		.catch((error) => _notify_call_error(__("Failed to apply the shift details."), error));
 }
 
 async function _apply_shift_detail_updates(
@@ -1654,10 +1683,12 @@ function _form_label(text) {
 function _apply_joint_slot_labels(frm) {
 	const sameItem = _is_same_item_joint_doc(frm.doc);
 	const pairing = sameItem ? "same_item" : "lh_rh";
-	if (frm.__peaLastSlotPairing === pairing) {
+	// df properties are per docname, so the cache is too.
+	const cacheKey = `${frm.docname}:${pairing}`;
+	if (frm.__peaLastSlotPairing === cacheKey) {
 		return;
 	}
-	frm.__peaLastSlotPairing = pairing;
+	frm.__peaLastSlotPairing = cacheKey;
 	const labels = sameItem
 		? {
 				custom_pea_joint_production_section: _form_label("Joint Production"),
@@ -1801,7 +1832,11 @@ function _handle_custom_pea_fetch_items(frm) {
 		freeze: true,
 		freeze_message: __("Fetching items..."),
 		callback(r) {
-			_apply_fetch_items_response(frm, r.message);
+			if (!_apply_fetch_items_response(frm, r.message)) {
+				frappe.msgprint(
+					__("No items were returned. Check the BOM, quantities and shift details.")
+				);
+			}
 		},
 		error(error) {
 			_notify_call_error(__("Failed to fetch items."), error);
@@ -2066,6 +2101,8 @@ if (typeof module !== "undefined" && module.exports) {
 		_handle_custom_pea_fetch_items,
 		_apply_manufacture_visibility,
 		_apply_joint_slot_labels,
+		_prune_joint_production_breakup_rows,
+		_drop_breakup_rows_of_remapped_sides,
 		_sync_joint_stock_entry_type,
 		_sync_rework_mode_from_stock_entry_type,
 		_schedule_rework_workstation_default,
