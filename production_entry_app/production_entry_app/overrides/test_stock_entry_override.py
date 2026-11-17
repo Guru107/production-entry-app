@@ -216,3 +216,11 @@ class TestStockEntryOverride(FrappeTestCase):
 
 		self.assertIs(se.get_finished_item_row(), split_row)
 
+	def test_shift_direct_manufacture_saves_use_multi_level_bom_unchecked(self) -> None:
+		shift = make_running_shift(self.masters)
+		se = make_direct_manufacture_entry(self.masters, shift=shift.name, fg_qty=100, rejection_qty=0)
+		se.use_multi_level_bom = 1
+
+		se.save(ignore_permissions=True)
+
+		self.assertEqual(frappe.db.get_value("Stock Entry", se.name, "use_multi_level_bom"), 0)

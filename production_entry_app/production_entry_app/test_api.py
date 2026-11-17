@@ -2621,6 +2621,30 @@ class TestE2EApi(FrappeTestCase):
 
 		self.assertEqual(api_codes, native_codes)  # rejection_qty=0 => no extra row
 
+	def test_get_items_with_rejection_ignores_use_multi_level_bom(self) -> None:
+		from production_entry_app.production_entry_app import api
+		from production_entry_app.production_entry_app.tests.support.manufacture_builders import (
+			bootstrap_manufacture_masters,
+			direct_manufacture_doc_dict,
+		)
+		from production_entry_app.production_entry_app.utils.test_bootstrap import (
+			ensure_default_bom,
+			ensure_item,
+		)
+
+		masters = bootstrap_manufacture_masters()
+		top_item = ensure_item(f"_Multi Level Top {frappe.generate_hash(length=6)}")
+		doc_dict = direct_manufacture_doc_dict(masters, fg_qty=10, rejection_qty=0)
+		doc_dict.update(
+			bom_no=ensure_default_bom(top_item, masters["fg_item"], masters["company"]),
+			use_multi_level_bom=1,
+		)
+
+		api_rows = api.get_items_with_rejection(json.dumps(doc_dict))
+
+		source_codes = {row["item_code"] for row in api_rows if row.get("s_warehouse")}
+		self.assertEqual(source_codes, {masters["fg_item"]})
+
 	def test_get_shift_summary_denies_without_read_perm(self) -> None:
 		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
 		from production_entry_app.production_entry_app.utils.test_bootstrap import (

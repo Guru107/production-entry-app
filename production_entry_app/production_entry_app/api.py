@@ -459,7 +459,8 @@ def get_items_with_rejection(doc: str) -> list[dict]:
 	se.from_bom = 1
 	se.bom_no = doc_dict.get("bom_no")
 	se.fg_completed_qty = float(doc_dict.get("fg_completed_qty") or 0)
-	se.use_multi_level_bom = doc_dict.get("use_multi_level_bom", 0)
+	# Production entries are single-level BOM stamping operations (ADR 0003).
+	se.use_multi_level_bom = 0
 	se.from_warehouse = doc_dict.get("from_warehouse")
 	se.to_warehouse = doc_dict.get("to_warehouse")
 	se.posting_date = doc_dict.get("posting_date") or frappe.utils.nowdate()
