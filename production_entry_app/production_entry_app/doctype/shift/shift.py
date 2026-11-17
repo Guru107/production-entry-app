@@ -213,7 +213,7 @@ def _get_next_shift_sequence(shift_date: str) -> int:
 	prefix = f"SHIFT-{shift_date}."
 	existing_names = frappe.get_all(
 		"Shift",
-		# By name, not shift_date: a shift whose date moved without a rename still holds its old name.
+		# By name, not shift_date: a shift saved before Draft renames existed may hold a stale name.
 		filters={"name": ["like", f"{prefix}%"]},
 		pluck="name",
 		limit_page_length=0,

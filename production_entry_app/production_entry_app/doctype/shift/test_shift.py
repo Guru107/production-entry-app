@@ -1927,11 +1927,8 @@ class TestShift(FrappeTestCase):
 		self._delete_shifts_for_date("2090-01-23")
 		self._delete_shifts_for_date("2090-01-24")
 		doc = self._insert_rename_shift()
-		doc.start_shift()
-		# End Shift skips field locks, so the Running shift's date moves without a rename.
-		doc.shift_date = "2090-01-24"
-		doc.end_shift()
-		self.assertEqual(doc.name, "SHIFT-2090-01-23.1.0001")
+		# A shift saved before Draft renames existed can hold a name that no longer matches its date.
+		frappe.db.set_value("Shift", doc.name, "shift_date", "2090-01-24")
 
 		self.assertEqual(self._insert_rename_shift().name, "SHIFT-2090-01-23.1.0002")
 
