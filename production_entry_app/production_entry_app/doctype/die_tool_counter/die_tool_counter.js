@@ -1,6 +1,6 @@
 frappe.ui.form.on("Die Tool Counter", {
 	refresh(frm) {
-		if (!frm.doc.die_tool_item) {
+		if (!frm.doc.die_tool_item || !frm.perm?.[0]?.write) {
 			return;
 		}
 

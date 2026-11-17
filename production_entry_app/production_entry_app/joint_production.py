@@ -539,6 +539,25 @@ def is_paired_production(doc: Document) -> bool:
 	return is_joint_lh_rh_production(doc) or is_joint_production(doc)
 
 
+LH_RH_FIELD_DEFAULTS: dict[str, Any] = {
+	"custom_pea_lh_bom": None,
+	"custom_pea_rh_bom": None,
+	"custom_pea_lh_gross_qty": 0,
+	"custom_pea_rh_gross_qty": 0,
+	"custom_pea_lh_rejection_qty": 0,
+	"custom_pea_rh_rejection_qty": 0,
+}
+
+
+def clear_inactive_joint_fields(doc: Document) -> None:
+	"""Drop the other joint mode's inputs so imports cannot leave them behind (reports key on them)."""
+	if not is_joint_lh_rh_production(doc):
+		for fieldname, default in LH_RH_FIELD_DEFAULTS.items():
+			doc.set(fieldname, default)
+	if not is_joint_production(doc):
+		doc.set(JOINT_PRODUCTION_LINES_FIELD, [])
+
+
 def validate_and_apply_joint_production(doc: Document) -> None:
 	if not is_paired_production(doc):
 		return
