@@ -248,6 +248,7 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 		custom_stock_entry_purpose(frm) {
 			_hide_native_get_items(frm);
 			_apply_native_manufacture_visibility(frm);
+			_ensure_use_multi_level_bom_unchecked(frm);
 			_clear_manufacture_data_on_leave(frm);
 			_apply_manufacture_visibility(frm);
 			_set_prev_purpose(frm);
@@ -288,6 +289,9 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 			_apply_manufacture_visibility(frm);
 			_default_total_strokes_from_fg(frm);
 			_sync_die_tool_item_from_boms(frm);
+		},
+		work_order(frm) {
+			_ensure_use_multi_level_bom_unchecked(frm);
 		},
 		bom_no(frm) {
 			_hide_native_get_items(frm);
@@ -1938,7 +1942,12 @@ function _clear_die_tool_alert(frm) {
 }
 
 function _ensure_use_multi_level_bom_unchecked(frm) {
-	if (frm.doc.from_bom && frm.doc.use_multi_level_bom) {
+	// Fetch Items is single-level (ADR 0003); a Work Order entry keeps the Work Order's choice.
+	const locked = Boolean(
+		_is_manufacture_doc(frm.doc) && frm.doc.from_bom && !frm.doc.work_order
+	);
+	frm.set_df_property?.("use_multi_level_bom", "read_only", locked ? 1 : 0);
+	if (locked && frm.doc.use_multi_level_bom) {
 		frm.doc.use_multi_level_bom = 0;
 		frm.refresh_field("use_multi_level_bom");
 	}
@@ -2070,6 +2079,7 @@ function _get_die_tool_item_code(frm) {
 
 if (typeof module !== "undefined" && module.exports) {
 	module.exports = {
+		_ensure_use_multi_level_bom_unchecked,
 		_normalize_purpose,
 		_is_manufacture_doc,
 		_is_joint_doc,

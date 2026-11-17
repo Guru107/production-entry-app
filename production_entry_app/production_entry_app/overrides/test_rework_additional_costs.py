@@ -212,6 +212,33 @@ class TestReworkAdditionalCosts(FrappeTestCase):
 
 		self.assertEqual(doc.additional_costs[0].expense_account, override_account)
 
+	def test_rework_expense_account_setting_from_another_company_falls_back_to_company_default(
+		self,
+	) -> None:
+		other_company = (
+			frappe.get_doc(
+				{
+					"doctype": "Company",
+					"company_name": f"_Rework Cost {frappe.generate_hash(length=6)}",
+					"abbr": frappe.generate_hash(length=5).upper(),
+					"default_currency": frappe.db.get_value("Company", self.company, "default_currency"),
+					"country": frappe.db.get_value("Company", self.company, "country"),
+				}
+			)
+			.insert(ignore_permissions=True)
+			.name
+		)
+		foreign_account = frappe.db.get_value(
+			"Account", {"company": other_company, "root_type": "Expense", "is_group": 0}, "name"
+		)
+		self.assertTrue(foreign_account)
+		frappe.db.set_single_value("Production Entry Settings", "rework_expense_account", foreign_account)
+		doc = self._make_rework_entry()
+
+		before_validate_stock_entry(doc)
+
+		self.assertEqual(doc.additional_costs[0].expense_account, self.expense_account)
+
 	def test_rework_cost_requires_an_expense_account(self) -> None:
 		frappe.db.set_single_value("Production Entry Settings", "rework_expense_account", None)
 		frappe.db.set_value(

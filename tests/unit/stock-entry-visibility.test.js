@@ -9,6 +9,7 @@ const {
 	_did_leave_manufacture,
 	_clear_manufacture_data_on_leave,
 	_apply_native_manufacture_visibility,
+	_ensure_use_multi_level_bom_unchecked,
 	_hide_native_get_items,
 	_apply_shift_detail_updates,
 	_handle_shift_change,
@@ -2181,6 +2182,34 @@ test("leave-manufacture transition detector works", () => {
 	assert.equal(_did_leave_manufacture("Manufacture", "Material Transfer"), true);
 	assert.equal(_did_leave_manufacture("Manufacture", "Manufacture"), false);
 	assert.equal(_did_leave_manufacture("Material Transfer", "Material Transfer"), false);
+});
+
+test("use multi-level BOM is unchecked and read-only for direct BOM manufacture only", () => {
+	const cases = [
+		[{ purpose: "Manufacture", from_bom: 1, use_multi_level_bom: 1 }, 1, 0],
+		[
+			{ purpose: "Manufacture", from_bom: 1, work_order: "WO-1", use_multi_level_bom: 1 },
+			0,
+			1,
+		],
+		[{ purpose: "Manufacture", from_bom: 0, use_multi_level_bom: 1 }, 0, 1],
+		[{ purpose: "Material Issue", from_bom: 1, use_multi_level_bom: 1 }, 0, 1],
+	];
+	for (const [doc, readOnly, expectedFlag] of cases) {
+		const properties = {};
+		const frm = {
+			doc: { ...doc },
+			set_df_property(fieldname, property, value) {
+				properties[`${fieldname}.${property}`] = value;
+			},
+			refresh_field() {},
+		};
+
+		_ensure_use_multi_level_bom_unchecked(frm);
+
+		assert.equal(properties["use_multi_level_bom.read_only"], readOnly, JSON.stringify(doc));
+		assert.equal(frm.doc.use_multi_level_bom, expectedFlag, JSON.stringify(doc));
+	}
 });
 
 test("native manufacture fields hide for non-manufacture without app access", () => {

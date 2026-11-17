@@ -57,10 +57,11 @@ def validate_rework_submission(doc: Document) -> None:
 		return
 	_validate_rework_route(doc)
 
+	# Stock UOM on both sides: the pool is Rejection Breakup qty, the consumed side transfer_qty.
 	requested_by_item: defaultdict[str, float] = defaultdict(float)
 	for row in doc.get("items") or []:
 		item_code = row.get("item_code")
-		qty = flt(row.get("qty"))
+		qty = flt(row.get("transfer_qty"))
 		if item_code and qty > 0:
 			requested_by_item[item_code] += qty
 	if not requested_by_item:
@@ -274,7 +275,7 @@ def _get_rework_consumed(
 		.on((StockEntryDetail.parent == StockEntry.name) & (StockEntryDetail.parenttype == "Stock Entry"))
 		.join(StockEntryType)
 		.on(StockEntry.stock_entry_type == StockEntryType.name)
-		.select(StockEntryDetail.item_code, Sum(StockEntryDetail.qty).as_("qty"))
+		.select(StockEntryDetail.item_code, Sum(StockEntryDetail.transfer_qty).as_("qty"))
 		.where(StockEntry.docstatus == 1)
 		.where(StockEntryType.custom_pea_rework_entry == 1)
 		.groupby(StockEntryDetail.item_code)

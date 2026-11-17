@@ -35,7 +35,7 @@
    "min_value": "0"
   },
   {
-   "description": "Expense account credited when rework labour cost is capitalized into inventory. Falls back to the Company's Default Operating Cost Account.",
+   "description": "Expense account credited when rework labour cost is capitalized into inventory. Used only for rework entries of this account's Company; other entries fall back to their Company's Default Operating Cost Account.",
    "fieldname": "rework_expense_account",
    "fieldtype": "Link",
    "label": "Rework Expense Account",
@@ -45,7 +45,7 @@
  "hide_toolbar": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-04-18 00:00:00.000000",
+ "modified": "2026-11-17 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Production Entry App",
  "name": "Production Entry Settings",

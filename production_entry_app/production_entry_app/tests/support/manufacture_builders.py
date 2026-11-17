@@ -134,7 +134,7 @@ def make_completed_shift(masters: dict[str, Any]) -> Document:
 
 
 def make_direct_manufacture_entry(
-	masters: dict[str, Any], *, shift: str, fg_qty: float, rejection_qty: float
+	masters: dict[str, Any], *, shift: str, fg_qty: float, rejection_qty: float, docstatus: int = 0
 ) -> Document:
 	shift_doc = frappe.get_doc("Shift", shift)
 	shift_start = get_datetime(f"{shift_doc.shift_date} {shift_doc.planned_start_time or '08:00:00'}")
@@ -171,4 +171,5 @@ def make_direct_manufacture_entry(
 				"qty": rejection_qty,
 			},
 		)
+	se.docstatus = docstatus
 	return se.insert(ignore_permissions=True)

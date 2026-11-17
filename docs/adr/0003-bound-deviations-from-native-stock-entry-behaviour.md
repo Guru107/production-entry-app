@@ -15,10 +15,11 @@ authoritative for their topics; this record covers the remaining seams.
 - The native Get Items button is hidden for every purpose and replaced by the app's Fetch Items buttons,
   which add the rejection row and route rejection and scrap to configured warehouses before rows reach
   the form. The native BOM fields (`from_bom`, `bom_no`, `use_multi_level_bom`, `fg_completed_qty`) and
-  BOM section are shown only for Manufacture, multi-level BOM stays unchecked, and the native process-loss
-  fields are hidden. A BOM describes what Manufacture consumes and produces; for every other purpose the
-  section is hidden to keep the form simple, and ERPNext 16 itself no longer offers it for Material
-  Transfer. The native toolbar action Get Items From > Bill of Materials (`show_bom_custom_button`, offered
+  BOM section are shown only for Manufacture, multi-level BOM stays unchecked (Fetch Items ignores it;
+  direct BOM Manufacture without a Work Order shows it read-only and saves it as 0 before native
+  validation), and the native process-loss fields are hidden. A BOM
+  describes what Manufacture consumes and produces; for every other purpose the section is hidden to keep
+  the form simple, and ERPNext 16 itself no longer offers it for Material Transfer. The native toolbar action Get Items From > Bill of Materials (`show_bom_custom_button`, offered
   for Material Issue, Material Receipt, Material Transfer and Send to Subcontractor) is not removed, so a
   BOM-quantity issue or transfer with explicit warehouses stays available natively; its dialog can fetch an
   exploded BOM, so the single-level rule applies to the header BOM fields only. Material Transfer for
@@ -49,14 +50,15 @@ authoritative for their topics; this record covers the remaining seams.
 - Native Repack prices several finished items at one uniform per-unit rate and requires manual rates
   when more than one finished item is present. The app marks its output rows `set_basic_rate_manually`
   and sets the rates in its `validate` hook, which Frappe runs after the ERPNext controller's
-  `validate()`: scrap rows carry the BOM scrap rate; Shearing LH/RH rows share the net consumed value
+  `validate()`: scrap rows carry the BOM scrap rate in company currency (`base_rate` on 15, `base_cost` / qty
+  on 16); Shearing LH/RH rows share the net consumed value
   (raw material minus scrap) weighted by BOM unit cost; post-Shearing values each side like Manufacture
   (`(side consumed amount - that side's scrap share) / side qty`, matching Manufacture material
   valuation) so differing input rates are not cross-weighted; then
   `calculate_rate_and_amount(reset_outgoing_rate=False)` lets native code derive amounts, valuation rates,
   additional-cost distribution and ledgers (#89, #119). Fetch Items and submit fail clearly when either
-  BOM's `total_cost` is missing or non-positive. Joint LH/RH skips Work Order creation, so native
-  `add_additional_cost(work_order, …)` is unavailable; the app applies each BOM's `operating_cost` as
+  BOM's company-currency `base_total_cost` is missing or non-positive. Joint LH/RH skips Work Order creation, so native
+  `add_additional_cost(work_order, …)` is unavailable; the app applies each BOM's `base_operating_cost` as
   app-managed Additional Cost row(s) scaled by that side's gross quantity / BOM quantity (Company
   default operating-cost account; native `has_operating_cost` marks the rebuilt row, description
   `Operating Cost as per BOM`), for both Shearing and post-Shearing. User-entered Additional Cost
@@ -66,6 +68,8 @@ authoritative for their topics; this record covers the remaining seams.
   quantity, so split, reordered, batched or serialised rows survive while missing, surplus or stale rows
   are rejected with guidance to run Fetch Items again (#82, #89, #90). Ad-hoc rows cannot be added to a
   joint entry.
+- A line BOM with an ERPNext 16 secondary item other than Scrap (Co-Product, By-Product, Additional Finished
+  Good) is refused, not dropped: the joint plan cannot value those outputs, and native Manufacture would post them.
 - Scrap rows carry the native marker of the installed version (`is_scrap_item` on 15,
   `secondary_item_type` on 16), and native classification is preserved (ADR 0001).
 - Joint Production, the same-finished-item pairing, consumes each BOM's inputs independently for every
