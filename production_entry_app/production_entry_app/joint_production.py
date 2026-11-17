@@ -553,8 +553,9 @@ def clear_inactive_joint_fields(doc: Document) -> None:
 	"""Drop the other joint mode's inputs so imports cannot leave them behind (reports key on them)."""
 	if not is_joint_lh_rh_production(doc):
 		for fieldname, default in LH_RH_FIELD_DEFAULTS.items():
-			doc.set(fieldname, default)
-	if not is_joint_production(doc):
+			if doc.get(fieldname):
+				doc.set(fieldname, default)
+	if not is_joint_production(doc) and doc.get(JOINT_PRODUCTION_LINES_FIELD):
 		doc.set(JOINT_PRODUCTION_LINES_FIELD, [])
 
 

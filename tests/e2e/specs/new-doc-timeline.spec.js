@@ -32,7 +32,7 @@ test.describe("Timeline panel on unsaved documents", () => {
 		["Workstation", "/workstation/new"],
 		["Operator", "/operator/new"],
 	]) {
-		test(`@regression a Manufacturing User opening a new ${doctype} sees no Not Found dialog`, async ({
+		test(`@regression a supervisor opening a new ${doctype} sees no Not Found dialog`, async ({
 			page,
 		}) => {
 			await deleteUserIfExists(page, MANUFACTURING_USER);
@@ -40,7 +40,7 @@ test.describe("Timeline panel on unsaved documents", () => {
 				email: MANUFACTURING_USER,
 				firstName: "New Doc Timeline",
 				password: TEST_PASSWORD,
-				roles: ["Manufacturing User"],
+				roles: ["PEA User", "Manufacturing User"],
 			});
 
 			try {
