@@ -2,7 +2,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 
-def _counter(warning_threshold_pct: int):
+def _counter(warning_threshold_pct: int | str):
 	return frappe.get_doc(
 		{"doctype": "Die Tool Counter", "die_tool_item": "X", "warning_threshold_pct": warning_threshold_pct}
 	)
@@ -17,3 +17,8 @@ class TestDieToolCounter(FrappeTestCase):
 	def test_warning_threshold_within_range_is_accepted(self) -> None:
 		for value in (0, 90, 100):
 			_counter(value).validate()
+
+	def test_warning_threshold_sent_as_string_is_coerced(self) -> None:
+		_counter("95").validate()
+		with self.assertRaises(frappe.ValidationError):
+			_counter("150").validate()
