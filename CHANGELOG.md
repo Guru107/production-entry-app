@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-11-17
+
 ### Fixed
 
 -   Daily Rej Rework Register Overall Rej / Rework PPM now divides by the production of every day in the date range, not only the days that had rejections; with the Item filter set, every PPM divides by that item's production (#236)
@@ -14,6 +16,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 -   End Shift and Cancel Shift now apply the same field locks as Save, so an unsaved edit to a locked field (date, label, times, planned losses) on a Running or Completed shift is rejected instead of saved with the status change; the form also shows Shift Date and Shift Label as read-only once the shift starts (#282)
 -   Changing a Draft Shift's date or label now renames it to match (also when Start Shift is clicked with the edit unsaved), and the open form follows the new name; a new Shift on the old date no longer fails with a duplicate name
 -   Shift status can no longer be forced around the Draft → Running → Completed / Cancelled flow: Start / End / Cancel Shift check the saved status instead of the form's copy, a new or duplicated Shift always starts as Draft, a duplicated Shift takes the current user as Supervisor, and a Running Shift's start time is locked (#240)
+-   Stock Entry Shift and joint BOM link searches now respect User Permissions, so a branch-restricted user sees only their branch's shifts, and run as one permission-filtered query instead of one permission check per row (#252)
+-   Stock Entry submit always re-checks workstation downtime overlap, and a Downtime Entry that overlaps a shift production entry on the same workstation is rejected; inactive Operators, Rework Types and Rejection Reasons are rejected on save and hidden from their link searches; the standard Rejection Reasons now install as active; Shift aggregate quantities match the Shift summary (#276)
+-   Timeline and HTML panels no longer show a 404 dialog on new documents, ignore responses that arrive after switching documents, and stop their animation loop when the form closes (#267)
+-   Joint production form: breakup rows write the renamed item field, follow line position, and clear fields that belong to the other joint mode (#270)
+-   An invalid time input no longer keeps a stale value behind the field, every client call reports its errors, and a remaining untranslated message is translated (#271)
+-   Running tests on a persistent dev bench no longer deletes every Downtime Entry or raw-deletes submitted Stock Entries (#247)
+-   The Downtime Reason adoption export no longer sits in the pruned backups folder, and a stale export is removed so reinstall and restore no longer fail (#274)
+-   Uninstall removes the app's leftovers, performance-index errors at migrate are raised instead of swallowed, and the layout patch only touches the app's own fields (#275)
+-   PEA User can no longer write or delete Die Tool Counter accumulators over REST, and the warning threshold is checked to be within 0–100 even when sent as text (#249)
+-   Hand-edited planned-loss rows are now validated: a reversed row, or one outside the shift window, is rejected instead of counting as about 24 hours of loss (#257)
+-   Changing a report's From/To Date now re-runs it, once (#244)
+-   Reports no longer crash with an unknown column when the Operation and BOM filters are both set (#245)
+-   Reports require From and To Date on the server, so an undated run no longer scans all history (#246)
+-   Daily Rej Rework Register day totals fall back to `fg_completed_qty` like the rest of the report, fixing PPM (#258)
+-   Reason Matrix reports no longer hide quantities behind colliding column names, and their filters run in the query (#262)
+-   Daily Strokes SPM uses the correct extra-time fallback, and the "Unassigned" and period labels are translated (#265)
+-   Rebuilding rejection rows keeps the finished row's transfer qty in step and restores qty to the correct finished row (#241)
+-   Joint production valuation uses company-currency costs instead of BOM-currency costs (#242)
+-   Joint BOM loading keeps v16 secondary items, no longer depends on the user's permissions, and stops loading full BOMs per line (#243)
+-   The rework pool check compares stock qty instead of UOM qty, and the rework expense account follows the entry's company (#254)
+-   "Use Multi-Level BOM" is now reset on the server for every direct BOM Manufacture entry, not only in the form (#268)
 
 ## [1.6.0] - 2026-11-06
 
