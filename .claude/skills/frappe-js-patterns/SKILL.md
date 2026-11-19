@@ -72,24 +72,23 @@ state.stopped = true;
 cancelAnimationFrame(state.animationFrame);
 ```
 
-### i18n — All User-Visible Strings in `__()`
+### i18n — `__()` Beyond `msgprint`
 
-Every string a user can see must be wrapped in the translation function:
+The `__()` rule is in CLAUDE.md. It also covers canvas text and HTML built in JS:
 
 ```javascript
-// CORRECT
-frappe.msgprint(__("Shift started successfully."));
 ctx.fillText(__("No entries for this shift."), x, y);
 `<th>${__("Workstation")}</th>`
-
-// WRONG — hard-coded strings are not translatable
-frappe.msgprint("Shift started successfully.");
 ```
 
-Exceptions: CSS class names, HTML attribute names, API method paths, DocType names used as
+Not translated: CSS class names, HTML attribute names, API method paths, DocType names used as
 identifiers (not displayed text), JS variable names.
 
 ### Monkey-Patching ERPNext Prototypes
+
+Last resort: CLAUDE.md's golden rule against monkey-patching core still applies. Use it only when
+no hook, form event or `frappe.ui.form.on` handler can do the job, like the one existing override in
+`public/js/stock_entry.js` (`fg_completed_qty`). Don't add new ones without asking.
 
 When overriding a method on an ERPNext prototype (e.g., `erpnext.stock.StockEntry.prototype`),
 always check that the original method exists and preserve a fallback:
@@ -109,7 +108,8 @@ Document the dependency with a comment referencing the ERPNext source file and v
 
 ### HTML Construction
 
-Prefer template literals over string concatenation. Always escape user-supplied values:
+The escape-before-inject rule is in CLAUDE.md. In JS, build HTML with template literals (not
+concatenation) and escape with `frappe.utils.escape_html`:
 
 ```javascript
 const row = `
