@@ -2,7 +2,7 @@
 
 ## Stack
 - Frappe: `v15 + v16` | ERPNext: `v15 + v16` | Other apps: `hrms, india_compliance`
-- App: `production_entry_app` | Bench: `/root/workspace/bench15 (v15) / /root/workspace/bench16 (v16)` | Dev site: `development.localhost (v15) / frappe16.localhost (v16)` | Test site: `development.localhost / frappe16.localhost (dev sites double as test sites)` | Prod: `none — never run bench commands against production`
+- App: `production_entry_app` | Bench: `/root/workspace/bench15 (v15) / /root/workspace/bench16 (v16)` | Dev site: `development.localhost (v15) / frappe16.localhost (v16)` | Test site: `development.localhost / frappe16.localhost (dev sites double as test sites)` | Prod: `live on a separate host — never run bench commands or writes against it; investigate read-only and fix in the app`
 - Python `3.10+ (benches run 3.13 / 3.14)`, Node `v24`
 - Use only APIs that exist in the version above. Unsure? Read `apps/frappe` / `apps/erpnext`. Don't guess.
 
@@ -15,7 +15,9 @@ bench --site <site> run-tests --doctype "<DocType>"
 bench --site <site> run-tests --module <dotted.path.test_x> --test <test_name>
 bench --site <site> export-fixtures --app production_entry_app
 pre-commit run --files <changed files>
+npx playwright test            # E2E; --headed / --debug for visual / step-through
 ```
+- Run `bench` from the bench root (`cd /root/workspace/bench15` or `bench16`), not from inside the app. Both benches symlink this repo into `apps/`.
 - Tests only on the two sites above (needs `bench --site <site> set-config allow_tests true` once per site).
 - Ask before `reinstall`, `drop-site`, `restore` or any `--force`. Never run anything on a production site.
 - `bench start` only in the background, and only if not already running.
@@ -147,6 +149,9 @@ Run `frappe-code-review`. Quick check: qb not raw SQL | whitelist perms + type h
 ## Git
 - Branch `feat/<desc>` or `fix/<desc>`. Conventional commits: `fix: ...`, `feat: ...`.
 - Never commit `site_config.json`, keys or `.env`.
+- Never commit `human-input.md`, `PLAN.md` or `shift_losses.csv`.
+- Releases: follow the `release` skill exactly; `develop` is branch-protected, nothing lands directly.
+- Client-side JS: follow the `frappe-js-patterns` skill (error callbacks, debounce, last-call-wins, rAF cleanup, `__()`, escaping).
 
 ---
 
@@ -165,73 +170,16 @@ Run `frappe-code-review`. Quick check: qb not raw SQL | whitelist perms + type h
 ---
 
 ## Project Overview
-- APP UNDER DEVELOPMENT: No fallbacks or compatibility required.
+- LIVE IN PRODUCTION: changes must keep existing production data and documents working. Schema or data changes ship with an idempotent patch (see Golden rules).
 A Frappe/ERPNext application that simplifies production entries through a **Shift** document.
 The Shift is a central hub for supervisors: planned losses, downtime entries, warehouse defaults,
 and linked Stock Entries all flow through it.
-
-This repo is a **standalone Frappe app** and is currently installed into two local bench servers
-as a symlinked app:
-
-- `/root/workspace/bench16` running Frappe v16 and ERPNext v16 (site: `frappe16.localhost`)
-- `/root/workspace/bench15` running Frappe v15 and ERPNext v15 (site: `development.localhost`)
-
-In both benches, `production_entry_app` is linked from this repository into the bench's
-`apps/` directory rather than maintained as a separate clone inside each bench.
-
-App module root: `production_entry_app/production_entry_app/`
-Sibling apps in bench (installed separately): `frappe`, `erpnext`
-
-### DocTypes
-
-All DocTypes live under `production_entry_app/production_entry_app/doctype/`:
-
-| DocType | Role |
-|---------|------|
-| **Shift** | Main document. Status-managed (Draft→Running→Completed/Cancelled). Non-submittable. |
-| **Loss Entry** | Child table of Shift. Auto-populated by duration/start time. Locked once Running. |
-| **Downtime Reason** | Master data (Tea Break, Lunch Break). Installed via fixtures. |
-| **Operator** | Master data. `is_active` flag for soft-deletion. |
-| **Die Tool Counter** | Tracks stroke count per item. Updated atomically on Stock Entry submit. |
-| **Die Tool Maintenance Log** | Submittable log. Submission resets the counter. |
-| **Rejection Reason** | Master data for rejection classification. |
-| **Rejection Breakup** | Child table on Stock Entry for per-reason rejection quantities. |
-
-### Naming Convention
-
-Shifts: `SHIFT-YYYY.MM.DD.Shift-{N}` (e.g., `SHIFT-2026.02.03.Shift-1`)
-
----
-
-## Commands
-
-All `bench` commands run from the relevant bench root, not from inside the app directory.
-Use the bench that matches the Frappe/ERPNext version you are working against:
-
-- `cd /root/workspace/bench16` for v16 work (site: `frappe16.localhost`)
-- `cd /root/workspace/bench15` for v15 work (site: `development.localhost`)
-
-Examples below use `<site>` — substitute the site for the bench you are in.
-
-```bash
-# Lint (run from apps/production_entry_app/)
-pre-commit run --all-files
-
-# Playwright E2E tests
-npx playwright test
-npx playwright test --headed   # visual
-npx playwright test --debug    # step-through
-```
 
 ---
 
 ## Code Style
 
-- **Tabs** for indentation in Python and JavaScript (never spaces).
-- Python line length: **110 characters**.
-- Python target: **3.10+** (use `match`, `X | Y` unions, `str | None` type hints).
 - All Python functions must have **type hints** on parameters and return type.
-- `ruff format` for Python, `prettier` for JS/JSON.
 - Always run `pre-commit run --all-files` after implementation when you are ready to tell the human that changes are done. Fix the lint issues if fixable and stage -> commit -> push if its a git repository
 
 ---
@@ -250,28 +198,6 @@ frappe.throw(_("Cannot start a cancelled shift."), frappe.PermissionError)
 
 # WRONG — never raise bare exceptions for user-facing errors
 # raise ValueError("bad input")              ← BAD
-```
-
-### Database Queries
-
-```python
-# Prefer frappe.qb for anything more than a single-field lookup
-from frappe.query_builder import DocType
-
-Shift = DocType("Shift")
-result = (
-	frappe.qb.from_(Shift)
-	.select(Shift.name, Shift.status)
-	.where(Shift.shift_date == today())
-	.where(Shift.status != "Cancelled")
-	.run(as_dict=True)
-)
-
-# Use frappe.db.get_value() for simple single-field reads
-status = frappe.db.get_value("Shift", shift_name, "status")
-
-# AVOID raw SQL — use frappe.qb or frappe.db helpers instead
-# frappe.db.sql("SELECT ...")   ← only when qb cannot express it
 ```
 
 ### Atomic Updates for Accumulators
@@ -369,15 +295,6 @@ before = self.get_doc_before_save()
 prev_status = (before.status if before else None) or frappe.db.get_value("Shift", self.name, "status")
 ```
 
-### Translation
-
-Every user-visible string must use `_()`:
-
-```python
-frappe.throw(_("Shift {0} is already Running.").format(frappe.bold(self.name)))
-frappe.msgprint(_("Shift started successfully."))
-```
-
 ### E2E / Test-Only APIs
 
 APIs that create or destroy test data must be gated by **both** conditions:
@@ -441,124 +358,6 @@ Run `bench export-fixtures` after changing fixture data.
 
 ---
 
-## JavaScript — Frappe Best Practices
-
-### Every `frappe.call()` Must Have an `error:` Callback
-
-Silent failures are unacceptable. Every API call must inform the user when something goes wrong:
-
-```javascript
-frappe.call({
-	method: "...",
-	args: { ... },
-	callback(r) { /* success */ },
-	error(err) {
-		frappe.msgprint(__("Operation failed. Please retry or contact support."));
-		console.error(err);
-	},
-});
-```
-
-### Debounce Repeated Triggers
-
-When multiple field changes trigger the same server call, debounce to 300 ms to avoid
-sending duplicate requests:
-
-```javascript
-let _timer = null;
-function _my_handler(frm) {
-	clearTimeout(_timer);
-	_timer = setTimeout(() => _do_call(frm), 300);
-}
-```
-
-### Last-Call-Wins for Rapid API Calls
-
-When a user action can trigger multiple in-flight requests, use a request counter so stale
-responses are discarded:
-
-```javascript
-let _reqId = 0;
-function _fetch_metrics(frm) {
-	const id = ++_reqId;
-	frappe.call({
-		...,
-		callback(r) {
-			if (id !== _reqId) return;   // stale — discard
-			/* apply result */
-		},
-	});
-}
-```
-
-### Animation Frame Cleanup
-
-Always guard `requestAnimationFrame` loops with a `stopped` flag so orphaned frames cannot
-re-queue themselves after a form unloads:
-
-```javascript
-const state = { stopped: false, animationFrame: null };
-
-const animate = () => {
-	if (state.stopped) return;   // checked first, every frame
-	/* draw */
-	state.animationFrame = requestAnimationFrame(animate);
-};
-
-// On cleanup:
-state.stopped = true;
-cancelAnimationFrame(state.animationFrame);
-```
-
-### i18n — All User-Visible Strings in `__()`
-
-Every string a user can see must be wrapped in the translation function:
-
-```javascript
-// CORRECT
-frappe.msgprint(__("Shift started successfully."));
-ctx.fillText(__("No entries for this shift."), x, y);
-`<th>${__("Workstation")}</th>`
-
-// WRONG — hard-coded strings are not translatable
-frappe.msgprint("Shift started successfully.");
-```
-
-Exceptions: CSS class names, HTML attribute names, API method paths, DocType names used as
-identifiers (not displayed text), JS variable names.
-
-### Monkey-Patching ERPNext Prototypes
-
-When overriding a method on an ERPNext prototype (e.g., `erpnext.stock.StockEntry.prototype`),
-always check that the original method exists and preserve a fallback:
-
-```javascript
-const _proto = erpnext.stock.StockEntry.prototype;
-const _original = typeof _proto.some_method === "function" ? _proto.some_method : null;
-
-_proto.some_method = function () {
-	if (_should_override(this.frm.doc)) { /* custom logic */ return; }
-	if (_original) return _original.call(this);
-	console.warn("[production_entry_app] some_method original not found; ERPNext may have changed.");
-};
-```
-
-Document the dependency with a comment referencing the ERPNext source file and version.
-
-### HTML Construction
-
-Prefer template literals over string concatenation. Always escape user-supplied values:
-
-```javascript
-const row = `
-	<tr>
-		<td>${frappe.utils.escape_html(entry.name)}</td>
-		<td>${frappe.utils.escape_html(entry.workstation || "—")}</td>
-	</tr>`;
-```
-
----
-
 ## Testing Approach
 
 ### Unit Tests (Python)
@@ -616,58 +415,18 @@ Registered in `hooks.py` for `validate`, `on_submit`, `on_cancel`. Key responsib
 - Update die tool stroke counter atomically on submit; reverse on cancel.
 - Invalidate shift metrics cache on submit and cancel.
 
-### Whitelisted APIs (`shift.py`, `api.py`)
-
-| Method | Purpose |
-|--------|---------|
-| `get_planned_losses_for_duration()` | Break schedule for duration + start time |
-| `get_linked_downtime_entries()` | Downtime Entries overlapping this shift's window |
-| `check_running_shift_conflict()` | Is another shift already Running? |
-| `get_shift_metrics()` | Aggregate production metrics (cached) |
-| `get_shift_timeline_data()` | Canvas timeline data for Workstation/Operator forms |
-
-### Fixtures
-
-- `custom_field.json` — Custom fields on Stock Entry, Manufacturing Settings, Workstation, etc.
-- `property_setter.json` — Hides/collapses standard ERPNext sections on Stock Entry.
-- `downtime_reason.json` — Default Downtime Reason records (Tea Break, Lunch Break).
-
-After changing fixtures: `bench export-fixtures --app production_entry_app`
-After pulling fixture changes: `bench --site <site> migrate`
-
-Never commit human-input.md and PLAN.md and shift_losses.csv files to git
-
 ---
-
-## Release Process
-
-Follow this checklist exactly — `develop` is branch-protected, so nothing lands directly.
-
-1. **Changelog first.** In `CHANGELOG.md` move `[Unreleased]` entries into a new
-   `## [X.Y.Z] - YYYY-MM-DD` section (Keep a Changelog: Added/Changed/Fixed).
-2. **Bump ALL version carriers** in the same change — historically `__init__.py` alone was bumped
-   and v1.3.0 shipped showing 1.2.0 on sites:
-   - `production_entry_app/__init__.py` (`__version__` — canonical; `pyproject.toml` dynamic version reads it)
-   - `setup.py`
-   - `package.json`
-3. **Open a PR to `develop`** (release commit style: `chore: release vX.Y.Z`). Wait for all
-   required checks: Linters, CI Server v15/v16, E2E v15/v16. Merge when green.
-4. **Tag the merged develop:** `git switch develop && git pull && git tag vX.Y.Z && git push origin vX.Y.Z`.
-5. **Publish:** `gh release create vX.Y.Z --title vX.Y.Z --notes "<mirror the changelog section>
-   **Full changes:** https://github.com/Guru107/production-entry-app/compare/v<prev>...vX.Y.Z"`.
-   Do not pass `--target` — it 422s when the tag already exists.
-
-
 
 ## Application Specific Considerations
 
 - `fg_completed_qty`  is the total production quantity. So by that we can come to a conclusion that `custom_pea_ok_qty` = `fg_completed_qty` - `custom_pea_rejection_qty`.
 - User only enters `fg_completed_qty` and `custom_pea_rejection_qty` in the Stock Entry document when `from_bom` is checked.
 - It is mandatory for the user to enter `fg_completed_qty` and `custom_pea_rejection_qty` if available for Manufacturing entries.
-- This is a new application under development. So migration and backfilling cases will not occour.
-  Exception: the one-shot install migration (ADR 0005) adopts the production host's legacy
-  Downtime Reason DocType and retires the legacy time-capture UI at install/migrate time; it
-  never backfills historical data into `custom_pea_*` fields.
+- The app is live, so migrations and backfills are real: a field type change, a new mandatory or
+  unique field, or renamed/moved data needs a patch in `patches.txt` that is safe on production data.
+  The original install migration (ADR 0005) adopted the production host's legacy Downtime Reason
+  DocType and retired the legacy time-capture UI; it never backfilled historical data into
+  `custom_pea_*` fields, so entries from before the go-live are outside the app's reports.
 
 ## Agent skills
 

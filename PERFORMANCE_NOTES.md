@@ -81,15 +81,14 @@ Deferred item:
 
 - Any redesign of the Stock Entry overlap indexes is deferred until future production-like evidence shows a better index order with no write regression.
 
-## Rollout guidance for development
+## Rollout guidance
 
-Because the app is still under development and not deployed:
+The app is live in production:
 
-- keep report JSON files with `prepared_report: 1`
-- run `bench --site development.localhost migrate`
-- if an existing local site keeps stale `tabReport.prepared_report = 0`, fix those rows once on the dev site and move on
+- keep report JSON files with `prepared_report: 1`; `bench migrate` syncs them to each site
+- if a site keeps a stale `tabReport.prepared_report = 0`, fix it with an idempotent patch in `patches.txt`, never by hand on production
 
-The code intentionally does not include a permanent report-sync hook for this development-stage requirement.
+The code has no permanent report-sync hook; migrate plus a patch when needed covers it.
 
 ## Checklist status
 
