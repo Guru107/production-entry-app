@@ -25,9 +25,10 @@ ENV_PREFIX: dict[str, str] = {"staging": "ERPNEXT_STAGING_", "production": "ERPN
 
 
 def build_report_payload() -> dict:
-	"""Report document fields: the definition in report.json plus the script body."""
+	"""Report document fields: report.json plus the server script and the filter JavaScript."""
 	payload = json.loads((HERE / "report.json").read_text())
 	payload["report_script"] = (HERE / "rm_batch_trace.py").read_text()
+	payload["javascript"] = (HERE / "rm_batch_trace.js").read_text()
 	return payload
 
 

@@ -1,16 +1,27 @@
 # RM Batch Trace (host report)
 
 A **non-standard Script Report** on the host ERPNext site that answers: which raw-material
-batches went into the quantity on this Sales Invoice or Delivery Note? It is **not part of
+batches went into the quantity on this Sales Invoice? It is **not part of
 `production_entry_app`**. Nothing here is installed with the app. The source lives in this repo
 so it gets reviewed, and it reaches a site through the REST API. See issue #291.
 
 | File | What it is |
 |---|---|
 | `rm_batch_trace.py` | The `report_script` body. It runs in Frappe's `safe_exec` (RestrictedPython) |
-| `report.json` | The Report document: filters, roles (Stock User, Stock Manager), ref doctype |
+| `rm_batch_trace.js` | The Report's `javascript`: the filters (Branch, then Sales Invoice, then optional Item) |
+| `report.json` | The Report document: roles (Stock User, Stock Manager), ref doctype |
 | `publish.py` | Creates or updates the Report by name on staging or production |
 | `test_rm_batch_trace.py` | Tests that run the report through the real sandbox on a dev site |
+
+## Filters
+
+Pick a **Branch** first. The **Sales Invoice** dropdown then lists only that branch's submitted,
+stock-updating, non-return invoices; the script refuses an invoice from another branch. **Item**
+is optional and limits the trace to that item's lines. Only stock-updating Sales Invoices are
+supported for now. Invoices whose stock moved on a Delivery Note are refused with a message.
+
+Users need read access to the Sales Invoice as well as a report role. On production, Stock User
+alone cannot read Sales Invoices.
 
 ## How it traces
 

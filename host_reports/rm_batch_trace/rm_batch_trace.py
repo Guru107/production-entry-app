@@ -35,35 +35,43 @@ def rm_batch_trace(filters):
 	traced = {}
 	untraced = {}
 
-	doctype = filters.get("document_type") or "Sales Invoice"
-	document = filters.get("document")
+	doctype = "Sales Invoice"
+	branch = filters.get("branch")
+	document = filters.get("sales_invoice")
 	item_filter = filters.get("item")
-	if doctype not in ("Sales Invoice", "Delivery Note"):
-		frappe.throw(_("Document Type must be Sales Invoice or Delivery Note."))
 	# Filters arrive as JSON: a list here would act as a filter expression and widen the query.
+	if not branch or not isinstance(branch, str):
+		frappe.throw(_("Select a Branch."))
 	if not document or not isinstance(document, str):
-		frappe.throw(_("Select the %s to trace.") % _(doctype))
+		frappe.throw(_("Select the Sales Invoice to trace."))
 	if item_filter and not isinstance(item_filter, str):
 		frappe.throw(_("Item filter must be a single Item."))
 
-	header_fields = ["name", "docstatus", "is_return"]
-	if doctype == "Sales Invoice":
-		header_fields.append("update_stock")
 	# get_list applies the user's permissions; frappe.has_permission is not available here.
-	header = frappe.get_list(doctype, filters={"name": document}, fields=header_fields, limit=1)
+	header = frappe.get_list(
+		doctype,
+		filters={"name": document},
+		fields=["name", "docstatus", "is_return", "update_stock", "branch"],
+		limit=1,
+	)
 	if not header:
-		frappe.throw(_("You do not have permission to read %s %s.") % (_(doctype), document))
+		frappe.throw(_("You do not have permission to read Sales Invoice %s.") % document)
 	header = header[0]
+	if header.branch != branch:
+		frappe.throw(
+			_("Sales Invoice %s belongs to Branch %s, not %s.") % (document, header.branch or "-", branch)
+		)
 	if header.docstatus != 1:
 		frappe.throw(
-			_("%s %s is not submitted. Only submitted documents can be traced.") % (_(doctype), document)
+			_("Sales Invoice %s is not submitted. Only submitted invoices can be traced.") % document
 		)
 	if header.is_return:
-		frappe.throw(_("%s %s is a return. Trace the original document instead.") % (_(doctype), document))
-	if doctype == "Sales Invoice" and not header.update_stock:
+		frappe.throw(_("Sales Invoice %s is a return. Trace the original invoice instead.") % document)
+	if not header.update_stock:
 		frappe.throw(
 			_(
-				"Sales Invoice %s did not update stock. Trace the Delivery Note that shipped its items instead."
+				"Sales Invoice %s did not update stock, so its items left on a Delivery Note. "
+				"This report traces stock-updating Sales Invoices only."
 			)
 			% document
 		)

@@ -28,6 +28,7 @@ REPORT = "RM Batch Trace"
 class TestRMBatchTrace(unittest.TestCase):
 	def setUp(self) -> None:
 		from production_entry_app.production_entry_app.utils.test_bootstrap import (
+			ensure_branch,
 			ensure_item,
 			ensure_warehouse,
 			resolve_test_company,
@@ -44,6 +45,7 @@ class TestRMBatchTrace(unittest.TestCase):
 		self.scrap_wh = ensure_warehouse(f"RMBT Scrap - {abbr}", self.company)
 		self.job_worker = ensure_warehouse(f"RMBT Job Worker - {abbr}", self.company)
 		self.customer = self._ensure_customer("_RMBT Customer")
+		self.branch = ensure_branch("RMBT Branch")
 		self.suffix = frappe.generate_hash(length=5)
 		self.rm = self._batched_item(f"_RMBT RM {self.suffix}")
 		self.b1 = self._batch(self.rm, f"RMBT-B1-{self.suffix}")
@@ -155,29 +157,15 @@ class TestRMBatchTrace(unittest.TestCase):
 			[{"item_code": item, "qty": qty, "s_warehouse": source, "t_warehouse": target}],
 		)
 
-	def _delivery_note(self, lines: list[tuple], submit: bool = True) -> str:
-		doc = frappe.get_doc(
-			{
-				"doctype": "Delivery Note",
-				"company": self.company,
-				"customer": self.customer,
-				"items": [
-					{"item_code": item, "qty": qty, "rate": 100, "warehouse": warehouse}
-					for item, qty, warehouse in lines
-				],
-			}
-		)
-		doc.insert()
-		if submit:
-			doc.submit()
-		return doc.name
-
-	def _sales_invoice(self, item: str, qty: float, warehouse: str, update_stock: int = 1) -> str:
+	def _sales_invoice(
+		self, lines: list[tuple], update_stock: int = 1, submit: bool = True, branch: str | None = None
+	) -> str:
 		doc = frappe.get_doc(
 			{
 				"doctype": "Sales Invoice",
 				"company": self.company,
 				"customer": self.customer,
+				"branch": branch or self.branch,
 				"update_stock": update_stock,
 				"items": [
 					{
@@ -187,11 +175,13 @@ class TestRMBatchTrace(unittest.TestCase):
 						"warehouse": warehouse,
 						"item_tax_template": self._tax_template(),
 					}
+					for item, qty, warehouse in lines
 				],
 			}
 		)
 		doc.insert()
-		doc.submit()
+		if submit:
+			doc.submit()
 		return doc.name
 
 	def _submit_with_host_fields(self, values: dict):
@@ -227,10 +217,10 @@ class TestRMBatchTrace(unittest.TestCase):
 		# Production-parity sites make item_tax_template mandatory on sales and purchase lines.
 		return frappe.db.get_value("Item Tax Template", {"company": self.company, "disabled": 0})
 
-	def _run(self, document: str, document_type: str = "Delivery Note", **extra) -> dict:
+	def _run(self, invoice, **extra) -> dict:
 		from frappe.desk.query_report import run
 
-		filters = {"document_type": document_type, "document": document, **extra}
+		filters = {"branch": self.branch, "sales_invoice": invoice, **extra}
 		return run(REPORT, filters=json.dumps(filters), ignore_prepared_report=True)
 
 	def _traced(self, result: dict) -> dict[tuple[str, str], float]:
@@ -255,9 +245,9 @@ class TestRMBatchTrace(unittest.TestCase):
 		self._manufacture([(self.rm, 10, self.b1)], [(self.fg_item, 100, self.fg, "fg")])
 		self._manufacture([(self.rm, 20, self.b2)], [(self.fg_item, 100, self.fg, "fg")])
 		self._transfer(self.fg_item, 200, self.fg, self.dispatch)
-		invoice = self._sales_invoice(self.fg_item, 150, self.dispatch)
+		invoice = self._sales_invoice([(self.fg_item, 150, self.dispatch)])
 
-		result = self._run(invoice, "Sales Invoice")
+		result = self._run(invoice)
 
 		# FIFO: the first 100 pcs came from the B1 run (10 kg), the next 50 from the B2 run (half of 20 kg).
 		self.assertEqual(self._traced(result), {(self.rm, self.b1): 10.0, (self.rm, self.b2): 10.0})
@@ -273,9 +263,9 @@ class TestRMBatchTrace(unittest.TestCase):
 			[(self.rm, 6, self.b1), (self.rm, 4, self.b2)],
 			[(self.fg_item, 60, self.fg, "fg"), (self.fg_item, 40, self.dispatch, "fg")],
 		)
-		note = self._delivery_note([(self.fg_item, 40, self.dispatch)])
+		invoice = self._sales_invoice([(self.fg_item, 40, self.dispatch)])
 
-		self.assertEqual(self._traced(self._run(note)), {(self.rm, self.b2): 4.0})
+		self.assertEqual(self._traced(self._run(invoice)), {(self.rm, self.b2): 4.0})
 
 	def test_stock_reconciliation_uses_balance_deltas(self) -> None:
 		self._receive(self.rm, 100, self.wip, self.b1)
@@ -284,9 +274,9 @@ class TestRMBatchTrace(unittest.TestCase):
 		self._reconcile(self.fg_item, self.fg, 50)
 		self._manufacture([(self.rm, 20, self.b2)], [(self.fg_item, 100, self.fg, "fg")])
 		self._reconcile(self.fg_item, self.fg, 170)
-		note = self._delivery_note([(self.fg_item, 170, self.fg)])
+		invoice = self._sales_invoice([(self.fg_item, 170, self.fg)])
 
-		result = self._run(note)
+		result = self._run(invoice)
 
 		# The reset to 50 consumed the oldest 50 pcs; the reset to 170 added 20 pcs of unknown origin.
 		self.assertEqual(self._traced(result), {(self.rm, self.b1): 5.0, (self.rm, self.b2): 20.0})
@@ -329,11 +319,11 @@ class TestRMBatchTrace(unittest.TestCase):
 			],
 		)
 		self._manufacture([(end_piece_2, 2, None)], [(part_c, 10, self.fg, "fg")])
-		note = self._delivery_note(
+		invoice = self._sales_invoice(
 			[(part_b, 20, self.fg), (part_c, 10, self.fg), (scrap, 0.5, self.scrap_wh)]
 		)
 
-		result = self._run(note)
+		result = self._run(invoice)
 		by_line = {}
 		for row in result["result"]:
 			by_line.setdefault(row["line"], []).append(row)
@@ -364,9 +354,9 @@ class TestRMBatchTrace(unittest.TestCase):
 				],
 			}
 		)
-		note = self._delivery_note([(bought, 4, self.fg)])
+		invoice = self._sales_invoice([(bought, 4, self.fg)])
 
-		result = self._run(note)
+		result = self._run(invoice)
 
 		self.assertEqual(self._traced(result), {})
 		self.assertEqual(self._untraced(result), {("Untraced: Purchase Receipt", bought): 4.0})
@@ -439,9 +429,9 @@ class TestRMBatchTrace(unittest.TestCase):
 		transfer.insert()
 		transfer.submit()
 		self._submit_with_host_fields(make_subcontracting_receipt(sco.name).as_dict())
-		note = self._delivery_note([(coated, 50, self.fg)])
+		invoice = self._sales_invoice([(coated, 50, self.fg)])
 
-		result = self._run(note)
+		result = self._run(invoice)
 
 		# 50 coated parts used 50 blanks = half of the 100-blank run on 10 kg of B1.
 		self.assertEqual(self._traced(result), {(self.rm, self.b1): 5.0})
@@ -534,9 +524,9 @@ class TestRMBatchTrace(unittest.TestCase):
 				row.basic_rate = 50
 		doc.insert()
 		doc.submit()
-		note = self._delivery_note([(rh, 40, masters["fg_warehouse"])])
+		invoice = self._sales_invoice([(rh, 40, masters["fg_warehouse"])])
 
-		result = self._run(note)
+		result = self._run(invoice)
 
 		# Sheet used: LH 40 x 0.3 = 12 kg, RH 40 x 0.6 = 24 kg. Piece count would have said 18 kg.
 		self.assertEqual(self._traced(result), {(self.rm, self.b1): 24.0})
@@ -547,40 +537,56 @@ class TestRMBatchTrace(unittest.TestCase):
 		self._receive(self.rm, 100, self.wip, self.b1)
 		self._manufacture([(self.rm, 10, self.b1)], [(self.fg_item, 100, self.fg, "fg")])
 		self._receive(other, 5, self.fg)
-		note = self._delivery_note([(self.fg_item, 10, self.fg), (other, 5, self.fg)])
+		invoice = self._sales_invoice([(self.fg_item, 10, self.fg), (other, 5, self.fg)])
 
-		result = self._run(note, item=self.fg_item)
+		result = self._run(invoice, item=self.fg_item)
 
 		self.assertEqual({row["line_item"] for row in result["result"]}, {self.fg_item})
 
 	def test_sales_invoice_without_stock_update_is_rejected(self) -> None:
 		self._receive(self.fg_item, 10, self.fg)
-		invoice = self._sales_invoice(self.fg_item, 1, self.fg, update_stock=0)
+		invoice = self._sales_invoice([(self.fg_item, 1, self.fg)], update_stock=0)
 
 		with self.assertRaisesRegex(frappe.ValidationError, "did not update stock"):
-			self._run(invoice, "Sales Invoice")
+			self._run(invoice)
 
 	def test_document_filter_must_be_a_single_name(self) -> None:
 		self._receive(self.fg_item, 10, self.fg)
-		self._delivery_note([(self.fg_item, 1, self.fg)])
+		self._sales_invoice([(self.fg_item, 1, self.fg)])
 
-		with self.assertRaisesRegex(frappe.ValidationError, "Select the Delivery Note"):
+		with self.assertRaisesRegex(frappe.ValidationError, "Select the Sales Invoice"):
 			self._run(["like", "%"])
-		note = self._delivery_note([(self.fg_item, 1, self.fg)])
+		invoice = self._sales_invoice([(self.fg_item, 1, self.fg)])
 		with self.assertRaisesRegex(frappe.ValidationError, "single Item"):
-			self._run(note, item=["!=", ""])
+			self._run(invoice, item=["!=", ""])
+
+	def test_invoice_from_another_branch_is_rejected(self) -> None:
+		from production_entry_app.production_entry_app.utils.test_bootstrap import ensure_branch
+
+		self._receive(self.fg_item, 10, self.fg)
+		invoice = self._sales_invoice([(self.fg_item, 1, self.fg)], branch=ensure_branch("RMBT Other Branch"))
+
+		with self.assertRaisesRegex(frappe.ValidationError, "belongs to Branch RMBT Other Branch"):
+			self._run(invoice)
+
+	def test_branch_is_required(self) -> None:
+		self._receive(self.fg_item, 10, self.fg)
+		invoice = self._sales_invoice([(self.fg_item, 1, self.fg)])
+
+		with self.assertRaisesRegex(frappe.ValidationError, "Select a Branch"):
+			self._run(invoice, branch=None)
 
 	def test_draft_document_is_rejected(self) -> None:
 		self._receive(self.fg_item, 10, self.fg)
-		note = self._delivery_note([(self.fg_item, 1, self.fg)], submit=False)
+		invoice = self._sales_invoice([(self.fg_item, 1, self.fg)], submit=False)
 
 		with self.assertRaisesRegex(frappe.ValidationError, "not submitted"):
-			self._run(note)
+			self._run(invoice)
 
 	def test_user_who_cannot_read_the_document_is_blocked(self) -> None:
 		self._receive(self.fg_item, 10, self.fg)
-		note = self._delivery_note([(self.fg_item, 1, self.fg)])
-		user = self._user("rmbt-stock-user@example.com", ["Stock User"])
+		invoice = self._sales_invoice([(self.fg_item, 1, self.fg)])
+		user = self._user("rmbt-stock-accounts-user@example.com", ["Stock User", "Accounts User"])
 		other_customer = self._ensure_customer("_RMBT Other Customer")
 		frappe.get_doc(
 			{"doctype": "User Permission", "user": user, "allow": "Customer", "for_value": other_customer}
@@ -588,16 +594,26 @@ class TestRMBatchTrace(unittest.TestCase):
 
 		frappe.set_user(user)
 		with self.assertRaisesRegex(frappe.ValidationError, "permission to read"):
-			self._run(note)
+			self._run(invoice)
+
+	def test_stock_user_without_sales_invoice_access_is_blocked(self) -> None:
+		# Report roles let a Stock User open the report, but the invoice itself must be readable.
+		self._receive(self.fg_item, 10, self.fg)
+		invoice = self._sales_invoice([(self.fg_item, 1, self.fg)])
+		user = self._user("rmbt-stock-user@example.com", ["Stock User"])
+
+		frappe.set_user(user)
+		with self.assertRaises(frappe.PermissionError):
+			self._run(invoice)
 
 	def test_user_without_report_roles_is_blocked(self) -> None:
 		self._receive(self.fg_item, 10, self.fg)
-		note = self._delivery_note([(self.fg_item, 1, self.fg)])
+		invoice = self._sales_invoice([(self.fg_item, 1, self.fg)])
 		user = self._user("rmbt-sales-user@example.com", ["Sales User"])
 
 		frappe.set_user(user)
 		with self.assertRaises(frappe.PermissionError):
-			self._run(note)
+			self._run(invoice)
 
 	def _user(self, email: str, roles: list[str]) -> str:
 		if not frappe.db.exists("User", email):

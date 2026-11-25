@@ -6,29 +6,13 @@
 	"module": "Stock",
 	"prepared_report": 0,
 	"disabled": 0,
-	"roles": [{ "role": "Stock User" }, { "role": "Stock Manager" }],
-	"filters": [
+	"roles": [
 		{
-			"fieldname": "document_type",
-			"label": "Document Type",
-			"fieldtype": "Select",
-			"options": "Sales Invoice\nDelivery Note",
-			"default": "Sales Invoice",
-			"mandatory": 1
+			"role": "Stock User"
 		},
 		{
-			"fieldname": "document",
-			"label": "Document",
-			"fieldtype": "Dynamic Link",
-			"options": "document_type",
-			"mandatory": 1
-		},
-		{
-			"fieldname": "item",
-			"label": "Item",
-			"fieldtype": "Link",
-			"options": "Item",
-			"mandatory": 0
+			"role": "Stock Manager"
 		}
-	]
+	],
+	"filters": []
 }
