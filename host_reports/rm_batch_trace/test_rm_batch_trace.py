@@ -96,7 +96,11 @@ class TestRMBatchTrace(unittest.TestCase):
 		return code
 
 	def _batch(self, item: str, batch_id: str) -> str:
-		return frappe.get_doc({"doctype": "Batch", "item": item, "batch_id": batch_id}).insert().name
+		values = {"doctype": "Batch", "item": item, "batch_id": batch_id}
+		# Sites that name Sheet Metals batches HEAT-COIL require both numbers on insert.
+		if frappe.get_meta("Batch").has_field("custom_heat_number"):
+			values.update({"custom_heat_number": batch_id, "custom_coil_number": "C1"})
+		return frappe.get_doc(values).insert().name
 
 	def _stock_entry(self, purpose: str, rows: list[dict], **fields) -> str:
 		doc = frappe.get_doc(

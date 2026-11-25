@@ -17,7 +17,7 @@
 def rm_batch_trace(filters):
 	flt = frappe.utils.flt
 	max_depth = 60
-	max_steps = 10000
+	max_steps = 1000
 	page_size = 500
 	eps = 1e-9
 	via_limit = 3
