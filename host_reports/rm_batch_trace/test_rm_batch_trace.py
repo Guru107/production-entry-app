@@ -543,6 +543,26 @@ class TestRMBatchTrace(unittest.TestCase):
 
 		self.assertEqual({row["line_item"] for row in result["result"]}, {self.fg_item})
 
+	def test_lines_after_the_work_limit_are_reported_untraced(self) -> None:
+		# Cap at one step: line 1 traces, line 2 hits the cap mid-trace, line 3 is never started.
+		report = frappe.get_doc("Report", REPORT)
+		report.report_script = report.report_script.replace("max_steps = 1000", "max_steps = 1")
+		report.save()
+		self._receive(self.fg_item, 30, self.fg)
+		invoice = self._sales_invoice([(self.fg_item, qty, self.fg) for qty in (1, 2, 3)])
+
+		rows = self._run(invoice)["result"]
+
+		by_line = {row["line"]: (row["status"], round(row["qty"], 3)) for row in rows}
+		self.assertEqual(
+			by_line,
+			{
+				1: ("Untraced: Material Receipt", 1.0),
+				2: ("Untraced: Work limit reached", 2.0),
+				3: ("Untraced: Work limit reached", 3.0),
+			},
+		)
+
 	def test_sales_invoice_without_stock_update_is_rejected(self) -> None:
 		self._receive(self.fg_item, 10, self.fg)
 		invoice = self._sales_invoice([(self.fg_item, 1, self.fg)], update_stock=0)

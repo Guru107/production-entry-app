@@ -508,9 +508,13 @@ def rm_batch_trace(filters):
 		order_by="idx asc",
 	)
 	for line in lines:
-		if not item_info(line.item_code).get("is_stock_item") or state["work_limit"]:
+		if not item_info(line.item_code).get("is_stock_item"):
 			continue
 		ctx = {"line": line, "path": [document], "seen": [], "approx": False}
+		if state["work_limit"]:
+			# Lines after the cap still get a row, so a missing line never reads as "nothing to trace".
+			add_untraced(ctx, _("Work limit reached"), line.item_code, flt(line.stock_qty))
+			continue
 		trace_out(ctx, line.item_code, line.warehouse, doctype, document, line.name, 0.0, 1.0)
 
 	columns = [
