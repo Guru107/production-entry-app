@@ -19,6 +19,7 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	cleanup_running_shifts,
 	ensure_item,
 	ensure_operator,
+	ensure_warehouse_restricted_user,
 	ensure_workstation,
 )
 
@@ -577,6 +578,69 @@ class TestGetShiftTimelineData(FrappeTestCase):
 			patch(
 				"production_entry_app.production_entry_app.api_timeline.frappe.has_permission",
 				side_effect=[True, True, False],
+			),
+		):
+			with self.assertRaises(frappe.PermissionError):
+				get_shift_timeline_data("Workstation", self.workstation_a)
+
+	def test_timeline_matches_for_warehouse_restricted_and_unrestricted_users(self) -> None:
+		from production_entry_app.production_entry_app.api_timeline import (
+			get_shift_timeline_data,
+			get_timeline_cache_prefix,
+		)
+
+		# User first: creating it can commit on v15, which must not persist the entries below.
+		restricted = ensure_warehouse_restricted_user(
+			"test_timeline_wh_user@example.com",
+			[
+				self.ctx[key]
+				for key in ("rm_warehouse", "wip_warehouse", "rejection_warehouse", "scrap_warehouse")
+			],
+		)
+		shift = self._create_running_shift("2026-10-13")
+		visible = self._create_submitted_like_entry(
+			shift.name,
+			workstation=self.workstation_a,
+			operator=self.operator_a,
+			actual_start="2026-10-13 09:00:00",
+			actual_end="2026-10-13 10:00:00",
+		)
+		hidden = self._create_submitted_like_entry(
+			shift.name,
+			workstation=self.workstation_a,
+			operator=self.operator_a,
+			actual_start="2026-10-13 10:00:00",
+			actual_end="2026-10-13 11:00:00",
+		)
+		frappe.db.set_value("Stock Entry", hidden, "to_warehouse", self.ctx["fg_warehouse"])
+
+		for call_order in ((restricted, "Administrator"), ("Administrator", restricted)):
+			frappe.cache().delete_keys(
+				get_timeline_cache_prefix("Workstation", self.workstation_a, shift.name)
+			)
+			payloads = []
+			for user in call_order:
+				frappe.set_user(user)
+				payloads.append(get_shift_timeline_data("Workstation", self.workstation_a))
+			frappe.set_user("Administrator")
+			self.assertEqual(payloads[0]["entries"], payloads[1]["entries"])
+			self.assertEqual(
+				[entry["name"] for entry in payloads[0]["entries"] if entry.get("name") in (visible, hidden)],
+				[visible, hidden],
+			)
+
+	def test_warm_timeline_cache_still_requires_stock_entry_read(self) -> None:
+		from production_entry_app.production_entry_app.api_timeline import get_shift_timeline_data
+
+		self._create_running_shift("2026-10-12")
+		with (
+			patch(
+				"production_entry_app.production_entry_app.api_timeline._get_cached_timeline_data",
+				return_value={"entries": [{"name": "SE-CACHED-1"}]},
+			),
+			patch(
+				"production_entry_app.production_entry_app.api_timeline.frappe.has_permission",
+				side_effect=lambda doctype, *args, **kwargs: doctype != "Stock Entry",
 			),
 		):
 			with self.assertRaises(frappe.PermissionError):

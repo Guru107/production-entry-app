@@ -22,6 +22,7 @@ from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	ensure_department,
 	ensure_item,
 	ensure_warehouse,
+	ensure_warehouse_restricted_user,
 	ensure_workstation,
 	get_company_abbr,
 	resolve_test_branch,
@@ -3586,6 +3587,50 @@ class TestShiftSummary(FrappeTestCase):
 		with patch(
 			"production_entry_app.production_entry_app.doctype.shift.shift.frappe.has_permission",
 			side_effect=[True, False],
+		):
+			with self.assertRaises(frappe.PermissionError):
+				get_shift_summary(shift.name)
+
+	def test_summary_totals_match_for_warehouse_restricted_and_unrestricted_users(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
+
+		# User first: creating it can commit on v15, which must not persist the entries below.
+		restricted = ensure_warehouse_restricted_user(
+			"test_shift_summary_wh_user@example.com",
+			[
+				self.ctx[key]
+				for key in ("rm_warehouse", "wip_warehouse", "rejection_warehouse", "scrap_warehouse")
+			],
+		)
+		shift = self._create_shift("2026-09-14")
+		self._create_submitted_like_entry(shift.name, total_qty=40, rejection_qty=0)
+		hidden = self._create_submitted_like_entry(shift.name, total_qty=60, rejection_qty=0)
+		frappe.db.set_value("Stock Entry", hidden, "to_warehouse", self.ctx["fg_warehouse"])
+
+		for call_order in ((restricted, "Administrator"), ("Administrator", restricted)):
+			shift_module.invalidate_shift_summary_cache(shift.name)
+			snapshots = []
+			for user in call_order:
+				frappe.set_user(user)
+				snapshots.append(get_shift_summary(shift.name)["snapshot"])
+			frappe.set_user("Administrator")
+			self.assertEqual(snapshots[0], snapshots[1])
+			self.assertEqual(float(snapshots[0]["total_qty"]), 100.0)
+			self.assertEqual(snapshots[0]["entry_count"], 2)
+
+	def test_warm_summary_cache_still_requires_stock_entry_read(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
+
+		shift = self._create_shift("2026-09-13")
+		with (
+			patch(
+				"production_entry_app.production_entry_app.doctype.shift.shift._get_cached_shift_summary",
+				return_value={"snapshot": {"entry_count": 1}},
+			),
+			patch(
+				"production_entry_app.production_entry_app.doctype.shift.shift.frappe.has_permission",
+				side_effect=lambda doctype, *args, **kwargs: doctype != "Stock Entry",
+			),
 		):
 			with self.assertRaises(frappe.PermissionError):
 				get_shift_summary(shift.name)

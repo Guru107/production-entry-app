@@ -255,6 +255,27 @@ def save_test_user(user: frappe.model.document.Document) -> None:
 			delattr(frappe, "in_test")
 
 
+def ensure_warehouse_restricted_user(email: str, warehouses: list[str]) -> str:
+	"""Return a supervisor-like user whose Warehouse User Permissions allow only ``warehouses``."""
+	if frappe.db.exists("User", email):
+		user = frappe.get_doc("User", email)
+	else:
+		user = frappe.new_doc("User")
+		user.email = email
+		user.first_name = email.split("@", 1)[0]
+		user.user_type = "System User"
+	user.set("roles", [{"role": role} for role in ("PEA User", "Stock User", "Manufacturing User")])
+	save_test_user(user)
+	for name in frappe.get_all("User Permission", filters={"user": email}, pluck="name"):
+		frappe.delete_doc("User Permission", name, ignore_permissions=True)
+	for warehouse in warehouses:
+		frappe.get_doc(
+			{"doctype": "User Permission", "user": email, "allow": "Warehouse", "for_value": warehouse}
+		).insert(ignore_permissions=True)
+	frappe.clear_cache(user=email)
+	return email
+
+
 def ensure_workstation(name: str, standard_spm: float) -> None:
 	if frappe.db.exists("Workstation", name):
 		frappe.db.set_value(
