@@ -1349,8 +1349,11 @@ class TestProductionReports(FrappeTestCase):
 				"custom_pea_shift": shift_name,
 			},
 		]
-		hours = _sum_machine_downtime_hours(group, windows, shift_dates, downtime_rows, [], {})
+		hours, linked_shifts, unlinked_shifts = _sum_machine_downtime_hours(
+			group, windows, shift_dates, downtime_rows, [], {}
+		)
 		self.assertEqual(hours, 1.5)
+		self.assertEqual((linked_shifts, unlinked_shifts), ({shift_name}, set()))
 
 	def test_production_oee_report_sums_non_overlapping_downtime_entries(self) -> None:
 		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (

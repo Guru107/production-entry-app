@@ -176,7 +176,7 @@ _Avoid_: reason name as identity, free-text reason
 The shift time a Production OEE Report row can run in: each Shift of the row's Production Entries, plus each
 Completed Shift whose Machine Downtime the row counts, less planned losses. Shifts reached only through Downtime
 Entries with no Shift link add the union of their windows, so each clock minute counts once.
-_Avoid_: every Completed Shift that day, Shift duration summed across overlapping branches
+_Avoid_: every Completed Shift that day, summing the overlapping shifts reached only through unlinked Downtime Entries
 
 **OEE running time**:
 Time counted as actual production. It is zero when the workstation has no Production Entry. When Production

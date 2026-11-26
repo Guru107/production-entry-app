@@ -299,20 +299,25 @@ def _get_rows(
 	_finalize_group_metrics(groups, windows)
 	timeout_guard()
 	planned_by_shift = _planned_loss_intervals_by_shift(windows)
-	# Downtime first: it adds the shifts whose downtime counts to each group's available time.
-	machine_downtime_by_group = _get_machine_downtime_hours_by_group(
+	downtime_by_group = _get_machine_downtime_by_group(
 		groups, timeout_guard, windows, shift_dates, planned_by_shift
 	)
-	availability_hours_by_group = _get_availability_hours_by_group(groups, timeout_guard)
+	# A shift whose linked downtime counts adds its available time, like a production shift (ADR 0004).
+	summed_shifts_by_group = {
+		key: group["shift_names"] | downtime_by_group[key][1] for key, group in groups.items()
+	}
+	availability_hours_by_group = _get_availability_hours_by_group(summed_shifts_by_group, timeout_guard)
 
 	rows = []
 	for group in sorted(groups.values(), key=lambda row: (str(row["day"]), str(row["workstation"]))):
 		group_key = (group["day"], group["workstation"])
+		machine_downtime, _linked_shifts, unlinked_shifts = downtime_by_group[group_key]
 		avl_time_hrs = flt(
 			(availability_hours_by_group.get(group_key) or 0)
-			+ _unlinked_downtime_available_hours(group, windows, planned_by_shift)
+			+ _unlinked_downtime_available_hours(
+				summed_shifts_by_group[group_key], unlinked_shifts, windows, planned_by_shift
+			)
 		)
-		machine_downtime = flt(machine_downtime_by_group.get(group_key) or 0)
 		if group.get("downtime_only") and machine_downtime <= 0:
 			continue
 		total_loss_time = flt(machine_downtime + sum(group["reason_hours"].values()))
@@ -560,20 +565,20 @@ def _add_entry_quantities_to_group(
 
 
 def _get_availability_hours_by_group(
-	groups: dict[tuple[str, str], dict],
+	shift_names_by_group: dict[tuple[str, str], set[str]],
 	timeout_guard,
 ) -> dict[tuple[str, str], float]:
 	timeout_guard()
 	shift_names = sorted(
 		{
 			shift_name
-			for group in groups.values()
-			for shift_name in group.get("shift_names", set())
+			for group_shift_names in shift_names_by_group.values()
+			for shift_name in group_shift_names
 			if shift_name
 		}
 	)
 	if not shift_names:
-		return {(day, workstation): 0.0 for day, workstation in groups}
+		return {key: 0.0 for key in shift_names_by_group}
 
 	timeout_guard()
 	shift_duration_hours_by_name = _get_shift_duration_hours_by_name(shift_names)
@@ -582,10 +587,10 @@ def _get_availability_hours_by_group(
 	planned_loss_hours_by_shift = _get_planned_loss_hours_by_shift(shift_duration_hours_by_name)
 
 	availability_hours_by_group: dict[tuple[str, str], float] = {}
-	for key, group in groups.items():
+	for key, group_shift_names in shift_names_by_group.items():
 		timeout_guard()
 		availability_hours_by_group[key] = _get_group_availability_hours(
-			group,
+			group_shift_names,
 			shift_duration_hours_by_name,
 			planned_loss_hours_by_shift,
 		)
@@ -628,13 +633,13 @@ def _get_planned_loss_hours_by_shift(shift_duration_hours_by_name: dict[str, flo
 
 
 def _get_group_availability_hours(
-	group: dict,
+	shift_names: set[str],
 	shift_duration_hours_by_name: dict[str, float],
 	planned_loss_hours_by_shift: dict[str, float],
 ) -> float:
 	total_shift_hours = 0.0
 	total_planned_loss_hours = 0.0
-	for shift_name in group.get("shift_names", set()):
+	for shift_name in shift_names:
 		total_shift_hours += flt(shift_duration_hours_by_name.get(shift_name) or 0)
 		total_planned_loss_hours += flt(planned_loss_hours_by_shift.get(shift_name) or 0)
 	return flt(max(total_shift_hours - total_planned_loss_hours, 0))
@@ -650,16 +655,17 @@ def _completed_windows_for_report(
 	return _get_completed_shift_windows_in_range(filters)
 
 
-def _get_machine_downtime_hours_by_group(
+def _get_machine_downtime_by_group(
 	groups: dict[tuple[str, str], dict],
 	timeout_guard: Callable[[], None],
 	windows: dict[str, tuple[datetime.datetime, datetime.datetime]],
 	shift_dates: dict[str, str],
 	planned_by_shift: dict[str, list[tuple[datetime.datetime, datetime.datetime]]],
-) -> dict[tuple[str, str], float]:
+) -> dict[tuple[str, str], tuple[float, set[str], set[str]]]:
+	"""Per group: Machine Downtime hours, linked shifts and unlinked shifts whose downtime counts."""
 	timeout_guard()
 	if not windows:
-		return {key: 0.0 for key in groups}
+		return {key: (0.0, set(), set()) for key in groups}
 
 	workstations = sorted({str(group.get("workstation") or "") for group in groups.values()})
 	overall_start = min(start for start, _end in windows.values())
@@ -667,10 +673,10 @@ def _get_machine_downtime_hours_by_group(
 	timeout_guard()
 	downtime_rows = _get_downtime_rows(workstations, overall_start, overall_end)
 	covered_by_group = _get_covered_loss_intervals_by_group(groups, windows)
-	hours_by_group: dict[tuple[str, str], float] = {}
+	downtime_by_group: dict[tuple[str, str], tuple[float, set[str], set[str]]] = {}
 	for key, group in groups.items():
 		timeout_guard()
-		hours_by_group[key] = _sum_machine_downtime_hours(
+		downtime_by_group[key] = _sum_machine_downtime_hours(
 			group,
 			windows,
 			shift_dates,
@@ -678,7 +684,7 @@ def _get_machine_downtime_hours_by_group(
 			covered_by_group.get(key, []),
 			planned_by_shift,
 		)
-	return hours_by_group
+	return downtime_by_group
 
 
 def _get_completed_shift_windows(
@@ -820,7 +826,8 @@ def _sum_machine_downtime_hours(
 	downtime_rows: list[dict],
 	covered_intervals: list[tuple[datetime.datetime, datetime.datetime]],
 	planned_by_shift: dict[str, list[tuple[datetime.datetime, datetime.datetime]]],
-) -> float:
+) -> tuple[float, set[str], set[str]]:
+	"""Return Machine Downtime hours and the linked / unlinked shifts whose downtime counts."""
 	workstation = group.get("workstation")
 	day = str(group.get("day") or "")
 	day_windows = {
@@ -829,6 +836,8 @@ def _sum_machine_downtime_hours(
 		if shift_day == day and shift_name in windows
 	}
 	uncovered: list[tuple[datetime.datetime, datetime.datetime]] = []
+	linked_shifts: set[str] = set()
+	unlinked_shifts: set[str] = set()
 	for row in downtime_rows:
 		if row.get("workstation") != workstation:
 			continue
@@ -836,23 +845,22 @@ def _sum_machine_downtime_hours(
 			blockers = [*covered_intervals, *planned_by_shift.get(shift_name, [])]
 			counted = _subtract_intervals(overlap, blockers)
 			if counted:
-				# The shift's available time counts with its downtime (ADR 0004).
-				shift_set = "shift_names" if row.get("custom_pea_shift") else "unlinked_downtime_shifts"
-				group.setdefault(shift_set, set()).add(shift_name)
+				(linked_shifts if row.get("custom_pea_shift") else unlinked_shifts).add(shift_name)
 			uncovered.extend(counted)
 	total_mins = sum(get_interval_minutes(*interval) for interval in merge_intervals(uncovered))
-	return flt(total_mins / 60)
+	return flt(total_mins / 60), linked_shifts, unlinked_shifts
 
 
 def _unlinked_downtime_available_hours(
-	group: dict,
+	summed_shifts: set[str],
+	unlinked_shifts: set[str],
 	windows: dict[str, tuple[datetime.datetime, datetime.datetime]],
 	planned_by_shift: dict[str, list[tuple[datetime.datetime, datetime.datetime]]],
 ) -> float:
-	"""Union of the unlinked-downtime shifts' windows less planned losses and minutes of `shift_names`."""
-	counted_windows = [windows[name] for name in group.get("shift_names", ()) if name in windows]
+	"""Union of the unlinked-downtime shifts' windows less planned losses and the summed shifts' windows."""
+	counted_windows = [windows[name] for name in summed_shifts if name in windows]
 	available: list[tuple[datetime.datetime, datetime.datetime]] = []
-	for shift_name in group.get("unlinked_downtime_shifts", ()):
+	for shift_name in unlinked_shifts:
 		blockers = [*planned_by_shift.get(shift_name, []), *counted_windows]
 		available.extend(_subtract_intervals(windows[shift_name], blockers))
 	return _merged_interval_hours(available)
