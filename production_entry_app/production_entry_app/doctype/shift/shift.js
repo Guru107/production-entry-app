@@ -120,7 +120,11 @@ function _call_shift_transition(frm, method) {
 			}
 			frm.reload_doc();
 		},
-		error: () => {
+		error: (err) => {
+			// Frappe already shows the server's validation message; add the generic text only without one.
+			if (err?._server_messages || err?.responseJSON?._server_messages) {
+				return;
+			}
 			frappe.msgprint(
 				__("Could not change the shift status. Please retry or contact support.")
 			);

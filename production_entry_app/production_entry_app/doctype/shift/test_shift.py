@@ -1173,7 +1173,9 @@ class TestShift(FrappeTestCase):
 			"Comment", {"reference_doctype": "Shift", "reference_name": doc.name}
 		)
 
-		with self.assertRaisesRegex(ValidationError, rf"{doc.name}.*1 submitted.*{entry_name}"):
+		with self.assertRaisesRegex(
+			ValidationError, rf"{doc.name}: it has 1 submitted Stock Entry\(s\) linked \({entry_name}\)"
+		):
 			doc.cancel_shift()
 
 		self.assertEqual(frappe.db.get_value("Shift", doc.name, "status"), "Completed")

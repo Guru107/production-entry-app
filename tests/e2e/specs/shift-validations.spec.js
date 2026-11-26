@@ -507,12 +507,11 @@ test.describe("Shift validations", () => {
 
 		const shiftPage = new ShiftPage(page);
 		await shiftPage.open(ctx.shift_name);
-		try {
-			await shiftPage.cancelShift();
-		} catch (error) {
-			// Validation msgprint asserted below.
-		}
-		await expectValidationError(page, /Cannot cancel Shift .*1 submitted Stock Entries/i);
+		await shiftPage.clickCancelFromActions();
+		await expectValidationError(
+			page,
+			/Cannot cancel Shift .*: it has 1 submitted Stock Entry\(s\) linked/i
+		);
 
 		const shiftAfterAttempt = await getDoc(page, "Shift", ctx.shift_name);
 		expect(shiftAfterAttempt.status).toBe("Completed");

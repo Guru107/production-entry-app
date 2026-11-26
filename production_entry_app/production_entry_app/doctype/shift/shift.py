@@ -1456,7 +1456,7 @@ class Shift(Document):
 		).run()[0][0]
 		frappe.throw(
 			_(
-				"Cannot cancel Shift {0}: {1} submitted Stock Entries are linked to it ({2}). Cancel them first."
+				"Cannot cancel Shift {0}: it has {1} submitted Stock Entry(s) linked ({2}). Cancel them first."
 			).format(self.name, count, ", ".join(rows))
 		)
 
