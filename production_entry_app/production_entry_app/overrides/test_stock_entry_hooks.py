@@ -1169,6 +1169,9 @@ def _create_manufacture_stock_entry(
 			"fg_completed_qty": fg_qty,
 			"custom_pea_total_strokes": fg_qty,
 			"custom_pea_standard_spm": 2,
+			# ERPNext sets these on insert; hook tests that skip insert still need them.
+			"posting_date": frappe.utils.nowdate(),
+			"posting_time": frappe.utils.nowtime(),
 		}
 	)
 
@@ -5321,6 +5324,8 @@ class TestDieToolCounter(FrappeTestCase):
 				"fg_item": self.fg_item,
 				"fg_completed_qty": 10,
 				"custom_pea_total_strokes": 4,
+				"posting_date": "2026-06-01",
+				"posting_time": "09:00:00",
 			}
 		)
 		update_counter_for_stock_entry(doc, direction=1)
@@ -5343,6 +5348,8 @@ class TestDieToolCounter(FrappeTestCase):
 				"fg_item": self.fg_item,
 				"fg_completed_qty": 10,
 				"custom_pea_total_strokes": 6,
+				"posting_date": "2026-06-01",
+				"posting_time": "09:00:00",
 				"custom_pea_die_tool_item": die_item,
 			}
 		)
@@ -5373,7 +5380,7 @@ class TestDieToolCounter(FrappeTestCase):
 
 		self.assertFalse(frappe.db.exists("Die Tool Counter", self.fg_item))
 
-	def test_update_counter_decrement_clamps_to_zero(self) -> None:
+	def test_update_counter_cancel_recomputes_from_submitted_entries(self) -> None:
 		from production_entry_app.production_entry_app.utils.die_tool_counter import (
 			update_counter_for_stock_entry,
 		)
@@ -5402,13 +5409,210 @@ class TestDieToolCounter(FrappeTestCase):
 			0.0,
 		)
 
-	def test_reset_counter_from_maintenance_log_requires_item(self) -> None:
+	def _counter_strokes(self) -> float:
+		return float(frappe.db.get_value("Die Tool Counter", self.fg_item, "current_stroke_count") or 0)
+
+	def _submitted_entry(
+		self,
+		strokes: float,
+		posting: str,
+		*,
+		die_tool_item: str | None = None,
+		stock_entry_type: str = "Manufacture",
+		fg_item: str | None = None,
+	) -> Document:
+		"""Persist a submitted Manufacture entry row-by-row; the counter only reads these columns."""
+		posting_date, posting_time = posting.split(" ")
+		se = frappe.get_doc(
+			{
+				"doctype": "Stock Entry",
+				"name": f"_T-DT-{frappe.generate_hash(length=10)}",
+				"purpose": "Manufacture",
+				"stock_entry_type": stock_entry_type,
+				"company": self.company,
+				"posting_date": posting_date,
+				"posting_time": posting_time,
+				"custom_pea_total_strokes": strokes,
+				"custom_pea_die_tool_item": die_tool_item,
+				"docstatus": 1,
+			}
+		)
+		se.append("items", {"item_code": self.rm_item, "qty": 1, "s_warehouse": self.rm_warehouse})
+		se.append(
+			"items",
+			{
+				"item_code": fg_item or self.fg_item,
+				"qty": 1,
+				"is_finished_item": 1,
+				"t_warehouse": self.fg_warehouse,
+			},
+		)
+		se.db_insert()
+		for row in se.items:
+			row.db_insert()
+		return se
+
+	def _submit_entry(self, strokes: float, posting: str) -> Document:
 		from production_entry_app.production_entry_app.utils.die_tool_counter import (
-			reset_counter_from_maintenance_log,
+			update_counter_for_stock_entry,
 		)
 
-		with self.assertRaises(ValidationError):
-			reset_counter_from_maintenance_log("", "2026-05-03 10:00:00")
+		se = self._submitted_entry(strokes, posting)
+		update_counter_for_stock_entry(se, direction=1)
+		return se
+
+	def _cancel_entry(self, se: Document) -> None:
+		from production_entry_app.production_entry_app.utils.die_tool_counter import (
+			update_counter_for_stock_entry,
+		)
+
+		se.db_set("docstatus", 2)
+		update_counter_for_stock_entry(se, direction=-1)
+
+	def _submit_log(self, maintenance_date: str) -> Document:
+		log = frappe.get_doc(
+			{
+				"doctype": "Die Tool Maintenance Log",
+				"die_tool_item": self.fg_item,
+				"maintenance_date": maintenance_date,
+			}
+		).insert()
+		log.submit()
+		return log
+
+	def _stock_entry_type(self, flag_fieldname: str, purpose: str) -> str:
+		"""Reuse the site's flagged type: validation allows only one per flag."""
+		return frappe.db.get_value("Stock Entry Type", {flag_fieldname: 1}) or (
+			frappe.get_doc(
+				{
+					"doctype": "Stock Entry Type",
+					"name": f"_T DT {frappe.generate_hash(length=8)}",
+					"purpose": purpose,
+					flag_fieldname: 1,
+				}
+			)
+			.insert(ignore_permissions=True)
+			.name
+		)
+
+	def _insert_counter(self, current_stroke_count: float = 0) -> None:
+		frappe.get_doc(
+			{
+				"doctype": "Die Tool Counter",
+				"die_tool_item": self.fg_item,
+				"current_stroke_count": current_stroke_count,
+			}
+		).insert(ignore_permissions=True)
+
+	def test_cancel_before_maintenance_keeps_post_maintenance_strokes(self) -> None:
+		se1 = self._submit_entry(1000, "2026-06-01 09:00:00")
+		self._submit_log("2026-06-02 08:00:00")
+		self._submit_entry(500, "2026-06-03 09:00:00")
+		self.assertEqual(self._counter_strokes(), 500.0)
+
+		self._cancel_entry(se1)
+
+		self.assertEqual(self._counter_strokes(), 500.0)
+
+	def test_back_dated_maintenance_log_keeps_later_strokes(self) -> None:
+		self._submit_entry(1000, "2026-06-01 09:00:00")
+		self._submit_entry(300, "2026-06-02 09:00:00")
+		self._submit_entry(200, "2026-06-04 09:00:00")
+
+		self._submit_log("2026-06-01 12:00:00")
+
+		self.assertEqual(self._counter_strokes(), 500.0)
+		self.assertEqual(
+			str(frappe.db.get_value("Die Tool Counter", self.fg_item, "last_reset_on")), "2026-06-01 12:00:00"
+		)
+
+	def test_older_log_submitted_after_newer_does_not_move_reset_backwards(self) -> None:
+		self._submit_entry(100, "2026-06-02 09:00:00")
+		self._submit_log("2026-06-03 08:00:00")
+		self._submit_entry(40, "2026-06-04 09:00:00")
+
+		self._submit_log("2026-06-01 08:00:00")
+
+		self.assertEqual(self._counter_strokes(), 40.0)
+		self.assertEqual(
+			str(frappe.db.get_value("Die Tool Counter", self.fg_item, "last_reset_on")), "2026-06-03 08:00:00"
+		)
+
+	def test_cancelling_logs_restores_count_since_previous_active_log(self) -> None:
+		self._submit_entry(1000, "2026-06-01 09:00:00")
+		older = self._submit_log("2026-06-01 12:00:00")
+		self._submit_entry(300, "2026-06-02 09:00:00")
+		newer = self._submit_log("2026-06-03 08:00:00")
+		self._submit_entry(50, "2026-06-04 09:00:00")
+		self.assertEqual(self._counter_strokes(), 50.0)
+
+		newer.cancel()
+		self.assertEqual(self._counter_strokes(), 350.0)
+
+		older.cancel()
+		self.assertEqual(self._counter_strokes(), 1350.0)
+		self.assertIsNone(frappe.db.get_value("Die Tool Counter", self.fg_item, "last_reset_on"))
+		self.assertIsNone(frappe.db.get_value("Die Tool Counter", self.fg_item, "last_reset_by"))
+
+	def test_entry_posted_at_or_before_reset_adds_nothing_on_submit(self) -> None:
+		self._submit_log("2026-06-03 08:00:00")
+
+		self._submit_entry(700, "2026-06-02 09:00:00")
+		self._submit_entry(700, "2026-06-03 08:00:00")
+
+		self.assertEqual(self._counter_strokes(), 0.0)
+
+	def test_flag_toggled_between_submit_and_cancel_leaves_no_phantom_strokes(self) -> None:
+		se = self._submit_entry(1000, "2026-06-01 09:00:00")
+		self.assertEqual(self._counter_strokes(), 1000.0)
+
+		_set_item_die_tool_fields(self.fg_item, stroke_capacity=1000, has_die_tool=0)
+		self._cancel_entry(se)
+		_set_item_die_tool_fields(self.fg_item, stroke_capacity=1000, has_die_tool=1)
+
+		self.assertEqual(self._counter_strokes(), 0.0)
+
+	def test_recompute_follows_die_tool_resolution_rule(self) -> None:
+		from production_entry_app.production_entry_app.utils.die_tool_counter import recompute_counter
+
+		other_die = ensure_item(f"_Other_Die_{frappe.generate_hash(length=6)}")
+		other_fg = ensure_item(f"_Other_FG_{frappe.generate_hash(length=6)}")
+		posting = "2026-06-01 09:00:00"
+		self._submitted_entry(1, posting)
+		self._submitted_entry(10, posting, die_tool_item=self.fg_item, fg_item=other_fg)
+		self._submitted_entry(100, posting, die_tool_item=other_die)
+		paired_type = self._stock_entry_type("custom_pea_joint_lh_rh_production", "Repack")
+		self._submitted_entry(1000, posting, stock_entry_type=paired_type)
+		rework_type = self._stock_entry_type("custom_pea_rework_entry", "Manufacture")
+		self._submitted_entry(10000, posting, die_tool_item=self.fg_item, stock_entry_type=rework_type)
+		self._insert_counter()
+
+		self.assertEqual(recompute_counter(self.fg_item), 11.0)
+		self.assertEqual(self._counter_strokes(), 11.0)
+
+	def test_recompute_refuses_counter_changed_after_snapshot(self) -> None:
+		from production_entry_app.production_entry_app.utils.die_tool_counter import recompute_counter
+
+		self._insert_counter(5)
+		real_sql = frappe.db.sql
+
+		def concurrent_increment(query, *args, **kwargs):
+			result = real_sql(query, *args, **kwargs)
+			return ((6.0,),) if "FOR UPDATE" in str(query) else result
+
+		with patch.object(frappe.db, "sql", side_effect=concurrent_increment):
+			with self.assertRaises(frappe.QueryDeadlockError):
+				recompute_counter(self.fg_item)
+
+	def test_recompute_patch_counts_changed_counters_and_is_idempotent(self) -> None:
+		from production_entry_app.patches import recompute_die_tool_counters
+
+		self._submitted_entry(30, "2026-06-01 09:00:00")
+		self._insert_counter(999)
+
+		self.assertGreaterEqual(recompute_die_tool_counters.execute(), 1)
+		self.assertEqual(self._counter_strokes(), 30.0)
+		self.assertEqual(recompute_die_tool_counters.execute(), 0)
 
 	def test_get_fg_item_code_uses_field_or_finished_item_row(self) -> None:
 		from production_entry_app.production_entry_app.utils.die_tool_counter import (
