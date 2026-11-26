@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-11-26
+
+### Changed
+
+-   Standard Downtime Reasons, Rejection Reasons, the app's Stock Entry Types and the PEA Roles are now seeded create-only: migrate creates a missing record and never overwrites one edited on site (#248)
+-   Production OEE counts the available time of shifts that had machine downtime, and Loss Entry times are clipped to the shift window (#259)
+-   Joint entries under a BOM or FG Item report filter count only the matching line, not the whole entry (#264)
+-   The Pending Rework Pool is tracked per company and branch (#255)
+-   Efficiency reports: the item filter is labelled "FG Item", and Total Units includes rework (#263)
+-   Alternative-item checks on direct BOM Manufacture entries use the BOM's top-level items only, matching the single-level BOM rule (#261)
+-   Submitted Stock Entries show the die tool utilization stored at submit instead of today's live counter (#269)
+-   The unused `check_running_shift_conflict` endpoint is removed (#272)
+-   Rejection/rework report pairs share one builder per report shape, and dead helpers and duplicated JS are removed (#266, #272)
+-   Tests no longer commit, field-layout patches have tests, and JS unit tests run in CI without Playwright (#273)
+
+### Fixed
+
+-   A Shift can no longer be cancelled while submitted Stock Entries link to it (#256)
+-   The shared Shift summary and timeline caches no longer depend on the first viewer's User Permissions (#253)
+-   Die Tool Counters are recomputed from submitted entries after their latest maintenance, fixing drift from earlier cancels; the migrate patch reports how many counters changed (#250)
+-   Production OEE and Monthly OEE no longer slow down with workstations × days × downtime rows (#260)
+-   Shift form loads and Stock Entry saves read less: new indexes on Downtime Entry (shift, time window) and Loss Entry (shift), one query for planned-loss reasons, and the Shift and BOM items are read once per save (#261)
+-   The Stock Entry form no longer fires one BOM request per line or repeated die tool counter requests on load (#269)
+
 ## [1.6.1] - 2026-11-17
 
 ### Fixed
