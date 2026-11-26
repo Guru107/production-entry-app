@@ -9,6 +9,8 @@ from production_entry_app.production_entry_app.report.report_utils import (
 	build_summed_overall_row,
 	get_parent_breakup_reason_rows,
 	iter_stock_entries_in_chunks,
+	limit_breakup_rows_to_lines,
+	select_filtered_output_lines,
 )
 
 _DEFAULT_TOP_N = 10
@@ -86,6 +88,7 @@ def _get_rows(filters: dict, top_n: int) -> tuple[list[dict], list[str]]:
 	for entry_rows in iter_stock_entries_in_chunks(
 		_build_filters(filters), ["name", "custom_pea_workstation"]
 	):
+		entry_rows, line_totals = select_filtered_output_lines(entry_rows, filters, is_rework=False)
 		has_entries = True
 		entry_names = [row.get("name") for row in entry_rows if row.get("name")]
 		if not entry_names:
@@ -95,7 +98,9 @@ def _get_rows(filters: dict, top_n: int) -> tuple[list[dict], list[str]]:
 			for row in entry_rows
 			if row.get("name")
 		}
-		breakup_rows = get_parent_breakup_reason_rows(entry_names, is_rework=False)
+		breakup_rows = limit_breakup_rows_to_lines(
+			get_parent_breakup_reason_rows(entry_names, is_rework=False), line_totals
+		)
 		for row in breakup_rows:
 			parent = row.get("parent")
 			reason = row.get("rejection_reason")

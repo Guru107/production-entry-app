@@ -10,10 +10,9 @@ from production_entry_app.production_entry_app.joint_production import (
 
 APP_ROOT = Path(__file__).resolve().parents[2]
 DOCTYPE_ROOT = Path(__file__).parent / "doctype"
-CUSTOM_FIELD_FIXTURE = APP_ROOT / "production_entry_app" / "fixtures" / "custom_field.json"
-PROPERTY_SETTER_FIXTURE = APP_ROOT / "production_entry_app" / "fixtures" / "property_setter.json"
-ROLE_FIXTURE = APP_ROOT / "production_entry_app" / "fixtures" / "role.json"
-STOCK_ENTRY_TYPE_FIXTURE = APP_ROOT / "production_entry_app" / "fixtures" / "stock_entry_type.json"
+FIXTURES_DIR = APP_ROOT / "production_entry_app" / "fixtures"
+CUSTOM_FIELD_FIXTURE = FIXTURES_DIR / "custom_field.json"
+PROPERTY_SETTER_FIXTURE = FIXTURES_DIR / "property_setter.json"
 WORKSPACE_JSON = (
 	APP_ROOT
 	/ "production_entry_app"
@@ -192,51 +191,16 @@ def test_joint_lh_rh_production_metadata_is_exported() -> None:
 	assert rejection_fields["custom_pea_rb_item_code"]["options"] == "Item"
 
 
-def test_canonical_stock_entry_type_fixtures_are_exported() -> None:
-	stock_entry_types = {row.get("name"): row for row in json.loads(STOCK_ENTRY_TYPE_FIXTURE.read_text())}
-	assert stock_entry_types == {
-		"Joint LH RH Production": {
-			"doctype": "Stock Entry Type",
-			"name": "Joint LH RH Production",
-			"purpose": "Repack",
-			"custom_pea_joint_lh_rh_production": 1,
-			"custom_pea_joint_production": 0,
-			"custom_pea_rework_entry": 0,
-		},
-		"Joint Production": {
-			"doctype": "Stock Entry Type",
-			"name": "Joint Production",
-			"purpose": "Repack",
-			"custom_pea_joint_lh_rh_production": 0,
-			"custom_pea_joint_production": 1,
-			"custom_pea_rework_entry": 0,
-		},
-		"Rework": {
-			"doctype": "Stock Entry Type",
-			"name": "Rework",
-			"purpose": "Material Transfer",
-			"custom_pea_joint_lh_rh_production": 0,
-			"custom_pea_joint_production": 0,
-			"custom_pea_rework_entry": 1,
-		},
-	}
-
-
-def test_canonical_stock_entry_type_fixtures_are_registered_for_install() -> None:
+def test_app_masters_are_seeded_not_shipped_as_fixtures() -> None:
 	from production_entry_app import hooks
 
-	assert {
-		"dt": "Stock Entry Type",
-		"filters": [["name", "=", "Joint LH RH Production"]],
-	} in hooks.fixtures
-	assert {
-		"dt": "Stock Entry Type",
-		"filters": [["name", "=", "Joint Production"]],
-	} in hooks.fixtures
-	assert {
-		"dt": "Stock Entry Type",
-		"filters": [["name", "=", "Rework"]],
-	} in hooks.fixtures
+	seeded_doctypes = {"Downtime Reason", "Rejection Reason", "Stock Entry Type", "Role"}
+	fixture_doctypes = {fixture["dt"] if isinstance(fixture, dict) else fixture for fixture in hooks.fixtures}
+	shipped_doctypes = {
+		row["doctype"] for path in FIXTURES_DIR.glob("*.json") for row in json.loads(path.read_text())
+	}
+	assert not seeded_doctypes & fixture_doctypes
+	assert not seeded_doctypes & shipped_doctypes
 
 
 def test_rework_stock_entry_metadata_is_exported() -> None:
@@ -416,8 +380,7 @@ def test_metadata_load_tests_includes_rework_layout_contract() -> None:
 
 	assert test_rework_fields_have_a_dedicated_two_column_section in loaded_functions
 	assert test_production_stock_entry_purpose_metadata_is_available in loaded_functions
-	assert test_canonical_stock_entry_type_fixtures_are_exported in loaded_functions
-	assert test_canonical_stock_entry_type_fixtures_are_registered_for_install in loaded_functions
+	assert test_app_masters_are_seeded_not_shipped_as_fixtures in loaded_functions
 	assert test_pending_rework_workspace_link_uses_query_report_route in loaded_functions
 
 
@@ -440,38 +403,8 @@ def test_settings_has_no_access_control_fields() -> None:
 def test_pea_roles_are_shipped() -> None:
 	import frappe
 
-	from production_entry_app import hooks
-
-	fixtures_by_dt = {
-		fixture["dt"]: fixture
-		for fixture in hooks.fixtures
-		if isinstance(fixture, dict) and fixture.get("dt")
-	}
-	assert fixtures_by_dt["Role"]["filters"] == [["name", "in", list(EXPECTED_PEA_ROLE_NAMES)]]
-
-	role_fixture = json.loads(ROLE_FIXTURE.read_text())
-	assert [row["name"] for row in role_fixture] == list(EXPECTED_PEA_ROLE_NAMES)
-	assert [row["doctype"] for row in role_fixture] == ["Role", "Role"]
-	expected_role_keys = {
-		"desk_access",
-		"disabled",
-		"docstatus",
-		"doctype",
-		"home_page",
-		"is_custom",
-		"modified",
-		"name",
-		"restrict_to_domain",
-		"role_name",
-		"two_factor_auth",
-	}
-	for row in role_fixture:
-		assert set(row) == expected_role_keys
-		assert row["name"] in EXPECTED_PEA_ROLE_NAMES
-		assert row["doctype"] == "Role"
-		assert row["role_name"] == row["name"]
-	assert frappe.db.exists("Role", "PEA User")
-	assert frappe.db.exists("Role", "PEA Read Only")
+	for role in EXPECTED_PEA_ROLE_NAMES:
+		assert frappe.db.exists("Role", role)
 
 
 def test_production_stock_entry_purpose_metadata_is_available() -> None:
@@ -671,8 +604,7 @@ def load_tests(
 			test_bom_die_tool_item_is_a_link_after_operation,
 			test_stock_entry_detail_rejection_flag_uses_cross_version_anchor,
 			test_joint_lh_rh_production_metadata_is_exported,
-			test_canonical_stock_entry_type_fixtures_are_exported,
-			test_canonical_stock_entry_type_fixtures_are_registered_for_install,
+			test_app_masters_are_seeded_not_shipped_as_fixtures,
 			test_rework_stock_entry_metadata_is_exported,
 			test_rework_fields_have_a_dedicated_two_column_section,
 			test_metadata_load_tests_includes_rework_layout_contract,

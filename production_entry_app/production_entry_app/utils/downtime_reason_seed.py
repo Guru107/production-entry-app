@@ -30,9 +30,8 @@ STANDARD_DOWNTIME_REASONS: dict[str, str] = {
 
 
 def ensure_downtime_reason(code: str, description: str | None = None) -> None:
+	# Create-only: an existing reason keeps its user edits, including is_active (#248).
 	if frappe.db.exists("Downtime Reason", code):
-		if not frappe.db.get_value("Downtime Reason", code, "is_active"):
-			frappe.db.set_value("Downtime Reason", code, "is_active", 1, update_modified=False)
 		return
 	frappe.get_doc(
 		{

@@ -211,12 +211,16 @@ class TestLifecycle(FrappeTestCase):
 			patch(
 				"production_entry_app.production_entry_app.lifecycle.seed_standard_downtime_reasons"
 			) as seed_downtime_reasons,
+			patch(
+				"production_entry_app.production_entry_app.lifecycle.seed_standard_masters"
+			) as seed_masters,
 		):
 			lifecycle.after_sync()
 
 		ensure_rework_layout.assert_called_once_with()
 		ensure_indexes.assert_called_once_with()
 		seed_downtime_reasons.assert_called_once_with()
+		seed_masters.assert_called_once_with()
 
 	def test_after_migrate_runs_idempotent_setup(self) -> None:
 		with (
@@ -229,12 +233,16 @@ class TestLifecycle(FrappeTestCase):
 			patch(
 				"production_entry_app.production_entry_app.lifecycle.performance_indexes.ensure_performance_indexes"
 			) as ensure_indexes,
+			patch(
+				"production_entry_app.production_entry_app.lifecycle.seed_standard_masters"
+			) as seed_masters,
 		):
 			lifecycle.after_migrate()
 
 		ensure_rework_layout.assert_called_once_with()
 		ensure_indexes.assert_called_once_with()
 		seed_downtime_reasons.assert_called_once_with()
+		seed_masters.assert_called_once_with()
 
 	def test_setup_app_logs_summary(self) -> None:
 		from production_entry_app.production_entry_app import lifecycle
@@ -399,3 +407,73 @@ class TestLifecycle(FrappeTestCase):
 		self.assertFalse(frappe.db.exists("Stock Entry Type", joint_type))
 		for role_name in lifecycle.APP_ROLES:
 			self.assertFalse(frappe.db.exists("Role", role_name))
+
+
+class TestSeedStandardMasters(FrappeTestCase):
+	def _delete_standard_masters(self) -> None:
+		frappe.db.delete("Rejection Reason", {"name": ["in", lifecycle.STANDARD_REJECTION_REASONS]})
+		frappe.db.delete("Stock Entry Type", {"name": ["in", list(lifecycle.STANDARD_STOCK_ENTRY_TYPES)]})
+		for flag_fieldname in lifecycle.STOCK_ENTRY_TYPE_FLAG_FIELDNAMES:
+			frappe.db.delete("Stock Entry Type", {flag_fieldname: 1})
+		frappe.db.delete("Role", {"name": ["in", lifecycle.APP_ROLES]})
+
+	def test_seed_creates_missing_masters_with_standard_values(self) -> None:
+		self._delete_standard_masters()
+
+		lifecycle.seed_standard_masters()
+
+		for reason in lifecycle.STANDARD_REJECTION_REASONS:
+			self.assertEqual(frappe.db.get_value("Rejection Reason", reason, "is_active"), 1)
+		for name, (purpose, flag_fieldname) in lifecycle.STANDARD_STOCK_ENTRY_TYPES.items():
+			row = frappe.db.get_value(
+				"Stock Entry Type",
+				name,
+				["purpose", *lifecycle.STOCK_ENTRY_TYPE_FLAG_FIELDNAMES],
+				as_dict=True,
+			)
+			self.assertEqual(row.pop("purpose"), purpose)
+			self.assertEqual(row, {fieldname: int(fieldname == flag_fieldname) for fieldname in row})
+		for role in lifecycle.APP_ROLES:
+			row = frappe.db.get_value(
+				"Role", role, ["desk_access", "two_factor_auth", "disabled"], as_dict=True
+			)
+			self.assertEqual(row, {"desk_access": 1, "two_factor_auth": 0, "disabled": 0})
+
+	def test_seed_preserves_edits_to_existing_masters(self) -> None:
+		lifecycle.seed_standard_masters()
+		frappe.db.set_value("Rejection Reason", "Crack", "is_active", 0)
+		frappe.db.set_value("Stock Entry Type", "Rework", "add_to_transit", 1)
+		frappe.db.set_value("Role", "PEA User", "two_factor_auth", 1)
+
+		lifecycle.seed_standard_masters()
+
+		self.assertEqual(frappe.db.get_value("Rejection Reason", "Crack", "is_active"), 0)
+		self.assertEqual(frappe.db.get_value("Stock Entry Type", "Rework", "add_to_transit"), 1)
+		self.assertEqual(frappe.db.get_value("Role", "PEA User", "two_factor_auth"), 1)
+
+	def test_seed_skips_a_missing_standard_type_whose_flag_moved_to_another_type(self) -> None:
+		frappe.db.delete("Stock Entry Type", {"name": "Joint Production"})
+		frappe.db.set_value(
+			"Stock Entry Type", {"custom_pea_joint_production": 1}, "custom_pea_joint_production", 0
+		)
+		own_type = _seed_flagged_stock_entry_type("custom_pea_joint_production")
+
+		lifecycle.seed_standard_masters()
+
+		self.assertFalse(frappe.db.exists("Stock Entry Type", "Joint Production"))
+		self.assertEqual(
+			frappe.get_all("Stock Entry Type", filters={"custom_pea_joint_production": 1}, pluck="name"),
+			[own_type],
+		)
+
+	def test_seed_twice_is_a_noop_on_the_second_run(self) -> None:
+		lifecycle.seed_standard_masters()
+		before = {
+			doctype: frappe.get_all(doctype, fields=["name", "modified"], order_by="name")
+			for doctype in ("Rejection Reason", "Stock Entry Type", "Role")
+		}
+
+		lifecycle.seed_standard_masters()
+
+		for doctype, rows in before.items():
+			self.assertEqual(frappe.get_all(doctype, fields=["name", "modified"], order_by="name"), rows)

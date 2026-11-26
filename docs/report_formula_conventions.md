@@ -14,6 +14,16 @@ This document defines shared rules used across script reports under `production_
   `custom_pea_joint_lh_rh_production`; reports use the same Stock Entry Type flag for submitted rows.
 - Additional report filters (date, shift, workstation, operator, operation, BOM, FG item) restrict row
   inclusion.
+- BOM and FG Item filters attribute per output line. In the rejection / rework PPM, trend, Pareto,
+  reason-matrix and operator performance reports, a Joint LH/RH or Joint Production entry contributes
+  only the lines whose BOM / finished item matches: their gross qty, their rejection or rework qty, and
+  the Rejection Breakup reasons of their output side (`select_filtered_output_lines()`, built on the
+  same `get_item_bom_quality_facts()` as the item/BOM hotspot reports). Plain Manufacture entries have
+  one line and are included whole. Strokes and production time stay entry-level (one press cycle makes
+  every line). Without a BOM / FG Item filter every entry counts whole.
+- BOM matching reads only the fields of the entry's own mode: the header BOM (or Stock Entry Detail
+  BOM) for Manufacture entries, LH/RH BOM for Joint LH/RH entries (and legacy line-less Joint
+  Production entries), `Joint Production Line.bom_no` for Joint Production entries.
 
 ## Operation Column and Filter
 

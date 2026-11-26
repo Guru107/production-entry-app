@@ -747,7 +747,7 @@ class TestShiftPureHelpers(FrappeTestCase):
 
 class TestShift(FrappeTestCase):
 	def setUp(self) -> None:
-		bootstrap_manufacturing_test_context("SHIFT-CORE")
+		self._ctx = bootstrap_manufacturing_test_context("SHIFT-CORE")
 		_ensure_shift_duration_options()
 		_ensure_downtime_reasons()
 		_ensure_loss_entry_shift_field()
@@ -1144,6 +1144,59 @@ class TestShift(FrappeTestCase):
 		with self.assertRaisesRegex(ValidationError, "Only shift duration and warehouse fields"):
 			doc.end_shift()
 		self.assertEqual(frappe.db.get_value("Shift", doc.name, "status"), "Running")
+
+	def _insert_linked_entry(self, shift_name: str, docstatus: int) -> str:
+		entry = frappe.get_doc(
+			{
+				"doctype": "Stock Entry",
+				"stock_entry_type": "Manufacture",
+				"purpose": "Manufacture",
+				"company": self._ctx["company"],
+				"posting_date": "2090-02-14",
+				"posting_time": "09:00:00",
+				"custom_pea_shift": shift_name,
+				"docstatus": docstatus,
+			}
+		)
+		entry.db_insert()
+		return entry.name
+
+	def _completed_shift_with_entry(self, shift_date: str, docstatus: int) -> tuple[Document, str]:
+		doc = self._insert_transition_lock_shift(shift_date)
+		doc.start_shift()
+		doc.end_shift()
+		return frappe.get_doc("Shift", doc.name), self._insert_linked_entry(doc.name, docstatus)
+
+	def test_cancel_shift_blocked_by_submitted_stock_entry(self) -> None:
+		doc, entry_name = self._completed_shift_with_entry("2090-02-14", 1)
+		comments_before = frappe.db.count(
+			"Comment", {"reference_doctype": "Shift", "reference_name": doc.name}
+		)
+
+		with self.assertRaisesRegex(
+			ValidationError, rf"{doc.name}: it has 1 submitted Stock Entry\(s\) linked \({entry_name}\)"
+		):
+			doc.cancel_shift()
+
+		self.assertEqual(frappe.db.get_value("Shift", doc.name, "status"), "Completed")
+		self.assertEqual(
+			frappe.db.count("Comment", {"reference_doctype": "Shift", "reference_name": doc.name}),
+			comments_before,
+		)
+
+	def test_cancel_shift_succeeds_after_entries_cancelled(self) -> None:
+		doc, entry_name = self._completed_shift_with_entry("2090-02-15", 1)
+		frappe.db.set_value("Stock Entry", entry_name, "docstatus", 2)
+
+		doc.cancel_shift()
+		self.assertEqual(frappe.db.get_value("Shift", doc.name, "status"), "Cancelled")
+
+	def test_cancel_shift_not_blocked_by_draft_or_cancelled_entries(self) -> None:
+		doc, _entry = self._completed_shift_with_entry("2090-02-16", 0)
+		self._insert_linked_entry(doc.name, 2)
+
+		doc.cancel_shift()
+		self.assertEqual(frappe.db.get_value("Shift", doc.name, "status"), "Cancelled")
 
 	def test_cancel_shift_from_completed_without_edits(self) -> None:
 		doc = self._insert_transition_lock_shift("2090-02-13")

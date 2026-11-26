@@ -22,7 +22,7 @@ frappe.query_reports["Operator Efficiency Report"] = {
 		},
 		{
 			fieldname: "fg_item",
-			label: __("Die Tool Item"),
+			label: __("FG Item"),
 			fieldtype: "Link",
 			options: "Item",
 		},
