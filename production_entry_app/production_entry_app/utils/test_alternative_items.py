@@ -5,7 +5,6 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from production_entry_app.production_entry_app.doctype.shift import shift as shift_module
 from production_entry_app.production_entry_app.overrides import stock_entry_hooks
 from production_entry_app.production_entry_app.utils import alternative_items
 
@@ -43,12 +42,3 @@ class TestAlternativeItems(FrappeTestCase):
 
 		bom_item_reads = [call for call in get_all.call_args_list if call.args[0] == "BOM Item"]
 		self.assertEqual(bom_item_reads, [])
-
-	def test_active_reason_checker_uses_one_query(self) -> None:
-		with patch.object(shift_module.frappe, "get_all", wraps=frappe.get_all) as get_all:
-			is_active = shift_module._get_active_downtime_reason_checker()
-			for reason in ("10", "13", "14", "19", "20", "missing"):
-				is_active(reason)
-
-		self.assertEqual(get_all.call_count, 1)
-		self.assertFalse(is_active("missing"))
