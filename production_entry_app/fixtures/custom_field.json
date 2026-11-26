@@ -52,6 +52,7 @@
   "options": "Shift",
   "insert_after": "remarks",
   "reqd": 0,
+  "search_index": 1,
   "module": "Production Entry App",
   "permlevel": 0
  },
