@@ -1175,8 +1175,9 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(len(rows), 2)  # data rows + Overall Row
 		row = rows[0]
 		self.assertEqual(float(row["reason_00_1st"]), 0.0)
-		self.assertEqual(float(row["reason_00_2nd"]), 1.0)
-		self.assertEqual(float(row["total_loss_time"]), 1.0)
+		# Clipped to the 16:00-00:00 shift window: the 00:00-00:30 end-buffer part is not shift time.
+		self.assertEqual(float(row["reason_00_2nd"]), 0.5)
+		self.assertEqual(float(row["total_loss_time"]), 0.5)
 
 	def test_production_oee_report_counts_unselected_reasons_only_in_total_loss_time(self) -> None:
 		from production_entry_app.production_entry_app.report.production_oee_report.production_oee_report import (
@@ -1647,13 +1648,16 @@ class TestProductionReports(FrappeTestCase):
 			execute,
 		)
 
-		shift_2 = self._create_shift_for_label("2095-03-04", "2", clear_planned_losses=True)
+		# 20:00-04:00, so both losses fall inside the shift window on either side of midnight.
+		shift_2 = self._create_shift_for_label(
+			"2095-03-04", "2", clear_planned_losses=True, planned_start_time="20:00:00"
+		)
 		self._create_mock_submitted_entry(
 			posting_date="2095-03-04",
-			planned_start="2095-03-04 16:00:00",
-			planned_end="2095-03-05 00:40:00",
-			actual_start="2095-03-04 16:00:00",
-			actual_end="2095-03-05 00:40:00",
+			planned_start="2095-03-04 20:00:00",
+			planned_end="2095-03-05 04:00:00",
+			actual_start="2095-03-04 20:00:00",
+			actual_end="2095-03-05 04:00:00",
 			fg_qty=100,
 			rejection_qty=0,
 			shift_name=shift_2.name,
@@ -6267,6 +6271,7 @@ class TestProductionReports(FrappeTestCase):
 		shift_label: str,
 		clear_planned_losses: bool = False,
 		department: str = "Test Department",
+		planned_start_time: str | None = None,
 	) -> frappe.Document:
 		from production_entry_app.production_entry_app.utils.test_bootstrap import ensure_department
 
@@ -6285,7 +6290,8 @@ class TestProductionReports(FrappeTestCase):
 				"shift_label": shift_label,
 				"shift_duration": "8",
 				"shift_date": shift_date,
-				"planned_start_time": "08:00:00" if shift_label == "1" else "16:00:00",
+				"planned_start_time": planned_start_time
+				or ("08:00:00" if shift_label == "1" else "16:00:00"),
 				"rejection_warehouse": self.rejection_warehouse,
 			}
 		).insert(ignore_permissions=True)

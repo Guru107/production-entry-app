@@ -411,7 +411,8 @@ def _finalize_group_metrics(
 				[
 					interval
 					for start_time, end_time, shift_name in loss_times
-					if (interval := _resolve_loss_interval(start_time, end_time, windows.get(shift_name)))
+					if (window := windows.get(shift_name))
+					and (interval := _clip_clock_times_to_window(start_time, end_time, window))
 				]
 			)
 			for key, loss_times in (group.get("reason_intervals") or {}).items()
@@ -442,19 +443,6 @@ def _get_workstation_standard_spm(workstations: set[str]) -> dict[str, float]:
 
 def _merged_interval_hours(intervals: list[tuple[datetime.datetime, datetime.datetime]]) -> float:
 	return flt(sum(get_interval_minutes(*interval) for interval in merge_intervals(intervals)) / 60)
-
-
-def _resolve_loss_interval(
-	start_time: str | datetime.time | None,
-	end_time: str | datetime.time | None,
-	window: tuple[datetime.datetime, datetime.datetime] | None,
-) -> tuple[datetime.datetime, datetime.datetime] | None:
-	"""Date a Loss Entry's clock times by the 24 hours centred on its shift window, unclipped."""
-	if not window:
-		return None
-	middle = window[0] + (window[1] - window[0]) / 2
-	half_day = datetime.timedelta(hours=12)
-	return resolve_time_interval_in_window(start_time, end_time, middle - half_day, middle + half_day)
 
 
 def _get_stock_entry_filters(filters: dict) -> dict:
