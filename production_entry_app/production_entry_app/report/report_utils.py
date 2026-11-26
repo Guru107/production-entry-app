@@ -1147,25 +1147,25 @@ def get_bar_line_chart(
 	}
 
 
-def get_quality_ppm_rows(
-	filters: dict,
-	entry_chunks: Iterable[list[dict]],
-	get_metrics: Any,
-	*,
-	is_rework: bool,
-	quantity_field: str,
-) -> list[dict]:
-	"""Daily PPM rows for the rejection and rework PPM reports.
-
-	The caller supplies the entry chunks and metrics reader so each twin keeps its own seams.
-	"""
+def get_quality_ppm_rows(filters: dict, *, is_rework: bool, quantity_field: str) -> list[dict]:
+	"""Daily PPM rows for the rejection and rework PPM reports."""
 	aggregates: dict = {}
 	has_entries = False
-	for entries in entry_chunks:
+	for entries in iter_stock_entries_in_chunks(
+		build_stock_entry_filters(filters, filter_keys=QUALITY_REPORT_FILTER_KEYS),
+		[
+			"name",
+			"posting_date",
+			"fg_completed_qty",
+			"custom_pea_rejection_qty",
+			*(["custom_pea_rework_qty"] if is_rework else []),
+		],
+		order_by="posting_date asc, name asc",
+	):
 		entries, line_totals = select_filtered_output_lines(entries, filters, is_rework=is_rework)
 		has_entries = True
 		entry_names = [entry.get("name") for entry in entries if entry.get("name")]
-		parent_quantity_metrics = get_metrics(entry_names, include_rework=is_rework)
+		parent_quantity_metrics = get_parent_quantity_metrics(entry_names, include_rework=is_rework)
 		for entry in entries:
 			if not entry.get("production_date"):
 				continue
@@ -1239,9 +1239,11 @@ def get_quality_trend_rows(
 			total_qty, quality_qty = get_entry_total_and_quality_qty(
 				entry, entry_metrics, line_totals, is_rework=is_rework
 			)
-			non_rework_rejection_qty = flt(entry_metrics.get("rejection_qty") or 0)
-			if entry_name in line_totals:
-				non_rework_rejection_qty = rejection_line_totals.get(entry_name, {}).get("quality_qty", 0)
+			non_rework_rejection_qty = 0.0
+			if is_rework:
+				non_rework_rejection_qty = flt(entry_metrics.get("rejection_qty") or 0)
+				if entry_name in line_totals:
+					non_rework_rejection_qty = rejection_line_totals.get(entry_name, {}).get("quality_qty", 0)
 			key_date, period_label = get_period_key(getdate(entry.get("production_date")), time_grain)
 			aggregate = aggregates.setdefault(
 				key_date,
@@ -1250,13 +1252,14 @@ def get_quality_trend_rows(
 					"entries": 0,
 					"total_qty": 0.0,
 					quantity_field: 0.0,
-					"non_rework_rejection_qty": 0.0,
+					**({"non_rework_rejection_qty": 0.0} if is_rework else {}),
 				},
 			)
 			aggregate["entries"] += 1
 			aggregate["total_qty"] += total_qty
 			aggregate[quantity_field] += quality_qty
-			aggregate["non_rework_rejection_qty"] += non_rework_rejection_qty
+			if is_rework:
+				aggregate["non_rework_rejection_qty"] += non_rework_rejection_qty
 
 	if not has_entries:
 		return []
@@ -1432,7 +1435,7 @@ def get_reason_matrix_report(
 	*,
 	is_rework: bool,
 	total_field: str,
-	get_columns: Any,
+	total_label: str,
 ) -> tuple[list[dict], list[dict]]:
 	"""Columns and rows (with the summed Overall row) for the workstation reason matrices."""
 	rows, reason_order = get_reason_matrix_rows(
@@ -1441,7 +1444,7 @@ def get_reason_matrix_report(
 		is_rework=is_rework,
 		total_field=total_field,
 	)
-	columns = get_columns(reason_order)
+	columns = get_reason_matrix_columns(reason_order, total_field, total_label)
 	if rows:
 		sum_fields = ("entries", total_field, *[reason_matrix_fieldname(i) for i in range(len(reason_order))])
 		rows = [*rows, build_summed_overall_row(rows, "workstation", sum_fields)]

@@ -10,7 +10,10 @@ from production_entry_app.production_entry_app.report.report_utils import (
 
 def execute(filters: dict | None = None):
 	return get_reason_matrix_report(
-		filters or {}, is_rework=False, total_field="total_rejection_qty", get_columns=_get_columns
+		filters or {},
+		is_rework=False,
+		total_field="total_rejection_qty",
+		total_label=_("Total Rejection Qty"),
 	)
 
 

@@ -5,13 +5,9 @@ from frappe.utils import flt
 
 from production_entry_app.production_entry_app.report.report_utils import (
 	PPM_MULTIPLIER,
-	QUALITY_REPORT_FILTER_KEYS,
 	apply_system_precision,
 	build_rate_overall_row,
-	build_stock_entry_filters,
-	get_parent_quantity_metrics,
 	get_quality_ppm_rows,
-	iter_stock_entries_in_chunks,
 )
 
 
@@ -48,17 +44,7 @@ def _get_columns() -> list[dict]:
 
 
 def _get_rows(filters: dict) -> list[dict]:
-	return get_quality_ppm_rows(
-		filters,
-		iter_stock_entries_in_chunks(
-			build_stock_entry_filters(filters, filter_keys=QUALITY_REPORT_FILTER_KEYS),
-			["name", "posting_date", "fg_completed_qty", "custom_pea_rework_qty", "custom_pea_rejection_qty"],
-			order_by="posting_date asc, name asc",
-		),
-		get_parent_quantity_metrics,
-		is_rework=True,
-		quantity_field="rework_qty",
-	)
+	return get_quality_ppm_rows(filters, is_rework=True, quantity_field="rework_qty")
 
 
 def _get_chart(rows: list[dict]) -> dict | None:

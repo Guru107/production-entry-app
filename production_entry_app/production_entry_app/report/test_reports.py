@@ -4192,11 +4192,11 @@ class TestProductionReports(FrappeTestCase):
 		]
 		with (
 			patch(
-				"production_entry_app.production_entry_app.report.rejection_ppm_report.rejection_ppm_report.iter_stock_entries_in_chunks",
+				"production_entry_app.production_entry_app.report.report_utils.iter_stock_entries_in_chunks",
 				return_value=entry_rows,
 			),
 			patch(
-				"production_entry_app.production_entry_app.report.rejection_ppm_report.rejection_ppm_report.get_parent_quantity_metrics",
+				"production_entry_app.production_entry_app.report.report_utils.get_parent_quantity_metrics",
 				return_value={"MAT-STE-TEST-0001": {"rejection_qty": 2}},
 			),
 		):
@@ -4224,11 +4224,11 @@ class TestProductionReports(FrappeTestCase):
 		]
 		with (
 			patch(
-				"production_entry_app.production_entry_app.report.rejection_ppm_report.rejection_ppm_report.iter_stock_entries_in_chunks",
+				"production_entry_app.production_entry_app.report.report_utils.iter_stock_entries_in_chunks",
 				return_value=entry_rows,
 			),
 			patch(
-				"production_entry_app.production_entry_app.report.rejection_ppm_report.rejection_ppm_report.get_parent_quantity_metrics",
+				"production_entry_app.production_entry_app.report.report_utils.get_parent_quantity_metrics",
 				return_value={"MAT-STE-TEST-0002": {"rejection_qty": 7}},
 			),
 		):
@@ -6101,11 +6101,11 @@ class TestProductionReports(FrappeTestCase):
 		entry_rows = [[{"name": "STE-X", "posting_date": "2026-06-30", "fg_completed_qty": 100}]]
 		with (
 			patch(
-				"production_entry_app.production_entry_app.report.rejection_ppm_report.rejection_ppm_report.iter_stock_entries_in_chunks",
+				"production_entry_app.production_entry_app.report.report_utils.iter_stock_entries_in_chunks",
 				return_value=entry_rows,
 			),
 			patch(
-				"production_entry_app.production_entry_app.report.rejection_ppm_report.rejection_ppm_report.get_parent_quantity_metrics",
+				"production_entry_app.production_entry_app.report.report_utils.get_parent_quantity_metrics",
 				return_value={},
 			),
 		):
