@@ -9,8 +9,7 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.query_builder import Case, Order
 from frappe.query_builder import DocType as QBDocType
-from frappe.query_builder.functions import Coalesce, CustomFunction, IfNull, Sum
-from frappe.query_builder.terms import ParameterizedValueWrapper
+from frappe.query_builder.functions import Coalesce, CustomFunction, IfNull, Min, Sum
 from frappe.utils import cint, cstr, get_datetime
 
 from production_entry_app.production_entry_app.joint_production import (
@@ -94,8 +93,10 @@ def recompute_counter(item_code: str) -> float | None:
 	# sum below reads this transaction's snapshot: an increment committed after it would be lost.
 	if counter_query.for_update().run() != seen:
 		frappe.throw(
-			_("Die Tool Counter {0} changed while this was saving. Please try again.").format(item_code),
-			frappe.QueryDeadlockError,
+			_("The Die Tool Counter for {0} changed while you were working. Please retry.").format(
+				frappe.bold(item_code)
+			),
+			frappe.TimestampMismatchError,
 		)
 	if not seen:
 		return None
@@ -121,45 +122,59 @@ def recompute_counter(item_code: str) -> float | None:
 
 
 def _sum_strokes_since(item_code: str, since: datetime.datetime | None) -> float:
-	"""Mirror resolve_die_tool_item_code in SQL: the prescribed die tool, else the FG item of a
-	non-paired Manufacture entry. Rework entries never post strokes (on_submit skips them)."""
+	"""Mirror resolve_die_tool_item_code in SQL: the prescribed die tool, else the first finished
+	item of a non-paired Manufacture entry. Rework entries never post strokes (on_submit skips them).
+
+	Two index-driven sums (die tool field; Stock Entry Detail item_code) instead of one OR, which
+	would scan every submitted Stock Entry.
+	"""
 	se = QBDocType("Stock Entry")
 	se_type = QBDocType("Stock Entry Type")
 	se_detail = QBDocType("Stock Entry Detail")
-	first_fg_item = (
-		frappe.qb.from_(se_detail)
-		.select(se_detail.item_code)
+	first_fg_row = QBDocType("Stock Entry Detail").as_("first_fg_row")
+
+	prescribed = _counted_entries(se, se_type, since).where(se[DIE_TOOL_ITEM_FIELD] == item_code)
+	fg_fallback = (
+		_counted_entries(se, se_type, since)
+		.join(se_detail)
+		.on((se_detail.parent == se.name) & (se_detail.parenttype == "Stock Entry"))
 		.where(
-			(se_detail.parent == se.name)
-			& (se_detail.parenttype == "Stock Entry")
+			(se_detail.item_code == item_code)
 			& (se_detail.is_finished_item == 1)
+			& (IfNull(se[DIE_TOOL_ITEM_FIELD], "") == "")
+			& (se.purpose == "Manufacture")
+			& (IfNull(se_type.custom_pea_joint_lh_rh_production, 0) == 0)
+			& (IfNull(se_type.custom_pea_joint_production, 0) == 0)
+			& (
+				se_detail.idx
+				== frappe.qb.from_(first_fg_row)
+				.select(Min(first_fg_row.idx))
+				.where(
+					(first_fg_row.parent == se.name)
+					& (first_fg_row.parenttype == "Stock Entry")
+					& (first_fg_row.is_finished_item == 1)
+				)
+			)
 		)
-		.orderby(se_detail.idx)
-		.limit(1)
 	)
-	resolves_to_item = (se[DIE_TOOL_ITEM_FIELD] == item_code) | (
-		(IfNull(se[DIE_TOOL_ITEM_FIELD], "") == "")
-		& (se.purpose == "Manufacture")
-		& (IfNull(se_type.custom_pea_joint_lh_rh_production, 0) == 0)
-		& (IfNull(se_type.custom_pea_joint_production, 0) == 0)
-		# A subquery on the left would compare as a QueryBuilder (always False), so wrap the value.
-		& (ParameterizedValueWrapper(item_code) == first_fg_item)
-	)
+	return sum(float(query.run()[0][0] or 0) for query in (prescribed, fg_fallback))
+
+
+def _counted_entries(se: QBDocType, se_type: QBDocType, since: datetime.datetime | None):
 	query = (
 		frappe.qb.from_(se)
 		.left_join(se_type)
 		.on(se_type.name == se.stock_entry_type)
 		.select(Coalesce(Sum(se.custom_pea_total_strokes), 0))
-		.where((se.docstatus == 1) & (IfNull(se_type.custom_pea_rework_entry, 0) == 0) & resolves_to_item)
+		.where((se.docstatus == 1) & (IfNull(se_type.custom_pea_rework_entry, 0) == 0))
 	)
 	if since:
 		since = get_datetime(since)
 		timestamp = CustomFunction("TIMESTAMP", ["date_col", "time_col"])
-		# posting_date bound first so the posting_date index narrows the scan.
 		query = query.where(se.posting_date >= since.date()).where(
 			timestamp(se.posting_date, se.posting_time) > since
 		)
-	return float(query.run()[0][0] or 0)
+	return query
 
 
 def get_counter_health(

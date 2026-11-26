@@ -5601,7 +5601,7 @@ class TestDieToolCounter(FrappeTestCase):
 			return ((6.0,),) if "FOR UPDATE" in str(query) else result
 
 		with patch.object(frappe.db, "sql", side_effect=concurrent_increment):
-			with self.assertRaises(frappe.QueryDeadlockError):
+			with self.assertRaises(frappe.TimestampMismatchError):
 				recompute_counter(self.fg_item)
 
 	def test_recompute_patch_counts_changed_counters_and_is_idempotent(self) -> None:
@@ -5610,9 +5610,12 @@ class TestDieToolCounter(FrappeTestCase):
 		self._submitted_entry(30, "2026-06-01 09:00:00")
 		self._insert_counter(999)
 
-		self.assertGreaterEqual(recompute_die_tool_counters.execute(), 1)
-		self.assertEqual(self._counter_strokes(), 30.0)
-		self.assertEqual(recompute_die_tool_counters.execute(), 0)
+		# The patch commits per counter; keep this test's rows rollback-able.
+		with patch.object(frappe.db, "commit") as commit:
+			self.assertGreaterEqual(recompute_die_tool_counters.execute(), 1)
+			self.assertEqual(self._counter_strokes(), 30.0)
+			self.assertEqual(recompute_die_tool_counters.execute(), 0)
+		self.assertGreaterEqual(commit.call_count, 2)
 
 	def test_get_fg_item_code_uses_field_or_finished_item_row(self) -> None:
 		from production_entry_app.production_entry_app.utils.die_tool_counter import (

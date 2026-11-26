@@ -863,7 +863,8 @@
   "depends_on": "eval:(doc.custom_stock_entry_purpose==\"Manufacture\" || doc.purpose==\"Manufacture\") || (doc.__pea_joint_stock_entry_type && doc.stock_entry_type==doc.__pea_joint_stock_entry_type)",
   "mandatory_depends_on": "eval:(doc.__pea_joint_stock_entry_type && doc.stock_entry_type==doc.__pea_joint_stock_entry_type)",
   "module": "Production Entry App",
-  "permlevel": 0
+  "permlevel": 0,
+  "search_index": 1
  },
  {
   "doctype": "Custom Field",

@@ -15,9 +15,13 @@ def execute() -> int:
 	"""
 	precision = frappe.get_precision("Die Tool Counter", "current_stroke_count")
 	changed = 0
-	for counter in frappe.get_all("Die Tool Counter", fields=["name", "current_stroke_count"]):
-		if flt(recompute_counter(counter.name), precision) != flt(counter.current_stroke_count, precision):
+	for name in frappe.get_all("Die Tool Counter", pluck="name"):
+		before = frappe.db.get_value("Die Tool Counter", name, "current_stroke_count")
+		if flt(recompute_counter(name), precision) != flt(before, precision):
 			changed += 1
+		# Migrate runs live: a fresh snapshot per counter keeps a concurrent submit from tripping
+		# recompute_counter's stale-snapshot guard (and aborting migrate).
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit - per-counter batch commit in a patch
 	# Migrate output, not frappe.logger: production logs below ERROR are dropped.
 	click.echo(f"recompute_die_tool_counters: {changed} Die Tool Counter(s) changed")
 	return changed
