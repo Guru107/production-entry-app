@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import frappe
@@ -43,13 +42,13 @@ class TestDowntimeReasonSeed(FrappeTestCase):
 
 		self.assertEqual(_reason_rows(), before)
 
-	def test_seed_activates_an_inactive_standard_master(self) -> None:
+	def test_seed_leaves_an_inactive_standard_master_inactive(self) -> None:
 		ensure_downtime_reason("05")
 		frappe.db.set_value("Downtime Reason", "05", "is_active", 0, update_modified=False)
 
 		seed_standard_downtime_reasons()
 
-		self.assertTrue(frappe.db.get_value("Downtime Reason", "05", "is_active"))
+		self.assertFalse(frappe.db.get_value("Downtime Reason", "05", "is_active"))
 
 	def test_seed_preserves_an_edited_description(self) -> None:
 		ensure_downtime_reason("01")
@@ -71,12 +70,10 @@ class TestDowntimeReasonSeed(FrappeTestCase):
 		self.assertFalse(row.is_active)
 		self.assertFalse(frappe.db.exists("Downtime Reason", "99"))
 
-	def test_seed_matches_the_shipped_fixture_set(self) -> None:
-		fixtures_path = (
-			Path(frappe.get_app_path("production_entry_app")) / "fixtures" / "downtime_reason.json"
-		)
+	def test_downtime_reasons_are_seeded_not_shipped_as_a_fixture(self) -> None:
+		from production_entry_app import hooks
 
-		fixtures = json.loads(fixtures_path.read_text())
+		fixtures_path = Path(frappe.get_app_path("production_entry_app")) / "fixtures"
 
-		self.assertEqual({row["code"]: row["description"] for row in fixtures}, STANDARD_DOWNTIME_REASONS)
-		self.assertTrue(all(row["is_active"] for row in fixtures))
+		self.assertNotIn("Downtime Reason", hooks.fixtures)
+		self.assertFalse((fixtures_path / "downtime_reason.json").exists())

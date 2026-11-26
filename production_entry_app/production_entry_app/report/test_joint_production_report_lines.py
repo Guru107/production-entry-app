@@ -21,6 +21,7 @@ from production_entry_app.production_entry_app.report.report_utils import (
 	get_stock_entries_for_bom,
 	joint_production_output_slots,
 	paired_output_slots,
+	select_filtered_output_lines,
 )
 
 
@@ -258,20 +259,16 @@ class TestJointProductionReportLines(FrappeTestCase):
 		self.assertEqual(quantities.ok_qty, 27)
 
 	def test_get_stock_entries_for_bom_includes_joint_production_line_bom(self) -> None:
-		run_results = [[{"parent": "STE-LINE"}], []]
+		run_results = [[{"name": "STE-HEADER"}], [{"parent": "STE-LINE"}], []]
 
 		def _query_builder() -> MagicMock:
 			query = MagicMock()
-			for name in ("select", "distinct", "where", "limit", "inner_join", "on"):
+			for name in ("select", "distinct", "where", "limit", "inner_join", "left_join", "on"):
 				setattr(query, name, MagicMock(return_value=query))
 			query.run.side_effect = lambda **_: run_results.pop(0) if run_results else []
 			return query
 
-		def _report_rows(
-			_doctype: str, *, filters: dict | None = None, or_filters=None, **_: object
-		) -> list[dict]:
-			if or_filters:
-				return [{"name": "STE-HEADER"}]
+		def _report_rows(_doctype: str, *, filters: dict | None = None, **_: object) -> list[dict]:
 			names = (filters or {}).get("name", ["", []])[1]
 			return [{"name": name} for name in names]
 
@@ -288,3 +285,61 @@ class TestJointProductionReportLines(FrappeTestCase):
 			names = get_stock_entries_for_bom("BOM-LINE-3", filters={"docstatus": 1})
 
 		self.assertEqual(set(names), {"STE-HEADER", "STE-LINE"})
+
+	def test_select_filtered_output_lines_keeps_only_matching_joint_production_lines(self) -> None:
+		entry = self._three_line_joint_entry()
+		plain = frappe._dict(name="STE-PLAIN", purpose="Manufacture")
+		with (
+			patch(
+				"production_entry_app.production_entry_app.report.report_utils.get_parent_quantity_metrics",
+				return_value={},
+			),
+			patch(
+				"production_entry_app.production_entry_app.report.report_utils.get_finished_item_maps",
+				return_value=({}, {}),
+			),
+			patch(
+				"production_entry_app.production_entry_app.report.report_utils.get_parent_breakup_reason_rows",
+				return_value=[
+					{
+						"parent": "STE-JOINT-3",
+						"output_side": joint_production_line_side(0),
+						"qty": 1,
+						"rejection_reason": "Crack",
+					},
+					{
+						"parent": "STE-JOINT-3",
+						"output_side": joint_production_line_side(1),
+						"qty": 2,
+						"rejection_reason": "Dent",
+					},
+				],
+			),
+			patch(
+				"production_entry_app.production_entry_app.report.report_utils._get_joint_output_item_map",
+				return_value={
+					("STE-JOINT-3", joint_production_line_side(0)): "FG-A",
+					("STE-JOINT-3", joint_production_line_side(1)): "FG-B",
+					("STE-JOINT-3", joint_production_line_side(2)): "FG-C",
+				},
+			),
+		):
+			by_bom = select_filtered_output_lines([entry, plain], {"bom_no": "BOM-LINE-2"}, is_rework=False)
+			by_item = select_filtered_output_lines([entry, plain], {"fg_item": "FG-C"}, is_rework=False)
+			unmatched = select_filtered_output_lines([entry, plain], {"bom_no": "BOM-NONE"}, is_rework=False)
+			unfiltered = select_filtered_output_lines([entry, plain], {}, is_rework=False)
+
+		self.assertEqual(
+			by_bom,
+			(
+				[entry, plain],
+				{"STE-JOINT-3": {"total_qty": 20.0, "quality_qty": 2.0, "reason_totals": {"Dent": 2.0}}},
+			),
+		)
+		self.assertEqual(
+			by_item,
+			([entry, plain], {"STE-JOINT-3": {"total_qty": 30.0, "quality_qty": 0.0, "reason_totals": {}}}),
+		)
+		# Plain Manufacture entries are matched at entry level; a joint entry with no matching line drops.
+		self.assertEqual(unmatched, ([plain], {}))
+		self.assertEqual(unfiltered, ([entry, plain], {}))

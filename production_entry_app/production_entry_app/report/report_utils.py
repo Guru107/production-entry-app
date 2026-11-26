@@ -13,7 +13,7 @@ from frappe.query_builder import Case, DocType
 from frappe.query_builder.functions import Sum
 from frappe.utils import cint, flt, get_datetime
 from pypika import Table
-from pypika.terms import Criterion
+from pypika.terms import Criterion, ExistsCriterion
 
 from production_entry_app.production_entry_app.joint_production import (
 	JOINT_PRODUCTION_LINES_FIELD,
@@ -429,28 +429,48 @@ def stock_entry_qb_criteria(stock_entry: Table, filters: dict) -> list[Criterion
 def get_stock_entries_for_bom(bom_no: str, *, filters: dict | None = None) -> list[str]:
 	"""Return permitted normal or joint Stock Entries linked to a BOM."""
 	base_filters = dict(filters or {"docstatus": 1})
-	header_rows = get_report_rows(
-		"Stock Entry",
-		filters=base_filters,
-		or_filters=[
-			["bom_no", "=", bom_no],
-			["custom_pea_lh_bom", "=", bom_no],
-			["custom_pea_rh_bom", "=", bom_no],
-		],
-		fields=["name"],
-		limit_page_length=_MAX_BOM_PARENT_MATCHES + 1,
-	)
-	matched_names = {row.get("name") for row in header_rows if row.get("name")}
-	joint_line = DocType("Joint Production Line")
 	stock_entry = DocType("Stock Entry")
+	stock_entry_type = DocType("Stock Entry Type")
+	joint_line = DocType("Joint Production Line")
+	has_joint_lines = ExistsCriterion(
+		frappe.qb.from_(joint_line)
+		.select(joint_line.name)
+		.where((joint_line.parent == stock_entry.name) & (joint_line.parenttype == "Stock Entry"))
+	)
+	# Read only the BOM fields of the entry's own mode: leftover other-mode fields must not match.
+	# LH/RH BOM belongs to Joint LH/RH entries and to legacy Joint Production entries without lines.
+	header_query = (
+		frappe.qb.from_(stock_entry)
+		.left_join(stock_entry_type)
+		.on(stock_entry_type.name == stock_entry.stock_entry_type)
+		.select(stock_entry.name)
+		.where(
+			((stock_entry.purpose == "Manufacture") & (stock_entry.bom_no == bom_no))
+			| (
+				(stock_entry.purpose == "Repack")
+				& (
+					(stock_entry_type.custom_pea_joint_lh_rh_production == 1)
+					| ((stock_entry_type.custom_pea_joint_production == 1) & ~has_joint_lines)
+				)
+				& ((stock_entry.custom_pea_lh_bom == bom_no) | (stock_entry.custom_pea_rh_bom == bom_no))
+			)
+		)
+	)
+	for criterion in stock_entry_qb_criteria(stock_entry, base_filters):
+		header_query = header_query.where(criterion)
+	header_rows = header_query.limit(_MAX_BOM_PARENT_MATCHES + 1).run(as_dict=True)
+	matched_names = {row.get("name") for row in header_rows if row.get("name")}
 	line_query = (
 		frappe.qb.from_(joint_line)
 		.inner_join(stock_entry)
 		.on(stock_entry.name == joint_line.parent)
+		.inner_join(stock_entry_type)
+		.on(stock_entry_type.name == stock_entry.stock_entry_type)
 		.select(joint_line.parent)
 		.distinct()
 		.where(joint_line.bom_no == bom_no)
 		.where(joint_line.parenttype == "Stock Entry")
+		.where(stock_entry_type.custom_pea_joint_production == 1)
 	)
 	for criterion in stock_entry_qb_criteria(stock_entry, base_filters):
 		line_query = line_query.where(criterion)
@@ -469,6 +489,7 @@ def get_stock_entries_for_bom(bom_no: str, *, filters: dict | None = None) -> li
 			.distinct()
 			.where(stock_entry_detail.bom_no == bom_no)
 			.where(stock_entry_detail.parenttype == "Stock Entry")
+			.where(stock_entry.purpose == "Manufacture")
 		)
 		for criterion in stock_entry_qb_criteria(stock_entry, base_filters):
 			detail_query = detail_query.where(criterion)
@@ -519,6 +540,8 @@ def iter_stock_entries_in_chunks(
 		"stock_entry_type",
 		"custom_pea_shift",
 		"custom_pea_total_strokes",
+		"custom_pea_lh_bom",
+		"custom_pea_rh_bom",
 		"custom_pea_lh_gross_qty",
 		"custom_pea_lh_rejection_qty",
 		"custom_pea_rh_gross_qty",
@@ -906,6 +929,48 @@ def get_item_bom_quality_facts(entries: list[dict], *, is_rework: bool) -> list[
 			}
 		)
 	return facts
+
+
+def select_filtered_output_lines(
+	entries: list[dict], filters: dict, *, is_rework: bool
+) -> tuple[list[dict], dict[str, dict]]:
+	"""Apply the BOM / FG Item filter per output line of joint entries.
+
+	Returns the entries to report and, per joint entry, the totals of only its matching lines
+	(`total_qty`, `quality_qty`, `reason_totals` from get_item_bom_quality_facts). Without a BOM /
+	FG Item filter nothing changes; plain Manufacture entries have one line, matched at entry level.
+	"""
+	bom_no, fg_item = filters.get("bom_no"), filters.get("fg_item")
+	if not (bom_no or fg_item):
+		return entries, {}
+	joint_entries = [entry for entry in entries if is_paired_production_entry(entry)]
+	line_totals: dict[str, dict] = {}
+	for fact in get_item_bom_quality_facts(joint_entries, is_rework=is_rework):
+		if (bom_no and fact.get("bom_no") != bom_no) or (fg_item and fact.get("item_code") != fg_item):
+			continue
+		line = {
+			"total_qty": flt(fact.get("total_qty")),
+			"quality_qty": flt(fact.get("quality_qty")),
+			"reason_totals": fact.get("reason_totals") or {},
+		}
+		line_totals[fact["parent"]] = merge_aggregates([line_totals.get(fact["parent"], {}), line])
+	kept = [
+		entry
+		for entry in entries
+		if entry.get("name") in line_totals or not is_paired_production_entry(entry)
+	]
+	return kept, line_totals
+
+
+def limit_breakup_rows_to_lines(breakup_rows: list[dict], line_totals: dict[str, dict]) -> list[dict]:
+	"""Replace each `line_totals` joint entry's breakup reason rows with its matching lines' reasons."""
+	rows = [row for row in breakup_rows if row.get("parent") not in line_totals]
+	rows.extend(
+		{"parent": parent, "rejection_reason": reason, "qty": qty}
+		for parent, line in line_totals.items()
+		for reason, qty in line["reason_totals"].items()
+	)
+	return rows
 
 
 def get_item_bom_quality_hotspot_rows(
