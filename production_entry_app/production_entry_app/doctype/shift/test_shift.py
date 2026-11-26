@@ -256,24 +256,6 @@ class TestShiftPureHelpers(FrappeTestCase):
 				):
 					self.assertEqual(shift_module.get_linked_downtime_entries("SHIFT-MISSING"), [])
 
-	def test_check_running_shift_conflict_handles_missing_shift_name_and_missing_context(self) -> None:
-		self.assertEqual(
-			shift_module.check_running_shift_conflict(""),
-			{"has_conflict": False, "conflicting_shifts": []},
-		)
-		with patch(
-			"production_entry_app.production_entry_app.doctype.shift.shift.frappe.has_permission",
-			return_value=True,
-		):
-			with patch(
-				"production_entry_app.production_entry_app.doctype.shift.shift.frappe.db.get_value",
-				return_value={"department": None, "branch": "Branch"},
-			):
-				self.assertEqual(
-					shift_module.check_running_shift_conflict("SHIFT-001"),
-					{"has_conflict": False, "conflicting_shifts": []},
-				)
-
 	def test_shift_summary_cache_and_empty_helpers(self) -> None:
 		summary = shift_module._empty_shift_summary()
 		self.assertEqual(summary["snapshot"]["entry_count"], 0)
@@ -2519,55 +2501,6 @@ class TestShift(FrappeTestCase):
 		self.assertEqual(len(user_calls), 1)
 		self.assertEqual(user_calls[0].kwargs.get("filters", {}).get("enabled"), 1)
 
-	def test_running_shift_conflict_detected(self) -> None:
-		"""check_running_shift_conflict returns conflict when another shift is Running."""
-		from production_entry_app.production_entry_app.doctype.shift.shift import (
-			check_running_shift_conflict,
-		)
-
-		name1 = self._expected_name(self._test_department, "2026-02-28", "1")
-		name2 = self._expected_name(self._test_department, "2026-02-28", "2")
-		self._delete_shift_if_exists(name1)
-		self._delete_shift_if_exists(name2)
-
-		doc1 = frappe.get_doc(
-			{
-				"doctype": "Shift",
-				"department": self._test_department,
-				"branch": self._test_branch,
-				"shift_label": "1",
-				"shift_duration": "8",
-				"shift_date": "2026-02-28",
-				"planned_start_time": "08:00:00",
-			}
-		).insert()
-		doc2 = frappe.get_doc(
-			{
-				"doctype": "Shift",
-				"department": self._test_department,
-				"branch": self._test_branch,
-				"shift_label": "2",
-				"shift_duration": "8",
-				"shift_date": "2026-02-28",
-				"planned_start_time": "16:00:00",
-			}
-		).insert()
-
-		# Start Shift 1
-		name1 = doc1.name
-		name2 = doc2.name
-		doc1 = frappe.get_doc("Shift", name1)
-		doc1.start_shift()
-		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so check sees Running shift
-
-		# Shift 2 (Draft) checking for conflict should find Shift 1 Running
-		result = check_running_shift_conflict(name2)
-		self.assertTrue(result.get("has_conflict"))
-		self.assertIn(name1, [s["name"] for s in result.get("conflicting_shifts", [])])
-
-		# End Shift 1 so it does not leak into subsequent tests
-		frappe.get_doc("Shift", name1).end_shift()
-
 	def test_start_shift_blocked_when_another_running(self) -> None:
 		"""start_shift raises error when another shift in the same department and branch is already Running."""
 		self._delete_shifts_for_date("2026-02-28")
@@ -2644,75 +2577,6 @@ class TestShift(FrappeTestCase):
 
 		frappe.get_doc("Shift", doc1.name).end_shift()
 		frappe.get_doc("Shift", doc2.name).end_shift()
-
-	def test_no_running_shift_conflict_when_none_running(self) -> None:
-		"""check_running_shift_conflict returns no conflict when no other shift is Running."""
-		from production_entry_app.production_entry_app.doctype.shift.shift import (
-			check_running_shift_conflict,
-		)
-
-		# End any Running shifts from previous tests to ensure clean state
-		for shift_name in frappe.get_all("Shift", filters={"status": "Running"}, pluck="name"):
-			frappe.db.set_value("Shift", shift_name, "status", "Completed", update_modified=False)
-		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so check_running_shift_conflict sees no Running shifts
-
-		name = self._expected_name(self._test_department, "2026-03-01", "1")
-		self._delete_shift_if_exists(name)
-
-		frappe.get_doc(
-			{
-				"doctype": "Shift",
-				"department": self._test_department,
-				"shift_label": "1",
-				"shift_duration": "8",
-				"shift_date": "2026-03-01",
-				"planned_start_time": "08:00:00",
-			}
-		).insert()
-
-		result = check_running_shift_conflict(name)
-		self.assertFalse(result.get("has_conflict"))
-		self.assertEqual(result.get("conflicting_shifts"), [])
-
-	def test_running_shift_conflict_ignores_other_branch(self) -> None:
-		from production_entry_app.production_entry_app.doctype.shift.shift import (
-			check_running_shift_conflict,
-		)
-
-		other_branch = ensure_branch("Conflict-Free Branch")
-		self._delete_shifts_for_date("2026-03-02")
-
-		doc1 = frappe.get_doc(
-			{
-				"doctype": "Shift",
-				"department": self._test_department,
-				"branch": self._test_branch,
-				"shift_label": "1",
-				"shift_duration": "8",
-				"shift_date": "2026-03-02",
-				"planned_start_time": "08:00:00",
-			}
-		).insert()
-		doc2 = frappe.get_doc(
-			{
-				"doctype": "Shift",
-				"department": self._test_department,
-				"branch": other_branch,
-				"shift_label": "2",
-				"shift_duration": "8",
-				"shift_date": "2026-03-02",
-				"planned_start_time": "16:00:00",
-			}
-		).insert()
-
-		doc1.start_shift()
-		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so check sees Running shift
-
-		result = check_running_shift_conflict(doc2.name)
-		self.assertFalse(result.get("has_conflict"))
-		self.assertEqual(result.get("conflicting_shifts"), [])
-
-		frappe.get_doc("Shift", doc1.name).end_shift()
 
 	def test_branch_field_can_be_set(self) -> None:
 		if not frappe.db.exists("Branch", "Test Branch"):
@@ -3678,6 +3542,38 @@ class TestShiftSummary(FrappeTestCase):
 			self.assertEqual(snapshots[0], snapshots[1])
 			self.assertEqual(float(snapshots[0]["total_qty"]), 100.0)
 			self.assertEqual(snapshots[0]["entry_count"], 2)
+
+	def test_summary_item_map_matches_for_bom_restricted_and_unrestricted_users(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
+
+		visible_bom = ensure_default_bom(
+			ensure_item("_SHIFT_SUM_FG_VISIBLE"), ensure_item("_SHIFT_SUM_RM"), self.ctx["company"]
+		)
+		hidden_item = ensure_item("_SHIFT_SUM_FG_HIDDEN")
+		hidden_bom = ensure_default_bom(hidden_item, ensure_item("_SHIFT_SUM_RM"), self.ctx["company"])
+		restricted = ensure_warehouse_restricted_user(
+			"test_shift_summary_bom_user@example.com",
+			[
+				self.ctx[key]
+				for key in ("rm_warehouse", "wip_warehouse", "rejection_warehouse", "scrap_warehouse")
+			],
+		)
+		frappe.get_doc(
+			{"doctype": "User Permission", "user": restricted, "allow": "BOM", "for_value": visible_bom}
+		).insert(ignore_permissions=True)
+		frappe.clear_cache(user=restricted)
+		shift = self._create_shift("2026-09-15")
+		self._create_submitted_like_entry(shift.name, total_qty=10, rejection_qty=1, bom_no=hidden_bom)
+
+		for call_order in ((restricted, "Administrator"), ("Administrator", restricted)):
+			shift_module.invalidate_shift_summary_cache(shift.name)
+			item_boms = []
+			for user in call_order:
+				frappe.set_user(user)
+				item_boms.append(get_shift_summary(shift.name)["exceptions"]["item_boms"])
+			frappe.set_user("Administrator")
+			self.assertEqual(item_boms[0], item_boms[1])
+			self.assertEqual(item_boms[0][0]["item_code"], hidden_item)
 
 	def test_warm_summary_cache_still_requires_source_doctype_read(self) -> None:
 		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary

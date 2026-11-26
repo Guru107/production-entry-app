@@ -311,35 +311,6 @@ class TestReportUtilsPerformance(FrappeTestCase):
 		)
 		get_query.assert_not_called()
 
-	def test_get_loss_time_maps_splits_setup_and_non_setup_minutes(self) -> None:
-		rows = [
-			{
-				"parent": "STE-001",
-				"downtime_reason": "01",
-				"start_time": "2026-01-01 08:00:00",
-				"end_time": "2026-01-01 08:15:00",
-			},
-			{
-				"parent": "STE-001",
-				"downtime_reason": "14",
-				"start_time": "2026-01-01 09:00:00",
-				"end_time": "2026-01-01 09:30:00",
-			},
-			{
-				"parent": "",
-				"downtime_reason": "14",
-				"start_time": "2026-01-01 10:00:00",
-				"end_time": "2026-01-01 10:15:00",
-			},
-		]
-		with patch(
-			"production_entry_app.production_entry_app.report.report_utils.get_report_rows", return_value=rows
-		):
-			setup_map, loss_map = report_utils.get_loss_time_maps(["STE-001"])
-
-		self.assertEqual(setup_map, {"STE-001": 15.0})
-		self.assertEqual(loss_map, {"STE-001": 30.0})
-
 	def test_entry_duration_helpers_and_authoritative_strokes(self) -> None:
 		total_strokes, rejection_qty = report_utils.get_entry_total_strokes(
 			{
@@ -368,8 +339,7 @@ class TestReportUtilsPerformance(FrappeTestCase):
 		)
 
 	def test_precision_and_efficiency_helpers_cover_cached_and_zero_duration_paths(self) -> None:
-		if hasattr(frappe.local, "_pea_report_float_precision"):
-			delattr(frappe.local, "_pea_report_float_precision")
+		getattr(frappe.local, "request_cache", {}).clear()
 
 		with patch(
 			"production_entry_app.production_entry_app.report.report_utils.get_system_float_precision",
@@ -558,3 +528,59 @@ class TestReportUtilsPerformance(FrappeTestCase):
 				timeout_sec=5.0,
 			)
 			timeout_guard()
+
+
+class TestOeeDowntimeScaling(FrappeTestCase):
+	def test_machine_downtime_buckets_rows_by_workstation_and_skips_loss_entry_reread(self) -> None:
+		import datetime
+
+		from production_entry_app.production_entry_app.report.production_oee_report import (
+			production_oee_report as oee,
+		)
+
+		days, workstations = 60, 40
+		base = datetime.datetime(2026, 1, 1, 8)
+		windows, shift_dates, groups, downtime_rows = {}, {}, {}, []
+		for d in range(days):
+			start = base + datetime.timedelta(days=d)
+			windows[f"S{d}"] = (start, start + datetime.timedelta(hours=8))
+			shift_dates[f"S{d}"] = str(start.date())
+			for w in range(workstations):
+				key = (str(start.date()), f"WS{w}")
+				groups[key] = oee._new_group(*key)
+				groups[key]["entry_shifts"] = {f"SE{d}-{w}": f"S{d}"}
+				groups[key]["loss_rows"] = [
+					{"parent": f"SE{d}-{w}", "start_time": "09:00:00", "end_time": "09:30:00", "shift": ""}
+				]
+				downtime_rows.append(
+					{
+						"workstation": f"WS{w}",
+						"from_time": start + datetime.timedelta(hours=1),
+						"to_time": start + datetime.timedelta(hours=2),
+						"custom_pea_shift": f"S{d}",
+					}
+				)
+
+		def no_reread(*_args: Any, **_kwargs: Any) -> list:
+			raise AssertionError("Loss Entry must not be re-read")
+
+		real_sum = oee._sum_machine_downtime_hours
+		rows_per_call: list[int] = []
+
+		def spy(group: dict, windows_: dict, dates: dict, rows: list[dict], *args: Any) -> Any:
+			self.assertTrue(all(row["workstation"] == group["workstation"] for row in rows))
+			rows_per_call.append(len(rows))
+			return real_sum(group, windows_, dates, rows, *args)
+
+		with (
+			patch.object(oee, "_get_downtime_rows", return_value=downtime_rows),
+			patch.object(oee, "get_report_rows", side_effect=no_reread),
+			patch.object(oee, "_sum_machine_downtime_hours", side_effect=spy),
+		):
+			result = oee._get_machine_downtime_by_group(groups, lambda: None, windows, shift_dates, {})
+
+		self.assertEqual(len(result), days * workstations)
+		self.assertAlmostEqual(
+			next(iter(result.values()))[0], 0.5, places=4
+		)  # 1h downtime less 30m covered loss
+		self.assertEqual(set(rows_per_call), {days})

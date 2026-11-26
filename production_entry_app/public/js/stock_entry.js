@@ -221,6 +221,7 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 
 			_ensure_use_multi_level_bom_unchecked(frm);
 			_apply_manufacture_visibility(frm);
+			_update_die_tool_metrics(frm);
 			_sync_die_tool_item_from_boms(frm);
 			_sync_stock_entry_helper_fields(frm);
 			_setup_stock_entry_quick_entry(frm);
@@ -236,6 +237,7 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 			_apply_native_manufacture_visibility(frm);
 			// custom_stock_entry_purpose is fetched via fetch_from and will re-trigger visibility.
 			_apply_manufacture_visibility(frm);
+			_update_die_tool_metrics(frm);
 			_sync_stock_entry_helper_fields(frm);
 			_setup_stock_entry_quick_entry(frm);
 		},
@@ -251,6 +253,7 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 			_ensure_use_multi_level_bom_unchecked(frm);
 			_clear_manufacture_data_on_leave(frm);
 			_apply_manufacture_visibility(frm);
+			_update_die_tool_metrics(frm);
 			_set_prev_purpose(frm);
 			_sync_stock_entry_helper_fields(frm);
 			_setup_stock_entry_quick_entry(frm);
@@ -625,7 +628,6 @@ function _apply_manufacture_visibility(frm) {
 
 	_toggle_rejection_breakup(frm);
 	_configure_rejection_breakup_grid(frm);
-	_update_die_tool_metrics(frm);
 }
 
 function _set_prev_purpose(frm) {
@@ -669,7 +671,6 @@ function _clear_manufacture_data_on_leave(frm) {
 function _clear_manufacture_data(frm) {
 	_shiftDetailsRequestId++;
 	_dieToolRequestId++;
-	delete frm.__peaTotalStrokesDefaultState;
 
 	const refreshFieldnames = new Set();
 	const scalarChanged = _clear_scalar_fields(frm, MANUFACTURE_FIELDS, refreshFieldnames);
@@ -1083,7 +1084,6 @@ function _sync_joint_mode_from_stock_entry_type(frm, requestId, previousStockEnt
 
 function _clear_production_mode_data(frm) {
 	_dieToolRequestId++;
-	delete frm.__peaTotalStrokesDefaultState;
 
 	const refreshFieldnames = new Set();
 	const scalarChanged = _clear_scalar_fields(
@@ -1253,13 +1253,8 @@ function _default_total_strokes_from_fg(frm) {
 	return Promise.resolve(frm.set_value("custom_pea_total_strokes", completedQty));
 }
 
-function _get_time_entry_api() {
-	if (typeof window === "undefined") return null;
-	return window.production_entry_app?.time_entry || null;
-}
-
 function _sync_stock_entry_helper_fields(frm) {
-	const timeEntry = _get_time_entry_api();
+	const timeEntry = globalThis.window?.production_entry_app?.time_entry;
 	if (!timeEntry || !_is_production_doc(frm.doc)) {
 		return;
 	}
@@ -1285,7 +1280,7 @@ function _sync_actual_datetime_helper_fields(
 	frm,
 	{ date_fieldname, time_fieldname, canonical_fieldname, default_date }
 ) {
-	const timeEntry = _get_time_entry_api();
+	const timeEntry = globalThis.window?.production_entry_app?.time_entry;
 	if (!timeEntry) {
 		return;
 	}
@@ -1310,7 +1305,7 @@ function _sync_actual_datetime_helper_fields(
 }
 
 function _setup_stock_entry_quick_entry(frm) {
-	const timeEntry = _get_time_entry_api();
+	const timeEntry = globalThis.window?.production_entry_app?.time_entry;
 	if (!timeEntry) {
 		return;
 	}
@@ -1361,7 +1356,7 @@ function _combine_actual_datetime(
 	{ date_fieldname, time_fieldname, canonical_fieldname },
 	committedTime
 ) {
-	const timeEntry = _get_time_entry_api();
+	const timeEntry = globalThis.window?.production_entry_app?.time_entry;
 	if (!timeEntry) {
 		return;
 	}
@@ -1850,6 +1845,8 @@ function _handle_custom_pea_fetch_items(frm) {
 
 function _update_die_tool_metrics(frm) {
 	if (!_is_production_doc(frm.doc)) return;
+	// Submitted/cancelled entries keep the snapshot the server stored at submit.
+	if (frm.doc.docstatus !== 0) return;
 
 	const item_code = _get_die_tool_item_code(frm);
 	if (!item_code) {
@@ -1858,12 +1855,13 @@ function _update_die_tool_metrics(frm) {
 	}
 
 	const reqId = ++_dieToolRequestId;
+	const docname = frm.docname;
 	frappe.call({
 		method: "production_entry_app.production_entry_app.api.get_die_tool_counter",
 		type: "GET",
 		args: { die_tool_code: item_code },
 		callback(r) {
-			if (reqId !== _dieToolRequestId) return;
+			if (reqId !== _dieToolRequestId || frm.docname !== docname) return;
 			if (!r.message) return;
 			const data = r.message;
 			if (parseInt(data.has_die_tool ?? 1, 10) !== 1) {
@@ -1888,9 +1886,10 @@ function _update_die_tool_metrics(frm) {
 				_clear_die_tool_alert(frm);
 			}
 		},
-		error() {
-			if (reqId !== _dieToolRequestId) return;
+		error(err) {
+			if (reqId !== _dieToolRequestId || frm.docname !== docname) return;
 			frappe.msgprint(__("Failed to load die tool metrics. Please refresh."));
+			console.error(err);
 		},
 	});
 }
@@ -2034,15 +2033,19 @@ function _sync_die_tool_item_from_boms(frm) {
 		if (requestId !== _dieToolBomRequestId) return;
 		if (!_die_tool_item_field_ready()) return;
 		if (_production_bom_names(frm.doc).join("\0") !== bomNames.join("\0")) return;
-		Promise.all(
-			bomNames.map((name) => frappe.db.get_value("BOM", name, "custom_pea_die_tool_item"))
-		)
-			.then((responses) => {
+		frappe.db
+			.get_list("BOM", {
+				filters: { name: ["in", bomNames] },
+				fields: ["name", "custom_pea_die_tool_item"],
+				limit_page_length: bomNames.length,
+			})
+			.then((bomRows) => {
 				if (requestId !== _dieToolBomRequestId) return;
 				if (_production_bom_names(frm.doc).join("\0") !== bomNames.join("\0")) return;
-				const items = responses.map(
-					(response) => response?.message?.custom_pea_die_tool_item
+				const itemByBom = Object.fromEntries(
+					(bomRows || []).map((row) => [row.name, row.custom_pea_die_tool_item])
 				);
+				const items = bomNames.map((name) => itemByBom[name]);
 				_apply_prescribed_die_tool_item(frm, _prescribed_die_tool_item(items));
 			})
 			.catch((error) => {
@@ -2110,6 +2113,7 @@ if (typeof module !== "undefined" && module.exports) {
 		_apply_fetch_items_response,
 		_handle_custom_pea_fetch_items,
 		_apply_manufacture_visibility,
+		_update_die_tool_metrics,
 		_apply_joint_slot_labels,
 		_prune_joint_production_breakup_rows,
 		_drop_breakup_rows_of_remapped_sides,

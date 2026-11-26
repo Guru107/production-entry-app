@@ -258,6 +258,18 @@ def get_planned_losses_for_duration(
 	]
 
 
+def _shift_readable_or_none(shift_name: str | None) -> str | None:
+	"""Return shift_name when it is a saved Shift the user can read; None for blank, unsaved or missing."""
+	if not shift_name:
+		return None
+	shift_exists = bool(frappe.db.exists("Shift", shift_name))
+	if not shift_exists and shift_name.startswith("new-"):
+		return None
+	if not frappe.has_permission("Shift", "read", shift_name):
+		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
+	return shift_name if shift_exists else None
+
+
 @frappe.whitelist(methods=["GET"])
 def get_linked_downtime_entries(shift_name: str | None = None) -> list[dict]:
 	"""Return Downtime Entries whose time range overlaps with the given Shift.
@@ -265,14 +277,7 @@ def get_linked_downtime_entries(shift_name: str | None = None) -> list[dict]:
 	Downtime Entries are fetched by time overlap, not by shift link.
 	A downtime spanning multiple shifts appears in each overlapping shift.
 	"""
-	if not shift_name:
-		return []
-	shift_exists = bool(frappe.db.exists("Shift", shift_name))
-	if not shift_exists and shift_name.startswith("new-"):
-		return []
-	if not frappe.has_permission("Shift", "read", shift_name):
-		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
-	if not shift_exists:
+	if not _shift_readable_or_none(shift_name):
 		return []
 
 	shift = frappe.db.get_value(
@@ -314,44 +319,6 @@ def get_linked_downtime_entries(shift_name: str | None = None) -> list[dict]:
 		reason_code = row.get("custom_pea_downtime_reason")
 		row["stop_reason"] = reason_labels.get(reason_code) or reason_code
 	return entries
-
-
-@frappe.whitelist(methods=["GET"])
-def check_running_shift_conflict(shift_name: str) -> dict:
-	"""Return whether another shift in the same department and branch is currently Running.
-
-	Used by client to show a warning dialog before starting a shift.
-	Returns: {"has_conflict": bool, "conflicting_shifts": [{"name": str, "shift_label": str, ...}]}
-	"""
-	if not shift_name:
-		return {"has_conflict": False, "conflicting_shifts": []}
-	if not frappe.has_permission("Shift", "read", shift_name):
-		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
-
-	current_shift = frappe.db.get_value(
-		"Shift",
-		shift_name,
-		["department", "branch"],
-		as_dict=True,
-	)
-	if not current_shift or not current_shift.get("department") or not current_shift.get("branch"):
-		return {"has_conflict": False, "conflicting_shifts": []}
-
-	running = frappe.get_list(
-		"Shift",
-		filters=[
-			["status", "=", "Running"],
-			["name", "!=", shift_name],
-			["department", "=", current_shift["department"]],
-			["branch", "=", current_shift["branch"]],
-		],
-		fields=["name", "shift_label", "shift_date", "supervisor"],
-		limit_page_length=0,
-	)
-	return {
-		"has_conflict": len(running) > 0,
-		"conflicting_shifts": running,
-	}
 
 
 def _production_entry_bom_names(entry: dict) -> tuple[str, ...]:
@@ -623,9 +590,10 @@ def _item_by_bom_for_entries(entries: list[dict]) -> dict[str, str]:
 	)
 	if not bom_names:
 		return {}
+	# get_all: permission-free by design, it feeds the shared summary cache (#298).
 	return {
 		row.get("name"): row.get("item")
-		for row in frappe.get_list(
+		for row in frappe.get_all(
 			"BOM",
 			filters={"name": ["in", bom_names]},
 			fields=["name", "item"],
@@ -879,14 +847,7 @@ def _find_fixed_time_in_window(
 @frappe.whitelist(methods=["GET"])
 def get_shift_summary(shift_name: str | None = None) -> dict:
 	"""Return structured summary data for the Shift summary tab."""
-	if not shift_name:
-		return _empty_shift_summary()
-	shift_exists = bool(frappe.db.exists("Shift", shift_name))
-	if not shift_exists and shift_name.startswith("new-"):
-		return _empty_shift_summary()
-	if not frappe.has_permission("Shift", "read", shift_name):
-		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
-	if not shift_exists:
+	if not _shift_readable_or_none(shift_name):
 		return _empty_shift_summary()
 	for doctype in ("Stock Entry", "BOM", "Downtime Entry"):
 		if not frappe.has_permission(doctype, "read"):
@@ -938,22 +899,7 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 	entry_names = [row.get("name") for row in entry_rows if row.get("name")]
 	parent_quantity_metrics = get_parent_quantity_metrics(entry_names)
 	item_by_entry, _item_labels = get_finished_item_maps(entry_names)
-	bom_names = sorted(
-		{bom_no for row in entry_rows for bom_no in _production_entry_bom_names(row) if bom_no}
-	)
-	item_by_bom = (
-		{
-			row.get("name"): row.get("item")
-			for row in frappe.get_all(
-				"BOM",
-				filters={"name": ["in", bom_names]},
-				fields=["name", "item"],
-				limit_page_length=0,
-			)
-		}
-		if bom_names
-		else {}
-	)
+	item_by_bom = _item_by_bom_for_entries(entry_rows)
 	for row in entry_rows:
 		if is_joint_production_entry(row):
 			line_items = [
@@ -1124,14 +1070,7 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 @frappe.whitelist(methods=["GET"])
 def get_shift_aggregate_production_entries(shift_name: str | None = None) -> list[dict]:
 	"""Return per-BOM aggregate production values for submitted manufacture entries in a shift."""
-	if not shift_name:
-		return []
-	shift_exists = bool(frappe.db.exists("Shift", shift_name))
-	if not shift_exists and shift_name.startswith("new-"):
-		return []
-	if not frappe.has_permission("Shift", "read", shift_name):
-		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
-	if not shift_exists:
+	if not _shift_readable_or_none(shift_name):
 		return []
 	for doctype in ("Stock Entry", "BOM"):
 		if not frappe.has_permission(doctype, "read"):
