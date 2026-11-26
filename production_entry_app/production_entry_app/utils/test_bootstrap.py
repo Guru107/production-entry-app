@@ -264,6 +264,7 @@ def ensure_warehouse_restricted_user(email: str, warehouses: list[str]) -> str:
 		user.email = email
 		user.first_name = email.split("@", 1)[0]
 		user.user_type = "System User"
+		user.send_welcome_email = 0
 	user.set("roles", [{"role": role} for role in ("PEA User", "Stock User", "Manufacturing User")])
 	save_test_user(user)
 	for name in frappe.get_all("User Permission", filters={"user": email}, pluck="name"):

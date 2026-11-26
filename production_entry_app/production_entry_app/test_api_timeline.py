@@ -589,7 +589,6 @@ class TestGetShiftTimelineData(FrappeTestCase):
 			get_timeline_cache_prefix,
 		)
 
-		# User first: creating it can commit on v15, which must not persist the entries below.
 		restricted = ensure_warehouse_restricted_user(
 			"test_timeline_wh_user@example.com",
 			[
@@ -629,22 +628,24 @@ class TestGetShiftTimelineData(FrappeTestCase):
 				[visible, hidden],
 			)
 
-	def test_warm_timeline_cache_still_requires_stock_entry_read(self) -> None:
+	def test_warm_timeline_cache_still_requires_source_doctype_read(self) -> None:
 		from production_entry_app.production_entry_app.api_timeline import get_shift_timeline_data
 
 		self._create_running_shift("2026-10-12")
-		with (
-			patch(
-				"production_entry_app.production_entry_app.api_timeline._get_cached_timeline_data",
-				return_value={"entries": [{"name": "SE-CACHED-1"}]},
-			),
-			patch(
-				"production_entry_app.production_entry_app.api_timeline.frappe.has_permission",
-				side_effect=lambda doctype, *args, **kwargs: doctype != "Stock Entry",
-			),
-		):
-			with self.assertRaises(frappe.PermissionError):
-				get_shift_timeline_data("Workstation", self.workstation_a)
+		for denied in ("Stock Entry", "Downtime Entry"):
+			with (
+				self.subTest(denied=denied),
+				patch(
+					"production_entry_app.production_entry_app.api_timeline._get_cached_timeline_data",
+					return_value={"entries": [{"name": "SE-CACHED-1"}]},
+				),
+				patch(
+					"production_entry_app.production_entry_app.api_timeline.frappe.has_permission",
+					side_effect=lambda doctype, *args, denied=denied, **kwargs: doctype != denied,
+				),
+			):
+				with self.assertRaises(frappe.PermissionError):
+					get_shift_timeline_data("Workstation", self.workstation_a)
 
 	def test_returns_cached_timeline_without_querying_stock_entries(self) -> None:
 		from production_entry_app.production_entry_app.api_timeline import get_shift_timeline_data

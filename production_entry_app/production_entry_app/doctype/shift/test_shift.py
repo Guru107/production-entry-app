@@ -3594,7 +3594,6 @@ class TestShiftSummary(FrappeTestCase):
 	def test_summary_totals_match_for_warehouse_restricted_and_unrestricted_users(self) -> None:
 		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
 
-		# User first: creating it can commit on v15, which must not persist the entries below.
 		restricted = ensure_warehouse_restricted_user(
 			"test_shift_summary_wh_user@example.com",
 			[
@@ -3618,22 +3617,24 @@ class TestShiftSummary(FrappeTestCase):
 			self.assertEqual(float(snapshots[0]["total_qty"]), 100.0)
 			self.assertEqual(snapshots[0]["entry_count"], 2)
 
-	def test_warm_summary_cache_still_requires_stock_entry_read(self) -> None:
+	def test_warm_summary_cache_still_requires_source_doctype_read(self) -> None:
 		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
 
 		shift = self._create_shift("2026-09-13")
-		with (
-			patch(
-				"production_entry_app.production_entry_app.doctype.shift.shift._get_cached_shift_summary",
-				return_value={"snapshot": {"entry_count": 1}},
-			),
-			patch(
-				"production_entry_app.production_entry_app.doctype.shift.shift.frappe.has_permission",
-				side_effect=lambda doctype, *args, **kwargs: doctype != "Stock Entry",
-			),
-		):
-			with self.assertRaises(frappe.PermissionError):
-				get_shift_summary(shift.name)
+		for denied in ("Stock Entry", "BOM", "Downtime Entry"):
+			with (
+				self.subTest(denied=denied),
+				patch(
+					"production_entry_app.production_entry_app.doctype.shift.shift._get_cached_shift_summary",
+					return_value={"snapshot": {"entry_count": 1}},
+				),
+				patch(
+					"production_entry_app.production_entry_app.doctype.shift.shift.frappe.has_permission",
+					side_effect=lambda doctype, *args, denied=denied, **kwargs: doctype != denied,
+				),
+			):
+				with self.assertRaises(frappe.PermissionError):
+					get_shift_summary(shift.name)
 
 	def test_returns_cached_summary_without_querying_database(self) -> None:
 		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
