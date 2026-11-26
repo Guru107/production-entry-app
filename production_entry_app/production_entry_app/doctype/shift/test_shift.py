@@ -3534,6 +3534,38 @@ class TestShiftSummary(FrappeTestCase):
 			self.assertEqual(float(snapshots[0]["total_qty"]), 100.0)
 			self.assertEqual(snapshots[0]["entry_count"], 2)
 
+	def test_summary_item_map_matches_for_bom_restricted_and_unrestricted_users(self) -> None:
+		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
+
+		visible_bom = ensure_default_bom(
+			ensure_item("_SHIFT_SUM_FG_VISIBLE"), ensure_item("_SHIFT_SUM_RM"), self.ctx["company"]
+		)
+		hidden_item = ensure_item("_SHIFT_SUM_FG_HIDDEN")
+		hidden_bom = ensure_default_bom(hidden_item, ensure_item("_SHIFT_SUM_RM"), self.ctx["company"])
+		restricted = ensure_warehouse_restricted_user(
+			"test_shift_summary_bom_user@example.com",
+			[
+				self.ctx[key]
+				for key in ("rm_warehouse", "wip_warehouse", "rejection_warehouse", "scrap_warehouse")
+			],
+		)
+		frappe.get_doc(
+			{"doctype": "User Permission", "user": restricted, "allow": "BOM", "for_value": visible_bom}
+		).insert(ignore_permissions=True)
+		frappe.clear_cache(user=restricted)
+		shift = self._create_shift("2026-09-15")
+		self._create_submitted_like_entry(shift.name, total_qty=10, rejection_qty=1, bom_no=hidden_bom)
+
+		for call_order in ((restricted, "Administrator"), ("Administrator", restricted)):
+			shift_module.invalidate_shift_summary_cache(shift.name)
+			item_boms = []
+			for user in call_order:
+				frappe.set_user(user)
+				item_boms.append(get_shift_summary(shift.name)["exceptions"]["item_boms"])
+			frappe.set_user("Administrator")
+			self.assertEqual(item_boms[0], item_boms[1])
+			self.assertEqual(item_boms[0][0]["item_code"], hidden_item)
+
 	def test_warm_summary_cache_still_requires_source_doctype_read(self) -> None:
 		from production_entry_app.production_entry_app.doctype.shift.shift import get_shift_summary
 

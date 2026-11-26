@@ -590,9 +590,10 @@ def _item_by_bom_for_entries(entries: list[dict]) -> dict[str, str]:
 	)
 	if not bom_names:
 		return {}
+	# get_all: permission-free by design, it feeds the shared summary cache (#298).
 	return {
 		row.get("name"): row.get("item")
-		for row in frappe.get_list(
+		for row in frappe.get_all(
 			"BOM",
 			filters={"name": ["in", bom_names]},
 			fields=["name", "item"],
