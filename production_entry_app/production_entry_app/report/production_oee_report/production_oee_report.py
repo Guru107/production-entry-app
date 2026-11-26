@@ -391,6 +391,7 @@ def _get_stock_entry_groups(
 			)
 
 		_apply_loss_reasons_for_chunk(groups, entry_meta_by_name, loss_rows, shift_labels)
+		_keep_loss_rows_on_groups(groups, entry_meta_by_name, loss_rows)
 
 	if not has_rows:
 		return {}
@@ -661,6 +662,9 @@ def _get_machine_downtime_by_group(
 	timeout_guard()
 	downtime_rows = _get_downtime_rows(workstations, overall_start, overall_end)
 	covered_by_group = _get_covered_loss_intervals_by_group(groups, windows)
+	rows_by_workstation: dict[str | None, list[dict]] = {}
+	for row in downtime_rows:
+		rows_by_workstation.setdefault(row.get("workstation"), []).append(row)
 	downtime_by_group: dict[tuple[str, str], tuple[float, set[str], set[str]]] = {}
 	for key, group in groups.items():
 		timeout_guard()
@@ -668,7 +672,7 @@ def _get_machine_downtime_by_group(
 			group,
 			windows,
 			shift_dates,
-			downtime_rows,
+			rows_by_workstation.get(group.get("workstation"), []),
 			covered_by_group.get(key, []),
 			planned_by_shift,
 		)
@@ -815,8 +819,10 @@ def _sum_machine_downtime_hours(
 	covered_intervals: list[tuple[datetime.datetime, datetime.datetime]],
 	planned_by_shift: dict[str, list[tuple[datetime.datetime, datetime.datetime]]],
 ) -> tuple[float, set[str], set[str]]:
-	"""Return Machine Downtime hours and the linked / unlinked shifts whose downtime counts."""
-	workstation = group.get("workstation")
+	"""Return Machine Downtime hours and the linked / unlinked shifts whose downtime counts.
+
+	downtime_rows must already be limited to the group's workstation.
+	"""
 	day = str(group.get("day") or "")
 	day_windows = {
 		shift_name: windows[shift_name]
@@ -827,8 +833,6 @@ def _sum_machine_downtime_hours(
 	linked_shifts: set[str] = set()
 	unlinked_shifts: set[str] = set()
 	for row in downtime_rows:
-		if row.get("workstation") != workstation:
-			continue
 		for shift_name, overlap in _downtime_overlaps_by_shift(row, day_windows):
 			blockers = [*covered_intervals, *planned_by_shift.get(shift_name, [])]
 			counted = _subtract_intervals(overlap, blockers)
@@ -858,26 +862,19 @@ def _get_covered_loss_intervals_by_group(
 	groups: dict[tuple[str, str], dict],
 	windows: dict[str, tuple[datetime.datetime, datetime.datetime]],
 ) -> dict[tuple[str, str], list[tuple[datetime.datetime, datetime.datetime]]]:
-	entry_group: dict[str, tuple[str, str]] = {}
-	entry_shift: dict[str, str] = {}
-	for key, group in groups.items():
-		for entry_name, shift_name in (group.get("entry_shifts") or {}).items():
-			entry_group[entry_name] = key
-			entry_shift[entry_name] = shift_name
-	loss_rows = _get_stock_entry_loss_rows(list(entry_group))
 	intervals: dict[tuple[str, str], list[tuple[datetime.datetime, datetime.datetime]]] = {
 		key: [] for key in groups
 	}
-	for row in loss_rows:
-		parent = row.get("parent")
-		key = entry_group.get(parent or "")
-		shift_name = row.get("shift") or entry_shift.get(parent or "")
-		window = windows.get(shift_name or "")
-		if not key or not window:
-			continue
-		overlap = _clip_clock_times_to_window(row.get("start_time"), row.get("end_time"), window)
-		if overlap:
-			intervals[key].append(overlap)
+	for key, group in groups.items():
+		entry_shifts = group.get("entry_shifts") or {}
+		for row in group.pop("loss_rows", []):  # free the rows once consumed
+			shift_name = row.get("shift") or entry_shifts.get(row.get("parent") or "")
+			window = windows.get(shift_name or "")
+			if not window:
+				continue
+			overlap = _clip_clock_times_to_window(row.get("start_time"), row.get("end_time"), window)
+			if overlap:
+				intervals[key].append(overlap)
 	return intervals
 
 
@@ -977,6 +974,7 @@ def _new_group(day: str, workstation: str) -> dict:
 		"entry_shifts": {},
 		"reason_intervals": {},
 		"reason_hours": {},
+		"loss_rows": [],
 	}
 
 
@@ -1014,6 +1012,19 @@ def _apply_loss_reason_row(
 	# Resolved to datetimes in _finalize_group_metrics, once the shift windows are loaded.
 	loss_times = (row.get("start_time"), row.get("end_time"), entry_meta["shift"])
 	group.setdefault("reason_intervals", {}).setdefault(key, []).append(loss_times)
+
+
+def _keep_loss_rows_on_groups(
+	groups: dict[tuple[str, str], dict],
+	entry_meta_by_name: dict[str, dict[str, str]],
+	loss_rows: list[dict],
+) -> None:
+	"""Keep each Stock Entry Loss Entry row on its group so covered intervals need no re-read."""
+	for row in loss_rows:
+		entry_meta = entry_meta_by_name.get(row.get("parent") or "")
+		group = entry_meta and groups.get((entry_meta["day"], entry_meta["workstation"]))
+		if group:
+			group["loss_rows"].append(row)
 
 
 def _get_loss_shift_label(
