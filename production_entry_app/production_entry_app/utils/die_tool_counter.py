@@ -94,7 +94,7 @@ def recompute_counter(item_code: str) -> float | None:
 	if counter_query.for_update().run() != seen:
 		frappe.throw(
 			_("The Die Tool Counter for {0} changed while you were working. Please retry.").format(
-				frappe.bold(item_code)
+				frappe.bold(frappe.utils.escape_html(item_code))
 			),
 			frappe.TimestampMismatchError,
 		)
