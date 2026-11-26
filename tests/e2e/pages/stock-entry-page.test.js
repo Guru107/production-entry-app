@@ -9,7 +9,7 @@ const {
 	triggerFetchItems,
 	waitForFetchItemsCall,
 	waitForStockEntryReady,
-} = require("../e2e/pages/stock-entry-page");
+} = require("./stock-entry-page");
 
 const STATE_SOURCE = getVisibleFetchItemsState.toString();
 
