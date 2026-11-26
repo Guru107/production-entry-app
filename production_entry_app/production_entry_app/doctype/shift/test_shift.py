@@ -1353,7 +1353,6 @@ class TestShift(FrappeTestCase):
 		self.assertEqual(len(doc.planned_losses), 3)
 
 		doc.start_shift()
-		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so _validate_field_locking sees persisted status via get_value
 		doc = frappe.get_doc("Shift", name)
 
 		# Modifying planned_losses should be rejected
@@ -1386,7 +1385,6 @@ class TestShift(FrappeTestCase):
 			}
 		).insert()
 		doc.start_shift()
-		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so _validate_field_locking sees persisted status via get_value
 
 		running_doc = frappe.get_doc("Shift", name)
 		running_doc.work_in_progress_warehouse = updated_wip
@@ -1414,7 +1412,6 @@ class TestShift(FrappeTestCase):
 		).insert()
 		doc.start_shift()
 		doc.end_shift()
-		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so _validate_field_locking sees persisted status via get_value
 		doc = frappe.get_doc("Shift", name)
 
 		doc.shift_label = "2"
@@ -1518,7 +1515,6 @@ class TestShift(FrappeTestCase):
 		).insert()
 		doc.start_shift()
 		doc.end_shift()
-		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so Completed state is visible
 
 		completed_doc = frappe.get_doc("Shift", name)
 		completed_doc.shift_duration = "10"
@@ -1558,7 +1554,6 @@ class TestShift(FrappeTestCase):
 				"planned_start_time": "16:00:00",
 			}
 		).insert()
-		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so overlap check sees both shifts
 
 		completed_doc = frappe.get_doc("Shift", doc1.name)
 		completed_doc.shift_duration = "10"
@@ -1610,7 +1605,6 @@ class TestShift(FrappeTestCase):
 				"planned_start_time": "16:00:00",
 			}
 		).insert()
-		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so overlap check sees both shifts
 
 		completed_doc = frappe.get_doc("Shift", doc1.name)
 		completed_doc.shift_duration = "10"
@@ -1635,7 +1629,6 @@ class TestShift(FrappeTestCase):
 			}
 		).insert()
 		doc.cancel_shift()
-		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so _validate_field_locking sees persisted status via get_value
 		doc = frappe.get_doc("Shift", name)
 
 		doc.supervisor = "Administrator"
@@ -2023,7 +2016,6 @@ class TestShift(FrappeTestCase):
 				"planned_start_time": "08:00:00",
 			}
 		).insert()
-		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so _validate_no_overlapping_shifts sees first shift when inserting second
 
 		# Shift 2: 10:00-18:00 overlaps Shift 1: 08:00-16:00
 		with self.assertRaises(ValidationError) as cm:
@@ -2221,7 +2213,6 @@ class TestShift(FrappeTestCase):
 				"planned_start_time": "22:00:00",
 			}
 		).insert()
-		frappe.db.commit()  # nosemgrep: frappe-manual-commit - ensure first shift is visible to overlap check
 
 		with self.assertRaises(ValidationError):
 			frappe.get_doc(
@@ -2252,7 +2243,6 @@ class TestShift(FrappeTestCase):
 				"planned_start_time": "08:00:00",
 			}
 		).insert()
-		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so _validate_unique_shift_label_per_date sees first shift when inserting second
 
 		# Second Shift 1 on same date must fail
 		with self.assertRaises(ValidationError) as cm:
@@ -2324,7 +2314,6 @@ class TestShift(FrappeTestCase):
 				"planned_start_time": "08:00:00",
 			}
 		).insert()
-		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so get_linked_downtime_entries sees shift
 
 		# Downtime 10:00-11:00 overlaps with shift 08:00-16:00
 		dt_overlap = frappe.get_doc(
@@ -2348,7 +2337,6 @@ class TestShift(FrappeTestCase):
 				"custom_pea_downtime_reason": "00",
 			}
 		).insert()
-		frappe.db.commit()  # nosemgrep: frappe-manual-commit
 
 		result = get_linked_downtime_entries(name)
 		names = [r["name"] for r in result]
@@ -2691,7 +2679,6 @@ class TestShift(FrappeTestCase):
 			}
 		).insert()
 		doc.start_shift()
-		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so Running state is visible to recalculation
 
 		running_doc = frappe.get_doc("Shift", name)
 		self.assertEqual(_to_time_str(running_doc.planned_end_time), "16:00:00")
@@ -2726,7 +2713,6 @@ class TestShift(FrappeTestCase):
 		self.assertEqual(len(doc.planned_losses), 3)
 
 		doc.start_shift()
-		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so Running state is visible
 
 		running_doc = frappe.get_doc("Shift", name)
 		self.assertEqual(len(running_doc.planned_losses), 3)
@@ -2827,7 +2813,6 @@ class TestShift(FrappeTestCase):
 		self.assertEqual(len(doc.planned_losses), 5)
 
 		doc.start_shift()
-		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed so Running state is visible
 
 		running_doc = frappe.get_doc("Shift", doc.name)
 		running_doc.shift_duration = "8"
@@ -2858,7 +2843,6 @@ class TestShift(FrappeTestCase):
 			}
 		).insert()
 		doc1.start_shift()
-		frappe.db.commit()  # nosemgrep: frappe-manual-commit
 
 		# Second shift: 16:00-24:00 (8 hours), starts right after first ends
 		frappe.get_doc(
@@ -3033,12 +3017,8 @@ class TestShiftLayout(FrappeTestCase):
 
 
 class TestShiftSummary(FrappeTestCase):
-	@classmethod
-	def setUpClass(cls) -> None:
-		super().setUpClass()
-		cls.ctx = bootstrap_manufacturing_test_context("SHIFT-SUMMARY")
-
 	def setUp(self) -> None:
+		self.ctx = bootstrap_manufacturing_test_context("SHIFT-SUMMARY")
 		_ensure_downtime_reasons()
 		cleanup_running_shifts()
 		_cleanup_old_format_shifts_for_dates(
@@ -3500,7 +3480,6 @@ class TestShiftSummary(FrappeTestCase):
 			if role in frappe.get_roles(user.name):
 				user.remove_roles(role)
 		user.save(ignore_permissions=True)
-		frappe.db.commit()  # nosemgrep: frappe-manual-commit
 		frappe.set_user(user.name)
 
 		with self.assertRaises(frappe.PermissionError):
@@ -3679,12 +3658,8 @@ class TestShiftSummary(FrappeTestCase):
 
 
 class TestShiftAggregateProductionEntries(FrappeTestCase):
-	@classmethod
-	def setUpClass(cls) -> None:
-		super().setUpClass()
-		cls.ctx = bootstrap_manufacturing_test_context("SHIFT-AGG")
-
 	def setUp(self) -> None:
+		self.ctx = bootstrap_manufacturing_test_context("SHIFT-AGG")
 		cleanup_running_shifts()
 		_cleanup_old_format_shifts_for_dates("2026-10-01", "2026-10-02")
 		_cleanup_test_department_shift_variants_for_dates(
@@ -3794,7 +3769,6 @@ class TestShiftAggregateProductionEntries(FrappeTestCase):
 			if role in frappe.get_roles(user.name):
 				user.remove_roles(role)
 		user.save(ignore_permissions=True)
-		frappe.db.commit()  # nosemgrep: frappe-manual-commit
 		frappe.set_user(user.name)
 
 		with self.assertRaises(frappe.PermissionError):
@@ -4111,7 +4085,6 @@ def _ensure_user_with_role(email: str, role: str) -> None:
 		user.user_type = "System User"
 	user.add_roles(role)
 	save_test_user(user)
-	frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed for permission tests to see user roles
 
 
 class TestShiftPermissions(FrappeTestCase):
@@ -4216,7 +4189,6 @@ class TestShiftPermissions(FrappeTestCase):
 			if role in roles:
 				user.remove_roles(role)
 				user.save(ignore_permissions=True)
-		frappe.db.commit()  # nosemgrep: frappe-manual-commit
 		frappe.set_user("test_shift_blogger@example.com")
 
 		self.assertFalse(
