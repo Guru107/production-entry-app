@@ -20,6 +20,22 @@ STOCK_ENTRY_TYPE_FLAG_FIELDNAMES = (
 	"custom_pea_joint_lh_rh_production",
 	"custom_pea_rework_entry",
 )
+STANDARD_REJECTION_REASONS = (
+	"Double Stroke",
+	"Part Shift",
+	"Piercing Shift",
+	"Blank Cut",
+	"Crack",
+	"Part Dent/Damage",
+	"Taper Shearing",
+	"Burr",
+)
+# name -> (purpose, the custom_pea_* flag set on creation)
+STANDARD_STOCK_ENTRY_TYPES: dict[str, tuple[str, str]] = {
+	"Joint LH RH Production": ("Repack", "custom_pea_joint_lh_rh_production"),
+	"Joint Production": ("Repack", "custom_pea_joint_production"),
+	"Rework": ("Material Transfer", "custom_pea_rework_entry"),
+}
 REWORK_DETAILS_SECTION_CUSTOM_FIELD = "Stock Entry-custom_pea_rework_details_section"
 REWORK_LAYOUT_FIELDNAMES = frozenset(
 	{
@@ -117,11 +133,32 @@ def _warn_if_e2e_enabled_on_non_test_site() -> None:
 def _setup_app() -> None:
 	ensure_rework_details_layout()
 	seed_standard_downtime_reasons()
+	seed_standard_masters()
 	performance_indexes.ensure_performance_indexes()
 	frappe.logger("production_entry_app").info(
-		"Production Entry App setup ran: Rework Stock Entry layout, standard Downtime Reasons "
+		"Production Entry App setup ran: Rework Stock Entry layout, standard masters "
 		"and performance indexes were reconciled during sync/migrate."
 	)
+
+
+def seed_standard_masters() -> None:
+	"""Create the app's standard masters that are missing; never modify an existing one (#248).
+
+	Runs after fixture sync on install and migrate, so the custom_pea_* flag columns exist.
+	"""
+	for reason in STANDARD_REJECTION_REASONS:
+		_insert_if_missing("Rejection Reason", reason, {"rejection_reason_name": reason, "is_active": 1})
+	for name, (purpose, flag_fieldname) in STANDARD_STOCK_ENTRY_TYPES.items():
+		_insert_if_missing(
+			"Stock Entry Type", name, {"__newname": name, "purpose": purpose, flag_fieldname: 1}
+		)
+	for role in APP_ROLES:
+		_insert_if_missing("Role", role, {"role_name": role, "desk_access": 1})
+
+
+def _insert_if_missing(doctype: str, name: str, values: dict) -> None:
+	if not frappe.db.exists(doctype, name):
+		frappe.get_doc({"doctype": doctype, **values}).insert()
 
 
 def ensure_rework_details_layout() -> None:
