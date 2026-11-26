@@ -561,9 +561,8 @@ class TestReportUtilsPerformance(FrappeTestCase):
 
 
 class TestOeeDowntimeScaling(FrappeTestCase):
-	def test_machine_downtime_scales_with_buckets_and_skips_loss_entry_reread(self) -> None:
+	def test_machine_downtime_buckets_rows_by_workstation_and_skips_loss_entry_reread(self) -> None:
 		import datetime
-		import time
 
 		from production_entry_app.production_entry_app.report.production_oee_report import (
 			production_oee_report as oee,
@@ -595,16 +594,23 @@ class TestOeeDowntimeScaling(FrappeTestCase):
 		def no_reread(*_args: Any, **_kwargs: Any) -> list:
 			raise AssertionError("Loss Entry must not be re-read")
 
+		real_sum = oee._sum_machine_downtime_hours
+		rows_per_call: list[int] = []
+
+		def spy(group: dict, windows_: dict, dates: dict, rows: list[dict], *args: Any) -> Any:
+			self.assertTrue(all(row["workstation"] == group["workstation"] for row in rows))
+			rows_per_call.append(len(rows))
+			return real_sum(group, windows_, dates, rows, *args)
+
 		with (
 			patch.object(oee, "_get_downtime_rows", return_value=downtime_rows),
 			patch.object(oee, "get_report_rows", side_effect=no_reread),
+			patch.object(oee, "_sum_machine_downtime_hours", side_effect=spy),
 		):
-			started = time.perf_counter()
 			result = oee._get_machine_downtime_by_group(groups, lambda: None, windows, shift_dates, {})
-			elapsed = time.perf_counter() - started
 
 		self.assertEqual(len(result), days * workstations)
 		self.assertAlmostEqual(
 			next(iter(result.values()))[0], 0.5, places=4
 		)  # 1h downtime less 30m covered loss
-		self.assertLess(elapsed, 5.0, f"downtime bucketing too slow: {elapsed:.2f}s")
+		self.assertEqual(set(rows_per_call), {days})

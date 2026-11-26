@@ -803,27 +803,26 @@ def _get_downtime_rows(
 	]
 	if workstations:
 		filters.insert(0, ["workstation", "in", workstations])
-	rows = get_report_rows(
+	return get_report_rows(
 		"Downtime Entry",
 		filters=filters,
 		fields=["name", "workstation", "from_time", "to_time", "custom_pea_shift"],
 		limit_page_length=0,
 	)
-	for row in rows:  # parse once; every group and shift pass reuses the datetimes
-		row["from_time"] = get_datetime(row["from_time"]) if row.get("from_time") else None
-		row["to_time"] = get_datetime(row["to_time"]) if row.get("to_time") else None
-	return rows
 
 
 def _sum_machine_downtime_hours(
 	group: dict,
 	windows: dict[str, tuple[datetime.datetime, datetime.datetime]],
 	shift_dates: dict[str, str],
-	downtime_rows: list[dict],  # already limited to the group's workstation
+	downtime_rows: list[dict],
 	covered_intervals: list[tuple[datetime.datetime, datetime.datetime]],
 	planned_by_shift: dict[str, list[tuple[datetime.datetime, datetime.datetime]]],
 ) -> tuple[float, set[str], set[str]]:
-	"""Return Machine Downtime hours and the linked / unlinked shifts whose downtime counts."""
+	"""Return Machine Downtime hours and the linked / unlinked shifts whose downtime counts.
+
+	downtime_rows must already be limited to the group's workstation.
+	"""
 	day = str(group.get("day") or "")
 	day_windows = {
 		shift_name: windows[shift_name]
@@ -868,7 +867,7 @@ def _get_covered_loss_intervals_by_group(
 	}
 	for key, group in groups.items():
 		entry_shifts = group.get("entry_shifts") or {}
-		for row in group.get("loss_rows") or []:
+		for row in group.pop("loss_rows", []):  # free the rows once consumed
 			shift_name = row.get("shift") or entry_shifts.get(row.get("parent") or "")
 			window = windows.get(shift_name or "")
 			if not window:
