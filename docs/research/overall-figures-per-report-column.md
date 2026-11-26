@@ -121,7 +121,7 @@ Row = Operator (incl. "Unassigned") via `build_efficiency_rows` (`RU:1274-1301`)
 |---|---|---|---|---|
 | Operator / `operator` | Link | LABEL | "Overall" | Dimension |
 | Entries / `entries` | Int | SUM | Σ | One entry, one operator |
-| Good Qty / `good_qty`, Rejection Qty / `rejection_qty`, Rework Qty / `rework_qty`, Total Units / `total_units` | Float | SUM | Σ (`total_units` = good + rejection, `RU:1242`; linear) | Additive |
+| Good Qty / `good_qty`, Rejection Qty / `rejection_qty`, Rework Qty / `rework_qty`, Total Units / `total_units` | Float | SUM | Σ (`total_units` = good + rejection + rework, `RU:1242`; linear) | Additive |
 | Actual SPM / `actual_spm` | Float | RECOMPUTE | Σ total_strokes / Σ production_mins (`RU:1283`); if Σ mins = 0 fall back to Σ actual_spm_sum / Σ entries (`RU:1285-1286`) | Effective SPM [carry] |
 | Standard SPM / `standard_spm` | Float | WAVG | Σ(std_spm x production_mins over entries with both > 0) / Σ production_mins over the same entries | Row today is first-positive-wins (`RU:1259-1260`), which ADR 0006 rejected for OEE; docs claim weighted (`docs/report-formulas/operator-efficiency-report.md:13-14`, which also says `actual_spm = total_units / duration`, whereas code uses strokes, `RU:1283`) (Open Q4) |
 | Operator Efficiency % / `operator_efficiency_pct` | Percent | RECOMPUTE | Actual SPM(overall) / Standard SPM(overall) x 100 | Ratio of totals |

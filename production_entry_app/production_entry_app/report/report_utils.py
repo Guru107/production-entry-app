@@ -1260,7 +1260,7 @@ def accumulate_efficiency_aggregate(
 	good_qty = flt(entry.get("_good_qty") or 0)
 	rejection_qty = flt(entry.get("_rejection_qty") or 0)
 	rework_qty = flt(entry.get("_rework_qty") or 0)
-	total_units = good_qty + rejection_qty
+	total_units = good_qty + rejection_qty + rework_qty  # = fg_completed_qty
 	total_strokes = flt(entry.get("_total_strokes") or 0)
 	production_time_mins = entry.get("_production_time_mins")
 	duration_mins = flt(

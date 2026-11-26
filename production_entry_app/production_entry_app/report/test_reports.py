@@ -2679,7 +2679,7 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(overall["entries"], 2)
 		self.assertEqual(overall["good_qty"], 400)
 		self.assertEqual(overall["rework_qty"], 2)
-		self.assertEqual(overall["total_units"], 400)
+		self.assertEqual(overall["total_units"], 402)  # good + rejection + rework
 		# 2400 strokes / 120 mins, not the mean of 10 and 30.
 		self.assertAlmostEqual(overall["actual_spm"], 20.0, places=6)
 		# Standard SPM is production-time weighted: (2*60 + 10*60) / 120.
@@ -2845,6 +2845,10 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(float(operator_rows[0]["rework_qty"]), 3.0)
 		self.assertEqual(float(workstation_rows[0]["rejection_qty"]), 2.0)
 		self.assertEqual(float(workstation_rows[0]["rework_qty"]), 3.0)
+		self.assertEqual(float(operator_rows[0]["total_units"]), 100.0)  # fg_completed_qty
+		self.assertEqual(float(operator_rows[-1]["total_units"]), 100.0)  # fg_completed_qty
+		self.assertEqual(float(workstation_rows[0]["total_units"]), 100.0)  # fg_completed_qty
+		self.assertEqual(float(workstation_rows[-1]["total_units"]), 100.0)  # fg_completed_qty
 		self.assertEqual(float(oee_rows[0]["rejection"]), 5.0)
 		self.assertEqual(float(oee_rows[0]["quality_pct"]), 95.0)
 		self.assertEqual(float(daily_rows[0]["rejection"]), 2.0)
