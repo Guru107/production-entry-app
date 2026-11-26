@@ -3041,3 +3041,65 @@ test("die tool metrics response is dropped after switching documents", () => {
 		global.frappe = originalFrappe;
 	}
 });
+
+test("Stock Entry refresh and purpose change fetch die tool metrics", () => {
+	const modulePath = "../../production_entry_app/public/js/stock_entry.js";
+	const moduleId = require.resolve(modulePath);
+	const cachedModule = require.cache[moduleId];
+	const originalFrappe = global.frappe;
+	const originalFlt = global.flt;
+	const originalWindow = global.window;
+	const registered = {};
+	const counterCalls = [];
+	delete require.cache[moduleId];
+	global.flt = Number;
+	global.window = {};
+	global.frappe = {
+		datetime: { get_today: () => "2099-01-08" },
+		call(options) {
+			if (options.method.endsWith("get_die_tool_counter")) {
+				counterCalls.push(options.args.die_tool_code);
+			}
+		},
+		ui: { form: { on: (doctype, handlers) => (registered[doctype] = handlers) } },
+	};
+	const frm = {
+		docname: "STE-1",
+		doc: {
+			docstatus: 0,
+			stock_entry_type: "Manufacture",
+			custom_stock_entry_purpose: "Manufacture",
+			fg_item: "FG-001",
+			items: [],
+		},
+		fields_dict: {},
+		layout: { sections: [] },
+		clear_table() {},
+		dirty() {},
+		get_field: () => ({ df: { fieldtype: "Data" } }),
+		refresh_field() {},
+		refresh_fields() {},
+		set_query() {},
+		set_df_property() {},
+		set_value(fieldname, value) {
+			this.doc[fieldname] = value;
+		},
+		toggle_display() {},
+		toggle_reqd() {},
+	};
+
+	try {
+		require(modulePath);
+		registered["Stock Entry"].refresh(frm);
+		assert.deepEqual(counterCalls, ["FG-001"]);
+
+		registered["Stock Entry"].custom_stock_entry_purpose(frm);
+		assert.deepEqual(counterCalls, ["FG-001", "FG-001"]);
+	} finally {
+		global.frappe = originalFrappe;
+		global.flt = originalFlt;
+		global.window = originalWindow;
+		delete require.cache[moduleId];
+		if (cachedModule) require.cache[moduleId] = cachedModule;
+	}
+});

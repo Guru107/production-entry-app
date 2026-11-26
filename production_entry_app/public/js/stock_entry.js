@@ -237,6 +237,7 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 			_apply_native_manufacture_visibility(frm);
 			// custom_stock_entry_purpose is fetched via fetch_from and will re-trigger visibility.
 			_apply_manufacture_visibility(frm);
+			_update_die_tool_metrics(frm);
 			_sync_stock_entry_helper_fields(frm);
 			_setup_stock_entry_quick_entry(frm);
 		},
@@ -252,6 +253,7 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 			_ensure_use_multi_level_bom_unchecked(frm);
 			_clear_manufacture_data_on_leave(frm);
 			_apply_manufacture_visibility(frm);
+			_update_die_tool_metrics(frm);
 			_set_prev_purpose(frm);
 			_sync_stock_entry_helper_fields(frm);
 			_setup_stock_entry_quick_entry(frm);
@@ -1891,9 +1893,10 @@ function _update_die_tool_metrics(frm) {
 				_clear_die_tool_alert(frm);
 			}
 		},
-		error() {
-			if (reqId !== _dieToolRequestId) return;
+		error(err) {
+			if (reqId !== _dieToolRequestId || frm.docname !== docname) return;
 			frappe.msgprint(__("Failed to load die tool metrics. Please refresh."));
+			console.error(err);
 		},
 	});
 }

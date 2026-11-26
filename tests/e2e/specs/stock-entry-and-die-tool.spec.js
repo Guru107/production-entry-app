@@ -3,6 +3,7 @@ const { bootstrapE2E } = require("../fixtures/test-data");
 const { getDoc, callFrappeMethod } = require("../fixtures/frappe");
 const { StockEntryPage } = require("../pages/stock-entry-page");
 const { registerE2ELifecycle } = require("../fixtures/lifecycle");
+const { getRoute } = require("../utils/routing");
 
 test.describe("Stock Entry integration", () => {
 	const lifecycle = registerE2ELifecycle(test);
@@ -138,5 +139,55 @@ test.describe("Stock Entry integration", () => {
 		await stockEntryPage.openNew();
 		await stockEntryPage.fillManufactureEntry(ctx);
 		await stockEntryPage.fetchItems();
+	});
+
+	test("@regression submitted entry keeps its stored die tool snapshot after the counter changes", async ({
+		page,
+	}) => {
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+
+		const stockEntryPage = new StockEntryPage(page);
+		await stockEntryPage.openNew();
+		await stockEntryPage.fillManufactureEntry(ctx);
+		await stockEntryPage.fetchItems();
+		await stockEntryPage.setRejectionBreakup();
+		await stockEntryPage.saveAndSubmit();
+
+		const stockEntryName = await page.evaluate(() => cur_frm.doc.name);
+		const stored = await getDoc(page, "Stock Entry", stockEntryName);
+		const storedPct = Number(stored.custom_pea_die_tool_utilization_pct);
+		expect(storedPct).toBeGreaterThan(0);
+
+		const counter = await callFrappeMethod(page, "frappe.client.get_value", {
+			doctype: "Die Tool Counter",
+			filters: JSON.stringify({ die_tool_item: ctx.fg_item }),
+			fieldname: "name",
+		});
+		await callFrappeMethod(page, "frappe.client.set_value", {
+			doctype: "Die Tool Counter",
+			name: counter?.name || counter?.message?.name,
+			fieldname: "current_stroke_count",
+			value: 1,
+		});
+		const live = await callFrappeMethod(
+			page,
+			"production_entry_app.production_entry_app.api.get_die_tool_counter",
+			{ die_tool_code: ctx.fg_item },
+			"GET"
+		);
+		expect(Number(live.utilization_pct)).not.toBe(storedPct);
+
+		await page.goto(getRoute(`/stock-entry/${stockEntryName}`), {
+			waitUntil: "domcontentloaded",
+		});
+		await page.waitForFunction(() => window.cur_frm && !window.cur_frm.loading);
+		await page.waitForTimeout(1500);
+
+		const shown = await page.evaluate(() => ({
+			pct: Number(window.cur_frm.doc.custom_pea_die_tool_utilization_pct),
+			alert: String(window.cur_frm.__peaDieToolAlertMessage || ""),
+		}));
+		expect(shown.pct).toBe(storedPct);
+		expect(shown.alert).toBe("");
 	});
 });
