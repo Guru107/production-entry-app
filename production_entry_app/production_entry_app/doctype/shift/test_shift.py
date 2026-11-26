@@ -3017,12 +3017,8 @@ class TestShiftLayout(FrappeTestCase):
 
 
 class TestShiftSummary(FrappeTestCase):
-	@classmethod
-	def setUpClass(cls) -> None:
-		super().setUpClass()
-		cls.ctx = bootstrap_manufacturing_test_context("SHIFT-SUMMARY")
-
 	def setUp(self) -> None:
+		self.ctx = bootstrap_manufacturing_test_context("SHIFT-SUMMARY")
 		_ensure_downtime_reasons()
 		cleanup_running_shifts()
 		_cleanup_old_format_shifts_for_dates(
@@ -3662,12 +3658,8 @@ class TestShiftSummary(FrappeTestCase):
 
 
 class TestShiftAggregateProductionEntries(FrappeTestCase):
-	@classmethod
-	def setUpClass(cls) -> None:
-		super().setUpClass()
-		cls.ctx = bootstrap_manufacturing_test_context("SHIFT-AGG")
-
 	def setUp(self) -> None:
+		self.ctx = bootstrap_manufacturing_test_context("SHIFT-AGG")
 		cleanup_running_shifts()
 		_cleanup_old_format_shifts_for_dates("2026-10-01", "2026-10-02")
 		_cleanup_test_department_shift_variants_for_dates(

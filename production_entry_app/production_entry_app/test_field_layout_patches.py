@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from types import ModuleType
+from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -140,8 +141,13 @@ class TestCleanupPatches(FrappeTestCase):
 		self._make_report("Rework Register", "Yes", "Production Entry App")
 		self._make_report("Daily Rework Report", "No", "Production Entry App")
 
-		for _ in range(2):
-			remove_legacy_rework_reports.execute()
+		# Production is not in developer_mode; the patch runner sets in_patch, which Report.on_trash honours.
+		with (
+			patch.dict(frappe.local.conf, {"developer_mode": 0}),
+			patch.dict(frappe.flags, {"in_patch": True}),
+		):
+			for _ in range(2):
+				remove_legacy_rework_reports.execute()
 
 		self.assertFalse(frappe.db.exists("Report", "Rework Register"))
 		self.assertTrue(frappe.db.exists("Report", "Daily Rework Report"))
