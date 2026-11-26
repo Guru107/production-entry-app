@@ -145,6 +145,24 @@ test.describe("Stock Entry integration", () => {
 		page,
 	}) => {
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		// The stored snapshot is computed at validate, before submit adds strokes,
+		// so seed a non-zero counter first.
+		await callFrappeMethod(
+			page,
+			"production_entry_app.production_entry_app.e2e_api.reset_e2e_die_tool_counter",
+			{ prefix: lifecycle.getPrefix() }
+		);
+		for (const [fieldname, value] of [
+			["stroke_capacity", 1000],
+			["current_stroke_count", 500],
+		]) {
+			await callFrappeMethod(page, "frappe.client.set_value", {
+				doctype: "Die Tool Counter",
+				name: ctx.fg_item,
+				fieldname,
+				value,
+			});
+		}
 
 		const stockEntryPage = new StockEntryPage(page);
 		await stockEntryPage.openNew();
@@ -158,14 +176,9 @@ test.describe("Stock Entry integration", () => {
 		const storedPct = Number(stored.custom_pea_die_tool_utilization_pct);
 		expect(storedPct).toBeGreaterThan(0);
 
-		const counter = await callFrappeMethod(page, "frappe.client.get_value", {
-			doctype: "Die Tool Counter",
-			filters: JSON.stringify({ die_tool_item: ctx.fg_item }),
-			fieldname: "name",
-		});
 		await callFrappeMethod(page, "frappe.client.set_value", {
 			doctype: "Die Tool Counter",
-			name: counter?.name || counter?.message?.name,
+			name: ctx.fg_item,
 			fieldname: "current_stroke_count",
 			value: 1,
 		});
