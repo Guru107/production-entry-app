@@ -17,6 +17,7 @@ from production_entry_app.production_entry_app.doctype.shift.shift import invali
 from production_entry_app.production_entry_app.joint_production import (
 	JOINT_LH_RH_STOCK_ENTRY_TYPE,
 	JOINT_PRODUCTION_LINES_FIELD,
+	JOINT_PRODUCTION_STOCK_ENTRY_TYPE,
 )
 from production_entry_app.production_entry_app.overrides.test_stock_entry_hooks import (
 	_append_rejection_breakup_rows,
@@ -5727,6 +5728,54 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(get_stock_entries_for_bom(stale_header_bom, filters={"docstatus": 1}), [])
 		_, rows, _, _ = execute({"from_date": joint.day, "to_date": joint.day, "bom_no": stale_line_bom})
 		self.assertEqual(rows, [])
+
+	def test_bom_filter_reads_lh_rh_bom_only_for_line_less_joint_production(self) -> None:
+		day = "2093-03-12"
+		shift = self._create_shift_for_label(day, "1")
+		suffix = frappe.generate_hash(length=8)
+		stale_bom, legacy_bom = f"BOM-STALE-LH-{suffix}", f"BOM-LEGACY-LH-{suffix}"
+		names = []
+		for hour, lh_bom in ((8, stale_bom), (10, legacy_bom)):
+			entry = self._create_mock_submitted_entry(
+				posting_date=day,
+				planned_start=f"{day} {hour:02d}:00:00",
+				planned_end=f"{day} {hour + 1:02d}:00:00",
+				actual_start=f"{day} {hour:02d}:00:00",
+				actual_end=f"{day} {hour + 1:02d}:00:00",
+				fg_qty=50,
+				rejection_qty=0,
+				shift_name=shift.name,
+			)
+			frappe.db.set_value(
+				"Stock Entry",
+				entry.name,
+				{
+					"purpose": "Repack",
+					"stock_entry_type": JOINT_PRODUCTION_STOCK_ENTRY_TYPE,
+					"custom_pea_lh_bom": lh_bom,
+				},
+				update_modified=False,
+			)
+			names.append(entry.name)
+		with_lines, line_less = names
+		frappe.get_doc(
+			{
+				"doctype": "Joint Production Line",
+				"name": frappe.generate_hash(length=10),
+				"parent": with_lines,
+				"parenttype": "Stock Entry",
+				"parentfield": JOINT_PRODUCTION_LINES_FIELD,
+				"idx": 1,
+				"bom_no": f"BOM-LINE-{suffix}",
+				"gross_qty": 50,
+			}
+		).db_insert()
+
+		self.assertEqual(get_stock_entries_for_bom(stale_bom, filters={"docstatus": 1}), [])
+		self.assertEqual(get_stock_entries_for_bom(legacy_bom, filters={"docstatus": 1}), [line_less])
+		self.assertEqual(
+			get_stock_entries_for_bom(f"BOM-LINE-{suffix}", filters={"docstatus": 1}), [with_lines]
+		)
 
 	def _configure_mock_joint_entry(
 		self,

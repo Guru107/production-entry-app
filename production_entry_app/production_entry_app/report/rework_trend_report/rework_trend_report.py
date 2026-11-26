@@ -117,7 +117,7 @@ def _get_rows(filters: dict) -> list[dict]:
 				)
 			if line := line_totals.get(entry_name):
 				total_qty, rework_qty = line["total_qty"], line["quality_qty"]
-				non_rework_rejection_qty = rejection_line_totals[entry_name]["quality_qty"]
+				non_rework_rejection_qty = rejection_line_totals.get(entry_name, {}).get("quality_qty", 0)
 
 			key_date, period_label = _period_key(production_date, time_grain)
 			aggregate = aggregates.setdefault(

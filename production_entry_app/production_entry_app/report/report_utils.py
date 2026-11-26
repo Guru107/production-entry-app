@@ -13,7 +13,7 @@ from frappe.query_builder import Case, DocType
 from frappe.query_builder.functions import Sum
 from frappe.utils import cint, flt, get_datetime
 from pypika import Table
-from pypika.terms import Criterion
+from pypika.terms import Criterion, ExistsCriterion
 
 from production_entry_app.production_entry_app.joint_production import (
 	JOINT_PRODUCTION_LINES_FIELD,
@@ -431,7 +431,14 @@ def get_stock_entries_for_bom(bom_no: str, *, filters: dict | None = None) -> li
 	base_filters = dict(filters or {"docstatus": 1})
 	stock_entry = DocType("Stock Entry")
 	stock_entry_type = DocType("Stock Entry Type")
+	joint_line = DocType("Joint Production Line")
+	has_joint_lines = ExistsCriterion(
+		frappe.qb.from_(joint_line)
+		.select(joint_line.name)
+		.where((joint_line.parent == stock_entry.name) & (joint_line.parenttype == "Stock Entry"))
+	)
 	# Read only the BOM fields of the entry's own mode: leftover other-mode fields must not match.
+	# LH/RH BOM belongs to Joint LH/RH entries and to legacy Joint Production entries without lines.
 	header_query = (
 		frappe.qb.from_(stock_entry)
 		.left_join(stock_entry_type)
@@ -441,7 +448,10 @@ def get_stock_entries_for_bom(bom_no: str, *, filters: dict | None = None) -> li
 			((stock_entry.purpose == "Manufacture") & (stock_entry.bom_no == bom_no))
 			| (
 				(stock_entry.purpose == "Repack")
-				& paired_repack_type_criterion(stock_entry_type)
+				& (
+					(stock_entry_type.custom_pea_joint_lh_rh_production == 1)
+					| ((stock_entry_type.custom_pea_joint_production == 1) & ~has_joint_lines)
+				)
 				& ((stock_entry.custom_pea_lh_bom == bom_no) | (stock_entry.custom_pea_rh_bom == bom_no))
 			)
 		)
@@ -450,7 +460,6 @@ def get_stock_entries_for_bom(bom_no: str, *, filters: dict | None = None) -> li
 		header_query = header_query.where(criterion)
 	header_rows = header_query.limit(_MAX_BOM_PARENT_MATCHES + 1).run(as_dict=True)
 	matched_names = {row.get("name") for row in header_rows if row.get("name")}
-	joint_line = DocType("Joint Production Line")
 	line_query = (
 		frappe.qb.from_(joint_line)
 		.inner_join(stock_entry)
