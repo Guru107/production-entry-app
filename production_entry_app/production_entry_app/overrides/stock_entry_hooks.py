@@ -443,6 +443,8 @@ def _apply_shift_defaults(doc: Document) -> None:
 	For submitted Stock Entries, only applies warehouse defaults (not planned dates),
 	preserving the immutable planned dates that were locked at submission time.
 	"""
+	# Shift writes must go through save/db.set_value (they clear the doc cache); a qb/SQL write must call
+	# frappe.clear_document_cache("Shift", name), as the cache has no TTL on v15.
 	shift = frappe.get_cached_doc("Shift", doc.custom_pea_shift)
 
 	if stock_entry_has_branch_field() and shift.branch:

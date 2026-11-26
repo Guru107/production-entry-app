@@ -1310,6 +1310,19 @@ class TestStockEntryHooks(FrappeTestCase):
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed to persist cleanup
 		super().tearDownClass()
 
+	def test_shift_defaults_see_shift_edit_after_cache_warmed(self) -> None:
+		"""Guards the get_cached_doc read: a Shift saved earlier in the request must not be stale."""
+		shift = _create_test_shift(shift_date="2026-04-11")
+		frappe.get_cached_doc("Shift", shift.name)
+		new_wip = ensure_warehouse(f"Shift Edit WIP - {get_company_abbr(self.company)}", self.company)
+		shift.work_in_progress_warehouse = new_wip
+		shift.save()
+
+		doc = frappe._dict(custom_pea_shift=shift.name, docstatus=0)
+		stock_entry_hooks._apply_shift_defaults(doc)
+
+		self.assertEqual(doc.from_warehouse, new_wip)
+
 	def test_shift_reference_auto_fills_branch(self) -> None:
 		if not frappe.db.exists("Branch", "Test Branch SE"):
 			frappe.get_doc({"doctype": "Branch", "branch": "Test Branch SE"}).insert(ignore_permissions=True)

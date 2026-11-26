@@ -105,6 +105,8 @@ def get_shift_warehouses(shift: BaseDocument) -> dict:
 def get_production_warehouses(doc: BaseDocument) -> dict:
 	"""Explicit Shift values precede Company/Branch defaults; there is no global fallback."""
 	if doc.get("custom_pea_shift"):
+		# Shift writes must go through save/db.set_value (they clear the doc cache); a qb/SQL write must call
+		# frappe.clear_document_cache("Shift", name), as the cache has no TTL on v15.
 		shift = frappe.get_cached_doc("Shift", doc.get("custom_pea_shift"))
 		if shift.company != doc.get("company"):
 			frappe.throw(_("Stock Entry Company must match the selected Shift Company."))
