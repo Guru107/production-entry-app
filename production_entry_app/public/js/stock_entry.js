@@ -221,6 +221,7 @@ if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
 
 			_ensure_use_multi_level_bom_unchecked(frm);
 			_apply_manufacture_visibility(frm);
+			_update_die_tool_metrics(frm);
 			_sync_die_tool_item_from_boms(frm);
 			_sync_stock_entry_helper_fields(frm);
 			_setup_stock_entry_quick_entry(frm);
@@ -625,7 +626,6 @@ function _apply_manufacture_visibility(frm) {
 
 	_toggle_rejection_breakup(frm);
 	_configure_rejection_breakup_grid(frm);
-	_update_die_tool_metrics(frm);
 }
 
 function _set_prev_purpose(frm) {
@@ -1850,6 +1850,8 @@ function _handle_custom_pea_fetch_items(frm) {
 
 function _update_die_tool_metrics(frm) {
 	if (!_is_production_doc(frm.doc)) return;
+	// Submitted/cancelled entries keep the snapshot the server stored at submit.
+	if (frm.doc.docstatus !== 0) return;
 
 	const item_code = _get_die_tool_item_code(frm);
 	if (!item_code) {
@@ -1858,12 +1860,13 @@ function _update_die_tool_metrics(frm) {
 	}
 
 	const reqId = ++_dieToolRequestId;
+	const docname = frm.docname;
 	frappe.call({
 		method: "production_entry_app.production_entry_app.api.get_die_tool_counter",
 		type: "GET",
 		args: { die_tool_code: item_code },
 		callback(r) {
-			if (reqId !== _dieToolRequestId) return;
+			if (reqId !== _dieToolRequestId || frm.docname !== docname) return;
 			if (!r.message) return;
 			const data = r.message;
 			if (parseInt(data.has_die_tool ?? 1, 10) !== 1) {
@@ -2034,15 +2037,19 @@ function _sync_die_tool_item_from_boms(frm) {
 		if (requestId !== _dieToolBomRequestId) return;
 		if (!_die_tool_item_field_ready()) return;
 		if (_production_bom_names(frm.doc).join("\0") !== bomNames.join("\0")) return;
-		Promise.all(
-			bomNames.map((name) => frappe.db.get_value("BOM", name, "custom_pea_die_tool_item"))
-		)
-			.then((responses) => {
+		frappe.db
+			.get_list("BOM", {
+				filters: { name: ["in", bomNames] },
+				fields: ["name", "custom_pea_die_tool_item"],
+				limit_page_length: bomNames.length,
+			})
+			.then((bomRows) => {
 				if (requestId !== _dieToolBomRequestId) return;
 				if (_production_bom_names(frm.doc).join("\0") !== bomNames.join("\0")) return;
-				const items = responses.map(
-					(response) => response?.message?.custom_pea_die_tool_item
+				const itemByBom = Object.fromEntries(
+					(bomRows || []).map((row) => [row.name, row.custom_pea_die_tool_item])
 				);
+				const items = bomNames.map((name) => itemByBom[name]);
 				_apply_prescribed_die_tool_item(frm, _prescribed_die_tool_item(items));
 			})
 			.catch((error) => {
@@ -2110,6 +2117,7 @@ if (typeof module !== "undefined" && module.exports) {
 		_apply_fetch_items_response,
 		_handle_custom_pea_fetch_items,
 		_apply_manufacture_visibility,
+		_update_die_tool_metrics,
 		_apply_joint_slot_labels,
 		_prune_joint_production_breakup_rows,
 		_drop_breakup_rows_of_remapped_sides,

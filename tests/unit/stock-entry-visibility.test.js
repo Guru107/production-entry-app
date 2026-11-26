@@ -20,6 +20,7 @@ const {
 	_apply_fetch_items_response,
 	_handle_custom_pea_fetch_items,
 	_apply_manufacture_visibility,
+	_update_die_tool_metrics,
 	_apply_joint_slot_labels,
 	_sync_joint_stock_entry_type,
 	_default_total_strokes_from_fg,
@@ -2522,9 +2523,7 @@ test("fetch items response refreshes form so ERPNext can add alternate item butt
 				["FG001", 0],
 			]
 		);
-		assert.deepEqual(apiCalls, [
-			"production_entry_app.production_entry_app.api.get_die_tool_counter",
-		]);
+		assert.deepEqual(apiCalls, []);
 	} finally {
 		global.frappe = originalFrappe;
 		global.flt = originalFlt;
@@ -2746,11 +2745,14 @@ function installDieToolBomLookup({ dieToolFieldReady, dieToolItem = "DIE-001" })
 			},
 		},
 		db: {
-			get_value(doctype, name, fieldname) {
-				fetched.push([doctype, name, fieldname]);
-				return Promise.resolve({
-					message: { custom_pea_die_tool_item: dieToolItem },
-				});
+			get_list(doctype, options) {
+				fetched.push([doctype, options.filters.name[1], options.fields]);
+				return Promise.resolve(
+					options.filters.name[1].map((name) => ({
+						name,
+						custom_pea_die_tool_item: dieToolItem,
+					}))
+				);
 			},
 		},
 		msgprint(message) {
@@ -2775,8 +2777,7 @@ test("saved joint Stock Entry sets the Die Tool Item after the type lookup", asy
 		await new Promise((resolve) => setImmediate(resolve));
 
 		assert.deepEqual(fetched, [
-			["BOM", "BOM-LH", "custom_pea_die_tool_item"],
-			["BOM", "BOM-RH", "custom_pea_die_tool_item"],
+			["BOM", ["BOM-LH", "BOM-RH"], ["name", "custom_pea_die_tool_item"]],
 		]);
 		assert.deepEqual(
 			properties.filter(([fieldname]) => fieldname === "custom_pea_die_tool_item"),
@@ -2980,4 +2981,63 @@ test("shift link query uses server search so Frappe returns newest shift_date fi
 		query.query,
 		"production_entry_app.production_entry_app.api.stock_entry_shift_query"
 	);
+});
+
+test("die tool metrics are not fetched for submitted Stock Entries", () => {
+	const originalFrappe = global.frappe;
+	const calls = [];
+	global.frappe = { call: (options) => calls.push(options.method) };
+	const frm = makeSavedJointStockEntryForm();
+	frm.doc.custom_stock_entry_purpose = "Manufacture";
+
+	try {
+		frm.doc.docstatus = 1;
+		_update_die_tool_metrics(frm);
+		assert.deepEqual(calls, []);
+
+		frm.doc.docstatus = 0;
+		_update_die_tool_metrics(frm);
+		assert.deepEqual(calls, [
+			"production_entry_app.production_entry_app.api.get_die_tool_counter",
+		]);
+	} finally {
+		global.frappe = originalFrappe;
+	}
+});
+
+test("applying manufacture visibility does not fetch die tool metrics", () => {
+	const originalFrappe = global.frappe;
+	const calls = [];
+	global.frappe = { call: (options) => calls.push(options.method) };
+	const frm = makeSavedJointStockEntryForm();
+	frm.doc.custom_stock_entry_purpose = "Manufacture";
+
+	try {
+		_apply_manufacture_visibility(frm);
+		assert.deepEqual(calls, []);
+	} finally {
+		global.frappe = originalFrappe;
+	}
+});
+
+test("die tool metrics response is dropped after switching documents", () => {
+	const originalFrappe = global.frappe;
+	let pending;
+	global.frappe = { call: (options) => (pending = options) };
+	const frm = makeSavedJointStockEntryForm();
+	frm.docname = "STE-1";
+	frm.doc.docstatus = 0;
+	frm.fields_dict.custom_pea_die_tool_utilization_pct = {};
+	frm.doc.custom_stock_entry_purpose = "Manufacture";
+
+	try {
+		_update_die_tool_metrics(frm);
+		frm.docname = "STE-2";
+		pending.callback({
+			message: { has_die_tool: 1, utilization_pct: 50, is_maintenance_due: 0 },
+		});
+		assert.notEqual(frm.doc.custom_pea_die_tool_utilization_pct, 50);
+	} finally {
+		global.frappe = originalFrappe;
+	}
 });
