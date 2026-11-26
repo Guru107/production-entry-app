@@ -5,7 +5,8 @@ from frappe.model.naming import make_autoname
 from frappe.utils import get_datetime
 
 from production_entry_app.production_entry_app.utils.die_tool_counter import (
-	reset_counter_from_maintenance_log,
+	_ensure_counter_exists,
+	recompute_counter,
 )
 
 
@@ -23,7 +24,10 @@ class DieToolMaintenanceLog(Document):
 		self.name = f"{prefix}.{sequence}"
 
 	def on_submit(self) -> None:
-		reset_counter_from_maintenance_log(self.die_tool_item, self.maintenance_date)
+		recompute_counter(_ensure_counter_exists(self.die_tool_item))
+
+	def on_cancel(self) -> None:
+		recompute_counter(self.die_tool_item)
 
 
 def _sanitize_item_code(item_code: str) -> str:

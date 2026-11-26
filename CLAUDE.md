@@ -412,7 +412,8 @@ Registered in `hooks.py` for `validate`, `on_submit`, `on_cancel`. Key responsib
   after a `fg_completed_qty` edit without re-fetch are left to ERPNext 15.122+'s finished-qty guard.
 - Default Total Press Strokes in `before_validate` so zero `fg_completed_qty` surfaces the app's
   press-strokes error instead of that guard's message.
-- Update die tool stroke counter atomically on submit; reverse on cancel.
+- Increment the die tool stroke counter atomically on submit (nothing added when posted at or before
+  `last_reset_on`); recompute it on cancel and on Maintenance Log submit/cancel.
 - Invalidate shift metrics cache on submit and cancel.
 
 ---
