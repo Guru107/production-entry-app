@@ -116,7 +116,6 @@ class JointProductionPlan:
 	total_rm_consumption: float
 	scrap_items: tuple[JointScrapItem, ...]
 	is_shearing: bool
-	same_finished_item: bool = False
 
 	@property
 	def first_line(self) -> JointProductionLine:
@@ -125,14 +124,6 @@ class JointProductionPlan:
 	@property
 	def second_line(self) -> JointProductionLine:
 		return self.lines[1]
-
-	@property
-	def first_side(self) -> str:
-		return self.lines[0].side
-
-	@property
-	def second_side(self) -> str:
-		return self.lines[1].side
 
 	@property
 	def output_sides(self) -> tuple[str, ...]:
@@ -199,28 +190,6 @@ def calculate_joint_rm_consumption(
 
 	return flt(
 		(flt(lh_gross_qty) * lh_rm_qty / lh_bom_quantity) + (flt(rh_gross_qty) * rh_rm_qty / rh_bom_quantity)
-	)
-
-
-def calculate_joint_rm_consumption_from_boms(
-	*,
-	lh_bom_no: str,
-	rh_bom_no: str,
-	lh_gross_qty: float,
-	rh_gross_qty: float,
-) -> float:
-	boms = _get_joint_bom_details_map((lh_bom_no, rh_bom_no))
-	lh_bom, rh_bom = boms[cstr(lh_bom_no)], boms[cstr(rh_bom_no)]
-	_validate_shearing_bom_inputs(lh_bom)
-	_validate_shearing_bom_inputs(rh_bom)
-	_validate_joint_bom_pair(lh_bom, rh_bom, require_common_rm=True)
-	return calculate_joint_rm_consumption(
-		lh_gross_qty=lh_gross_qty,
-		lh_bom_quantity=lh_bom.quantity,
-		lh_rm_qty=lh_bom.rm_qty,
-		rh_gross_qty=rh_gross_qty,
-		rh_bom_quantity=rh_bom.quantity,
-		rh_rm_qty=rh_bom.rm_qty,
 	)
 
 
@@ -345,29 +314,22 @@ def joint_production_output_side_select_options() -> str:
 def _build_joint_production_plan(doc: Document) -> JointProductionPlan:
 	if is_joint_production(doc):
 		return _build_joint_production_plan_from_lines(doc)
-	same_finished_item = False
-	first_side, second_side = ("LH", "RH")
-	_validate_joint_header(
-		doc,
-		first_side=first_side,
-		second_side=second_side,
-		same_finished_item=same_finished_item,
-	)
-	operation = _get_joint_operation(doc, same_finished_item=same_finished_item)
-	is_shearing = False if same_finished_item else is_shearing_joint_operation(operation)
+	_validate_joint_header(doc)
+	operation = _get_joint_operation(doc, same_finished_item=False)
+	is_shearing = is_shearing_joint_operation(operation)
 	boms = _get_joint_bom_details_map((doc.get("custom_pea_lh_bom"), doc.get("custom_pea_rh_bom")))
 	lines = (
 		JointProductionLine(
 			bom=boms[cstr(doc.get("custom_pea_lh_bom"))],
 			gross_qty=flt(doc.get("custom_pea_lh_gross_qty")),
 			rejection_qty=flt(doc.get("custom_pea_lh_rejection_qty")),
-			side=first_side,
+			side="LH",
 		),
 		JointProductionLine(
 			bom=boms[cstr(doc.get("custom_pea_rh_bom"))],
 			gross_qty=flt(doc.get("custom_pea_rh_gross_qty")),
 			rejection_qty=flt(doc.get("custom_pea_rh_rejection_qty")),
-			side=second_side,
+			side="RH",
 		),
 	)
 	_validate_joint_bom_operations(lines, operation)
@@ -377,7 +339,7 @@ def _build_joint_production_plan(doc: Document) -> JointProductionPlan:
 	_validate_joint_bom_pair(lines[0].bom, lines[1].bom, require_common_rm=is_shearing)
 	_validate_joint_bom_company(lines, doc.get("company"))
 	for line in lines:
-		_validate_side_quantities(line.side, line.gross_qty, line.rejection_qty, same_finished_item)
+		_validate_side_quantities(line.side, line.gross_qty, line.rejection_qty)
 
 	if is_shearing:
 		total_rm_consumption = _calculate_shearing_rm_consumption(lines)
@@ -389,7 +351,6 @@ def _build_joint_production_plan(doc: Document) -> JointProductionPlan:
 		total_rm_consumption=total_rm_consumption,
 		scrap_items=scrap_items,
 		is_shearing=is_shearing,
-		same_finished_item=same_finished_item,
 	)
 
 
@@ -430,7 +391,6 @@ def _build_joint_production_plan_from_lines(doc: Document) -> JointProductionPla
 		total_rm_consumption=total_rm_consumption,
 		scrap_items=scrap_items,
 		is_shearing=False,
-		same_finished_item=True,
 	)
 
 
@@ -588,7 +548,7 @@ def _validate_joint_operating_cost_account(doc: Document, plan: JointProductionP
 	if not expense_account:
 		frappe.throw(
 			_(
-				"Set Default Operating Cost Account on Company {0} to apply BOM operating cost for Joint LH/RH production."
+				"Set Default Operating Cost Account on Company {0} to apply BOM operating cost for joint production."
 			).format(frappe.bold(frappe.utils.escape_html(cstr(doc.get("company")))))
 		)
 	return expense_account
@@ -871,20 +831,14 @@ def _validate_joint_rejection_breakup(doc: Document, plan: JointProductionPlan) 
 	doc.custom_pea_rework_qty = flt(rework_qty)
 
 
-def _validate_joint_header(
-	doc: Document,
-	*,
-	first_side: str,
-	second_side: str,
-	same_finished_item: bool,
-) -> None:
-	pairing = _("Joint Production") if same_finished_item else _("joint LH/RH production")
+def _validate_joint_header(doc: Document) -> None:
+	pairing = _("joint LH/RH production")
 	if doc.get("purpose") != "Repack":
 		frappe.throw(_("{0} must use Repack purpose.").format(pairing))
 	for fieldname, label in (
 		("custom_pea_operation", _("Operation")),
-		("custom_pea_lh_bom", _(first_side) if same_finished_item else _("LH BOM")),
-		("custom_pea_rh_bom", _(second_side) if same_finished_item else _("RH BOM")),
+		("custom_pea_lh_bom", _("LH BOM")),
+		("custom_pea_rh_bom", _("RH BOM")),
 	):
 		if not doc.get(fieldname):
 			frappe.throw(_("{0} is required for {1}.").format(label, pairing))
@@ -1119,22 +1073,6 @@ def _merged_post_shearing_input_quantities(bom: JointBomDetails, gross_qty: floa
 			item.qty, bom.quantity, gross_qty
 		)
 	return {item_code: qty for item_code, qty in quantities.items() if qty > 0}
-
-
-def _validate_same_finished_item_pair(lh_bom: JointBomDetails, rh_bom: JointBomDetails) -> None:
-	if lh_bom.name == rh_bom.name:
-		frappe.throw(_("BOM 1 and BOM 2 must be different."))
-	if lh_bom.company != rh_bom.company:
-		frappe.throw(_("BOM 1 and BOM 2 must belong to the same Company."))
-	if lh_bom.item_code != rh_bom.item_code:
-		frappe.throw(
-			_(
-				"Joint Production BOMs must produce the same finished item. "
-				"Use Joint LH/RH Production when the finished items differ."
-			)
-		)
-	if {item.item_code for item in lh_bom.input_items} == {item.item_code for item in rh_bom.input_items}:
-		frappe.throw(_("Joint Production BOMs must use different raw materials."))
 
 
 def _validate_joint_bom_company(

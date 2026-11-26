@@ -39,7 +39,6 @@ from production_entry_app.production_entry_app.joint_production import (
 	_set_scrap_row_classification,
 	allocate_joint_output_value,
 	calculate_joint_rm_consumption,
-	calculate_joint_rm_consumption_from_boms,
 	clear_inactive_joint_fields,
 	is_joint_lh_rh_production,
 	joint_production_line_side,
@@ -2049,18 +2048,6 @@ class TestJointProductionItems(FrappeTestCase):
 			with self.assertRaisesRegex(frappe.ValidationError, "Unable to load Item"):
 				get_joint_production_items(json.dumps(doc.as_dict(), default=str))
 
-	def test_joint_rm_consumption_is_available_from_boms(self) -> None:
-		self.assertAlmostEqual(
-			calculate_joint_rm_consumption_from_boms(
-				lh_bom_no=self.lh_bom,
-				rh_bom_no=self.rh_bom,
-				lh_gross_qty=101,
-				rh_gross_qty=41,
-			),
-			69.7575,
-			places=6,
-		)
-
 	def test_joint_valuation_rejects_scrap_value_above_consumed_rm_value(self) -> None:
 		shift = make_running_shift(self.masters)
 		doc = self._make_joint_entry(shift)
@@ -2123,28 +2110,6 @@ class TestJointProductionItems(FrappeTestCase):
 			prepare,
 			cleanup=cleanup,
 		)
-
-	def test_joint_rm_consumption_blocks_boms_from_different_companies(self) -> None:
-		original_company = frappe.db.get_value("BOM", self.rh_bom, "company")
-		frappe.db.set_value(
-			"BOM",
-			self.rh_bom,
-			"company",
-			f"_Other Co {frappe.generate_hash(length=6)}",
-			update_modified=False,
-		)
-		try:
-			with self.assertRaisesRegex(
-				frappe.ValidationError, "LH and RH BOMs must belong to the same Company"
-			):
-				calculate_joint_rm_consumption_from_boms(
-					lh_bom_no=self.lh_bom,
-					rh_bom_no=self.rh_bom,
-					lh_gross_qty=40,
-					rh_gross_qty=41,
-				)
-		finally:
-			frappe.db.set_value("BOM", self.rh_bom, "company", original_company, update_modified=False)
 
 	def test_joint_blocks_boms_from_another_company(self) -> None:
 		original_companies = {

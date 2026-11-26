@@ -1,15 +1,11 @@
 from __future__ import annotations
 
 from frappe import _
-from frappe.utils import flt
 
 from production_entry_app.production_entry_app.report.report_utils import (
 	apply_system_precision,
-	build_stock_entry_filters,
-	get_parent_breakup_reason_rows,
-	iter_stock_entries_in_chunks,
-	limit_breakup_rows_to_lines,
-	select_filtered_output_lines,
+	get_bar_line_chart,
+	get_reason_pareto_rows,
 )
 
 
@@ -40,91 +36,13 @@ def _get_columns() -> list[dict]:
 	)
 
 
-def _build_filters(filters: dict) -> dict:
-	return build_stock_entry_filters(
-		filters,
-		filter_keys=("custom_pea_workstation", "custom_pea_shift", "custom_pea_operator", "bom_no"),
+def _get_rows(filters: dict) -> list[dict]:
+	return get_reason_pareto_rows(
+		filters, is_rework=False, quantity_field="rejection_qty", pct_field="rejection_pct"
 	)
 
 
-def _get_rows(filters: dict) -> list[dict]:
-	has_entries = False
-	reason_totals: dict[str, float] = {}
-	entry_sets: dict[str, set[str]] = {}
-	shift_sets: dict[str, set[str]] = {}
-	total_rejection_qty = 0.0
-
-	for entry_rows in iter_stock_entries_in_chunks(_build_filters(filters), ["name", "custom_pea_shift"]):
-		entry_rows, line_totals = select_filtered_output_lines(entry_rows, filters, is_rework=False)
-		has_entries = True
-		entry_names = [row.get("name") for row in entry_rows if row.get("name")]
-		if not entry_names:
-			continue
-		shift_by_entry = {
-			row.get("name"): row.get("custom_pea_shift") for row in entry_rows if row.get("name")
-		}
-		breakup_rows = limit_breakup_rows_to_lines(
-			get_parent_breakup_reason_rows(entry_names, is_rework=False), line_totals
-		)
-		for row in breakup_rows:
-			reason = row.get("rejection_reason")
-			qty = flt(row.get("qty") or 0)
-			parent = row.get("parent")
-			if not reason or qty <= 0 or not parent:
-				continue
-			total_rejection_qty += qty
-			reason_totals[reason] = flt(reason_totals.get(reason) or 0) + qty
-			entry_sets.setdefault(reason, set()).add(parent)
-			shift_name = shift_by_entry.get(parent)
-			if shift_name:
-				shift_sets.setdefault(reason, set()).add(shift_name)
-
-	if not has_entries or total_rejection_qty <= 0:
-		return []
-
-	sorted_reasons = sorted(reason_totals.items(), key=lambda row: (-flt(row[1]), row[0]))
-	rows = []
-	cumulative = 0.0
-	for index, (reason, qty) in enumerate(sorted_reasons, start=1):
-		reason_pct = flt((qty / total_rejection_qty) * 100)
-		cumulative = flt(cumulative + reason_pct)
-		if index == len(sorted_reasons):
-			cumulative = 100.0
-		rows.append(
-			{
-				"rank": index,
-				"rejection_reason": reason,
-				"rejection_qty": flt(qty),
-				"rejection_pct": reason_pct,
-				"cumulative_pct": cumulative,
-				"entries": len(entry_sets.get(reason, set())),
-				"shifts": len(shift_sets.get(reason, set())),
-			}
-		)
-
-	return rows
-
-
 def _get_chart(rows: list[dict]) -> dict | None:
-	if not rows:
-		return None
-	return {
-		"data": {
-			"labels": [row["rejection_reason"] for row in rows],
-			"datasets": [
-				{
-					"name": _("Rejection Qty"),
-					"values": [flt(row["rejection_qty"]) for row in rows],
-					"chartType": "bar",
-				},
-				{
-					"name": _("Cumulative %"),
-					"values": [flt(row["cumulative_pct"]) for row in rows],
-					"chartType": "line",
-				},
-			],
-		},
-		"type": "axis-mixed",
-		"height": 280,
-		"axisOptions": {"xAxisMode": "tick", "xIsSeries": 1},
-	}
+	return get_bar_line_chart(
+		rows, "rejection_reason", ("rejection_qty", _("Rejection Qty")), ("cumulative_pct", _("Cumulative %"))
+	)

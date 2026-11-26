@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const {
 	get_standard_report_date_filters,
 	get_operation_filter,
+	get_production_dimension_filters,
 	get_year_month_filters,
 	validate_report_date_range,
 	overall_row_formatter,
@@ -228,4 +229,23 @@ test("validate_report_date_range does not refresh while Frappe is applying sever
 
 	validate_report_date_range(report);
 	assert.equal(refreshed, 0);
+});
+
+test("get_production_dimension_filters returns the shared Link filter set", (t) => {
+	const originalTranslate = global.__;
+	t.after(() => {
+		global.__ = originalTranslate;
+	});
+	global.__ = (value) => value;
+
+	assert.deepEqual(
+		get_production_dimension_filters().map((f) => [f.fieldname, f.options]),
+		[
+			["custom_pea_workstation", "Workstation"],
+			["custom_pea_shift", "Shift"],
+			["custom_pea_operator", "Operator"],
+			["fg_item", "Item"],
+			["bom_no", "BOM"],
+		]
+	);
 });

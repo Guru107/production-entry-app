@@ -49,10 +49,6 @@ function _prepare_shift_form(frm) {
 	_toggle_company_field_visibility(frm);
 	_set_warehouse_queries(frm);
 	_set_department_query(frm);
-	frm.after_save = () => {
-		_render_shift_summary(frm);
-		_render_aggregate_production_entries(frm);
-	};
 }
 
 function _add_status_action_buttons(frm) {
@@ -257,23 +253,19 @@ function _parse_frappe_time(value) {
 	};
 }
 
-function _pad2(value) {
-	return String(value).padStart(2, "0");
-}
-
 function _format_utc_date(value) {
-	return [
-		value.getUTCFullYear(),
-		_pad2(value.getUTCMonth() + 1),
-		_pad2(value.getUTCDate()),
-	].join("-");
+	const pad2 = window.production_entry_app.time_entry.pad2;
+	return [value.getUTCFullYear(), pad2(value.getUTCMonth() + 1), pad2(value.getUTCDate())].join(
+		"-"
+	);
 }
 
 function _format_utc_time(value) {
+	const pad2 = window.production_entry_app.time_entry.pad2;
 	return [
-		_pad2(value.getUTCHours()),
-		_pad2(value.getUTCMinutes()),
-		_pad2(value.getUTCSeconds()),
+		pad2(value.getUTCHours()),
+		pad2(value.getUTCMinutes()),
+		pad2(value.getUTCSeconds()),
 	].join(":");
 }
 
@@ -344,12 +336,8 @@ function _is_draft_or_new(frm) {
 	return Boolean(frm.doc.__islocal || !frm.doc.status || frm.doc.status === "Draft");
 }
 
-function _get_time_entry_api() {
-	return window.production_entry_app?.time_entry || null;
-}
-
 function _sync_shift_helper_fields(frm) {
-	const timeEntry = _get_time_entry_api();
+	const timeEntry = window.production_entry_app?.time_entry;
 	if (!timeEntry) {
 		return;
 	}
@@ -358,7 +346,7 @@ function _sync_shift_helper_fields(frm) {
 }
 
 function _setup_shift_quick_entry(frm) {
-	const timeEntry = _get_time_entry_api();
+	const timeEntry = window.production_entry_app?.time_entry;
 	if (!timeEntry) {
 		return;
 	}
@@ -729,38 +717,24 @@ function _render_summary_table(title, rows, firstColumnLabel, floatPrecision) {
 }
 
 function _format_summary_value(row, floatPrecision) {
-	if (!row) {
-		return "";
-	}
-	const value = row.value;
+	const value = row?.value;
 	if (value === null || value === undefined) {
 		return "";
 	}
-	if (!row.fieldtype || typeof value !== "number" || !Number.isFinite(value)) {
+	if (!row.fieldtype) {
 		return String(value);
 	}
-	if (typeof frappe !== "undefined" && typeof frappe.format === "function") {
-		const df = { fieldtype: row.fieldtype };
-		if (row.fieldtype === "Float") {
-			df.precision = _get_summary_float_precision(floatPrecision);
-		}
-		return frappe.format(value, df, { only_value: true, always_show_decimals: true });
-	}
-	return String(value);
+	return window.production_entry_app.timeline_renderer.formatMetricDisplay(
+		value,
+		row.fieldtype,
+		floatPrecision
+	);
 }
 
 function _resolve_summary_float_precision(summary) {
-	return _get_summary_float_precision(summary?.float_precision);
-}
-
-function _get_summary_float_precision(rawPrecision) {
-	const resolvedRawPrecision =
-		rawPrecision ??
-		frappe?.boot?.sysdefaults?.float_precision ??
-		frappe?.defaults?.get_default?.("float_precision") ??
-		3;
-	const numericPrecision = Number(resolvedRawPrecision);
-	return Number.isFinite(numericPrecision) ? numericPrecision : 3;
+	return window.production_entry_app.timeline_renderer.getSystemFloatPrecision(
+		summary?.float_precision
+	);
 }
 
 function _format_aggregate_metric_value(value, floatPrecision) {
@@ -791,7 +765,10 @@ function _render_aggregate_production_entries(frm) {
 				);
 				return;
 			}
-			const floatPrecision = _get_summary_float_precision(rows[0]?.float_precision);
+			const floatPrecision =
+				window.production_entry_app.timeline_renderer.getSystemFloatPrecision(
+					rows[0]?.float_precision
+				);
 
 			const headers = [
 				__("BOM Used"),
@@ -842,9 +819,5 @@ function _render_aggregate_production_entries(frm) {
 }
 
 function _set_shared_html_field(frm, fieldname, html) {
-	const renderer = window.production_entry_app?.timeline_renderer;
-	if (!renderer?.set_html_field) {
-		return;
-	}
-	renderer.set_html_field(frm, fieldname, html);
+	window.production_entry_app.timeline_renderer.set_html_field(frm, fieldname, html);
 }

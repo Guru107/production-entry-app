@@ -1,29 +1,25 @@
 from __future__ import annotations
 
-import datetime
-
 from frappe import _
-from frappe.utils import flt, getdate
 
 from production_entry_app.production_entry_app.report.report_utils import (
 	PERCENT_SCALE,
 	apply_system_precision,
 	build_rate_overall_row,
-	build_stock_entry_filters,
-	get_parent_quantity_metrics,
-	iter_stock_entries_in_chunks,
-	safe_ratio,
-	select_filtered_output_lines,
+	get_bar_line_chart,
+	get_quality_trend_rows,
 )
-
-_TIME_GRAINS: frozenset[str] = frozenset({"Daily", "Weekly", "Monthly"})
 
 
 def execute(filters: dict | None = None) -> tuple[list[dict], list[dict], None, dict | None]:
 	filters = filters or {}
 	columns = _get_columns()
-	rows = _get_rows(filters)
-	chart = _get_chart(rows)
+	rows = get_quality_trend_rows(
+		filters, is_rework=False, quantity_field="rejection_qty", rate_field="rejection_rate_pct"
+	)
+	chart = get_bar_line_chart(
+		rows, "period", ("rejection_qty", _("Rejection Qty")), ("rejection_rate_pct", _("Rejection Rate %"))
+	)
 	if rows:
 		rows = [
 			*rows,
@@ -55,114 +51,3 @@ def _get_columns() -> list[dict]:
 			},
 		]
 	)
-
-
-def _build_filters(filters: dict) -> dict:
-	return build_stock_entry_filters(
-		filters,
-		filter_keys=("custom_pea_workstation", "custom_pea_shift", "custom_pea_operator", "bom_no"),
-	)
-
-
-def _normalize_time_grain(value: str | None) -> str:
-	time_grain = (value or "Daily").title()
-	if time_grain not in _TIME_GRAINS:
-		return "Daily"
-	return time_grain
-
-
-def _period_key(production_date: datetime.date, time_grain: str) -> tuple[datetime.date, str]:
-	if time_grain == "Weekly":
-		period_start = production_date - datetime.timedelta(days=production_date.weekday())
-		period_end = period_start + datetime.timedelta(days=6)
-		return period_start, _("{0} to {1}").format(period_start.isoformat(), period_end.isoformat())
-	if time_grain == "Monthly":
-		period_start = production_date.replace(day=1)
-		return period_start, period_start.strftime("%Y-%m")
-	return production_date, production_date.isoformat()
-
-
-def _get_rows(filters: dict) -> list[dict]:
-	time_grain = _normalize_time_grain(filters.get("time_grain"))
-
-	aggregates: dict[datetime.date, dict] = {}
-	has_entries = False
-	for entries in iter_stock_entries_in_chunks(
-		_build_filters(filters),
-		["name", "posting_date", "fg_completed_qty", "custom_pea_rejection_qty"],
-		order_by="posting_date asc, name asc",
-	):
-		entries, line_totals = select_filtered_output_lines(entries, filters, is_rework=False)
-		has_entries = True
-		entry_names = [entry.get("name") for entry in entries if entry.get("name")]
-		parent_quantity_metrics = get_parent_quantity_metrics(entry_names)
-		for entry in entries:
-			if not entry.get("production_date"):
-				continue
-			production_date = getdate(entry.get("production_date"))
-			entry_name = entry.get("name")
-			entry_metrics = parent_quantity_metrics.get(entry_name or "", {})
-			rejection_qty = flt(entry_metrics.get("rejection_qty") or 0)
-			total_qty = flt(entry.get("fg_completed_qty") or 0)
-			if total_qty <= 0 and entry_name:
-				total_qty = flt(entry_metrics.get("good_qty") or 0) + flt(
-					entry_metrics.get("total_rejected_qty") or 0
-				)
-			if line := line_totals.get(entry_name):
-				total_qty, rejection_qty = line["total_qty"], line["quality_qty"]
-			key_date, period_label = _period_key(production_date, time_grain)
-			aggregate = aggregates.setdefault(
-				key_date,
-				{"period": period_label, "entries": 0, "total_qty": 0.0, "rejection_qty": 0.0},
-			)
-			aggregate["entries"] += 1
-			aggregate["total_qty"] += total_qty
-			aggregate["rejection_qty"] += rejection_qty
-
-	if not has_entries:
-		return []
-
-	rows = []
-	for key_date in sorted(aggregates):
-		aggregate = aggregates[key_date]
-		total_qty = flt(aggregate["total_qty"])
-		rejection_qty = flt(aggregate["rejection_qty"])
-		ok_qty = flt(total_qty - rejection_qty)
-		rejection_rate_pct = safe_ratio(rejection_qty, total_qty, PERCENT_SCALE)
-		rows.append(
-			{
-				"period": aggregate["period"],
-				"entries": aggregate["entries"],
-				"total_qty": total_qty,
-				"rejection_qty": rejection_qty,
-				"ok_qty": ok_qty,
-				"rejection_rate_pct": rejection_rate_pct,
-			}
-		)
-
-	return rows
-
-
-def _get_chart(rows: list[dict]) -> dict | None:
-	if not rows:
-		return None
-	return {
-		"data": {
-			"labels": [row["period"] for row in rows],
-			"datasets": [
-				{
-					"name": _("Rejection Qty"),
-					"values": [flt(row["rejection_qty"]) for row in rows],
-					"chartType": "bar",
-				},
-				{
-					"name": _("Rejection Rate %"),
-					"values": [flt(row["rejection_rate_pct"]) for row in rows],
-					"chartType": "line",
-				},
-			],
-		},
-		"type": "axis-mixed",
-		"height": 280,
-		"axisOptions": {"xAxisMode": "tick", "xIsSeries": 1},
-	}
