@@ -628,6 +628,7 @@ test.describe("Production reports", () => {
 
 		const reportsPage = new ReportsPage(page);
 		await reportsPage.open("Pending Rework");
+		await reportsPage.setFilterByFieldname("company", ctx.company);
 		await reportsPage.setFilterByFieldname("item_code", ctx.fg_item);
 		await reportsPage.clickRefresh();
 		await reportsPage.waitForRows(2);
@@ -640,6 +641,7 @@ test.describe("Production reports", () => {
 			(row) => row.source_entry === seeded.name && row.rejection_reason === "Crack"
 		);
 		expect(summary).toBeTruthy();
+		expect(summary.company).toBe(ctx.company);
 		expect(Number(summary.derived_pending_qty)).toBe(5);
 		expect(Number(summary.rejection_warehouse_balance)).toBe(5);
 		expect(Number(summary.pool_balance_difference)).toBe(0);

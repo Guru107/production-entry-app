@@ -10,6 +10,7 @@ from production_entry_app.production_entry_app.e2e_api import (
 	insert_pending_rework_source,
 )
 from production_entry_app.production_entry_app.report.pending_rework import pending_rework
+from production_entry_app.production_entry_app.rework import PoolScope
 from production_entry_app.production_entry_app.test_native_permissions import _ensure_user_with_exact_roles
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	ensure_item,
@@ -22,8 +23,9 @@ class TestPendingReworkReport(FrappeTestCase):
 	def setUp(self) -> None:
 		frappe.db.rollback()
 		suffix = frappe.generate_hash(length=6)
+		self.company = resolve_test_company()
 		self.item = ensure_item(f"_Test Pending Report {suffix}")
-		self.warehouse = ensure_warehouse(f"Pending Rework {suffix}", resolve_test_company())
+		self.warehouse = ensure_warehouse(f"Pending Rework {suffix}", self.company)
 
 	def tearDown(self) -> None:
 		frappe.set_user("Administrator")
@@ -39,6 +41,8 @@ class TestPendingReworkReport(FrappeTestCase):
 		self.assertEqual(
 			[column["fieldname"] for column in columns],
 			[
+				"company",
+				"branch",
 				"item_code",
 				"rejection_reason",
 				"flagged_rework_qty",
@@ -51,6 +55,8 @@ class TestPendingReworkReport(FrappeTestCase):
 			],
 		)
 		summary = rows[0]
+		self.assertEqual(summary["company"], self.company)
+		self.assertEqual(summary["branch"], "")
 		self.assertEqual(summary["item_code"], self.item)
 		self.assertEqual(summary["indent"], 0)
 		self.assertEqual(summary["flagged_rework_qty"], 7)
@@ -102,6 +108,7 @@ class TestPendingReworkReport(FrappeTestCase):
 		self.assertEqual(result["result"][0]["item_code"], self.item)
 
 	def test_contribution_reads_use_keyset_chunks(self) -> None:
+		scope = PoolScope(item_codes=["ITEM-1"])
 		with patch.object(
 			pending_rework,
 			"_fetch_contribution_chunk",
@@ -123,15 +130,15 @@ class TestPendingReworkReport(FrappeTestCase):
 				[],
 			],
 		) as fetch:
-			rows = pending_rework._get_contributions(["ITEM-1"], chunk_size=1, max_rows=2)
+			rows = pending_rework._get_contributions(scope, chunk_size=1, max_rows=2)
 
 		self.assertEqual(len(rows), 2)
 		self.assertEqual(
 			fetch.call_args_list,
 			[
-				call(["ITEM-1"], None, None, 1),
-				call(["ITEM-1"], "RB-1", "SED-1", 1),
-				call(["ITEM-1"], "RB-2", "SED-2", 1),
+				call(scope, None, None, 1),
+				call(scope, "RB-1", "SED-1", 1),
+				call(scope, "RB-2", "SED-2", 1),
 			],
 		)
 
@@ -141,7 +148,7 @@ class TestPendingReworkReport(FrappeTestCase):
 			patch.object(pending_rework, "_fetch_contribution_chunk", side_effect=[[row], [row]]),
 			self.assertRaisesRegex(frappe.ValidationError, "exceeds 1 contributing rows"),
 		):
-			pending_rework._get_contributions(["ITEM-1"], chunk_size=1, max_rows=1)
+			pending_rework._get_contributions(PoolScope(item_codes=["ITEM-1"]), chunk_size=1, max_rows=1)
 
 	def test_bin_balances_are_read_in_item_chunks(self) -> None:
 		pairs = {("ITEM-1", "WH-1"), ("ITEM-2", "WH-2"), ("ITEM-3", "WH-3")}
@@ -158,7 +165,7 @@ class TestPendingReworkReport(FrappeTestCase):
 		) as get_rows:
 			balances = pending_rework._get_bin_balances(pairs, chunk_size=2)
 
-		self.assertEqual(balances, {"ITEM-1": 1, "ITEM-2": 2, "ITEM-3": 3})
+		self.assertEqual(balances, {("ITEM-1", "WH-1"): 1, ("ITEM-2", "WH-2"): 2, ("ITEM-3", "WH-3"): 3})
 		self.assertEqual(get_rows.call_count, 2)
 
 	def test_single_chunk_report_uses_four_data_queries(self) -> None:
@@ -184,6 +191,27 @@ class TestPendingReworkReport(FrappeTestCase):
 		self.assertEqual(pending_rework.execute({"item_code": self.item})[1], [])
 		self.assertEqual(pending_rework.execute({"item_code": other_item})[1], [])
 
+	def test_report_splits_same_item_across_companies(self) -> None:
+		other_company = f"_Test Pending Report Company {frappe.generate_hash(length=6)}"
+		self._insert_source([("Burr", 4)])
+		self._insert_source([("Crack", 3)], company=other_company)
+		self._insert_rework_consumption(1)
+		self._set_bin_balance(4)
+
+		rows = pending_rework.execute({"item_code": self.item})[1]
+
+		summaries = {row["company"]: row for row in rows if row["indent"] == 0}
+		self.assertEqual(set(summaries), {self.company, other_company})
+		self.assertEqual(summaries[self.company]["derived_pending_qty"], 3)
+		self.assertEqual(summaries[self.company]["rejection_warehouse_balance"], 4)
+		self.assertEqual(summaries[other_company]["derived_pending_qty"], 3)
+		self.assertEqual(
+			{(row["company"], row["rejection_reason"]) for row in rows if row["indent"] == 1},
+			{(self.company, "Burr"), (other_company, "Crack")},
+		)
+		filtered = pending_rework.execute({"item_code": self.item, "company": other_company})[1]
+		self.assertEqual({row["company"] for row in filtered}, {other_company})
+
 	def _insert_source(
 		self,
 		reasons: list[tuple[str, float]],
@@ -191,6 +219,7 @@ class TestPendingReworkReport(FrappeTestCase):
 		item_code: str | None = None,
 		breakup_item_code: str | None = None,
 		rejection_items: list[str] | None = None,
+		company: str | None = None,
 	) -> str:
 		item_code = item_code or self.item
 		breakup_item_code = item_code if breakup_item_code is None else breakup_item_code
@@ -199,6 +228,7 @@ class TestPendingReworkReport(FrappeTestCase):
 			breakups=[(breakup_item_code, reason, qty) for reason, qty in reasons],
 			rejection_items=rejection_items or [item_code],
 			rejection_warehouse=self.warehouse,
+			company=company or self.company,
 		)
 
 	def _insert_rework_consumption(self, qty: float) -> None:
@@ -216,8 +246,8 @@ class TestPendingReworkReport(FrappeTestCase):
 		StockEntryDetail = frappe.qb.DocType("Stock Entry Detail")
 		(
 			frappe.qb.into(StockEntry)
-			.columns(StockEntry.name, StockEntry.docstatus, StockEntry.stock_entry_type)
-			.insert(name, 1, stock_entry_type)
+			.columns(StockEntry.name, StockEntry.docstatus, StockEntry.stock_entry_type, StockEntry.company)
+			.insert(name, 1, stock_entry_type, self.company)
 		).run()
 		(
 			frappe.qb.into(StockEntryDetail)

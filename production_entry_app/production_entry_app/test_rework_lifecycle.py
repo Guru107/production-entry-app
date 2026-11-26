@@ -74,7 +74,12 @@ class TestReworkLifecycle(FrappeTestCase):
 		funding_entry = self._make_source_funding_entry(source)
 		source.submit()
 
-		self.assertEqual(rework.get_pending_rework(self.masters["fg_item"])[0]["pending_qty"], 5)
+		self.assertEqual(
+			rework.get_pending_rework(
+				self.masters["fg_item"], self.masters["company"], self.masters["branch"]
+			)[0]["pending_qty"],
+			5,
+		)
 		pending_before = pending_rework.execute({"item_code": self.masters["fg_item"]})[1]
 		self.assertEqual(pending_before[0]["derived_pending_qty"], 5)
 		self.assertEqual(pending_before[0]["rejection_warehouse_balance"], 5)
@@ -89,7 +94,12 @@ class TestReworkLifecycle(FrappeTestCase):
 		self.assertEqual(rework_entry.items[0].s_warehouse, self.masters["rejection_warehouse"])
 		rework_entry.submit()
 
-		self.assertEqual(rework.get_pending_rework(self.masters["fg_item"]), [])
+		self.assertEqual(
+			rework.get_pending_rework(
+				self.masters["fg_item"], self.masters["company"], self.masters["branch"]
+			),
+			[],
+		)
 		self.assertEqual(self._stock_qty(self.masters["rejection_warehouse"]), rejection_before - 5)
 		self.assertEqual(self._stock_qty(self.masters["fg_warehouse"]), good_before + 5)
 		self.assertAlmostEqual(rework_entry.custom_pea_rework_cost, 120, places=6)
@@ -127,7 +137,12 @@ class TestReworkLifecycle(FrappeTestCase):
 
 		rework_entry.cancel()
 
-		self.assertEqual(rework.get_pending_rework(self.masters["fg_item"])[0]["pending_qty"], 5)
+		self.assertEqual(
+			rework.get_pending_rework(
+				self.masters["fg_item"], self.masters["company"], self.masters["branch"]
+			)[0]["pending_qty"],
+			5,
+		)
 		self.assertEqual(self._stock_qty(self.masters["rejection_warehouse"]), rejection_before)
 		self.assertEqual(self._stock_qty(self.masters["fg_warehouse"]), good_before)
 		pending_after_cancel = pending_rework.execute({"item_code": self.masters["fg_item"]})[1]

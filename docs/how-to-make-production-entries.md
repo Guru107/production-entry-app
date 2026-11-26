@@ -106,7 +106,7 @@ For stamping operations that produce Left-Hand and Right-Hand parts together:
 
 ## 5. Rework Entry (recover rejected parts)
 
-Rejected quantities flagged **Rework** accumulate in the **Pending Rework** pool (per item). To rework them:
+Rejected quantities flagged **Rework** accumulate in the **Pending Rework** pool (per item, within each company and branch). To rework them:
 
 1. New Stock Entry → **Stock Entry Type = Rework** (a Material Transfer type). Any Shift link is dropped — rework is not shift-managed.
 2. The **Rework Details** section appears: **Rework Type** (e.g. Deburring), **Rework Workstation** (defaults from the Rework Type), and the **Rework Operators** table — one row per operator with their own **Actual Start / Actual End**.

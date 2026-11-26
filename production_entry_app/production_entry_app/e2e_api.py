@@ -76,17 +76,24 @@ def insert_pending_rework_source(
 	breakups: list[ReworkBreakupSeed],
 	rejection_items: list[str],
 	rejection_warehouse: str | None = None,
+	company: str | None = None,
+	branch: str | None = None,
 ) -> str:
 	"""Insert a submitted source Stock Entry for pending-Rework tests and E2E seeds."""
 	stock_entry_name = stock_entry_name or f"POOL-SOURCE-{frappe.generate_hash(length=10)}"
 	StockEntry = frappe.qb.DocType("Stock Entry")
 	StockEntryDetail = frappe.qb.DocType("Stock Entry Detail")
 	RejectionBreakup = frappe.qb.DocType("Rejection Breakup")
-	(
-		frappe.qb.into(StockEntry)
-		.columns(StockEntry.name, StockEntry.docstatus, StockEntry.stock_entry_type, StockEntry.purpose)
-		.insert(stock_entry_name, 1, stock_entry_type, purpose)
-	).run()
+	values = {
+		"name": stock_entry_name,
+		"docstatus": 1,
+		"stock_entry_type": stock_entry_type,
+		"purpose": purpose,
+		"company": company,
+	}
+	if branch:  # Stock Entry.branch is host-owned; only seed it where the host has it.
+		values["branch"] = branch
+	(frappe.qb.into(StockEntry).columns(*values).insert(*values.values())).run()
 	for item_code in rejection_items:
 		(
 			frappe.qb.into(StockEntryDetail)
@@ -1425,7 +1432,9 @@ def create_e2e_rework_lifecycle_source(prefix: str = "E2E", qty: float = 5, comp
 
 	from production_entry_app.production_entry_app.rework import _get_pending_rework_by_item
 
-	pending_qty = _get_pending_rework_by_item(item_codes=[ctx["fg_item"]]).get(ctx["fg_item"], 0)
+	pending_qty = _get_pending_rework_by_item(
+		item_codes=[ctx["fg_item"]], company=doc.company, branch=doc.get("branch")
+	).get(ctx["fg_item"], 0)
 	rejection_warehouse_qty = frappe.db.get_value(
 		"Bin",
 		{"item_code": ctx["fg_item"], "warehouse": ctx["rejection_warehouse"]},
@@ -1467,6 +1476,7 @@ def create_e2e_ambiguous_pending_rework_source(prefix: str = "E2E", qty: float =
 		breakups=[("", "Burr", rework_qty)],
 		rejection_items=[ctx["fg_item"], ctx["rm_item"]],
 		rejection_warehouse=ctx["rejection_warehouse"],
+		company=ctx["company"],
 	)
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit - browser tests need persisted source data
 	return {

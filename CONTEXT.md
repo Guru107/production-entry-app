@@ -125,9 +125,12 @@ default Workstation. It is distinct from a Rejection Reason, which records why a
 _Avoid_: Rejection reason, rework reason
 
 **Pending Rework Pool**:
-The derived, per-item quantity awaiting rework: rework-flagged quantity from submitted Production Entries minus
-quantity consumed by submitted Rework Operations. It is fungible per item — Rework Operations do not attribute
-parts back to source entries. Blank-item breakup rows are valid only when the Stock Entry has one rejected Item;
+The derived quantity awaiting rework, keyed by Company, Branch and Item: rework-flagged quantity from submitted
+Production Entries of that Company and Branch minus quantity consumed by submitted Rework Operations of the same
+Company and Branch. It is fungible per item within a Company and Branch — Rework Operations do not attribute parts
+back to source entries, and never consume another Company's or Branch's pool. Branch scoping applies only where the
+host-owned `Stock Entry.branch` exists (see Branch Ownership Handoff); without it the pool is per Company. A blank
+branch is its own bucket. Blank-item breakup rows are valid only when the Stock Entry has one rejected Item;
 multi-item rejections must name the Item on each breakup row so the pool cannot silently fan out or drop quantity.
 Manual scrap write-offs do not drain it, so reports show it beside the actual Rejection Warehouse balance.
 _Avoid_: Rework backlog document, rework warehouse balance

@@ -15,6 +15,7 @@ from production_entry_app.production_entry_app.overrides.stock_entry_hooks impor
 	before_submit_stock_entry,
 )
 from production_entry_app.production_entry_app.tests.support.manufacture_builders import ensure_item
+from production_entry_app.production_entry_app.utils.stock_entry_branch import stock_entry_has_branch_field
 from production_entry_app.production_entry_app.utils.stock_entry_type_flags import is_rework_stock_entry_type
 
 
@@ -22,6 +23,7 @@ class TestPendingReworkPool(FrappeTestCase):
 	def setUp(self) -> None:
 		frappe.db.rollback()
 		suffix = frappe.generate_hash(length=6)
+		self.company = f"_Test Rework Pool Company {suffix}"
 		self.item_a = ensure_item(f"_Test Rework Pool A {suffix}")
 		self.item_b = ensure_item(f"_Test Rework Pool B {suffix}")
 		self.normal_type = self._insert_stock_entry_type(f"Normal Manufacture {suffix}", "Manufacture")
@@ -47,11 +49,11 @@ class TestPendingReworkPool(FrappeTestCase):
 		self._insert_rework_entry([(self.item_a, 1), (self.item_a, 2), (self.item_b, 1)])
 
 		self.assertEqual(
-			rework.get_pending_rework(self.item_a),
+			rework.get_pending_rework(self.item_a, self.company),
 			[{"item_code": self.item_a, "pending_qty": 6.0}],
 		)
 		self.assertEqual(
-			rework.get_pending_rework(self.item_b),
+			rework.get_pending_rework(self.item_b, self.company),
 			[{"item_code": self.item_b, "pending_qty": 4.0}],
 		)
 
@@ -63,7 +65,7 @@ class TestPendingReworkPool(FrappeTestCase):
 		)
 
 		self.assertEqual(
-			rework.get_pending_rework(self.item_a),
+			rework.get_pending_rework(self.item_a, self.company),
 			[{"item_code": self.item_a, "pending_qty": 5.0}],
 		)
 
@@ -74,8 +76,8 @@ class TestPendingReworkPool(FrappeTestCase):
 			rejection_items=[self.item_a, self.item_b],
 		)
 
-		self.assertEqual(rework.get_pending_rework(self.item_a), [])
-		self.assertEqual(rework.get_pending_rework(self.item_b), [])
+		self.assertEqual(rework.get_pending_rework(self.item_a, self.company), [])
+		self.assertEqual(rework.get_pending_rework(self.item_b, self.company), [])
 
 	def test_orphaned_rework_consumption_does_not_poison_pending_pool(self) -> None:
 		self._insert_rework_entry([(self.item_a, 3)])
@@ -85,9 +87,11 @@ class TestPendingReworkPool(FrappeTestCase):
 			rejection_items=[self.item_a],
 		)
 
-		self.assertEqual(rework.get_pending_rework(self.item_a), [])
+		self.assertEqual(rework.get_pending_rework(self.item_a, self.company), [])
 		self.assertEqual(
-			rework._get_pending_rework_by_item(item_codes=[self.item_a]).get(self.item_a),
+			rework._get_pending_rework_by_item(
+				item_codes=[self.item_a], company=self.company, branch=None
+			).get(self.item_a),
 			0.0,
 		)
 
@@ -112,14 +116,14 @@ class TestPendingReworkPool(FrappeTestCase):
 			rejection_items=[self.item_a],
 		)
 		rework_entry = self._insert_rework_entry([(self.item_a, 3)])
-		self.assertEqual(rework.get_pending_rework(self.item_a)[0]["pending_qty"], 2.0)
+		self.assertEqual(rework.get_pending_rework(self.item_a, self.company)[0]["pending_qty"], 2.0)
 
 		StockEntry = frappe.qb.DocType("Stock Entry")
 		(
 			frappe.qb.update(StockEntry).set(StockEntry.docstatus, 2).where(StockEntry.name == rework_entry)
 		).run()
 
-		self.assertEqual(rework.get_pending_rework(self.item_a)[0]["pending_qty"], 5.0)
+		self.assertEqual(rework.get_pending_rework(self.item_a, self.company)[0]["pending_qty"], 5.0)
 
 	def test_concurrent_submits_serialize_before_writes_and_second_sees_fresh_pool(self) -> None:
 		source_name = self._insert_production_source(
@@ -198,6 +202,79 @@ class TestPendingReworkPool(FrappeTestCase):
 			with patch.object(rework, "_validate_rework_route"):
 				rework.validate_rework_submission(doc)
 
+	def test_submission_cannot_consume_another_company_pool(self) -> None:
+		other_company = f"{self.company} Other"
+		self._insert_production_source(
+			stock_entry_type=self.normal_type,
+			breakups=[(None, None, 5)],
+			rejection_items=[self.item_a],
+			company=other_company,
+		)
+		doc = self._rework_doc("REWORK-OTHER-COMPANY", [(self.item_a, 1)])
+
+		self.assertEqual(rework.get_pending_rework(self.item_a, self.company), [])
+		self.assertEqual(
+			rework.get_pending_rework(self.item_a, other_company),
+			[{"item_code": self.item_a, "pending_qty": 5.0}],
+		)
+		with (
+			patch.object(rework, "_validate_rework_route"),
+			self.assertRaisesRegex(frappe.ValidationError, rf"{self.item_a}.*Available quantity is 0"),
+		):
+			rework.validate_rework_submission(doc)
+
+	def test_submission_consumes_only_its_own_branch_pool(self) -> None:
+		if not stock_entry_has_branch_field():
+			self.skipTest("Stock Entry.branch is host-owned and absent on this site")
+		self._insert_production_source(
+			stock_entry_type=self.normal_type,
+			breakups=[(None, None, 5)],
+			rejection_items=[self.item_a],
+			branch="Branch Y",
+		)
+		self._insert_production_source(
+			stock_entry_type=self.normal_type,
+			breakups=[(None, None, 2)],
+			rejection_items=[self.item_a],
+		)
+
+		self.assertEqual(rework.get_pending_rework(self.item_a, self.company, "Branch X"), [])
+		self.assertEqual(
+			rework.get_pending_rework(self.item_a, self.company, "Branch Y")[0]["pending_qty"], 5
+		)
+		self.assertEqual(rework.get_pending_rework(self.item_a, self.company)[0]["pending_qty"], 2)
+		with patch.object(rework, "_validate_rework_route"):
+			for branch, qty, available in (("Branch X", 1, 0), ("Branch Y", 6, 5), ("", 3, 2)):
+				doc = self._rework_doc(f"REWORK-{branch or 'BLANK'}", [(self.item_a, qty)])
+				doc.branch = branch
+				with (
+					self.subTest(branch=branch),
+					self.assertRaisesRegex(frappe.ValidationError, rf"Available quantity is {available}"),
+				):
+					rework.validate_rework_submission(doc)
+			doc = self._rework_doc("REWORK-BRANCH-Y", [(self.item_a, 5)])
+			doc.branch = "Branch Y"
+			rework.validate_rework_submission(doc)
+
+	def test_pool_is_per_company_without_stock_entry_branch_field(self) -> None:
+		for branch in ("Branch X", None):
+			self._insert_production_source(
+				stock_entry_type=self.normal_type,
+				breakups=[(None, None, 2)],
+				rejection_items=[self.item_a],
+				branch=branch if stock_entry_has_branch_field() else None,
+			)
+
+		with patch.object(rework, "stock_entry_has_branch_field", return_value=False):
+			self.assertEqual(
+				rework.get_pending_rework(self.item_a, self.company, "Branch Y"),
+				[{"item_code": self.item_a, "pending_qty": 4.0}],
+			)
+
+	def test_api_requires_company(self) -> None:
+		with self.assertRaisesRegex(frappe.ValidationError, "Company is required"):
+			rework.get_pending_rework(self.item_a)
+
 	def test_pool_compares_stock_uom_quantities_on_both_sides(self) -> None:
 		self._insert_production_source(
 			stock_entry_type=self.normal_type,
@@ -208,7 +285,8 @@ class TestPendingReworkPool(FrappeTestCase):
 		self._insert_stock_entry(consumed, self.rework_type, docstatus=1)
 		self._insert_stock_entry_item(consumed, self.item_a, 2, conversion_factor=10)
 		self.assertEqual(
-			rework.get_pending_rework(self.item_a), [{"item_code": self.item_a, "pending_qty": 80.0}]
+			rework.get_pending_rework(self.item_a, self.company),
+			[{"item_code": self.item_a, "pending_qty": 80.0}],
 		)
 		doc = self._rework_doc("REWORK-UOM", [(self.item_a, 9)])
 		doc.get("items")[0].update(conversion_factor=10, transfer_qty=90)
@@ -434,7 +512,7 @@ class TestPendingReworkPool(FrappeTestCase):
 	def test_api_requires_stock_entry_read_permission(self) -> None:
 		with patch.object(rework.frappe, "has_permission", return_value=False):
 			with self.assertRaises(frappe.PermissionError):
-				rework.get_pending_rework()
+				rework.get_pending_rework(self.item_a, self.company)
 
 	def test_rework_type_classification_is_cached_on_document(self) -> None:
 		doc = self._rework_doc("REWORK-CACHE", [])
@@ -451,7 +529,7 @@ class TestPendingReworkPool(FrappeTestCase):
 			rejection_items=[self.item_a, self.item_b],
 		)
 		with patch.object(frappe.db, "sql", wraps=frappe.db.sql) as sql:
-			rework.get_pending_rework()
+			rework.get_pending_rework(company=self.company)
 
 		pool_queries = [
 			query
@@ -478,11 +556,15 @@ class TestPendingReworkPool(FrappeTestCase):
 		stock_entry_type: str,
 		breakups: list[tuple[str | None, str | None, float]],
 		rejection_items: list[str],
+		company: str | None = None,
+		branch: str | None = None,
 	) -> str:
 		return insert_pending_rework_source(
 			stock_entry_type=stock_entry_type,
 			breakups=breakups,
 			rejection_items=rejection_items,
+			company=company or self.company,
+			branch=branch,
 		)
 
 	def _insert_rework_entry(self, items: list[tuple[str, float]]) -> str:
@@ -496,8 +578,8 @@ class TestPendingReworkPool(FrappeTestCase):
 		StockEntry = frappe.qb.DocType("Stock Entry")
 		(
 			frappe.qb.into(StockEntry)
-			.columns(StockEntry.name, StockEntry.docstatus, StockEntry.stock_entry_type)
-			.insert(name, docstatus, stock_entry_type)
+			.columns(StockEntry.name, StockEntry.docstatus, StockEntry.stock_entry_type, StockEntry.company)
+			.insert(name, docstatus, stock_entry_type, self.company)
 		).run()
 
 	def _insert_stock_entry_item(
@@ -539,6 +621,7 @@ class TestPendingReworkPool(FrappeTestCase):
 	def _rework_doc(self, name: str, items: list[tuple[str, float]]) -> frappe._dict:
 		return frappe._dict(
 			name=name,
+			company=self.company,
 			stock_entry_type=self.rework_type,
 			items=[frappe._dict(item_code=item_code, qty=qty, transfer_qty=qty) for item_code, qty in items],
 			flags=frappe._dict(),
@@ -574,6 +657,7 @@ def _run_rework_submission_transaction(
 			started.set()
 		doc = frappe._dict(
 			name=stock_entry_name,
+			company=frappe.db.get_value("Stock Entry", stock_entry_name, "company"),
 			stock_entry_type=stock_entry_type,
 			items=[frappe._dict(item_code=item_code, qty=qty, transfer_qty=qty)],
 			flags=frappe._dict(),
