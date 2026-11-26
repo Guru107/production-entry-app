@@ -11,7 +11,7 @@ from frappe import _
 from frappe.model.base_document import BaseDocument
 from frappe.query_builder import Case, DocType
 from frappe.query_builder.functions import Sum
-from frappe.utils import cint, flt, get_datetime
+from frappe.utils import cint, flt, get_datetime, getdate
 from pypika import Table
 from pypika.terms import Criterion, ExistsCriterion
 
@@ -915,9 +915,7 @@ def get_item_bom_quality_facts(entries: list[dict], *, is_rework: bool) -> list[
 			continue
 
 		metrics = parent_metrics.get(parent, {})
-		total_qty = flt(entry.get("fg_completed_qty") or 0)
-		if total_qty <= 0:
-			total_qty = flt(metrics.get("good_qty") or 0) + flt(metrics.get("total_rejected_qty") or 0)
+		total_qty = get_total_produced_qty(entry, metrics)
 		facts.append(
 			{
 				"parent": parent,
@@ -1054,6 +1052,504 @@ def get_item_bom_quality_hotspot_rows(
 	]
 
 
+QUALITY_REPORT_FILTER_KEYS: tuple[str, ...] = (
+	"custom_pea_workstation",
+	"custom_pea_shift",
+	"custom_pea_operator",
+	"bom_no",
+)
+_TIME_GRAINS: frozenset[str] = frozenset({"Daily", "Weekly", "Monthly"})
+_DEFAULT_TOP_N_REASONS: int = 10
+_MAX_TOP_N_REASONS: int = 20
+
+
+def get_total_produced_qty(entry: dict, entry_metrics: dict) -> float:
+	"""Header `fg_completed_qty`, else the child-row good plus rejected quantity."""
+	total_qty = flt(entry.get("fg_completed_qty") or 0)
+	if total_qty <= 0:
+		total_qty = flt(entry_metrics.get("good_qty") or 0) + flt(
+			entry_metrics.get("total_rejected_qty") or 0
+		)
+	return total_qty
+
+
+def get_entry_total_and_quality_qty(
+	entry: dict,
+	entry_metrics: dict,
+	line_totals: dict[str, dict],
+	*,
+	is_rework: bool,
+	header_fallback: bool = False,
+) -> tuple[float, float]:
+	"""Return (total_qty, rejection or rework qty) for one entry, narrowed to matching joint lines.
+
+	`header_fallback` (rejection PPM only) reads the header rejection qty when no breakup rows exist.
+	"""
+	if line := line_totals.get(entry.get("name")):
+		return line["total_qty"], line["quality_qty"]
+	total_qty = get_total_produced_qty(entry, entry_metrics)
+	if is_rework:
+		quality_qty = flt(entry.get("custom_pea_rework_qty") or entry_metrics.get("rework_qty") or 0)
+	elif header_fallback and flt(entry_metrics.get("total_rejected_qty") or 0) <= 0:
+		header_qty = entry.get("custom_pea_rejection_qty")
+		quality_qty = flt(
+			header_qty if header_qty not in (None, "") else entry_metrics.get("rejection_qty") or 0
+		)
+	else:
+		quality_qty = flt(entry_metrics.get("rejection_qty") or 0)
+	return total_qty, quality_qty
+
+
+def normalize_time_grain(value: str | None) -> str:
+	time_grain = (value or "Daily").title()
+	return time_grain if time_grain in _TIME_GRAINS else "Daily"
+
+
+def get_period_key(production_date: datetime.date, time_grain: str) -> tuple[datetime.date, str]:
+	if time_grain == "Weekly":
+		period_start = production_date - datetime.timedelta(days=production_date.weekday())
+		period_end = period_start + datetime.timedelta(days=6)
+		return period_start, _("{0} to {1}").format(period_start.isoformat(), period_end.isoformat())
+	if time_grain == "Monthly":
+		period_start = production_date.replace(day=1)
+		return period_start, period_start.strftime("%Y-%m")
+	return production_date, production_date.isoformat()
+
+
+def normalize_top_n_reasons(value: Any) -> int:
+	try:
+		top_n = int(value) if value is not None else _DEFAULT_TOP_N_REASONS
+	except (TypeError, ValueError):
+		return _DEFAULT_TOP_N_REASONS
+	return min(max(top_n, 1), _MAX_TOP_N_REASONS)
+
+
+def get_bar_line_chart(
+	rows: list[dict],
+	label_field: str,
+	bar: tuple[str, str],
+	line: tuple[str, str],
+) -> dict | None:
+	"""Mixed bar+line chart; `bar` and `line` are (fieldname, label) pairs."""
+	if not rows:
+		return None
+	return {
+		"data": {
+			"labels": [row[label_field] for row in rows],
+			"datasets": [
+				{"name": label, "values": [flt(row[field]) for row in rows], "chartType": chart_type}
+				for (field, label), chart_type in ((bar, "bar"), (line, "line"))
+			],
+		},
+		"type": "axis-mixed",
+		"height": 280,
+		"axisOptions": {"xAxisMode": "tick", "xIsSeries": 1},
+	}
+
+
+def get_quality_ppm_rows(
+	filters: dict,
+	entry_chunks: Iterable[list[dict]],
+	get_metrics: Any,
+	*,
+	is_rework: bool,
+	quantity_field: str,
+) -> list[dict]:
+	"""Daily PPM rows for the rejection and rework PPM reports.
+
+	The caller supplies the entry chunks and metrics reader so each twin keeps its own seams.
+	"""
+	aggregates: dict = {}
+	has_entries = False
+	for entries in entry_chunks:
+		entries, line_totals = select_filtered_output_lines(entries, filters, is_rework=is_rework)
+		has_entries = True
+		entry_names = [entry.get("name") for entry in entries if entry.get("name")]
+		parent_quantity_metrics = get_metrics(entry_names, include_rework=is_rework)
+		for entry in entries:
+			if not entry.get("production_date"):
+				continue
+			production_date = getdate(entry.get("production_date"))
+			total_qty, quality_qty = get_entry_total_and_quality_qty(
+				entry,
+				parent_quantity_metrics.get(entry.get("name") or "", {}),
+				line_totals,
+				is_rework=is_rework,
+				header_fallback=not is_rework,
+			)
+			aggregate = aggregates.setdefault(
+				production_date,
+				{"date": production_date.isoformat(), "entries": 0, "total_qty": 0.0, quantity_field: 0.0},
+			)
+			aggregate["entries"] += 1
+			aggregate["total_qty"] += total_qty
+			aggregate[quantity_field] += quality_qty
+
+	if not has_entries:
+		return []
+
+	rows = []
+	for key_date in sorted(aggregates):
+		aggregate = aggregates[key_date]
+		total_qty = flt(aggregate["total_qty"])
+		quality_qty = flt(aggregate[quantity_field])
+		rows.append(
+			{
+				"date": aggregate["date"],
+				"entries": aggregate["entries"],
+				"total_qty": total_qty,
+				quantity_field: quality_qty,
+				"ppm": safe_ratio(quality_qty, total_qty, PPM_MULTIPLIER),
+			}
+		)
+	return rows
+
+
+def get_quality_trend_rows(
+	filters: dict,
+	*,
+	is_rework: bool,
+	quantity_field: str,
+	rate_field: str,
+) -> list[dict]:
+	"""Period rows for the rejection and rework trend reports.
+
+	Rejection adds `ok_qty`; rework adds the non-rework rejection qty beside it.
+	"""
+	time_grain = normalize_time_grain(filters.get("time_grain"))
+	aggregates: dict[datetime.date, dict] = {}
+	has_entries = False
+	for entries in iter_stock_entries_in_chunks(
+		build_stock_entry_filters(filters, filter_keys=QUALITY_REPORT_FILTER_KEYS),
+		["name", "posting_date", "fg_completed_qty", *(["custom_pea_rework_qty"] if is_rework else [])],
+		order_by="posting_date asc, name asc",
+	):
+		entries, line_totals = select_filtered_output_lines(entries, filters, is_rework=is_rework)
+		rejection_line_totals = (
+			select_filtered_output_lines(entries, filters, is_rework=False)[1] if is_rework else {}
+		)
+		has_entries = True
+		entry_names = [entry.get("name") for entry in entries if entry.get("name")]
+		parent_quantity_metrics = get_parent_quantity_metrics(entry_names, include_rework=is_rework)
+		for entry in entries:
+			if not entry.get("production_date"):
+				continue
+			entry_name = entry.get("name")
+			entry_metrics = parent_quantity_metrics.get(entry_name or "", {})
+			total_qty, quality_qty = get_entry_total_and_quality_qty(
+				entry, entry_metrics, line_totals, is_rework=is_rework
+			)
+			non_rework_rejection_qty = flt(entry_metrics.get("rejection_qty") or 0)
+			if entry_name in line_totals:
+				non_rework_rejection_qty = rejection_line_totals.get(entry_name, {}).get("quality_qty", 0)
+			key_date, period_label = get_period_key(getdate(entry.get("production_date")), time_grain)
+			aggregate = aggregates.setdefault(
+				key_date,
+				{
+					"period": period_label,
+					"entries": 0,
+					"total_qty": 0.0,
+					quantity_field: 0.0,
+					"non_rework_rejection_qty": 0.0,
+				},
+			)
+			aggregate["entries"] += 1
+			aggregate["total_qty"] += total_qty
+			aggregate[quantity_field] += quality_qty
+			aggregate["non_rework_rejection_qty"] += non_rework_rejection_qty
+
+	if not has_entries:
+		return []
+
+	rows = []
+	for key_date in sorted(aggregates):
+		aggregate = aggregates[key_date]
+		total_qty = flt(aggregate["total_qty"])
+		quality_qty = flt(aggregate[quantity_field])
+		row = {
+			"period": aggregate["period"],
+			"entries": aggregate["entries"],
+			"total_qty": total_qty,
+			quantity_field: quality_qty,
+		}
+		if is_rework:
+			row["non_rework_rejection_qty"] = flt(aggregate["non_rework_rejection_qty"])
+		else:
+			row["ok_qty"] = flt(total_qty - quality_qty)
+		row[rate_field] = safe_ratio(quality_qty, total_qty, PERCENT_SCALE)
+		rows.append(row)
+	return rows
+
+
+def get_reason_pareto_rows(
+	filters: dict,
+	*,
+	is_rework: bool,
+	quantity_field: str,
+	pct_field: str,
+) -> list[dict]:
+	"""Ranked reason rows with cumulative % for the rejection and rework Pareto reports."""
+	has_entries = False
+	reason_totals: dict[str, float] = {}
+	entry_sets: dict[str, set[str]] = {}
+	shift_sets: dict[str, set[str]] = {}
+	total_qty = 0.0
+
+	for entry_rows in iter_stock_entries_in_chunks(
+		build_stock_entry_filters(filters, filter_keys=QUALITY_REPORT_FILTER_KEYS),
+		["name", "custom_pea_shift"],
+	):
+		entry_rows, line_totals = select_filtered_output_lines(entry_rows, filters, is_rework=is_rework)
+		has_entries = True
+		entry_names = [row.get("name") for row in entry_rows if row.get("name")]
+		if not entry_names:
+			continue
+		shift_by_entry = {
+			row.get("name"): row.get("custom_pea_shift") for row in entry_rows if row.get("name")
+		}
+		breakup_rows = limit_breakup_rows_to_lines(
+			get_parent_breakup_reason_rows(entry_names, is_rework=is_rework), line_totals
+		)
+		for row in breakup_rows:
+			reason = row.get("rejection_reason")
+			qty = flt(row.get("qty") or 0)
+			parent = row.get("parent")
+			if not reason or qty <= 0 or not parent:
+				continue
+			total_qty += qty
+			reason_totals[reason] = flt(reason_totals.get(reason) or 0) + qty
+			entry_sets.setdefault(reason, set()).add(parent)
+			shift_name = shift_by_entry.get(parent)
+			if shift_name:
+				shift_sets.setdefault(reason, set()).add(shift_name)
+
+	if not has_entries or total_qty <= 0:
+		return []
+
+	sorted_reasons = sorted(reason_totals.items(), key=lambda row: (-flt(row[1]), row[0]))
+	rows = []
+	cumulative = 0.0
+	for index, (reason, qty) in enumerate(sorted_reasons, start=1):
+		reason_pct = flt((qty / total_qty) * 100)
+		cumulative = flt(cumulative + reason_pct)
+		if index == len(sorted_reasons):
+			cumulative = 100.0
+		rows.append(
+			{
+				"rank": index,
+				"rejection_reason": reason,
+				quantity_field: flt(qty),
+				pct_field: reason_pct,
+				"cumulative_pct": cumulative,
+				"entries": len(entry_sets.get(reason, set())),
+				"shifts": len(shift_sets.get(reason, set())),
+			}
+		)
+	return rows
+
+
+def reason_matrix_fieldname(index: int) -> str:
+	# Positional, not derived from the reason text: distinct reasons can slug to the same name.
+	return f"reason_{index + 1}"
+
+
+def get_reason_matrix_columns(reason_order: list[str], total_field: str, total_label: str) -> list[dict]:
+	columns = [
+		{"label": _("Workstation"), "fieldname": "workstation", "fieldtype": "Data", "width": 220},
+		{"label": _("Entries"), "fieldname": "entries", "fieldtype": "Int", "width": 90},
+		{"label": total_label, "fieldname": total_field, "fieldtype": "Float", "width": 150},
+	]
+	columns.extend(
+		{"label": _(reason), "fieldname": reason_matrix_fieldname(index), "fieldtype": "Float", "width": 130}
+		for index, reason in enumerate(reason_order)
+	)
+	return apply_system_precision(columns)
+
+
+def get_reason_matrix_rows(
+	filters: dict,
+	top_n: int,
+	*,
+	is_rework: bool,
+	total_field: str,
+) -> tuple[list[dict], list[str]]:
+	reason_totals: dict[str, float] = {}
+	matrix: dict[str, dict[str, float]] = {}
+	entry_sets: dict[str, set[str]] = {}
+	has_entries = False
+	for entry_rows in iter_stock_entries_in_chunks(
+		build_stock_entry_filters(filters, filter_keys=QUALITY_REPORT_FILTER_KEYS),
+		["name", "custom_pea_workstation"],
+	):
+		entry_rows, line_totals = select_filtered_output_lines(entry_rows, filters, is_rework=is_rework)
+		has_entries = True
+		entry_names = [row.get("name") for row in entry_rows if row.get("name")]
+		if not entry_names:
+			continue
+		workstation_by_entry = {
+			row.get("name"): row.get("custom_pea_workstation") or _("Unassigned")
+			for row in entry_rows
+			if row.get("name")
+		}
+		breakup_rows = limit_breakup_rows_to_lines(
+			get_parent_breakup_reason_rows(entry_names, is_rework=is_rework), line_totals
+		)
+		for row in breakup_rows:
+			parent = row.get("parent")
+			reason = row.get("rejection_reason")
+			qty = flt(row.get("qty") or 0)
+			if not parent or not reason or qty <= 0:
+				continue
+			workstation = workstation_by_entry.get(parent, _("Unassigned"))
+			reason_totals[reason] = flt(reason_totals.get(reason) or 0) + qty
+			matrix.setdefault(workstation, {})
+			matrix[workstation][reason] = flt(matrix[workstation].get(reason) or 0) + qty
+			entry_sets.setdefault(workstation, set()).add(parent)
+
+	if not has_entries or not reason_totals:
+		return [], []
+
+	reason_order = [
+		reason
+		for reason, _qty in sorted(reason_totals.items(), key=lambda item: (-flt(item[1]), item[0]))[:top_n]
+	]
+	rows: list[dict] = []
+	for workstation in sorted(matrix.keys()):
+		reason_map = matrix[workstation]
+		row = {
+			"workstation": workstation,
+			"entries": len(entry_sets.get(workstation, set())),
+			total_field: flt(sum(reason_map.values())),
+		}
+		for index, reason in enumerate(reason_order):
+			row[reason_matrix_fieldname(index)] = flt(reason_map.get(reason) or 0)
+		rows.append(row)
+	return rows, reason_order
+
+
+def get_reason_matrix_report(
+	filters: dict,
+	*,
+	is_rework: bool,
+	total_field: str,
+	get_columns: Any,
+) -> tuple[list[dict], list[dict]]:
+	"""Columns and rows (with the summed Overall row) for the workstation reason matrices."""
+	rows, reason_order = get_reason_matrix_rows(
+		filters,
+		normalize_top_n_reasons(filters.get("top_n_reasons")),
+		is_rework=is_rework,
+		total_field=total_field,
+	)
+	columns = get_columns(reason_order)
+	if rows:
+		sum_fields = ("entries", total_field, *[reason_matrix_fieldname(i) for i in range(len(reason_order))])
+		rows = [*rows, build_summed_overall_row(rows, "workstation", sum_fields)]
+	return columns, rows
+
+
+def get_operator_quality_rows(
+	filters: dict,
+	*,
+	is_rework: bool,
+	quantity_field: str,
+	rate_field: str,
+) -> list[dict]:
+	"""Per-operator rows for the rejection and rework operator performance reports."""
+
+	def _empty_agg() -> dict:
+		return {
+			"entries": 0,
+			"total_qty": 0.0,
+			quantity_field: 0.0,
+			"total_strokes": 0.0,
+			"production_mins": 0.0,
+			"reason_totals": {},
+		}
+
+	def _build_row(operator: str, agg: dict) -> dict:
+		total_qty = flt(agg["total_qty"])
+		quality_qty = flt(agg[quantity_field])
+		top_reasons = sorted(agg["reason_totals"].items(), key=lambda item: (-flt(item[1]), item[0]))[:3]
+		return {
+			"operator": operator,
+			"entries": int(agg["entries"]),
+			"total_qty": total_qty,
+			quantity_field: quality_qty,
+			rate_field: safe_ratio(quality_qty, total_qty, PERCENT_SCALE),
+			"top_3_reasons": ", ".join(
+				f"{reason} ({format_numeric_summary(qty)})" for reason, qty in top_reasons
+			),
+			# Effective SPM: total strokes over total production time (ADR 0010).
+			"actual_spm": safe_ratio(agg["total_strokes"], agg["production_mins"]),
+		}
+
+	agg_by_operator: dict[str, dict] = {}
+	has_entries = False
+	for entries in iter_stock_entries_in_chunks(
+		build_stock_entry_filters(filters, filter_keys=(*QUALITY_REPORT_FILTER_KEYS, "custom_pea_operation")),
+		[
+			"name",
+			"custom_pea_operator",
+			"fg_completed_qty",
+			"custom_pea_rejection_qty",
+			"custom_pea_rework_qty",
+			"custom_pea_total_strokes",
+			"custom_pea_production_time_mins",
+			"custom_pea_actual_duration_mins",
+			"custom_pea_actual_start_date",
+			"custom_pea_actual_end_date",
+		],
+	):
+		entries, line_totals = select_filtered_output_lines(entries, filters, is_rework=is_rework)
+		entry_names = [entry.get("name") for entry in entries if entry.get("name")]
+		if not entry_names:
+			continue
+		has_entries = True
+		parent_quantity_metrics = get_parent_quantity_metrics(entry_names, include_rework=is_rework)
+		breakup_rows = limit_breakup_rows_to_lines(
+			get_parent_breakup_reason_rows(entry_names, is_rework=is_rework), line_totals
+		)
+		for entry in entries:
+			total_qty, quality_qty = get_entry_total_and_quality_qty(
+				entry,
+				parent_quantity_metrics.get(entry.get("name") or "", {}),
+				line_totals,
+				is_rework=is_rework,
+			)
+			agg = agg_by_operator.setdefault(
+				entry.get("custom_pea_operator") or _("Unassigned"), _empty_agg()
+			)
+			agg["entries"] += 1
+			agg["total_qty"] += total_qty
+			agg[quantity_field] += quality_qty
+			agg["total_strokes"] += get_entry_total_strokes(entry)[0]
+			agg["production_mins"] += get_entry_production_minutes(entry)
+
+		operator_by_entry = {
+			entry.get("name"): (entry.get("custom_pea_operator") or _("Unassigned"))
+			for entry in entries
+			if entry.get("name")
+		}
+		for row in breakup_rows:
+			parent = row.get("parent")
+			reason = row.get("rejection_reason")
+			qty = flt(row.get("qty") or 0)
+			if not parent or not reason or qty <= 0:
+				continue
+			operator = operator_by_entry.get(parent, _("Unassigned"))
+			reason_totals = agg_by_operator.setdefault(operator, _empty_agg())["reason_totals"]
+			reason_totals[reason] = flt(reason_totals.get(reason) or 0) + qty
+
+	if not has_entries:
+		return []
+
+	rows = [_build_row(operator, agg_by_operator[operator]) for operator in sorted(agg_by_operator)]
+	overall = _build_row("", merge_aggregates(agg_by_operator.values()))
+	overall.pop("operator")
+	return [*rows, build_overall_row("operator", **overall)]
+
+
 def _get_joint_output_item_map(stock_entry_names: list[str]) -> dict[tuple[str, str], str]:
 	if not stock_entry_names:
 		return {}
@@ -1150,23 +1646,6 @@ def get_parent_loss_metrics(stock_entry_names: list[str]) -> dict[str, dict[str,
 		else:
 			parent_metrics[parent]["loss_mins"] = parent_metrics[parent]["loss_mins"] + duration_mins
 	return parent_metrics
-
-
-def get_rework_qty_map(stock_entry_names: list[str]) -> dict[str, float]:
-	"""Return {entry_name: rework_qty} from Rejection Breakup rows where is_rework=1."""
-	return {
-		parent: flt(metrics.get("rework_qty") or 0)
-		for parent, metrics in get_parent_quantity_metrics(stock_entry_names, include_rework=True).items()
-	}
-
-
-def get_loss_time_maps(entry_names: list[str]) -> tuple[dict[str, float], dict[str, float]]:
-	"""Return setup and non-setup loss minutes keyed by Stock Entry name."""
-	parent_loss_metrics = get_parent_loss_metrics(entry_names)
-	return (
-		{parent: flt(metrics.get("setup_mins") or 0) for parent, metrics in parent_loss_metrics.items()},
-		{parent: flt(metrics.get("loss_mins") or 0) for parent, metrics in parent_loss_metrics.items()},
-	)
 
 
 def get_duration_minutes(start_value, end_value) -> float:
@@ -1290,12 +1769,9 @@ def apply_system_precision(columns: list[dict]) -> list[dict]:
 	return columns
 
 
+@frappe.request_cache
 def get_report_float_precision() -> int:
-	cached_precision = getattr(frappe.local, "_pea_report_float_precision", None)
-	if cached_precision is None:
-		cached_precision = get_system_float_precision()
-		frappe.local._pea_report_float_precision = cached_precision
-	return cached_precision
+	return get_system_float_precision()
 
 
 def new_efficiency_aggregates() -> defaultdict:

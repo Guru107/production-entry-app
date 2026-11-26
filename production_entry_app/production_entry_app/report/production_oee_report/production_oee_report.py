@@ -934,16 +934,6 @@ def _subtract_intervals(
 	return remaining
 
 
-def _get_shift_label_map(
-	entries: list[frappe._dict],
-	shift_label_cache: dict[str, str],
-) -> dict[str, str]:
-	shift_names = sorted(
-		{entry.get("custom_pea_shift") for entry in entries if entry.get("custom_pea_shift")}
-	)
-	return _get_shift_labels(shift_names, shift_label_cache)
-
-
 def _get_shift_labels(
 	shift_names: list[str] | set[str],
 	shift_label_cache: dict[str, str],

@@ -1,17 +1,17 @@
 from __future__ import annotations
 
 from frappe import _
-from frappe.utils import flt, getdate
+from frappe.utils import flt
 
 from production_entry_app.production_entry_app.report.report_utils import (
 	PPM_MULTIPLIER,
+	QUALITY_REPORT_FILTER_KEYS,
 	apply_system_precision,
 	build_rate_overall_row,
 	build_stock_entry_filters,
 	get_parent_quantity_metrics,
+	get_quality_ppm_rows,
 	iter_stock_entries_in_chunks,
-	safe_ratio,
-	select_filtered_output_lines,
 )
 
 
@@ -47,84 +47,18 @@ def _get_columns() -> list[dict]:
 	)
 
 
-def _build_filters(filters: dict) -> dict:
-	return build_stock_entry_filters(
-		filters,
-		filter_keys=("custom_pea_workstation", "custom_pea_shift", "custom_pea_operator", "bom_no"),
-	)
-
-
 def _get_rows(filters: dict) -> list[dict]:
-	aggregates: dict = {}
-	has_entries = False
-	for entries in iter_stock_entries_in_chunks(
-		_build_filters(filters),
-		["name", "posting_date", "fg_completed_qty", "custom_pea_rejection_qty"],
-		order_by="posting_date asc, name asc",
-	):
-		entries, line_totals = select_filtered_output_lines(entries, filters, is_rework=False)
-		has_entries = True
-		entry_names = [entry.get("name") for entry in entries if entry.get("name")]
-		parent_quantity_metrics = get_parent_quantity_metrics(entry_names)
-		for entry in entries:
-			if not entry.get("production_date"):
-				continue
-			production_date = getdate(entry.get("production_date"))
-			entry_name = entry.get("name")
-			entry_metrics = parent_quantity_metrics.get(entry_name or "", {})
-			parent_rejection_qty = entry.get("custom_pea_rejection_qty")
-			# Rejection PPM must exclude rework when breakup rows exist, so prefer
-			# breakup-derived non-rework qty in that case.
-			has_breakup_rows = flt(entry_metrics.get("total_rejected_qty") or 0) > 0
-			if has_breakup_rows:
-				rejection_qty = flt(entry_metrics.get("rejection_qty") or 0)
-			else:
-				rejection_qty = flt(
-					parent_rejection_qty
-					if parent_rejection_qty not in (None, "")
-					else entry_metrics.get("rejection_qty") or 0
-				)
-			total_qty = flt(entry.get("fg_completed_qty") or 0)
-			if total_qty <= 0 and entry_name:
-				total_qty = flt(entry_metrics.get("good_qty") or 0) + flt(
-					entry_metrics.get("total_rejected_qty") or 0
-				)
-			if line := line_totals.get(entry_name):
-				total_qty, rejection_qty = line["total_qty"], line["quality_qty"]
-
-			aggregate = aggregates.setdefault(
-				production_date,
-				{
-					"date": production_date.isoformat(),
-					"entries": 0,
-					"total_qty": 0.0,
-					"rejection_qty": 0.0,
-				},
-			)
-			aggregate["entries"] += 1
-			aggregate["total_qty"] += total_qty
-			aggregate["rejection_qty"] += rejection_qty
-
-	if not has_entries:
-		return []
-
-	rows = []
-	for key_date in sorted(aggregates):
-		aggregate = aggregates[key_date]
-		total_qty = flt(aggregate["total_qty"])
-		rejection_qty = flt(aggregate["rejection_qty"])
-		ppm = safe_ratio(rejection_qty, total_qty, PPM_MULTIPLIER)
-		rows.append(
-			{
-				"date": aggregate["date"],
-				"entries": aggregate["entries"],
-				"total_qty": total_qty,
-				"rejection_qty": rejection_qty,
-				"ppm": ppm,
-			}
-		)
-
-	return rows
+	return get_quality_ppm_rows(
+		filters,
+		iter_stock_entries_in_chunks(
+			build_stock_entry_filters(filters, filter_keys=QUALITY_REPORT_FILTER_KEYS),
+			["name", "posting_date", "fg_completed_qty", "custom_pea_rejection_qty"],
+			order_by="posting_date asc, name asc",
+		),
+		get_parent_quantity_metrics,
+		is_rework=False,
+		quantity_field="rejection_qty",
+	)
 
 
 def _get_chart(rows: list[dict]) -> dict | None:

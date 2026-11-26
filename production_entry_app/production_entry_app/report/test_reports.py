@@ -4625,8 +4625,9 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(float(rows[-1]["reason_1"]), 5.0)
 
 	def test_workstation_rework_reason_matrix_translates_unassigned_label(self) -> None:
+		from production_entry_app.production_entry_app.report import report_utils as report
 		from production_entry_app.production_entry_app.report.workstation_rework_reason_matrix import (
-			workstation_rework_reason_matrix as report,
+			workstation_rework_reason_matrix,
 		)
 
 		with (
@@ -4645,7 +4646,9 @@ class TestProductionReports(FrappeTestCase):
 			patch.object(report, "apply_system_precision", side_effect=lambda columns: columns),
 			patch.object(report, "_", side_effect=lambda text: f"translated:{text}"),
 		):
-			_rows, rows = report.execute({"from_date": "2026-07-10", "to_date": "2026-07-10"})
+			_rows, rows = workstation_rework_reason_matrix.execute(
+				{"from_date": "2026-07-10", "to_date": "2026-07-10"}
+			)
 
 		self.assertEqual(rows[0]["workstation"], "translated:Unassigned")
 
