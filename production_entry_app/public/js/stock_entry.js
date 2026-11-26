@@ -669,7 +669,6 @@ function _clear_manufacture_data_on_leave(frm) {
 function _clear_manufacture_data(frm) {
 	_shiftDetailsRequestId++;
 	_dieToolRequestId++;
-	delete frm.__peaTotalStrokesDefaultState;
 
 	const refreshFieldnames = new Set();
 	const scalarChanged = _clear_scalar_fields(frm, MANUFACTURE_FIELDS, refreshFieldnames);
@@ -1083,7 +1082,6 @@ function _sync_joint_mode_from_stock_entry_type(frm, requestId, previousStockEnt
 
 function _clear_production_mode_data(frm) {
 	_dieToolRequestId++;
-	delete frm.__peaTotalStrokesDefaultState;
 
 	const refreshFieldnames = new Set();
 	const scalarChanged = _clear_scalar_fields(
@@ -1253,13 +1251,8 @@ function _default_total_strokes_from_fg(frm) {
 	return Promise.resolve(frm.set_value("custom_pea_total_strokes", completedQty));
 }
 
-function _get_time_entry_api() {
-	if (typeof window === "undefined") return null;
-	return window.production_entry_app?.time_entry || null;
-}
-
 function _sync_stock_entry_helper_fields(frm) {
-	const timeEntry = _get_time_entry_api();
+	const timeEntry = globalThis.window?.production_entry_app?.time_entry;
 	if (!timeEntry || !_is_production_doc(frm.doc)) {
 		return;
 	}
@@ -1285,7 +1278,7 @@ function _sync_actual_datetime_helper_fields(
 	frm,
 	{ date_fieldname, time_fieldname, canonical_fieldname, default_date }
 ) {
-	const timeEntry = _get_time_entry_api();
+	const timeEntry = globalThis.window?.production_entry_app?.time_entry;
 	if (!timeEntry) {
 		return;
 	}
@@ -1310,7 +1303,7 @@ function _sync_actual_datetime_helper_fields(
 }
 
 function _setup_stock_entry_quick_entry(frm) {
-	const timeEntry = _get_time_entry_api();
+	const timeEntry = globalThis.window?.production_entry_app?.time_entry;
 	if (!timeEntry) {
 		return;
 	}
@@ -1361,7 +1354,7 @@ function _combine_actual_datetime(
 	{ date_fieldname, time_fieldname, canonical_fieldname },
 	committedTime
 ) {
-	const timeEntry = _get_time_entry_api();
+	const timeEntry = globalThis.window?.production_entry_app?.time_entry;
 	if (!timeEntry) {
 		return;
 	}
