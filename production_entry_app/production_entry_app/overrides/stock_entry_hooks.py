@@ -37,6 +37,7 @@ from production_entry_app.production_entry_app.utils.alternative_items import (
 	apply_direct_manufacture_alternative_flags,
 	get_bom_alternative_allowed_items,
 	get_bom_item_codes,
+	get_bom_item_rows,
 	should_skip_direct_manufacture_alternative_row,
 )
 from production_entry_app.production_entry_app.utils.alternative_items import (
@@ -171,8 +172,10 @@ def validate_stock_entry(doc: Document, method: str | None = None) -> None:
 		validate_and_apply_joint_production(doc)
 	else:
 		_validate_rejection_breakup(doc)
-		_set_direct_manufacture_alternative_flags(doc)
-		_validate_direct_manufacture_alternative_items(doc)
+		is_direct_bom = doc.get("from_bom") and doc.get("bom_no") and not doc.get("work_order")
+		bom_rows = get_bom_item_rows(doc.bom_no) if is_direct_bom and doc.purpose == "Manufacture" else None
+		_set_direct_manufacture_alternative_flags(doc, bom_rows)
+		_validate_direct_manufacture_alternative_items(doc, bom_rows)
 		_apply_rejection_entries(doc)
 	_validate_rejection_target_warehouses(doc)
 	_set_entry_metrics(doc)
@@ -440,7 +443,7 @@ def _apply_shift_defaults(doc: Document) -> None:
 	For submitted Stock Entries, only applies warehouse defaults (not planned dates),
 	preserving the immutable planned dates that were locked at submission time.
 	"""
-	shift = frappe.get_doc("Shift", doc.custom_pea_shift)
+	shift = frappe.get_cached_doc("Shift", doc.custom_pea_shift)
 
 	if stock_entry_has_branch_field() and shift.branch:
 		doc.branch = shift.branch
@@ -836,15 +839,15 @@ def _find_overlapping_downtime_entry(
 	return conflict[0] if conflict else None
 
 
-def _validate_direct_manufacture_alternative_items(doc: Document) -> None:
+def _validate_direct_manufacture_alternative_items(doc: Document, bom_rows: list[dict] | None = None) -> None:
 	if doc.get("purpose") != "Manufacture" or not doc.get("from_bom") or doc.get("work_order"):
 		return
 	if not doc.get("bom_no"):
 		return
 
 	bom_no = doc.get("bom_no")
-	bom_item_codes = get_bom_item_codes(bom_no)
-	bom_allowed_items = get_bom_alternative_allowed_items(bom_no)
+	bom_item_codes = get_bom_item_codes(bom_no, bom_rows)
+	bom_allowed_items = get_bom_alternative_allowed_items(bom_no, bom_rows)
 	bom_secondary_item_codes = _get_bom_secondary_item_codes(bom_no)
 	for row in doc.get("items") or []:
 		_validate_direct_manufacture_alternative_row(
@@ -856,8 +859,8 @@ def _validate_direct_manufacture_alternative_items(doc: Document) -> None:
 		)
 
 
-def _set_direct_manufacture_alternative_flags(doc: Document) -> None:
-	apply_direct_manufacture_alternative_flags(doc)
+def _set_direct_manufacture_alternative_flags(doc: Document, bom_rows: list[dict] | None = None) -> None:
+	apply_direct_manufacture_alternative_flags(doc, bom_rows=bom_rows)
 
 
 def _validate_direct_manufacture_alternative_row(

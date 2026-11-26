@@ -627,16 +627,11 @@ class TestShiftPureHelpers(FrappeTestCase):
 		shift.shift_date = "2099-01-01"
 		shift.planned_start_time = "08:00:00"
 		shift.shift_duration = "8"
-		meta = type("Meta", (), {"has_field": lambda self, fieldname: True})()
 		with patch(
-			"production_entry_app.production_entry_app.doctype.shift.shift.frappe.get_meta",
-			return_value=meta,
+			"production_entry_app.production_entry_app.doctype.shift.shift.frappe.get_all",
+			return_value=[],
 		):
-			with patch(
-				"production_entry_app.production_entry_app.doctype.shift.shift.frappe.db.exists",
-				return_value=False,
-			):
-				shift._populate_planned_losses()
+			shift._populate_planned_losses()
 
 		self.assertEqual(shift.planned_losses, [])
 
@@ -653,8 +648,8 @@ class TestShiftPureHelpers(FrappeTestCase):
 			),
 		):
 			with patch(
-				"production_entry_app.production_entry_app.doctype.shift.shift.frappe.db.exists",
-				return_value=True,
+				"production_entry_app.production_entry_app.doctype.shift.shift.frappe.get_all",
+				return_value=[frappe._dict(name=reason) for reason in ("10", "13", "14", "19", "20")],
 			):
 				shift._populate_planned_losses()
 

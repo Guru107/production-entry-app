@@ -803,22 +803,17 @@ def _planned_loss_signature(row: Any) -> tuple[str | None, str | None, str | Non
 
 
 def _get_active_downtime_reason_checker() -> Callable[[str], bool]:
-	reason_active_cache: dict[str, bool] = {}
+	reasons = {reason for reason, _offset, _duration in _SHIFT_START_LOSSES}
+	reasons.add(_JH_ACTIVITY_REASON)
+	reasons.update(reason for breaks in _FIXED_TIME_BREAKS.values() for reason, _time, _mins in breaks)
 	has_is_active_field = bool(frappe.get_meta("Downtime Reason", cached=True).has_field("is_active"))
-
-	def is_active_reason(reason: str) -> bool:
-		if reason in reason_active_cache:
-			return reason_active_cache[reason]
-		if not frappe.db.exists("Downtime Reason", reason):
-			reason_active_cache[reason] = False
-			return False
-		if not has_is_active_field:
-			reason_active_cache[reason] = True
-			return True
-		reason_active_cache[reason] = bool(frappe.db.get_value("Downtime Reason", reason, "is_active"))
-		return reason_active_cache[reason]
-
-	return is_active_reason
+	rows = frappe.get_all(
+		"Downtime Reason",
+		filters={"name": ["in", sorted(reasons)]},
+		fields=["name", "is_active"] if has_is_active_field else ["name"],
+	)
+	active = {row.name for row in rows if not has_is_active_field or row.is_active}
+	return active.__contains__
 
 
 def _planned_loss_entry_with_start(

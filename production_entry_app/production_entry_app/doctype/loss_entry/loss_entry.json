@@ -21,7 +21,8 @@
    "in_list_view": 1,
    "label": "Shift",
    "options": "Shift",
-   "read_only": 1
+   "read_only": 1,
+   "search_index": 1
   },
   {
    "fieldname": "downtime_reason",
@@ -84,7 +85,7 @@
   }
  ],
  "istable": 1,
- "modified": "2026-02-09 00:00:00.000000",
+ "modified": "2026-11-26 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Production Entry App",
  "name": "Loss Entry",

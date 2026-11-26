@@ -5,37 +5,24 @@ from typing import Any
 import frappe
 
 
-def _get_bom_item_rows(bom_no: str) -> list[dict]:
-	pending = [bom_no]
-	seen: set[str] = set()
-	rows: list[dict] = []
-	while pending:
-		current_bom = pending.pop()
-		if not current_bom or current_bom in seen:
-			continue
-		seen.add(current_bom)
-		current_rows = frappe.get_all(
-			"BOM Item",
-			filters={"parent": current_bom, "parenttype": "BOM"},
-			fields=["item_code", "allow_alternative_item", "bom_no"],
-		)
-		rows.extend(current_rows)
-		for row in current_rows:
-			child_bom = row.get("bom_no")
-			if child_bom and child_bom not in seen:
-				pending.append(child_bom)
-	return rows
+def get_bom_item_rows(bom_no: str) -> list[dict]:
+	"""Top-level BOM Item rows only: production BOMs are single-level (ADR 0003)."""
+	return frappe.get_all(
+		"BOM Item",
+		filters={"parent": bom_no, "parenttype": "BOM"},
+		fields=["item_code", "allow_alternative_item"],
+	)
 
 
-def get_bom_item_codes(bom_no: str) -> set[str]:
-	return {row.get("item_code") for row in _get_bom_item_rows(bom_no) if row.get("item_code")}
+def get_bom_item_codes(bom_no: str, rows: list[dict] | None = None) -> set[str]:
+	rows = get_bom_item_rows(bom_no) if rows is None else rows
+	return {row.get("item_code") for row in rows if row.get("item_code")}
 
 
-def get_bom_alternative_allowed_items(bom_no: str) -> set[str]:
+def get_bom_alternative_allowed_items(bom_no: str, rows: list[dict] | None = None) -> set[str]:
+	rows = get_bom_item_rows(bom_no) if rows is None else rows
 	return {
-		row.get("item_code")
-		for row in _get_bom_item_rows(bom_no)
-		if row.get("item_code") and row.get("allow_alternative_item")
+		row.get("item_code") for row in rows if row.get("item_code") and row.get("allow_alternative_item")
 	}
 
 
@@ -64,14 +51,14 @@ def should_skip_direct_manufacture_alternative_row(
 
 
 def apply_direct_manufacture_alternative_flags(
-	doc: Any, bom_secondary_item_codes: set[str] | None = None
+	doc: Any, bom_secondary_item_codes: set[str] | None = None, bom_rows: list[dict] | None = None
 ) -> None:
 	if doc.get("purpose") != "Manufacture" or not doc.get("from_bom") or doc.get("work_order"):
 		return
 	if not doc.get("bom_no"):
 		return
 
-	allowed_items = get_bom_alternative_allowed_items(doc.get("bom_no"))
+	allowed_items = get_bom_alternative_allowed_items(doc.get("bom_no"), bom_rows)
 	if not allowed_items:
 		return
 	if bom_secondary_item_codes is None:

@@ -4575,7 +4575,7 @@ class TestGetItemsWithRejection(FrappeTestCase):
 		with self.assertRaisesRegex(ValidationError, "is not part of BOM"):
 			se.run_method("validate")
 
-	def test_alternative_allowed_lookup_includes_child_bom_items(self) -> None:
+	def test_alternative_allowed_lookup_ignores_child_bom_items(self) -> None:
 		suffix = frappe.generate_hash(length=8)
 		parent_fg = _get_or_create_item(f"_Test Parent FG Alt {suffix}")
 		child_fg = _get_or_create_item(f"_Test Child FG Alt {suffix}")
@@ -4612,7 +4612,8 @@ class TestGetItemsWithRejection(FrappeTestCase):
 		parent_bom.insert(ignore_permissions=True)
 		parent_bom.submit()
 
-		self.assertIn(child_rm, get_bom_alternative_allowed_items(parent_bom.name))
+		# ADR 0003: production BOMs are single-level, so sub-assembly items are not alternatives.
+		self.assertNotIn(child_rm, get_bom_alternative_allowed_items(parent_bom.name))
 
 	def test_get_or_create_bom_does_not_reuse_bom_with_different_alternative_flag(self) -> None:
 		suffix = frappe.generate_hash(length=8)

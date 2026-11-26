@@ -26,6 +26,7 @@ EXPECTED_PEA_ROLE_NAMES = ("PEA User", "PEA Read Only")
 
 REQUIRED_SEARCH_INDEXES: dict[str, set[str]] = {
 	"Rejection Breakup": {"is_rework"},
+	"Loss Entry": {"shift"},
 	"Rework Type": {"is_active"},
 	"Shift": {"branch", "company", "shift_date", "status"},
 }
@@ -40,6 +41,7 @@ REQUIRED_CUSTOM_FIELD_SEARCH_INDEXES: set[str] = {
 	"Stock Entry Detail-custom_pea_is_rejection_item",
 	"Stock Entry-custom_pea_rework_date",
 	"Downtime Entry-custom_pea_downtime_reason",
+	"Downtime Entry-custom_pea_shift",
 }
 
 # Documented exception (issue #197): `qty` never arrives as a generic route filter

@@ -31,6 +31,12 @@ OVERLAP_INDEX_SPECS: tuple[tuple[str, list[str], str], ...] = (
 		["workstation", "from_time", "to_time", "docstatus"],
 		"idx_pea_dte_workstation_window",
 	),
+	(
+		# Shift form load filters on the window alone; the workstation-led index cannot serve it.
+		"Downtime Entry",
+		["from_time", "to_time"],
+		"idx_pea_dte_window",
+	),
 )
 
 REPORT_INDEX_SPECS: tuple[tuple[str, list[str], str], ...] = (
