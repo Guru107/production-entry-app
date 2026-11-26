@@ -46,4 +46,5 @@ Loss reason columns (when the report filter selects Downtime Reason codes):
   - label `"2"` => `_2nd`
 - Overlapping intervals for the same `(reason, shift_label)` are merged to a union before
   hours are shown; different reasons still add separately into `total_loss_time`.
-- Duration hours use normalized clock intervals (cross-midnight end `<` start adds 24 hours).
+- Each loss is dated against its entry's Shift window and clipped to it, so cross-midnight losses
+  merge correctly and minutes outside the window (e.g. in the shift end buffer) are excluded.
