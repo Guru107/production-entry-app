@@ -490,4 +490,31 @@ test.describe("Shift validations", () => {
 			}
 		}
 	});
+
+	test("@regression completed shift with a submitted entry cannot be cancelled", async ({
+		page,
+	}) => {
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		await callFrappeMethod(
+			page,
+			"production_entry_app.production_entry_app.e2e_api.create_e2e_submitted_stock_entry",
+			{
+				prefix: lifecycle.getPrefix(),
+				shift_name: ctx.shift_name,
+				complete_shift_before_submit: 1,
+			}
+		);
+
+		const shiftPage = new ShiftPage(page);
+		await shiftPage.open(ctx.shift_name);
+		try {
+			await shiftPage.cancelShift();
+		} catch (error) {
+			// Validation msgprint asserted below.
+		}
+		await expectValidationError(page, /Cannot cancel Shift .*1 submitted Stock Entries/i);
+
+		const shiftAfterAttempt = await getDoc(page, "Shift", ctx.shift_name);
+		expect(shiftAfterAttempt.status).toBe("Completed");
+	});
 });

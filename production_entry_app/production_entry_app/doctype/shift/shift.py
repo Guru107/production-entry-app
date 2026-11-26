@@ -9,7 +9,7 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 from frappe.query_builder import DocType
-from frappe.query_builder.functions import CustomFunction
+from frappe.query_builder.functions import Count, CustomFunction
 from frappe.utils import add_to_date, cint, flt, get_datetime, get_time
 
 from production_entry_app.production_entry_app.joint_production import JOINT_PRODUCTION_LINES_FIELD
@@ -43,6 +43,7 @@ from production_entry_app.production_entry_app.utils.system_precision import (
 )
 
 METRICS_CACHE_TTL_SEC: int = 30
+CANCEL_BLOCKER_NAMES_SHOWN: int = 5
 SHIFT_SUMMARY_TARGET_COVERAGE_PCT_MIN: float = 60.0
 SHIFT_SUMMARY_COMPLETENESS_MIN_RECORDED_RATIO: float = 0.5
 SHIFT_SUMMARY_WORKSTATION_MIN_PRODUCTION_MINS: float = 15.0
@@ -1434,7 +1435,30 @@ class Shift(Document):
 
 	@frappe.whitelist(methods=["POST"])
 	def cancel_shift(self) -> None:
+		self._validate_no_submitted_entries()
 		self._transition_status(to_status="Cancelled", allowed_from=("Draft", "Completed"))
+
+	def _validate_no_submitted_entries(self) -> None:
+		entry = DocType("Stock Entry")
+		rows = (
+			frappe.qb.from_(entry)
+			.select(entry.name)
+			.where((entry.custom_pea_shift == self.name) & (entry.docstatus == 1))
+			.orderby(entry.name)
+			.limit(CANCEL_BLOCKER_NAMES_SHOWN)
+		).run(pluck="name")
+		if not rows:
+			return
+		count = (
+			frappe.qb.from_(entry)
+			.select(Count("*"))
+			.where((entry.custom_pea_shift == self.name) & (entry.docstatus == 1))
+		).run()[0][0]
+		frappe.throw(
+			_(
+				"Cannot cancel Shift {0}: {1} submitted Stock Entries are linked to it ({2}). Cancel them first."
+			).format(self.name, count, ", ".join(rows))
+		)
 
 	def _set_defaults(self) -> None:
 		if not self.naming_series:
