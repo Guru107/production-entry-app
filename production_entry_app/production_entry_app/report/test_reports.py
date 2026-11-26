@@ -2679,12 +2679,25 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(overall["entries"], 2)
 		self.assertEqual(overall["good_qty"], 400)
 		self.assertEqual(overall["rework_qty"], 2)
-		self.assertEqual(overall["total_units"], 400)
+		self.assertEqual(overall["total_units"], 402)  # good + rejection + rework
 		# 2400 strokes / 120 mins, not the mean of 10 and 30.
 		self.assertAlmostEqual(overall["actual_spm"], 20.0, places=6)
 		# Standard SPM is production-time weighted: (2*60 + 10*60) / 120.
 		self.assertAlmostEqual(overall["standard_spm"], 6.0, places=6)
 		self.assertAlmostEqual(overall["operator_efficiency_pct"], 20 / 6 * 100, places=6)
+
+	def test_efficiency_total_units_includes_rework_per_row_and_overall(self) -> None:
+		from production_entry_app.production_entry_app.report.report_utils import (
+			aggregate_efficiency_by_field,
+			build_efficiency_rows_with_overall,
+		)
+
+		# fg_completed_qty 100 = 95 good + 3 rework + 2 rejected
+		entry = {"_good_qty": 95, "_rejection_qty": 2, "_rework_qty": 3}
+		for field, label in (("custom_pea_operator", "operator"), ("custom_pea_workstation", "workstation")):
+			aggregates = aggregate_efficiency_by_field([{**entry, field: "X"}], field)
+			rows = build_efficiency_rows_with_overall(aggregates, label, f"{label}_efficiency_pct")
+			self.assertEqual([row["total_units"] for row in rows], [100, 100])
 
 	def test_efficiency_overall_row_is_omitted_without_data(self) -> None:
 		from production_entry_app.production_entry_app.report.report_utils import (
