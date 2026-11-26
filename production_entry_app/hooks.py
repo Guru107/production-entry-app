@@ -196,14 +196,12 @@ before_tests = "production_entry_app.production_entry_app.utils.test_setup.befor
 
 # Fixtures
 # --------
-# Custom Field: filter by module so export-fixtures does not pull in unrelated fields
+# Custom Field: filter by module so export-fixtures does not pull in unrelated fields.
+# Downtime/Rejection Reasons, the app's Stock Entry Types and PEA Roles are create-only
+# seeds in lifecycle._setup_app, not fixtures: fixture sync overwrites user edits (#248).
 fixtures = [
 	{"dt": "Custom Field", "filters": [["module", "=", "Production Entry App"]]},
-	{"dt": "Stock Entry Type", "filters": [["name", "=", "Joint LH RH Production"]]},
-	{"dt": "Stock Entry Type", "filters": [["name", "=", "Joint Production"]]},
-	{"dt": "Stock Entry Type", "filters": [["name", "=", "Rework"]]},
 	{"dt": "Property Setter", "filters": [["module", "=", "Production Entry App"]]},
-	{"dt": "Role", "filters": [["name", "in", ["PEA User", "PEA Read Only"]]]},
 	{
 		"dt": "DocPerm",
 		"filters": [
@@ -222,8 +220,6 @@ fixtures = [
 			["if_owner", "=", 0],
 		],
 	},
-	"Downtime Reason",
-	"Rejection Reason",
 ]
 
 # exempt linked doctypes from being automatically cancelled
