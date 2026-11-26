@@ -558,3 +558,59 @@ class TestReportUtilsPerformance(FrappeTestCase):
 				timeout_sec=5.0,
 			)
 			timeout_guard()
+
+
+class TestOeeDowntimeScaling(FrappeTestCase):
+	def test_machine_downtime_buckets_rows_by_workstation_and_skips_loss_entry_reread(self) -> None:
+		import datetime
+
+		from production_entry_app.production_entry_app.report.production_oee_report import (
+			production_oee_report as oee,
+		)
+
+		days, workstations = 60, 40
+		base = datetime.datetime(2026, 1, 1, 8)
+		windows, shift_dates, groups, downtime_rows = {}, {}, {}, []
+		for d in range(days):
+			start = base + datetime.timedelta(days=d)
+			windows[f"S{d}"] = (start, start + datetime.timedelta(hours=8))
+			shift_dates[f"S{d}"] = str(start.date())
+			for w in range(workstations):
+				key = (str(start.date()), f"WS{w}")
+				groups[key] = oee._new_group(*key)
+				groups[key]["entry_shifts"] = {f"SE{d}-{w}": f"S{d}"}
+				groups[key]["loss_rows"] = [
+					{"parent": f"SE{d}-{w}", "start_time": "09:00:00", "end_time": "09:30:00", "shift": ""}
+				]
+				downtime_rows.append(
+					{
+						"workstation": f"WS{w}",
+						"from_time": start + datetime.timedelta(hours=1),
+						"to_time": start + datetime.timedelta(hours=2),
+						"custom_pea_shift": f"S{d}",
+					}
+				)
+
+		def no_reread(*_args: Any, **_kwargs: Any) -> list:
+			raise AssertionError("Loss Entry must not be re-read")
+
+		real_sum = oee._sum_machine_downtime_hours
+		rows_per_call: list[int] = []
+
+		def spy(group: dict, windows_: dict, dates: dict, rows: list[dict], *args: Any) -> Any:
+			self.assertTrue(all(row["workstation"] == group["workstation"] for row in rows))
+			rows_per_call.append(len(rows))
+			return real_sum(group, windows_, dates, rows, *args)
+
+		with (
+			patch.object(oee, "_get_downtime_rows", return_value=downtime_rows),
+			patch.object(oee, "get_report_rows", side_effect=no_reread),
+			patch.object(oee, "_sum_machine_downtime_hours", side_effect=spy),
+		):
+			result = oee._get_machine_downtime_by_group(groups, lambda: None, windows, shift_dates, {})
+
+		self.assertEqual(len(result), days * workstations)
+		self.assertAlmostEqual(
+			next(iter(result.values()))[0], 0.5, places=4
+		)  # 1h downtime less 30m covered loss
+		self.assertEqual(set(rows_per_call), {days})
