@@ -2686,19 +2686,6 @@ class TestProductionReports(FrappeTestCase):
 		self.assertAlmostEqual(overall["standard_spm"], 6.0, places=6)
 		self.assertAlmostEqual(overall["operator_efficiency_pct"], 20 / 6 * 100, places=6)
 
-	def test_efficiency_total_units_includes_rework_per_row_and_overall(self) -> None:
-		from production_entry_app.production_entry_app.report.report_utils import (
-			aggregate_efficiency_by_field,
-			build_efficiency_rows_with_overall,
-		)
-
-		# fg_completed_qty 100 = 95 good + 3 rework + 2 rejected
-		entry = {"_good_qty": 95, "_rejection_qty": 2, "_rework_qty": 3}
-		for field, label in (("custom_pea_operator", "operator"), ("custom_pea_workstation", "workstation")):
-			aggregates = aggregate_efficiency_by_field([{**entry, field: "X"}], field)
-			rows = build_efficiency_rows_with_overall(aggregates, label, f"{label}_efficiency_pct")
-			self.assertEqual([row["total_units"] for row in rows], [100, 100])
-
 	def test_efficiency_overall_row_is_omitted_without_data(self) -> None:
 		from production_entry_app.production_entry_app.report.report_utils import (
 			build_efficiency_rows_with_overall,
@@ -2858,6 +2845,10 @@ class TestProductionReports(FrappeTestCase):
 		self.assertEqual(float(operator_rows[0]["rework_qty"]), 3.0)
 		self.assertEqual(float(workstation_rows[0]["rejection_qty"]), 2.0)
 		self.assertEqual(float(workstation_rows[0]["rework_qty"]), 3.0)
+		self.assertEqual(float(operator_rows[0]["total_units"]), 100.0)  # fg_completed_qty
+		self.assertEqual(float(operator_rows[-1]["total_units"]), 100.0)  # fg_completed_qty
+		self.assertEqual(float(workstation_rows[0]["total_units"]), 100.0)  # fg_completed_qty
+		self.assertEqual(float(workstation_rows[-1]["total_units"]), 100.0)  # fg_completed_qty
 		self.assertEqual(float(oee_rows[0]["rejection"]), 5.0)
 		self.assertEqual(float(oee_rows[0]["quality_pct"]), 95.0)
 		self.assertEqual(float(daily_rows[0]["rejection"]), 2.0)
