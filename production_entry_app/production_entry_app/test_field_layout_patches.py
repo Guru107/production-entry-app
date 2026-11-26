@@ -98,6 +98,8 @@ class TestFieldOrderPatches(FrappeTestCase):
 
 class TestCustomFieldLayoutPatches(FrappeTestCase):
 	def _snapshot(self) -> list[tuple]:
+		# idx is deliberately excluded: reorder_manufacture_press_fields_v2 is a shipped patch whose
+		# idx drifts on re-run; insert_after is what drives field order.
 		return frappe.get_all(
 			"Custom Field",
 			filters={"dt": "Stock Entry", "module": "Production Entry App"},
@@ -121,6 +123,7 @@ class TestCustomFieldLayoutPatches(FrappeTestCase):
 
 class TestCleanupPatches(FrappeTestCase):
 	def _make_report(self, name: str, is_standard: str, module: str) -> None:
+		frappe.db.delete("Report", {"name": name})
 		frappe.get_doc(
 			{
 				"doctype": "Report",
