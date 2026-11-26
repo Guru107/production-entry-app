@@ -130,7 +130,8 @@ Production Entries of that Company and Branch minus quantity consumed by submitt
 Company and Branch. It is fungible per item within a Company and Branch — Rework Operations do not attribute parts
 back to source entries, and never consume another Company's or Branch's pool. Branch scoping applies only where the
 host-owned `Stock Entry.branch` exists (see Branch Ownership Handoff); without it the pool is per Company. A blank
-branch is its own bucket. Blank-item breakup rows are valid only when the Stock Entry has one rejected Item;
+branch is its own bucket: a Rework Operation without a Branch draws only on it, and its over-consumption error names
+the bucket and hints to set Branch. Blank-item breakup rows are valid only when the Stock Entry has one rejected Item;
 multi-item rejections must name the Item on each breakup row so the pool cannot silently fan out or drop quantity.
 Manual scrap write-offs do not drain it, so reports show it beside the actual Rejection Warehouse balance.
 _Avoid_: Rework backlog document, rework warehouse balance

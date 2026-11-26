@@ -103,12 +103,25 @@ def validate_rework_submission(doc: Document) -> None:
 		if requested_qty <= available_qty:
 			continue
 		frappe.throw(
-			_("Cannot submit rework for item {0}: requested {1}. Available quantity is {2}.").format(
+			_("Cannot submit rework for item {0}: requested {1}. Available quantity is {2} in {3}.").format(
 				frappe.bold(frappe.utils.escape_html(item_code)),
 				requested_qty,
 				available_qty,
+				_describe_pool_bucket(doc.get("company"), doc.get("branch")),
 			)
 		)
+
+
+def _describe_pool_bucket(company: str | None, branch: str | None) -> str:
+	"""Name the bucket a rework entry was checked against, with a hint for a blank branch."""
+	label = _("Company {0}").format(frappe.bold(frappe.utils.escape_html(company or "")))
+	if not stock_entry_has_branch_field():
+		return label
+	if branch:
+		return _("{0}, Branch {1}").format(label, frappe.bold(frappe.utils.escape_html(branch)))
+	return _(
+		"{0}, no Branch. Pending rework may exist under a Branch: set Branch on this entry and retry"
+	).format(label)
 
 
 def apply_rework_source_warehouse(doc: Document) -> None:

@@ -256,6 +256,36 @@ class TestPendingReworkPool(FrappeTestCase):
 			doc.branch = "Branch Y"
 			rework.validate_rework_submission(doc)
 
+	def test_blank_branch_overdraw_names_bucket_and_hints_to_set_branch(self) -> None:
+		if not stock_entry_has_branch_field():
+			self.skipTest("Stock Entry.branch is host-owned and absent on this site")
+		self._insert_production_source(
+			stock_entry_type=self.normal_type,
+			breakups=[(None, None, 5)],
+			rejection_items=[self.item_a],
+			branch="Branch Y",
+		)
+		doc = self._rework_doc("REWORK-BLANK-BRANCH", [(self.item_a, 1)])
+		doc.branch = ""
+
+		with (
+			patch.object(rework, "_validate_rework_route"),
+			self.assertRaisesRegex(
+				frappe.ValidationError,
+				rf"Available quantity is 0\.0 in Company .*{self.company}.*, no Branch\. "
+				r"Pending rework may exist under a Branch: set Branch on this entry",
+			),
+		):
+			rework.validate_rework_submission(doc)
+
+		doc.branch = "Branch X"
+		with (
+			patch.object(rework, "_validate_rework_route"),
+			self.assertRaisesRegex(frappe.ValidationError, r"Branch .*Branch X") as raised,
+		):
+			rework.validate_rework_submission(doc)
+		self.assertNotIn("set Branch", str(raised.exception))
+
 	def test_pool_is_per_company_without_stock_entry_branch_field(self) -> None:
 		for branch in ("Branch X", None):
 			self._insert_production_source(

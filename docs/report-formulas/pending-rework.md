@@ -10,6 +10,8 @@ no `Stock Entry.branch`). Optional Company, Branch and Item filters narrow the b
 - `Rejection Warehouse Balance = sum(Bin.actual_qty for the rejection warehouses used by the bucket's contributing entries)`
 - `Pool - Warehouse = Derived Pending Qty - Rejection Warehouse Balance`
 
+When branches of one Company share a rejection warehouse, each branch row shows that warehouse's full Bin balance.
+
 Indented rows break the flagged quantity down by contributing Production Entry, Rejection Reason, and Rejection
 Warehouse. Rework Operations consume a fungible item pool within their Company and Branch, so those source rows explain where the flagged quantity
 came from; they do not claim that a later Rework Operation consumed a specific source entry or reason.
