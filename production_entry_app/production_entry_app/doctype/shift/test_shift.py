@@ -604,21 +604,30 @@ class TestShiftPureHelpers(FrappeTestCase):
 		shift.shift_label = None
 		shift._validate_unique_shift_label_per_date()
 
+	def test_active_reason_checker_reads_downtime_reasons_in_one_query(self) -> None:
+		frappe.clear_cache()
+		with patch(
+			"production_entry_app.production_entry_app.doctype.shift.shift.frappe.get_all",
+			wraps=frappe.get_all,
+		) as get_all:
+			is_active = shift_module._get_active_downtime_reason_checker()
+			for reason in ("10", "13", "14", "19", "20", "missing"):
+				is_active(reason)
+
+		reason_reads = [c for c in get_all.call_args_list if c.args and c.args[0] == "Downtime Reason"]
+		self.assertEqual(len(reason_reads), 1)
+		self.assertFalse(is_active("missing"))
+
 	def test_populate_planned_losses_skips_inactive_or_missing_reasons(self) -> None:
 		shift = frappe.new_doc("Shift")
 		shift.shift_date = "2099-01-01"
 		shift.planned_start_time = "08:00:00"
 		shift.shift_duration = "8"
-		meta = type("Meta", (), {"has_field": lambda self, fieldname: True})()
 		with patch(
-			"production_entry_app.production_entry_app.doctype.shift.shift.frappe.get_meta",
-			return_value=meta,
+			"production_entry_app.production_entry_app.doctype.shift.shift.frappe.get_all",
+			return_value=[],
 		):
-			with patch(
-				"production_entry_app.production_entry_app.doctype.shift.shift.frappe.db.exists",
-				return_value=False,
-			):
-				shift._populate_planned_losses()
+			shift._populate_planned_losses()
 
 		self.assertEqual(shift.planned_losses, [])
 
@@ -635,8 +644,8 @@ class TestShiftPureHelpers(FrappeTestCase):
 			),
 		):
 			with patch(
-				"production_entry_app.production_entry_app.doctype.shift.shift.frappe.db.exists",
-				return_value=True,
+				"production_entry_app.production_entry_app.doctype.shift.shift.frappe.get_all",
+				return_value=[frappe._dict(name=reason) for reason in ("10", "13", "14", "19", "20")],
 			):
 				shift._populate_planned_losses()
 

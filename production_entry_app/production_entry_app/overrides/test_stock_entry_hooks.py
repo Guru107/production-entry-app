@@ -1310,6 +1310,19 @@ class TestStockEntryHooks(FrappeTestCase):
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit - needed to persist cleanup
 		super().tearDownClass()
 
+	def test_shift_defaults_see_shift_edit_after_cache_warmed(self) -> None:
+		"""Guards the get_cached_doc read: a Shift saved earlier in the request must not be stale."""
+		shift = _create_test_shift(shift_date="2026-04-11")
+		frappe.get_cached_doc("Shift", shift.name)
+		new_wip = ensure_warehouse(f"Shift Edit WIP - {get_company_abbr(self.company)}", self.company)
+		shift.work_in_progress_warehouse = new_wip
+		shift.save()
+
+		doc = frappe._dict(custom_pea_shift=shift.name, docstatus=0)
+		stock_entry_hooks._apply_shift_defaults(doc)
+
+		self.assertEqual(doc.from_warehouse, new_wip)
+
 	def test_shift_reference_auto_fills_branch(self) -> None:
 		if not frappe.db.exists("Branch", "Test Branch SE"):
 			frappe.get_doc({"doctype": "Branch", "branch": "Test Branch SE"}).insert(ignore_permissions=True)
@@ -4575,7 +4588,7 @@ class TestGetItemsWithRejection(FrappeTestCase):
 		with self.assertRaisesRegex(ValidationError, "is not part of BOM"):
 			se.run_method("validate")
 
-	def test_alternative_allowed_lookup_includes_child_bom_items(self) -> None:
+	def test_alternative_allowed_lookup_ignores_child_bom_items(self) -> None:
 		suffix = frappe.generate_hash(length=8)
 		parent_fg = _get_or_create_item(f"_Test Parent FG Alt {suffix}")
 		child_fg = _get_or_create_item(f"_Test Child FG Alt {suffix}")
@@ -4612,7 +4625,8 @@ class TestGetItemsWithRejection(FrappeTestCase):
 		parent_bom.insert(ignore_permissions=True)
 		parent_bom.submit()
 
-		self.assertIn(child_rm, get_bom_alternative_allowed_items(parent_bom.name))
+		# ADR 0003: production BOMs are single-level, so sub-assembly items are not alternatives.
+		self.assertNotIn(child_rm, get_bom_alternative_allowed_items(parent_bom.name))
 
 	def test_get_or_create_bom_does_not_reuse_bom_with_different_alternative_flag(self) -> None:
 		suffix = frappe.generate_hash(length=8)
