@@ -413,6 +413,8 @@ class TestSeedStandardMasters(FrappeTestCase):
 	def _delete_standard_masters(self) -> None:
 		frappe.db.delete("Rejection Reason", {"name": ["in", lifecycle.STANDARD_REJECTION_REASONS]})
 		frappe.db.delete("Stock Entry Type", {"name": ["in", list(lifecycle.STANDARD_STOCK_ENTRY_TYPES)]})
+		for flag_fieldname in lifecycle.STOCK_ENTRY_TYPE_FLAG_FIELDNAMES:
+			frappe.db.delete("Stock Entry Type", {flag_fieldname: 1})
 		frappe.db.delete("Role", {"name": ["in", lifecycle.APP_ROLES]})
 
 	def test_seed_creates_missing_masters_with_standard_values(self) -> None:
@@ -448,6 +450,21 @@ class TestSeedStandardMasters(FrappeTestCase):
 		self.assertEqual(frappe.db.get_value("Rejection Reason", "Crack", "is_active"), 0)
 		self.assertEqual(frappe.db.get_value("Stock Entry Type", "Rework", "add_to_transit"), 1)
 		self.assertEqual(frappe.db.get_value("Role", "PEA User", "two_factor_auth"), 1)
+
+	def test_seed_skips_a_missing_standard_type_whose_flag_moved_to_another_type(self) -> None:
+		frappe.db.delete("Stock Entry Type", {"name": "Joint Production"})
+		frappe.db.set_value(
+			"Stock Entry Type", {"custom_pea_joint_production": 1}, "custom_pea_joint_production", 0
+		)
+		own_type = _seed_flagged_stock_entry_type("custom_pea_joint_production")
+
+		lifecycle.seed_standard_masters()
+
+		self.assertFalse(frappe.db.exists("Stock Entry Type", "Joint Production"))
+		self.assertEqual(
+			frappe.get_all("Stock Entry Type", filters={"custom_pea_joint_production": 1}, pluck="name"),
+			[own_type],
+		)
 
 	def test_seed_twice_is_a_noop_on_the_second_run(self) -> None:
 		lifecycle.seed_standard_masters()

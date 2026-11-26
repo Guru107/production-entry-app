@@ -149,6 +149,9 @@ def seed_standard_masters() -> None:
 	for reason in STANDARD_REJECTION_REASONS:
 		_insert_if_missing("Rejection Reason", reason, {"rejection_reason_name": reason, "is_active": 1})
 	for name, (purpose, flag_fieldname) in STANDARD_STOCK_ENTRY_TYPES.items():
+		# Only one type may carry each flag; a site that moved it to its own type keeps that choice.
+		if frappe.db.exists("Stock Entry Type", {flag_fieldname: 1}):
+			continue
 		_insert_if_missing(
 			"Stock Entry Type", name, {"__newname": name, "purpose": purpose, flag_fieldname: 1}
 		)

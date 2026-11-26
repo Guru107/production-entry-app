@@ -91,12 +91,11 @@ authoritative for their topics; this record covers the remaining seams.
   pairings, not two names for one use case: Joint LH/RH Production pairs different finished items, and
   Joint Production pairs two BOMs of one finished item whose inputs differ. (The Joint Production
   pairing description here was superseded by ADR 0008, which generalizes Joint Production to N BOM
-  lines with unconstrained output composition; Joint LH/RH Production is unchanged.) Frappe fixture
-  import deletes
-  and re-inserts each shipped record with validation on during every migrate, so edits to a shipped record
-  are reset by migrate and flagging a second type for the same pairing makes migrate fail. Exactly one
-  type per pairing is the design intent. How that uniqueness is enforced is an implementation detail that
-  may change without changing this decision.
+  lines with unconstrained output composition; Joint LH/RH Production is unchanged.) They are
+  create-only seeds, not fixtures (#248): migrate creates a shipped type only when it is missing and no
+  other type already carries its flag, and never modifies an existing one, so edits to a shipped type
+  survive migrate. Exactly one type per pairing is the design intent. How that uniqueness is enforced is
+  an implementation detail that may change without changing this decision.
 
 ## Production-row normalization before native validate
 
@@ -161,8 +160,8 @@ authoritative for their topics; this record covers the remaining seams.
   and clears `set_basic_rate_manually` before the app hook restores the manual BOM rate. Declaring
   `valuation_type = "Manual"` on those rows is the native channel that makes the controller keep the rate.
 - One Stock Entry Type may be flagged for each pairing, Joint LH/RH Production and Joint Production.
-  A second type with the same flag is rejected. A site that wants another name changes the fixture, not
-  the record.
+  A second type with the same flag is rejected. A site that wants another name renames the record or
+  moves the flag to its own type; migrate then leaves the shipped name uncreated.
 - Rework submits contend on Item rows and on the flagged Stock Entry Type row; high rework volume across
   many items still serialises.
 - The BOM section is unavailable for non-Manufacture purposes by design; the native toolbar Bill of
