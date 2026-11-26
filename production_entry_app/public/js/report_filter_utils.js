@@ -20,6 +20,32 @@
 		];
 	}
 
+	// Workstation / Shift / Operator / FG Item / BOM: the filter set most reports share.
+	function get_production_dimension_filters() {
+		return [
+			{
+				fieldname: "custom_pea_workstation",
+				label: __("Workstation"),
+				fieldtype: "Link",
+				options: "Workstation",
+			},
+			{
+				fieldname: "custom_pea_shift",
+				label: __("Shift"),
+				fieldtype: "Link",
+				options: "Shift",
+			},
+			{
+				fieldname: "custom_pea_operator",
+				label: __("Operator"),
+				fieldtype: "Link",
+				options: "Operator",
+			},
+			{ fieldname: "fg_item", label: __("FG Item"), fieldtype: "Link", options: "Item" },
+			{ fieldname: "bom_no", label: __("BOM"), fieldtype: "Link", options: "BOM" },
+		];
+	}
+
 	function get_operation_filter() {
 		return {
 			fieldname: "custom_pea_operation",
@@ -103,6 +129,7 @@
 		overall_row_formatter,
 		get_standard_report_date_filters,
 		get_operation_filter,
+		get_production_dimension_filters,
 		get_year_month_filters,
 		validate_report_date_range,
 	};

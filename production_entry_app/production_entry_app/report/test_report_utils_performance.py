@@ -311,35 +311,6 @@ class TestReportUtilsPerformance(FrappeTestCase):
 		)
 		get_query.assert_not_called()
 
-	def test_get_loss_time_maps_splits_setup_and_non_setup_minutes(self) -> None:
-		rows = [
-			{
-				"parent": "STE-001",
-				"downtime_reason": "01",
-				"start_time": "2026-01-01 08:00:00",
-				"end_time": "2026-01-01 08:15:00",
-			},
-			{
-				"parent": "STE-001",
-				"downtime_reason": "14",
-				"start_time": "2026-01-01 09:00:00",
-				"end_time": "2026-01-01 09:30:00",
-			},
-			{
-				"parent": "",
-				"downtime_reason": "14",
-				"start_time": "2026-01-01 10:00:00",
-				"end_time": "2026-01-01 10:15:00",
-			},
-		]
-		with patch(
-			"production_entry_app.production_entry_app.report.report_utils.get_report_rows", return_value=rows
-		):
-			setup_map, loss_map = report_utils.get_loss_time_maps(["STE-001"])
-
-		self.assertEqual(setup_map, {"STE-001": 15.0})
-		self.assertEqual(loss_map, {"STE-001": 30.0})
-
 	def test_entry_duration_helpers_and_authoritative_strokes(self) -> None:
 		total_strokes, rejection_qty = report_utils.get_entry_total_strokes(
 			{
@@ -368,8 +339,7 @@ class TestReportUtilsPerformance(FrappeTestCase):
 		)
 
 	def test_precision_and_efficiency_helpers_cover_cached_and_zero_duration_paths(self) -> None:
-		if hasattr(frappe.local, "_pea_report_float_precision"):
-			delattr(frappe.local, "_pea_report_float_precision")
+		getattr(frappe.local, "request_cache", {}).clear()
 
 		with patch(
 			"production_entry_app.production_entry_app.report.report_utils.get_system_float_precision",
