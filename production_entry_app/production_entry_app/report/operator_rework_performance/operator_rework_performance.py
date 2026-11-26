@@ -14,8 +14,10 @@ from production_entry_app.production_entry_app.report.report_utils import (
 	get_parent_quantity_metrics,
 	get_report_rows,
 	iter_stock_entries_in_chunks,
+	limit_breakup_rows_to_lines,
 	merge_aggregates,
 	safe_ratio,
+	select_filtered_output_lines,
 )
 
 
@@ -87,15 +89,19 @@ def _get_rows(filters: dict) -> list[dict]:
 			"custom_pea_actual_end_date",
 		],
 	):
-		has_entries = True
+		entries, line_totals = select_filtered_output_lines(entries, filters, is_rework=True)
 		entry_names = [entry.get("name") for entry in entries if entry.get("name")]
 		if not entry_names:
 			continue
+		has_entries = True
 		parent_quantity_metrics = get_parent_quantity_metrics(entry_names, include_rework=True)
-		breakup_rows = get_report_rows(
-			"Rejection Breakup",
-			filters={"parenttype": "Stock Entry", "parent": ["in", entry_names], "is_rework": 1},
-			fields=["parent", "rejection_reason", "qty"],
+		breakup_rows = limit_breakup_rows_to_lines(
+			get_report_rows(
+				"Rejection Breakup",
+				filters={"parenttype": "Stock Entry", "parent": ["in", entry_names], "is_rework": 1},
+				fields=["parent", "rejection_reason", "qty"],
+			),
+			line_totals,
 		)
 		for entry in entries:
 			entry_name = entry.get("name")
@@ -107,6 +113,8 @@ def _get_rows(filters: dict) -> list[dict]:
 					entry_metrics.get("total_rejected_qty") or 0
 				)
 			rework_qty = flt(entry.get("custom_pea_rework_qty") or entry_metrics.get("rework_qty") or 0)
+			if line := line_totals.get(entry_name):
+				total_qty, rework_qty = line["total_qty"], line["quality_qty"]
 			agg = agg_by_operator.setdefault(operator, _empty_agg())
 			agg["entries"] += 1
 			agg["total_qty"] += total_qty

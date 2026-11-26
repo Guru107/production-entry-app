@@ -14,7 +14,11 @@ from frappe.tests.utils import FrappeTestCase
 from frappe.utils import flt
 
 from production_entry_app.production_entry_app.doctype.shift.shift import invalidate_shift_summary_cache
-from production_entry_app.production_entry_app.joint_production import JOINT_LH_RH_STOCK_ENTRY_TYPE
+from production_entry_app.production_entry_app.joint_production import (
+	JOINT_LH_RH_STOCK_ENTRY_TYPE,
+	JOINT_PRODUCTION_LINES_FIELD,
+	JOINT_PRODUCTION_STOCK_ENTRY_TYPE,
+)
 from production_entry_app.production_entry_app.overrides.test_stock_entry_hooks import (
 	_append_rejection_breakup_rows,
 	_create_manufacture_stock_entry,
@@ -5464,6 +5468,314 @@ class TestProductionReports(FrappeTestCase):
 		_, rows = execute({"from_date": "2026-08-06", "to_date": "2026-08-06"})
 		self.assertEqual(len(rows), 2)  # rows + Overall Row
 		self.assertEqual(float(rows[0]["working_hours"]), 10.0)
+
+	# ── BOM / FG Item filters: per-line attribution of joint entries (#264) ──
+
+	def _create_mock_joint_lh_rh_quality_entry(self, day: str, *, is_rework: int = 0) -> frappe._dict:
+		"""Joint LH/RH entry: LH BOM-A gross 100 with 10 Crack; RH BOM-B gross 100 with none."""
+		shift = self._create_shift_for_label(day, "1")
+		lh_item = _get_or_create_item("_Test FG Item For Reports LH")
+		rh_item = _get_or_create_item("_Test FG Item For Reports RH")
+		entry = self._create_mock_submitted_entry_with_breakup(
+			posting_date=day,
+			planned_start=f"{day} 08:00:00",
+			planned_end=f"{day} 09:00:00",
+			actual_start=f"{day} 08:00:00",
+			actual_end=f"{day} 09:00:00",
+			fg_qty=100,
+			fg_item=lh_item,
+			shift_name=shift.name,
+			breakup_rows=[{"rejection_reason": "Crack", "qty": 10, "is_rework": is_rework}],
+		)
+		self._configure_mock_joint_entry(
+			entry, operation=ensure_operation("Shearing"), lh_gross=100, rh_gross=100
+		)
+		suffix = frappe.generate_hash(length=8)
+		bom_a, bom_b = f"BOM-A-{suffix}", f"BOM-B-{suffix}"
+		frappe.db.set_value(
+			"Stock Entry",
+			entry.name,
+			{
+				"custom_pea_lh_bom": bom_a,
+				"custom_pea_rh_bom": bom_b,
+				"custom_pea_lh_rejection_qty": 0 if is_rework else 10,
+				"custom_pea_rejection_qty": 10,
+				"custom_pea_rework_qty": 10 if is_rework else 0,
+				"fg_completed_qty": 200,
+			},
+			update_modified=False,
+		)
+		frappe.db.set_value(
+			"Rejection Breakup", {"parent": entry.name}, "output_side", "LH", update_modified=False
+		)
+		frappe.db.set_value(
+			"Stock Entry Detail",
+			{"parent": entry.name, "item_code": lh_item},
+			"custom_pea_joint_output_side",
+			"LH",
+			update_modified=False,
+		)
+		frappe.get_doc(
+			{
+				"doctype": "Stock Entry Detail",
+				"parent": entry.name,
+				"parenttype": "Stock Entry",
+				"parentfield": "items",
+				"item_code": rh_item,
+				"qty": 100,
+				"uom": "Nos",
+				"stock_uom": "Nos",
+				"conversion_factor": 1,
+				"t_warehouse": self.fg_warehouse,
+				"is_finished_item": 1,
+				"custom_pea_joint_output_side": "RH",
+			}
+		).insert(ignore_permissions=True)
+		return frappe._dict(
+			name=entry.name, day=day, bom_a=bom_a, bom_b=bom_b, lh_item=lh_item, rh_item=rh_item
+		)
+
+	def _joint_line_filter_cases(self, joint: frappe._dict) -> list[tuple[dict, float]]:
+		"""(report filters, expected attributed quality qty): each filter picks one 100-gross line."""
+		dates = {"from_date": joint.day, "to_date": joint.day}
+		return [
+			({**dates, "bom_no": joint.bom_b}, 0),
+			({**dates, "bom_no": joint.bom_a}, 10),
+			({**dates, "fg_item": joint.rh_item}, 0),
+			({**dates, "fg_item": joint.lh_item}, 10),
+		]
+
+	def test_rejection_ppm_report_attributes_only_matching_joint_line(self) -> None:
+		from production_entry_app.production_entry_app.report.rejection_ppm_report.rejection_ppm_report import (
+			execute,
+		)
+
+		joint = self._create_mock_joint_lh_rh_quality_entry("2093-03-01")
+		for filters, rejection in self._joint_line_filter_cases(joint):
+			with self.subTest(filters=filters):
+				_, rows, _, _ = execute(filters)
+				self.assertEqual(rows[0]["entries"], 1)
+				self.assertEqual(flt(rows[0]["total_qty"]), 100.0)
+				self.assertEqual(flt(rows[0]["rejection_qty"]), rejection)
+				self.assertEqual(flt(rows[-1]["ppm"]), rejection / 100 * 1_000_000)
+
+		# Without a BOM / FG Item filter the whole entry still counts.
+		shift = frappe.db.get_value("Stock Entry", joint.name, "custom_pea_shift")
+		_, rows, _, _ = execute({"from_date": joint.day, "to_date": joint.day, "custom_pea_shift": shift})
+		self.assertEqual((flt(rows[0]["total_qty"]), flt(rows[0]["rejection_qty"])), (200.0, 10.0))
+
+	def test_rework_ppm_report_attributes_only_matching_joint_line(self) -> None:
+		from production_entry_app.production_entry_app.report.rework_ppm_report.rework_ppm_report import (
+			execute,
+		)
+
+		joint = self._create_mock_joint_lh_rh_quality_entry("2093-03-02", is_rework=1)
+		for filters, rework in self._joint_line_filter_cases(joint):
+			with self.subTest(filters=filters):
+				_, rows, _, _ = execute(filters)
+				self.assertEqual(flt(rows[0]["total_qty"]), 100.0)
+				self.assertEqual(flt(rows[0]["rework_qty"]), rework)
+				self.assertEqual(flt(rows[-1]["ppm"]), rework / 100 * 1_000_000)
+
+	def test_rejection_trend_report_attributes_only_matching_joint_line(self) -> None:
+		from production_entry_app.production_entry_app.report.rejection_trend_report.rejection_trend_report import (
+			execute,
+		)
+
+		joint = self._create_mock_joint_lh_rh_quality_entry("2093-03-03")
+		for filters, rejection in self._joint_line_filter_cases(joint):
+			with self.subTest(filters=filters):
+				_, rows, _, _ = execute(filters)
+				self.assertEqual(flt(rows[0]["total_qty"]), 100.0)
+				self.assertEqual(flt(rows[0]["rejection_qty"]), rejection)
+				self.assertEqual(flt(rows[0]["ok_qty"]), 100.0 - rejection)
+				self.assertEqual(flt(rows[-1]["rejection_rate_pct"]), rejection)
+
+	def test_rework_trend_report_attributes_only_matching_joint_line(self) -> None:
+		from production_entry_app.production_entry_app.report.rework_trend_report.rework_trend_report import (
+			execute,
+		)
+
+		joint = self._create_mock_joint_lh_rh_quality_entry("2093-03-04", is_rework=1)
+		for filters, rework in self._joint_line_filter_cases(joint):
+			with self.subTest(filters=filters):
+				_, rows, _, _ = execute(filters)
+				self.assertEqual(flt(rows[0]["total_qty"]), 100.0)
+				self.assertEqual(flt(rows[0]["rework_qty"]), rework)
+				self.assertEqual(flt(rows[0]["non_rework_rejection_qty"]), 0.0)
+				self.assertEqual(flt(rows[-1]["rework_rate_pct"]), rework)
+
+	def _assert_pareto_lists_only_matching_line_reasons(self, execute, joint, qty_field: str) -> None:
+		for filters, qty in self._joint_line_filter_cases(joint):
+			with self.subTest(filters=filters):
+				_, rows, _, _ = execute(filters)
+				if not qty:
+					self.assertEqual(rows, [])
+					continue
+				self.assertEqual(
+					[(row["rejection_reason"], flt(row[qty_field]), row["entries"]) for row in rows],
+					[("Crack", qty, 1)],
+				)
+
+	def test_rejection_pareto_report_attributes_only_matching_joint_line(self) -> None:
+		from production_entry_app.production_entry_app.report.rejection_pareto_report.rejection_pareto_report import (
+			execute,
+		)
+
+		joint = self._create_mock_joint_lh_rh_quality_entry("2093-03-05")
+		self._assert_pareto_lists_only_matching_line_reasons(execute, joint, "rejection_qty")
+
+	def test_rework_pareto_report_attributes_only_matching_joint_line(self) -> None:
+		from production_entry_app.production_entry_app.report.rework_pareto_report.rework_pareto_report import (
+			execute,
+		)
+
+		joint = self._create_mock_joint_lh_rh_quality_entry("2093-03-06", is_rework=1)
+		self._assert_pareto_lists_only_matching_line_reasons(execute, joint, "rework_qty")
+
+	def _assert_matrix_lists_only_matching_line_reasons(self, execute, joint, total_field: str) -> None:
+		for filters, qty in self._joint_line_filter_cases(joint):
+			with self.subTest(filters=filters):
+				_, rows = execute(filters)
+				if not qty:
+					self.assertEqual(rows, [])
+					continue
+				self.assertEqual(flt(rows[0][total_field]), qty)
+				self.assertEqual(flt(rows[0]["reason_1"]), qty)
+				self.assertEqual(flt(rows[-1][total_field]), qty)
+
+	def test_workstation_rejection_reason_matrix_attributes_only_matching_joint_line(self) -> None:
+		from production_entry_app.production_entry_app.report.workstation_rejection_reason_matrix.workstation_rejection_reason_matrix import (
+			execute,
+		)
+
+		joint = self._create_mock_joint_lh_rh_quality_entry("2093-03-07")
+		self._assert_matrix_lists_only_matching_line_reasons(execute, joint, "total_rejection_qty")
+
+	def test_workstation_rework_reason_matrix_attributes_only_matching_joint_line(self) -> None:
+		from production_entry_app.production_entry_app.report.workstation_rework_reason_matrix.workstation_rework_reason_matrix import (
+			execute,
+		)
+
+		joint = self._create_mock_joint_lh_rh_quality_entry("2093-03-08", is_rework=1)
+		self._assert_matrix_lists_only_matching_line_reasons(execute, joint, "total_rework_qty")
+
+	def _assert_operator_report_attributes_matching_line(
+		self, execute, joint, qty_field: str, rate_field: str
+	) -> None:
+		for filters, qty in self._joint_line_filter_cases(joint):
+			with self.subTest(filters=filters):
+				_, rows = execute(filters)
+				self.assertEqual(flt(rows[0]["total_qty"]), 100.0)
+				self.assertEqual(flt(rows[0][qty_field]), qty)
+				self.assertEqual(rows[0]["top_3_reasons"], "Crack (10)" if qty else "")
+				self.assertEqual(flt(rows[-1][rate_field]), qty)
+
+	def test_operator_rejection_performance_attributes_only_matching_joint_line(self) -> None:
+		from production_entry_app.production_entry_app.report.operator_rejection_performance.operator_rejection_performance import (
+			execute,
+		)
+
+		joint = self._create_mock_joint_lh_rh_quality_entry("2093-03-09")
+		self._assert_operator_report_attributes_matching_line(
+			execute, joint, "rejection_qty", "rejection_rate_pct"
+		)
+
+	def test_operator_rework_performance_attributes_only_matching_joint_line(self) -> None:
+		from production_entry_app.production_entry_app.report.operator_rework_performance.operator_rework_performance import (
+			execute,
+		)
+
+		joint = self._create_mock_joint_lh_rh_quality_entry("2093-03-10", is_rework=1)
+		self._assert_operator_report_attributes_matching_line(execute, joint, "rework_qty", "rework_rate_pct")
+
+	def test_bom_filter_ignores_bom_fields_of_another_entry_mode(self) -> None:
+		from production_entry_app.production_entry_app.report.rejection_ppm_report.rejection_ppm_report import (
+			execute,
+		)
+
+		joint = self._create_mock_joint_lh_rh_quality_entry("2093-03-11")
+		stale_line_bom = f"BOM-STALE-LINE-{frappe.generate_hash(length=8)}"
+		frappe.get_doc(
+			{
+				"doctype": "Joint Production Line",
+				"name": frappe.generate_hash(length=10),
+				"parent": joint.name,
+				"parenttype": "Stock Entry",
+				"parentfield": JOINT_PRODUCTION_LINES_FIELD,
+				"idx": 1,
+				"bom_no": stale_line_bom,
+				"gross_qty": 5,
+			}
+		).db_insert()
+		manufacture = self._create_mock_submitted_entry(
+			posting_date=joint.day,
+			planned_start=f"{joint.day} 10:00:00",
+			planned_end=f"{joint.day} 11:00:00",
+			actual_start=f"{joint.day} 10:00:00",
+			actual_end=f"{joint.day} 11:00:00",
+			fg_qty=50,
+			rejection_qty=0,
+			shift_name=frappe.db.get_value("Stock Entry", joint.name, "custom_pea_shift"),
+		)
+		stale_header_bom = f"BOM-STALE-HEADER-{frappe.generate_hash(length=8)}"
+		frappe.db.set_value(
+			"Stock Entry", manufacture.name, "custom_pea_lh_bom", stale_header_bom, update_modified=False
+		)
+
+		self.assertEqual(get_stock_entries_for_bom(joint.bom_a, filters={"docstatus": 1}), [joint.name])
+		self.assertEqual(get_stock_entries_for_bom(stale_line_bom, filters={"docstatus": 1}), [])
+		self.assertEqual(get_stock_entries_for_bom(stale_header_bom, filters={"docstatus": 1}), [])
+		_, rows, _, _ = execute({"from_date": joint.day, "to_date": joint.day, "bom_no": stale_line_bom})
+		self.assertEqual(rows, [])
+
+	def test_bom_filter_reads_lh_rh_bom_only_for_line_less_joint_production(self) -> None:
+		day = "2093-03-12"
+		shift = self._create_shift_for_label(day, "1")
+		suffix = frappe.generate_hash(length=8)
+		stale_bom, legacy_bom = f"BOM-STALE-LH-{suffix}", f"BOM-LEGACY-LH-{suffix}"
+		names = []
+		for hour, lh_bom in ((8, stale_bom), (10, legacy_bom)):
+			entry = self._create_mock_submitted_entry(
+				posting_date=day,
+				planned_start=f"{day} {hour:02d}:00:00",
+				planned_end=f"{day} {hour + 1:02d}:00:00",
+				actual_start=f"{day} {hour:02d}:00:00",
+				actual_end=f"{day} {hour + 1:02d}:00:00",
+				fg_qty=50,
+				rejection_qty=0,
+				shift_name=shift.name,
+			)
+			frappe.db.set_value(
+				"Stock Entry",
+				entry.name,
+				{
+					"purpose": "Repack",
+					"stock_entry_type": JOINT_PRODUCTION_STOCK_ENTRY_TYPE,
+					"custom_pea_lh_bom": lh_bom,
+				},
+				update_modified=False,
+			)
+			names.append(entry.name)
+		with_lines, line_less = names
+		frappe.get_doc(
+			{
+				"doctype": "Joint Production Line",
+				"name": frappe.generate_hash(length=10),
+				"parent": with_lines,
+				"parenttype": "Stock Entry",
+				"parentfield": JOINT_PRODUCTION_LINES_FIELD,
+				"idx": 1,
+				"bom_no": f"BOM-LINE-{suffix}",
+				"gross_qty": 50,
+			}
+		).db_insert()
+
+		self.assertEqual(get_stock_entries_for_bom(stale_bom, filters={"docstatus": 1}), [])
+		self.assertEqual(get_stock_entries_for_bom(legacy_bom, filters={"docstatus": 1}), [line_less])
+		self.assertEqual(
+			get_stock_entries_for_bom(f"BOM-LINE-{suffix}", filters={"docstatus": 1}), [with_lines]
+		)
 
 	def _configure_mock_joint_entry(
 		self,

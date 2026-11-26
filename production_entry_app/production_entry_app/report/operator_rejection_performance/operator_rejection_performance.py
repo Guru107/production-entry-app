@@ -14,8 +14,10 @@ from production_entry_app.production_entry_app.report.report_utils import (
 	get_parent_breakup_reason_rows,
 	get_parent_quantity_metrics,
 	iter_stock_entries_in_chunks,
+	limit_breakup_rows_to_lines,
 	merge_aggregates,
 	safe_ratio,
+	select_filtered_output_lines,
 )
 
 
@@ -86,12 +88,15 @@ def _get_rows(filters: dict) -> list[dict]:
 			"custom_pea_actual_end_date",
 		],
 	):
-		has_entries = True
+		entries, line_totals = select_filtered_output_lines(entries, filters, is_rework=False)
 		entry_names = [entry.get("name") for entry in entries if entry.get("name")]
 		if not entry_names:
 			continue
+		has_entries = True
 		parent_quantity_metrics = get_parent_quantity_metrics(entry_names)
-		breakup_rows = get_parent_breakup_reason_rows(entry_names, is_rework=False)
+		breakup_rows = limit_breakup_rows_to_lines(
+			get_parent_breakup_reason_rows(entry_names, is_rework=False), line_totals
+		)
 		for entry in entries:
 			entry_name = entry.get("name")
 			entry_metrics = parent_quantity_metrics.get(entry_name or "", {})
@@ -102,6 +107,8 @@ def _get_rows(filters: dict) -> list[dict]:
 				total_qty = flt(entry_metrics.get("good_qty") or 0) + flt(
 					entry_metrics.get("total_rejected_qty") or 0
 				)
+			if line := line_totals.get(entry_name):
+				total_qty, rejection_qty = line["total_qty"], line["quality_qty"]
 			agg = agg_by_operator.setdefault(operator, _empty_agg())
 			agg["entries"] += 1
 			agg["total_qty"] += total_qty
