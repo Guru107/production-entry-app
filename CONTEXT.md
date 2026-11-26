@@ -172,10 +172,15 @@ standard causes merge into their standard code. Reasons outside the standard set
 referenced a removed reason resolve to Other (00).
 _Avoid_: reason name as identity, free-text reason
 
+**OEE available time**:
+The shift time a Production OEE Report row can run in: each Shift of the row's Production Entries, plus each
+Completed Shift whose Machine Downtime the row counts, less planned losses. Shifts reached only through Downtime
+Entries with no Shift link add the union of their windows, so each clock minute counts once.
+_Avoid_: every Completed Shift that day, Shift duration summed across overlapping branches
+
 **OEE running time**:
 Time counted as actual production. It is zero when the workstation has no Production Entry. When Production
-Entries exist, it is the Completed Shift time remaining after planned losses, Production Entry losses, and
-Machine Downtime.
+Entries exist, it is the OEE available time remaining after Production Entry losses and Machine Downtime.
 _Avoid_: Shift duration
 
 **OEE Standard SPM**:

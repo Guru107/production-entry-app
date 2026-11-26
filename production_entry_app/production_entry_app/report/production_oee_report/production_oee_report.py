@@ -5,7 +5,7 @@ from collections.abc import Callable, Sequence
 
 import frappe
 from frappe import _
-from frappe.utils import flt, get_datetime, get_time
+from frappe.utils import flt, get_datetime
 
 from production_entry_app.production_entry_app.report.report_utils import (
 	apply_system_precision,
@@ -296,17 +296,22 @@ def _get_rows(
 	if not groups:
 		return []
 
-	_finalize_group_metrics(groups)
+	_finalize_group_metrics(groups, windows)
 	timeout_guard()
-	availability_hours_by_group = _get_availability_hours_by_group(groups, timeout_guard)
+	planned_by_shift = _planned_loss_intervals_by_shift(windows)
+	# Downtime first: it adds the shifts whose downtime counts to each group's available time.
 	machine_downtime_by_group = _get_machine_downtime_hours_by_group(
-		groups, timeout_guard, windows, shift_dates
+		groups, timeout_guard, windows, shift_dates, planned_by_shift
 	)
+	availability_hours_by_group = _get_availability_hours_by_group(groups, timeout_guard)
 
 	rows = []
 	for group in sorted(groups.values(), key=lambda row: (str(row["day"]), str(row["workstation"]))):
 		group_key = (group["day"], group["workstation"])
-		avl_time_hrs = flt(availability_hours_by_group.get(group_key) or 0)
+		avl_time_hrs = flt(
+			(availability_hours_by_group.get(group_key) or 0)
+			+ _unlinked_downtime_available_hours(group, windows, planned_by_shift)
+		)
 		machine_downtime = flt(machine_downtime_by_group.get(group_key) or 0)
 		if group.get("downtime_only") and machine_downtime <= 0:
 			continue
@@ -388,14 +393,23 @@ def _get_stock_entry_groups(
 	return groups
 
 
-def _finalize_group_metrics(groups: dict[tuple[str, str], dict]) -> None:
+def _finalize_group_metrics(
+	groups: dict[tuple[str, str], dict],
+	windows: dict[str, tuple[datetime.datetime, datetime.datetime]],
+) -> None:
 	workstation_spm = _get_workstation_standard_spm(
 		{str(group.get("workstation") or "") for group in groups.values()}
 	)
 	for group in groups.values():
 		group["reason_hours"] = {
-			key: _merged_interval_hours(intervals)
-			for key, intervals in (group.get("reason_intervals") or {}).items()
+			key: _merged_interval_hours(
+				[
+					interval
+					for start_time, end_time, shift_name in loss_times
+					if (interval := _resolve_loss_interval(start_time, end_time, windows.get(shift_name)))
+				]
+			)
+			for key, loss_times in (group.get("reason_intervals") or {}).items()
 		}
 		production_mins = flt(group.get("production_mins_sum") or 0)
 		weighted_sum = flt(group.get("standard_spm_weighted_sum") or 0)
@@ -421,25 +435,21 @@ def _get_workstation_standard_spm(workstations: set[str]) -> dict[str, float]:
 	}
 
 
-def _merged_interval_hours(intervals: list[tuple[float, float]]) -> float:
-	if not intervals:
-		return 0.0
-	merged = _merge_minute_intervals(intervals)
-	return flt(sum(max(end - start, 0) for start, end in merged) / 60)
+def _merged_interval_hours(intervals: list[tuple[datetime.datetime, datetime.datetime]]) -> float:
+	return flt(sum(get_interval_minutes(*interval) for interval in merge_intervals(intervals)) / 60)
 
 
-def _merge_minute_intervals(intervals: list[tuple[float, float]]) -> list[tuple[float, float]]:
-	ordered = sorted((flt(start), flt(end)) for start, end in intervals if flt(end) > flt(start))
-	if not ordered:
-		return []
-	merged: list[tuple[float, float]] = [ordered[0]]
-	for start, end in ordered[1:]:
-		last_start, last_end = merged[-1]
-		if start <= last_end:
-			merged[-1] = (last_start, max(last_end, end))
-			continue
-		merged.append((start, end))
-	return merged
+def _resolve_loss_interval(
+	start_time: str | datetime.time | None,
+	end_time: str | datetime.time | None,
+	window: tuple[datetime.datetime, datetime.datetime] | None,
+) -> tuple[datetime.datetime, datetime.datetime] | None:
+	"""Date a Loss Entry's clock times by the 24 hours centred on its shift window, unclipped."""
+	if not window:
+		return None
+	middle = window[0] + (window[1] - window[0]) / 2
+	half_day = datetime.timedelta(hours=12)
+	return resolve_time_interval_in_window(start_time, end_time, middle - half_day, middle + half_day)
 
 
 def _get_stock_entry_filters(filters: dict) -> dict:
@@ -645,6 +655,7 @@ def _get_machine_downtime_hours_by_group(
 	timeout_guard: Callable[[], None],
 	windows: dict[str, tuple[datetime.datetime, datetime.datetime]],
 	shift_dates: dict[str, str],
+	planned_by_shift: dict[str, list[tuple[datetime.datetime, datetime.datetime]]],
 ) -> dict[tuple[str, str], float]:
 	timeout_guard()
 	if not windows:
@@ -656,7 +667,6 @@ def _get_machine_downtime_hours_by_group(
 	timeout_guard()
 	downtime_rows = _get_downtime_rows(workstations, overall_start, overall_end)
 	covered_by_group = _get_covered_loss_intervals_by_group(groups, windows)
-	planned_by_shift = _planned_loss_intervals_by_shift(windows)
 	hours_by_group: dict[tuple[str, str], float] = {}
 	for key, group in groups.items():
 		timeout_guard()
@@ -709,7 +719,6 @@ def _add_downtime_only_groups(
 				continue
 			group = existing or _new_group(day, workstation)
 			group["downtime_only"] = True
-			group["shift_names"].add(shift_name)
 			groups[key] = group
 
 
@@ -825,9 +834,28 @@ def _sum_machine_downtime_hours(
 			continue
 		for shift_name, overlap in _downtime_overlaps_by_shift(row, day_windows):
 			blockers = [*covered_intervals, *planned_by_shift.get(shift_name, [])]
-			uncovered.extend(_subtract_intervals(overlap, blockers))
+			counted = _subtract_intervals(overlap, blockers)
+			if counted:
+				# The shift's available time counts with its downtime (ADR 0004).
+				shift_set = "shift_names" if row.get("custom_pea_shift") else "unlinked_downtime_shifts"
+				group.setdefault(shift_set, set()).add(shift_name)
+			uncovered.extend(counted)
 	total_mins = sum(get_interval_minutes(*interval) for interval in merge_intervals(uncovered))
 	return flt(total_mins / 60)
+
+
+def _unlinked_downtime_available_hours(
+	group: dict,
+	windows: dict[str, tuple[datetime.datetime, datetime.datetime]],
+	planned_by_shift: dict[str, list[tuple[datetime.datetime, datetime.datetime]]],
+) -> float:
+	"""Union of the unlinked-downtime shifts' windows less planned losses and minutes of `shift_names`."""
+	counted_windows = [windows[name] for name in group.get("shift_names", ()) if name in windows]
+	available: list[tuple[datetime.datetime, datetime.datetime]] = []
+	for shift_name in group.get("unlinked_downtime_shifts", ()):
+		blockers = [*planned_by_shift.get(shift_name, []), *counted_windows]
+		available.extend(_subtract_intervals(windows[shift_name], blockers))
+	return _merged_interval_hours(available)
 
 
 def _get_covered_loss_intervals_by_group(
@@ -990,15 +1018,16 @@ def _apply_loss_reason_row(
 		return
 
 	shift_label = _get_loss_shift_label(row, entry_meta, shift_label_by_name)
-	interval = _get_loss_minute_interval(row)
-	if shift_label not in ("1", "2") or not interval:
+	if shift_label not in ("1", "2"):
 		return
 
 	group = groups.get((entry_meta["day"], entry_meta["workstation"]))
 	if not group:
 		return
 	key = (reason_code, shift_label)
-	group.setdefault("reason_intervals", {}).setdefault(key, []).append(interval)
+	# Resolved to datetimes in _finalize_group_metrics, once the shift windows are loaded.
+	loss_times = (row.get("start_time"), row.get("end_time"), entry_meta["shift"])
+	group.setdefault("reason_intervals", {}).setdefault(key, []).append(loss_times)
 
 
 def _get_loss_shift_label(
@@ -1009,19 +1038,3 @@ def _get_loss_shift_label(
 	return shift_label_by_name.get(row.get("shift") or "") or shift_label_by_name.get(
 		entry_meta.get("shift") or ""
 	)
-
-
-def _get_loss_minute_interval(row: dict) -> tuple[float, float] | None:
-	start_time = row.get("start_time")
-	end_time = row.get("end_time")
-	if not start_time or not end_time:
-		return None
-	start = get_time(start_time)
-	end = get_time(end_time)
-	start_mins = (start.hour * 60) + start.minute + (start.second / 60)
-	end_mins = (end.hour * 60) + end.minute + (end.second / 60)
-	if end_mins < start_mins:
-		end_mins += 24 * 60
-	if end_mins <= start_mins:
-		return None
-	return flt(start_mins), flt(end_mins)
