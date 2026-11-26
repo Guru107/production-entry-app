@@ -207,17 +207,6 @@ class ShiftPage {
 		await this.page.waitForFunction(() => window.cur_frm?.doc?.status === "Running");
 	}
 
-	async clickCancelFromActions() {
-		await this.page.getByRole("button", { name: "Actions" }).click();
-		await this.page
-			.locator(".dropdown-menu:visible")
-			.getByText("Cancel", { exact: true })
-			.click();
-		const modal = this.page.locator(".modal:visible");
-		await expect(modal).toContainText("Cancel this shift?");
-		await modal.getByRole("button", { name: "Yes" }).click();
-	}
-
 	async cancelShift() {
 		await this.runDocAction("cancel_shift");
 		await this.page.waitForFunction(() => window.cur_frm?.doc?.status === "Cancelled");

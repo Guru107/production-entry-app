@@ -507,7 +507,7 @@ test.describe("Shift validations", () => {
 
 		const shiftPage = new ShiftPage(page);
 		await shiftPage.open(ctx.shift_name);
-		await shiftPage.clickCancelFromActions();
+		await shiftPage.clickActionAndConfirm("Cancel");
 		await expectValidationError(
 			page,
 			/Cannot cancel Shift .*: it has 1 submitted Stock Entry\(s\) linked/i
