@@ -418,10 +418,9 @@ def _get_shift_summary_cache_key(shift_name: str) -> str:
 def _get_cached_shift_summary(shift_name: str) -> dict | None:
 	"""Return a shared summary payload for this Shift.
 
-	Safe only while every reader of a Shift sees the same Stock Entry / Downtime Entry
-	set through get_list. Today that holds because Shift is single-branch and linked
-	entries carry that branch. Do not reuse this cache if Stock Entry gains per-user
-	filters that would make two readers of the same Shift see different rows.
+	The payload is built with permission-free reads, so it is the same shift-wide figure
+	whoever builds it. Callers must check Shift read and doctype-level read on every
+	source doctype before reading this cache; User Permissions do not narrow it.
 	"""
 	return frappe.cache().get_value(_get_shift_summary_cache_key(shift_name))
 
@@ -908,7 +907,7 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 		return empty_summary
 	shift, start_dt, end_dt = window
 
-	entry_rows = frappe.get_list(
+	entry_rows = frappe.get_all(
 		"Stock Entry",
 		filters={
 			"docstatus": 1,
@@ -950,7 +949,7 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 	item_by_bom = (
 		{
 			row.get("name"): row.get("item")
-			for row in frappe.get_list(
+			for row in frappe.get_all(
 				"BOM",
 				filters={"name": ["in", bom_names]},
 				fields=["name", "item"],
@@ -987,7 +986,7 @@ def get_shift_summary(shift_name: str | None = None) -> dict:
 		if entry_names
 		else []
 	)
-	logged_downtime_rows = frappe.get_list(
+	logged_downtime_rows = frappe.get_all(
 		"Downtime Entry",
 		filters=[
 			["custom_pea_shift", "=", shift_name],

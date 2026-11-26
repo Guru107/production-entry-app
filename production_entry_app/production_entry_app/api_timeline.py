@@ -76,9 +76,9 @@ def _get_cached_timeline_data(doctype: str, docname: str, shift_name: str) -> di
 	Cache is keyed by the shift's modified timestamp, so any change to the shift
 	automatically produces a different key, making the cache stale.
 
-	Shared across users: safe only while every reader of this Shift sees the same
-	Stock Entry / Downtime Entry rows through get_list (single-branch Shift model).
-	Do not reuse if Stock Entry gains per-user filters that diverge between readers.
+	Shared across users: the payload is built with permission-free reads, so callers
+	must check Shift read and doctype-level read on every source doctype before
+	reading it; User Permissions do not narrow it.
 	"""
 	return frappe.cache().get_value(_get_timeline_cache_key(doctype, docname, shift_name))
 
@@ -125,7 +125,7 @@ def get_shift_timeline_data(doctype: str, docname: str) -> dict:
 	)
 
 	filter_field = "custom_pea_workstation" if doctype == "Workstation" else "custom_pea_operator"
-	rows = frappe.get_list(
+	rows = frappe.get_all(
 		"Stock Entry",
 		filters={
 			"docstatus": 1,
@@ -190,7 +190,7 @@ def get_shift_timeline_data(doctype: str, docname: str) -> dict:
 		]
 		if frappe.get_meta("Downtime Entry", cached=True).is_submittable:
 			downtime_filters.append(["docstatus", "!=", 2])
-		downtime_rows = frappe.get_list(
+		downtime_rows = frappe.get_all(
 			"Downtime Entry",
 			filters=downtime_filters,
 			fields=[
