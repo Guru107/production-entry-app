@@ -13,8 +13,11 @@ from production_entry_app.production_entry_app.report.report_utils import (
 	new_interactive_report_timeout_guard,
 )
 from production_entry_app.production_entry_app.rework import (
+	PoolKey,
+	PoolScope,
 	_build_rework_produced_query,
-	_get_pending_rework_by_item,
+	_get_pending_rework_pool,
+	_pool_key_columns,
 )
 from production_entry_app.production_entry_app.utils.system_precision import get_system_float_precision
 
@@ -31,6 +34,20 @@ def execute(filters: dict | None = None) -> tuple[list[dict], list[dict]]:
 def _get_columns() -> list[dict]:
 	return apply_system_precision(
 		[
+			{
+				"label": _("Company"),
+				"fieldname": "company",
+				"fieldtype": "Link",
+				"options": "Company",
+				"width": 160,
+			},
+			{
+				"label": _("Branch"),
+				"fieldname": "branch",
+				"fieldtype": "Link",
+				"options": "Branch",
+				"width": 140,
+			},
 			{
 				"label": _("Item Code"),
 				"fieldname": "item_code",
@@ -92,29 +109,36 @@ def _get_columns() -> list[dict]:
 
 def _get_rows(filters: dict) -> list[dict]:
 	item_filter = filters.get("item_code")
-	item_codes = [item_filter] if item_filter else None
+	scope = PoolScope(
+		item_codes=[item_filter] if item_filter else None,
+		company=filters.get("company") or None,
+		branch=filters.get("branch") or None,
+	)
 	precision = get_system_float_precision()
-	pending_by_item = {
-		item_code: flt(qty, precision)
-		for item_code, qty in _get_pending_rework_by_item(item_codes=item_codes).items()
+	pending_by_key = {
+		key: flt(qty, precision)
+		for key, qty in _get_pending_rework_pool(scope).items()
 		if flt(qty, precision) > 0
 	}
-	if not pending_by_item:
+	if not pending_by_key:
 		return []
 
 	timeout_guard = new_interactive_report_timeout_guard(_("Pending Rework"))
-	contributions = _get_contributions(sorted(pending_by_item), timeout_guard=timeout_guard)
+	contributions = _get_contributions(
+		scope._replace(item_codes=sorted({key.item_code for key in pending_by_key})),
+		timeout_guard=timeout_guard,
+	)
 	contribution_pairs = {
 		(row.item_code, row.rejection_warehouse)
 		for row in contributions
 		if row.get("item_code") and row.get("rejection_warehouse")
 	}
 	balances = _get_bin_balances(contribution_pairs)
-	return _build_rows(pending_by_item, balances, contributions, precision)
+	return _build_rows(pending_by_key, balances, contributions, precision)
 
 
 def _get_contributions(
-	item_codes: list[str],
+	scope: PoolScope,
 	*,
 	chunk_size: int = _CONTRIBUTION_CHUNK_SIZE,
 	max_rows: int = _MAX_CONTRIBUTION_ROWS,
@@ -128,7 +152,7 @@ def _get_contributions(
 	while True:
 		guard()
 		chunk = _fetch_contribution_chunk(
-			item_codes,
+			scope,
 			last_breakup_name,
 			last_detail_name,
 			effective_chunk_size,
@@ -148,13 +172,14 @@ def _get_contributions(
 
 
 def _fetch_contribution_chunk(
-	item_codes: list[str],
+	scope: PoolScope,
 	last_breakup_name: str | None,
 	last_detail_name: str | None,
 	chunk_size: int,
 ) -> list[frappe._dict]:
-	query, StockEntry, RejectionDetail, RejectionBreakup = _build_rework_produced_query(item_codes=item_codes)
+	query, StockEntry, RejectionDetail, RejectionBreakup = _build_rework_produced_query(scope)
 	query = query.select(
+		*_pool_key_columns(StockEntry),
 		RejectionBreakup.name.as_("breakup_name"),
 		RejectionDetail.name.as_("detail_name"),
 		StockEntry.name.as_("source_entry"),
@@ -177,13 +202,13 @@ def _get_bin_balances(
 	item_warehouse_pairs: set[tuple[str, str]],
 	*,
 	chunk_size: int = _BIN_ITEM_CHUNK_SIZE,
-) -> dict[str, float]:
+) -> dict[tuple[str, str], float]:
 	if not item_warehouse_pairs:
 		return {}
 	pairs = set(item_warehouse_pairs)
 	item_codes = sorted({item_code for item_code, _warehouse in pairs})
 	effective_chunk_size = max(int(chunk_size or _BIN_ITEM_CHUNK_SIZE), 1)
-	balances: defaultdict[str, float] = defaultdict(float)
+	balances: dict[tuple[str, str], float] = {}
 	for offset in range(0, len(item_codes), effective_chunk_size):
 		item_chunk = item_codes[offset : offset + effective_chunk_size]
 		warehouses = sorted(
@@ -197,37 +222,42 @@ def _get_bin_balances(
 		):
 			pair = (row.get("item_code"), row.get("warehouse"))
 			if pair in pairs:
-				balances[pair[0]] += flt(row.get("actual_qty"))
-	return dict(balances)
+				balances[pair] = flt(row.get("actual_qty"))
+	return balances
 
 
 def _build_rows(
-	pending_by_item: dict[str, float],
-	balances: dict[str, float],
+	pending_by_key: dict[PoolKey, float],
+	balances: dict[tuple[str, str], float],
 	contributions: list[frappe._dict],
 	precision: int,
 ) -> list[dict]:
-	details_by_item: defaultdict[str, dict[tuple[str, str, str], float]] = defaultdict(
+	details_by_key: defaultdict[PoolKey, dict[tuple[str, str, str], float]] = defaultdict(
 		lambda: defaultdict(float)
 	)
 	for row in contributions:
+		pool_key = PoolKey(row.get("company") or "", row.get("branch") or "", row.item_code)
 		key = (
 			row.get("source_entry") or "",
 			row.get("rejection_reason") or "",
 			row.get("rejection_warehouse") or "",
 		)
-		details_by_item[row.item_code][key] += flt(row.get("flagged_rework_qty"))
+		details_by_key[pool_key][key] += flt(row.get("flagged_rework_qty"))
 
 	rows: list[dict] = []
-	for item_code in sorted(pending_by_item):
-		details = details_by_item.get(item_code, {})
+	for pool_key in sorted(pending_by_key):
+		details = details_by_key.get(pool_key, {})
+		bucket = pool_key._asdict()
 		flagged_qty = flt(sum(details.values()), precision)
-		pending_qty = flt(pending_by_item[item_code], precision)
-		warehouse_balance = flt(balances.get(item_code), precision)
+		pending_qty = flt(pending_by_key[pool_key], precision)
+		warehouses = {warehouse for _source, _reason, warehouse in details if warehouse}
+		warehouse_balance = flt(
+			sum(flt(balances.get((pool_key.item_code, warehouse))) for warehouse in warehouses), precision
+		)
 		source_entries = {source_entry for source_entry, _reason, _warehouse in details if source_entry}
 		rows.append(
 			{
-				"item_code": item_code,
+				**bucket,
 				"flagged_rework_qty": flagged_qty,
 				"derived_pending_qty": pending_qty,
 				"rejection_warehouse_balance": warehouse_balance,
@@ -239,7 +269,7 @@ def _build_rows(
 		for (source_entry, reason, warehouse), qty in sorted(details.items()):
 			rows.append(
 				{
-					"item_code": item_code,
+					**bucket,
 					"rejection_reason": reason,
 					"flagged_rework_qty": flt(qty, precision),
 					"source_entry": source_entry,

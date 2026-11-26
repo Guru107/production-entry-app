@@ -11,6 +11,7 @@ from production_entry_app.production_entry_app.overrides.stock_entry_hooks impor
 	before_validate_stock_entry,
 	validate_stock_entry,
 )
+from production_entry_app.production_entry_app.utils.stock_entry_branch import stock_entry_has_branch_field
 from production_entry_app.production_entry_app.utils.system_precision import override_system_precision
 from production_entry_app.production_entry_app.utils.test_bootstrap import (
 	ensure_branch,
@@ -353,6 +354,8 @@ class TestReworkAdditionalCosts(FrappeTestCase):
 			stock_entry_type=None,
 			breakups=[(None, None, 10)],
 			rejection_items=[item_code],
+			company=self.company,
+			branch=branch if stock_entry_has_branch_field() else None,
 		)
 		doc = self._make_rework_entry()
 		doc.set_posting_time = 1

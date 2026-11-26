@@ -6,7 +6,7 @@ from typing import Any, NamedTuple
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.query_builder.functions import Count, Min, Sum
+from frappe.query_builder.functions import Coalesce, Count, Min, Sum
 from frappe.utils import flt
 
 from production_entry_app.production_entry_app.utils.production_warehouses import (
@@ -14,6 +14,7 @@ from production_entry_app.production_entry_app.utils.production_warehouses impor
 	get_configured_scrap_warehouses,
 )
 from production_entry_app.production_entry_app.utils.rejection_warehouse import get_rejected_warehouses
+from production_entry_app.production_entry_app.utils.stock_entry_branch import stock_entry_has_branch_field
 from production_entry_app.production_entry_app.utils.stock_entry_type_flags import (
 	is_rework_stock_entry_type,
 )
@@ -28,15 +29,34 @@ class _ReworkRoute(NamedTuple):
 	target: str | None
 
 
+class PoolKey(NamedTuple):
+	company: str
+	branch: str
+	item_code: str
+
+
+class PoolScope(NamedTuple):
+	"""Pool filters; a None company or branch means any, a blank branch is its own bucket."""
+
+	item_codes: list[str] | None = None
+	company: str | None = None
+	branch: str | None = None
+	exclude_stock_entry: str | None = None
+
+
 @frappe.whitelist(methods=["GET"])
-def get_pending_rework(item_code: str | None = None) -> list[dict[str, Any]]:
-	"""Return the submitted, derived rework pool, optionally for one item."""
+def get_pending_rework(
+	item_code: str | None = None, company: str | None = None, branch: str | None = None
+) -> list[dict[str, Any]]:
+	"""Return the submitted, derived rework pool of one Company and Branch, optionally for one item."""
 	if not frappe.has_permission("Stock Entry", "read"):
 		frappe.throw(_("You do not have permission to perform this action."), frappe.PermissionError)
+	if not company:
+		frappe.throw(_("Company is required to read the Pending Rework Pool."))
 
 	item_codes = [item_code] if item_code else None
 	precision = get_system_float_precision()
-	pending_by_item = _get_pending_rework_by_item(item_codes=item_codes)
+	pending_by_item = _get_pending_rework_by_item(item_codes=item_codes, company=company, branch=branch)
 	return [
 		{"item_code": code, "pending_qty": flt(pending_by_item[code], precision)}
 		for code in sorted(pending_by_item)
@@ -71,6 +91,8 @@ def validate_rework_submission(doc: Document) -> None:
 	_lock_items_for_rework_submission(item_codes)
 	pending_by_item = _get_pending_rework_by_item(
 		item_codes=item_codes,
+		company=doc.get("company"),
+		branch=doc.get("branch"),
 		exclude_stock_entry=doc.get("name"),
 		lock_rows=True,
 	)
@@ -81,12 +103,25 @@ def validate_rework_submission(doc: Document) -> None:
 		if requested_qty <= available_qty:
 			continue
 		frappe.throw(
-			_("Cannot submit rework for item {0}: requested {1}. Available quantity is {2}.").format(
+			_("Cannot submit rework for item {0}: requested {1}. Available quantity is {2} in {3}.").format(
 				frappe.bold(frappe.utils.escape_html(item_code)),
 				requested_qty,
 				available_qty,
+				_describe_pool_bucket(doc.get("company"), doc.get("branch")),
 			)
 		)
+
+
+def _describe_pool_bucket(company: str | None, branch: str | None) -> str:
+	"""Name the bucket a rework entry was checked against, with a hint for a blank branch."""
+	label = _("Company {0}").format(frappe.bold(frappe.utils.escape_html(company or "")))
+	if not stock_entry_has_branch_field():
+		return label
+	if branch:
+		return _("{0}, Branch {1}").format(label, frappe.bold(frappe.utils.escape_html(branch)))
+	return _(
+		"{0}, no Branch. Pending rework may exist under a Branch: set Branch on this entry and retry"
+	).format(label)
 
 
 def apply_rework_source_warehouse(doc: Document) -> None:
@@ -182,40 +217,59 @@ def _lock_items_for_rework_submission(item_codes: list[str]) -> None:
 
 def _get_pending_rework_by_item(
 	*,
+	company: str | None,
+	branch: str | None,
 	item_codes: list[str] | None = None,
 	exclude_stock_entry: str | None = None,
 	lock_rows: bool = False,
 ) -> dict[str, float]:
-	produced = _get_rework_produced(item_codes, exclude_stock_entry, lock_rows)
-	consumed = _get_rework_consumed(item_codes, exclude_stock_entry, lock_rows)
-	pending_by_item = {row.item_code: flt(row.qty) for row in produced}
-	for row in consumed:
-		pending_by_item[row.item_code] = flt(pending_by_item.get(row.item_code)) - flt(row.qty)
-	return {item_code: max(flt(qty), 0.0) for item_code, qty in pending_by_item.items()}
+	"""Return the pool of one Company and Branch bucket per item."""
+	scope = PoolScope(item_codes, company or "", branch or "", exclude_stock_entry)
+	return {key.item_code: qty for key, qty in _get_pending_rework_pool(scope, lock_rows=lock_rows).items()}
 
 
-def _get_rework_produced(
-	item_codes: list[str] | None,
-	exclude_stock_entry: str | None,
-	lock_rows: bool,
-) -> list[frappe._dict]:
-	query, _stock_entry, RejectionDetail, RejectionBreakup = _build_rework_produced_query(
-		item_codes=item_codes,
-		exclude_stock_entry=exclude_stock_entry,
-	)
-	query = query.select(RejectionDetail.item_code, Sum(RejectionBreakup.qty).as_("qty")).groupby(
-		RejectionDetail.item_code
-	)
+def _get_pending_rework_pool(scope: PoolScope, *, lock_rows: bool = False) -> dict[PoolKey, float]:
+	"""Return the pool keyed by (company, branch, item)."""
+	pending: dict[PoolKey, float] = {}
+	for sign, rows in (
+		(1, _get_rework_produced(scope, lock_rows)),
+		(-1, _get_rework_consumed(scope, lock_rows)),
+	):
+		for row in rows:
+			# NULL and blank branches group apart in SQL but share one bucket.
+			key = PoolKey(row.company or "", row.get("branch") or "", row.item_code)
+			pending[key] = flt(pending.get(key)) + sign * flt(row.qty)
+	return {key: max(flt(qty), 0.0) for key, qty in pending.items()}
+
+
+def _pool_key_columns(StockEntry: Any) -> list[Any]:
+	if stock_entry_has_branch_field():
+		return [StockEntry.company, StockEntry.branch]
+	return [StockEntry.company]
+
+
+def _apply_pool_scope(query: Any, StockEntry: Any, scope: PoolScope) -> Any:
+	if scope.company is not None:
+		query = query.where(StockEntry.company == scope.company)
+	# Stock Entry.branch is host-owned; without it the pool is per company only.
+	if scope.branch is not None and stock_entry_has_branch_field():
+		query = query.where(Coalesce(StockEntry.branch, "") == scope.branch)
+	if scope.exclude_stock_entry:
+		query = query.where(StockEntry.name != scope.exclude_stock_entry)
+	return query
+
+
+def _get_rework_produced(scope: PoolScope, lock_rows: bool) -> list[frappe._dict]:
+	query, StockEntry, RejectionDetail, RejectionBreakup = _build_rework_produced_query(scope)
+	key_columns = _pool_key_columns(StockEntry)
+	query = query.select(*key_columns, RejectionDetail.item_code, Sum(RejectionBreakup.qty).as_("qty"))
+	query = query.groupby(*key_columns, RejectionDetail.item_code)
 	if lock_rows:
 		query = query.for_update()
 	return query.run(as_dict=True)
 
 
-def _build_rework_produced_query(
-	*,
-	item_codes: list[str] | None = None,
-	exclude_stock_entry: str | None = None,
-) -> tuple[Any, Any, Any, Any]:
+def _build_rework_produced_query(scope: PoolScope) -> tuple[Any, Any, Any, Any]:
 	"""Build the submitted rework-flagged source scope shared by pool consumers."""
 	StockEntry = frappe.qb.DocType("Stock Entry")
 	StockEntryDetail = frappe.qb.DocType("Stock Entry Detail")
@@ -254,36 +308,30 @@ def _build_rework_produced_query(
 		.where(StockEntry.docstatus == 1)
 		.where(RejectionBreakup.is_rework == 1)
 	)
-	if item_codes is not None:
-		query = query.where(RejectionDetail.item_code.isin(item_codes))
-	if exclude_stock_entry:
-		query = query.where(StockEntry.name != exclude_stock_entry)
-	return query, StockEntry, RejectionDetail, RejectionBreakup
+	if scope.item_codes is not None:
+		query = query.where(RejectionDetail.item_code.isin(scope.item_codes))
+	return _apply_pool_scope(query, StockEntry, scope), StockEntry, RejectionDetail, RejectionBreakup
 
 
-def _get_rework_consumed(
-	item_codes: list[str] | None,
-	exclude_stock_entry: str | None,
-	lock_rows: bool,
-) -> list[frappe._dict]:
+def _get_rework_consumed(scope: PoolScope, lock_rows: bool) -> list[frappe._dict]:
 	StockEntry = frappe.qb.DocType("Stock Entry")
 	StockEntryDetail = frappe.qb.DocType("Stock Entry Detail")
 	StockEntryType = frappe.qb.DocType("Stock Entry Type")
+	key_columns = _pool_key_columns(StockEntry)
 	query = (
 		frappe.qb.from_(StockEntryDetail)
 		.join(StockEntry)
 		.on((StockEntryDetail.parent == StockEntry.name) & (StockEntryDetail.parenttype == "Stock Entry"))
 		.join(StockEntryType)
 		.on(StockEntry.stock_entry_type == StockEntryType.name)
-		.select(StockEntryDetail.item_code, Sum(StockEntryDetail.transfer_qty).as_("qty"))
+		.select(*key_columns, StockEntryDetail.item_code, Sum(StockEntryDetail.transfer_qty).as_("qty"))
 		.where(StockEntry.docstatus == 1)
 		.where(StockEntryType.custom_pea_rework_entry == 1)
-		.groupby(StockEntryDetail.item_code)
+		.groupby(*key_columns, StockEntryDetail.item_code)
 	)
-	if item_codes is not None:
-		query = query.where(StockEntryDetail.item_code.isin(item_codes))
-	if exclude_stock_entry:
-		query = query.where(StockEntry.name != exclude_stock_entry)
+	if scope.item_codes is not None:
+		query = query.where(StockEntryDetail.item_code.isin(scope.item_codes))
+	query = _apply_pool_scope(query, StockEntry, scope)
 	if lock_rows:
 		query = query.for_update()
 	return query.run(as_dict=True)
