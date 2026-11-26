@@ -80,8 +80,13 @@ class TestReportUtilsPerformance(FrappeTestCase):
 			"posting_date": [">=", "2026-01-01"],
 		}
 
+		query_runs: list[int] = []
+
 		class _Query:
 			def inner_join(self, *_args: Any, **_kwargs: Any) -> _Query:
+				return self
+
+			def left_join(self, *_args: Any, **_kwargs: Any) -> _Query:
 				return self
 
 			def on(self, *_args: Any, **_kwargs: Any) -> _Query:
@@ -100,16 +105,15 @@ class TestReportUtilsPerformance(FrappeTestCase):
 				return self
 
 			def run(self, **_kwargs: Any) -> list[dict[str, str]]:
-				return [{"parent": "STE-JOINT-DETAIL"}]
+				query_runs.append(1)
+				# The first query is the Stock Entry header match; the rest are child-row matches.
+				return [{"name": "STE-JOINT-1"}] if len(query_runs) == 1 else [{"parent": "STE-JOINT-DETAIL"}]
 
 		with (
 			patch.object(
 				report_utils,
 				"get_report_rows",
-				side_effect=[
-					[{"name": "STE-JOINT-1"}],
-					[{"name": "STE-JOINT-1"}, {"name": "STE-JOINT-DETAIL"}],
-				],
+				return_value=[{"name": "STE-JOINT-1"}, {"name": "STE-JOINT-DETAIL"}],
 			) as rows,
 			patch(
 				"production_entry_app.production_entry_app.report.report_utils.frappe.qb.from_",
@@ -121,18 +125,8 @@ class TestReportUtilsPerformance(FrappeTestCase):
 				["STE-JOINT-1", "STE-JOINT-DETAIL"],
 			)
 
-		self.assertEqual(rows.call_count, 2)
-		rows.assert_any_call(
-			"Stock Entry",
-			filters=scope,
-			or_filters=[
-				["bom_no", "=", "BOM-LH-1"],
-				["custom_pea_lh_bom", "=", "BOM-LH-1"],
-				["custom_pea_rh_bom", "=", "BOM-LH-1"],
-			],
-			fields=["name"],
-			limit_page_length=report_utils._MAX_BOM_PARENT_MATCHES + 1,
-		)
+		# Type-aware header matching runs in qb; the matches still pass the report permission boundary.
+		self.assertEqual(rows.call_count, 1)
 		rows.assert_any_call(
 			"Stock Entry",
 			filters={**scope, "name": ["in", ["STE-JOINT-1", "STE-JOINT-DETAIL"]]},

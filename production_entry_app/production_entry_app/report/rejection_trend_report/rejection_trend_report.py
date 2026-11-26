@@ -13,6 +13,7 @@ from production_entry_app.production_entry_app.report.report_utils import (
 	get_parent_quantity_metrics,
 	iter_stock_entries_in_chunks,
 	safe_ratio,
+	select_filtered_output_lines,
 )
 
 _TIME_GRAINS: frozenset[str] = frozenset({"Daily", "Weekly", "Monthly"})
@@ -91,6 +92,7 @@ def _get_rows(filters: dict) -> list[dict]:
 		["name", "posting_date", "fg_completed_qty", "custom_pea_rejection_qty"],
 		order_by="posting_date asc, name asc",
 	):
+		entries, line_totals = select_filtered_output_lines(entries, filters, is_rework=False)
 		has_entries = True
 		entry_names = [entry.get("name") for entry in entries if entry.get("name")]
 		parent_quantity_metrics = get_parent_quantity_metrics(entry_names)
@@ -106,6 +108,8 @@ def _get_rows(filters: dict) -> list[dict]:
 				total_qty = flt(entry_metrics.get("good_qty") or 0) + flt(
 					entry_metrics.get("total_rejected_qty") or 0
 				)
+			if line := line_totals.get(entry_name):
+				total_qty, rejection_qty = line["total_qty"], line["quality_qty"]
 			key_date, period_label = _period_key(production_date, time_grain)
 			aggregate = aggregates.setdefault(
 				key_date,
