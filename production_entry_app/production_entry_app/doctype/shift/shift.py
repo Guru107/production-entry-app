@@ -1478,7 +1478,8 @@ class Shift(Document):
 		if getdate(self.shift_date) > latest:
 			frappe.throw(
 				_("Shift Date {0} is too far ahead. The latest allowed Shift Date is {1}.").format(
-					frappe.bold(formatdate(self.shift_date)), frappe.bold(formatdate(latest))
+					frappe.bold(frappe.utils.escape_html(formatdate(self.shift_date))),
+					frappe.bold(frappe.utils.escape_html(formatdate(latest))),
 				)
 			)
 
