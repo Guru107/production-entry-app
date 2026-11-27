@@ -15,12 +15,6 @@ frappe.ui.form.on("Shift", {
 		_set_warehouse_queries(frm);
 		_set_department_query(frm);
 	},
-	onload(frm) {
-		_remember_saved_shift_date(frm);
-	},
-	after_save(frm) {
-		_remember_saved_shift_date(frm);
-	},
 	before_save(frm) {
 		return _confirm_shift_for_tomorrow(frm);
 	},
@@ -41,6 +35,7 @@ frappe.ui.form.on("Shift", {
 		_populate_default_breaks_if_draft(frm);
 	},
 	refresh(frm) {
+		_remember_saved_shift_date(frm);
 		_prepare_shift_form(frm);
 		_add_status_action_buttons(frm);
 		_add_create_buttons(frm);
@@ -63,7 +58,12 @@ function _prepare_shift_form(frm) {
 
 function _tomorrow() {
 	// The server allows a Shift Date up to tomorrow (MAX_SHIFT_DATE_DAYS_AHEAD in shift.py).
-	return frappe.datetime.add_days(frappe.datetime.get_today(), 1);
+	return frappe.datetime.add_days(_today(), 1);
+}
+
+function _today() {
+	// Site (system) time zone, like frappe.utils.today() on the server; get_today() uses the user's zone.
+	return frappe.datetime.system_datetime().slice(0, 10);
 }
 
 function _limit_shift_date_picker(frm) {
@@ -73,19 +73,24 @@ function _limit_shift_date_picker(frm) {
 }
 
 function _remember_saved_shift_date(frm) {
-	frm.__pea_saved_shift_date = frm.is_new() ? null : frm.doc.shift_date;
+	// The form object is shared by every Shift, so the marker is tagged with its docname.
+	if (!frm.is_dirty()) {
+		frm.__pea_saved_shift = { name: frm.doc.name, date: frm.doc.shift_date };
+	}
 }
 
 function _confirm_shift_for_tomorrow(frm) {
 	const tomorrow = _tomorrow();
-	if (frm.doc.shift_date !== tomorrow || frm.doc.shift_date === frm.__pea_saved_shift_date) {
+	const saved = frm.__pea_saved_shift;
+	const saved_date = !frm.is_new() && saved?.name === frm.doc.name ? saved.date : null;
+	if (frm.doc.shift_date !== tomorrow || frm.doc.shift_date === saved_date) {
 		return;
 	}
 	return new Promise((resolve) => {
 		frappe.confirm(
 			__("Are you sure you want to create a shift for {0}? Today's date is {1}.", [
 				frappe.datetime.str_to_user(tomorrow),
-				frappe.datetime.str_to_user(frappe.datetime.get_today()),
+				frappe.datetime.str_to_user(_today()),
 			]),
 			resolve,
 			() => {
