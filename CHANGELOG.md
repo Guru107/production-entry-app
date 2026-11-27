@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+-   A Shift can be dated at most tomorrow: the Shift Date picker disables later dates, saving a new Shift (or a Draft whose date changed) dated tomorrow asks to confirm, and the server rejects a new or changed Shift Date after tomorrow. Shifts whose date is unchanged still save (#309)
+
 ## [1.7.0] - 2026-11-26
 
 ### Changed

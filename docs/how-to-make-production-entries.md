@@ -36,7 +36,7 @@ The Shift is the anchor for all production reporting. Entries linked to a Shift 
 2. On the **Overview** tab fill:
    - **Shift Label** (1 or 2)
    - **Shift Duration (Hours)** (8 / 10 / 12 / 14 / 16)
-   - **Shift Date** (a *Today* shortcut is available)
+   - **Shift Date** (a *Today* shortcut is available). It can be at most tomorrow; saving a shift dated tomorrow asks you to confirm.
    - **Planned Start Time** — type HH:MM (e.g. 0630) or click a preset chip (06:00, 08:00, 14:00, …) or **Now**
    - **Department** and **Branch** (Company appears when you have more than one)
    - Shift End Date and Planned End Time compute automatically.

@@ -341,6 +341,159 @@ test.describe("Shift validations", () => {
 		expect(shift.shift_date).toBe(ctx.shift_date);
 	});
 
+	test("@regression shift date picker stops at tomorrow and a shift for tomorrow asks to confirm", async ({
+		page,
+	}) => {
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const seededShift = await getDoc(page, "Shift", ctx.shift_name);
+		const shiftPage = new ShiftPage(page);
+		await shiftPage.openNew();
+		const tomorrow = await page.evaluate(() =>
+			frappe.datetime.add_days(frappe.datetime.get_today(), 1)
+		);
+		const scope = {
+			shiftDate: tomorrow,
+			company: seededShift.company,
+			department: seededShift.department,
+			branch: seededShift.branch,
+		};
+		await deleteShiftsForDate(page, scope);
+
+		try {
+			const maxDate = await page.evaluate(() =>
+				frappe.datetime.obj_to_str(cur_frm.fields_dict.shift_date.datepicker.opts.maxDate)
+			);
+			expect(maxDate).toBe(tomorrow);
+
+			await shiftPage.setDraftFields({
+				department: seededShift.department,
+				branch: seededShift.branch,
+				date: tomorrow,
+				label: "1",
+				startTime: "10:00:00",
+			});
+			const confirmDialog = page.locator(".modal:visible").filter({
+				has: page.locator(".frappe-confirm-message"),
+			});
+
+			await shiftPage.attemptSaveDraft();
+			await expect(confirmDialog).toContainText(
+				"Are you sure you want to create a shift for"
+			);
+			await confirmDialog.getByRole("button", { name: "No" }).click();
+			await expect(confirmDialog).toBeHidden();
+			expect(await page.evaluate(() => cur_frm.is_new())).toBeTruthy();
+
+			await shiftPage.attemptSaveDraft();
+			await confirmDialog.getByRole("button", { name: "Yes" }).click();
+			await page.waitForFunction(() => window.cur_frm && !window.cur_frm.is_new());
+			const savedName = await page.evaluate(() => cur_frm.doc.name);
+			expect(savedName.startsWith(`SHIFT-${tomorrow}.1.`)).toBeTruthy();
+
+			// A later save of the same date does not ask again.
+			await shiftPage.setDraftFields({ startTime: "11:00:00" });
+			await shiftPage.saveDraft();
+			await expect(confirmDialog).toHaveCount(0);
+		} finally {
+			await deleteShiftsForDate(page, scope);
+		}
+	});
+
+	test("@regression shift date confirmation follows the opened shift, not the last one opened", async ({
+		page,
+	}) => {
+		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
+		const seededShift = await getDoc(page, "Shift", ctx.shift_name);
+		const shiftPage = new ShiftPage(page);
+		await shiftPage.openNew();
+		const { today, tomorrow } = await page.evaluate(() => {
+			const tomorrow = frappe.datetime.add_days(
+				frappe.datetime.system_datetime().slice(0, 10),
+				1
+			);
+			return { today: frappe.datetime.system_datetime().slice(0, 10), tomorrow };
+		});
+		const scope = {
+			company: seededShift.company,
+			department: seededShift.department,
+			branch: seededShift.branch,
+		};
+		const dates = [today, tomorrow];
+		for (const shiftDate of dates) {
+			await deleteShiftsForDate(page, { ...scope, shiftDate });
+		}
+		const openInSession = async (name) => {
+			await page.evaluate((docname) => frappe.set_route("Form", "Shift", docname), name);
+			await page.waitForFunction(
+				(docname) => window.cur_frm?.doc?.name === docname && !window.cur_frm.is_dirty(),
+				name
+			);
+		};
+		const confirmDialog = page.locator(".modal:visible").filter({
+			has: page.locator(".frappe-confirm-message"),
+		});
+
+		try {
+			const todayShift = await shiftPage.createDraftViaApi({
+				...scope,
+				date: today,
+				label: "1",
+				startTime: "06:00:00",
+			});
+			const tomorrowShift = await shiftPage.createDraftViaApi({
+				...scope,
+				date: tomorrow,
+				label: "2",
+				startTime: "14:00:00",
+			});
+
+			await openInSession(todayShift.name);
+			await openInSession(tomorrowShift.name);
+			await openInSession(todayShift.name);
+			await shiftPage.setDraftFields({ date: tomorrow });
+			await shiftPage.attemptSaveDraft();
+			await expect(confirmDialog).toContainText(
+				"Are you sure you want to create a shift for"
+			);
+			await confirmDialog.getByRole("button", { name: "No" }).click();
+			await expect(confirmDialog).toBeHidden();
+			await page.evaluate(() => cur_frm.reload_doc());
+			await page.waitForFunction(() => !window.cur_frm.is_dirty());
+
+			await openInSession(tomorrowShift.name);
+			await openInSession(todayShift.name);
+			await openInSession(tomorrowShift.name);
+			await shiftPage.setDraftFields({ startTime: "15:00:00" });
+			await shiftPage.saveDraft();
+			await expect(confirmDialog).toHaveCount(0);
+
+			// Leave the tomorrow shift dirty, open another shift, then come back and save.
+			await shiftPage.setDraftFields({ startTime: "16:00:00" });
+			await page.evaluate(
+				(docname) => frappe.set_route("Form", "Shift", docname),
+				todayShift.name
+			);
+			await page.waitForFunction(
+				(docname) => window.cur_frm?.doc?.name === docname && !window.cur_frm.is_dirty(),
+				todayShift.name
+			);
+			await page.evaluate(
+				(docname) => frappe.set_route("Form", "Shift", docname),
+				tomorrowShift.name
+			);
+			await page.waitForFunction(
+				(docname) => window.cur_frm?.doc?.name === docname && window.cur_frm.is_dirty(),
+				tomorrowShift.name
+			);
+			await shiftPage.saveDraft();
+			await expect(confirmDialog).toHaveCount(0);
+		} finally {
+			for (const shiftDate of dates) {
+				await deleteShiftsForDate(page, { ...scope, shiftDate });
+			}
+		}
+	});
+
 	test("@regression completed shift can be cancelled from the form", async ({ page }) => {
 		const ctx = await bootstrapE2E(page, lifecycle.getPrefix());
 		const shiftPage = new ShiftPage(page);
