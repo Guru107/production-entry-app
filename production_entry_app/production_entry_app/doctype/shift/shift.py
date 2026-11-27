@@ -1402,7 +1402,7 @@ class Shift(Document):
 			self.naming_series = "SHIFT-"
 
 		if not self.shift_date:
-			self.shift_date = frappe.utils.today()
+			self.shift_date = today()
 
 		if not self.planned_start_time:
 			self.planned_start_time = frappe.utils.nowtime()
@@ -1474,8 +1474,8 @@ class Shift(Document):
 			return
 		if frappe_in_test() or frappe.conf.get("allow_e2e_tests"):
 			return
-		latest = add_days(today(), MAX_SHIFT_DATE_DAYS_AHEAD)
-		if getdate(self.shift_date) > getdate(latest):
+		latest = getdate(add_days(today(), MAX_SHIFT_DATE_DAYS_AHEAD))
+		if getdate(self.shift_date) > latest:
 			frappe.throw(
 				_("Shift Date {0} is too far ahead. The latest allowed Shift Date is {1}.").format(
 					frappe.bold(formatdate(self.shift_date)), frappe.bold(formatdate(latest))
