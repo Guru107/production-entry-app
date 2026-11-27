@@ -921,6 +921,23 @@ class TestShift(FrappeTestCase):
 		self.assertEqual(doc.supervisor, frappe.session.user)
 		self.assertEqual(doc.company, frappe.db.get_single_value("Global Defaults", "default_company"))
 
+	def test_insert_rejects_shift_date_after_tomorrow(self) -> None:
+		doc = frappe.get_doc(
+			{
+				"doctype": "Shift",
+				"department": self._test_department,
+				"shift_label": "1",
+				"shift_duration": "8",
+				"shift_date": frappe.utils.add_days(frappe.utils.today(), 2),
+			}
+		)
+		with (
+			patch.object(shift_module, "frappe_in_test", return_value=False),
+			patch.dict(frappe.conf, {"allow_e2e_tests": 0}),
+			self.assertRaisesRegex(ValidationError, "too far ahead"),
+		):
+			doc.insert()
+
 	def test_department_sanitized_in_name(self) -> None:
 		"""Shift autoname uses the next date sequence."""
 		name = self._expected_name(self._test_department, "2026-05-20", "1")
