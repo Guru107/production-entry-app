@@ -15,6 +15,15 @@ frappe.ui.form.on("Shift", {
 		_set_warehouse_queries(frm);
 		_set_department_query(frm);
 	},
+	onload(frm) {
+		_remember_saved_shift_date(frm);
+	},
+	after_save(frm) {
+		_remember_saved_shift_date(frm);
+	},
+	before_save(frm) {
+		return _confirm_shift_for_tomorrow(frm);
+	},
 	company(frm) {
 		_set_warehouse_queries(frm);
 		_set_department_query(frm);
@@ -45,10 +54,46 @@ function _prepare_shift_form(frm) {
 	["shift_date", "shift_label"].forEach((fieldname) => {
 		frm.set_df_property(fieldname, "read_only", _is_draft_or_new(frm) ? 0 : 1);
 	});
+	_limit_shift_date_picker(frm);
 	_set_warehouse_field_editability(frm);
 	_toggle_company_field_visibility(frm);
 	_set_warehouse_queries(frm);
 	_set_department_query(frm);
+}
+
+function _tomorrow() {
+	// The server allows a Shift Date up to tomorrow (MAX_SHIFT_DATE_DAYS_AHEAD in shift.py).
+	return frappe.datetime.add_days(frappe.datetime.get_today(), 1);
+}
+
+function _limit_shift_date_picker(frm) {
+	const field = frm.fields_dict.shift_date;
+	field.df.max_date = frappe.datetime.str_to_obj(_tomorrow());
+	field.datepicker?.update({ maxDate: field.df.max_date });
+}
+
+function _remember_saved_shift_date(frm) {
+	frm.__pea_saved_shift_date = frm.is_new() ? null : frm.doc.shift_date;
+}
+
+function _confirm_shift_for_tomorrow(frm) {
+	const tomorrow = _tomorrow();
+	if (frm.doc.shift_date !== tomorrow || frm.doc.shift_date === frm.__pea_saved_shift_date) {
+		return;
+	}
+	return new Promise((resolve) => {
+		frappe.confirm(
+			__("Are you sure you want to create a shift for {0}? Today's date is {1}.", [
+				frappe.datetime.str_to_user(tomorrow),
+				frappe.datetime.str_to_user(frappe.datetime.get_today()),
+			]),
+			resolve,
+			() => {
+				frappe.validated = false;
+				resolve();
+			}
+		);
+	});
 }
 
 function _add_status_action_buttons(frm) {

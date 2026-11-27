@@ -4215,3 +4215,36 @@ class TestShiftPermissions(FrappeTestCase):
 	def _delete_shift_if_exists(self, name: str) -> None:
 		if frappe.db.exists("Shift", name):
 			frappe.delete_doc("Shift", name, force=True, ignore_permissions=True)
+
+
+class TestShiftDateLimit(FrappeTestCase):
+	"""Shift Date may be at most tomorrow; test and E2E sites are exempt (their data is dated 2090+)."""
+
+	def _check(self, shift_date: str, *, before: str | None = None, e2e: bool = False) -> None:
+		doc = frappe.new_doc("Shift")
+		doc.shift_date = shift_date
+		if before:
+			doc._doc_before_save = frappe._dict({"shift_date": before})
+		with ExitStack() as stack:
+			stack.enter_context(patch.object(shift_module, "today", return_value="2026-11-27"))
+			stack.enter_context(patch.object(shift_module, "frappe_in_test", return_value=False))
+			stack.enter_context(patch.dict(frappe.conf, {"allow_e2e_tests": 1 if e2e else 0}))
+			doc._validate_shift_date_not_beyond_tomorrow()
+
+	def test_shift_date_limit_allows_today_tomorrow_and_past(self) -> None:
+		for shift_date in ("2026-11-27", "2026-11-28", "2026-10-01"):
+			self._check(shift_date)
+
+	def test_shift_date_limit_rejects_day_after_tomorrow(self) -> None:
+		with self.assertRaisesRegex(ValidationError, frappe.utils.formatdate("2026-11-28")):
+			self._check("2026-11-29")
+
+	def test_shift_date_limit_rejects_draft_date_changed_beyond_tomorrow(self) -> None:
+		with self.assertRaises(ValidationError):
+			self._check("2026-12-05", before="2026-11-27")
+
+	def test_shift_date_limit_ignores_unchanged_legacy_draft_date(self) -> None:
+		self._check("2026-12-05", before="2026-12-05")
+
+	def test_shift_date_limit_skipped_on_e2e_sites(self) -> None:
+		self._check("2099-01-08", e2e=True)

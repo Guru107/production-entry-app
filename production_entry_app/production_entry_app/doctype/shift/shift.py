@@ -10,8 +10,9 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.query_builder import DocType
 from frappe.query_builder.functions import Count, CustomFunction
-from frappe.utils import add_to_date, cint, flt, get_datetime, get_time
+from frappe.utils import add_days, add_to_date, cint, flt, formatdate, get_datetime, get_time, getdate, today
 
+from production_entry_app.production_entry_app.compat.utils import frappe_in_test
 from production_entry_app.production_entry_app.joint_production import JOINT_PRODUCTION_LINES_FIELD
 from production_entry_app.production_entry_app.report.report_utils import (
 	_materialize_joint_production_line_slot_fields,
@@ -48,6 +49,7 @@ SHIFT_SUMMARY_TARGET_COVERAGE_PCT_MIN: float = 60.0
 SHIFT_SUMMARY_COMPLETENESS_MIN_RECORDED_RATIO: float = 0.5
 SHIFT_SUMMARY_WORKSTATION_MIN_PRODUCTION_MINS: float = 15.0
 VALID_SHIFT_DURATIONS: frozenset[int] = frozenset({8, 10, 12, 14, 16})
+MAX_SHIFT_DATE_DAYS_AHEAD: int = 1
 RUNNING_SHIFT_USER_EDITABLE_FIELDS: frozenset[str] = frozenset(
 	{
 		"shift_duration",
@@ -1324,6 +1326,7 @@ class Shift(Document):
 		validate_warehouse_companies([self])
 		self._validate_status()
 		self._validate_field_locking()
+		self._validate_shift_date_not_beyond_tomorrow()
 		self._calculate_planned_end_time_and_dates()
 		self._set_shift_title()
 		# Generated rows may overlap by design; only hand edits are validated.
@@ -1463,6 +1466,21 @@ class Shift(Document):
 		# Prevent direct edits to status from form/API.
 		if self.has_value_changed("status") and not self.flags.get("allow_status_change"):
 			frappe.throw(_("Status is system-managed. Use Start Shift / End Shift actions."))
+
+	def _validate_shift_date_not_beyond_tomorrow(self) -> None:
+		# Only a new or edited date is checked, so legacy Drafts dated further ahead still save.
+		# Test and E2E data is dated 2090+ to stay clear of real shifts, so those sites skip the rule.
+		if not self.shift_date or not self.has_value_changed("shift_date"):
+			return
+		if frappe_in_test() or frappe.conf.get("allow_e2e_tests"):
+			return
+		latest = add_days(today(), MAX_SHIFT_DATE_DAYS_AHEAD)
+		if getdate(self.shift_date) > getdate(latest):
+			frappe.throw(
+				_("Shift Date {0} is too far ahead. The latest allowed Shift Date is {1}.").format(
+					frappe.bold(formatdate(self.shift_date)), frappe.bold(formatdate(latest))
+				)
+			)
 
 	def _validate_field_locking(self) -> None:
 		"""Enforce locking for active and closed shifts.
