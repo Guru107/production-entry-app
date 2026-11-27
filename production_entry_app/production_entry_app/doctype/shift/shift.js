@@ -73,16 +73,18 @@ function _limit_shift_date_picker(frm) {
 }
 
 function _remember_saved_shift_date(frm) {
-	// The form object is shared by every Shift, so the marker is tagged with its docname.
+	// The form object is shared by every Shift, so saved dates are kept per docname.
 	if (!frm.is_dirty()) {
-		frm.__pea_saved_shift = { name: frm.doc.name, date: frm.doc.shift_date };
+		frm.__pea_saved_shift_dates = {
+			...frm.__pea_saved_shift_dates,
+			[frm.doc.name]: frm.doc.shift_date,
+		};
 	}
 }
 
 function _confirm_shift_for_tomorrow(frm) {
 	const tomorrow = _tomorrow();
-	const saved = frm.__pea_saved_shift;
-	const saved_date = !frm.is_new() && saved?.name === frm.doc.name ? saved.date : null;
+	const saved_date = frm.is_new() ? null : frm.__pea_saved_shift_dates?.[frm.doc.name];
 	if (frm.doc.shift_date !== tomorrow || frm.doc.shift_date === saved_date) {
 		return;
 	}

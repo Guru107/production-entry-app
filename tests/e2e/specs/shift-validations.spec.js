@@ -466,6 +466,27 @@ test.describe("Shift validations", () => {
 			await shiftPage.setDraftFields({ startTime: "15:00:00" });
 			await shiftPage.saveDraft();
 			await expect(confirmDialog).toHaveCount(0);
+
+			// Leave the tomorrow shift dirty, open another shift, then come back and save.
+			await shiftPage.setDraftFields({ startTime: "16:00:00" });
+			await page.evaluate(
+				(docname) => frappe.set_route("Form", "Shift", docname),
+				todayShift.name
+			);
+			await page.waitForFunction(
+				(docname) => window.cur_frm?.doc?.name === docname && !window.cur_frm.is_dirty(),
+				todayShift.name
+			);
+			await page.evaluate(
+				(docname) => frappe.set_route("Form", "Shift", docname),
+				tomorrowShift.name
+			);
+			await page.waitForFunction(
+				(docname) => window.cur_frm?.doc?.name === docname && window.cur_frm.is_dirty(),
+				tomorrowShift.name
+			);
+			await shiftPage.saveDraft();
+			await expect(confirmDialog).toHaveCount(0);
 		} finally {
 			for (const shiftDate of dates) {
 				await deleteShiftsForDate(page, { ...scope, shiftDate });
